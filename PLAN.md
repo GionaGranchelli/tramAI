@@ -66,8 +66,8 @@ Phase 4 — Growth           M9+        Post-launch       Community, v2 features
 
 **Deliverables:**
 - `aurora-ollama` module: HTTP client via `ktor-client`, coroutine-native, `/api/chat` endpoint
-- `aurora-anthropic` module: Anthropic Messages API, `claude-*` model prefix auto-routing
-- Provider registry: prefix-based resolution (`claude-*` → Anthropic, model-agnostic → Ollama fallback)
+- `aurora-anthropic` module: Anthropic Messages API
+- Provider registry: explicit model-to-provider and provider-name registration, with deterministic resolution and no implicit unknown-model fallback
 - Timeout configuration per provider and per operation
 - Provider-level retry on 429 / 503 with exponential backoff, configurable `providerRetries`
 - Integration tests against local Ollama (CI-skippable) and Anthropic API (env-gated)
@@ -113,7 +113,8 @@ Phase 4 — Growth           M9+        Post-launch       Community, v2 features
 **Goal:** Aurora works with zero framework. Java consumers have a first-class entry point.
 
 **Deliverables:**
-- `aurora-standalone` module: assembles core + engine + structured + observability
+- `aurora-standalone` module: assembles core + engine + structured as the minimal runtime
+- `aurora-observability` remains a separate opt-in module that auto-enables when present
 - Kotlin DSL builder:
 ```kotlin
 val aurora = Aurora {
@@ -128,7 +129,7 @@ val aurora = Aurora {
 val analyzer = aurora.create<InvoiceAnalyzer>()
 ```
 - Java-friendly `Aurora.builder()` static entry point
-- Blocking adapter generation: every `suspend fun` gets a `*Blocking` Java-callable counterpart
+- Explicit support for blocking service interfaces for Java and non-coroutine consumers
 - `aurora-bom` module: bill of materials for consumers managing multiple Aurora artifacts
 - README quickstart covering both Kotlin and Java standalone usage
 - Example project: plain `main()` using Ollama locally, zero framework

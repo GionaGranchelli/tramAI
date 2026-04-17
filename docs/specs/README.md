@@ -22,16 +22,36 @@ The intent is to make each meaningful implementation slice explicit before code 
 
 Use [templates/spec-template.md](./templates/spec-template.md) for new work.
 
+## Phase Mapping
+
+- Phase 1: `SPEC-001` to `SPEC-003`
+- Phase 2: `SPEC-004` to `SPEC-006`
+- Phase 3: `SPEC-007` to `SPEC-008`
+- Phase 4: roadmap only for now, no committed specs yet
+
 ## Initial Spec Set
+
+### Phase 1: Foundation
 
 - [SPEC-001: Core Engine and Proxy Execution](./spec-001-core-engine.md)
 - [SPEC-002: Structured Output Pipeline](./spec-002-structured-output.md)
 - [SPEC-003: Provider Integration and Routing](./spec-003-provider-integration.md)
+
+### Phase 2: Production-Ready
+
 - [SPEC-004: Observability Integration](./spec-004-observability.md)
 - [SPEC-005: Standalone Runtime and Java API](./spec-005-standalone-java-api.md)
 - [SPEC-006: Spring Boot Adapter](./spec-006-spring-adapter.md)
+
+### Phase 3: Ecosystem
+
 - [SPEC-007: Testing Support](./spec-007-testing-support.md)
 - [SPEC-008: Documentation and Publishing Readiness](./spec-008-documentation-publishing.md)
+
+### Phase 4: Growth
+
+- No committed specs yet
+- Future candidates include streaming, tool calling, conversation memory, KSP proxy generation, and additional providers or framework adapters
 
 ## Writing Rules
 
@@ -39,3 +59,10 @@ Use [templates/spec-template.md](./templates/spec-template.md) for new work.
 - Each spec should have measurable acceptance criteria.
 - Each spec should name explicit non-goals to protect scope.
 - If a design decision changes, add or update an ADR rather than silently changing the spec.
+
+## Relationship To The Board
+
+- Specs define intended behavior, scope, and done conditions.
+- The board tracks execution status and concrete tasks derived from specs.
+- Tasks must link back to a primary spec.
+- Tasks must not replace spec requirements.

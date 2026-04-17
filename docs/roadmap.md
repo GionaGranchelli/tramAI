@@ -28,5 +28,13 @@ Demand-gated work includes streaming, tool calling, memory, KSP generation, and 
 The docs in this repository should grow with the roadmap:
 
 - architecture and ADRs now
+- phase-grouped specs and execution tasks for committed work
 - API and configuration references when modules exist
 - user guides and migration notes once features are implemented
+
+## Current Documentation Coverage
+
+- Phase 1: committed specs and tasks exist
+- Phase 2: committed specs and tasks exist
+- Phase 3: committed specs and tasks exist
+- Phase 4: roadmap only for now, no committed specs or tasks yet

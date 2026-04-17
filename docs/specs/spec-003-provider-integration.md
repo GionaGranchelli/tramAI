@@ -4,18 +4,18 @@
 - Owner: maintainer
 - Last updated: 2026-04-18
 - Related roadmap milestone: M3
-- Related ADRs: [ADR-007](../adr/adr-007.md), [ADR-008](../adr/adr-008.md)
+- Related ADRs: [ADR-008](../adr/adr-008.md), [ADR-010](../adr/adr-010.md)
 - Related docs: [Architecture Overview](../architecture/overview.md), [Module Overview](../architecture/modules.md)
 
 ## Problem
 
-Aurora needs real provider integrations that make the core execution path usable beyond stubs. v1 depends on at least one local-first provider and one cloud provider, plus routing logic that maps model names to the right backend.
+Aurora needs real provider integrations that make the core execution path usable beyond stubs. v1 depends on at least one local-first provider and one cloud provider, plus a deterministic routing mechanism that maps operations and models to the right backend.
 
 ## Scope
 
 - `ModelProvider` implementations for Ollama and Anthropic
 - Shared HTTP execution expectations for provider modules
-- Model-prefix provider resolution with explicit override support
+- Explicit provider registry and operation-level provider selection
 - Provider-level timeout and retry behavior
 - Integration testing strategy for local and env-gated providers
 
@@ -29,9 +29,11 @@ Aurora needs real provider integrations that make the core execution path usable
 ## Functional Requirements
 
 - Provider modules must implement the shared provider contract and return normalized `ModelResponse` data.
-- Aurora must route model names by prefix unless an explicit provider override is configured.
+- Aurora must resolve providers through an explicit provider registry rather than model-prefix routing.
+- Aurora must support deterministic model-to-provider resolution and explicit provider selection when an operation chooses a provider directly.
 - Provider retries must apply to transient failures such as rate limits, service unavailability, and network timeouts.
 - Authentication errors, invalid model names, and non-retryable provider errors must fail fast.
+- Unknown or unregistered models must produce explicit resolution errors rather than silent fallback.
 - Timeouts must be configurable per provider and overridable per operation.
 - Integration tests must exist for Ollama and Anthropic, with execution guarded appropriately for CI and local environments.
 
@@ -40,20 +42,21 @@ Aurora needs real provider integrations that make the core execution path usable
 - Provider modules should be coroutine-native and avoid forcing blocking I/O into the engine.
 - Retries must use bounded exponential backoff.
 - Error mapping should preserve enough raw provider context for debugging without leaking provider-specific types into the core API.
+- Registry behavior must remain explicit, testable, and free of hidden fallback rules.
 
 ## Design Notes
 
-- Prefix-based routing is acceptable for v1 because it keeps the consumer model simple.
-- The routing design should still isolate registry behavior from provider implementations so it can evolve later.
+- The registry should be the routing authority from day one rather than an eventual replacement for prefix heuristics.
+- Routing behavior should remain isolated from provider implementations so registry logic can evolve without changing provider modules.
 - The provider contract should remain small enough for future community providers to implement without depending on framework modules.
 
 ## Acceptance Criteria
 
 - A real `@AiService` operation executes successfully against Ollama and Anthropic.
-- Model-prefix routing selects the expected provider for `claude-*` and common local model families.
+- Explicit registry resolution selects the expected provider for registered models and explicit provider selections.
 - Retry and timeout behavior are covered by automated tests at the provider or engine integration level.
 
 ## Risks and Follow-Ups
 
-- Model naming conventions may drift and force registry redesign.
+- Registry configuration needs a clean consumer-facing API.
 - Provider response normalization may need extension fields later for advanced capabilities.
