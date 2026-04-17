@@ -1,0 +1,6 @@
+.codex
+.idea
+*.iml
+*.log
+*.tmp
+.env
