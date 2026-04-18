@@ -27,10 +27,9 @@ Demand-gated work includes streaming, tool calling, memory, KSP generation, and 
 
 - Phase 1: implemented
 - Phase 2: implemented
-- Phase 3: in progress
-  The codebase already contains the testing module, documentation base, example projects, and publication wiring, but release hardening and credibility work still remain before a first public MVP release.
-- Phase 4: design started, execution not yet scheduled
-  Streaming and tool calling now have committed specs and ADRs. Memory remains roadmap-only design work for now.
+- Phase 3: implemented
+- Phase 4: implemented (Streaming & Tool Calling)
+  The core engine and major providers now support raw text streaming and engine-owned tool calling orchestration.
 
 ## Documentation Implication
 

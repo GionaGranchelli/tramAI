@@ -11,6 +11,8 @@
 - optional `aurora-observability`
 - `aurora-standalone`, `aurora-spring`, `aurora-testing`, and `aurora-bom`
 - deterministic testing helpers including mock and simulated-failure providers
+- raw text streaming support (`Flow<StreamChunk>`) in core and major providers (OpenAI, Anthropic, Ollama)
+- engine-owned, provider-portable tool calling orchestration with `@AiTool` discovery
 - repository documentation, ADRs, specs, task board, and contributor guidance
 - Kotlin Spring Boot example project backed by locally published artifacts
 
@@ -18,7 +20,7 @@
 
 - provider resolution now uses an explicit registry
 - timeout and retry hardening is covered in engine and provider tests
-- release docs now freeze the `0.1.0` scope and separate it from later streaming and tool-calling work
+- Spring Boot example modernized to support asynchronous Flow streaming
 
 ### Notes
 
