@@ -13,6 +13,8 @@ annotation class Operation(
     val model: String,
     /** Optional explicit provider id that bypasses registry model resolution. */
     val provider: String = "",
+    /** Optional list of tool names available to this operation. */
+    val tools: Array<String> = [],
     /** Maximum number of structured-output retries after validation failures. */
     val maxRetries: Int = 2,
     /** Maximum number of provider retries after transient transport or API failures. */

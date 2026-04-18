@@ -45,4 +45,43 @@ class OllamaProviderIntegrationTest {
         assertThat(response.content).containsIgnoringCase("AURORA_OLLAMA_OK")
         assertThat(response.modelUsed).isNotBlank()
     }
+
+    @Test
+    fun `can stream against a real ollama instance when explicitly enabled`() {
+        assumeTrue(
+            System.getenv("AURORA_RUN_OLLAMA_INTEGRATION") == "true",
+            "Set AURORA_RUN_OLLAMA_INTEGRATION=true to enable this test.",
+        )
+
+        val model = System.getenv("AURORA_OLLAMA_MODEL")
+        assumeTrue(
+            !model.isNullOrBlank(),
+            "Set AURORA_OLLAMA_MODEL to a locally available Ollama model.",
+        )
+
+        val provider = OllamaProvider(
+            baseUrl = System.getenv("AURORA_OLLAMA_BASE_URL") ?: "http://localhost:11434",
+        )
+
+        val chunks = mutableListOf<io.aurora.core.model.StreamChunk>()
+        runBlocking {
+            provider.stream(
+                ModelRequest(
+                    model = model,
+                    messages = listOf(
+                        Message(MessageRole.USER, "Count from 1 to 5 and stop."),
+                    ),
+                    timeoutMillis = 120_000,
+                    maxTokens = 64,
+                )
+            ).collect { chunks.add(it) }
+        }
+
+        assertThat(chunks).isNotEmpty()
+        assertThat(chunks.filterIsInstance<io.aurora.core.model.StreamChunk.Token>()).isNotEmpty()
+        assertThat(chunks.last()).isInstanceOf(io.aurora.core.model.StreamChunk.Complete::class.java)
+        
+        val complete = chunks.last() as io.aurora.core.model.StreamChunk.Complete
+        assertThat(complete.fullText).contains("1", "2", "3", "4", "5")
+    }
 }

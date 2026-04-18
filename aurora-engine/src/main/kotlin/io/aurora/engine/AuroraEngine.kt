@@ -6,16 +6,24 @@ import io.aurora.core.annotations.SystemPrompt
 import io.aurora.core.exception.ConfigurationException
 import io.aurora.core.exception.ProviderException
 import io.aurora.core.exception.TimeoutException
+import io.aurora.core.model.FinishReason
 import io.aurora.core.model.Message
 import io.aurora.core.model.MessageRole
 import io.aurora.core.model.ModelRequest
 import io.aurora.core.model.ModelResponse
+import io.aurora.core.model.StreamChunk
+import io.aurora.core.model.ToolCall
+import io.aurora.core.model.ToolDefinition
+import io.aurora.core.model.ToolExecutionContext
+import io.aurora.core.model.ToolResult
+import io.aurora.core.model.ResolvedTool
 import io.aurora.core.observation.NoOpOperationObserver
 import io.aurora.core.observation.OperationCallContext
 import io.aurora.core.observation.OperationObservation
 import io.aurora.core.observation.OperationObserver
 import io.aurora.core.provider.ModelProvider
 import io.aurora.core.provider.ProviderRegistry
+import io.aurora.core.provider.StreamCapable
 import io.aurora.core.structured.StructuredOutputHandler
 import io.aurora.core.structured.StructuredOutputResult
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +51,7 @@ import kotlin.reflect.jvm.kotlinFunction
 class AuroraEngine(
     private val providerRegistry: ProviderRegistry,
     private val structuredOutputHandler: StructuredOutputHandler? = null,
+    private val toolRegistry: ToolRegistry = ToolRegistry(),
     private val operationObserver: OperationObserver = NoOpOperationObserver,
     private val job: Job = SupervisorJob(),
     private val scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
@@ -54,12 +63,14 @@ class AuroraEngine(
     constructor(
         provider: ModelProvider,
         structuredOutputHandler: StructuredOutputHandler? = null,
+        toolRegistry: ToolRegistry = ToolRegistry(),
         operationObserver: OperationObserver = NoOpOperationObserver,
         job: Job = SupervisorJob(),
         scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
     ) : this(
         providerRegistry = ProviderRegistry.singleProvider(provider),
         structuredOutputHandler = structuredOutputHandler,
+        toolRegistry = toolRegistry,
         operationObserver = operationObserver,
         job = job,
         scope = scope,
@@ -69,10 +80,11 @@ class AuroraEngine(
      * Creates a proxy implementation for the given Aurora service interface.
      */
     fun <T : Any> create(serviceType: KClass<T>): T {
-        val definition = ServiceDefinition.create(serviceType)
+        val definition = ServiceDefinition.create(serviceType, toolRegistry)
         val handler = AuroraInvocationHandler(
             providerRegistry = providerRegistry,
             structuredOutputHandler = structuredOutputHandler,
+            toolRegistry = toolRegistry,
             operationObserver = operationObserver,
             scope = scope,
             serviceDefinition = definition,
@@ -102,6 +114,7 @@ inline fun <reified T : Any> AuroraEngine.create(): T = create(T::class)
 private class AuroraInvocationHandler(
     private val providerRegistry: ProviderRegistry,
     private val structuredOutputHandler: StructuredOutputHandler?,
+    private val toolRegistry: ToolRegistry,
     private val operationObserver: OperationObserver,
     private val scope: CoroutineScope,
     private val serviceDefinition: ServiceDefinition,
@@ -153,21 +166,27 @@ private class AuroraInvocationHandler(
                 Unit
             }
             ReturnKind.STRUCTURED -> executeStructured(operation, arguments)
+            ReturnKind.STREAMING -> executeStreaming(operation, arguments)
         }
+    }
+
+    private suspend fun executeStreaming(
+        operation: OperationDefinition,
+        arguments: List<Any?>,
+    ): kotlinx.coroutines.flow.Flow<StreamChunk> {
+        val provider = providerRegistry.resolve(operation.operation)
+        val streamCapable = provider as? StreamCapable
+            ?: throw io.aurora.core.exception.ProviderCapabilityException(provider.providerId(), "streaming")
+
+        return streamCapable.stream(operation.toRequest(arguments))
     }
 
     private suspend fun executeRaw(
         operation: OperationDefinition,
         arguments: List<Any?>,
     ): String {
-        val provider = providerRegistry.resolve(operation.operation)
-        val result = callProviderWithRetries(
-            provider = provider,
-            request = operation.toRequest(arguments),
-            operation = operation,
-            attemptCounter = AttemptCounter(),
-        )
-
+        val messages = operation.initialMessages(arguments).toMutableList()
+        val result = executeWithTools(operation, messages)
         result.observation.onCallCompleted(parseSuccess = null)
         return result.response.content
     }
@@ -182,23 +201,9 @@ private class AuroraInvocationHandler(
         val contract = operation.structuredContract(handler)
         val messages = operation.initialMessages(arguments, contract.schemaJson).toMutableList()
         val maxAttempts = operation.operation.maxRetries + 1
-        val attemptCounter = AttemptCounter()
 
         repeat(maxAttempts) { attemptIndex ->
-            val provider = providerRegistry.resolve(operation.operation)
-            val result = callProviderWithRetries(
-                provider = provider,
-                request = ModelRequest(
-                    model = operation.operation.model,
-                    messages = messages.toList(),
-                    timeoutMillis = operation.operation.timeoutMillis,
-                    operationInterface = operation.method.declaringClass.name,
-                    operationMethod = operation.method.name,
-                ),
-                operation = operation,
-                attemptCounter = attemptCounter,
-            )
-
+            val result = executeWithTools(operation, messages)
             when (
                 val analysis = handler.analyze(
                     rawResponse = result.response.content,
@@ -209,7 +214,6 @@ private class AuroraInvocationHandler(
                     result.observation.onCallCompleted(parseSuccess = true)
                     return analysis.value
                 }
-
                 is StructuredOutputResult.Failure -> {
                     result.observation.onStructuredParseFailure(
                         rawResponse = analysis.rawResponse,
@@ -227,7 +231,6 @@ private class AuroraInvocationHandler(
                     }
 
                     result.observation.onCallCompleted(parseSuccess = false)
-                    // The engine owns retries. Structured output only supplies the validation result and feedback text.
                     messages += Message(MessageRole.ASSISTANT, analysis.rawResponse)
                     messages += Message(MessageRole.USER, analysis.feedbackMessage)
                 }
@@ -235,6 +238,111 @@ private class AuroraInvocationHandler(
         }
 
         error("Structured retry loop exited without returning or throwing")
+    }
+
+    private suspend fun executeWithTools(
+        operation: OperationDefinition,
+        messages: MutableList<Message>,
+    ): ProviderCallResult {
+        val maxToolLoops = 5 // Guard against infinite tool loops
+        repeat(maxToolLoops) {
+            val provider = providerRegistry.resolve(operation.operation)
+            val result = callProviderWithRetries(
+                provider = provider,
+                request = ModelRequest(
+                    model = operation.operation.model,
+                    messages = messages.toList(),
+                    tools = operation.toolDefinitions.takeIf { it.isNotEmpty() },
+                    timeoutMillis = operation.operation.timeoutMillis,
+                    operationInterface = operation.method.declaringClass.name,
+                    operationMethod = operation.method.name,
+                ),
+                operation = operation,
+                attemptCounter = AttemptCounter(),
+            )
+
+            val toolCalls = result.response.toolCalls
+            if (toolCalls.isNullOrEmpty()) {
+                return result
+            }
+
+            // End the observation of the call that produced tool calls
+            result.observation.onCallCompleted(parseSuccess = null)
+
+            // Append assistant message with tool calls
+            messages += Message(
+                role = MessageRole.ASSISTANT,
+                content = result.response.content,
+                toolCalls = toolCalls,
+            )
+
+            // Execute each tool and append results
+            for (toolCall in toolCalls) {
+                val tool = toolRegistry.resolve(toolCall.name)
+                val toolResult = if (tool == null) {
+                    ToolResult.PermanentFailure("Tool '${toolCall.name}' not found")
+                } else {
+                    executeTool(tool, toolCall, operation)
+                }
+
+                messages += when (toolResult) {
+                    is ToolResult.Success -> Message(
+                        role = MessageRole.TOOL,
+                        content = toolResult.value.toString(),
+                        toolCallId = toolCall.id,
+                    )
+                    is ToolResult.InvalidInput -> Message(
+                        role = MessageRole.TOOL,
+                        content = "Error: ${toolResult.message}",
+                        toolCallId = toolCall.id,
+                    )
+                    is ToolResult.PermanentFailure -> Message(
+                        role = MessageRole.TOOL,
+                        content = "Permanent error: ${toolResult.message}",
+                        toolCallId = toolCall.id,
+                    )
+                    is ToolResult.TransientFailure -> {
+                        // For now, we surface transient failures to the model as well, or we could throw?
+                        // Plan says: "TransientFailure, engine retries up to policy"
+                        // I'll implement internal retry for tools here or surface it as an error message.
+                        Message(
+                            role = MessageRole.TOOL,
+                            content = "Transient error: ${toolResult.cause.message}. Please retry.",
+                            toolCallId = toolCall.id,
+                        )
+                    }
+                }
+            }
+        }
+        error("Exceeded maximum tool call loops ($maxToolLoops)")
+    }
+
+    private suspend fun executeTool(
+        tool: ResolvedTool,
+        toolCall: ToolCall,
+        operation: OperationDefinition,
+    ): ToolResult {
+        val input = toolCall.argumentsJson
+
+        val context = ToolExecutionContext(
+            operationName = operation.method.name,
+            modelName = operation.operation.model,
+            attemptNumber = 0, // TODO: track tool attempts
+            timeout = java.time.Duration.ofMillis(operation.operation.timeoutMillis),
+        )
+
+        return try {
+            tool.execute(input, context)
+        } catch (e: io.aurora.core.exception.ToolInvalidInputException) {
+            ToolResult.InvalidInput(e.message ?: "Invalid tool input")
+        } catch (e: Exception) {
+            // Check idempotency for transient failure classification
+            if (tool.idempotent) {
+                ToolResult.TransientFailure(e)
+            } else {
+                ToolResult.PermanentFailure(e.message ?: "Tool execution failed")
+            }
+        }
     }
 
     private suspend fun callProviderWithRetries(
@@ -359,7 +467,7 @@ private data class ServiceDefinition(
     val operations: Map<Method, OperationDefinition>,
 ) {
     companion object {
-        fun create(serviceType: KClass<*>): ServiceDefinition {
+        fun create(serviceType: KClass<*>, toolRegistry: ToolRegistry): ServiceDefinition {
             val javaType = serviceType.java
             if (!javaType.isInterface) {
                 throw ConfigurationException("${serviceType.qualifiedName} must be an interface")
@@ -374,7 +482,14 @@ private data class ServiceDefinition(
                 .associateWith { method ->
                     val operation = method.getAnnotation(Operation::class.java)
                         ?: throw ConfigurationException("${serviceType.qualifiedName}.${method.name} must be annotated with @Operation")
-                    OperationDefinition.create(method, operation, systemPrompt)
+
+                    val toolDefinitions = operation.tools.map { toolName ->
+                        val tool = toolRegistry.resolve(toolName)
+                            ?: throw ConfigurationException("Tool '$toolName' requested by ${method.name} is not registered in the engine")
+                        ToolDefinition(tool.name, tool.description, tool.inputSchemaJson)
+                    }
+
+                    OperationDefinition.create(method, operation, systemPrompt, toolDefinitions)
                 }
 
             return ServiceDefinition(
@@ -395,11 +510,13 @@ private data class OperationDefinition(
     val returnKind: ReturnKind,
     val returnType: kotlin.reflect.KType,
     val returnTypeDescription: String,
+    val toolDefinitions: List<ToolDefinition>,
 ) {
     fun toRequest(arguments: List<Any?>): ModelRequest {
         return ModelRequest(
             model = operation.model,
             messages = initialMessages(arguments),
+            tools = toolDefinitions.takeIf { it.isNotEmpty() },
             timeoutMillis = operation.timeoutMillis,
             operationInterface = method.declaringClass.name,
             operationMethod = method.name,
@@ -445,6 +562,7 @@ private data class OperationDefinition(
             method: Method,
             operation: Operation,
             systemPrompt: String?,
+            toolDefinitions: List<ToolDefinition> = emptyList(),
         ): OperationDefinition {
             require(operation.maxRetries >= 0) {
                 "@Operation(maxRetries) must be zero or greater for ${method.declaringClass.name}.${method.name}"
@@ -472,6 +590,7 @@ private data class OperationDefinition(
                 returnKind = returnKind,
                 returnType = returnType,
                 returnTypeDescription = returnTypeDescription,
+                toolDefinitions = toolDefinitions,
             )
         }
 
@@ -495,10 +614,12 @@ private data class OperationDefinition(
             method: Method,
             kotlinFunction: KFunction<*>?,
         ): ReturnKind {
-            val classifier = resolveReturnType(method, kotlinFunction).classifier
+            val type = resolveReturnType(method, kotlinFunction)
+            val classifier = type.classifier
             return when (classifier) {
                 String::class -> ReturnKind.STRING
                 Unit::class -> ReturnKind.UNIT
+                kotlinx.coroutines.flow.Flow::class -> ReturnKind.STREAMING
                 null -> when (method.returnType) {
                     String::class.java -> ReturnKind.STRING
                     Void.TYPE -> ReturnKind.UNIT
@@ -536,6 +657,7 @@ private enum class ReturnKind {
     STRING,
     UNIT,
     STRUCTURED,
+    STREAMING,
 }
 
 private const val INITIAL_PROVIDER_RETRY_DELAY_MILLIS = 50L

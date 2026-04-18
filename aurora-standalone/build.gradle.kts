@@ -23,6 +23,7 @@ dependencies {
     api(project(":aurora-core"))
     api(project(":aurora-engine"))
     api(project(":aurora-structured"))
+    api(libs.kotlin.reflect)
 
     testImplementation(libs.coroutines.core)
     testImplementation(platform(libs.junit.bom))

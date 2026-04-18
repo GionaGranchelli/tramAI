@@ -40,3 +40,19 @@ POST {{baseUrl}}/invoice/triage
 Content-Type: application/json
 @examples/kotlin-springboot-example/sample-invoice.json
 
+### Streaming path - token-by-token summary
+POST {{baseUrl}}/invoice/summary/stream
+Content-Type: application/json
+
+{
+  "invoiceText": "Vendor: ACME\nInvoice: INV-999\nAmount: 500 USD\nStatus: Pending approval."
+}
+
+### Tool-augmented path - vendor enrichment
+POST {{baseUrl}}/invoice/enrich
+Content-Type: application/json
+
+{
+  "invoiceText": "Vendor: Acme\nInvoice: INV-123\nAmount: 1200.00 USD\nPlease verify terms."
+}
+

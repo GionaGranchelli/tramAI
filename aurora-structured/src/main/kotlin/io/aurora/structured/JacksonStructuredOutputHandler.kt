@@ -1,5 +1,6 @@
 package io.aurora.structured
 
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.json.JsonMapper
 import com.fasterxml.jackson.module.kotlin.kotlinModule
@@ -72,6 +73,24 @@ class JacksonStructuredOutputHandler(
             rawResponse = rawResponse,
         )
     }
+
+    override fun generateSchema(type: KType): String = objectMapper.writerWithDefaultPrettyPrinter()
+        .writeValueAsString(schemaForType(type))
+
+    override fun deserialize(
+        input: Any,
+        targetType: KType
+    ): Any {
+        val node = when (input) {
+            is JsonNode -> input
+            is String -> objectMapper.readTree(input)
+            else -> objectMapper.valueToTree(input)
+        }
+        val javaType = objectMapper.typeFactory.constructType(targetType.javaType)
+        return objectMapper.convertValue(node, javaType)
+    }
+
+    override fun serialize(value: Any): Any = objectMapper.valueToTree<JsonNode>(value)
 
     private fun schemaForType(targetType: KType): Map<String, Any?> {
         val classifier = targetType.classifier

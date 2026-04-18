@@ -20,6 +20,8 @@ kotlin {
 }
 
 dependencies {
+    api(libs.coroutines.core)
+
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.assertj.core)
     testImplementation(libs.kotlin.test.junit5)

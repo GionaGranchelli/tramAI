@@ -51,3 +51,11 @@ class TimeoutException(
     message: String,
     cause: Throwable? = null,
 ) : AuroraException(message, cause)
+
+/**
+ * Raised when a provider does not support a requested capability (e.g., streaming).
+ */
+class ProviderCapabilityException(
+    val providerId: String,
+    val capability: String,
+) : AuroraException("Provider '$providerId' does not support $capability")

@@ -25,7 +25,7 @@ class AnthropicProvider(
     private val anthropicVersion: String = "2023-06-01",
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
-) : ModelProvider {
+) : io.aurora.core.provider.ModelProvider, io.aurora.core.provider.StreamCapable {
 
     override suspend fun complete(request: ModelRequest): ModelResponse = withContext(Dispatchers.IO) {
         try {
@@ -87,4 +87,92 @@ class AnthropicProvider(
      * Returns the stable provider id used by the registry.
      */
     override fun providerId(): String = "anthropic"
+
+    override suspend fun stream(request: ModelRequest): kotlinx.coroutines.flow.Flow<io.aurora.core.model.StreamChunk> = kotlinx.coroutines.flow.flow {
+        val payload = linkedMapOf<String, Any?>(
+            "model" to request.model,
+            "stream" to true,
+            "max_tokens" to (request.maxTokens ?: 1024),
+            "messages" to request.messages
+                .filter { it.role.name.lowercase() != "system" }
+                .map { message ->
+                    mapOf(
+                        "role" to message.role.name.lowercase(),
+                        "content" to message.content,
+                    )
+                },
+        )
+
+        val systemMessage = request.messages.firstOrNull { it.role.name.lowercase() == "system" }?.content
+        if (!systemMessage.isNullOrBlank()) {
+            payload["system"] = systemMessage
+        }
+
+        val httpRequest = HttpRequest.newBuilder()
+            .uri(URI.create("${baseUrl.trimEnd('/')}/v1/messages"))
+            .header("Content-Type", "application/json")
+            .header("x-api-key", apiKey)
+            .header("anthropic-version", anthropicVersion)
+            .applyAuroraTimeout(request)
+            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+            .build()
+
+        val response = withContext(Dispatchers.IO) {
+            httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines())
+        }
+
+        if (response.statusCode() !in 200..299) {
+            val errorBody = response.body().toArray().joinToString("\n")
+            emit(io.aurora.core.model.StreamChunk.Error(providerHttpFailure("Anthropic", response.statusCode(), errorBody)))
+            return@flow
+        }
+
+        val fullText = StringBuilder()
+        var lastUsage: io.aurora.core.model.UsageMetrics? = null
+
+        try {
+            response.body().use { lines ->
+                var currentEvent: String? = null
+                for (line in lines) {
+                    if (line.startsWith("event: ")) {
+                        currentEvent = line.substring(7).trim()
+                    } else if (line.startsWith("data: ")) {
+                        val data = line.substring(6).trim()
+                        val node = objectMapper.readTree(data)
+                        
+                        when (currentEvent) {
+                            "content_block_delta" -> {
+                                val text = node.path("delta").path("text").asText("")
+                                if (text.isNotEmpty()) {
+                                    fullText.append(text)
+                                    emit(io.aurora.core.model.StreamChunk.Token(text))
+                                }
+                            }
+                            "message_start" -> {
+                                val usage = node.path("message").path("usage")
+                                if (!usage.isMissingNode) {
+                                    lastUsage = io.aurora.core.model.UsageMetrics(
+                                        inputTokens = usage.path("input_tokens").asInt(),
+                                        outputTokens = usage.path("output_tokens").asInt(),
+                                    )
+                                }
+                            }
+                            "message_delta" -> {
+                                val usage = node.path("usage")
+                                if (!usage.isMissingNode) {
+                                    lastUsage = io.aurora.core.model.UsageMetrics(
+                                        inputTokens = lastUsage?.inputTokens,
+                                        outputTokens = usage.path("output_tokens").asInt(),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            emit(io.aurora.core.model.StreamChunk.Complete(fullText.toString(), lastUsage ?: io.aurora.core.model.UsageMetrics()))
+        } catch (e: Exception) {
+            emit(io.aurora.core.model.StreamChunk.Error(providerTransportFailure("Anthropic", e)))
+        }
+    }
 }

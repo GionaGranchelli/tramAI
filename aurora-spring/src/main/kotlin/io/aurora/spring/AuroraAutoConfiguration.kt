@@ -28,8 +28,12 @@ class AuroraAutoConfiguration {
     fun aurora(
         properties: AuroraProperties,
         modelProviders: ObjectProvider<ModelProvider>,
+        applicationContext: org.springframework.context.ApplicationContext,
     ): Aurora {
         val builder = Aurora.builder()
+
+        // Scan for @AiTool beans
+        builder.tools(AiToolScanner.fromApplicationContext(applicationContext))
 
         // Register property-backed providers first so explicit provider beans can override them when needed.
         properties.providers.anthropic.apiKey?.takeIf { it.isNotBlank() }?.let { apiKey ->

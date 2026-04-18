@@ -7,6 +7,7 @@ enum class MessageRole {
     SYSTEM,
     USER,
     ASSISTANT,
+    TOOL,
 }
 
 /**
@@ -17,4 +18,8 @@ data class Message(
     val role: MessageRole,
     /** Plain-text content for the message. */
     val content: String,
+    /** Optional tool-call identifier when [role] is [MessageRole.TOOL]. */
+    val toolCallId: String? = null,
+    /** Optional model-initiated tool calls when [role] is [MessageRole.ASSISTANT]. */
+    val toolCalls: List<ToolCall>? = null,
 )

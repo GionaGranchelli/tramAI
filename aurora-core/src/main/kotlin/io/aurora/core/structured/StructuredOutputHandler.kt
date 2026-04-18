@@ -18,4 +18,22 @@ interface StructuredOutputHandler {
         rawResponse: String,
         targetType: KType,
     ): StructuredOutputResult
+
+    /**
+     * Generates a JSON schema for the given [type].
+     */
+    fun generateSchema(type: kotlin.reflect.KType): String
+
+    /**
+     * Deserializes an untyped JSON payload into the given [targetType].
+     */
+    fun deserialize(
+        input: Any,
+        targetType: kotlin.reflect.KType
+    ): Any
+
+    /**
+     * Serializes an object [value] into an untyped JSON representation.
+     */
+    fun serialize(value: Any): Any
 }

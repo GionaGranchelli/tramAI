@@ -3,14 +3,20 @@ package io.aurora.examples.springboot
 import io.aurora.core.annotations.AiDescription
 import io.aurora.core.annotations.AiRange
 import io.aurora.core.annotations.AiService
+import io.aurora.core.annotations.AiTool
 import io.aurora.core.annotations.Operation
 import io.aurora.core.exception.ProviderException
 import io.aurora.core.exception.StructuredOutputException
+import io.aurora.core.model.StreamChunk
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
+import org.springframework.stereotype.Component
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
@@ -43,6 +49,28 @@ interface InvoiceAnalyzer {
         timeoutMillis = 60_000,
     )
     suspend fun summarize(invoiceText: String): String
+
+    /**
+     * Streams a short natural-language summary.
+     */
+    @Operation(
+        prompt = "Read the invoice-like text and summarize the payment situation in one short sentence.",
+        model = "deepseek-r1:8b-64k",
+        providerRetries = 0,
+        timeoutMillis = 60_000,
+    )
+    suspend fun streamSummarize(invoiceText: String): kotlinx.coroutines.flow.Flow<io.aurora.core.model.StreamChunk>
+
+    /**
+     * Enriches invoice data using external tools.
+     */
+    @Operation(
+        prompt = "Identify the vendor and look up their details. Then provide a summary of the vendor's reliability and standard terms.",
+        model = "deepseek-r1:8b-64k",
+        tools = ["vendor_lookup"],
+        timeoutMillis = 60_000,
+    )
+    suspend fun enrich(invoiceText: String): String
 
     /**
      * Extracts a typed triage object that can be consumed directly by application code.
@@ -92,6 +120,8 @@ class InvoiceController(
         "application" to "kotlin-springboot-example",
         "status" to "ok",
         "rawEndpoint" to "POST /invoice/summary",
+        "streamEndpoint" to "POST /invoice/summary/stream",
+        "enrichEndpoint" to "POST /invoice/enrich",
         "typedEndpoint" to "POST /invoice/triage",
     )
 
@@ -99,23 +129,43 @@ class InvoiceController(
      * Returns a free-form summary so the typed endpoint has a direct baseline for comparison.
      */
     @PostMapping("/invoice/summary")
-    fun summarize(
+    suspend fun summarize(
         @RequestBody request: InvoiceInput,
-    ): Map<String, String> = runBlocking {
-        mapOf(
-            "summary" to analyzer.summarize(request.invoiceText),
-        )
-    }
+    ): Map<String, String> = mapOf(
+        "summary" to analyzer.summarize(request.invoiceText),
+    )
+
+    /**
+     * Streams a summary using Server-Sent Events.
+     */
+    @PostMapping("/invoice/summary/stream", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
+    suspend fun streamSummarize(
+        @RequestBody request: InvoiceInput,
+    ): Flow<String> = analyzer.streamSummarize(request.invoiceText)
+        .mapNotNull { chunk ->
+            when (chunk) {
+                is StreamChunk.Token -> chunk.text
+                else -> null
+            }
+        }
+
+    /**
+     * Enriches invoice data using external tools.
+     */
+    @PostMapping("/invoice/enrich")
+    suspend fun enrich(
+        @RequestBody request: InvoiceInput,
+    ): Map<String, String> = mapOf(
+        "enrichment" to analyzer.enrich(request.invoiceText),
+    )
 
     /**
      * Returns a typed object inferred from messy invoice text.
      */
     @PostMapping("/invoice/triage")
-    fun triage(
+    suspend fun triage(
         @RequestBody request: InvoiceInput,
-    ): InvoiceTriageResult = runBlocking {
-        analyzer.triage(request.invoiceText).toResponse()
-    }
+    ): InvoiceTriageResult = analyzer.triage(request.invoiceText).toResponse()
 }
 
 /**
@@ -310,3 +360,33 @@ fun RawInvoiceTriageResult.toResponse(): InvoiceTriageResult = InvoiceTriageResu
 fun main(args: Array<String>) {
     runApplication<ExampleApplication>(*args)
 }
+
+/**
+ * External tools discovered by Aurora's Spring adapter.
+ */
+@Component
+class VendorTools {
+    @AiTool(
+        name = "vendor_lookup",
+        description = "Looks up details for a vendor by name, including reliability and terms.",
+    )
+    fun lookupVendor(input: VendorLookupInput): VendorDetails {
+        // In a real app, this would call a database or CRM.
+        return when (input.vendorName.lowercase()) {
+            "acme" -> VendorDetails("Acme Corp", 4.8, "NET-30")
+            "globex" -> VendorDetails("Globex", 3.2, "NET-15")
+            else -> VendorDetails(input.vendorName, 4.0, "NET-30 (Standard)")
+        }
+    }
+}
+
+data class VendorLookupInput(
+    @property:AiDescription("The name of the vendor to look up")
+    val vendorName: String,
+)
+
+data class VendorDetails(
+    val fullName: String,
+    val reliabilityScore: Double,
+    val paymentTerms: String,
+)

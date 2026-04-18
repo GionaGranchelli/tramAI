@@ -95,4 +95,29 @@ class MethodAssertion internal constructor(
         assertThat(observer.callRecords.filter { it.context.methodName == methodName })
             .allSatisfy { record -> assertThat(record.context.providerId).isEqualTo(providerId) }
     }
+
+    /**
+     * Asserts that at least one tool call was emitted with the given [toolName].
+     */
+    fun andCalledTool(toolName: String): MethodAssertion = apply {
+        val toolCalls = provider.requests
+            .filter { it.operationMethod == methodName }
+            .flatMap { it.messages }
+            .flatMap { it.toolCalls.orEmpty() }
+        
+        assertThat(toolCalls).anySatisfy { tc -> assertThat(tc.name).isEqualTo(toolName) }
+    }
+
+    /**
+     * Asserts how many tool calls were emitted with the given [toolName].
+     */
+    fun andCalledToolTimes(toolName: String, expectedTimes: Int): MethodAssertion = apply {
+        val toolCalls = provider.requests
+            .filter { it.operationMethod == methodName }
+            .flatMap { it.messages }
+            .flatMap { it.toolCalls.orEmpty() }
+            .count { it.name == toolName }
+            
+        assertThat(toolCalls).isEqualTo(expectedTimes)
+    }
 }

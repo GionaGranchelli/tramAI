@@ -11,11 +11,22 @@ enum class FinishReason {
 }
 
 /**
+ * Model-initiated tool call request.
+ */
+data class ToolCall(
+    val id: String,
+    val name: String,
+    val argumentsJson: String,
+)
+
+/**
  * Normalized provider response returned to the engine.
  */
 data class ModelResponse(
     /** Primary assistant text returned by the provider. */
     val content: String,
+    /** Optional model-initiated tool calls. */
+    val toolCalls: List<ToolCall>? = null,
     /** Input token count when exposed by the provider. */
     val inputTokens: Int? = null,
     /** Output token count when exposed by the provider. */

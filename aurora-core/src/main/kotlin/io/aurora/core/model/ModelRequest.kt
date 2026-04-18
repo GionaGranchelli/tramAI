@@ -1,6 +1,15 @@
 package io.aurora.core.model
 
 /**
+ * Definition of an external tool presented to the model.
+ */
+data class ToolDefinition(
+    val name: String,
+    val description: String,
+    val inputSchemaJson: String,
+)
+
+/**
  * Normalized provider request produced by the engine.
  */
 data class ModelRequest(
@@ -8,6 +17,8 @@ data class ModelRequest(
     val model: String,
     /** Ordered chat history sent to the provider. */
     val messages: List<Message>,
+    /** Optional list of tool definitions available to the model. */
+    val tools: List<ToolDefinition>? = null,
     /** Optional provider-specific maximum token budget. */
     val maxTokens: Int? = null,
     /** Optional provider-specific temperature override. */

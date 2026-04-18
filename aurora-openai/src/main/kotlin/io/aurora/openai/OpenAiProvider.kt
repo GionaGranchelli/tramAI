@@ -89,7 +89,7 @@ open class OpenAiCompatibleProvider(
     private val objectMapper: ObjectMapper = ObjectMapper(),
     private val organization: String? = null,
     private val project: String? = null,
-) : ModelProvider {
+) : io.aurora.core.provider.ModelProvider, io.aurora.core.provider.StreamCapable {
 
     override suspend fun complete(request: ModelRequest): ModelResponse = withContext(Dispatchers.IO) {
         try {
@@ -97,12 +97,39 @@ open class OpenAiCompatibleProvider(
                 "model" to request.model,
                 "stream" to false,
                 "messages" to request.messages.map { message ->
-                    mapOf(
+                    val msgMap = mutableMapOf<String, Any?>(
                         "role" to message.role.name.lowercase(),
                         "content" to message.content,
                     )
+                    message.toolCallId?.let { msgMap["tool_call_id"] = it }
+                    message.toolCalls?.let { toolCalls ->
+                        msgMap["tool_calls"] = toolCalls.map { tc ->
+                            mapOf(
+                                "id" to tc.id,
+                                "type" to "function",
+                                "function" to mapOf(
+                                    "name" to tc.name,
+                                    "arguments" to tc.argumentsJson
+                                )
+                            )
+                        }
+                    }
+                    msgMap
                 },
             )
+
+            request.tools?.let { tools ->
+                payload["tools"] = tools.map { tool ->
+                    mapOf(
+                        "type" to "function",
+                        "function" to mapOf(
+                            "name" to tool.name,
+                            "description" to tool.description,
+                            "parameters" to objectMapper.readTree(tool.inputSchemaJson)
+                        )
+                    )
+                }
+            }
 
             request.maxTokens?.let { payload["max_tokens"] = it }
             request.temperature?.let { payload["temperature"] = it }
@@ -129,14 +156,24 @@ open class OpenAiCompatibleProvider(
                 ?: throw ProviderException("$providerName response did not contain any completion choices")
             val message = firstChoice.path("message")
 
+            val toolCalls = message.path("tool_calls").takeIf { it.isArray }?.map { tc ->
+                io.aurora.core.model.ToolCall(
+                    id = tc.path("id").asText(),
+                    name = tc.path("function").path("name").asText(),
+                    argumentsJson = tc.path("function").path("arguments").asText(),
+                )
+            }
+
             ModelResponse(
                 content = extractContent(message.path("content")),
+                toolCalls = toolCalls,
                 inputTokens = body.path("usage").path("prompt_tokens").takeIf { !it.isMissingNode }?.asInt(),
                 outputTokens = body.path("usage").path("completion_tokens").takeIf { !it.isMissingNode }?.asInt(),
                 modelUsed = body.path("model").takeIf { !it.isMissingNode }?.asText(),
                 finishReason = when (firstChoice.path("finish_reason").asText("")) {
                     "stop" -> FinishReason.STOP
                     "length" -> FinishReason.LENGTH
+                    "tool_calls" -> FinishReason.STOP // We map tool_calls to STOP for simple orchestration
                     "content_filter" -> FinishReason.CONTENT_FILTER
                     else -> FinishReason.OTHER
                 },
@@ -147,6 +184,79 @@ open class OpenAiCompatibleProvider(
     }
 
     override fun providerId(): String = providerName
+
+    override suspend fun stream(request: ModelRequest): kotlinx.coroutines.flow.Flow<io.aurora.core.model.StreamChunk> = kotlinx.coroutines.flow.flow {
+        val payload = linkedMapOf<String, Any?>(
+            "model" to request.model,
+            "stream" to true,
+            "messages" to request.messages.map { message ->
+                val msgMap = mutableMapOf<String, Any?>(
+                    "role" to message.role.name.lowercase(),
+                    "content" to message.content,
+                )
+                message.toolCallId?.let { msgMap["tool_call_id"] = it }
+                msgMap
+            },
+        )
+
+        request.maxTokens?.let { payload["max_tokens"] = it }
+        request.temperature?.let { payload["temperature"] = it }
+
+        val httpRequest = HttpRequest.newBuilder()
+            .uri(URI.create("${baseUrl.trimEnd('/')}/chat/completions"))
+            .header("Authorization", "Bearer ${accessTokenSource.accessToken()}")
+            .header("Content-Type", "application/json")
+            .apply {
+                organization?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Organization", it) }
+                project?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Project", it) }
+            }
+            .applyAuroraTimeout(request)
+            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+            .build()
+
+        val response = withContext(Dispatchers.IO) {
+            httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines())
+        }
+
+        if (response.statusCode() !in 200..299) {
+            val errorBody = response.body().toArray().joinToString("\n")
+            emit(io.aurora.core.model.StreamChunk.Error(providerHttpFailure(providerName, response.statusCode(), errorBody)))
+            return@flow
+        }
+
+        val fullText = StringBuilder()
+        var lastUsage: io.aurora.core.model.UsageMetrics? = null
+
+        try {
+            response.body().use { lines ->
+                for (line in lines) {
+                    if (line.startsWith("data: ")) {
+                        val data = line.substring(6).trim()
+                        if (data == "[DONE]") break
+
+                        val chunk = objectMapper.readTree(data)
+                        val delta = chunk.path("choices").firstOrNull()?.path("delta")
+                        val content = delta?.path("content")?.asText("") ?: ""
+                        if (content.isNotEmpty()) {
+                            fullText.append(content)
+                            emit(io.aurora.core.model.StreamChunk.Token(content))
+                        }
+
+                        val usage = chunk.path("usage")
+                        if (!usage.isMissingNode) {
+                            lastUsage = io.aurora.core.model.UsageMetrics(
+                                inputTokens = usage.path("prompt_tokens").asInt(),
+                                outputTokens = usage.path("completion_tokens").asInt(),
+                            )
+                        }
+                    }
+                }
+            }
+            emit(io.aurora.core.model.StreamChunk.Complete(fullText.toString(), lastUsage ?: io.aurora.core.model.UsageMetrics()))
+        } catch (e: Exception) {
+            emit(io.aurora.core.model.StreamChunk.Error(providerTransportFailure(providerName, e)))
+        }
+    }
 
     private fun extractContent(contentNode: JsonNode): String {
         if (contentNode.isTextual) {

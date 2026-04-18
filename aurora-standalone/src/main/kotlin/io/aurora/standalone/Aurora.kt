@@ -5,14 +5,17 @@ import io.aurora.core.observation.OperationObserver
 import io.aurora.core.provider.ModelProvider
 import io.aurora.core.provider.ProviderRegistry
 import io.aurora.engine.AuroraEngine
+import io.aurora.engine.ToolRegistry
 import io.aurora.structured.JacksonStructuredOutputHandler
 import kotlin.reflect.KClass
+import kotlin.reflect.full.createType
 
 /**
  * Minimal composition module that wires core, engine, and structured output support.
  */
 class Aurora private constructor(
     private val providerRegistry: ProviderRegistry,
+    private val toolRegistry: ToolRegistry,
     private val operationObserver: OperationObserver,
 ) {
     /**
@@ -21,6 +24,7 @@ class Aurora private constructor(
     fun <T : Any> create(serviceType: KClass<T>): T = AuroraEngine(
         providerRegistry = providerRegistry,
         structuredOutputHandler = JacksonStructuredOutputHandler(),
+        toolRegistry = toolRegistry,
         operationObserver = operationObserver,
     ).create(serviceType)
 
@@ -37,7 +41,9 @@ class Aurora private constructor(
      */
     class Builder {
         private val registryBuilder = ProviderRegistry.builder()
+        private val tools = mutableMapOf<String, io.aurora.core.model.ResolvedTool>()
         private var operationObserver: OperationObserver = NoOpOperationObserver
+        private val handler = JacksonStructuredOutputHandler()
 
         /**
          * Registers a provider with an optional explicit [name].
@@ -48,6 +54,50 @@ class Aurora private constructor(
             default: Boolean = false,
         ): Builder = apply {
             registryBuilder.provider(name, provider, default)
+        }
+
+        /**
+         * Registers one or more tools with the engine.
+         */
+        fun tools(vararg tools: io.aurora.core.model.AuroraTool<*, *>): Builder = apply {
+            tools.forEach { tool ->
+                if (this.tools.containsKey(tool.name)) {
+                    throw io.aurora.core.exception.ConfigurationException("Duplicate tool name registered: ${tool.name}")
+                }
+                this.tools[tool.name] = object : io.aurora.core.model.ResolvedTool {
+                    override val name: String = tool.name
+                    override val description: String = tool.description
+                    override val inputSchemaJson: String = handler.generateSchema(tool.inputType.createType())
+                    override val idempotent: Boolean = tool.idempotent
+                    override val sideEffectLevel: io.aurora.core.model.SideEffectLevel = tool.sideEffectLevel
+
+                    override suspend fun execute(
+                        input: Any,
+                        context: io.aurora.core.model.ToolExecutionContext
+                    ): io.aurora.core.model.ToolResult {
+                        @Suppress("UNCHECKED_CAST")
+                        val typedTool = tool as io.aurora.core.model.AuroraTool<Any, Any>
+                        val typedInput = handler.deserialize(input, tool.inputType.createType())
+                        
+                        return try {
+                            val result = typedTool.execute(typedInput, context)
+                            io.aurora.core.model.ToolResult.Success(handler.serialize(result))
+                        } catch (e: io.aurora.core.exception.ToolInvalidInputException) {
+                            io.aurora.core.model.ToolResult.InvalidInput(e.message ?: "Invalid tool input")
+                        } catch (e: Exception) {
+                            if (tool.idempotent) {
+                                io.aurora.core.model.ToolResult.TransientFailure(e)
+                            } else {
+                                io.aurora.core.model.ToolResult.PermanentFailure(e.message ?: "Tool execution failed")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        fun tools(tools: Iterable<io.aurora.core.model.AuroraTool<*, *>>): Builder = apply {
+            tools.forEach { tools(it) }
         }
 
         /**
@@ -79,6 +129,7 @@ class Aurora private constructor(
          */
         fun build(): Aurora = Aurora(
             providerRegistry = registryBuilder.build(),
+            toolRegistry = io.aurora.engine.ToolRegistry(tools.toMap()),
             operationObserver = operationObserver,
         )
     }

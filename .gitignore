@@ -8,4 +8,3 @@ gradle-app.setting
 *.log
 *.tmp
 .env
-docs/board
