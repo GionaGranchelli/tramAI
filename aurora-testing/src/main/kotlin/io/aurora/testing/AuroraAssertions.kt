@@ -1,6 +1,7 @@
 package io.aurora.testing
 
 import org.assertj.core.api.Assertions.assertThat
+import kotlin.reflect.KClass
 
 /**
  * Assertion entry point for Aurora integration-style tests.
@@ -10,7 +11,7 @@ object AuroraAssertions {
      * Creates a fluent assertion scope backed by the mock provider and recording observer.
      */
     fun assertThat(
-        provider: MockAiProvider,
+        provider: RecordedRequestProvider,
         observer: RecordingOperationObserver,
     ): AuroraAssertion = AuroraAssertion(provider, observer)
 }
@@ -19,7 +20,7 @@ object AuroraAssertions {
  * Fluent assertion scope for one provider and observer pair.
  */
 class AuroraAssertion internal constructor(
-    private val provider: MockAiProvider,
+    private val provider: RecordedRequestProvider,
     private val observer: RecordingOperationObserver,
 ) {
     /**
@@ -37,7 +38,7 @@ class AuroraAssertion internal constructor(
  */
 class MethodAssertion internal constructor(
     private val methodName: String,
-    private val provider: MockAiProvider,
+    private val provider: RecordedRequestProvider,
     private val observer: RecordingOperationObserver,
 ) {
     /**
@@ -61,6 +62,30 @@ class MethodAssertion internal constructor(
     fun andParsedSuccessfully(): MethodAssertion = apply {
         val finalRecord = observer.callRecords.last { it.context.methodName == methodName }
         assertThat(finalRecord.parseSuccess).isTrue()
+    }
+
+    /**
+     * Asserts that at least one attempt for the method observed a structured parse failure.
+     */
+    fun andObservedParseFailure(): MethodAssertion = apply {
+        assertThat(observer.callRecords.filter { it.context.methodName == methodName })
+            .anySatisfy { record -> assertThat(record.parseFailureSummary).isNotBlank() }
+    }
+
+    /**
+     * Asserts that at least one observed provider failure matches the expected type.
+     */
+    fun andObservedFailure(errorType: KClass<out Throwable>): MethodAssertion = apply {
+        assertThat(observer.callRecords.filter { it.context.methodName == methodName })
+            .anySatisfy { record -> assertThat(record.providerFailure).isInstanceOf(errorType.java) }
+    }
+
+    /**
+     * Asserts that the final observed provider failure matches the expected type.
+     */
+    fun andFailedWith(errorType: KClass<out Throwable>): MethodAssertion = apply {
+        val finalRecord = observer.callRecords.last { it.context.methodName == methodName }
+        assertThat(finalRecord.providerFailure).isInstanceOf(errorType.java)
     }
 
     /**

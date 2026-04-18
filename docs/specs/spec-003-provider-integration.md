@@ -1,6 +1,6 @@
 # SPEC-003: Provider Integration and Routing
 
-- Status: proposed
+- Status: implemented
 - Owner: maintainer
 - Last updated: 2026-04-18
 - Related roadmap milestone: M3
@@ -22,7 +22,6 @@ Aurora needs real provider integrations that make the core execution path usable
 ## Non-Goals
 
 - Full multi-provider feature parity
-- OpenAI support in this milestone
 - Streaming transport support
 - Provider-specific DSLs beyond Aurora's shared operation model
 
@@ -60,3 +59,4 @@ Aurora needs real provider integrations that make the core execution path usable
 
 - Registry configuration needs a clean consumer-facing API.
 - Provider response normalization may need extension fields later for advanced capabilities.
+- Implementation already exceeded the original minimal milestone by adding OpenAI and OpenAI-compatible providers early. That broader provider surface should be reflected in later planning rather than treated as the new minimum for every future milestone.

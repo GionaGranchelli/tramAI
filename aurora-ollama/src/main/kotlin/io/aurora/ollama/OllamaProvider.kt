@@ -7,6 +7,9 @@ import io.aurora.core.model.MessageRole
 import io.aurora.core.model.ModelRequest
 import io.aurora.core.model.ModelResponse
 import io.aurora.core.provider.ModelProvider
+import io.aurora.core.provider.applyAuroraTimeout
+import io.aurora.core.provider.providerHttpFailure
+import io.aurora.core.provider.providerTransportFailure
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.URI
@@ -24,46 +27,51 @@ class OllamaProvider(
 ) : ModelProvider {
 
     override suspend fun complete(request: ModelRequest): ModelResponse = withContext(Dispatchers.IO) {
-        val payload = mapOf(
-            "model" to request.model,
-            "stream" to false,
-            "messages" to request.messages.map { message ->
-                mapOf(
-                    "role" to message.role.name.lowercase(),
-                    "content" to message.content,
-                )
-            },
-        )
+        try {
+            val payload = mapOf(
+                "model" to request.model,
+                "stream" to false,
+                "messages" to request.messages.map { message ->
+                    mapOf(
+                        "role" to message.role.name.lowercase(),
+                        "content" to message.content,
+                    )
+                },
+            )
 
-        val httpRequest = HttpRequest.newBuilder()
-            .uri(URI.create("${baseUrl.trimEnd('/')}/api/chat"))
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-            .build()
+            val httpRequest = HttpRequest.newBuilder()
+                .uri(URI.create("${baseUrl.trimEnd('/')}/api/chat"))
+                .header("Content-Type", "application/json")
+                .applyAuroraTimeout(request)
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                .build()
 
-        val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
-        if (response.statusCode() !in 200..299) {
-            throw ProviderException("Ollama returned HTTP ${response.statusCode()}: ${response.body()}")
+            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+            if (response.statusCode() !in 200..299) {
+                throw providerHttpFailure("Ollama", response.statusCode(), response.body())
+            }
+
+            val body = objectMapper.readTree(response.body())
+            val message = body.path("message")
+            val role = message.path("role").asText("").lowercase()
+            if (role.isNotBlank() && role != MessageRole.ASSISTANT.name.lowercase()) {
+                throw ProviderException("Unexpected Ollama response role '$role'")
+            }
+
+            ModelResponse(
+                content = message.path("content").asText(""),
+                inputTokens = body.path("prompt_eval_count").takeIf { !it.isMissingNode }?.asInt(),
+                outputTokens = body.path("eval_count").takeIf { !it.isMissingNode }?.asInt(),
+                modelUsed = body.path("model").takeIf { !it.isMissingNode }?.asText(),
+                finishReason = when (body.path("done_reason").asText("")) {
+                    "stop" -> FinishReason.STOP
+                    "length" -> FinishReason.LENGTH
+                    else -> FinishReason.OTHER
+                },
+            )
+        } catch (error: Throwable) {
+            throw providerTransportFailure("Ollama", error)
         }
-
-        val body = objectMapper.readTree(response.body())
-        val message = body.path("message")
-        val role = message.path("role").asText("").lowercase()
-        if (role.isNotBlank() && role != MessageRole.ASSISTANT.name.lowercase()) {
-            throw ProviderException("Unexpected Ollama response role '$role'")
-        }
-
-        ModelResponse(
-            content = message.path("content").asText(""),
-            inputTokens = body.path("prompt_eval_count").takeIf { !it.isMissingNode }?.asInt(),
-            outputTokens = body.path("eval_count").takeIf { !it.isMissingNode }?.asInt(),
-            modelUsed = body.path("model").takeIf { !it.isMissingNode }?.asText(),
-            finishReason = when (body.path("done_reason").asText("")) {
-                "stop" -> FinishReason.STOP
-                "length" -> FinishReason.LENGTH
-                else -> FinishReason.OTHER
-            },
-        )
     }
 
     /**

@@ -6,12 +6,14 @@ import io.aurora.core.annotations.SystemPrompt
 import io.aurora.core.exception.ConfigurationException
 import io.aurora.core.exception.ProviderException
 import io.aurora.core.exception.StructuredOutputException
+import io.aurora.core.exception.TimeoutException
 import io.aurora.core.model.MessageRole
 import io.aurora.core.model.ModelRequest
 import io.aurora.core.model.ModelResponse
 import io.aurora.core.provider.ModelProvider
 import io.aurora.core.provider.ProviderRegistry
 import io.aurora.structured.JacksonStructuredOutputHandler
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -30,6 +32,7 @@ class AuroraEngineTest {
         assertThat(result).isEqualTo("hardcoded response")
         assertThat(provider.requests).hasSize(1)
         assertThat(provider.requests.single().model).isEqualTo("claude-sonnet-4-20250514")
+        assertThat(provider.requests.single().timeoutMillis).isEqualTo(30_000)
         assertThat(provider.requests.single().messages.map { it.role })
             .containsExactly(MessageRole.SYSTEM, MessageRole.USER)
         assertThat(provider.requests.single().messages.last().content)
@@ -82,6 +85,15 @@ class AuroraEngineTest {
     }
 
     @Test
+    fun `rejects invalid retry and timeout settings`() {
+        val engine = AuroraEngine(RecordingProvider { ModelResponse(content = "unused") })
+
+        assertThatThrownBy { engine.create<InvalidTimeoutService>() }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("timeoutMillis")
+    }
+
+    @Test
     fun `rejects structured return types before aurora structured exists`() {
         val engine = AuroraEngine(RecordingProvider { ModelResponse(content = """{"status":"ok"}""") })
         val service = engine.create<StructuredStatusService>()
@@ -129,6 +141,106 @@ class AuroraEngineTest {
         assertThatThrownBy { runBlocking { service.status("tenant-a") } }
             .isInstanceOf(StructuredOutputException::class.java)
             .hasMessageContaining("failed after 3 attempt")
+    }
+
+    @Test
+    fun `structured output exception preserves failure context`() {
+        val provider = SequencedProvider(
+            ModelResponse(content = "not json"),
+            ModelResponse(content = "still wrong"),
+            ModelResponse(content = "final bad payload"),
+        )
+        val engine = AuroraEngine(
+            provider = provider,
+            structuredOutputHandler = JacksonStructuredOutputHandler(),
+        )
+        val service = engine.create<StructuredStatusService>()
+
+        assertThatThrownBy { runBlocking { service.status("tenant-a") } }
+            .isInstanceOfSatisfying(StructuredOutputException::class.java) { error ->
+                assertThat(error.originalPrompt).isEqualTo("Return a structured status")
+                assertThat(error.lastRawResponse).isEqualTo("final bad payload")
+                assertThat(error.validationError).contains("JSON")
+                assertThat(error.attemptCount).isEqualTo(3)
+            }
+    }
+
+    @Test
+    fun `retries retryable provider failures before succeeding`() {
+        val provider = RecordingProvider(
+            SequenceResponder(
+                suspend {
+                    throw ProviderException("rate limited", statusCode = 429, retryable = true)
+                },
+                suspend {
+                    throw ProviderException("service unavailable", statusCode = 503, retryable = true)
+                },
+                suspend {
+                    ModelResponse(content = "recovered")
+                },
+            )::next,
+        )
+        val engine = AuroraEngine(provider)
+        val service = engine.create<BlockingSummarizer>()
+
+        val result = service.summarize("raw input")
+
+        assertThat(result).isEqualTo("recovered")
+        assertThat(provider.requests).hasSize(3)
+    }
+
+    @Test
+    fun `does not retry non retryable provider failures`() {
+        val provider = RecordingProvider {
+            throw ProviderException("unauthorized", statusCode = 401, retryable = false)
+        }
+        val engine = AuroraEngine(provider)
+        val service = engine.create<BlockingSummarizer>()
+
+        assertThatThrownBy { service.summarize("raw input") }
+            .isInstanceOf(ProviderException::class.java)
+            .hasMessageContaining("unauthorized")
+
+        assertThat(provider.requests).hasSize(1)
+    }
+
+    @Test
+    fun `retries timeout failures within provider budget`() {
+        val provider = RecordingProvider(
+            SequenceResponder(
+                suspend {
+                    delay(30)
+                    ModelResponse(content = "too slow")
+                },
+                suspend {
+                    ModelResponse(content = "fast enough")
+                },
+            )::next,
+        )
+        val engine = AuroraEngine(provider)
+        val service = engine.create<TimeoutRetryService>()
+
+        val result = runBlocking { service.analyze("invoice-123") }
+
+        assertThat(result).isEqualTo("fast enough")
+        assertThat(provider.requests).hasSize(2)
+    }
+
+    @Test
+    fun `fails with timeout exception after provider retries are exhausted`() {
+        val provider = RecordingProvider {
+            delay(30)
+            ModelResponse(content = "never reached")
+        }
+        val engine = AuroraEngine(provider)
+        val service = engine.create<AlwaysTimeoutService>()
+
+        assertThatThrownBy { runBlocking { service.analyze("invoice-123") } }
+            .isInstanceOf(TimeoutException::class.java)
+            .hasMessageContaining("timed out")
+            .hasMessageContaining("AlwaysTimeoutService.analyze")
+
+        assertThat(provider.requests).hasSize(2)
     }
 
     @Test
@@ -226,6 +338,38 @@ private interface ExplicitProviderService {
 }
 
 @AiService
+private interface TimeoutRetryService {
+    @Operation(
+        prompt = "Analyze with a tight timeout",
+        model = "claude-sonnet-4-20250514",
+        providerRetries = 1,
+        timeoutMillis = 10,
+    )
+    suspend fun analyze(invoiceId: String): String
+}
+
+@AiService
+private interface AlwaysTimeoutService {
+    @Operation(
+        prompt = "Analyze with a tight timeout",
+        model = "claude-sonnet-4-20250514",
+        providerRetries = 1,
+        timeoutMillis = 10,
+    )
+    suspend fun analyze(invoiceId: String): String
+}
+
+@AiService
+private interface InvalidTimeoutService {
+    @Operation(
+        prompt = "Invalid timeout",
+        model = "claude-sonnet-4-20250514",
+        timeoutMillis = 0,
+    )
+    suspend fun analyze(invoiceId: String): String
+}
+
+@AiService
 private interface SuspendNotifier {
     @Operation(
         prompt = "Send a notification",
@@ -300,5 +444,17 @@ private class SequencedProvider(
     override suspend fun complete(request: ModelRequest): ModelResponse {
         requests += request
         return queue.removeFirstOrNull() ?: error("No more queued responses")
+    }
+}
+
+private class SequenceResponder(
+    private vararg val steps: suspend () -> ModelResponse,
+) {
+    private var index = 0
+
+    suspend fun next(@Suppress("UNUSED_PARAMETER") request: ModelRequest): ModelResponse {
+        val step = steps.getOrNull(index) ?: error("No more queued responses")
+        index += 1
+        return step()
     }
 }

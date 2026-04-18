@@ -28,3 +28,9 @@ jobs:
 
       - name: Run tests
         run: ./gradlew test
+
+      - name: Publish to Maven Local for example smoke test
+        run: ./gradlew publishToMavenLocal
+
+      - name: Run example smoke test
+        run: ./gradlew -p examples/kotlin-springboot-example test

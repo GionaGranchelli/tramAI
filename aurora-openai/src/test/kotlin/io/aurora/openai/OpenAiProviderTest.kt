@@ -3,6 +3,7 @@ package io.aurora.openai
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import io.aurora.core.exception.ConfigurationException
+import io.aurora.core.exception.ProviderException
 import io.aurora.core.model.Message
 import io.aurora.core.model.MessageRole
 import io.aurora.core.model.ModelRequest
@@ -22,6 +23,8 @@ class OpenAiProviderTest {
     private var capturedOrganization: String? = null
     private var capturedProject: String? = null
     private var capturedBody: String = ""
+    private var responseStatus: Int = 200
+    private var responseBody: String = defaultSuccessBody()
 
     @BeforeTest
     fun setUp() {
@@ -33,24 +36,8 @@ class OpenAiProviderTest {
             capturedBody = exchange.requestBody.readAllBytes().decodeToString()
             respond(
                 exchange = exchange,
-                body = """
-                    {
-                      "model": "gpt-5.1-chat-latest",
-                      "choices": [
-                        {
-                          "message": {
-                            "role": "assistant",
-                            "content": "hello from openai"
-                          },
-                          "finish_reason": "stop"
-                        }
-                      ],
-                      "usage": {
-                        "prompt_tokens": 18,
-                        "completion_tokens": 6
-                      }
-                    }
-                """.trimIndent(),
+                body = responseBody,
+                status = responseStatus,
             )
         }
         server.start()
@@ -80,6 +67,7 @@ class OpenAiProviderTest {
                     ),
                     maxTokens = 120,
                     temperature = 0.2,
+                    timeoutMillis = 1_500,
                 ),
             )
         }
@@ -153,6 +141,58 @@ class OpenAiProviderTest {
     }
 
     @Test
+    fun `marks transient http failures as retryable`() {
+        responseStatus = 429
+        responseBody = """{"error":{"message":"rate limited"}}"""
+        val provider = OpenAiProvider(
+            apiKey = "test-openai-key",
+            baseUrl = "http://localhost:${server.address.port}/v1",
+        )
+
+        assertThatThrownBy {
+            runBlocking {
+                provider.complete(
+                    ModelRequest(
+                        model = "gpt-5.1-chat-latest",
+                        messages = listOf(Message(MessageRole.USER, "say hello")),
+                    ),
+                )
+            }
+        }
+            .isInstanceOfSatisfying(ProviderException::class.java) { error ->
+                assertThat(error.statusCode).isEqualTo(429)
+                assertThat(error.retryable).isTrue()
+            }
+    }
+
+    @Test
+    fun `fails clearly when the response has no choices`() {
+        responseBody = """
+            {
+              "model": "gpt-5.1-chat-latest",
+              "choices": []
+            }
+        """.trimIndent()
+        val provider = OpenAiProvider(
+            apiKey = "test-openai-key",
+            baseUrl = "http://localhost:${server.address.port}/v1",
+        )
+
+        assertThatThrownBy {
+            runBlocking {
+                provider.complete(
+                    ModelRequest(
+                        model = "gpt-5.1-chat-latest",
+                        messages = listOf(Message(MessageRole.USER, "say hello")),
+                    ),
+                )
+            }
+        }
+            .isInstanceOf(ProviderException::class.java)
+            .hasMessageContaining("completion choices")
+    }
+
+    @Test
     @OptIn(ExperimentalCodexAuth::class)
     fun `reads codex chatgpt access token from auth file`() {
         val authFile = Files.createTempFile("codex-auth", ".json")
@@ -201,4 +241,23 @@ class OpenAiProviderTest {
         exchange.sendResponseHeaders(status, body.toByteArray().size.toLong())
         exchange.responseBody.use { it.write(body.toByteArray()) }
     }
+
+    private fun defaultSuccessBody(): String = """
+        {
+          "model": "gpt-5.1-chat-latest",
+          "choices": [
+            {
+              "message": {
+                "role": "assistant",
+                "content": "hello from openai"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 18,
+            "completion_tokens": 6
+          }
+        }
+    """.trimIndent()
 }

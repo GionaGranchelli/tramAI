@@ -30,6 +30,10 @@ class StructuredOutputException(
 class ProviderException(
     message: String,
     cause: Throwable? = null,
+    /** Provider HTTP status when one exists. */
+    val statusCode: Int? = null,
+    /** Whether the engine may retry this failure under provider retry policy. */
+    val retryable: Boolean = false,
 ) : AuroraException(message, cause)
 
 /**

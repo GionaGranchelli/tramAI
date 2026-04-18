@@ -1,37 +1,57 @@
 # Aurora
 
-Aurora is a structured-first, observability-native AI workflow library for the JVM.
+Aurora is a structured-first AI integration library for the JVM.
 
-Aurora is built for backend engineers who want to add AI to existing Kotlin or Java applications without adopting a chain or agent framework. The primary abstraction is an annotated interface method. Inputs stay typed. Outputs stay typed. Structured output is a first-class contract. Observability is optional at the dependency level and automatic when the observability module is present.
+It is built for backend engineers who want to add AI to Kotlin or Java services without adopting a chain or agent framework. The primary Aurora abstraction is an annotated interface method. Inputs stay normal method parameters. Outputs can stay typed. The runtime owns execution, retry, and provider routing. Structured parsing, validation, and recovery are first-class behavior rather than add-on utility code.
 
-## Current Status
+## Status
 
-Aurora is under active development. The repository already contains working implementations for:
+Aurora is currently a strong alpha moving toward a frozen `0.1.0` MVP release.
 
-- `aurora-core`
-- `aurora-engine`
-- `aurora-structured`
-- `aurora-anthropic`
-- `aurora-openai`
-- `aurora-ollama`
-- `aurora-observability`
-- `aurora-standalone`
-- `aurora-spring`
-- `aurora-testing`
-- `aurora-bom`
+What is already implemented:
 
-The implementation is tracked against the roadmap in [PLAN.md](./PLAN.md), the architecture in [DESIGN.md](./DESIGN.md), and the spec and ADR set under [docs](./docs).
+- annotated `@AiService` interfaces and runtime proxy execution
+- structured output with schema generation, parsing, validation, and retry feedback
+- explicit provider registry and operation-level provider override
+- Anthropic, OpenAI, OpenAI-compatible, and Ollama providers
+- engine-owned timeout and retry handling
+- optional OpenTelemetry integration
+- standalone runtime, Kotlin DSL, Java entry points, and blocking interfaces
+- Spring Boot autoconfiguration
+- deterministic testing support
 
-## Example
+What is explicitly not part of `0.1.0`:
+
+- streaming responses
+- tool calling
+- conversation memory
+- KSP or other generated proxy implementations
+
+The frozen release scope lives in [docs/reference/release-0.1.0.md](./docs/reference/release-0.1.0.md).
+
+## Why Aurora
+
+Aurora is intentionally opinionated about a few boundaries:
+
+- annotated interface methods are the primary user API
+- `aurora-engine` owns orchestration and retry policy
+- `aurora-structured` owns schema generation, extraction, and structured failure analysis
+- provider routing is explicit
+- observability is opt-in at the dependency level
+- standalone stays minimal instead of silently bundling everything
+
+Those boundaries are documented under [docs/adr](./docs/adr).
+
+## Quick Example
 
 ```kotlin
 @AiService
 interface InvoiceAnalyzer {
     @Operation(
         prompt = "Analyze the invoice and return a structured status",
-        model = "claude-sonnet-4-20250514"
+        model = "claude-sonnet-4-20250514",
     )
-    suspend fun analyze(invoiceId: String): InvoiceStatus
+    suspend fun analyze(invoiceText: String): InvoiceStatus
 }
 
 data class InvoiceStatus(
@@ -46,36 +66,73 @@ val aurora = Aurora {
 val analyzer = aurora.create<InvoiceAnalyzer>()
 ```
 
-OpenAI and OpenAI-compatible providers are available too:
+OpenAI and OpenAI-compatible providers are available as well:
 
 ```kotlin
 val aurora = Aurora {
     provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai")
     model("gpt-5.1-chat-latest", "openai")
-    model("gpt-5-codex", "openai")
 }
 ```
 
-For local experiments and testing, `aurora-openai` also includes an experimental Codex/ChatGPT auth-file path that can read a bearer token from the local Codex login state. That path is intentionally not the default documented production authentication flow.
+`aurora-openai` also contains an experimental Codex/ChatGPT auth-file path for local experimentation. That is intentionally marked experimental and is not the default production authentication story.
 
-## Build
+## Installation
 
-Aurora uses:
+Aurora is currently built and published from this repository. For local development and the included example project, publish the artifacts first:
 
-- Java 25 toolchains
+```bash
+./gradlew publishToMavenLocal
+```
+
+Then depend on the modules you need. Typical entry points are:
+
+- `io.aurora:aurora-standalone`
+- `io.aurora:aurora-spring`
+- `io.aurora:aurora-openai`
+- `io.aurora:aurora-anthropic`
+- `io.aurora:aurora-ollama`
+- `io.aurora:aurora-observability`
+- `io.aurora:aurora-testing`
+- `io.aurora:aurora-bom`
+
+## Example Project
+
+The repository includes a minimal Spring Boot example in [examples/kotlin-springboot-example](./examples/kotlin-springboot-example).
+
+It demonstrates:
+
+- a plain text endpoint
+- a typed structured endpoint
+- local-model usage through Ollama
+- deterministic smoke tests against published local artifacts
+
+Run the example locally with:
+
+```bash
+./gradlew -p examples/kotlin-springboot-example bootRun
+```
+
+## Build And Verify
+
+Aurora currently targets:
+
+- Java 25
 - Kotlin 2.3.0
-- Gradle wrapper
+- Gradle 9 wrapper
 
-Run the full test suite with:
+Useful commands:
 
 ```bash
 ./gradlew test
+./gradlew publishToMavenLocal
+./gradlew -p examples/kotlin-springboot-example test
 ```
 
 ## Modules
 
 - `aurora-core`: annotations, contracts, shared models, exceptions
-- `aurora-engine`: proxy execution, dispatch, retry orchestration
+- `aurora-engine`: proxy execution, dispatch, timeout handling, retry orchestration
 - `aurora-structured`: schema generation and structured-output analysis
 - `aurora-anthropic`: Anthropic provider
 - `aurora-openai`: OpenAI and OpenAI-compatible providers
@@ -83,18 +140,34 @@ Run the full test suite with:
 - `aurora-observability`: OpenTelemetry observer integration
 - `aurora-standalone`: minimal non-framework runtime
 - `aurora-spring`: Spring Boot adapter
-- `aurora-testing`: mock providers and audit-friendly test helpers
+- `aurora-testing`: mock and failure-oriented test helpers
 - `aurora-bom`: version alignment for consumers
 
-## Design Rules
+## Documentation
 
-Aurora is intentionally strict about a few boundaries:
+Start here:
 
-- `aurora-engine` owns orchestration and retry policy
-- `aurora-structured` owns schema generation, extraction, deserialization, and structured failure analysis
-- provider resolution uses an explicit registry
-- `aurora-standalone` stays minimal
-- observability is optional at the dependency level
-- Java support in v1 uses explicit blocking service interfaces
+- [docs/README.md](./docs/README.md)
+- [Getting Started](./docs/guides/getting-started.md)
+- [Standalone Usage](./docs/guides/standalone-usage.md)
+- [Spring Boot Integration](./docs/guides/spring-boot.md)
+- [Structured Output](./docs/guides/structured-output.md)
+- [Current Limitations](./docs/reference/limitations.md)
 
-Those rules are documented under [docs/adr](./docs/adr).
+For maintainers and contributors:
+
+- [CONTRIBUTING.md](./CONTRIBUTING.md)
+- [AGENTS.md](./AGENTS.md)
+- [ADR Index](./docs/adr/README.md)
+- [Execution Board](./docs/board/board.md)
+
+## Current Limits
+
+Aurora is not yet the right choice if you need:
+
+- streaming-first UI behavior
+- provider-native tool calling
+- memory or retrieval orchestration
+- mature agent workflows
+
+Those are future milestones, not hidden partial features.

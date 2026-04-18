@@ -27,7 +27,20 @@ Use [templates/spec-template.md](./templates/spec-template.md) for new work.
 - Phase 1: `SPEC-001` to `SPEC-003`
 - Phase 2: `SPEC-004` to `SPEC-006`
 - Phase 3: `SPEC-007` to `SPEC-008`
-- Phase 4: roadmap only for now, no committed specs yet
+- Phase 4: `SPEC-009` to `SPEC-010`
+
+## Current Status Snapshot
+
+- `SPEC-001` to `SPEC-007`: implemented in the repository
+- `SPEC-008`: in progress, with release and credibility work still open
+- `SPEC-009` to `SPEC-010`: committed future work, not yet scheduled for implementation
+
+## Status Meanings
+
+- `proposed`: accepted as a requirements document, but not yet implemented
+- `in_progress`: partially implemented or actively being closed
+- `implemented`: behavior exists in the repository and the remaining work is mainly polish or follow-up
+- `superseded`: no longer the active requirements source
 
 ## Initial Spec Set
 
@@ -50,8 +63,10 @@ Use [templates/spec-template.md](./templates/spec-template.md) for new work.
 
 ### Phase 4: Growth
 
-- No committed specs yet
-- Future candidates include streaming, tool calling, conversation memory, KSP proxy generation, and additional providers or framework adapters
+- [SPEC-009: Streaming Responses](./spec-009-streaming-responses.md)
+- [SPEC-010: Tool Calling](./spec-010-tool-calling.md)
+
+Conversation memory, KSP proxy generation, and additional providers or framework adapters remain roadmap items only for now.
 
 ## Writing Rules
 

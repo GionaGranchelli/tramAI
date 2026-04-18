@@ -5,9 +5,11 @@ import io.aurora.core.annotations.Operation
 import io.aurora.core.annotations.SystemPrompt
 import io.aurora.core.exception.ConfigurationException
 import io.aurora.core.exception.ProviderException
+import io.aurora.core.exception.TimeoutException
 import io.aurora.core.model.Message
 import io.aurora.core.model.MessageRole
 import io.aurora.core.model.ModelRequest
+import io.aurora.core.model.ModelResponse
 import io.aurora.core.observation.NoOpOperationObserver
 import io.aurora.core.observation.OperationCallContext
 import io.aurora.core.observation.OperationObservation
@@ -20,8 +22,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
@@ -156,10 +161,15 @@ private class AuroraInvocationHandler(
         arguments: List<Any?>,
     ): String {
         val provider = providerRegistry.resolve(operation.operation)
-        val observation = startObservation(provider, operation, attempt = 0)
-        val response = callProvider(provider, operation.toRequest(arguments), operation, observation)
-        observation.onCallCompleted(parseSuccess = null)
-        return response.content
+        val result = callProviderWithRetries(
+            provider = provider,
+            request = operation.toRequest(arguments),
+            operation = operation,
+            attemptCounter = AttemptCounter(),
+        )
+
+        result.observation.onCallCompleted(parseSuccess = null)
+        return result.response.content
     }
 
     private suspend fun executeStructured(
@@ -172,39 +182,41 @@ private class AuroraInvocationHandler(
         val contract = operation.structuredContract(handler)
         val messages = operation.initialMessages(arguments, contract.schemaJson).toMutableList()
         val maxAttempts = operation.operation.maxRetries + 1
+        val attemptCounter = AttemptCounter()
 
         repeat(maxAttempts) { attemptIndex ->
             val provider = providerRegistry.resolve(operation.operation)
-            val observation = startObservation(provider, operation, attempt = attemptIndex)
-            val response = callProvider(
+            val result = callProviderWithRetries(
                 provider = provider,
-                ModelRequest(
+                request = ModelRequest(
                     model = operation.operation.model,
                     messages = messages.toList(),
+                    timeoutMillis = operation.operation.timeoutMillis,
                     operationInterface = operation.method.declaringClass.name,
                     operationMethod = operation.method.name,
                 ),
                 operation = operation,
-                observation = observation,
+                attemptCounter = attemptCounter,
             )
 
             when (
                 val analysis = handler.analyze(
-                    rawResponse = response.content,
+                    rawResponse = result.response.content,
                     targetType = operation.returnType,
                 )
             ) {
                 is StructuredOutputResult.Success -> {
-                    observation.onCallCompleted(parseSuccess = true)
+                    result.observation.onCallCompleted(parseSuccess = true)
                     return analysis.value
                 }
+
                 is StructuredOutputResult.Failure -> {
-                    observation.onStructuredParseFailure(
+                    result.observation.onStructuredParseFailure(
                         rawResponse = analysis.rawResponse,
                         errorSummary = analysis.errorSummary,
                     )
                     if (attemptIndex == maxAttempts - 1) {
-                        observation.onCallCompleted(parseSuccess = false)
+                        result.observation.onCallCompleted(parseSuccess = false)
                         throw io.aurora.core.exception.StructuredOutputException(
                             message = "Structured output parsing failed after $maxAttempts attempt(s)",
                             originalPrompt = operation.operation.prompt,
@@ -214,7 +226,7 @@ private class AuroraInvocationHandler(
                         )
                     }
 
-                    observation.onCallCompleted(parseSuccess = false)
+                    result.observation.onCallCompleted(parseSuccess = false)
                     // The engine owns retries. Structured output only supplies the validation result and feedback text.
                     messages += Message(MessageRole.ASSISTANT, analysis.rawResponse)
                     messages += Message(MessageRole.USER, analysis.feedbackMessage)
@@ -225,23 +237,95 @@ private class AuroraInvocationHandler(
         error("Structured retry loop exited without returning or throwing")
     }
 
-    private suspend fun callProvider(
+    private suspend fun callProviderWithRetries(
         provider: ModelProvider,
         request: ModelRequest,
         operation: OperationDefinition,
-        observation: OperationObservation,
-    ) = try {
-        provider.complete(request).also(observation::onProviderResponse)
+        attemptCounter: AttemptCounter,
+    ): ProviderCallResult {
+        val maxAttempts = operation.operation.providerRetries + 1
+
+        repeat(maxAttempts) { retryIndex ->
+            val observation = startObservation(
+                provider = provider,
+                operation = operation,
+                attempt = attemptCounter.next(),
+            )
+
+            try {
+                val response = callProviderOnce(provider, request, operation)
+                observation.onProviderResponse(response)
+                return ProviderCallResult(response = response, observation = observation)
+            } catch (error: Throwable) {
+                observation.onProviderFailure(error)
+                observation.onCallCompleted(parseSuccess = null)
+
+                if (!shouldRetryProviderCall(error, retryIndex, maxAttempts)) {
+                    throw error
+                }
+
+                delay(providerRetryDelayMillis(retryIndex))
+            }
+        }
+
+        error("Provider retry loop exited without returning or throwing")
+    }
+
+    private suspend fun callProviderOnce(
+        provider: ModelProvider,
+        request: ModelRequest,
+        operation: OperationDefinition,
+    ): ModelResponse = try {
+        val timeoutMillis = request.timeoutMillis ?: operation.operation.timeoutMillis
+        withTimeout(timeoutMillis) {
+            provider.complete(request)
+        }
     } catch (error: Throwable) {
-        observation.onProviderFailure(error)
         throw when (error) {
+            is TimeoutCancellationException -> TimeoutException(
+                message = buildTimeoutMessage(
+                    provider = provider,
+                    operation = operation,
+                    timeoutMillis = request.timeoutMillis ?: operation.operation.timeoutMillis,
+                ),
+                cause = error,
+            )
+
             is ProviderException -> error
+
             else -> ProviderException(
                 message = "Provider ${provider.providerId()} failed while invoking ${serviceDefinition.serviceType.qualifiedName}.${operation.method.name}",
                 cause = error,
             )
         }
     }
+
+    private fun shouldRetryProviderCall(
+        error: Throwable,
+        retryIndex: Int,
+        maxAttempts: Int,
+    ): Boolean {
+        if (retryIndex >= maxAttempts - 1) {
+            return false
+        }
+
+        return when (error) {
+            is TimeoutException -> true
+            is ProviderException -> error.retryable
+            else -> false
+        }
+    }
+
+    private fun providerRetryDelayMillis(retryIndex: Int): Long {
+        val unboundedDelay = INITIAL_PROVIDER_RETRY_DELAY_MILLIS shl retryIndex
+        return minOf(unboundedDelay, MAX_PROVIDER_RETRY_DELAY_MILLIS)
+    }
+
+    private fun buildTimeoutMessage(
+        provider: ModelProvider,
+        operation: OperationDefinition,
+        timeoutMillis: Long,
+    ): String = "Provider ${provider.providerId()} timed out after ${timeoutMillis}ms while invoking ${serviceDefinition.serviceType.qualifiedName}.${operation.method.name}"
 
     private fun startObservation(
         provider: ModelProvider,
@@ -316,6 +400,7 @@ private data class OperationDefinition(
         return ModelRequest(
             model = operation.model,
             messages = initialMessages(arguments),
+            timeoutMillis = operation.timeoutMillis,
             operationInterface = method.declaringClass.name,
             operationMethod = method.name,
         )
@@ -361,6 +446,16 @@ private data class OperationDefinition(
             operation: Operation,
             systemPrompt: String?,
         ): OperationDefinition {
+            require(operation.maxRetries >= 0) {
+                "@Operation(maxRetries) must be zero or greater for ${method.declaringClass.name}.${method.name}"
+            }
+            require(operation.providerRetries >= 0) {
+                "@Operation(providerRetries) must be zero or greater for ${method.declaringClass.name}.${method.name}"
+            }
+            require(operation.timeoutMillis > 0) {
+                "@Operation(timeoutMillis) must be greater than zero for ${method.declaringClass.name}.${method.name}"
+            }
+
             val kotlinFunction = method.kotlinFunction
             val isSuspend = kotlinFunction?.isSuspend == true
             val parameterNames = resolveParameterNames(method, kotlinFunction)
@@ -426,8 +521,22 @@ private data class OperationDefinition(
     }
 }
 
+private data class ProviderCallResult(
+    val response: ModelResponse,
+    val observation: OperationObservation,
+)
+
+private class AttemptCounter {
+    private var attempt = 0
+
+    fun next(): Int = attempt++
+}
+
 private enum class ReturnKind {
     STRING,
     UNIT,
     STRUCTURED,
 }
+
+private const val INITIAL_PROVIDER_RETRY_DELAY_MILLIS = 50L
+private const val MAX_PROVIDER_RETRY_DELAY_MILLIS = 1_000L

@@ -1,6 +1,6 @@
 # SPEC-007: Testing Support
 
-- Status: proposed
+- Status: implemented
 - Owner: maintainer
 - Last updated: 2026-04-18
 - Related roadmap milestone: M7
@@ -55,3 +55,4 @@ Aurora will only be practical in production code if developers can test AI-depen
 
 - Operation identification by method name alone may be insufficient in overloaded or proxied scenarios.
 - Assertion APIs should stay small enough to remain maintainable.
+- Some planned Spring-scoped testing conveniences remain follow-up work rather than shipped functionality.

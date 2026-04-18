@@ -25,7 +25,41 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Publish placeholder
+      - name: Resolve version
         run: |
-          echo "Publishing is not wired yet."
-          echo "This workflow is intentionally a placeholder until signing and repository credentials are provided."
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "AURORA_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "AURORA_VERSION=0.1.0-SNAPSHOT" >> "$GITHUB_ENV"
+          fi
+
+      - name: Verify build
+        env:
+          ORG_GRADLE_PROJECT_auroraVersion: ${{ env.AURORA_VERSION }}
+        run: ./gradlew test --no-configuration-cache
+
+      - name: Publish to configured repository
+        if: ${{ secrets.AURORA_PUBLISH_RELEASE_URL != '' && secrets.AURORA_PUBLISH_USERNAME != '' && secrets.AURORA_PUBLISH_PASSWORD != '' }}
+        env:
+          ORG_GRADLE_PROJECT_auroraVersion: ${{ env.AURORA_VERSION }}
+          ORG_GRADLE_PROJECT_auroraPublishReleaseUrl: ${{ secrets.AURORA_PUBLISH_RELEASE_URL }}
+          ORG_GRADLE_PROJECT_auroraPublishSnapshotUrl: ${{ secrets.AURORA_PUBLISH_SNAPSHOT_URL }}
+          ORG_GRADLE_PROJECT_auroraPublishUsername: ${{ secrets.AURORA_PUBLISH_USERNAME }}
+          ORG_GRADLE_PROJECT_auroraPublishPassword: ${{ secrets.AURORA_PUBLISH_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.AURORA_SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.AURORA_SIGNING_PASSWORD }}
+        run: ./gradlew publish --no-configuration-cache
+
+      - name: Publish to Maven Local smoke target
+        if: ${{ !(secrets.AURORA_PUBLISH_RELEASE_URL != '' && secrets.AURORA_PUBLISH_USERNAME != '' && secrets.AURORA_PUBLISH_PASSWORD != '') }}
+        env:
+          ORG_GRADLE_PROJECT_auroraVersion: ${{ env.AURORA_VERSION }}
+        run: ./gradlew publishToMavenLocal --no-configuration-cache
+
+      - name: Publish to Maven Local for example smoke test
+        env:
+          ORG_GRADLE_PROJECT_auroraVersion: ${{ env.AURORA_VERSION }}
+        run: ./gradlew publishToMavenLocal --no-configuration-cache
+
+      - name: Run example smoke test
+        run: ./gradlew -p examples/kotlin-springboot-example test --no-configuration-cache

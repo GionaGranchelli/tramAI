@@ -32,9 +32,13 @@ Run:
 
 ```bash
 ./gradlew test
+./gradlew publishToMavenLocal
+./gradlew -p examples/kotlin-springboot-example test
 ```
 
 The project targets Java 25 and Kotlin 2.3.0.
+
+Use the example smoke test when a change could affect published-artifact consumption, Spring integration, or documentation-backed setup flows.
 
 ## Implementation Principles
 
@@ -55,3 +59,15 @@ A good contribution:
 - explains why the change is correct
 
 If a reviewer cannot tell what the change guarantees by reading the tests, the change is not ready yet.
+
+## Release-Oriented Changes
+
+If you change:
+
+- publishing metadata
+- artifact structure
+- example-project dependencies
+- release workflows
+- public setup or quickstart documentation
+
+also update the release-facing docs under `docs/reference/`, especially the `0.1.0` scope/checklist and release runbook.

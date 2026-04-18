@@ -8,6 +8,9 @@ import io.aurora.core.model.FinishReason
 import io.aurora.core.model.ModelRequest
 import io.aurora.core.model.ModelResponse
 import io.aurora.core.provider.ModelProvider
+import io.aurora.core.provider.applyAuroraTimeout
+import io.aurora.core.provider.providerHttpFailure
+import io.aurora.core.provider.providerTransportFailure
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.URI
@@ -89,53 +92,58 @@ open class OpenAiCompatibleProvider(
 ) : ModelProvider {
 
     override suspend fun complete(request: ModelRequest): ModelResponse = withContext(Dispatchers.IO) {
-        val payload = linkedMapOf<String, Any?>(
-            "model" to request.model,
-            "stream" to false,
-            "messages" to request.messages.map { message ->
-                mapOf(
-                    "role" to message.role.name.lowercase(),
-                    "content" to message.content,
-                )
-            },
-        )
+        try {
+            val payload = linkedMapOf<String, Any?>(
+                "model" to request.model,
+                "stream" to false,
+                "messages" to request.messages.map { message ->
+                    mapOf(
+                        "role" to message.role.name.lowercase(),
+                        "content" to message.content,
+                    )
+                },
+            )
 
-        request.maxTokens?.let { payload["max_tokens"] = it }
-        request.temperature?.let { payload["temperature"] = it }
+            request.maxTokens?.let { payload["max_tokens"] = it }
+            request.temperature?.let { payload["temperature"] = it }
 
-        val httpRequest = HttpRequest.newBuilder()
-            .uri(URI.create("${baseUrl.trimEnd('/')}/chat/completions"))
-            .header("Authorization", "Bearer ${accessTokenSource.accessToken()}")
-            .header("Content-Type", "application/json")
-            .apply {
-                organization?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Organization", it) }
-                project?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Project", it) }
+            val httpRequest = HttpRequest.newBuilder()
+                .uri(URI.create("${baseUrl.trimEnd('/')}/chat/completions"))
+                .header("Authorization", "Bearer ${accessTokenSource.accessToken()}")
+                .header("Content-Type", "application/json")
+                .apply {
+                    organization?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Organization", it) }
+                    project?.takeIf { it.isNotBlank() }?.let { header("OpenAI-Project", it) }
+                }
+                .applyAuroraTimeout(request)
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                .build()
+
+            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+            if (response.statusCode() !in 200..299) {
+                throw providerHttpFailure(providerName, response.statusCode(), response.body())
             }
-            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-            .build()
 
-        val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
-        if (response.statusCode() !in 200..299) {
-            throw ProviderException("$providerName returned HTTP ${response.statusCode()}: ${response.body()}")
+            val body = objectMapper.readTree(response.body())
+            val firstChoice = body.path("choices").firstOrNull()
+                ?: throw ProviderException("$providerName response did not contain any completion choices")
+            val message = firstChoice.path("message")
+
+            ModelResponse(
+                content = extractContent(message.path("content")),
+                inputTokens = body.path("usage").path("prompt_tokens").takeIf { !it.isMissingNode }?.asInt(),
+                outputTokens = body.path("usage").path("completion_tokens").takeIf { !it.isMissingNode }?.asInt(),
+                modelUsed = body.path("model").takeIf { !it.isMissingNode }?.asText(),
+                finishReason = when (firstChoice.path("finish_reason").asText("")) {
+                    "stop" -> FinishReason.STOP
+                    "length" -> FinishReason.LENGTH
+                    "content_filter" -> FinishReason.CONTENT_FILTER
+                    else -> FinishReason.OTHER
+                },
+            )
+        } catch (error: Throwable) {
+            throw providerTransportFailure(providerName, error)
         }
-
-        val body = objectMapper.readTree(response.body())
-        val firstChoice = body.path("choices").firstOrNull()
-            ?: throw ProviderException("$providerName response did not contain any completion choices")
-        val message = firstChoice.path("message")
-
-        ModelResponse(
-            content = extractContent(message.path("content")),
-            inputTokens = body.path("usage").path("prompt_tokens").takeIf { !it.isMissingNode }?.asInt(),
-            outputTokens = body.path("usage").path("completion_tokens").takeIf { !it.isMissingNode }?.asInt(),
-            modelUsed = body.path("model").takeIf { !it.isMissingNode }?.asText(),
-            finishReason = when (firstChoice.path("finish_reason").asText("")) {
-                "stop" -> FinishReason.STOP
-                "length" -> FinishReason.LENGTH
-                "content_filter" -> FinishReason.CONTENT_FILTER
-                else -> FinishReason.OTHER
-            },
-        )
     }
 
     override fun providerId(): String = providerName

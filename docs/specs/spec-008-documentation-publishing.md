@@ -1,6 +1,6 @@
 # SPEC-008: Documentation and Publishing Readiness
 
-- Status: proposed
+- Status: in_progress
 - Owner: maintainer
 - Last updated: 2026-04-18
 - Related roadmap milestone: M8
@@ -56,3 +56,4 @@ Aurora cannot launch credibly with only code. The project needs a coherent publi
 
 - Publishing and signing details may require separate operational runbooks later.
 - The line between internal docs and public docs should be revisited once the project is open source.
+- Real public release credibility still depends on live proof and final release-process closure, not only on the presence of docs files.

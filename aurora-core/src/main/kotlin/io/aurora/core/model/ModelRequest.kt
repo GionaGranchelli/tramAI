@@ -12,6 +12,8 @@ data class ModelRequest(
     val maxTokens: Int? = null,
     /** Optional provider-specific temperature override. */
     val temperature: Double? = null,
+    /** Maximum duration, in milliseconds, allowed for a single provider attempt. */
+    val timeoutMillis: Long? = null,
     /** Fully qualified service interface name, when known. */
     val operationInterface: String? = null,
     /** Service method name, when known. */

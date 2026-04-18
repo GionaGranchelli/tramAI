@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: kotlin-springboot-example
+
+aurora:
+  default-provider: ollama
+  models:
+    "gemma4:e4b": ollama
+    "deepseek-r1:8b-64k": ollama
+  providers:
+    ollama:
+      base-url: http://localhost:11434

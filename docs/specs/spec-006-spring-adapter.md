@@ -1,6 +1,6 @@
 # SPEC-006: Spring Boot Adapter
 
-- Status: proposed
+- Status: implemented
 - Owner: maintainer
 - Last updated: 2026-04-18
 - Related roadmap milestone: M6

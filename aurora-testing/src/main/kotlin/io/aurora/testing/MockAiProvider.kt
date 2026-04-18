@@ -10,9 +10,9 @@ import io.aurora.core.provider.ModelProvider
  */
 class MockAiProvider private constructor(
     private val responsesByMethod: Map<String, List<String>>,
-) : ModelProvider {
+) : ModelProvider, RecordedRequestProvider {
     /** Requests captured in invocation order. */
-    val requests: MutableList<ModelRequest> = mutableListOf()
+    override val requests: MutableList<ModelRequest> = mutableListOf()
     private val responseIndexByMethod = mutableMapOf<String, Int>()
 
     override suspend fun complete(request: ModelRequest): ModelResponse {

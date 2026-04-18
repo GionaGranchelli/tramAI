@@ -15,6 +15,8 @@ annotation class Operation(
     val provider: String = "",
     /** Maximum number of structured-output retries after validation failures. */
     val maxRetries: Int = 2,
-    /** Reserved for provider-level retry integrations. */
+    /** Maximum number of provider retries after transient transport or API failures. */
     val providerRetries: Int = 3,
+    /** Maximum duration, in milliseconds, allowed for a single provider attempt. */
+    val timeoutMillis: Long = 30_000,
 )

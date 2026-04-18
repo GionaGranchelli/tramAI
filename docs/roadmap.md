@@ -23,6 +23,15 @@ This summary mirrors the current implementation plan and is intended to anchor d
 
 Demand-gated work includes streaming, tool calling, memory, KSP generation, and additional providers and framework adapters.
 
+## Current Delivery Snapshot
+
+- Phase 1: implemented
+- Phase 2: implemented
+- Phase 3: in progress
+  The codebase already contains the testing module, documentation base, example projects, and publication wiring, but release hardening and credibility work still remain before a first public MVP release.
+- Phase 4: design started, execution not yet scheduled
+  Streaming and tool calling now have committed specs and ADRs. Memory remains roadmap-only design work for now.
+
 ## Documentation Implication
 
 The docs in this repository should grow with the roadmap:
@@ -37,4 +46,4 @@ The docs in this repository should grow with the roadmap:
 - Phase 1: committed specs and tasks exist
 - Phase 2: committed specs and tasks exist
 - Phase 3: committed specs and tasks exist
-- Phase 4: roadmap only for now, no committed specs or tasks yet
+- Phase 4: committed specs exist for streaming and tool calling, but no execution tasks are scheduled yet
