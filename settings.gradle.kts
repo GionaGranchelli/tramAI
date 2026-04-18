@@ -6,6 +6,7 @@ include(
     "aurora-core",
     "aurora-engine",
     "aurora-observability",
+    "aurora-openai",
     "aurora-ollama",
     "aurora-spring",
     "aurora-standalone",

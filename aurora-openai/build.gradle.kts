@@ -20,19 +20,14 @@ kotlin {
 }
 
 dependencies {
-    api(project(":aurora-standalone"))
+    api(project(":aurora-core"))
 
-    implementation(project(":aurora-anthropic"))
-    implementation(project(":aurora-openai"))
-    implementation(project(":aurora-ollama"))
-    implementation(libs.spring.context)
-    implementation(libs.spring.boot.autoconfigure)
+    implementation(libs.coroutines.core)
+    implementation(libs.jackson.databind)
 
-    annotationProcessor(libs.spring.boot.configuration.processor)
-
-    testImplementation(libs.coroutines.core)
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.assertj.core)
     testImplementation(libs.kotlin.test.junit5)
-    testImplementation(libs.spring.boot.starter.test)
 }
 
 tasks.test {

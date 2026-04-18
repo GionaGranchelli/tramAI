@@ -12,6 +12,7 @@ dependencies {
         api(project(":aurora-engine"))
         api(project(":aurora-structured"))
         api(project(":aurora-anthropic"))
+        api(project(":aurora-openai"))
         api(project(":aurora-ollama"))
         api(project(":aurora-observability"))
         api(project(":aurora-standalone"))

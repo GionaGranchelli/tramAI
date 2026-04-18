@@ -12,6 +12,7 @@ Aurora is under active development. The repository already contains working impl
 - `aurora-engine`
 - `aurora-structured`
 - `aurora-anthropic`
+- `aurora-openai`
 - `aurora-ollama`
 - `aurora-observability`
 - `aurora-standalone`
@@ -45,6 +46,18 @@ val aurora = Aurora {
 val analyzer = aurora.create<InvoiceAnalyzer>()
 ```
 
+OpenAI and OpenAI-compatible providers are available too:
+
+```kotlin
+val aurora = Aurora {
+    provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai")
+    model("gpt-5.1-chat-latest", "openai")
+    model("gpt-5-codex", "openai")
+}
+```
+
+For local experiments and testing, `aurora-openai` also includes an experimental Codex/ChatGPT auth-file path that can read a bearer token from the local Codex login state. That path is intentionally not the default documented production authentication flow.
+
 ## Build
 
 Aurora uses:
@@ -65,6 +78,7 @@ Run the full test suite with:
 - `aurora-engine`: proxy execution, dispatch, retry orchestration
 - `aurora-structured`: schema generation and structured-output analysis
 - `aurora-anthropic`: Anthropic provider
+- `aurora-openai`: OpenAI and OpenAI-compatible providers
 - `aurora-ollama`: Ollama provider
 - `aurora-observability`: OpenTelemetry observer integration
 - `aurora-standalone`: minimal non-framework runtime

@@ -10,7 +10,7 @@ The current planned module layout is based on the roadmap and design documents. 
 - `aurora-observability`: OpenTelemetry integration and semantic convention mapping
 - `aurora-anthropic`: Anthropic provider implementation
 - `aurora-ollama`: Ollama provider implementation
-- `aurora-openai`: OpenAI provider implementation, planned for later milestones
+- `aurora-openai`: OpenAI and OpenAI-compatible provider implementation
 - `aurora-standalone`: minimal framework-free entry point and builder APIs
 - `aurora-spring`: Spring Boot autoconfiguration and bean registration
 - `aurora-testing`: mock providers, assertion helpers, and test support

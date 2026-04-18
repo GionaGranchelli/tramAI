@@ -1,5 +1,7 @@
 package io.aurora.spring
 
+import com.sun.net.httpserver.HttpExchange
+import com.sun.net.httpserver.HttpServer
 import io.aurora.core.annotations.AiService
 import io.aurora.core.annotations.Operation
 import io.aurora.core.model.ModelRequest
@@ -9,9 +11,10 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
-import org.springframework.context.annotation.Configuration
+import java.net.InetSocketAddress
 import kotlin.test.Test
 
 class AuroraAutoConfigurationTest {
@@ -36,13 +39,67 @@ class AuroraAutoConfigurationTest {
             assertThat(result).isEqualTo("spring hello")
         }
     }
+
+    @Test
+    fun `creates an openai provider from configuration properties`() {
+        var capturedAuthorization = ""
+        val server = HttpServer.create(InetSocketAddress(0), 0)
+        server.createContext("/v1/chat/completions") { exchange ->
+            capturedAuthorization = exchange.requestHeaders.getFirst("Authorization")
+            respond(
+                exchange = exchange,
+                body = """
+                    {
+                      "model": "gpt-5.1-chat-latest",
+                      "choices": [
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "openai spring hello"
+                          },
+                          "finish_reason": "stop"
+                        }
+                      ]
+                    }
+                """.trimIndent(),
+            )
+        }
+        server.start()
+
+        try {
+            val contextRunner = ApplicationContextRunner()
+                .withConfiguration(
+                    AutoConfigurations.of(AuroraAutoConfiguration::class.java),
+                )
+                .withUserConfiguration(TestApplication::class.java)
+                .withPropertyValues(
+                    "aurora.default-provider=openai",
+                    "aurora.models.gpt-5.1-chat-latest=openai",
+                    "aurora.providers.openai.apiKey=test-openai-key",
+                    "aurora.providers.openai.baseUrl=http://localhost:${server.address.port}/v1",
+                )
+
+            contextRunner.run { context ->
+                assertThat(context).hasSingleBean(TestInvoiceAnalyzer::class.java)
+                assertThat(context.getBean(AuroraProperties::class.java).providers.openai.apiKey).isEqualTo("test-openai-key")
+                val analyzer = context.getBean(TestInvoiceAnalyzer::class.java)
+
+                val result = runBlocking { analyzer.analyze("invoice-123") }
+
+                assertThat(capturedAuthorization).isEqualTo("Bearer test-openai-key")
+                assertThat(result).isEqualTo("openai spring hello")
+            }
+        } finally {
+            server.stop(0)
+        }
+    }
 }
 
 @AiService
 interface TestInvoiceAnalyzer {
     @Operation(
         prompt = "Analyze the invoice",
-        model = "claude-sonnet-4-20250514",
+        model = "gpt-5.1-chat-latest",
     )
     suspend fun analyze(invoiceId: String): String
 }
@@ -50,7 +107,7 @@ interface TestInvoiceAnalyzer {
 @SpringBootApplication
 open class TestApplication
 
-@Configuration
+@TestConfiguration
 open class ProviderConfiguration {
     @Bean
     open fun stubProvider(): ModelProvider = object : ModelProvider {
@@ -60,4 +117,14 @@ open class ProviderConfiguration {
 
         override fun providerId(): String = "stub"
     }
+}
+
+private fun respond(
+    exchange: HttpExchange,
+    body: String,
+    status: Int = 200,
+) {
+    exchange.responseHeaders.add("Content-Type", "application/json")
+    exchange.sendResponseHeaders(status, body.toByteArray().size.toLong())
+    exchange.responseBody.use { it.write(body.toByteArray()) }
 }
