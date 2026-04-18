@@ -1,0 +1,95 @@
+package io.aurora.anthropic
+
+import com.sun.net.httpserver.HttpExchange
+import com.sun.net.httpserver.HttpServer
+import io.aurora.core.model.Message
+import io.aurora.core.model.MessageRole
+import io.aurora.core.model.ModelRequest
+import kotlinx.coroutines.runBlocking
+import org.assertj.core.api.Assertions.assertThat
+import java.net.InetSocketAddress
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+
+class AnthropicProviderTest {
+    private lateinit var server: HttpServer
+    private var capturedBody: String = ""
+    private var capturedApiKey: String = ""
+    private var capturedVersion: String = ""
+
+    @BeforeTest
+    fun setUp() {
+        server = HttpServer.create(InetSocketAddress(0), 0)
+        server.createContext("/v1/messages") { exchange ->
+            capturedBody = exchange.requestBody.readAllBytes().decodeToString()
+            capturedApiKey = exchange.requestHeaders.getFirst("x-api-key")
+            capturedVersion = exchange.requestHeaders.getFirst("anthropic-version")
+            respond(
+                exchange = exchange,
+                body = """
+                    {
+                      "model": "claude-sonnet-4-20250514",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "hello from anthropic"
+                        }
+                      ],
+                      "usage": {
+                        "input_tokens": 19,
+                        "output_tokens": 9
+                      },
+                      "stop_reason": "end_turn"
+                    }
+                """.trimIndent(),
+            )
+        }
+        server.start()
+    }
+
+    @AfterTest
+    fun tearDown() {
+        server.stop(0)
+    }
+
+    @Test
+    fun `posts messages request and maps anthropic response`() {
+        val provider = AnthropicProvider(
+            apiKey = "test-key",
+            baseUrl = "http://localhost:${server.address.port}",
+        )
+
+        val result = runBlocking {
+            provider.complete(
+                ModelRequest(
+                    model = "claude-sonnet-4-20250514",
+                    messages = listOf(
+                        Message(MessageRole.SYSTEM, "You are concise."),
+                        Message(MessageRole.USER, "say hello"),
+                    ),
+                ),
+            )
+        }
+
+        assertThat(capturedApiKey).isEqualTo("test-key")
+        assertThat(capturedVersion).isEqualTo("2023-06-01")
+        assertThat(capturedBody)
+            .contains("\"model\":\"claude-sonnet-4-20250514\"")
+            .contains("\"system\":\"You are concise.\"")
+            .contains("\"role\":\"user\"")
+        assertThat(result.content).isEqualTo("hello from anthropic")
+        assertThat(result.inputTokens).isEqualTo(19)
+        assertThat(result.outputTokens).isEqualTo(9)
+    }
+
+    private fun respond(
+        exchange: HttpExchange,
+        body: String,
+        status: Int = 200,
+    ) {
+        exchange.responseHeaders.add("Content-Type", "application/json")
+        exchange.sendResponseHeaders(status, body.toByteArray().size.toLong())
+        exchange.responseBody.use { it.write(body.toByteArray()) }
+    }
+}

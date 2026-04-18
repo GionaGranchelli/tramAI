@@ -1,5 +1,9 @@
 .codex
 .idea
+.gradle
+build
+*/build
+gradle-app.setting
 *.iml
 *.log
 *.tmp
