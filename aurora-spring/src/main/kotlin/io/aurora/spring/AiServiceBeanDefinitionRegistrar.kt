@@ -1,9 +1,7 @@
 package io.aurora.spring
 
 import io.aurora.core.annotations.AiService
-import org.springframework.beans.BeansException
 import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition
-import org.springframework.beans.factory.config.BeanDefinition
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory
 import org.springframework.beans.factory.support.BeanDefinitionRegistry
 import org.springframework.beans.factory.support.BeanDefinitionRegistryPostProcessor
@@ -12,6 +10,9 @@ import org.springframework.boot.autoconfigure.AutoConfigurationPackages
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider
 import org.springframework.core.type.filter.AnnotationTypeFilter
 
+/**
+ * Scans auto-configuration packages for `@AiService` interfaces and registers proxy factory beans.
+ */
 class AiServiceBeanDefinitionRegistrar(
     private val beanFactory: ConfigurableListableBeanFactory,
 ) : BeanDefinitionRegistryPostProcessor {
@@ -22,6 +23,7 @@ class AiServiceBeanDefinitionRegistrar(
         }
 
         val scanner = object : ClassPathScanningCandidateComponentProvider(false) {
+            // Aurora services are interfaces, so the default Spring component heuristics are too broad here.
             override fun isCandidateComponent(beanDefinition: AnnotatedBeanDefinition): Boolean {
                 return beanDefinition.metadata.isIndependent && beanDefinition.metadata.isInterface
             }

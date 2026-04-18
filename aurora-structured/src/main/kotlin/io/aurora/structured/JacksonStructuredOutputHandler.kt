@@ -18,6 +18,9 @@ import kotlin.reflect.full.memberProperties
 import kotlin.reflect.jvm.isAccessible
 import kotlin.reflect.jvm.javaType
 
+/**
+ * Jackson-based structured output handler with schema generation and annotation-driven validation.
+ */
 class JacksonStructuredOutputHandler(
     private val objectMapper: ObjectMapper = JsonMapper.builder()
         .addModule(kotlinModule())
@@ -220,6 +223,7 @@ class JacksonStructuredOutputHandler(
         val trimmed = rawResponse.trim()
         if (trimmed.startsWith("```")) {
             val lines = trimmed.lines()
+            // Accept fenced code blocks because models often wrap JSON in markdown.
             if (lines.size >= 3 && lines.last().trim() == "```") {
                 return lines.drop(1).dropLast(1).joinToString("\n").trim()
             }

@@ -1,5 +1,8 @@
 package io.aurora.core.annotations
 
+/**
+ * Describes the semantic meaning of a structured output property.
+ */
 @MustBeDocumented
 @Retention(AnnotationRetention.RUNTIME)
 @Target(
@@ -8,5 +11,6 @@ package io.aurora.core.annotations
     AnnotationTarget.VALUE_PARAMETER,
 )
 annotation class AiDescription(
+    /** Human-readable description exposed to the model schema. */
     val value: String,
 )

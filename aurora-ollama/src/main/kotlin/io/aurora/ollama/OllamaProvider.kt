@@ -14,6 +14,9 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 
+/**
+ * [ModelProvider] implementation for Ollama's chat API.
+ */
 class OllamaProvider(
     private val baseUrl: String = "http://localhost:11434",
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
@@ -63,5 +66,8 @@ class OllamaProvider(
         )
     }
 
+    /**
+     * Returns the stable provider id used by the registry.
+     */
     override fun providerId(): String = "ollama"
 }

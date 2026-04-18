@@ -11,6 +11,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 
+/**
+ * Spring Boot auto-configuration for standalone Aurora usage.
+ */
 @AutoConfiguration
 @EnableConfigurationProperties(AuroraProperties::class)
 class AuroraAutoConfiguration {
@@ -29,6 +32,7 @@ class AuroraAutoConfiguration {
                 builder.provider(provider, name = provider.providerId())
             }
         } else {
+            // Fall back to property-driven provider construction when no provider beans are present.
             properties.providers.anthropic.apiKey?.takeIf { it.isNotBlank() }?.let { apiKey ->
                 builder.provider(
                     provider = AnthropicProvider(

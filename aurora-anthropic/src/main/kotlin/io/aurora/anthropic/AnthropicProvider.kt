@@ -13,6 +13,9 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 
+/**
+ * [ModelProvider] implementation for Anthropic's Messages API.
+ */
 class AnthropicProvider(
     private val apiKey: String,
     private val baseUrl: String = "https://api.anthropic.com",
@@ -26,6 +29,7 @@ class AnthropicProvider(
             "model" to request.model,
             "max_tokens" to (request.maxTokens ?: 1024),
             "messages" to request.messages
+                // Anthropic accepts the system prompt separately from the conversational message list.
                 .filter { it.role.name.lowercase() != "system" }
                 .map { message ->
                     mapOf(
@@ -71,5 +75,8 @@ class AnthropicProvider(
         )
     }
 
+    /**
+     * Returns the stable provider id used by the registry.
+     */
     override fun providerId(): String = "anthropic"
 }

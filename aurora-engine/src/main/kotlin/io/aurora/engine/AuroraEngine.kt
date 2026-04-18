@@ -32,6 +32,9 @@ import kotlin.reflect.KFunction
 import kotlin.reflect.KParameter
 import kotlin.reflect.jvm.kotlinFunction
 
+/**
+ * Runtime engine that turns annotated service interfaces into AI-backed proxies.
+ */
 class AuroraEngine(
     private val providerRegistry: ProviderRegistry,
     private val structuredOutputHandler: StructuredOutputHandler? = null,
@@ -40,6 +43,9 @@ class AuroraEngine(
     private val scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
 ) : AutoCloseable {
 
+    /**
+     * Creates an engine backed by a single provider.
+     */
     constructor(
         provider: ModelProvider,
         structuredOutputHandler: StructuredOutputHandler? = null,
@@ -54,6 +60,9 @@ class AuroraEngine(
         scope = scope,
     )
 
+    /**
+     * Creates a proxy implementation for the given Aurora service interface.
+     */
     fun <T : Any> create(serviceType: KClass<T>): T {
         val definition = ServiceDefinition.create(serviceType)
         val handler = AuroraInvocationHandler(
@@ -72,11 +81,17 @@ class AuroraEngine(
         ) as T
     }
 
+    /**
+     * Cancels the engine-owned coroutine job hierarchy.
+     */
     override fun close() {
         job.cancel()
     }
 }
 
+/**
+ * Reified convenience overload for [AuroraEngine.create].
+ */
 inline fun <reified T : Any> AuroraEngine.create(): T = create(T::class)
 
 private class AuroraInvocationHandler(
@@ -108,6 +123,7 @@ private class AuroraInvocationHandler(
         operation: OperationDefinition,
         args: Array<out Any?>,
     ): Any {
+        // Kotlin suspend proxies receive the continuation as the last JVM argument.
         @Suppress("UNCHECKED_CAST")
         val continuation = args.lastOrNull() as? Continuation<Any?>
             ?: throw ConfigurationException("Suspend invocation for ${operation.method.name} is missing its continuation")
@@ -199,6 +215,7 @@ private class AuroraInvocationHandler(
                     }
 
                     observation.onCallCompleted(parseSuccess = false)
+                    // The engine owns retries. Structured output only supplies the validation result and feedback text.
                     messages += Message(MessageRole.ASSISTANT, analysis.rawResponse)
                     messages += Message(MessageRole.USER, analysis.feedbackMessage)
                 }

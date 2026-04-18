@@ -1,5 +1,8 @@
 package io.aurora.core.annotations
 
+/**
+ * Constrains a numeric structured output property to a closed range.
+ */
 @MustBeDocumented
 @Retention(AnnotationRetention.RUNTIME)
 @Target(
@@ -8,6 +11,8 @@ package io.aurora.core.annotations
     AnnotationTarget.VALUE_PARAMETER,
 )
 annotation class AiRange(
+    /** Inclusive lower bound accepted during validation. */
     val min: Double,
+    /** Inclusive upper bound accepted during validation. */
     val max: Double,
 )

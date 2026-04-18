@@ -5,7 +5,11 @@ import io.aurora.core.observation.OperationCallContext
 import io.aurora.core.observation.OperationObservation
 import io.aurora.core.observation.OperationObserver
 
+/**
+ * Test observer that records every engine attempt and outcome.
+ */
 class RecordingOperationObserver : OperationObserver {
+    /** Recorded attempt lifecycle events in call order. */
     val callRecords: MutableList<CallRecord> = mutableListOf()
 
     override fun onCallStarted(context: OperationCallContext): OperationObservation {
@@ -14,6 +18,9 @@ class RecordingOperationObserver : OperationObserver {
         return RecordingObservation(record)
     }
 
+    /**
+     * Mutable record for a single provider attempt.
+     */
     data class CallRecord(
         val context: OperationCallContext,
         var response: ModelResponse? = null,

@@ -10,10 +10,16 @@ import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.api.trace.Tracer
 
+/**
+ * OpenTelemetry-backed [OperationObserver] implementation.
+ */
 class OpenTelemetryOperationObserver(
     private val tracer: Tracer,
 ) : OperationObserver {
 
+    /**
+     * Creates an observer from an [OpenTelemetry] instance.
+     */
     constructor(
         openTelemetry: OpenTelemetry,
         instrumentationName: String = "io.aurora.observability",
