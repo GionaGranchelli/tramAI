@@ -9,11 +9,11 @@
 
 ## Problem
 
-Aurora will only be practical in production code if developers can test AI-dependent behavior without live network access, brittle HTTP stubs, or mocking internal library mechanics.
+Tramai will only be practical in production code if developers can test AI-dependent behavior without live network access, brittle HTTP stubs, or mocking internal library mechanics.
 
 ## Scope
 
-- `aurora-testing` module
+- `tramai-testing` module
 - `MockAiProvider` DSL
 - capture and inspection of outbound requests
 - simulated failure provider support for retry-path testing
@@ -29,20 +29,20 @@ Aurora will only be practical in production code if developers can test AI-depen
 ## Functional Requirements
 
 - Tests must be able to register canned responses by operation or method name.
-- Tests must be able to inspect what Aurora sent to the provider.
+- Tests must be able to inspect what Tramai sent to the provider.
 - Retry-path behavior must be testable by simulating malformed responses or transient failures.
 - Assertion helpers should support checking retry count, parse success, and relevant observability output when instrumentation is enabled.
 - Spring test support must allow replacing live provider execution with deterministic mock responses.
 
 ## Quality Requirements
 
-- Test utilities must avoid requiring Mockito or HTTP-level stubbing for normal Aurora tests.
+- Test utilities must avoid requiring Mockito or HTTP-level stubbing for normal Tramai tests.
 - Test helpers should make failure output easy to understand.
 - The testing module must stay framework-optional except for explicitly Spring-scoped features.
 
 ## Design Notes
 
-- Aurora's testing story should validate the same abstractions the user writes against, not internal implementation classes.
+- Tramai's testing story should validate the same abstractions the user writes against, not internal implementation classes.
 - The testing module is part of the core product credibility because the library explicitly rejects leaky AI integration patterns.
 
 ## Acceptance Criteria

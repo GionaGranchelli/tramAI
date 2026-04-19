@@ -1,10 +1,10 @@
 # Release 0.1.0 Scope and Checklist
 
-This page freezes the intended MVP scope for Aurora `0.1.0` and records the remaining work needed to move from strong alpha to first public release.
+This page freezes the intended MVP scope for Tramai `0.1.0` and records the remaining work needed to move from strong alpha to first public release.
 
 ## Release Goal
 
-Aurora `0.1.0` should be a credible first public release for JVM backend engineers who want:
+Tramai `0.1.0` should be a credible first public release for JVM backend engineers who want:
 
 - annotated interface methods as the primary AI abstraction
 - typed structured output as a first-class path
@@ -24,9 +24,9 @@ The `0.1.0` release is frozen to the following feature set:
 - explicit provider registry and operation-level provider override
 - Ollama, Anthropic, OpenAI, and OpenAI-compatible providers
 - provider timeout and retry hardening
-- OpenTelemetry integration through `aurora-observability`
+- OpenTelemetry integration through `tramai-observability`
 - standalone runtime, Kotlin DSL, Java entry points, and blocking interfaces
-- Spring Boot autoconfiguration and `aurora.*` configuration binding
+- Spring Boot autoconfiguration and `tramai.*` configuration binding
 - testing module with deterministic mock provider support and assertion helpers
 - documentation baseline, example applications, BOM, and publication wiring
 
@@ -96,7 +96,7 @@ What still blocks a credible first public MVP release:
 
 ## Release Exit Criteria
 
-Aurora is ready for `0.1.0` when:
+Tramai is ready for `0.1.0` when:
 
 - the checklist above is materially complete
 - the board and specs accurately describe current status

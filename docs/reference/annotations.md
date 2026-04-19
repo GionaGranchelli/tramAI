@@ -1,10 +1,10 @@
 # Annotation Reference
 
-Aurora currently uses a small annotation set.
+Tramai currently uses a small annotation set.
 
 ## `@AiService`
 
-Marks an interface as an Aurora service contract.
+Marks an interface as an Tramai service contract.
 
 Use it on interfaces only.
 
@@ -84,7 +84,7 @@ val recommendations: List<String>
 
 ## Current Gaps
 
-Aurora does not yet include annotations for:
+Tramai does not yet include annotations for:
 
 - tool calling
 - streaming

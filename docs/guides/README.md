@@ -1,6 +1,6 @@
 # Guides
 
-User-facing how-to documentation for Aurora.
+User-facing how-to documentation for Tramai.
 
 ## Core Guides
 
@@ -10,9 +10,9 @@ User-facing how-to documentation for Aurora.
 - [Providers and Model Routing](./providers.md)
 - [Structured Output](./structured-output.md)
 - [Observability](./observability.md)
-- [Testing Aurora Code](./testing.md)
+- [Testing Tramai Code](./testing.md)
 - [Common Use Cases](./use-cases.md)
-- [Extending Aurora](./extending-aurora.md)
+- [Extending Tramai](./extending-tramai.md)
 
 ## Suggested Order
 

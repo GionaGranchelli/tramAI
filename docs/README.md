@@ -1,15 +1,15 @@
-# Aurora Documentation
+# Tramai Documentation
 
-This documentation set covers Aurora as it exists in the repository today.
+This documentation set covers Tramai as it exists in the repository today.
 
-Aurora is a structured-first AI integration library for the JVM. Its core model is:
+Tramai is a structured-first AI integration library for the JVM. Its core model is:
 
 1. define an interface with `@AiService`
 2. annotate methods with `@Operation`
 3. map models to providers explicitly
 4. call the interface as normal Kotlin or Java code
 
-Aurora is already usable for real development, but it is still an early-stage project. The guides below document the implemented features and call out the current limitations where they matter.
+Tramai is already usable for real development, but it is still an early-stage project. The guides below document the implemented features and call out the current limitations where they matter.
 
 ## Start Here
 
@@ -19,7 +19,7 @@ If you are new to the project, read these in order:
 2. [Standalone Usage](./guides/standalone-usage.md)
 3. [Providers and Model Routing](./guides/providers.md)
 4. [Structured Output](./guides/structured-output.md)
-5. [Testing Aurora Code](./guides/testing.md)
+5. [Testing Tramai Code](./guides/testing.md)
 
 If you are using Spring Boot instead of the standalone builder:
 
@@ -36,9 +36,9 @@ If you are using Spring Boot instead of the standalone builder:
 - [Providers and Model Routing](./guides/providers.md)
 - [Structured Output](./guides/structured-output.md)
 - [Observability](./guides/observability.md)
-- [Testing Aurora Code](./guides/testing.md)
+- [Testing Tramai Code](./guides/testing.md)
 - [Common Use Cases](./guides/use-cases.md)
-- [Extending Aurora](./guides/extending-aurora.md)
+- [Extending Tramai](./guides/extending-tramai.md)
 
 ## Reference
 
@@ -51,7 +51,7 @@ If you are using Spring Boot instead of the standalone builder:
 
 ## Architecture and Delivery Docs
 
-These are useful once you understand how to use Aurora and want to understand why it is shaped this way:
+These are useful once you understand how to use Tramai and want to understand why it is shaped this way:
 
 - [Architecture Overview](./architecture/overview.md)
 - [Module Overview](./architecture/modules.md)
@@ -64,23 +64,23 @@ These are useful once you understand how to use Aurora and want to understand wh
 
 The repository currently contains working implementations for:
 
-- `aurora-core`
-- `aurora-engine`
-- `aurora-structured`
-- `aurora-anthropic`
-- `aurora-openai`
-- `aurora-ollama`
-- `aurora-observability`
-- `aurora-standalone`
-- `aurora-spring`
-- `aurora-testing`
-- `aurora-bom`
+- `tramai-core`
+- `tramai-engine`
+- `tramai-structured`
+- `tramai-anthropic`
+- `tramai-openai`
+- `tramai-ollama`
+- `tramai-observability`
+- `tramai-standalone`
+- `tramai-spring`
+- `tramai-testing`
+- `tramai-bom`
 
 ## What This Documentation Tries To Do
 
 This documentation is intentionally practical:
 
-- how to set Aurora up from source
+- how to set Tramai up from source
 - how to choose modules
 - how to define services
 - how to configure providers

@@ -6,10 +6,10 @@
 
 ### Added
 
-- `aurora-core`, `aurora-engine`, and `aurora-structured`
+- `tramai-core`, `tramai-engine`, and `tramai-structured`
 - provider modules for Anthropic, OpenAI, OpenAI-compatible APIs, and Ollama
-- optional `aurora-observability`
-- `aurora-standalone`, `aurora-spring`, `aurora-testing`, and `aurora-bom`
+- optional `tramai-observability`
+- `tramai-standalone`, `tramai-spring`, `tramai-testing`, and `tramai-bom`
 - deterministic testing helpers including mock and simulated-failure providers
 - raw text streaming support (`Flow<StreamChunk>`) in core and major providers (OpenAI, Anthropic, Ollama)
 - engine-owned, provider-portable tool calling orchestration with `@AiTool` discovery

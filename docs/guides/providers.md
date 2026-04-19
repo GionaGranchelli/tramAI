@@ -1,6 +1,6 @@
 # Providers and Model Routing
 
-Aurora keeps provider routing explicit.
+Tramai keeps provider routing explicit.
 
 That is one of the core design rules of the project.
 
@@ -13,7 +13,7 @@ That is one of the core design rules of the project.
 
 ## How Routing Works
 
-Aurora resolves providers in this order:
+Tramai resolves providers in this order:
 
 1. explicit `provider` field on `@Operation`
 2. explicit model-to-provider registration
@@ -22,7 +22,7 @@ Aurora resolves providers in this order:
 That means the recommended setup is:
 
 ```kotlin
-val aurora = Aurora {
+val tramai = Tramai {
     provider(AnthropicProvider(System.getenv("ANTHROPIC_API_KEY")), name = "anthropic")
     provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai")
     provider(OllamaProvider("http://localhost:11434"), name = "ollama")
@@ -33,9 +33,9 @@ val aurora = Aurora {
 }
 ```
 
-## Why Aurora Does Not Use Model Prefix Routing
+## Why Tramai Does Not Use Model Prefix Routing
 
-Aurora does not infer provider choice from model names like:
+Tramai does not infer provider choice from model names like:
 
 - `gpt-*`
 - `claude-*`
@@ -133,7 +133,7 @@ Typical models:
 This is the simplest setup:
 
 ```kotlin
-val aurora = Aurora {
+val tramai = Tramai {
     provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
 }
 ```
@@ -180,6 +180,6 @@ Provider support does not yet include:
 - externalized provider-level timeout-policy configuration
 - provider-native structured-output optimizations
 
-Aurora does already support engine-owned retries for retryable provider failures and per-operation timeout control through `@Operation`.
+Tramai does already support engine-owned retries for retryable provider failures and per-operation timeout control through `@Operation`.
 
 See [Current Limitations](../reference/limitations.md) for the current boundaries.

@@ -1,6 +1,6 @@
 # Standalone Usage
 
-Use `aurora-standalone` when you want a small runtime without framework integration.
+Use `tramai-standalone` when you want a small runtime without framework integration.
 
 ## What The Standalone Module Does
 
@@ -15,7 +15,7 @@ It does not bring observability transitively. Observability remains opt-in.
 ## Basic Builder Pattern
 
 ```kotlin
-val aurora = Aurora {
+val tramai = Tramai {
     provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
     model("gpt-5.1-chat-latest", "openai")
 }
@@ -24,7 +24,7 @@ val aurora = Aurora {
 Then create services:
 
 ```kotlin
-val service = aurora.create<MyService>()
+val service = tramai.create<MyService>()
 ```
 
 ## Kotlin DSL
@@ -32,7 +32,7 @@ val service = aurora.create<MyService>()
 The recommended style is:
 
 ```kotlin
-val aurora = Aurora {
+val tramai = Tramai {
     provider(AnthropicProvider(System.getenv("ANTHROPIC_API_KEY")), name = "anthropic")
     provider(OllamaProvider("http://localhost:11434"), name = "ollama")
 
@@ -48,7 +48,7 @@ val aurora = Aurora {
 The same setup can be built with the explicit builder:
 
 ```kotlin
-val aurora = Aurora.builder()
+val tramai = Tramai.builder()
     .provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), "openai", true)
     .model("gpt-5.1-chat-latest", "openai")
     .build()
@@ -71,7 +71,7 @@ interface Summarizer {
 
 ## Structured Operations
 
-If the method returns a Kotlin type instead of `String`, Aurora activates structured parsing automatically.
+If the method returns a Kotlin type instead of `String`, Tramai activates structured parsing automatically.
 
 ```kotlin
 data class Summary(
@@ -89,7 +89,7 @@ interface Analyzer {
 }
 ```
 
-Aurora will:
+Tramai will:
 
 1. generate a schema-like prompt fragment from the return type
 2. ask the provider for JSON
@@ -99,7 +99,7 @@ Aurora will:
 
 ## Suspend And Blocking Methods
 
-Aurora supports both:
+Tramai supports both:
 
 ```kotlin
 @AiService
@@ -123,21 +123,21 @@ Current rule:
 
 ## Operation Design Advice
 
-Good Aurora operations are:
+Good Tramai operations are:
 
 - narrow in purpose
 - explicit in output shape
 - stable in model choice
 - easy to test in isolation
 
-Bad Aurora operations tend to combine multiple unrelated tasks into a single prompt and return a vague string blob.
+Bad Tramai operations tend to combine multiple unrelated tasks into a single prompt and return a vague string blob.
 
 ## Add Observability
 
 Standalone usage can attach an observer:
 
 ```kotlin
-val aurora = Aurora {
+val tramai = Tramai {
     provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
     model("gpt-5.1-chat-latest", "openai")
     observer(OpenTelemetryOperationObserver(openTelemetry))

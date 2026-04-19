@@ -1,6 +1,6 @@
 # Contributing
 
-Aurora is a library project with a high correctness bar. Changes should preserve architectural clarity and be audited by tests.
+Tramai is a library project with a high correctness bar. Changes should preserve architectural clarity and be audited by tests.
 
 ## Before You Change Code
 
@@ -16,7 +16,7 @@ If your change pressures a module boundary or public API contract, update the do
 
 ## Quality Expectations
 
-Aurora does not treat tests as optional. Every meaningful behavior change should include tests that verify:
+Tramai does not treat tests as optional. Every meaningful behavior change should include tests that verify:
 
 - the happy path
 - the failure path
@@ -45,8 +45,8 @@ Use the example smoke test when a change could affect published-artifact consump
 - Keep the core runtime framework-agnostic.
 - Keep optional modules truly optional.
 - Prefer explicit behavior over hidden fallback.
-- Do not move parsing logic into `aurora-engine`.
-- Do not move retry policy into `aurora-structured`.
+- Do not move parsing logic into `tramai-engine`.
+- Do not move retry policy into `tramai-structured`.
 - Do not introduce magical API generation that the current runtime cannot honestly support.
 
 ## Pull Request Standard

@@ -1,10 +1,10 @@
 # Common Use Cases
 
-Aurora is best suited to backend-oriented AI tasks that benefit from typed boundaries.
+Tramai is best suited to backend-oriented AI tasks that benefit from typed boundaries.
 
 ## 1. Data Extraction
 
-Use Aurora when you need to convert unstructured text into typed data.
+Use Tramai when you need to convert unstructured text into typed data.
 
 Examples:
 
@@ -25,7 +25,7 @@ data class InvoiceFields(
 
 ## 2. Classification
 
-Aurora works well for constrained classification tasks.
+Tramai works well for constrained classification tasks.
 
 Examples:
 
@@ -55,7 +55,7 @@ Examples:
 
 ## 4. Internal Automation Services
 
-Aurora fits well when AI becomes an internal dependency of a normal service layer.
+Tramai fits well when AI becomes an internal dependency of a normal service layer.
 
 Examples:
 
@@ -76,7 +76,7 @@ Use the same interface contract, then swap the provider.
 
 ## 6. Multi-Provider Apps
 
-Aurora supports a practical split:
+Tramai supports a practical split:
 
 - OpenAI or Anthropic for production cloud workflows
 - Ollama for local development
@@ -86,17 +86,17 @@ Because provider mapping is explicit, you can keep the interface stable while ch
 
 ## 7. Testing AI-Dependent Business Logic
 
-Aurora is intentionally good at this.
+Tramai is intentionally good at this.
 
 Use `MockAiProvider` when you want to test:
 
-- whether your service calls the right Aurora method
+- whether your service calls the right Tramai method
 - whether structured retries happen
 - whether your application logic behaves correctly after receiving a typed AI result
 
-## Where Aurora Is Less Suitable Today
+## Where Tramai Is Less Suitable Today
 
-Aurora is not yet the best fit for:
+Tramai is not yet the best fit for:
 
 - streaming-first chat UIs
 - tool-calling agents

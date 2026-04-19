@@ -1,12 +1,12 @@
 # AGENTS.md
 
-This repository contains Aurora, a structured-first, observability-native AI workflow library for the JVM.
+This repository contains Tramai, a structured-first, observability-native AI workflow library for the JVM.
 
-Aurora exists to let backend engineers add AI capabilities to existing JVM applications through typed interface methods rather than chain-oriented or agent-oriented abstractions. The project is Kotlin-first, Java-friendly, framework-agnostic in its core, and designed for strong observability and strong testability.
+Tramai exists to let backend engineers add AI capabilities to existing JVM applications through typed interface methods rather than chain-oriented or agent-oriented abstractions. The project is Kotlin-first, Java-friendly, framework-agnostic in its core, and designed for strong observability and strong testability.
 
 ## Project Purpose
 
-Aurora should be the library a JVM backend engineer reaches for when they want:
+Tramai should be the library a JVM backend engineer reaches for when they want:
 
 - one annotated interface as the primary AI abstraction
 - typed inputs and typed outputs
@@ -15,7 +15,7 @@ Aurora should be the library a JVM backend engineer reaches for when they want:
 - OpenTelemetry-friendly observability
 - framework-free usage, with optional framework adapters
 
-The codebase should reflect that purpose. Avoid adding abstractions that push Aurora toward agent frameworks, prompt-template-heavy APIs, or hidden orchestration models.
+The codebase should reflect that purpose. Avoid adding abstractions that push Tramai toward agent frameworks, prompt-template-heavy APIs, or hidden orchestration models.
 
 ## Non-Negotiable Design Principles
 
@@ -32,10 +32,10 @@ Contributors and coding agents must preserve the current architectural decisions
 
 Especially important:
 
-- `aurora-engine` owns orchestration and retry policy
-- `aurora-structured` owns schema generation, extraction, deserialization, and structured failure analysis
-- `aurora-standalone` remains minimal
-- `aurora-observability` remains optional and opt-in at the dependency level
+- `tramai-engine` owns orchestration and retry policy
+- `tramai-structured` owns schema generation, extraction, deserialization, and structured failure analysis
+- `tramai-standalone` remains minimal
+- `tramai-observability` remains optional and opt-in at the dependency level
 - provider resolution is registry-based, not driven by fragile model-prefix heuristics
 - blocking Java support in v1 uses explicit blocking service interfaces, not invented `*Blocking` methods
 
@@ -43,7 +43,7 @@ If a change pressures one of these boundaries, update or add an ADR before imple
 
 ## Quality Bar
 
-Aurora is a library. Library bugs become downstream application bugs. The standard is therefore higher than "works in one example."
+Tramai is a library. Library bugs become downstream application bugs. The standard is therefore higher than "works in one example."
 
 Every change should aim for:
 
@@ -129,9 +129,9 @@ After implementation:
 
 As the repository grows:
 
-- keep `aurora-core` small and dependency-light
-- keep `aurora-engine` focused on orchestration
-- keep `aurora-structured` focused on structured-output mechanics
+- keep `tramai-core` small and dependency-light
+- keep `tramai-engine` focused on orchestration
+- keep `tramai-structured` focused on structured-output mechanics
 - keep optional modules truly optional
 - keep framework adapters thin
 

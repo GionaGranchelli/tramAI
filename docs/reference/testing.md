@@ -1,6 +1,6 @@
 # Testing Reference
 
-Aurora's testing support currently lives in `aurora-testing`.
+Tramai's testing support currently lives in `tramai-testing`.
 
 ## `MockAiProvider`
 
@@ -56,7 +56,7 @@ Useful for asserting:
 - parse success or failure
 - observed provider failures
 
-## `AuroraAssertions`
+## `TramaiAssertions`
 
 Fluent assertion helper around:
 
@@ -66,7 +66,7 @@ Fluent assertion helper around:
 Example:
 
 ```kotlin
-AuroraAssertions.assertThat(provider, observer)
+TramaiAssertions.assertThat(provider, observer)
     .whenCalled("analyze")
     .wasCalledTimes(2)
     .andRetried(1)

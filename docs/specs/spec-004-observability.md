@@ -9,13 +9,13 @@
 
 ## Problem
 
-Aurora claims to be observability-native. That claim is only credible if every AI call emits useful OpenTelemetry data automatically when OTel is present, without penalizing users who do not use it.
+Tramai claims to be observability-native. That claim is only credible if every AI call emits useful OpenTelemetry data automatically when OTel is present, without penalizing users who do not use it.
 
 ## Scope
 
-- Optional `aurora-observability` module
+- Optional `tramai-observability` module
 - Span creation around provider execution
-- Mapping of Aurora execution metadata to OTel GenAI semantic conventions
+- Mapping of Tramai execution metadata to OTel GenAI semantic conventions
 - Parse failure events recorded on spans
 - No-op behavior when OTel APIs are absent
 
@@ -30,9 +30,9 @@ Aurora claims to be observability-native. That claim is only credible if every A
 - Every provider call must be wrapped in a span when observability is enabled.
 - Spans must include provider identity, requested model, response model, token usage, operation identity, retry attempt, and structured parse success.
 - Structured parse failures must be emitted as span events rather than top-level span exceptions by default.
-- When OTel is not available, Aurora must use a no-op path without changing application behavior.
+- When OTel is not available, Tramai must use a no-op path without changing application behavior.
 - Observability wiring must not require an extra feature flag when the module and OTel APIs are present.
-- Observability must remain opt-in at the dependency level and must not be a mandatory transitive dependency of `aurora-standalone`.
+- Observability must remain opt-in at the dependency level and must not be a mandatory transitive dependency of `tramai-standalone`.
 
 ## Quality Requirements
 
@@ -52,7 +52,7 @@ Aurora claims to be observability-native. That claim is only credible if every A
 - A real provider call generates a span with the expected GenAI attributes in a local test setup.
 - A structured parse failure records an event with failure context.
 - Running without OTel on the classpath does not fail and does not require configuration changes.
-- `aurora-standalone` can be used without pulling `aurora-observability` transitively.
+- `tramai-standalone` can be used without pulling `tramai-observability` transitively.
 
 ## Risks and Follow-Ups
 

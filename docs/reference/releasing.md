@@ -1,6 +1,6 @@
-# Releasing Aurora
+# Releasing Tramai
 
-This page is the maintainer runbook for cutting Aurora releases.
+This page is the maintainer runbook for cutting Tramai releases.
 
 It complements the frozen scope in [Release 0.1.0 Scope and Checklist](./release-0.1.0.md).
 
@@ -30,12 +30,12 @@ The repository contains:
 
 Remote publishing requires these GitHub Actions secrets:
 
-- `AURORA_PUBLISH_RELEASE_URL`
-- `AURORA_PUBLISH_SNAPSHOT_URL`
-- `AURORA_PUBLISH_USERNAME`
-- `AURORA_PUBLISH_PASSWORD`
-- `AURORA_SIGNING_KEY`
-- `AURORA_SIGNING_PASSWORD`
+- `TRAMAI_PUBLISH_RELEASE_URL`
+- `TRAMAI_PUBLISH_SNAPSHOT_URL`
+- `TRAMAI_PUBLISH_USERNAME`
+- `TRAMAI_PUBLISH_PASSWORD`
+- `TRAMAI_SIGNING_KEY`
+- `TRAMAI_SIGNING_PASSWORD`
 
 Without those secrets, the publish workflow falls back to `publishToMavenLocal`.
 
@@ -58,23 +58,23 @@ These validate:
 
 ## Guarded Real-Provider Checks
 
-Aurora now includes opt-in provider integration tests that are skipped by default unless you explicitly enable them.
+Tramai now includes opt-in provider integration tests that are skipped by default unless you explicitly enable them.
 
 ### Ollama
 
 Required environment:
 
 ```bash
-export AURORA_RUN_OLLAMA_INTEGRATION=true
-export AURORA_OLLAMA_MODEL=<your-local-model>
+export TRAMAI_RUN_OLLAMA_INTEGRATION=true
+export TRAMAI_OLLAMA_MODEL=<your-local-model>
 # optional
-export AURORA_OLLAMA_BASE_URL=http://localhost:11434
+export TRAMAI_OLLAMA_BASE_URL=http://localhost:11434
 ```
 
 Run:
 
 ```bash
-./gradlew :aurora-ollama:test --tests '*OllamaProviderIntegrationTest'
+./gradlew :tramai-ollama:test --tests '*OllamaProviderIntegrationTest'
 ```
 
 ### OpenAI Or OpenAI-Compatible
@@ -82,22 +82,22 @@ Run:
 Required environment:
 
 ```bash
-export AURORA_RUN_OPENAI_INTEGRATION=true
-export AURORA_OPENAI_MODEL=<model-name>
-export AURORA_OPENAI_API_KEY=<api-key>
+export TRAMAI_RUN_OPENAI_INTEGRATION=true
+export TRAMAI_OPENAI_MODEL=<model-name>
+export TRAMAI_OPENAI_API_KEY=<api-key>
 # or
-export AURORA_OPENAI_BEARER_TOKEN=<bearer-token>
+export TRAMAI_OPENAI_BEARER_TOKEN=<bearer-token>
 # optional
-export AURORA_OPENAI_BASE_URL=https://api.openai.com/v1
+export TRAMAI_OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
 Run:
 
 ```bash
-./gradlew :aurora-openai:test --tests '*OpenAiProviderIntegrationTest'
+./gradlew :tramai-openai:test --tests '*OpenAiProviderIntegrationTest'
 ```
 
-These checks are intentionally light-touch. They verify that Aurora can make a real provider call through the shipped provider modules without making the default test suite depend on external credentials or services.
+These checks are intentionally light-touch. They verify that Tramai can make a real provider call through the shipped provider modules without making the default test suite depend on external credentials or services.
 
 ## Cutting A Release
 

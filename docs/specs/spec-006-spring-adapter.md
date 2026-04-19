@@ -9,15 +9,15 @@
 
 ## Problem
 
-Spring Boot is a major adoption path for JVM backend libraries. Aurora needs a thin integration layer that makes `@AiService` proxies injectable without turning the core runtime into a Spring-specific system.
+Spring Boot is a major adoption path for JVM backend libraries. Tramai needs a thin integration layer that makes `@AiService` proxies injectable without turning the core runtime into a Spring-specific system.
 
 ## Scope
 
-- `aurora-spring` module
+- `tramai-spring` module
 - autoconfiguration for the standalone runtime
 - scanning and registration of `@AiService` interfaces as beans
-- `aurora.*` configuration properties model
-- explicit `@EnableAurora` opt-in annotation if needed alongside default autoconfiguration
+- `tramai.*` configuration properties model
+- explicit `@EnableTramai` opt-in annotation if needed alongside default autoconfiguration
 
 ## Non-Goals
 
@@ -27,8 +27,8 @@ Spring Boot is a major adoption path for JVM backend libraries. Aurora needs a t
 
 ## Functional Requirements
 
-- Adding `aurora-spring` to a Spring Boot application must be sufficient to register `@AiService` proxies as beans.
-- Provider and default operation settings must be configurable from `application.yml` under the `aurora.*` namespace.
+- Adding `tramai-spring` to a Spring Boot application must be sufficient to register `@AiService` proxies as beans.
+- Provider and default operation settings must be configurable from `application.yml` under the `tramai.*` namespace.
 - Configuration properties should support IDE metadata generation.
 - The Spring adapter must reuse the same core execution path as standalone usage.
 - Integration tests must verify bean registration and successful operation execution inside a Spring test context.
@@ -41,12 +41,12 @@ Spring Boot is a major adoption path for JVM backend libraries. Aurora needs a t
 
 ## Design Notes
 
-- This module exists to wire Aurora into Spring facilities, not to redefine how Aurora works.
+- This module exists to wire Tramai into Spring facilities, not to redefine how Tramai works.
 - Any feature that only exists in the Spring adapter should be treated as a design smell unless strongly justified.
 
 ## Acceptance Criteria
 
-- A Spring Boot app with Aurora on the classpath can inject an `@AiService` with no explicit bean factory method.
+- A Spring Boot app with Tramai on the classpath can inject an `@AiService` with no explicit bean factory method.
 - `application.yml` values are bound and influence runtime behavior.
 - Spring integration tests pass with a real or stubbed provider path.
 

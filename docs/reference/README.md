@@ -1,6 +1,6 @@
 # Reference
 
-Low-level reference documentation for the current Aurora implementation.
+Low-level reference documentation for the current Tramai implementation.
 
 ## Reference Pages
 

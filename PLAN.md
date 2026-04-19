@@ -1,4 +1,4 @@
-# Aurora — Project Roadmap
+# Tramai — Project Roadmap
 ### A structured-first, observability-native AI workflow library for the JVM
 **Language:** Kotlin | **Serialization:** Jackson | **Framework policy:** Agnostic core, optional Spring adapter  
 **Target:** Maven Central, open source, solo maintainer
@@ -7,7 +7,7 @@
 
 ## North Star
 
-Aurora is the library a backend engineer reaches for when they want to add AI to an existing JVM application without learning a new mental model. One annotated interface. Typed inputs and outputs. Every call visible in your traces. Works with Spring, Quarkus, plain Java, or nothing at all.
+Tramai is the library a backend engineer reaches for when they want to add AI to an existing JVM application without learning a new mental model. One annotated interface. Typed inputs and outputs. Every call visible in your traces. Works with Spring, Quarkus, plain Java, or nothing at all.
 
 ---
 
@@ -28,12 +28,12 @@ Phase 4 — Growth           M9+        Post-launch       Community, v2 features
 **Goal:** Annotated Kotlin interfaces generate working proxies. Raw String operations execute end-to-end.
 
 **Deliverables:**
-- `aurora-core` module: `@AiService`, `@Operation`, `@SystemPrompt` annotations
-- `aurora-engine` module: JDK Dynamic Proxy generation via `java.lang.reflect.Proxy`
+- `tramai-core` module: `@AiService`, `@Operation`, `@SystemPrompt` annotations
+- `tramai-engine` module: JDK Dynamic Proxy generation via `java.lang.reflect.Proxy`
 - Method dispatch: detect return type (`String`, `Unit`, data class), route accordingly
 - `suspend fun` detection at proxy generation time
 - `ModelProvider` interface + `ModelRequest` / `ModelResponse` data classes
-- `AuroraException` sealed hierarchy: `StructuredOutputException`, `ProviderException`, `ConfigurationException`, `TimeoutException`
+- `TramaiException` sealed hierarchy: `StructuredOutputException`, `ProviderException`, `ConfigurationException`, `TimeoutException`
 - Unit tests: proxy creation, method dispatch routing, exception propagation
 
 **What does NOT exist yet:** structured output, real providers, observability.
@@ -46,7 +46,7 @@ Phase 4 — Growth           M9+        Post-launch       Community, v2 features
 **Goal:** Any Kotlin data class or Java POJO can be a return type. Parse failures retry automatically.
 
 **Deliverables:**
-- `aurora-structured` module
+- `tramai-structured` module
 - Custom Jackson-based JSON schema generator that reads `@AiDescription`, `@AiRange`, `@AiMinItems`
 - Schema cached per method at startup — not generated per call
 - Schema injected into system prompt as a typed contract
@@ -65,8 +65,8 @@ Phase 4 — Growth           M9+        Post-launch       Community, v2 features
 **Goal:** Real AI calls work. Local-first (Ollama) and cloud (Anthropic) both ship.
 
 **Deliverables:**
-- `aurora-ollama` module: HTTP client via `ktor-client`, coroutine-native, `/api/chat` endpoint
-- `aurora-anthropic` module: Anthropic Messages API
+- `tramai-ollama` module: HTTP client via `ktor-client`, coroutine-native, `/api/chat` endpoint
+- `tramai-anthropic` module: Anthropic Messages API
 - Provider registry: explicit model-to-provider and provider-name registration, with deterministic resolution and no implicit unknown-model fallback
 - Timeout configuration per provider and per operation
 - Provider-level retry on 429 / 503 with exponential backoff, configurable `providerRetries`
@@ -84,7 +84,7 @@ Phase 4 — Growth           M9+        Post-launch       Community, v2 features
 **Goal:** Every AI call emits an OTel span automatically. Zero config if OTel is on the classpath.
 
 **Deliverables:**
-- `aurora-observability` module
+- `tramai-observability` module
 - `ObservabilityInterceptor` wraps every provider call in an OTel span
 - OTel GenAI semantic conventions attributes:
 
@@ -95,10 +95,10 @@ Phase 4 — Growth           M9+        Post-launch       Community, v2 features
 | `gen_ai.response.model` | Actual model from response |
 | `gen_ai.usage.input_tokens` | Provider response metadata |
 | `gen_ai.usage.output_tokens` | Provider response metadata |
-| `aurora.operation.interface` | Fully qualified interface name |
-| `aurora.operation.method` | Method name |
-| `aurora.retry.attempt` | Current attempt number |
-| `aurora.structured.parse_success` | Boolean |
+| `tramai.operation.interface` | Fully qualified interface name |
+| `tramai.operation.method` | Method name |
+| `tramai.retry.attempt` | Current attempt number |
+| `tramai.structured.parse_success` | Boolean |
 
 - Span events for structured output failures (not exceptions — events)
 - Auto-detection: if `opentelemetry-api` is absent, no-op tracer used silently
@@ -110,14 +110,14 @@ Phase 4 — Growth           M9+        Post-launch       Community, v2 features
 ---
 
 ### M5 · Standalone Module + Java API
-**Goal:** Aurora works with zero framework. Java consumers have a first-class entry point.
+**Goal:** Tramai works with zero framework. Java consumers have a first-class entry point.
 
 **Deliverables:**
-- `aurora-standalone` module: assembles core + engine + structured as the minimal runtime
-- `aurora-observability` remains a separate opt-in module that auto-enables when present
+- `tramai-standalone` module: assembles core + engine + structured as the minimal runtime
+- `tramai-observability` remains a separate opt-in module that auto-enables when present
 - Kotlin DSL builder:
 ```kotlin
-val aurora = Aurora {
+val tramai = Tramai {
     provider(AnthropicProvider(apiKey = "..."))
     defaultModel("claude-sonnet-4-20250514")
     defaults {
@@ -126,15 +126,15 @@ val aurora = Aurora {
         timeout = 30.seconds
     }
 }
-val analyzer = aurora.create<InvoiceAnalyzer>()
+val analyzer = tramai.create<InvoiceAnalyzer>()
 ```
-- Java-friendly `Aurora.builder()` static entry point
+- Java-friendly `Tramai.builder()` static entry point
 - Explicit support for blocking service interfaces for Java and non-coroutine consumers
-- `aurora-bom` module: bill of materials for consumers managing multiple Aurora artifacts
+- `tramai-bom` module: bill of materials for consumers managing multiple Tramai artifacts
 - README quickstart covering both Kotlin and Java standalone usage
 - Example project: plain `main()` using Ollama locally, zero framework
 
-**Done when:** a Java engineer can add Aurora to a non-Spring project and call AI operations with no framework dependency.
+**Done when:** a Java engineer can add Tramai to a non-Spring project and call AI operations with no framework dependency.
 
 ---
 
@@ -142,12 +142,12 @@ val analyzer = aurora.create<InvoiceAnalyzer>()
 **Goal:** Spring Boot users get zero-boilerplate injection of `@AiService` proxies.
 
 **Deliverables:**
-- `aurora-spring` module
-- `AuroraAutoConfiguration`: classpath-triggered, registers proxies as Spring beans
-- `application.yml` configuration namespace (`aurora.*`)
+- `tramai-spring` module
+- `TramaiAutoConfiguration`: classpath-triggered, registers proxies as Spring beans
+- `application.yml` configuration namespace (`tramai.*`)
 - Full YAML schema:
 ```yaml
-aurora:
+tramai:
   default-model: claude-sonnet-4-20250514
   providers:
     anthropic:
@@ -162,13 +162,13 @@ aurora:
     max-retries: 2
     timeout: PT30S
 ```
-- `@EnableAurora` annotation for explicit opt-in (autoconfiguration is default)
+- `@EnableTramai` annotation for explicit opt-in (autoconfiguration is default)
 - Spring Boot `ConfigurationProperties` with IDE autocompletion metadata
 - Integration test: Spring Boot test context with `@AiService` bean injected and executing
 
-**Done when:** a Spring Boot app with Aurora on the classpath injects `@AiService` interfaces with zero `@Bean` declarations.
+**Done when:** a Spring Boot app with Tramai on the classpath injects `@AiService` interfaces with zero `@Bean` declarations.
 
-**Phase 2 checkpoint:** Aurora is production-usable. Observable, framework-flexible, Java-compatible.
+**Phase 2 checkpoint:** Tramai is production-usable. Observable, framework-flexible, Java-compatible.
 
 ---
 
@@ -178,7 +178,7 @@ aurora:
 **Goal:** Engineers can test AI-dependent code without network calls, without Mockito, without HTTP stubs.
 
 **Deliverables:**
-- `aurora-testing` module
+- `tramai-testing` module
 - `MockAiProvider` with Kotlin DSL:
 ```kotlin
 val mock = MockAiProvider {
@@ -188,9 +188,9 @@ val mock = MockAiProvider {
 ```
 - `@MockAiResponse` annotation for Spring Boot test contexts
 - Capture mode: record what was sent to the provider (prompt content, parameters)
-- `AuroraAssertions` fluent API:
+- `TramaiAssertions` fluent API:
 ```kotlin
-AuroraAssertions.assertThat(analyzer)
+TramaiAssertions.assertThat(analyzer)
     .whenCalled("analyze")
     .emittedSpanWithAttribute("gen_ai.system", "anthropic")
     .andRetried(0)
@@ -204,7 +204,7 @@ AuroraAssertions.assertThat(analyzer)
 ---
 
 ### M8 · Documentation, Live Proof, Publish
-**Goal:** Aurora is publicly available on Maven Central with a README that sells itself.
+**Goal:** Tramai is publicly available on Maven Central with a README that sells itself.
 
 **Deliverables:**
 
@@ -216,7 +216,7 @@ AuroraAssertions.assertThat(analyzer)
 - GitHub Wiki: structured output guide, observability guide, testing guide, provider configuration reference
 
 **Live proof:**
-- ddog-finops integration: replace ad-hoc Anthropic calls with Aurora `@AiService` interfaces
+- ddog-finops integration: replace ad-hoc Anthropic calls with Tramai `@AiService` interfaces
 - Documented in README as "used in production by the author"
 - This is the credibility anchor — not a toy example
 
@@ -231,9 +231,9 @@ AuroraAssertions.assertThat(analyzer)
 - `good first issue` labels on non-critical tasks
 - Topics: `kotlin`, `ai`, `llm`, `opentelemetry`, `spring-boot`, `jvm`
 
-**Done when:** `implementation("io.aurora:aurora-standalone:0.1.0")` works from Maven Central.
+**Done when:** `implementation("dev.tramai:tramai-standalone:0.1.0")` works from Maven Central.
 
-**Phase 3 checkpoint:** Aurora is public. The work shifts from building to growing.
+**Phase 3 checkpoint:** Tramai is public. The work shifts from building to growing.
 
 ---
 
@@ -257,19 +257,19 @@ Replace JDK Dynamic Proxy with KSP-generated implementations. Faster startup, Gr
 
 ### New providers (community-gated)
 
-- `aurora-openai` (v1 deferred, ship here if demand exists)
-- `aurora-google` (Gemini)
-- `aurora-azure-openai` (Azure OpenAI Service — natural fit given your background)
-- `aurora-mistral`
+- `tramai-openai` (v1 deferred, ship here if demand exists)
+- `tramai-google` (Gemini)
+- `tramai-azure-openai` (Azure OpenAI Service — natural fit given your background)
+- `tramai-mistral`
 
 ### Framework adapters (community-gated)
 
-- `aurora-quarkus`: CDI extension
-- `aurora-micronaut`: Micronaut factory
+- `tramai-quarkus`: CDI extension
+- `tramai-micronaut`: Micronaut factory
 
 ### Potential monetization (if traction)
 
-Aurora itself stays open source and free. If the library gains meaningful adoption, a hosted observability dashboard for Aurora-instrumented applications is a natural paid extension — Aurora already emits all the data needed. This is speculative and not a goal for v1.
+Tramai itself stays open source and free. If the library gains meaningful adoption, a hosted observability dashboard for Tramai-instrumented applications is a natural paid extension — Tramai already emits all the data needed. This is speculative and not a goal for v1.
 
 ---
 
@@ -306,4 +306,4 @@ Realistic with one focused weekend per week. Two missed weekends puts launch at 
 
 ---
 
-*Aurora v0.1.0 target: 8–10 weekends from start of M1*
+*Tramai v0.1.0 target: 8–10 weekends from start of M1*

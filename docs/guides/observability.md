@@ -1,8 +1,8 @@
 # Observability
 
-Aurora keeps observability optional at the dependency level.
+Tramai keeps observability optional at the dependency level.
 
-If you do not add the observability module, Aurora runs without OpenTelemetry dependencies.
+If you do not add the observability module, Tramai runs without OpenTelemetry dependencies.
 
 ## What Exists Today
 
@@ -15,7 +15,7 @@ It records one span per provider attempt.
 ```kotlin
 val observer = OpenTelemetryOperationObserver(openTelemetry)
 
-val aurora = Aurora {
+val tramai = Tramai {
     provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
     model("gpt-5.1-chat-latest", "openai")
     observer(observer)
@@ -40,7 +40,7 @@ When structured parsing fails, the observer also emits a parse-failure event.
 
 ## Why The Observer Sits Outside Providers
 
-Aurora keeps providers small. Providers should focus on:
+Tramai keeps providers small. Providers should focus on:
 
 - request creation
 - HTTP transport

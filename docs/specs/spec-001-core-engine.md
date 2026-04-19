@@ -9,7 +9,7 @@
 
 ## Problem
 
-Aurora needs a minimal but correct execution core that turns annotated interface methods into working AI operations. Without this layer, the primary product abstraction does not exist.
+Tramai needs a minimal but correct execution core that turns annotated interface methods into working AI operations. Without this layer, the primary product abstraction does not exist.
 
 ## Scope
 
@@ -29,7 +29,7 @@ Aurora needs a minimal but correct execution core that turns annotated interface
 
 ## Functional Requirements
 
-- Aurora must validate that only annotated interfaces are turned into AI service proxies.
+- Tramai must validate that only annotated interfaces are turned into AI service proxies.
 - Each `@Operation` method must resolve its prompt, model, and method signature metadata into an executable operation descriptor.
 - The runtime must detect whether a method is suspend-based and dispatch accordingly.
 - Return types must be classified at least into `String`, `Unit`, and structured non-primitive object returns.
@@ -41,7 +41,7 @@ Aurora needs a minimal but correct execution core that turns annotated interface
 
 - Proxy creation failures must be explicit and actionable.
 - The engine must preserve a small public API surface.
-- The engine must not take on parsing or validation rules that belong to `aurora-structured`.
+- The engine must not take on parsing or validation rules that belong to `tramai-structured`.
 - Unit tests must cover proxy creation, method dispatch routing, and exception propagation.
 - The core design must remain compatible with future blocking wrappers for Java consumers.
 
@@ -50,7 +50,7 @@ Aurora needs a minimal but correct execution core that turns annotated interface
 - The implementation should treat the operation method as the canonical source of behavior.
 - Runtime proxies are sufficient for v1 and reduce early complexity compared with compile-time generation.
 - The engine should isolate dispatch logic from provider implementations so later modules can add structured parsing and observability without changing the consumer-facing abstraction.
-- The engine-structured seam must keep orchestration in `aurora-engine` and structured analysis in `aurora-structured`.
+- The engine-structured seam must keep orchestration in `tramai-engine` and structured analysis in `tramai-structured`.
 
 ## Acceptance Criteria
 

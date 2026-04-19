@@ -7,7 +7,7 @@ plugins {
     kotlin("plugin.spring") version "2.3.0"
 }
 
-group = "io.aurora.examples"
+group = "dev.tramai.examples"
 version = "0.1.0-SNAPSHOT"
 
 java {
@@ -29,13 +29,13 @@ repositories {
 }
 
 dependencies {
-    implementation("io.aurora:aurora-spring:0.1.0-SNAPSHOT")
+    implementation("dev.tramai:tramai-spring:0.1.0-SNAPSHOT")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor:1.10.2")
 
-    testImplementation("io.aurora:aurora-testing:0.1.0-SNAPSHOT")
+    testImplementation("dev.tramai:tramai-testing:0.1.0-SNAPSHOT")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 }
 

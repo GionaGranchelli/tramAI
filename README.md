@@ -1,12 +1,12 @@
-# Aurora
+# Tramai
 
-Aurora is a structured-first AI integration library for the JVM.
+Tramai is a structured-first AI integration library for the JVM.
 
-It is built for backend engineers who want to add AI to Kotlin or Java services without adopting a chain or agent framework. The primary Aurora abstraction is an annotated interface method. Inputs stay normal method parameters. Outputs can stay typed. The runtime owns execution, retry, and provider routing. Structured parsing, validation, and recovery are first-class behavior rather than add-on utility code.
+It is built for backend engineers who want to add AI to Kotlin or Java services without adopting a chain or agent framework. The primary Tramai abstraction is an annotated interface method. Inputs stay normal method parameters. Outputs can stay typed. The runtime owns execution, retry, and provider routing. Structured parsing, validation, and recovery are first-class behavior rather than add-on utility code.
 
 ## Status
 
-Aurora is currently a strong alpha moving toward a frozen `0.1.0` MVP release.
+Tramai is currently a strong alpha moving toward a frozen `0.1.0` MVP release.
 
 What is already implemented:
 
@@ -29,13 +29,13 @@ What is explicitly not part of `0.1.0`:
 
 The frozen release scope lives in [docs/reference/release-0.1.0.md](./docs/reference/release-0.1.0.md).
 
-## Why Aurora
+## Why Tramai
 
-Aurora is intentionally opinionated about a few boundaries:
+Tramai is intentionally opinionated about a few boundaries:
 
 - annotated interface methods are the primary user API
-- `aurora-engine` owns orchestration and retry policy
-- `aurora-structured` owns schema generation, extraction, and structured failure analysis
+- `tramai-engine` owns orchestration and retry policy
+- `tramai-structured` owns schema generation, extraction, and structured failure analysis
 - provider routing is explicit
 - observability is opt-in at the dependency level
 - standalone stays minimal instead of silently bundling everything
@@ -58,28 +58,28 @@ data class InvoiceStatus(
     val status: String,
 )
 
-val aurora = Aurora {
+val tramai = Tramai {
     provider(AnthropicProvider(apiKey = System.getenv("ANTHROPIC_API_KEY")), name = "anthropic")
     model("claude-sonnet-4-20250514", "anthropic")
 }
 
-val analyzer = aurora.create<InvoiceAnalyzer>()
+val analyzer = tramai.create<InvoiceAnalyzer>()
 ```
 
 OpenAI and OpenAI-compatible providers are available as well:
 
 ```kotlin
-val aurora = Aurora {
+val tramai = Tramai {
     provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai")
     model("gpt-5.1-chat-latest", "openai")
 }
 ```
 
-`aurora-openai` also contains an experimental Codex/ChatGPT auth-file path for local experimentation. That is intentionally marked experimental and is not the default production authentication story.
+`tramai-openai` also contains an experimental Codex/ChatGPT auth-file path for local experimentation. That is intentionally marked experimental and is not the default production authentication story.
 
 ## Installation
 
-Aurora is currently built and published from this repository. For local development and the included example project, publish the artifacts first:
+Tramai is currently built and published from this repository. For local development and the included example project, publish the artifacts first:
 
 ```bash
 ./gradlew publishToMavenLocal
@@ -87,14 +87,14 @@ Aurora is currently built and published from this repository. For local developm
 
 Then depend on the modules you need. Typical entry points are:
 
-- `io.aurora:aurora-standalone`
-- `io.aurora:aurora-spring`
-- `io.aurora:aurora-openai`
-- `io.aurora:aurora-anthropic`
-- `io.aurora:aurora-ollama`
-- `io.aurora:aurora-observability`
-- `io.aurora:aurora-testing`
-- `io.aurora:aurora-bom`
+- `dev.tramai:tramai-standalone`
+- `dev.tramai:tramai-spring`
+- `dev.tramai:tramai-openai`
+- `dev.tramai:tramai-anthropic`
+- `dev.tramai:tramai-ollama`
+- `dev.tramai:tramai-observability`
+- `dev.tramai:tramai-testing`
+- `dev.tramai:tramai-bom`
 
 ## Example Project
 
@@ -115,7 +115,7 @@ Run the example locally with:
 
 ## Build And Verify
 
-Aurora currently targets:
+Tramai currently targets:
 
 - Java 25
 - Kotlin 2.3.0
@@ -131,17 +131,17 @@ Useful commands:
 
 ## Modules
 
-- `aurora-core`: annotations, contracts, shared models, exceptions
-- `aurora-engine`: proxy execution, dispatch, timeout handling, retry orchestration
-- `aurora-structured`: schema generation and structured-output analysis
-- `aurora-anthropic`: Anthropic provider
-- `aurora-openai`: OpenAI and OpenAI-compatible providers
-- `aurora-ollama`: Ollama provider
-- `aurora-observability`: OpenTelemetry observer integration
-- `aurora-standalone`: minimal non-framework runtime
-- `aurora-spring`: Spring Boot adapter
-- `aurora-testing`: mock and failure-oriented test helpers
-- `aurora-bom`: version alignment for consumers
+- `tramai-core`: annotations, contracts, shared models, exceptions
+- `tramai-engine`: proxy execution, dispatch, timeout handling, retry orchestration
+- `tramai-structured`: schema generation and structured-output analysis
+- `tramai-anthropic`: Anthropic provider
+- `tramai-openai`: OpenAI and OpenAI-compatible providers
+- `tramai-ollama`: Ollama provider
+- `tramai-observability`: OpenTelemetry observer integration
+- `tramai-standalone`: minimal non-framework runtime
+- `tramai-spring`: Spring Boot adapter
+- `tramai-testing`: mock and failure-oriented test helpers
+- `tramai-bom`: version alignment for consumers
 
 ## Documentation
 
@@ -163,7 +163,7 @@ For maintainers and contributors:
 
 ## Current Limits
 
-Aurora is not yet the right choice if you need:
+Tramai is not yet the right choice if you need:
 
 - streaming-first UI behavior
 - provider-native tool calling

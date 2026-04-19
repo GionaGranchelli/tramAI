@@ -14,7 +14,7 @@ The standalone builder exposes:
 Example:
 
 ```kotlin
-val aurora = Aurora {
+val tramai = Tramai {
     provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai")
     model("gpt-5.1-chat-latest", "openai")
     defaultProvider("openai")
@@ -26,7 +26,7 @@ val aurora = Aurora {
 Spring configuration binds under:
 
 ```yaml
-aurora:
+tramai:
 ```
 
 Top-level keys:
@@ -38,7 +38,7 @@ Top-level keys:
 ## Full Current Spring Shape
 
 ```yaml
-aurora:
+tramai:
   default-provider: openai
   models:
     gpt-5.1-chat-latest: openai
@@ -75,7 +75,7 @@ aurora:
 - provider names in `models` must match registered provider names
 - provider beans and property-defined providers are merged in Spring
 - bean-backed providers override property-backed providers when names collide
-- Aurora already supports per-operation timeout and retry settings through `@Operation(timeoutMillis = ..., maxRetries = ...)`
+- Tramai already supports per-operation timeout and retry settings through `@Operation(timeoutMillis = ..., maxRetries = ...)`
 
 ## What Does Not Exist Yet
 

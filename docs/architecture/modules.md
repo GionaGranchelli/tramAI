@@ -4,28 +4,28 @@ The current planned module layout is based on the roadmap and design documents. 
 
 ## Planned Modules
 
-- `aurora-core`: annotations, shared contracts, request and response models, common exceptions
-- `aurora-engine`: proxy generation, method dispatch, operation execution, retry and error handling
-- `aurora-structured`: schema generation, response parsing, validation integration, structured retry feedback
-- `aurora-observability`: OpenTelemetry integration and semantic convention mapping
-- `aurora-anthropic`: Anthropic provider implementation
-- `aurora-ollama`: Ollama provider implementation
-- `aurora-openai`: OpenAI and OpenAI-compatible provider implementation
-- `aurora-standalone`: minimal framework-free entry point and builder APIs
-- `aurora-spring`: Spring Boot autoconfiguration and bean registration
-- `aurora-testing`: mock providers, assertion helpers, and test support
-- `aurora-bom`: BOM for consumer dependency management
+- `tramai-core`: annotations, shared contracts, request and response models, common exceptions
+- `tramai-engine`: proxy generation, method dispatch, operation execution, retry and error handling
+- `tramai-structured`: schema generation, response parsing, validation integration, structured retry feedback
+- `tramai-observability`: OpenTelemetry integration and semantic convention mapping
+- `tramai-anthropic`: Anthropic provider implementation
+- `tramai-ollama`: Ollama provider implementation
+- `tramai-openai`: OpenAI and OpenAI-compatible provider implementation
+- `tramai-standalone`: minimal framework-free entry point and builder APIs
+- `tramai-spring`: Spring Boot autoconfiguration and bean registration
+- `tramai-testing`: mock providers, assertion helpers, and test support
+- `tramai-bom`: BOM for consumer dependency management
 
 ## Dependency Direction
 
-- `aurora-core` should remain as close to zero-dependency as practical.
-- `aurora-engine` depends on `aurora-core`.
-- `aurora-structured` depends on `aurora-core` and integrates with the engine's execution flow.
-- `aurora-observability` is optional and should remain decoupled from the core happy path when OpenTelemetry is absent.
+- `tramai-core` should remain as close to zero-dependency as practical.
+- `tramai-engine` depends on `tramai-core`.
+- `tramai-structured` depends on `tramai-core` and integrates with the engine's execution flow.
+- `tramai-observability` is optional and should remain decoupled from the core happy path when OpenTelemetry is absent.
 - Provider modules depend on shared request and response contracts and plug into the engine through the provider interface.
-- `aurora-standalone` composes the minimal runtime for non-framework users: `aurora-core`, `aurora-engine`, and `aurora-structured`.
-- Observability should be added by depending on `aurora-observability`, not by making `aurora-standalone` transitively heavier.
-- Framework adapters such as `aurora-spring` should be thin integration layers, not alternate runtimes.
+- `tramai-standalone` composes the minimal runtime for non-framework users: `tramai-core`, `tramai-engine`, and `tramai-structured`.
+- Observability should be added by depending on `tramai-observability`, not by making `tramai-standalone` transitively heavier.
+- Framework adapters such as `tramai-spring` should be thin integration layers, not alternate runtimes.
 
 ## Design Constraint
 

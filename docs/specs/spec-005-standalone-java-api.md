@@ -9,32 +9,32 @@
 
 ## Problem
 
-Aurora must work without any framework and must be usable by both Kotlin and Java consumers. The standalone runtime is the canonical product shape, not a secondary packaging artifact.
+Tramai must work without any framework and must be usable by both Kotlin and Java consumers. The standalone runtime is the canonical product shape, not a secondary packaging artifact.
 
 ## Scope
 
-- `aurora-standalone` composition module
+- `tramai-standalone` composition module
 - Kotlin DSL builder
 - Java builder entry point
 - Explicit blocking service interface support
-- BOM support for consumers using multiple Aurora artifacts
+- BOM support for consumers using multiple Tramai artifacts
 
 ## Non-Goals
 
 - Framework autoconfiguration
 - Framework-specific scanning or bean registration
 - Auto-generated `*Blocking` companion methods for suspend service interfaces
-- Mandatory observability dependencies inside `aurora-standalone`
+- Mandatory observability dependencies inside `tramai-standalone`
 - Additional language-specific wrappers beyond Kotlin and Java
 
 ## Functional Requirements
 
-- Aurora must expose a straightforward standalone construction path for Kotlin and Java consumers.
+- Tramai must expose a straightforward standalone construction path for Kotlin and Java consumers.
 - Consumers must be able to register providers, choose defaults, and create service proxies without a framework.
 - Java consumers must have a non-DSL builder entry point.
-- Aurora must support blocking service interfaces for Java and non-coroutine codebases.
-- Aurora v1 must not depend on auto-generated `*Blocking` methods for suspend interfaces unless a concrete generation strategy is adopted.
-- `aurora-standalone` must remain the minimal runtime composition and must not pull `aurora-observability` transitively.
+- Tramai must support blocking service interfaces for Java and non-coroutine codebases.
+- Tramai v1 must not depend on auto-generated `*Blocking` methods for suspend interfaces unless a concrete generation strategy is adopted.
+- `tramai-standalone` must remain the minimal runtime composition and must not pull `tramai-observability` transitively.
 - The standalone module must assemble the required runtime pieces without forcing framework dependencies.
 
 ## Quality Requirements
@@ -53,9 +53,9 @@ Aurora must work without any framework and must be usable by both Kotlin and Jav
 
 ## Acceptance Criteria
 
-- A Kotlin application can build Aurora with the DSL and invoke an `@AiService`.
-- A Java application can build Aurora with `builder()` and invoke a blocking service interface.
-- A standalone consumer can use Aurora without receiving observability dependencies transitively.
+- A Kotlin application can build Tramai with the DSL and invoke an `@AiService`.
+- A Java application can build Tramai with `builder()` and invoke a blocking service interface.
+- A standalone consumer can use Tramai without receiving observability dependencies transitively.
 - No framework dependencies are required for the standalone path.
 
 ## Risks and Follow-Ups

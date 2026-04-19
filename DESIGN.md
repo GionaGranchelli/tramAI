@@ -1,4 +1,4 @@
-# Aurora — Design Document
+# Tramai — Design Document
 ### A structured-first, observability-native AI workflow library for the JVM
 **Version:** 0.2-draft  
 **Author:** Design session — April 2026  
@@ -20,7 +20,7 @@ LangChain4j exists but inherits LangChain's mental model: chains, agents, and pr
 Can we build a JVM-native AI library where **typed interfaces are the only abstraction**, structured outputs are the default contract, and every AI interaction is automatically observable — with zero boilerplate?
 
 ### Answer
-Yes. Aurora is that library.
+Yes. Tramai is that library.
 
 ---
 
@@ -47,7 +47,7 @@ The library is written in Kotlin and exposes idiomatic Kotlin APIs — coroutine
 
 ## 3. Core Abstraction
 
-The single unit of Aurora is the **AI Operation** — an annotated Kotlin interface method.
+The single unit of Tramai is the **AI Operation** — an annotated Kotlin interface method.
 
 ```kotlin
 @AiService
@@ -77,11 +77,11 @@ Rules:
   - Any Kotlin data class or Java POJO → structured output with schema validation and retry
   - `suspend fun` → coroutine-native, non-blocking execution
   - Blocking service interfaces are supported for Java consumers and non-coroutine codebases
-- No implementation required — Aurora generates a proxy at startup
+- No implementation required — Tramai generates a proxy at startup
 
 ### Coroutine vs blocking dispatch
 
-Aurora detects at proxy generation time whether a method is a `suspend fun`. If it is, the provider call is dispatched on a coroutine. If not, the call is blocking. Both signatures are valid — the interface author chooses per method.
+Tramai detects at proxy generation time whether a method is a `suspend fun`. If it is, the provider call is dispatched on a coroutine. If not, the call is blocking. Both signatures are valid — the interface author chooses per method.
 
 ```kotlin
 // Coroutine consumer (Kotlin)
@@ -100,7 +100,7 @@ public interface InvoiceAnalyzerBlocking {
 }
 ```
 
-Aurora v1 does not assume auto-generated `*Blocking` companions for suspend service interfaces. Blocking APIs are modeled as explicit service interfaces until Aurora adopts a stronger generation strategy.
+Tramai v1 does not assume auto-generated `*Blocking` companions for suspend service interfaces. Blocking APIs are modeled as explicit service interfaces until Tramai adopts a stronger generation strategy.
 
 ---
 
@@ -147,48 +147,48 @@ Aurora v1 does not assume auto-generated `*Blocking` companions for suspend serv
 ## 5. Module Structure
 
 ```
-Aurora/
-├── Aurora-core/               # Annotations, interfaces, data models — zero dependencies
-├── Aurora-engine/             # Proxy generation, operation execution, retry logic
-├── Aurora-structured/         # Schema generation (Jackson), response parsing, validation
-├── Aurora-observability/      # OTel integration, span emission, GenAI conventions
-├── Aurora-providers/
-│   ├── Aurora-anthropic/      # Anthropic API provider
-│   ├── Aurora-openai/         # OpenAI API provider
-│   └── Aurora-ollama/         # Ollama local provider
-├── Aurora-standalone/         # Minimal entry point for plain JVM usage
-├── Aurora-spring/             # Optional Spring Boot autoconfiguration adapter
-├── Aurora-testing/            # Test utilities, mock provider, assertion helpers
-└── Aurora-bom/                # Bill of materials for version management
+Tramai/
+├── Tramai-core/               # Annotations, interfaces, data models — zero dependencies
+├── Tramai-engine/             # Proxy generation, operation execution, retry logic
+├── Tramai-structured/         # Schema generation (Jackson), response parsing, validation
+├── Tramai-observability/      # OTel integration, span emission, GenAI conventions
+├── Tramai-providers/
+│   ├── Tramai-anthropic/      # Anthropic API provider
+│   ├── Tramai-openai/         # OpenAI API provider
+│   └── Tramai-ollama/         # Ollama local provider
+├── Tramai-standalone/         # Minimal entry point for plain JVM usage
+├── Tramai-spring/             # Optional Spring Boot autoconfiguration adapter
+├── Tramai-testing/            # Test utilities, mock provider, assertion helpers
+└── Tramai-bom/                # Bill of materials for version management
 ```
 
 ### Dependency philosophy
 
-`Aurora-core` has **zero runtime dependencies** beyond the Kotlin stdlib. Providers, observability, and framework adapters are all opt-in. A consumer who wants only the core structured output pipeline with no OTel and no Spring pays zero overhead for those modules.
+`Tramai-core` has **zero runtime dependencies** beyond the Kotlin stdlib. Providers, observability, and framework adapters are all opt-in. A consumer who wants only the core structured output pipeline with no OTel and no Spring pays zero overhead for those modules.
 
-`Aurora-standalone` is the minimal non-framework composition layer. Observability remains a separate optional module and auto-enables only when that module and the required OTel APIs are present.
+`Tramai-standalone` is the minimal non-framework composition layer. Observability remains a separate optional module and auto-enables only when that module and the required OTel APIs are present.
 
 ### Standalone usage (no framework)
 
 ```kotlin
 // Kotlin
-val Aurora = Aurora {
+val Tramai = Tramai {
     provider(AnthropicProvider(apiKey = System.getenv("ANTHROPIC_API_KEY")))
     defaultModel("claude-sonnet-4-20250514")
 }
 
-val analyzer = Aurora.create<InvoiceAnalyzer>()
+val analyzer = Tramai.create<InvoiceAnalyzer>()
 val result = analyzer.analyze(invoice)
 ```
 
 ```java
 // Java — same underlying object, Java-friendly builder
-Aurora Aurora = Aurora.builder()
+Tramai Tramai = Tramai.builder()
     .provider(new AnthropicProvider(System.getenv("ANTHROPIC_API_KEY")))
     .defaultModel("claude-sonnet-4-20250514")
     .build();
 
-InvoiceAnalyzerBlocking analyzer = Aurora.create(InvoiceAnalyzerBlocking.class);
+InvoiceAnalyzerBlocking analyzer = Tramai.create(InvoiceAnalyzerBlocking.class);
 InvoiceAnalysis result = analyzer.analyze(invoice);
 ```
 
@@ -203,7 +203,7 @@ class BillingService(private val analyzer: InvoiceAnalyzer) {
 ```
 
 ```yaml
-Aurora:
+Tramai:
   default-model: claude-sonnet-4-20250514
   providers:
     anthropic:
@@ -219,29 +219,29 @@ The Spring adapter scans for `@AiService` interfaces and registers proxies as be
 ```xml
 <!-- Standalone (no framework, minimal runtime) -->
 <dependency>
-    <groupId>io.Aurora</groupId>
-    <artifactId>Aurora-standalone</artifactId>
+    <groupId>io.Tramai</groupId>
+    <artifactId>Tramai-standalone</artifactId>
     <version>0.1.0</version>
 </dependency>
 
 <!-- Optional observability -->
 <dependency>
-    <groupId>io.Aurora</groupId>
-    <artifactId>Aurora-observability</artifactId>
+    <groupId>io.Tramai</groupId>
+    <artifactId>Tramai-observability</artifactId>
     <version>0.1.0</version>
 </dependency>
 
-<!-- Spring Boot adapter (includes Aurora-standalone transitively) -->
+<!-- Spring Boot adapter (includes Tramai-standalone transitively) -->
 <dependency>
-    <groupId>io.Aurora</groupId>
-    <artifactId>Aurora-spring</artifactId>
+    <groupId>io.Tramai</groupId>
+    <artifactId>Tramai-spring</artifactId>
     <version>0.1.0</version>
 </dependency>
 
 <!-- Provider of choice -->
 <dependency>
-    <groupId>io.Aurora</groupId>
-    <artifactId>Aurora-anthropic</artifactId>
+    <groupId>io.Tramai</groupId>
+    <artifactId>Tramai-anthropic</artifactId>
     <version>0.1.0</version>
 </dependency>
 ```
@@ -279,7 +279,7 @@ This is the core intellectual work of the library. The pipeline for any non-Stri
    Default: 2 retries
 
 6. FAILURE
-   After maxRetries exhausted: throw AuroraStructuredOutputException
+   After maxRetries exhausted: throw TramaiStructuredOutputException
    Exception contains: original prompt, last raw response, validation error, attempt count
 ```
 
@@ -341,25 +341,25 @@ Every provider call wraps in a span named `ai.{operation_name}` with the followi
 | `gen_ai.response.model` | Actual model used (may differ from requested) |
 | `gen_ai.usage.input_tokens` | Token count from response metadata |
 | `gen_ai.usage.output_tokens` | Token count from response metadata |
-| `Aurora.operation.interface` | Fully qualified interface name |
-| `Aurora.operation.method` | Method name |
-| `Aurora.retry.attempt` | Current attempt number (0-indexed) |
-| `Aurora.structured.parse_success` | Boolean — did structured parsing succeed |
+| `Tramai.operation.interface` | Fully qualified interface name |
+| `Tramai.operation.method` | Method name |
+| `Tramai.retry.attempt` | Current attempt number (0-indexed) |
+| `Tramai.structured.parse_success` | Boolean — did structured parsing succeed |
 
 ### Span events
 
 Structured output failures are recorded as span events, not exceptions:
 
 ```
-Event: Aurora.parse.failure
-  Aurora.raw_response: "<raw model output>"
-  Aurora.validation_error: "Field 'totalSpend' must be positive"
-  Aurora.attempt: 1
+Event: Tramai.parse.failure
+  Tramai.raw_response: "<raw model output>"
+  Tramai.validation_error: "Field 'totalSpend' must be positive"
+  Tramai.attempt: 1
 ```
 
 ### Auto-detection
 
-If `opentelemetry-api` is on the classpath, Aurora registers its `ObservabilityInterceptor` automatically. No `@EnableAuroraObservability` annotation required. If OTel is absent, a no-op tracer is used.
+If `opentelemetry-api` is on the classpath, Tramai registers its `ObservabilityInterceptor` automatically. No `@EnableTramaiObservability` annotation required. If OTel is absent, a no-op tracer is used.
 
 ---
 
@@ -395,7 +395,7 @@ The provider interface is a `suspend fun` — all network I/O is coroutine-nativ
 
 ### Provider resolution
 
-When `@Operation` specifies a model string, Aurora resolves the provider through an explicit registry:
+When `@Operation` specifies a model string, Tramai resolves the provider through an explicit registry:
 
 - providers are registered explicitly
 - models are registered explicitly against providers
@@ -404,7 +404,7 @@ When `@Operation` specifies a model string, Aurora resolves the provider through
 
 ### Native structured output
 
-If the provider supports native structured output (OpenAI's `response_format`, Anthropic's tool-use trick), Aurora uses it. If not, Aurora falls back to the schema-in-prompt pipeline. `supportsStructuredOutput()` controls this routing.
+If the provider supports native structured output (OpenAI's `response_format`, Anthropic's tool-use trick), Tramai uses it. If not, Tramai falls back to the schema-in-prompt pipeline. `supportsStructuredOutput()` controls this routing.
 
 ---
 
@@ -421,16 +421,16 @@ Default: 2 retries. Feeds validation error back to model.
 Default: 3 retries with exponential backoff. Configurable via `@Operation(providerRetries = N)`.
 
 **No retry** — authentication errors, invalid model name, context length exceeded  
-These throw immediately as `AuroraConfigurationException`.
+These throw immediately as `TramaiConfigurationException`.
 
 ### Exception hierarchy
 
 ```
-AuroraException (base, unchecked)
-├── AuroraStructuredOutputException   — exhausted retries on parsing
-├── AuroraProviderException           — provider returned unrecoverable error
-├── AuroraConfigurationException      — misconfiguration detected at startup
-└── AuroraTimeoutException            — call exceeded configured timeout
+TramaiException (base, unchecked)
+├── TramaiStructuredOutputException   — exhausted retries on parsing
+├── TramaiProviderException           — provider returned unrecoverable error
+├── TramaiConfigurationException      — misconfiguration detected at startup
+└── TramaiTimeoutException            — call exceeded configured timeout
 ```
 
 All exceptions include the full request context for debugging.
@@ -441,14 +441,14 @@ All exceptions include the full request context for debugging.
 
 ### Design principle
 
-Aurora has no framework dependency in its core. Framework adapters are thin modules that wire Aurora's standalone API into the framework's dependency injection and configuration systems. The core logic is identical regardless of which adapter — or none — is used.
+Tramai has no framework dependency in its core. Framework adapters are thin modules that wire Tramai's standalone API into the framework's dependency injection and configuration systems. The core logic is identical regardless of which adapter — or none — is used.
 
-### Spring Boot adapter (Aurora-spring)
+### Spring Boot adapter (Tramai-spring)
 
-`AuroraAutoConfiguration` activates when `Aurora-spring` is on the classpath:
+`TramaiAutoConfiguration` activates when `Tramai-spring` is on the classpath:
 - Scans for `@AiService` interfaces in the application packages
 - Registers generated proxies as Spring beans — injectable with `@Autowired` or constructor injection
-- Reads provider configuration from `application.yml` under the `Aurora.*` namespace
+- Reads provider configuration from `application.yml` under the `Tramai.*` namespace
 - Detects OTel on the classpath and enables observability automatically
 
 ```kotlin
@@ -461,34 +461,34 @@ class BillingService(private val analyzer: InvoiceAnalyzer) {
 
 ### Quarkus and Micronaut
 
-Not shipped in v1. The standalone API works in both frameworks — consumers instantiate Aurora manually and register it as a CDI bean or Micronaut singleton. Community adapters can follow the `Aurora-spring` module as a template.
+Not shipped in v1. The standalone API works in both frameworks — consumers instantiate Tramai manually and register it as a CDI bean or Micronaut singleton. Community adapters can follow the `Tramai-spring` module as a template.
 
 ### Plain JVM / CLI / Azure Functions
 
 ```kotlin
 fun main() {
-    val Aurora = Aurora {
+    val Tramai = Tramai {
         provider(OllamaProvider(baseUrl = "http://localhost:11434"))
     }
-    val analyzer = Aurora.create<InvoiceAnalyzer>()
+    val analyzer = Tramai.create<InvoiceAnalyzer>()
     runBlocking { println(analyzer.analyze(sampleInvoice())) }
 }
 ```
 
-No framework, no classpath scanning, no magic. Aurora is a library, not a container.
+No framework, no classpath scanning, no magic. Tramai is a library, not a container.
 
 ---
 
 ## 12. Testing Support
 
-### Aurora-testing module
+### Tramai-testing module
 
 Provides a `MockAiProvider` that returns canned responses without network calls:
 
 ```kotlin
 @Test
 fun `analyze returns structured result`() = runTest {
-    val Aurora = Aurora {
+    val Tramai = Tramai {
         provider(MockAiProvider {
             onMethod("analyze") respondWith """
                 { "totalSpend": 1200.50, "confidence": 0.95, "recommendations": [] }
@@ -496,7 +496,7 @@ fun `analyze returns structured result`() = runTest {
         })
     }
 
-    val analyzer = Aurora.create<InvoiceAnalyzer>()
+    val analyzer = Tramai.create<InvoiceAnalyzer>()
     val result = analyzer.analyze(testInvoice())
 
     assertThat(result.totalSpend).isEqualTo(1200.50)
@@ -527,7 +527,7 @@ class InvoiceAnalyzerTest {
 ### Assertion helpers
 
 ```kotlin
-AuroraAssertions.assertThat(analyzer)
+TramaiAssertions.assertThat(analyzer)
     .whenCalled("analyze")
     .emittedSpanWithAttribute("gen_ai.system", "anthropic")
     .andRetried(0)
@@ -536,7 +536,7 @@ AuroraAssertions.assertThat(analyzer)
 
 ---
 
-## 13. What Aurora Is Not (v1 Scope Boundaries)
+## 13. What Tramai Is Not (v1 Scope Boundaries)
 
 The following are explicitly out of scope for v1:
 
@@ -560,9 +560,9 @@ Each of these is a deliberate cut. v1 must be shippable and trustworthy before a
 | M2 | Structured output pipeline: Jackson schema gen + parsing + retry loop | Weekend 2 |
 | M3 | Anthropic provider + Ollama provider (coroutine-native HTTP) | Weekend 3 |
 | M4 | OTel observability layer, GenAI semantic conventions | Weekend 4 |
-| M5 | Aurora-standalone module, Kotlin DSL builder, Java-friendly API | Weekend 5 |
-| M6 | OpenAI provider + Aurora-spring adapter | Weekend 6 |
-| M7 | Aurora-testing module + assertion helpers | Weekend 7 |
+| M5 | Tramai-standalone module, Kotlin DSL builder, Java-friendly API | Weekend 5 |
+| M6 | OpenAI provider + Tramai-spring adapter | Weekend 6 |
+| M7 | Tramai-testing module + assertion helpers | Weekend 7 |
 | M8 | README, ddog-finops integration as live proof, Maven Central publish | Weekend 8 |
 
 M5 deliberately comes before the Spring adapter — standalone must work cleanly before any framework wires it.
@@ -571,7 +571,7 @@ M5 deliberately comes before the Spring adapter — standalone must work cleanly
 
 ## 15. Differentiation Summary
 
-| Concern | LangChain4j | Aurora |
+| Concern | LangChain4j | Tramai |
 |---|---|---|
 | Primary abstraction | Chain / Agent | Typed interface method |
 | Implementation language | Java | Kotlin |

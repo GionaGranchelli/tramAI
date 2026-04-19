@@ -12,10 +12,10 @@ This directory records the key architectural decisions currently implied by the 
 - [ADR-006: Enable OpenTelemetry Observability Automatically When Present](./adr-006.md)
 - [ADR-007: Resolve Providers from Model Names with Explicit Override Support](./adr-007.md)
 - [ADR-008: Build Kotlin-Native APIs with Java-Friendly Entry Points](./adr-008.md)
-- [ADR-009: Keep Retry Orchestration in aurora-engine and Structured Analysis in aurora-structured](./adr-009.md)
+- [ADR-009: Keep Retry Orchestration in tramai-engine and Structured Analysis in tramai-structured](./adr-009.md)
 - [ADR-010: Use an Explicit Provider Registry Instead of Model-Prefix Routing](./adr-010.md)
 - [ADR-011: Support Explicit Blocking Service Interfaces in v1 Instead of Auto-Generated `*Blocking` Counterparts](./adr-011.md)
-- [ADR-012: Keep `aurora-standalone` Minimal and Make Observability an Explicit Opt-In Module](./adr-012.md)
+- [ADR-012: Keep `tramai-standalone` Minimal and Make Observability an Explicit Opt-In Module](./adr-012.md)
 - [ADR-013: Start Streaming with Raw Text and a Dedicated Streaming Contract](./adr-013.md)
 - [ADR-014: Keep Tool Calling Engine-Owned and Provider-Portable](./adr-014.md)
 

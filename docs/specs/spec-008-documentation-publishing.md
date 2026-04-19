@@ -9,7 +9,7 @@
 
 ## Problem
 
-Aurora cannot launch credibly with only code. The project needs a coherent public documentation baseline, proof of real usage, and a publishing path that consumers can trust.
+Tramai cannot launch credibly with only code. The project needs a coherent public documentation baseline, proof of real usage, and a publishing path that consumers can trust.
 
 ## Scope
 
@@ -48,7 +48,7 @@ Aurora cannot launch credibly with only code. The project needs a coherent publi
 
 ## Acceptance Criteria
 
-- A new user can understand what Aurora is, install it, and follow a basic quickstart from repository docs.
+- A new user can understand what Tramai is, install it, and follow a basic quickstart from repository docs.
 - Release artifacts can be produced and published through the defined CI path.
 - Core public features have KDoc and matching reference or guide documentation.
 

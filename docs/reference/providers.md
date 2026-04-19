@@ -2,7 +2,7 @@
 
 This page summarizes the current provider modules.
 
-## `aurora-anthropic`
+## `tramai-anthropic`
 
 Class:
 
@@ -19,14 +19,14 @@ Auth:
 Config shape:
 
 ```yaml
-aurora:
+tramai:
   providers:
     anthropic:
       api-key: ${ANTHROPIC_API_KEY}
       base-url: https://api.anthropic.com
 ```
 
-## `aurora-openai`
+## `tramai-openai`
 
 Classes:
 
@@ -48,13 +48,13 @@ Auth modes:
 Config shape:
 
 ```yaml
-aurora:
+tramai:
   providers:
     openai:
       api-key: ${OPENAI_API_KEY}
 ```
 
-## `aurora-ollama`
+## `tramai-ollama`
 
 Class:
 
@@ -67,7 +67,7 @@ Purpose:
 Config shape:
 
 ```yaml
-aurora:
+tramai:
   providers:
     ollama:
       base-url: http://localhost:11434
@@ -79,7 +79,7 @@ Current shared baseline:
 
 - request/response normalization
 - raw string operations
-- structured output via Aurora's schema-in-prompt pipeline
+- structured output via Tramai's schema-in-prompt pipeline
 - explicit provider registry integration
 - operation-level timeout propagation
 - engine-owned retries for retryable provider failures

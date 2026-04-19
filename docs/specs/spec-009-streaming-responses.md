@@ -9,7 +9,7 @@
 
 ## Problem
 
-Aurora currently supports only request/response-style completion. That is sufficient for many backend workflows, but it prevents low-latency UI use cases, token-by-token progressive rendering, and early cancellation of long-running responses.
+Tramai currently supports only request/response-style completion. That is sufficient for many backend workflows, but it prevents low-latency UI use cases, token-by-token progressive rendering, and early cancellation of long-running responses.
 
 ## Scope
 
@@ -29,7 +29,7 @@ Aurora currently supports only request/response-style completion. That is suffic
 
 ## Functional Requirements
 
-- Aurora must support streaming operations as a first-class execution path rather than as an afterthought on top of buffered completion.
+- Tramai must support streaming operations as a first-class execution path rather than as an afterthought on top of buffered completion.
 - The initial streaming milestone must be limited to raw text streaming rather than streamed structured output.
 - The engine must preserve ownership of orchestration, cancellation, and terminal failure behavior for streaming calls.
 - Streaming operations must surface incremental text events through a dedicated streaming contract rather than by concatenating hidden internal buffers.
@@ -48,7 +48,7 @@ Aurora currently supports only request/response-style completion. That is suffic
 
 - Kotlin should be the primary streaming surface in the first milestone.
 - Java-facing streaming should be treated as a follow-up design once the Kotlin streaming contract is validated.
-- The streaming path should stay aligned with Aurora's interface-method abstraction rather than introducing a separate chain-style API.
+- The streaming path should stay aligned with Tramai's interface-method abstraction rather than introducing a separate chain-style API.
 - The first streaming milestone should bias toward correctness and cancellation semantics over provider feature maximalism.
 
 ## Acceptance Criteria

@@ -11,21 +11,21 @@ plugins {
     alias(libs.plugins.kotlin.jvm) apply false
 }
 
-val auroraGroup = providers.gradleProperty("auroraGroup").orElse("io.aurora")
-val auroraVersion = providers.gradleProperty("auroraVersion").orElse("0.1.0-SNAPSHOT")
-val auroraProjectUrl = providers.gradleProperty("auroraProjectUrl").orElse("https://github.com/gionag/aurora")
-val auroraScmUrl = providers.gradleProperty("auroraScmUrl").orElse("https://github.com/gionag/aurora.git")
-val auroraScmConnection = providers.gradleProperty("auroraScmConnection").orElse("scm:git:https://github.com/gionag/aurora.git")
-val auroraScmDeveloperConnection = providers.gradleProperty("auroraScmDeveloperConnection").orElse("scm:git:ssh://git@github.com/gionag/aurora.git")
-val auroraLicenseName = providers.gradleProperty("auroraLicenseName").orElse("Apache-2.0")
-val auroraLicenseUrl = providers.gradleProperty("auroraLicenseUrl").orElse("https://www.apache.org/licenses/LICENSE-2.0.txt")
-val auroraDeveloperId = providers.gradleProperty("auroraDeveloperId").orElse("gionag")
-val auroraDeveloperName = providers.gradleProperty("auroraDeveloperName").orElse("Giona")
-val auroraDeveloperEmail = providers.gradleProperty("auroraDeveloperEmail").orElse("opensource@giona.dev")
+val tramaiGroup = providers.gradleProperty("tramaiGroup").orElse("dev.tramai")
+val tramaiVersion = providers.gradleProperty("tramaiVersion").orElse("0.1.0-SNAPSHOT")
+val tramaiProjectUrl = providers.gradleProperty("tramaiProjectUrl").orElse("https://github.com/gionag/tramai")
+val tramaiScmUrl = providers.gradleProperty("tramaiScmUrl").orElse("https://github.com/gionag/tramai.git")
+val tramaiScmConnection = providers.gradleProperty("tramaiScmConnection").orElse("scm:git:https://github.com/gionag/tramai.git")
+val tramaiScmDeveloperConnection = providers.gradleProperty("tramaiScmDeveloperConnection").orElse("scm:git:ssh://git@github.com/gionag/tramai.git")
+val tramaiLicenseName = providers.gradleProperty("tramaiLicenseName").orElse("Apache-2.0")
+val tramaiLicenseUrl = providers.gradleProperty("tramaiLicenseUrl").orElse("https://www.apache.org/licenses/LICENSE-2.0.txt")
+val tramaiDeveloperId = providers.gradleProperty("tramaiDeveloperId").orElse("gionag")
+val tramaiDeveloperName = providers.gradleProperty("tramaiDeveloperName").orElse("Giona")
+val tramaiDeveloperEmail = providers.gradleProperty("tramaiDeveloperEmail").orElse("opensource@giona.dev")
 
 subprojects {
-    group = auroraGroup.get()
-    version = auroraVersion.get()
+    group = tramaiGroup.get()
+    version = tramaiVersion.get()
 
     repositories {
         mavenCentral()
@@ -43,18 +43,18 @@ subprojects {
             isFailOnError = false
         }
 
-        configureAuroraPublishing(
+        configureTramaiPublishing(
             componentName = "java",
             artifactDescription = projectDescription(name),
-            projectUrl = auroraProjectUrl.get(),
-            scmUrl = auroraScmUrl.get(),
-            scmConnection = auroraScmConnection.get(),
-            scmDeveloperConnection = auroraScmDeveloperConnection.get(),
-            licenseName = auroraLicenseName.get(),
-            licenseUrl = auroraLicenseUrl.get(),
-            developerId = auroraDeveloperId.get(),
-            developerName = auroraDeveloperName.get(),
-            developerEmail = auroraDeveloperEmail.get(),
+            projectUrl = tramaiProjectUrl.get(),
+            scmUrl = tramaiScmUrl.get(),
+            scmConnection = tramaiScmConnection.get(),
+            scmDeveloperConnection = tramaiScmDeveloperConnection.get(),
+            licenseName = tramaiLicenseName.get(),
+            licenseUrl = tramaiLicenseUrl.get(),
+            developerId = tramaiDeveloperId.get(),
+            developerName = tramaiDeveloperName.get(),
+            developerEmail = tramaiDeveloperEmail.get(),
         )
     }
 
@@ -62,23 +62,23 @@ subprojects {
         apply(plugin = "maven-publish")
         apply(plugin = "signing")
 
-        configureAuroraPublishing(
+        configureTramaiPublishing(
             componentName = "javaPlatform",
             artifactDescription = projectDescription(name),
-            projectUrl = auroraProjectUrl.get(),
-            scmUrl = auroraScmUrl.get(),
-            scmConnection = auroraScmConnection.get(),
-            scmDeveloperConnection = auroraScmDeveloperConnection.get(),
-            licenseName = auroraLicenseName.get(),
-            licenseUrl = auroraLicenseUrl.get(),
-            developerId = auroraDeveloperId.get(),
-            developerName = auroraDeveloperName.get(),
-            developerEmail = auroraDeveloperEmail.get(),
+            projectUrl = tramaiProjectUrl.get(),
+            scmUrl = tramaiScmUrl.get(),
+            scmConnection = tramaiScmConnection.get(),
+            scmDeveloperConnection = tramaiScmDeveloperConnection.get(),
+            licenseName = tramaiLicenseName.get(),
+            licenseUrl = tramaiLicenseUrl.get(),
+            developerId = tramaiDeveloperId.get(),
+            developerName = tramaiDeveloperName.get(),
+            developerEmail = tramaiDeveloperEmail.get(),
         )
     }
 }
 
-fun Project.configureAuroraPublishing(
+fun Project.configureTramaiPublishing(
     componentName: String,
     artifactDescription: String,
     projectUrl: String,
@@ -123,8 +123,8 @@ fun Project.configureAuroraPublishing(
             }
         }
 
-        val releaseRepositoryUrl = providers.gradleProperty("auroraPublishReleaseUrl").orNull
-        val snapshotRepositoryUrl = providers.gradleProperty("auroraPublishSnapshotUrl").orNull
+        val releaseRepositoryUrl = providers.gradleProperty("tramaiPublishReleaseUrl").orNull
+        val snapshotRepositoryUrl = providers.gradleProperty("tramaiPublishSnapshotUrl").orNull
         val targetRepositoryUrl = when {
             version.toString().endsWith("-SNAPSHOT") -> snapshotRepositoryUrl ?: releaseRepositoryUrl
             else -> releaseRepositoryUrl ?: snapshotRepositoryUrl
@@ -133,11 +133,11 @@ fun Project.configureAuroraPublishing(
         if (!targetRepositoryUrl.isNullOrBlank()) {
             repositories {
                 maven {
-                    name = "auroraRemote"
+                    name = "tramaiRemote"
                     url = uri(targetRepositoryUrl)
                     credentials {
-                        username = providers.gradleProperty("auroraPublishUsername").orNull
-                        password = providers.gradleProperty("auroraPublishPassword").orNull
+                        username = providers.gradleProperty("tramaiPublishUsername").orNull
+                        password = providers.gradleProperty("tramaiPublishPassword").orNull
                     }
                 }
             }
@@ -155,16 +155,16 @@ fun Project.configureAuroraPublishing(
 }
 
 fun projectDescription(projectName: String): String = when (projectName) {
-    "aurora-core" -> "Core annotations, request models, provider registry, and exception types for Aurora."
-    "aurora-engine" -> "Runtime engine that turns annotated Aurora service interfaces into executable proxies."
-    "aurora-structured" -> "Structured output schema generation, parsing, and validation support for Aurora."
-    "aurora-anthropic" -> "Anthropic provider integration for Aurora."
-    "aurora-openai" -> "OpenAI and OpenAI-compatible provider integrations for Aurora."
-    "aurora-ollama" -> "Ollama provider integration for Aurora."
-    "aurora-observability" -> "OpenTelemetry-based observability hooks for Aurora."
-    "aurora-standalone" -> "Minimal standalone runtime bundle for Aurora."
-    "aurora-spring" -> "Spring Boot auto-configuration and integration support for Aurora."
-    "aurora-testing" -> "Testing utilities and deterministic assertion support for Aurora."
-    "aurora-bom" -> "Bill of materials for aligning Aurora module versions."
-    else -> "Aurora module ${projectName.removePrefix("aurora-")}."
+    "tramai-core" -> "Core annotations, request models, provider registry, and exception types for Tramai."
+    "tramai-engine" -> "Runtime engine that turns annotated Tramai service interfaces into executable proxies."
+    "tramai-structured" -> "Structured output schema generation, parsing, and validation support for Tramai."
+    "tramai-anthropic" -> "Anthropic provider integration for Tramai."
+    "tramai-openai" -> "OpenAI and OpenAI-compatible provider integrations for Tramai."
+    "tramai-ollama" -> "Ollama provider integration for Tramai."
+    "tramai-observability" -> "OpenTelemetry-based observability hooks for Tramai."
+    "tramai-standalone" -> "Minimal standalone runtime bundle for Tramai."
+    "tramai-spring" -> "Spring Boot auto-configuration and integration support for Tramai."
+    "tramai-testing" -> "Testing utilities and deterministic assertion support for Tramai."
+    "tramai-bom" -> "Bill of materials for aligning Tramai module versions."
+    else -> "Tramai module ${projectName.removePrefix("tramai-")}."
 }

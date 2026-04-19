@@ -1,13 +1,13 @@
-# Testing Aurora Code
+# Testing Tramai Code
 
-Aurora includes a dedicated testing module so you can test AI-dependent application code without network calls.
+Tramai includes a dedicated testing module so you can test AI-dependent application code without network calls.
 
 ## What The Testing Module Provides
 
 - `MockAiProvider`
 - `SimulatedFailureProvider`
 - `RecordingOperationObserver`
-- `AuroraAssertions`
+- `TramaiAssertions`
 
 ## Basic Test Pattern
 
@@ -18,7 +18,7 @@ val provider = MockAiProvider {
 
 val observer = RecordingOperationObserver()
 
-val aurora = Aurora {
+val tramai = Tramai {
     provider(provider, default = true)
     model("gpt-5.1-chat-latest", "mock")
     observer(observer)
@@ -47,12 +47,12 @@ data class Status(
 Test:
 
 ```kotlin
-val service = aurora.create<Analyzer>()
+val service = tramai.create<Analyzer>()
 val result = runBlocking { service.analyze("invoice-1") }
 
 assertEquals(Status("ok"), result)
 
-AuroraAssertions.assertThat(provider, observer)
+TramaiAssertions.assertThat(provider, observer)
     .whenCalled("analyze")
     .wasCalledTimes(1)
     .andRetried(0)
@@ -94,13 +94,13 @@ This lets application tests verify:
 
 ## What To Test
 
-Recommended Aurora-facing application tests:
+Recommended Tramai-facing application tests:
 
 - prompt and argument wiring through service methods
 - structured return behavior
 - retry behavior for malformed output
 - provider routing decisions
-- business logic wrapped around Aurora service calls
+- business logic wrapped around Tramai service calls
 
 ## What Not To Over-Test
 
@@ -110,16 +110,16 @@ You usually do not need to unit test:
 - provider HTTP specifics in application tests
 - Jackson itself
 
-Those belong in Aurora module tests or provider integration tests.
+Those belong in Tramai module tests or provider integration tests.
 
 ## Spring Applications
 
-For Spring applications, you can override real providers with a test `ModelProvider` bean or assemble Aurora manually in isolated tests, depending on how integrated the code under test is.
+For Spring applications, you can override real providers with a test `ModelProvider` bean or assemble Tramai manually in isolated tests, depending on how integrated the code under test is.
 
 ## Confidence Model
 
 The goal is not to prove model intelligence. The goal is to prove:
 
 - your application sends the expected inputs
-- Aurora routes and retries as expected
+- Tramai routes and retries as expected
 - your code handles the typed result correctly

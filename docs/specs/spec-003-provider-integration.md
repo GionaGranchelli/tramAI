@@ -9,7 +9,7 @@
 
 ## Problem
 
-Aurora needs real provider integrations that make the core execution path usable beyond stubs. v1 depends on at least one local-first provider and one cloud provider, plus a deterministic routing mechanism that maps operations and models to the right backend.
+Tramai needs real provider integrations that make the core execution path usable beyond stubs. v1 depends on at least one local-first provider and one cloud provider, plus a deterministic routing mechanism that maps operations and models to the right backend.
 
 ## Scope
 
@@ -23,13 +23,13 @@ Aurora needs real provider integrations that make the core execution path usable
 
 - Full multi-provider feature parity
 - Streaming transport support
-- Provider-specific DSLs beyond Aurora's shared operation model
+- Provider-specific DSLs beyond Tramai's shared operation model
 
 ## Functional Requirements
 
 - Provider modules must implement the shared provider contract and return normalized `ModelResponse` data.
-- Aurora must resolve providers through an explicit provider registry rather than model-prefix routing.
-- Aurora must support deterministic model-to-provider resolution and explicit provider selection when an operation chooses a provider directly.
+- Tramai must resolve providers through an explicit provider registry rather than model-prefix routing.
+- Tramai must support deterministic model-to-provider resolution and explicit provider selection when an operation chooses a provider directly.
 - Provider retries must apply to transient failures such as rate limits, service unavailability, and network timeouts.
 - Authentication errors, invalid model names, and non-retryable provider errors must fail fast.
 - Unknown or unregistered models must produce explicit resolution errors rather than silent fallback.

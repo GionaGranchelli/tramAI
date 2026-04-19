@@ -1,10 +1,10 @@
 # Current Limitations
 
-This page is intentionally blunt. It documents what Aurora does not do yet.
+This page is intentionally blunt. It documents what Tramai does not do yet.
 
 ## Status Level
 
-Aurora is a strong alpha.
+Tramai is a strong alpha.
 
 It is usable for:
 
@@ -36,7 +36,7 @@ These concepts exist in the API shape or planning docs but are not fully realize
 
 ## Practical Consequences
 
-Before using Aurora in a serious service, assume you still need to make decisions about:
+Before using Tramai in a serious service, assume you still need to make decisions about:
 
 - your own fallback strategy
 - your own deployment and secret management model
@@ -58,7 +58,7 @@ These parts are already coherent and tested:
 
 ## Recommended Usage Today
 
-Aurora is in its best shape for:
+Tramai is in its best shape for:
 
 - internal tools
 - developer platforms

@@ -1,12 +1,12 @@
-# Copilot Instructions for Aurora
+# Copilot Instructions for Tramai
 
-Aurora is a structured-first, observability-native AI workflow library for the JVM.
+Tramai is a structured-first, observability-native AI workflow library for the JVM.
 
 The project is Kotlin-first, Java-friendly, and designed around typed interface methods as the primary abstraction for AI operations. Code generation suggestions and edits must preserve the architecture and quality bar described below.
 
-## What Aurora Is
+## What Tramai Is
 
-Aurora is a library for backend engineers who want to integrate AI into JVM applications using:
+Tramai is a library for backend engineers who want to integrate AI into JVM applications using:
 
 - annotated interfaces
 - typed inputs and outputs
@@ -15,21 +15,21 @@ Aurora is a library for backend engineers who want to integrate AI into JVM appl
 - optional observability via OpenTelemetry
 - framework-free core runtime, with thin framework adapters
 
-Aurora is not an agent framework, a prompt-management system, or a chain-composition library. Do not introduce those patterns casually.
+Tramai is not an agent framework, a prompt-management system, or a chain-composition library. Do not introduce those patterns casually.
 
 ## Architectural Expectations
 
 Respect these module boundaries:
 
-- `aurora-core` contains shared contracts, annotations, and common models
-- `aurora-engine` owns orchestration, execution flow, and retry policy
-- `aurora-structured` owns schema generation, response extraction, deserialization, and structured failure analysis
-- `aurora-observability` is optional and should not become a mandatory dependency of the minimal runtime
-- `aurora-standalone` is the minimal non-framework composition module
+- `tramai-core` contains shared contracts, annotations, and common models
+- `tramai-engine` owns orchestration, execution flow, and retry policy
+- `tramai-structured` owns schema generation, response extraction, deserialization, and structured failure analysis
+- `tramai-observability` is optional and should not become a mandatory dependency of the minimal runtime
+- `tramai-standalone` is the minimal non-framework composition module
 - provider resolution should use an explicit registry, not implicit model-prefix routing
 
-Do not move parsing logic into `aurora-engine`.
-Do not move retry policy into `aurora-structured`.
+Do not move parsing logic into `tramai-engine`.
+Do not move retry policy into `tramai-structured`.
 Do not make optional modules effectively mandatory through transitive coupling.
 
 ## API Design Expectations
@@ -55,7 +55,7 @@ For Java support in v1:
 
 ## Testing Expectations
 
-High-quality code in Aurora is code that is audited by tests.
+High-quality code in Tramai is code that is audited by tests.
 
 When generating or editing code, also generate or update tests that verify:
 
@@ -84,7 +84,7 @@ Weak assertions to avoid:
 
 ## Error Handling Expectations
 
-Aurora should fail clearly when correctness cannot be preserved.
+Tramai should fail clearly when correctness cannot be preserved.
 
 Prefer:
 

@@ -1,8 +1,8 @@
 # Structured Output
 
-Structured output is Aurora's defining feature.
+Structured output is Tramai's defining feature.
 
-Instead of asking the model for a string and parsing it yourself, you return a Kotlin type and let Aurora do the contract work.
+Instead of asking the model for a string and parsing it yourself, you return a Kotlin type and let Tramai do the contract work.
 
 ## Basic Example
 
@@ -23,9 +23,9 @@ interface IncidentAnalyzer {
 }
 ```
 
-## What Aurora Does Automatically
+## What Tramai Does Automatically
 
-When a method returns a non-`String` non-`Unit` type, Aurora:
+When a method returns a non-`String` non-`Unit` type, Tramai:
 
 1. generates a schema-like JSON contract
 2. injects that contract into the prompt
@@ -39,7 +39,7 @@ The retry loop lives in the engine. The validation result comes from the structu
 
 ## Validation Annotations
 
-Aurora currently supports these annotations:
+Tramai currently supports these annotations:
 
 - `@AiDescription`
 - `@AiRange`
@@ -83,7 +83,7 @@ Example:
 
 ## What Works Well
 
-Aurora structured output works best when:
+Tramai structured output works best when:
 
 - the return type is a data class
 - field names are clear
@@ -100,7 +100,7 @@ Avoid these patterns:
 
 ## JSON Extraction Behavior
 
-Aurora currently tolerates:
+Tramai currently tolerates:
 
 - raw JSON
 - fenced markdown code blocks containing JSON

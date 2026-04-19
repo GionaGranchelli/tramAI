@@ -1,6 +1,6 @@
 # Specifications
 
-This directory is the working base for specs-driven development in Aurora.
+This directory is the working base for specs-driven development in Tramai.
 
 The intent is to make each meaningful implementation slice explicit before code starts:
 

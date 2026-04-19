@@ -1,13 +1,13 @@
 # Spring Boot Integration
 
-Use `aurora-spring` when you want Aurora service interfaces injected as Spring beans.
+Use `tramai-spring` when you want Tramai service interfaces injected as Spring beans.
 
 ## What Spring Support Provides
 
 The Spring adapter currently does these things:
 
-- binds `aurora.*` configuration properties
-- creates an `Aurora` instance automatically
+- binds `tramai.*` configuration properties
+- creates an `Tramai` instance automatically
 - scans for `@AiService` interfaces
 - registers proxies for those interfaces as beans
 
@@ -40,7 +40,7 @@ class BillingService(
 Example using OpenAI:
 
 ```yaml
-aurora:
+tramai:
   default-provider: openai
   models:
     gpt-5.1-chat-latest: openai
@@ -53,7 +53,7 @@ aurora:
 Example using Anthropic:
 
 ```yaml
-aurora:
+tramai:
   default-provider: anthropic
   models:
     claude-sonnet-4-20250514: anthropic
@@ -65,7 +65,7 @@ aurora:
 Example using Ollama:
 
 ```yaml
-aurora:
+tramai:
   default-provider: ollama
   models:
     llama3.2: ollama
@@ -78,7 +78,7 @@ aurora:
 
 You can also register a `ModelProvider` bean directly.
 
-Aurora merges:
+Tramai merges:
 
 - property-defined providers
 - explicit `ModelProvider` beans
@@ -90,7 +90,7 @@ If both define the same provider name, the bean-backed provider wins because it 
 For a generic compatible endpoint:
 
 ```yaml
-aurora:
+tramai:
   default-provider: my-compatible
   models:
     gpt-oss-compatible: my-compatible
@@ -108,7 +108,7 @@ Spring can also construct OpenAI providers from the local Codex auth file.
 Example:
 
 ```yaml
-aurora:
+tramai:
   default-provider: openai
   models:
     gpt-5.1-chat-latest: openai
@@ -133,7 +133,7 @@ The Spring adapter is intentionally thin. It does not currently provide:
 
 - advanced bean scopes for AI services
 - per-bean provider overrides outside the annotation and model mapping system
-- automatic test slices beyond normal Spring testing plus `aurora-testing`
+- automatic test slices beyond normal Spring testing plus `tramai-testing`
 - custom proxy generation strategies
 
 For current property details, see [Configuration Reference](../reference/configuration.md).

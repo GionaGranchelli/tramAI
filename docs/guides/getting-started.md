@@ -1,10 +1,10 @@
 # Getting Started
 
-This guide gets Aurora running from the current repository state.
+This guide gets Tramai running from the current repository state.
 
-## What Aurora Is
+## What Tramai Is
 
-Aurora lets you write typed interfaces and back them with LLM calls.
+Tramai lets you write typed interfaces and back them with LLM calls.
 
 You define an interface:
 
@@ -27,7 +27,7 @@ Then you choose a provider, map the model to that provider, and create the servi
 
 ## Requirements
 
-Aurora currently assumes:
+Tramai currently assumes:
 
 - Java 25
 - Kotlin 2.3.0
@@ -43,12 +43,12 @@ From the repository root:
 
 That is the best first check because it compiles every module and runs the current test suite.
 
-## How To Consume Aurora Right Now
+## How To Consume Tramai Right Now
 
-Aurora is still repository-first. The simplest setup today is one of these:
+Tramai is still repository-first. The simplest setup today is one of these:
 
 1. work directly in this repository
-2. include Aurora modules as project dependencies in a multi-project build
+2. include Tramai modules as project dependencies in a multi-project build
 3. publish to a local Maven repository yourself if you want to consume it from another repo
 
 The documentation below assumes you are working from source or a local publication.
@@ -57,21 +57,21 @@ The documentation below assumes you are working from source or a local publicati
 
 For a simple Kotlin application:
 
-- always start with `aurora-standalone`
+- always start with `tramai-standalone`
 - add one or more provider modules
-- optionally add `aurora-observability`
-- add `aurora-testing` in tests
+- optionally add `tramai-observability`
+- add `tramai-testing` in tests
 
 Typical combinations:
 
-- `aurora-standalone` + `aurora-anthropic`
-- `aurora-standalone` + `aurora-openai`
-- `aurora-standalone` + `aurora-ollama`
-- `aurora-standalone` + one provider + `aurora-observability`
+- `tramai-standalone` + `tramai-anthropic`
+- `tramai-standalone` + `tramai-openai`
+- `tramai-standalone` + `tramai-ollama`
+- `tramai-standalone` + one provider + `tramai-observability`
 
 For Spring Boot:
 
-- start with `aurora-spring`
+- start with `tramai-spring`
 - add the provider modules you want to use if they are not already brought in through your build layout
 
 ## Minimal Gradle Example
@@ -80,20 +80,20 @@ If your app is in the same multi-project build:
 
 ```kotlin
 dependencies {
-    implementation(project(":aurora-standalone"))
-    implementation(project(":aurora-openai"))
-    testImplementation(project(":aurora-testing"))
+    implementation(project(":tramai-standalone"))
+    implementation(project(":tramai-openai"))
+    testImplementation(project(":tramai-testing"))
 }
 ```
 
 ## Your First Standalone Program
 
 ```kotlin
-import io.aurora.core.annotations.AiService
-import io.aurora.core.annotations.Operation
-import io.aurora.openai.OpenAiProvider
-import io.aurora.standalone.Aurora
-import io.aurora.standalone.create
+import dev.tramai.core.annotations.AiService
+import dev.tramai.core.annotations.Operation
+import dev.tramai.openai.OpenAiProvider
+import dev.tramai.standalone.Tramai
+import dev.tramai.standalone.create
 
 @AiService
 interface HelloService {
@@ -105,12 +105,12 @@ interface HelloService {
 }
 
 suspend fun main() {
-    val aurora = Aurora {
+    val tramai = Tramai {
         provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
         model("gpt-5.1-chat-latest", "openai")
     }
 
-    val service = aurora.create<HelloService>()
+    val service = tramai.create<HelloService>()
     println(service.hello("Giona"))
 }
 ```

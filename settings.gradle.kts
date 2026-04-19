@@ -1,15 +1,15 @@
-rootProject.name = "aurora"
+rootProject.name = "tramai"
 
 include(
-    "aurora-anthropic",
-    "aurora-bom",
-    "aurora-core",
-    "aurora-engine",
-    "aurora-observability",
-    "aurora-openai",
-    "aurora-ollama",
-    "aurora-spring",
-    "aurora-standalone",
-    "aurora-structured",
-    "aurora-testing",
+    "tramai-anthropic",
+    "tramai-bom",
+    "tramai-core",
+    "tramai-engine",
+    "tramai-observability",
+    "tramai-openai",
+    "tramai-ollama",
+    "tramai-spring",
+    "tramai-standalone",
+    "tramai-structured",
+    "tramai-testing",
 )

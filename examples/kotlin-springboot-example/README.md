@@ -2,16 +2,16 @@
 
 This example is intentionally small, but it shows something that stands out:
 
-- a normal Spring Boot application injects an Aurora `@AiService`
+- a normal Spring Boot application injects an Tramai `@AiService`
 - one endpoint returns plain text
 - one endpoint returns a typed Kotlin object
 - the typed endpoint uses enums, a nested data class, a boolean, and a constrained numeric field
 
-That contrast is the point. The raw path is easy to get from any LLM wrapper. The typed path is where Aurora becomes application infrastructure instead of just model plumbing.
+That contrast is the point. The raw path is easy to get from any LLM wrapper. The typed path is where Tramai becomes application infrastructure instead of just model plumbing.
 
 ## Stack
 
-- `io.aurora:aurora-spring:0.1.0-SNAPSHOT` from `mavenLocal()`
+- `dev.tramai:tramai-spring:0.1.0-SNAPSHOT` from `mavenLocal()`
 - Spring Boot `3.4.5`
 - Kotlin `2.3.0`
 - Java `25`
@@ -41,9 +41,9 @@ Both endpoints accept the same request body:
 }
 ```
 
-## Why This Shows Aurora Better
+## Why This Shows Tramai Better
 
-The typed endpoint demonstrates that Aurora can:
+The typed endpoint demonstrates that Tramai can:
 
 - turn messy natural language into a Kotlin object graph
 - validate the output against enums and numeric constraints
@@ -52,7 +52,7 @@ The typed endpoint demonstrates that Aurora can:
 
 ## Requirements
 
-- Aurora has been published to your local Maven repository
+- Tramai has been published to your local Maven repository
 - Ollama is running locally
 - the example models are available
 

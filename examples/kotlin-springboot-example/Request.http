@@ -11,7 +11,7 @@ Content-Type: application/json
   "invoiceText": "Vendor: Northwind Power\nInvoice: INV-1042\nAmount due: 4820 USD\nDue date: 2026-04-30\nStatus:\n12 days overdue\nThe supplier says service suspension may start next week unless payment is confirmed."
 }
 
-### Typed Aurora path - triage example 1 (overdue)
+### Typed Tramai path - triage example 1 (overdue)
 POST {{baseUrl}}/invoice/triage
 Content-Type: application/json
 
@@ -19,7 +19,7 @@ Content-Type: application/json
   "invoiceText": "Vendor: Northwind Power\nInvoice: INV-1042\nAmount due: 4820 USD\nDue date: 2026-04-30\nStatus:\n12 days overdue\nThe supplier says service suspension may start next week unless payment is confirmed."
 }
 
-### Typed Aurora path - triage example 2 (disputed)
+### Typed Tramai path - triage example 2 (disputed)
 POST {{baseUrl}}/invoice/triage
 Content-Type: application/json
 
@@ -27,7 +27,7 @@ Content-Type: application/json
   "invoiceText": "Supplier: Blue Harbor Logistics\nInvoice number: BH-7781\nAmount: 1299 EUR\nDue date: 2026-05-12\nThe buyer says the shipment was incomplete and payment is on hold until the vendor issues a corrected invoice."
 }
 
-### Typed Aurora path - triage example 3 (current, low-risk)
+### Typed Tramai path - triage example 3 (current, low-risk)
 POST {{baseUrl}}/invoice/triage
 Content-Type: application/json
 
@@ -35,7 +35,7 @@ Content-Type: application/json
   "invoiceText": "Vendor: Acme Office Supplies\nInvoice: AC-2201\nAmount due: 210 USD\nDue date: 2026-05-28\nThe invoice is approved and scheduled for payment in the normal weekly run."
 }
 
-### Typed Aurora path - triage using sample file (if you created sample-invoice.json)
+### Typed Tramai path - triage using sample file (if you created sample-invoice.json)
 POST {{baseUrl}}/invoice/triage
 Content-Type: application/json
 @examples/kotlin-springboot-example/sample-invoice.json
