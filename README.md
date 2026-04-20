@@ -1,173 +1,180 @@
-# Tramai
+# TramAI
 
-Tramai is a structured-first AI integration library for the JVM.
+[![CI](https://github.com/GionaGranchelli/tramAI/actions/workflows/ci.yml/badge.svg)](https://github.com/GionaGranchelli/tramAI/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Kotlin](https://img.shields.io/badge/kotlin-2.1.0-blue.svg?logo=kotlin)](http://kotlinlang.org)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.2-brightgreen.svg?logo=springboot)](https://spring.io/projects/spring-boot)
 
-It is built for backend engineers who want to add AI to Kotlin or Java services without adopting a chain or agent framework. The primary Tramai abstraction is an annotated interface method. Inputs stay normal method parameters. Outputs can stay typed. The runtime owns execution, retry, and provider routing. Structured parsing, validation, and recovery are first-class behavior rather than add-on utility code.
+**TramAI** is a structured-first AI integration library for the JVM. 
 
-## Status
+Built for backend engineers who want to add AI to Kotlin or Java services without adopting complex "agent" or "chain" frameworks, TramAI treats LLMs as typed, observable, and resilient components of your existing architecture.
 
-Tramai is currently a strong alpha moving toward a frozen `0.1.0` MVP release.
+---
 
-What is already implemented:
+## 🚀 Key Features
 
-- annotated `@AiService` interfaces and runtime proxy execution
-- structured output with schema generation, parsing, validation, and retry feedback
-- explicit provider registry and operation-level provider override
-- Anthropic, OpenAI, OpenAI-compatible, and Ollama providers
-- engine-owned timeout and retry handling
-- optional OpenTelemetry integration
-- standalone runtime, Kotlin DSL, Java entry points, and blocking interfaces
-- Spring Boot autoconfiguration
-- deterministic testing support
+*   **Typed Interface Mapping**: Turn annotated interfaces (`@AiService`) into AI-backed proxies.
+*   **Structured-First**: Native support for JSON schema generation, extraction, and validation with automatic retry-on-failure.
+*   **Production-Ready Resilience**: Built-in Circuit Breakers, Exponential Backoff, and Fallback Routing.
+*   **Deep Observability**: First-class OpenTelemetry integration for tracing and token-usage metrics.
+*   **Security & Governance**: Pluggable redaction hooks (PII masking), secret-store integration, and token-usage budgets.
+*   **Framework Agnostic**: Lightweight core with first-class Spring Boot autoconfiguration.
+*   **Native-Image Ready**: Optimized for GraalVM Native Image with pre-generated proxy metadata.
 
-What is explicitly not part of `0.1.0`:
+---
 
-- streaming responses
-- tool calling
-- conversation memory
-- KSP or other generated proxy implementations
+## 🧠 Why TramAI?
 
-The frozen release scope lives in [docs/reference/release-0.1.0.md](./docs/reference/release-0.1.0.md).
+Most AI libraries try to wrap your entire application logic in new abstractions. **TramAI stays at the boundary.** 
 
-## Why Tramai
+It focuses on what matters for production JVM services:
+1.  **Strict Typing**: AI responses should be objects, not strings.
+2.  **Explicit Control**: You decide exactly how prompts are built and which models are used.
+3.  **Reliability**: LLMs are unreliable. TramAI provides the resilience patterns (Retries, Circuit Breakers) to handle their failure modes gracefully.
+4.  **No Magic**: No hidden prompts, no complex agents—just clean code.
 
-Tramai is intentionally opinionated about a few boundaries:
+---
 
-- annotated interface methods are the primary user API
-- `tramai-engine` owns orchestration and retry policy
-- `tramai-structured` owns schema generation, extraction, and structured failure analysis
-- provider routing is explicit
-- observability is opt-in at the dependency level
-- standalone stays minimal instead of silently bundling everything
+## 📦 Installation
 
-Those boundaries are documented under [docs/adr](./docs/adr).
+TramAI is currently in **Alpha (moving toward 0.1.0 MVP)**. You can build and install it to your local Maven repository:
 
-## Quick Example
+```bash
+git clone https://github.com/GionaGranchelli/tramAI.git
+cd tramAI
+./gradlew publishToMavenLocal
+```
+
+### Dependency Management (Gradle)
+
+```kotlin
+implementation(platform("dev.tramai:tramai-bom:0.1.0-SNAPSHOT"))
+implementation("dev.tramai:tramai-standalone")
+implementation("dev.tramai:tramai-openai") // or trami-anthropic, trami-ollama
+```
+
+---
+
+## 🏁 Quick Start
+
+### 1. Define your Service
 
 ```kotlin
 @AiService
-interface InvoiceAnalyzer {
+interface CustomerSupport {
     @Operation(
-        prompt = "Analyze the invoice and return a structured status",
-        model = "claude-sonnet-4-20250514",
+        prompt = "Classify this support request and extract the priority.",
+        model = "gpt-4o"
     )
-    suspend fun analyze(invoiceText: String): InvoiceStatus
+    suspend fun triage(requestText: String): TriageResult
 }
 
-data class InvoiceStatus(
-    val status: String,
+data class TriageResult(
+    val category: String,
+    val priority: Int,
+    val summary: String
 )
-
-val tramai = Tramai {
-    provider(AnthropicProvider(apiKey = System.getenv("ANTHROPIC_API_KEY")), name = "anthropic")
-    model("claude-sonnet-4-20250514", "anthropic")
-}
-
-val analyzer = tramai.create<InvoiceAnalyzer>()
 ```
 
-OpenAI and OpenAI-compatible providers are available as well:
+### 2. Usage (Standalone)
 
 ```kotlin
 val tramai = Tramai {
-    provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai")
-    model("gpt-5.1-chat-latest", "openai")
+    provider(OpenAiProvider(apiKey = "your-key"), name = "openai")
+    model("gpt-4o", "openai")
+}
+
+val support = tramai.create<CustomerSupport>()
+val result = support.triage("My order #123 never arrived!")
+```
+
+### 3. Usage (Spring Boot)
+
+Simply add the starter and configure your `application.yaml`:
+
+```yaml
+tramai:
+  providers:
+    openai:
+      api-key: "env:OPENAI_API_KEY"
+  models:
+    gpt-4o: openai
+```
+
+Then inject your service anywhere:
+
+```kotlin
+@Service
+class TriageService(private val support: CustomerSupport) {
+    suspend fun process(text: String) = support.triage(text)
 }
 ```
 
-`tramai-openai` also contains an experimental Codex/ChatGPT auth-file path for local experimentation. That is intentionally marked experimental and is not the default production authentication story.
+---
 
-## Installation
+## 🛡️ Production Hardening
 
-Tramai is currently built and published from this repository. For local development and the included example project, publish the artifacts first:
+### Resilience & Cost Control
+Configure budgets and circuit breakers globally or per-operation:
 
-```bash
-./gradlew publishToMavenLocal
+```kotlin
+val tramai = Tramai {
+    tokenBudget {
+        hardMaxTokensPerOperation = 10_000
+    }
+    circuitBreaker {
+        failureThreshold = 3
+        openDurationMillis = 60_000
+    }
+}
 ```
 
-Then depend on the modules you need. Typical entry points are:
+### Security Hooks (PII Masking)
+Protect sensitive data before it reaches the provider:
 
-- `dev.tramai:tramai-standalone`
-- `dev.tramai:tramai-spring`
-- `dev.tramai:tramai-openai`
-- `dev.tramai:tramai-anthropic`
-- `dev.tramai:tramai-ollama`
-- `dev.tramai:tramai-observability`
-- `dev.tramai:tramai-testing`
-- `dev.tramai:tramai-bom`
-
-## Example Project
-
-The repository includes a minimal Spring Boot example in [examples/kotlin-springboot-example](./examples/kotlin-springboot-example).
-
-It demonstrates:
-
-- a plain text endpoint
-- a typed structured endpoint
-- local-model usage through Ollama
-- deterministic smoke tests against published local artifacts
-
-Run the example locally with:
-
-```bash
-./gradlew -p examples/kotlin-springboot-example bootRun
+```kotlin
+val tramai = Tramai {
+    interceptor(object : OperationInterceptor {
+        override fun interceptRequest(context: OperationCallContext, messages: List<Message>): List<Message> {
+            return messages.map { it.copy(content = maskEmails(it.content)) }
+        }
+    })
+}
 ```
 
-## Build And Verify
+---
 
-Tramai currently targets:
+## 📂 Module Overview
 
-- Java 25
-- Kotlin 2.3.0
-- Gradle 9 wrapper
+| Module | Description |
+| :--- | :--- |
+| `tramai-core` | Core annotations, models, and SPIs. |
+| `tramai-engine` | The runtime execution engine and resilience logic. |
+| `tramai-structured` | JSON Schema generation and extraction (Jackson-based). |
+| `tramai-standalone` | Minimal builder for non-Spring environments. |
+| `tramai-spring` | Spring Boot Starters and Auto-configuration. |
+| `tramai-openai` | OpenAI & OpenAI-Compatible (vLLM, Groq) providers. |
+| `tramai-anthropic` | Anthropic Claude provider. |
+| `tramai-ollama` | Local model support via Ollama. |
+| `tramai-observability` | OpenTelemetry Tracing and Metrics. |
+| `tramai-testing` | Mock providers and deterministic assertion support. |
 
-Useful commands:
+---
 
-```bash
-./gradlew test
-./gradlew publishToMavenLocal
-./gradlew -p examples/kotlin-springboot-example test
-```
+## 📖 Documentation
 
-## Modules
+*   [Getting Started Guide](docs/guides/getting-started.md)
+*   [Spring Boot Integration](docs/guides/spring-boot.md)
+*   [Structured Output Deep-Dive](docs/guides/structured-output.md)
+*   [Observability & Monitoring](docs/guides/observability.md)
+*   [ADR Index (Architecture Decisions)](docs/adr/README.md)
 
-- `tramai-core`: annotations, contracts, shared models, exceptions
-- `tramai-engine`: proxy execution, dispatch, timeout handling, retry orchestration
-- `tramai-structured`: schema generation and structured-output analysis
-- `tramai-anthropic`: Anthropic provider
-- `tramai-openai`: OpenAI and OpenAI-compatible providers
-- `tramai-ollama`: Ollama provider
-- `tramai-observability`: OpenTelemetry observer integration
-- `tramai-standalone`: minimal non-framework runtime
-- `tramai-spring`: Spring Boot adapter
-- `tramai-testing`: mock and failure-oriented test helpers
-- `tramai-bom`: version alignment for consumers
+---
 
-## Documentation
+## 🤝 Contributing
 
-Start here:
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
-- [docs/README.md](./docs/README.md)
-- [Getting Started](./docs/guides/getting-started.md)
-- [Standalone Usage](./docs/guides/standalone-usage.md)
-- [Spring Boot Integration](./docs/guides/spring-boot.md)
-- [Structured Output](./docs/guides/structured-output.md)
-- [Current Limitations](./docs/reference/limitations.md)
+## 📄 License
 
-For maintainers and contributors:
-
-- [CONTRIBUTING.md](./CONTRIBUTING.md)
-- [AGENTS.md](./AGENTS.md)
-- [ADR Index](./docs/adr/README.md)
-- [Execution Board](./docs/board/board.md)
-
-## Current Limits
-
-Tramai is not yet the right choice if you need:
-
-- streaming-first UI behavior
-- provider-native tool calling
-- memory or retrieval orchestration
-- mature agent workflows
-
-Those are future milestones, not hidden partial features.
+TramAI is released under the [Apache License 2.0](LICENSE).

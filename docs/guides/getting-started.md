@@ -1,123 +1,106 @@
-# Getting Started
+# Getting Started with TramAI
 
-This guide gets Tramai running from the current repository state.
+This guide will walk you through setting up **TramAI** and creating your first AI-backed service in minutes.
 
-## What Tramai Is
+---
 
-Tramai lets you write typed interfaces and back them with LLM calls.
+## 🏗️ What is TramAI?
 
-You define an interface:
+TramAI allows you to define clean service boundaries using standard Kotlin or Java interfaces, then back those interfaces with LLM calls. It handles all the heavy lifting of prompt construction, model routing, structured parsing, and resilience.
 
-```kotlin
-@AiService
-interface InvoiceAnalyzer {
-    @Operation(
-        prompt = "Analyze the invoice and return a structured status",
-        model = "claude-sonnet-4-20250514",
-    )
-    suspend fun analyze(invoiceId: String): InvoiceStatus
-}
+### The Core Pattern
 
-data class InvoiceStatus(
-    val status: String,
-)
-```
+1.  **Define an Interface**: Use `@AiService` and `@Operation`.
+2.  **Choose a Provider**: Map your models to providers like OpenAI, Anthropic, or Ollama.
+3.  **Execute**: Call the interface methods as you would any other local service.
 
-Then you choose a provider, map the model to that provider, and create the service.
+---
 
-## Requirements
+## 🛠️ Prerequisites
 
-Tramai currently assumes:
+*   **Java 25+**: TramAI takes advantage of modern JVM features.
+*   **Kotlin 2.1.0+**: Primary development language.
+*   **Gradle 9.0+**: Build tool.
 
-- Java 25
-- Kotlin 2.3.0
-- Gradle wrapper from this repository
+---
 
-## Clone and Build
+## 🚀 Installation
 
-From the repository root:
+TramAI is currently in early-stage development and is best consumed by building from source or publishing to your local Maven repository.
 
 ```bash
-./gradlew test
+git clone https://github.com/GionaGranchelli/tramAI.git
+cd tramAI
+./gradlew publishToMavenLocal
 ```
 
-That is the best first check because it compiles every module and runs the current test suite.
-
-## How To Consume Tramai Right Now
-
-Tramai is still repository-first. The simplest setup today is one of these:
-
-1. work directly in this repository
-2. include Tramai modules as project dependencies in a multi-project build
-3. publish to a local Maven repository yourself if you want to consume it from another repo
-
-The documentation below assumes you are working from source or a local publication.
-
-## Which Modules To Add
-
-For a simple Kotlin application:
-
-- always start with `tramai-standalone`
-- add one or more provider modules
-- optionally add `tramai-observability`
-- add `tramai-testing` in tests
-
-Typical combinations:
-
-- `tramai-standalone` + `tramai-anthropic`
-- `tramai-standalone` + `tramai-openai`
-- `tramai-standalone` + `tramai-ollama`
-- `tramai-standalone` + one provider + `tramai-observability`
-
-For Spring Boot:
-
-- start with `tramai-spring`
-- add the provider modules you want to use if they are not already brought in through your build layout
-
-## Minimal Gradle Example
-
-If your app is in the same multi-project build:
+### Dependency Configuration (Gradle)
 
 ```kotlin
-dependencies {
-    implementation(project(":tramai-standalone"))
-    implementation(project(":tramai-openai"))
-    testImplementation(project(":tramai-testing"))
-}
+implementation(platform("dev.tramai:tramai-bom:0.1.0-SNAPSHOT"))
+implementation("dev.tramai:tramai-standalone")
+implementation("dev.tramai:tramai-openai")
 ```
 
-## Your First Standalone Program
+---
+
+## 📝 Your First Service
+
+### 1. Define the AI Service
 
 ```kotlin
-import dev.tramai.core.annotations.AiService
-import dev.tramai.core.annotations.Operation
-import dev.tramai.openai.OpenAiProvider
-import dev.tramai.standalone.Tramai
-import dev.tramai.standalone.create
-
 @AiService
-interface HelloService {
+interface GreetingService {
     @Operation(
-        prompt = "Say hello to the user in one sentence",
-        model = "gpt-5.1-chat-latest",
+        prompt = "Greet the user warmly in one sentence based on their name.",
+        model = "gpt-4o"
     )
-    suspend fun hello(name: String): String
+    suspend fun greet(name: String): String
 }
+```
+
+### 2. Configure and Run (Standalone)
+
+```kotlin
+import dev.tramai.standalone.Tramai
+import dev.tramai.openai.OpenAiProvider
 
 suspend fun main() {
+    // 1. Build the TramAI engine
     val tramai = Tramai {
-        provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
-        model("gpt-5.1-chat-latest", "openai")
+        provider(OpenAiProvider(apiKey = System.getenv("OPENAI_API_KEY")), name = "openai")
+        model("gpt-4o", "openai")
     }
 
-    val service = tramai.create<HelloService>()
-    println(service.hello("Giona"))
+    // 2. Create the service proxy
+    val greeter = tramai.create<GreetingService>()
+
+    // 3. Call the AI!
+    val message = greeter.greet("Giona")
+    println(message)
 }
 ```
 
-## Choose Your Next Guide
+---
 
-- If you want plain Kotlin usage, continue with [Standalone Usage](./standalone-usage.md)
-- If you want Spring Boot, continue with [Spring Boot Integration](./spring-boot.md)
-- If you want typed return values, continue with [Structured Output](./structured-output.md)
-- If you want to compare providers, continue with [Providers and Model Routing](./providers.md)
+## 🧩 Choosing Your Path
+
+TramAI is designed to be modular. Depending on your needs, you might include different modules:
+
+*   **Standalone**: For CLI apps, background workers, or non-Spring services.
+    *   `tramai-standalone` + `tramai-openai`
+*   **Spring Boot**: For modern web applications and microservices.
+    *   `tramai-spring` + `tramai-anthropic`
+*   **Local AI**: For offline or privacy-sensitive processing.
+    *   `tramai-standalone` + `tramai-ollama`
+
+---
+
+## 🔍 Next Steps
+
+Now that you have your first service running, explore the more advanced features of TramAI:
+
+*   **[Structured Output](./structured-output.md)**: Learn how to extract typed data instead of raw strings.
+*   **[Spring Boot Integration](./spring-boot.md)**: Deep-dive into Spring-native configuration.
+*   **[Production Hardening](./production-hardening.md)**: Configure circuit breakers, budgets, and security hooks.
+*   **[Observability](./observability.md)**: Track your AI performance with OpenTelemetry.
