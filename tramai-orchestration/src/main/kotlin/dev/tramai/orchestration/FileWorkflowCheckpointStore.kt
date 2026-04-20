@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTramAIOrchestration::class)
+
 package dev.tramai.orchestration
 
 import java.nio.channels.FileChannel
@@ -14,6 +16,7 @@ import java.io.StringWriter
 /**
  * Plain file-backed checkpoint store using a simple properties-based envelope.
  */
+@ExperimentalTramAIOrchestration
 class FileWorkflowCheckpointStore(
     private val rootDirectory: Path,
     private val pathStrategy: WorkflowCheckpointPathStrategy = DefaultWorkflowCheckpointPathStrategy("checkpoint.properties"),
@@ -93,6 +96,7 @@ class FileWorkflowCheckpointStore(
 /**
  * Strategy used by file-based checkpoint stores to choose one file path per checkpoint.
  */
+@ExperimentalTramAIOrchestration
 interface WorkflowCheckpointPathStrategy {
     fun resolve(
         rootDirectory: Path,
@@ -101,6 +105,7 @@ interface WorkflowCheckpointPathStrategy {
     ): Path
 }
 
+@ExperimentalTramAIOrchestration
 class DefaultWorkflowCheckpointPathStrategy(
     private val fileName: String,
 ) : WorkflowCheckpointPathStrategy {

@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTramAIOrchestration::class)
+
 package dev.tramai.orchestration
 
 import java.nio.charset.StandardCharsets
@@ -8,6 +10,7 @@ import kotlin.math.max
 /**
  * Markdown-backed checkpoint store for audit-friendly local persistence.
  */
+@ExperimentalTramAIOrchestration
 class MarkdownWorkflowCheckpointStore(
     private val rootDirectory: Path,
     private val pathStrategy: WorkflowCheckpointPathStrategy = DefaultWorkflowCheckpointPathStrategy("checkpoint.md"),

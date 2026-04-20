@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTramAIOrchestration::class)
+
 package dev.tramai.orchestration
 
 import java.util.UUID
@@ -5,6 +7,7 @@ import java.util.UUID
 /**
  * Active ownership claim for one workflow execution.
  */
+@ExperimentalTramAIOrchestration
 data class WorkflowLease(
     val workflowName: String,
     val workflowId: String,
@@ -18,6 +21,7 @@ data class WorkflowLease(
 /**
  * Lease settings used when a workflow needs active ownership in a multi-node environment.
  */
+@ExperimentalTramAIOrchestration
 data class WorkflowLeasePolicy(
     val ownerId: String,
     val leaseDurationMillis: Long = 30_000,
@@ -31,6 +35,7 @@ data class WorkflowLeasePolicy(
 /**
  * Optional coordination SPI for workflows that need active ownership rather than revision checks alone.
  */
+@ExperimentalTramAIOrchestration
 interface WorkflowLeaseStore {
     suspend fun currentLease(
         workflowName: String,
@@ -57,6 +62,7 @@ interface WorkflowLeaseStore {
 /**
  * Raised when a workflow cannot claim or renew active ownership because another executor holds the lease.
  */
+@ExperimentalTramAIOrchestration
 class WorkflowLeaseConflictException(
     message: String,
 ) : RuntimeException(message)
@@ -64,6 +70,7 @@ class WorkflowLeaseConflictException(
 /**
  * Simple in-memory lease store for tests and lightweight local use.
  */
+@ExperimentalTramAIOrchestration
 class InMemoryWorkflowLeaseStore(
     private val clockMillis: () -> Long = System::currentTimeMillis,
 ) : WorkflowLeaseStore {

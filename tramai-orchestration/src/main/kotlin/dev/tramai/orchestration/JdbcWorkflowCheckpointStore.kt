@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTramAIOrchestration::class)
+
 package dev.tramai.orchestration
 
 import java.io.StringWriter
@@ -10,6 +12,7 @@ import javax.sql.DataSource
  *
  * Applications are responsible for supplying a JDBC driver and creating the target table.
  */
+@ExperimentalTramAIOrchestration
 class JdbcWorkflowCheckpointStore(
     private val dataSource: DataSource,
     private val table: JdbcWorkflowCheckpointTable = JdbcWorkflowCheckpointTable(),
@@ -230,6 +233,7 @@ class JdbcWorkflowCheckpointStore(
     )
 }
 
+@ExperimentalTramAIOrchestration
 data class JdbcWorkflowCheckpointTable(
     val tableName: String = "tramai_workflow_checkpoint",
     val workflowNameColumn: String = "workflow_name",

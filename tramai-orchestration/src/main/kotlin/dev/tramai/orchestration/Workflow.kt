@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTramAIOrchestration::class)
+
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.async
@@ -8,6 +10,7 @@ import java.util.UUID
 /**
  * Workflow-level execution metadata.
  */
+@ExperimentalTramAIOrchestration
 data class WorkflowContext(
     val workflowId: String = UUID.randomUUID().toString(),
     val attributes: Map<String, Any?> = emptyMap(),
@@ -16,6 +19,7 @@ data class WorkflowContext(
 /**
  * Explicit execution bounds for one workflow run.
  */
+@ExperimentalTramAIOrchestration
 data class StopPolicy(
     val maxStepExecutions: Int = 100,
     val maxParallelBranches: Int = 16,
@@ -29,6 +33,7 @@ data class StopPolicy(
 /**
  * Workflow-level observation seam.
  */
+@ExperimentalTramAIOrchestration
 interface WorkflowObserver {
     fun onWorkflowStarted(
         workflowName: String,
@@ -73,11 +78,13 @@ interface WorkflowObserver {
     ) = Unit
 }
 
+@ExperimentalTramAIOrchestration
 object NoOpWorkflowObserver : WorkflowObserver
 
 /**
  * Raised when a workflow exceeds an explicit execution bound.
  */
+@ExperimentalTramAIOrchestration
 class WorkflowLimitExceededException(
     message: String,
 ) : RuntimeException(message)
@@ -85,6 +92,7 @@ class WorkflowLimitExceededException(
 /**
  * Raised when a branch step selects a branch that is not configured.
  */
+@ExperimentalTramAIOrchestration
 class WorkflowBranchSelectionException(
     message: String,
 ) : RuntimeException(message)
@@ -92,6 +100,7 @@ class WorkflowBranchSelectionException(
 /**
  * Raised when an explicit workflow gate rejects further execution.
  */
+@ExperimentalTramAIOrchestration
 class WorkflowGateRejectedException(
     message: String,
 ) : RuntimeException(message)
@@ -99,6 +108,7 @@ class WorkflowGateRejectedException(
 /**
  * Result returned by a first-class gate step.
  */
+@ExperimentalTramAIOrchestration
 data class GateDecision(
     val allowed: Boolean,
     val reason: String? = null,
@@ -122,6 +132,7 @@ data class GateDecision(
 /**
  * Executable typed workflow.
  */
+@ExperimentalTramAIOrchestration
 class Workflow<S, R> internal constructor(
     val name: String,
     private val steps: List<InternalWorkflowStep<S>>,
@@ -176,6 +187,11 @@ class Workflow<S, R> internal constructor(
             ?: throw WorkflowResumeException(
                 "No checkpoint exists for workflow '$name' and workflowId='${context.workflowId}'",
             )
+        if (checkpoint.nextStepIndex < 0 || checkpoint.nextStepIndex > steps.size) {
+            throw WorkflowResumeException(
+                "Checkpoint for workflow '$name' and workflowId='${context.workflowId}' has invalid nextStepIndex=${checkpoint.nextStepIndex}; valid range is 0..${steps.size}",
+            )
+        }
         observer.onWorkflowStarted(name, context)
         observer.onWorkflowEvent(
             workflowName = name,
@@ -314,25 +330,40 @@ class Workflow<S, R> internal constructor(
     }
 }
 
+@ExperimentalTramAIOrchestration
 class WorkflowBuilder<S> internal constructor(
     private val workflowName: String,
 ) : AbstractWorkflowBuilder<S>() {
     fun <R> build(
         stopPolicy: StopPolicy = StopPolicy(),
         resultSelector: (S) -> R,
-    ): Workflow<S, R> = Workflow(
-        name = workflowName,
-        steps = stepsSnapshot(),
-        resultSelector = resultSelector,
-        stopPolicy = stopPolicy,
-    )
+    ): Workflow<S, R> {
+        val snapshot = stepsSnapshot()
+        validateWorkflowDefinition(
+            workflowName = workflowName,
+            steps = snapshot,
+        )
+        return Workflow(
+            name = workflowName,
+            steps = snapshot,
+            resultSelector = resultSelector,
+            stopPolicy = stopPolicy,
+        )
+    }
 }
 
+@ExperimentalTramAIOrchestration
 fun <S> workflow(
     name: String,
     configure: WorkflowBuilder<S>.() -> Unit,
-): WorkflowBuilder<S> = WorkflowBuilder<S>(name).apply(configure)
+): WorkflowBuilder<S> {
+    require(name.isNotBlank()) {
+        "Workflow.name must not be blank"
+    }
+    return WorkflowBuilder<S>(name).apply(configure)
+}
 
+@ExperimentalTramAIOrchestration
 abstract class AbstractWorkflowBuilder<S> {
     private val steps = mutableListOf<InternalWorkflowStep<S>>()
 
@@ -396,12 +427,16 @@ abstract class AbstractWorkflowBuilder<S> {
     }
 
     internal fun appendStep(step: InternalWorkflowStep<S>) {
+        require(step.name.isNotBlank()) {
+            "Workflow step name must not be blank"
+        }
         steps += step
     }
 
     internal fun stepsSnapshot(): List<InternalWorkflowStep<S>> = steps.toList()
 }
 
+@ExperimentalTramAIOrchestration
 class BranchBuilder<S> {
     internal val branches = linkedMapOf<String, List<InternalWorkflowStep<S>>>()
     internal var defaultSteps: List<InternalWorkflowStep<S>>? = null
@@ -410,16 +445,24 @@ class BranchBuilder<S> {
         key: String,
         configure: BranchWorkflowBuilder<S>.() -> Unit,
     ) {
+        require(key.isNotBlank()) { "Workflow branch key must not be blank" }
+        require(!branches.containsKey(key)) {
+            "Workflow branch key '$key' is already configured"
+        }
         branches[key] = BranchWorkflowBuilder<S>().apply(configure).stepsSnapshot()
     }
 
     fun default(
         configure: BranchWorkflowBuilder<S>.() -> Unit,
     ) {
+        require(defaultSteps == null) {
+            "Workflow default branch is already configured"
+        }
         defaultSteps = BranchWorkflowBuilder<S>().apply(configure).stepsSnapshot()
     }
 }
 
+@ExperimentalTramAIOrchestration
 class BranchWorkflowBuilder<S> : AbstractWorkflowBuilder<S>() {
 }
 
@@ -543,6 +586,39 @@ private class StepCounter(
             )
         }
         stepExecutions += 1
+    }
+}
+
+private fun <S> validateWorkflowDefinition(
+    workflowName: String,
+    steps: List<InternalWorkflowStep<S>>,
+) {
+    val names = linkedSetOf<String>()
+    collectStepNames(steps, names) { duplicate ->
+        throw IllegalArgumentException(
+            "Workflow '$workflowName' has duplicate step name '$duplicate'. Step names must be unique across the full workflow definition.",
+        )
+    }
+}
+
+private fun <S> collectStepNames(
+    steps: List<InternalWorkflowStep<S>>,
+    names: MutableSet<String>,
+    onDuplicate: (String) -> Nothing,
+) {
+    for (step in steps) {
+        if (!names.add(step.name)) {
+            onDuplicate(step.name)
+        }
+        if (step is BranchWorkflowStep) {
+            for (branchSteps in step.branches.values) {
+                collectStepNames(branchSteps, names, onDuplicate)
+            }
+            val defaultSteps = step.defaultSteps
+            if (defaultSteps != null) {
+                collectStepNames(defaultSteps, names, onDuplicate)
+            }
+        }
     }
 }
 

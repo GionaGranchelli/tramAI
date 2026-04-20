@@ -1,9 +1,10 @@
 @baseUrl = http://localhost:8080
+@workflowId = wf-1045
 
 ### Health check
 GET {{baseUrl}}/
 
-### Raw text path - summary
+### Raw summary
 POST {{baseUrl}}/invoice/summary
 Content-Type: application/json
 
@@ -11,7 +12,7 @@ Content-Type: application/json
   "invoiceText": "Vendor: Northwind Power\nInvoice: INV-1042\nAmount due: 4820 USD\nDue date: 2026-04-30\nStatus:\n12 days overdue\nThe supplier says service suspension may start next week unless payment is confirmed."
 }
 
-### Typed Tramai path - triage example 1 (overdue)
+### Typed triage - overdue example
 POST {{baseUrl}}/invoice/triage
 Content-Type: application/json
 
@@ -19,7 +20,7 @@ Content-Type: application/json
   "invoiceText": "Vendor: Northwind Power\nInvoice: INV-1042\nAmount due: 4820 USD\nDue date: 2026-04-30\nStatus:\n12 days overdue\nThe supplier says service suspension may start next week unless payment is confirmed."
 }
 
-### Typed Tramai path - triage example 2 (disputed)
+### Typed triage - disputed example
 POST {{baseUrl}}/invoice/triage
 Content-Type: application/json
 
@@ -27,7 +28,7 @@ Content-Type: application/json
   "invoiceText": "Supplier: Blue Harbor Logistics\nInvoice number: BH-7781\nAmount: 1299 EUR\nDue date: 2026-05-12\nThe buyer says the shipment was incomplete and payment is on hold until the vendor issues a corrected invoice."
 }
 
-### Typed Tramai path - triage example 3 (current, low-risk)
+### Typed triage - current example
 POST {{baseUrl}}/invoice/triage
 Content-Type: application/json
 
@@ -35,12 +36,12 @@ Content-Type: application/json
   "invoiceText": "Vendor: Acme Office Supplies\nInvoice: AC-2201\nAmount due: 210 USD\nDue date: 2026-05-28\nThe invoice is approved and scheduled for payment in the normal weekly run."
 }
 
-### Typed Tramai path - triage using sample file (if you created sample-invoice.json)
+### Typed triage using a local request file
 POST {{baseUrl}}/invoice/triage
 Content-Type: application/json
 @examples/kotlin-springboot-example/sample-invoice.json
 
-### Streaming path - token-by-token summary
+### Streaming summary
 POST {{baseUrl}}/invoice/summary/stream
 Content-Type: application/json
 
@@ -48,7 +49,7 @@ Content-Type: application/json
   "invoiceText": "Vendor: ACME\nInvoice: INV-999\nAmount: 500 USD\nStatus: Pending approval."
 }
 
-### Tool-augmented path - vendor enrichment
+### Tool calling - vendor enrichment
 POST {{baseUrl}}/invoice/enrich
 Content-Type: application/json
 
@@ -56,3 +57,38 @@ Content-Type: application/json
   "invoiceText": "Vendor: Acme\nInvoice: INV-123\nAmount: 1200.00 USD\nPlease verify terms."
 }
 
+### Workflow run with persisted checkpoint
+POST {{baseUrl}}/invoice/workflow
+Content-Type: application/json
+
+{
+  "workflowId": "{{workflowId}}",
+  "invoiceText": "Vendor: Northwind Power\nInvoice: INV-1042\nAmount due: 4820 USD\nDue date: 2026-04-30\nStatus: 12 days overdue\nThe supplier says service suspension may start next week unless payment is confirmed."
+}
+
+### Workflow async start (non-blocking)
+POST {{baseUrl}}/invoice/workflow/start
+Content-Type: application/json
+
+{
+  "workflowId": "{{workflowId}}",
+  "invoiceText": "Vendor: Northwind Power\nInvoice: INV-1042\nAmount due: 4820 USD\nDue date: 2026-04-30\nStatus: 12 days overdue\nThe supplier says service suspension may start next week unless payment is confirmed."
+}
+
+### Workflow status and result
+GET {{baseUrl}}/invoice/workflow/result/{{workflowId}}
+
+### Workflow events timeline
+GET {{baseUrl}}/invoice/workflow/events/{{workflowId}}
+
+### Workflow list
+GET {{baseUrl}}/invoice/workflow/list?limit=20
+
+### Workflow cancel
+POST {{baseUrl}}/invoice/workflow/cancel/{{workflowId}}
+
+### Workflow checkpoint inspection
+GET {{baseUrl}}/invoice/workflow/checkpoint/{{workflowId}}
+
+### Workflow resume
+POST {{baseUrl}}/invoice/workflow/resume/{{workflowId}}

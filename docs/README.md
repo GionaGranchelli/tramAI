@@ -17,6 +17,8 @@ New to TramAI? Start here.
 ### 🔵 Core Features
 Deep dives into the primary capabilities of the engine.
 *   [**Structured Output**](./guides/structured-output.md) — How TramAI handles schema generation and reliable object extraction.
+*   [**Streaming**](./guides/streaming.md) — Raw text streaming, cancellation, and terminal error semantics.
+*   [**Tool Calling**](./guides/tool-calling.md) — Engine-owned tool execution loops and registration patterns.
 *   [**Providers & Routing**](./guides/providers.md) — Configuring OpenAI, Anthropic, Ollama, and fallback strategies.
 *   [**Security & Hardening**](./guides/production-hardening.md) — PII masking, token budgets, and secret management.
 *   [**Observability**](./guides/observability.md) — OpenTelemetry integration for tracing and metrics.
@@ -25,7 +27,8 @@ Deep dives into the primary capabilities of the engine.
 Taking your integration to the next level.
 *   [**Testing TramAI Code**](./guides/testing.md) — Mocking AI responses and writing deterministic tests.
 *   [**Native Image**](./guides/native-image.md) — Running AI services with GraalVM Native Image.
-*   [**Orchestration**](./guides/orchestration-persistence.md) — (Experimental) Multi-step workflow state management.
+*   [**Orchestration**](./guides/orchestration.md) — (Experimental) Typed workflow coordination above the core engine.
+*   [**Orchestration Persistence**](./guides/orchestration-persistence.md) — (Experimental) Checkpoint, resume, and lease-aware ownership.
 *   [**Extending TramAI**](./guides/extending-tramai.md) — Writing custom providers, observers, or interceptors.
 
 ---

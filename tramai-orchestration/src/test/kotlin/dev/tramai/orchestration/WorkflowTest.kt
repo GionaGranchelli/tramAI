@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTramAIOrchestration::class)
+
 package dev.tramai.orchestration
 
 import dev.tramai.core.annotations.AiService
@@ -246,6 +248,150 @@ class WorkflowTest {
         }
 
         assertThat(result).isEqualTo("fallback:invoice-404")
+    }
+
+    @Test
+    fun `workflow definition rejects duplicate step names across branches`() {
+        assertThatThrownBy {
+            workflow<RoutingState>("duplicate-step-names") {
+                localStep(
+                    name = "shared-name",
+                    transform = { state, _ -> state },
+                )
+                branchStep(
+                    name = "route",
+                    select = { "billing" },
+                ) {
+                    branch("billing") {
+                        localStep(
+                            name = "shared-name",
+                            transform = { state, _ -> state },
+                        )
+                    }
+                }
+            }.build { it.request }
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("duplicate step name 'shared-name'")
+    }
+
+    @Test
+    fun `workflow definition rejects duplicate branch keys`() {
+        assertThatThrownBy {
+            workflow<RoutingState>("duplicate-branch-keys") {
+                branchStep(
+                    name = "route",
+                    select = { "billing" },
+                ) {
+                    branch("billing") {
+                        localStep(
+                            name = "billing-a",
+                            transform = { state, _ -> state },
+                        )
+                    }
+                    branch("billing") {
+                        localStep(
+                            name = "billing-b",
+                            transform = { state, _ -> state },
+                        )
+                    }
+                }
+            }.build { it.request }
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("branch key 'billing' is already configured")
+    }
+
+    @Test
+    fun `workflow definition rejects multiple default branches`() {
+        assertThatThrownBy {
+            workflow<RoutingState>("multiple-default-branches") {
+                branchStep(
+                    name = "route",
+                    select = { "other" },
+                ) {
+                    default {
+                        localStep(
+                            name = "fallback-a",
+                            transform = { state, _ -> state },
+                        )
+                    }
+                    default {
+                        localStep(
+                            name = "fallback-b",
+                            transform = { state, _ -> state },
+                        )
+                    }
+                }
+            }.build { it.request }
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("default branch is already configured")
+    }
+
+    @Test
+    fun `workflow definition rejects blank workflow and step names`() {
+        assertThatThrownBy {
+            workflow<RoutingState>("") {
+                localStep(
+                    name = "ok",
+                    transform = { state, _ -> state },
+                )
+            }.build { it.request }
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("Workflow.name must not be blank")
+
+        assertThatThrownBy {
+            workflow<RoutingState>("blank-step") {
+                localStep(
+                    name = " ",
+                    transform = { state, _ -> state },
+                )
+            }.build { it.request }
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("Workflow step name must not be blank")
+    }
+
+    @Test
+    fun `resume fails loudly on invalid checkpoint next step index`() {
+        val store = InMemoryWorkflowCheckpointStore()
+        val workflow = workflow<ResumeState>("resume-invalid-next-step") {
+            localStep(
+                name = "draft",
+                transform = { state, _ -> state.copy(draft = "draft:${state.request}") },
+            )
+        }.build { it.draft ?: error("draft must exist") }
+
+        runBlocking {
+            store.save(
+                WorkflowCheckpoint(
+                    workflowName = "resume-invalid-next-step",
+                    workflowId = "wf-invalid-index",
+                    nextStepIndex = 3,
+                    stepExecutions = 0,
+                    lastCompletedStepName = null,
+                    statePayload = ResumeStateCodec.encode(
+                        ResumeState(request = "invoice-123"),
+                    ),
+                ),
+            )
+        }
+
+        assertThatThrownBy {
+            runBlocking {
+                workflow.resume(
+                    context = WorkflowContext(workflowId = "wf-invalid-index"),
+                    persistence = WorkflowPersistence(
+                        checkpointStore = store,
+                        stateCodec = ResumeStateCodec,
+                    ),
+                )
+            }
+        }
+            .isInstanceOf(WorkflowResumeException::class.java)
+            .hasMessageContaining("invalid nextStepIndex=3")
     }
 
     @Test

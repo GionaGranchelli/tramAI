@@ -1,14 +1,14 @@
 # Module Overview
 
-The current planned module layout is based on the roadmap and design documents. Names and exact packaging may evolve, but the separation of concerns is already clear.
+These are the current repository modules and their intended boundaries.
 
-## Planned Modules
+## Current Modules
 
 - `tramai-core`: annotations, shared contracts, request and response models, common exceptions
 - `tramai-engine`: proxy generation, method dispatch, operation execution, retry and error handling
 - `tramai-structured`: schema generation, response parsing, validation integration, structured retry feedback
 - `tramai-observability`: OpenTelemetry integration and semantic convention mapping
-- `tramai-orchestration`: typed workflow composition, checkpoint/resume coordination, and optional lease-aware execution
+- `tramai-orchestration`: typed workflow composition, checkpoint/resume coordination, and optional lease-aware execution, currently experimental
 - `tramai-anthropic`: Anthropic provider implementation
 - `tramai-ollama`: Ollama provider implementation
 - `tramai-openai`: OpenAI and OpenAI-compatible provider implementation

@@ -1,5 +1,8 @@
+@file:OptIn(ExperimentalTramAIOrchestration::class)
+
 package dev.tramai.observability
 
+import dev.tramai.orchestration.ExperimentalTramAIOrchestration
 import dev.tramai.orchestration.WorkflowContext
 import dev.tramai.orchestration.WorkflowObserver
 import io.opentelemetry.api.OpenTelemetry
@@ -15,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * OpenTelemetry-backed [WorkflowObserver] implementation.
  */
+@ExperimentalTramAIOrchestration
 class OpenTelemetryWorkflowObserver(
     private val tracer: Tracer,
     private val meter: Meter = OpenTelemetry.noop().getMeter("dev.tramai.observability"),

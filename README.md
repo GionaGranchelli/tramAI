@@ -63,7 +63,7 @@ It is the programming model you already have, extended by one annotation. The we
 TramAI is built on four core convictions:
 
 1.  **Typed contracts over prompt-heavy application code.** The model's output should map to a type your compiler knows about. Parse failures are not exceptions to handle in application code — they are a runtime concern that TramAI resolves (via retries and feedback) before your method returns.
-2.  **Explicit over implicit.** Provider routing is declared. Tool access is declared per operation. Observability is an opt-in module, not a silent bundled dependency. Nothing happens that you did not ask for.
+2.  **Explicit over implicit.** Provider routing is declared. Tool access is declared per operation. Orchestration is an optional module for coordinated tasks, not a black-box autonomous reasoning loop.
 3.  **Observability is not optional.** AI calls are the most expensive, most variable, and most failure-prone operations in any system. TramAI instruments every operation with OpenTelemetry semantic conventions from the first release, not as an afterthought.
 4.  **The core runtime must be testable without a network.** `tramai-testing` is not a utility module. It is a first-class module that ships with the runtime, because AI-dependent code that cannot be tested deterministically is not production code.
 
@@ -71,8 +71,8 @@ TramAI is built on four core convictions:
 
 ## 🧱 What TramAI is NOT
 
-*   **TramAI is not a chain framework.** It does not have a pipeline abstraction.
-*   **TramAI is not an agent framework.** It does not own a reasoning loop.
+*   **TramAI is not a chain framework.** It does not have a pipeline abstraction or "chain" objects that hide your logic.
+*   **TramAI is not an autonomous agent framework.** It does not own an open-ended reasoning loop or autonomous swarms. Orchestration in TramAI is explicit, bounded, and deterministic.
 *   **TramAI is not a RAG toolkit.** It does not manage embeddings or vector stores.
 
 Those are composable concerns that belong in application code or in dedicated libraries. TramAI is the thread that connects your typed interfaces to AI providers — nothing more, and nothing less. The boundary is intentional. **The weft does not try to become the loom.**
@@ -83,6 +83,7 @@ Those are composable concerns that belong in application code or in dedicated li
 
 *   **Typed Interface Mapping**: Turn annotated interfaces into AI-backed proxies.
 *   **Structured-First**: Native support for JSON schema generation, extraction, and validation.
+*   **Explicit Orchestration**: Coordinated multi-step workflows (plan-execute-review) with typed state and checkpoint/resume support.
 *   **Production Resilience**: Built-in Circuit Breakers, Exponential Backoff, and Fallback Routing.
 *   **Security & Governance**: Pluggable redaction hooks (PII masking), secret-store integration, and token-usage budgets.
 *   **Native-Image Ready**: Optimized for GraalVM Native Image with pre-generated metadata.
@@ -106,6 +107,7 @@ implementation("dev.tramai:tramai-openai")
 | `tramai-standalone` | Minimal builder for non-Spring environments. |
 | `tramai-spring` | Spring Boot Starters and Auto-configuration. |
 | `tramai-observability` | OpenTelemetry Tracing and Metrics. |
+| `tramai-orchestration` | Experimental typed workflow coordination with checkpoint/resume support. |
 | `tramai-testing` | Mock providers and deterministic assertion support. |
 
 ---
@@ -114,8 +116,12 @@ implementation("dev.tramai:tramai-openai")
 
 *   [Getting Started Guide](docs/guides/getting-started.md)
 *   [Spring Boot Integration](docs/guides/spring-boot.md)
+*   [Streaming](docs/guides/streaming.md)
+*   [Tool Calling](docs/guides/tool-calling.md)
 *   [Production Hardening & Security](docs/guides/production-hardening.md)
 *   [Structured Output Deep-Dive](docs/guides/structured-output.md)
+*   [Native Image](docs/guides/native-image.md)
+*   [Orchestration](docs/guides/orchestration.md)
 *   [Observability & Monitoring](docs/guides/observability.md)
 
 ---

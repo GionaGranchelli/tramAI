@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTramAIOrchestration::class)
+
 package dev.tramai.orchestration
 
 /**
@@ -5,6 +7,7 @@ package dev.tramai.orchestration
  *
  * The first persistence milestone checkpoints only at top-level workflow step boundaries.
  */
+@ExperimentalTramAIOrchestration
 data class WorkflowCheckpoint(
     val workflowName: String,
     val workflowId: String,
@@ -20,6 +23,7 @@ data class WorkflowCheckpoint(
 /**
  * SPI used to encode and decode typed workflow state for checkpoint storage.
  */
+@ExperimentalTramAIOrchestration
 interface WorkflowStateCodec<S> {
     fun encode(state: S): String
 
@@ -31,6 +35,7 @@ interface WorkflowStateCodec<S> {
  *
  * Implementations may use optimistic concurrency to reject stale writers via [expectedRevision].
  */
+@ExperimentalTramAIOrchestration
 interface WorkflowCheckpointStore {
     suspend fun load(
         workflowName: String,
@@ -52,6 +57,7 @@ interface WorkflowCheckpointStore {
 /**
  * Persistence configuration for a typed workflow.
  */
+@ExperimentalTramAIOrchestration
 data class WorkflowPersistence<S>(
     val checkpointStore: WorkflowCheckpointStore,
     val stateCodec: WorkflowStateCodec<S>,
@@ -69,6 +75,7 @@ data class WorkflowPersistence<S>(
 /**
  * Raised when a workflow resume attempt cannot be satisfied from the checkpoint store.
  */
+@ExperimentalTramAIOrchestration
 class WorkflowResumeException(
     message: String,
 ) : RuntimeException(message)
@@ -76,6 +83,7 @@ class WorkflowResumeException(
 /**
  * Raised when a checkpoint write or delete is attempted with stale revision state.
  */
+@ExperimentalTramAIOrchestration
 class WorkflowCheckpointConflictException(
     message: String,
 ) : RuntimeException(message)
@@ -83,6 +91,7 @@ class WorkflowCheckpointConflictException(
 /**
  * Simple in-memory checkpoint store for tests and lightweight local use.
  */
+@ExperimentalTramAIOrchestration
 class InMemoryWorkflowCheckpointStore : WorkflowCheckpointStore {
     private val checkpoints = linkedMapOf<CheckpointKey, WorkflowCheckpoint>()
     private val monitor = Any()

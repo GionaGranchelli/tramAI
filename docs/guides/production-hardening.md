@@ -1,112 +1,265 @@
 # Production Hardening & Security
 
-TramAI is built for production environments where cost control, data privacy, and reliability are critical. This guide covers the built-in mechanisms for hardening your AI integration.
+TramAI is built for production environments where cost control, data privacy, and reliability matter. This guide covers the hardening mechanisms that exist in the current codebase and uses snippets that match the exported APIs.
 
 ---
 
-## 🛡️ Security Interceptors (PII Masking)
+## Security Interceptors
 
-When sending data to external LLM providers, you may need to redact sensitive information (PII, secrets, internal IDs). TramAI provides an `OperationInterceptor` SPI that can inspect and modify request messages and provider responses.
+`OperationInterceptor` lets you inspect and modify request messages before provider transport and provider responses before the engine continues processing them.
 
-### Usage (Standalone)
+That makes it the right extension point for:
+
+- PII masking
+- internal identifier redaction
+- request/response auditing
+- policy enforcement before data leaves the JVM
+
+### Standalone Usage
 
 ```kotlin
 val tramai = Tramai {
+    provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
+    model("gpt-5.1-chat-latest", "openai")
+
     interceptor(object : OperationInterceptor {
         override fun interceptRequest(
-            context: OperationCallContext, 
-            messages: List<Message>
-        ): List<Message> {
-            return messages.map { it.copy(content = redactPII(it.content)) }
+            context: OperationCallContext,
+            messages: List<Message>,
+        ): List<Message> = messages.map { message ->
+            message.copy(content = redactPii(message.content))
         }
     })
 }
 ```
 
-### Usage (Spring Boot)
+### Spring Boot Usage
 
-Register a bean of type `OperationInterceptor` and TramAI will automatically pick it up:
+Spring Boot auto-configuration does not currently auto-compose `OperationInterceptor` beans into the generated `TramAI` instance.
+
+If you need interceptors in Spring today, define the `TramAI` bean explicitly and wire the interceptor through the standalone builder:
 
 ```kotlin
-@Component
+@Configuration
+class TramaiSecurityConfiguration {
+    @Bean
+    fun tramai(): Tramai = Tramai.builder()
+        .provider(
+            OpenAiProvider(System.getenv("OPENAI_API_KEY")),
+            name = "openai",
+            default = true,
+        )
+        .model("gpt-5.1-chat-latest", "openai")
+        .interceptor(PiiMaskingInterceptor())
+        .build()
+}
+
 class PiiMaskingInterceptor : OperationInterceptor {
-    override fun interceptRequest(context: OperationCallContext, messages: List<Message>): List<Message> {
-        return messages.map { it.copy(content = maskSensitiveData(it.content)) }
+    override fun interceptRequest(
+        context: OperationCallContext,
+        messages: List<Message>,
+    ): List<Message> = messages.map { message ->
+        message.copy(content = maskSensitiveData(message.content))
     }
 }
 ```
 
+Current boundary:
+
+- interceptors are engine-level request/response hooks
+- they are opt-in
+- Spring auto-configuration does not yet auto-register interceptor beans
+
 ---
 
-## 🔐 Secret Management
+## Secret Management
 
-Provider API keys should never be hardcoded or stored in plain text. TramAI uses a `SecretValueResolver` to safely source secrets at runtime.
+Provider credentials should not be hard-coded in application code. TramAI supports the `SecretValueResolver` SPI for resolving secret references.
 
-### Supported Schemes
+Built-in resolvers:
 
-*   `env:VARIABLE_NAME`: Loads the secret from an environment variable.
-*   `file:/path/to/secret`: Loads the secret from a local file.
+- `env:NAME`
+- `file:/path/to/secret.txt`
 
-### Custom Resolvers
+### Standalone Usage
 
-You can implement your own `SecretValueResolver` to integrate with external stores like HashiCorp Vault, AWS Secrets Manager, or Azure Key Vault.
+Standalone usage does not have a dedicated `secretResolver(...)` builder method today. Resolve the secret first, then construct the provider with the resolved value:
 
 ```kotlin
-class VaultSecretResolver : SecretValueResolver {
-    override fun resolve(secretRef: String): String? {
-        if (!secretRef.startsWith("vault:")) return null
-        return vaultClient.read(secretRef.removePrefix("vault:"))
-    }
-}
+val secretResolver = CompositeSecretValueResolver(
+    listOf(
+        SecretValueResolver { secretRef ->
+            if (!secretRef.startsWith("vault:")) {
+                null
+            } else {
+                vaultClient.read(secretRef.removePrefix("vault:"))
+            }
+        },
+        EnvironmentSecretValueResolver,
+        FileSecretValueResolver,
+    ),
+)
 
-// Register it
 val tramai = Tramai {
-    // Custom resolvers are tried first
-    secretResolver(VaultSecretResolver())
+    provider(
+        OpenAiProvider(
+            apiKey = secretResolver.resolve("vault:providers/openai/api-key")
+                ?: error("Missing OpenAI API key"),
+        ),
+        name = "openai",
+        default = true,
+    )
+    model("gpt-5.1-chat-latest", "openai")
 }
 ```
 
+### Spring Boot Usage
+
+Spring Boot auto-configuration does compose `SecretValueResolver` beans. Register your resolver and then point provider properties at `*-secret-ref` values:
+
+```kotlin
+@Configuration
+class SecretResolverConfiguration {
+    @Bean
+    fun vaultSecretValueResolver(): SecretValueResolver = SecretValueResolver { secretRef ->
+        if (!secretRef.startsWith("vault:")) {
+            null
+        } else {
+            vaultClient.read(secretRef.removePrefix("vault:"))
+        }
+    }
+}
+```
+
+```yaml
+tramai:
+  providers:
+    openai:
+      api-key-secret-ref: vault:providers/openai/api-key
+```
+
+Current boundary:
+
+- built-in support covers `env:` and `file:`
+- cloud secret stores are integrated through custom `SecretValueResolver` implementations
+- bundled AWS or Vault adapters are not shipped yet
+
 ---
 
-## 💰 Token Budgets & Cost Control
+## Token Budgets
 
-To prevent runaway costs or accidental infinite tool-calling loops, TramAI allows you to set strict budgets for token consumption.
+Token budgets are engine-owned controls based on provider-reported usage.
 
-### Configuration
+Available controls:
 
-You can set budgets globally for the engine or override them per operation:
+- hard max per attempt
+- hard max per logical operation
+- soft max per logical operation
 
-*   **Hard Max (Attempt)**: If a single provider response exceeds this, the call fails immediately.
-*   **Hard Max (Operation)**: If the cumulative tokens for an operation (including retries and tool calls) exceed this, the call fails.
-*   **Soft Max (Operation)**: If exceeded, an engine event is emitted for observability/alerting, but the call continues.
+### Standalone Usage
 
 ```kotlin
 val tramai = Tramai {
-    tokenBudget {
-        hardMaxTokensPerOperation = 20_000
-        softMaxTokensPerOperation = 10_000
-    }
+    provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
+    model("gpt-5.1-chat-latest", "openai")
+
+    tokenBudget(
+        TokenBudgetSettings(
+            hardMaxTokensPerAttempt = 4_000,
+            hardMaxTokensPerOperation = 20_000,
+            softMaxTokensPerOperation = 10_000,
+        ),
+    )
 }
 ```
 
+### Spring Boot Usage
+
+```yaml
+tramai:
+  cost:
+    token-budget:
+      hard-max-tokens-per-attempt: 4000
+      hard-max-tokens-per-operation: 20000
+      soft-max-tokens-per-operation: 10000
+```
+
+Practical notes:
+
+- budgets apply across retries
+- structured-output retries count toward the operation total
+- tool-call loops count toward the operation total
+- soft limit crossing emits an engine event instead of failing the call
+
 ---
 
-## 🔌 Resilience Patterns
+## Resilience Controls
 
-Reliability is a first-class citizen in the TramAI engine.
-
-### Circuit Breakers
-Prevents overloading an unhealthy provider. If a provider fails too many times consecutively, the breaker opens, and TramAI automatically routes requests to fallback providers.
-
-### Exponential Backoff
-Handles transient failures (like 429 Rate Limiting) with jittered exponential backoff. TramAI also honors `Retry-After` headers sent by providers.
+TramAI keeps retry pacing, fallback routing, and provider health protection in the engine rather than scattering them across provider implementations.
 
 ### Fallback Routing
-Define a prioritized list of model/provider routes. If your primary route fails, the engine seamlessly switches to a fallback.
+
+Fallback routes are explicit ordered routes for a requested model.
+
+### Circuit Breaking
+
+Circuit breaking prevents repeated calls into an unhealthy provider after sustained failure.
+
+### Retry Pacing
+
+Retry pacing uses exponential backoff with jitter and honors provider retry hints such as `Retry-After`, up to the configured cap.
+
+### Standalone Usage
 
 ```kotlin
 val tramai = Tramai {
+    provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
+    provider(AnthropicProvider(System.getenv("ANTHROPIC_API_KEY")), name = "anthropic")
+
     model("gpt-4o", "openai")
-    fallbackModel("gpt-4o", "claude-3-5-sonnet", "anthropic")
+    model("claude-sonnet-4-20250514", "anthropic")
+
+    fallbackModel("gpt-4o", "claude-sonnet-4-20250514", "anthropic")
+
+    circuitBreaker(
+        CircuitBreakerSettings(
+            enabled = true,
+            failureThreshold = 3,
+            openDurationMillis = 30_000,
+        ),
+    )
+    retryPolicy(
+        RetryPolicySettings(
+            maxRetryAfterMillis = 20_000,
+            jitterRatio = 0.1,
+        ),
+    )
 }
 ```
+
+### Spring Boot Usage
+
+```yaml
+tramai:
+  models:
+    gpt-4o: openai
+    claude-sonnet-4-20250514: anthropic
+  fallbacks:
+    gpt-4o:
+      - provider: anthropic
+        model: claude-sonnet-4-20250514
+  resilience:
+    circuit-breaker:
+      enabled: true
+      failure-threshold: 3
+      open-duration-millis: 30000
+    retry:
+      max-retry-after-millis: 20000
+      jitter-ratio: 0.1
+```
+
+Current boundary:
+
+- fallback routing is explicit, not heuristic
+- streaming failover is only allowed before the first emitted token
+- once a stream has emitted user-visible output, TramAI returns a terminal error rather than stitching providers together

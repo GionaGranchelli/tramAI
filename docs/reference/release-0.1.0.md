@@ -1,10 +1,10 @@
 # Release 0.1.0 Scope and Checklist
 
-This page freezes the intended MVP scope for Tramai `0.1.0` and records the remaining work needed to move from strong alpha to first public release.
+This page freezes the intended MVP scope for TramAI `0.1.0` and records the remaining work needed to move from strong alpha to first public release.
 
 ## Release Goal
 
-Tramai `0.1.0` should be a credible first public release for JVM backend engineers who want:
+TramAI `0.1.0` should be a credible first public release for JVM backend engineers who want:
 
 - annotated interface methods as the primary AI abstraction
 - typed structured output as a first-class path
@@ -13,7 +13,7 @@ Tramai `0.1.0` should be a credible first public release for JVM backend enginee
 - standalone and Spring Boot integration
 - deterministic test support
 
-It is not the release that tries to cover every advanced LLM feature.
+The release scope follows the current `master` branch: features that are implemented, tested, and intentionally shipped are part of `0.1.0`.
 
 ## Frozen In-Scope Surface
 
@@ -24,23 +24,27 @@ The `0.1.0` release is frozen to the following feature set:
 - explicit provider registry and operation-level provider override
 - Ollama, Anthropic, OpenAI, and OpenAI-compatible providers
 - provider timeout and retry hardening
+- engine-owned rate-limit handling, fallback routing, circuit breaking, caching, and token budgets
 - OpenTelemetry integration through `tramai-observability`
+- OpenTelemetry metrics for engine attempts, token usage, parse failures, engine events, and workflow execution
 - standalone runtime, Kotlin DSL, Java entry points, and blocking interfaces
 - Spring Boot autoconfiguration and `tramai.*` configuration binding
 - testing module with deterministic mock provider support and assertion helpers
+- streaming responses
+- engine-owned tool calling
+- native-image proxy metadata support
+- optional typed orchestration through `tramai-orchestration`
 - documentation baseline, example applications, BOM, and publication wiring
 
 ## Explicitly Out Of Scope For 0.1.0
 
 These features are intentionally not part of `0.1.0`:
 
-- streaming responses
-- tool calling
 - conversation memory
 - provider-native structured output optimization
 - generated proxies through KSP or other codegen
 - additional framework adapters beyond Spring
-- agent workflows, planners, or built-in autonomous orchestration
+- autonomous agent loops, planners, or swarm-style reasoning frameworks
 
 ## Current Assessment
 
@@ -48,7 +52,9 @@ What is already strong:
 
 - the core execution path works end-to-end
 - structured output works and now includes timeout and provider-retry hardening
+- streaming, tool calling, and engine-owned resilience controls are implemented in code
 - standalone, Spring, observability, testing, and publication conventions all exist in code
+- typed orchestration exists as an optional module and should be documented as experimental rather than excluded
 - local example applications can demonstrate typed output behavior
 
 What still blocks a credible first public MVP release:
@@ -79,7 +85,7 @@ What still blocks a credible first public MVP release:
 
 - [ ] public APIs included in `0.1.0` are stable enough to document honestly
 - [ ] explicitly experimental features are labeled as experimental in code and docs
-- [x] `0.1.0` does not take on streaming, tool calling, or memory as partial promises
+- [x] `0.1.0` documents shipped features as shipped and labels experimental surfaces explicitly
 
 ### Release and Publishing
 
@@ -96,7 +102,7 @@ What still blocks a credible first public MVP release:
 
 ## Release Exit Criteria
 
-Tramai is ready for `0.1.0` when:
+TramAI is ready for `0.1.0` when:
 
 - the checklist above is materially complete
 - the board and specs accurately describe current status
@@ -107,7 +113,8 @@ Tramai is ready for `0.1.0` when:
 
 The first committed post-`0.1.0` design work is:
 
-- streaming responses
-- tool calling
+- conversation memory
+- provider-native structured output optimization
+- deeper native-image and AOT ergonomics
 
-Conversation memory remains design work only until those two features are better defined.
+Autonomous agent-style systems remain design work only unless they are added to the runtime explicitly.

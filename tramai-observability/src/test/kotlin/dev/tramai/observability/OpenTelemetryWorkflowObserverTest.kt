@@ -1,3 +1,5 @@
+@file:OptIn(dev.tramai.orchestration.ExperimentalTramAIOrchestration::class)
+
 package dev.tramai.observability
 
 import dev.tramai.orchestration.InMemoryWorkflowCheckpointStore

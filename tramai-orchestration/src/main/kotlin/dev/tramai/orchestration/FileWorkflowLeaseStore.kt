@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTramAIOrchestration::class)
+
 package dev.tramai.orchestration
 
 import java.io.StringWriter
@@ -9,6 +11,7 @@ import java.util.UUID
 /**
  * Plain file-backed lease store for local and single-filesystem deployments that still need active ownership.
  */
+@ExperimentalTramAIOrchestration
 class FileWorkflowLeaseStore(
     private val rootDirectory: Path,
     private val pathStrategy: WorkflowCheckpointPathStrategy = DefaultWorkflowCheckpointPathStrategy("lease.properties"),

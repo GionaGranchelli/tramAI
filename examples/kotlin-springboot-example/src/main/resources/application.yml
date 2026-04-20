@@ -1,6 +1,10 @@
 spring:
   application:
     name: kotlin-springboot-example
+  mvc:
+    async:
+      # Keep the HTTP async timeout above the longest operation timeout used by the example endpoints.
+      request-timeout: 90s
 
 tramai:
   default-provider: ollama
@@ -10,3 +14,7 @@ tramai:
   providers:
     ollama:
       base-url: http://localhost:11434
+  example:
+    workflow:
+      persistence-root: build/tramai-example/workflows
+      lease-owner-id: example-node-1

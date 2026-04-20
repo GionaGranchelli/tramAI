@@ -1,10 +1,10 @@
 # Current Limitations
 
-This page is intentionally blunt. It documents what Tramai does not do yet.
+This page is intentionally blunt. It documents what TramAI does not do yet.
 
 ## Status Level
 
-Tramai is a strong alpha.
+TramAI is a strong alpha moving toward `0.1.0`.
 
 It is usable for:
 
@@ -31,12 +31,13 @@ For the explicitly frozen first-release scope, see [Release 0.1.0 Scope and Chec
 These concepts exist in the API shape or planning docs but are not fully realized:
 
 - OpenAI/Codex auth-file support exists, but it is experimental
-- streaming failover retries only before the first emitted token; Tramai does not attempt partial mid-stream recovery across providers
+- streaming failover retries only before the first emitted token; TramAI does not attempt partial mid-stream recovery across providers
 - secret references are extensible through `SecretValueResolver`, but bundled AWS/Vault resolvers are not shipped yet
+- `tramai-orchestration` is shipped but should still be treated as experimental while its API surface settles
 
 ## Practical Consequences
 
-Before using Tramai in a serious service, assume you still need to make decisions about:
+Before using TramAI in a serious service, assume you still need to make decisions about:
 
 - how aggressive your fallback topology should be for your workload
 - whether you want custom cloud secret resolvers beyond `env:` and `file:`
@@ -51,6 +52,8 @@ These parts are already coherent and tested:
 - explicit provider registry behavior
 - provider retry behavior for transient failures
 - per-attempt timeout enforcement
+- raw text streaming with explicit terminal failure semantics
+- engine-owned tool calling
 - standalone builder
 - Spring integration
 - OpenTelemetry observer seam
@@ -60,11 +63,11 @@ These parts are already coherent and tested:
 
 ## Recommended Usage Today
 
-Tramai is in its best shape for:
+TramAI is in its best shape for:
 
 - internal tools
 - developer platforms
 - service-side extraction/classification workloads
 - early production pilots with clear guardrails
 
-If you need heavy agent capabilities, streaming-first UI support, or mature provider policy handling, wait for future milestones or build those layers explicitly on top.
+If you need heavy agent capabilities, conversation memory, or highly autonomous multi-agent behavior, wait for future milestones or build those layers explicitly on top.

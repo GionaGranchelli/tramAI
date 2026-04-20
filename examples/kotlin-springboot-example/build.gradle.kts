@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.tasks.SourceSetContainer
 
 plugins {
     id("org.springframework.boot") version "3.4.5"
@@ -30,6 +31,7 @@ repositories {
 
 dependencies {
     implementation("dev.tramai:tramai-spring:0.1.0-SNAPSHOT")
+    implementation("dev.tramai:tramai-orchestration:0.1.0-SNAPSHOT")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
@@ -41,4 +43,15 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+val sourceSets = the<SourceSetContainer>()
+
+tasks.register<JavaExec>("generateNativeImageProxyConfig") {
+    group = "documentation"
+    description = "Generates GraalVM proxy metadata for the TramAI example @AiService interfaces."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("dev.tramai.examples.springboot.NativeImageMetadataGenerator")
+    workingDir = projectDir
+    dependsOn(tasks.named("classes"))
 }

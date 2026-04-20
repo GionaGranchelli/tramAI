@@ -1,10 +1,10 @@
 # Annotation Reference
 
-Tramai currently uses a small annotation set.
+TramAI currently uses a small annotation set.
 
 ## `@AiService`
 
-Marks an interface as an Tramai service contract.
+Marks an interface as a TramAI service contract.
 
 Use it on interfaces only.
 
@@ -22,6 +22,7 @@ Fields:
 - `prompt`: base user prompt
 - `model`: logical model name
 - `provider`: optional explicit provider id override
+- `tools`: optional list of tool names available to the operation
 - `maxRetries`: structured-output retry count
 - `providerRetries`: provider retry count for transient failures
 - `timeoutMillis`: per-attempt provider timeout in milliseconds
@@ -35,6 +36,7 @@ Example:
     prompt = "Summarize the incident",
     model = "gpt-5.1-chat-latest",
     provider = "openai",
+    tools = ["lookup"],
     maxRetries = 3,
     providerRetries = 2,
     timeoutMillis = 15_000,
@@ -86,11 +88,14 @@ val recommendations: List<String>
 - structured field annotations influence schema generation and validation
 - operation annotations influence prompt rendering and routing
 
-## Current Gaps
+## Current Behavior Boundaries
 
-Tramai does not yet include annotations for:
+TramAI does not currently use dedicated annotations for:
 
-- tool calling
 - streaming
 - provider-native structured output toggles
 - memory or conversation state
+
+Streaming is selected through the return type `Flow<StreamChunk>`.
+
+Tool calling is enabled through `@Operation(tools = [...])` rather than through a separate annotation.

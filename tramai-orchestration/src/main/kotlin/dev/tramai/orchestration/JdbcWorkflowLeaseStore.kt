@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalTramAIOrchestration::class)
+
 package dev.tramai.orchestration
 
 import java.sql.SQLException
@@ -8,6 +10,7 @@ import javax.sql.DataSource
  *
  * Applications are responsible for supplying a JDBC driver and creating the target table.
  */
+@ExperimentalTramAIOrchestration
 class JdbcWorkflowLeaseStore(
     private val dataSource: DataSource,
     private val table: JdbcWorkflowLeaseTable = JdbcWorkflowLeaseTable(),
@@ -345,6 +348,7 @@ class JdbcWorkflowLeaseStore(
     )
 }
 
+@ExperimentalTramAIOrchestration
 data class JdbcWorkflowLeaseTable(
     val tableName: String = "tramai_workflow_lease",
     val workflowNameColumn: String = "workflow_name",
