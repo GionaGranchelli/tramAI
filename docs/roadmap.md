@@ -29,6 +29,10 @@ This summary mirrors the current implementation plan and is intended to anchor d
 
 Operational readiness, advanced resilience, PII masking, GraalVM support, and OTel metrics.
 
+## Future Direction
+
+Typed orchestration and coordination for multi-service AI workflows.
+
 ## Current Delivery Snapshot
 
 - Phase 1: implemented
@@ -53,3 +57,4 @@ The docs in this repository should grow with the roadmap:
 - Phase 3: committed specs and tasks exist
 - Phase 4: committed specs and tasks exist
 - Phase 5: implementation is in progress under `SPEC-011` and `TASK-016`
+- Future direction: orchestration prototype work is underway under `SPEC-012`, `ADR-017`, and `TASK-017`

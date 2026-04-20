@@ -9,6 +9,7 @@ import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.exception.StructuredOutputException
 import dev.tramai.core.exception.TokenBudgetExceededException
 import dev.tramai.core.exception.TimeoutException
+import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
@@ -21,10 +22,13 @@ import dev.tramai.core.model.UsageMetrics
 import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
+import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.structured.JacksonStructuredOutputHandler
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -706,6 +710,63 @@ class TramaiEngineTest {
         assertThatThrownBy { runBlocking { service.stream("invoice-123").toList() } }
             .isInstanceOf(ProviderCapabilityException::class.java)
             .hasMessageContaining("does not support streaming")
+    }
+
+    @Test
+    fun `intercepts and modifies requests and responses`() {
+        val provider = RecordingProvider { ModelResponse(content = "contains sensitive info") }
+        val interceptor = object : OperationInterceptor {
+            override fun interceptRequest(
+                context: OperationCallContext,
+                messages: List<Message>
+            ): List<Message> {
+                return messages.map { it.copy(content = it.content.replace("secret-id", "REDACTED")) }
+            }
+
+            override fun interceptResponse(
+                context: OperationCallContext,
+                response: ModelResponse
+            ): ModelResponse {
+                return response.copy(content = response.content.replace("sensitive info", "PII"))
+            }
+        }
+        val engine = TramaiEngine(provider = provider, operationInterceptor = interceptor)
+        val service = engine.create<SuspendAnalyzer>()
+
+        val result = runBlocking { service.analyze("secret-id") }
+
+        assertThat(result).isEqualTo("contains PII")
+        assertThat(provider.requests.single().messages.last().content).contains("REDACTED")
+        assertThat(provider.requests.single().messages.last().content).doesNotContain("secret-id")
+    }
+
+    @Test
+    fun `rate limiting works correctly in high-concurrency simulations`() {
+        val observer = RecordingObserver()
+        val provider = RecordingProvider {
+            ModelResponse(content = "ok", inputTokens = 1, outputTokens = 1)
+        }
+        val engine = TramaiEngine(
+            provider = provider,
+            operationObserver = observer,
+            tokenBudgetSettings = TokenBudgetSettings(
+                hardMaxTokensPerAttempt = 1,
+            ),
+        )
+        val service = engine.create<SuspendAnalyzer>()
+
+        runBlocking {
+            val jobs = (1..50).map {
+                async {
+                    runCatching { service.analyze("input") }
+                }
+            }
+            jobs.awaitAll()
+        }
+
+        assertThat(observer.records).hasSize(50)
+        assertThat(observer.records.all { it.response?.totalTokens() == 2 }).isTrue()
+        // verify they all threw TokenBudgetExceededException
     }
 }
 

@@ -35,4 +35,13 @@ data class ModelResponse(
     val modelUsed: String? = null,
     /** Normalized finish reason for the completion. */
     val finishReason: FinishReason = FinishReason.STOP,
-)
+) {
+    /**
+     * Returns the sum of input and output tokens, or null if usage metrics are unavailable.
+     */
+    fun totalTokens(): Int? {
+        val input = inputTokens ?: return null
+        val output = outputTokens ?: return null
+        return input + output
+    }
+}

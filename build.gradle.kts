@@ -13,13 +13,13 @@ plugins {
 
 val tramaiGroup = providers.gradleProperty("tramaiGroup").orElse("dev.tramai")
 val tramaiVersion = providers.gradleProperty("tramaiVersion").orElse("0.1.0-SNAPSHOT")
-val tramaiProjectUrl = providers.gradleProperty("tramaiProjectUrl").orElse("https://github.com/gionag/tramai")
-val tramaiScmUrl = providers.gradleProperty("tramaiScmUrl").orElse("https://github.com/gionag/tramai.git")
-val tramaiScmConnection = providers.gradleProperty("tramaiScmConnection").orElse("scm:git:https://github.com/gionag/tramai.git")
-val tramaiScmDeveloperConnection = providers.gradleProperty("tramaiScmDeveloperConnection").orElse("scm:git:ssh://git@github.com/gionag/tramai.git")
+val tramaiProjectUrl = providers.gradleProperty("tramaiProjectUrl").orElse("https://github.com/GionaGranchelli/tramAI")
+val tramaiScmUrl = providers.gradleProperty("tramaiScmUrl").orElse("https://github.com/GionaGranchelli/tramAI.git")
+val tramaiScmConnection = providers.gradleProperty("tramaiScmConnection").orElse("scm:git:https://github.com/GionaGranchelli/tramAI.git")
+val tramaiScmDeveloperConnection = providers.gradleProperty("tramaiScmDeveloperConnection").orElse("scm:git:ssh://git@github.com/GionaGranchelli/tramAI.git")
 val tramaiLicenseName = providers.gradleProperty("tramaiLicenseName").orElse("Apache-2.0")
 val tramaiLicenseUrl = providers.gradleProperty("tramaiLicenseUrl").orElse("https://www.apache.org/licenses/LICENSE-2.0.txt")
-val tramaiDeveloperId = providers.gradleProperty("tramaiDeveloperId").orElse("gionag")
+val tramaiDeveloperId = providers.gradleProperty("tramaiDeveloperId").orElse("GionaGranchelli")
 val tramaiDeveloperName = providers.gradleProperty("tramaiDeveloperName").orElse("Giona")
 val tramaiDeveloperEmail = providers.gradleProperty("tramaiDeveloperEmail").orElse("opensource@giona.dev")
 
@@ -162,6 +162,7 @@ fun projectDescription(projectName: String): String = when (projectName) {
     "tramai-openai" -> "OpenAI and OpenAI-compatible provider integrations for Tramai."
     "tramai-ollama" -> "Ollama provider integration for Tramai."
     "tramai-observability" -> "OpenTelemetry-based observability hooks for Tramai."
+    "tramai-orchestration" -> "Typed workflow orchestration and coordination layer for Tramai."
     "tramai-standalone" -> "Minimal standalone runtime bundle for Tramai."
     "tramai-spring" -> "Spring Boot auto-configuration and integration support for Tramai."
     "tramai-testing" -> "Testing utilities and deterministic assertion support for Tramai."

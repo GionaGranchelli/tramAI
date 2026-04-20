@@ -21,10 +21,12 @@ import dev.tramai.core.model.ToolDefinition
 import dev.tramai.core.model.ToolExecutionContext
 import dev.tramai.core.model.ToolResult
 import dev.tramai.core.model.ResolvedTool
+import dev.tramai.core.observation.NoOpOperationInterceptor
 import dev.tramai.core.observation.NoOpOperationObserver
 import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
+import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.ResolvedProviderRoute
@@ -62,6 +64,7 @@ class TramaiEngine(
     private val structuredOutputHandler: StructuredOutputHandler? = null,
     private val toolRegistry: ToolRegistry = ToolRegistry(),
     private val operationObserver: OperationObserver = NoOpOperationObserver,
+    private val operationInterceptor: OperationInterceptor = NoOpOperationInterceptor,
     private val responseCache: OperationResponseCache = NoOpOperationResponseCache,
     private val circuitBreakerSettings: CircuitBreakerSettings = CircuitBreakerSettings(),
     private val retryPolicySettings: RetryPolicySettings = RetryPolicySettings(),
@@ -80,6 +83,7 @@ class TramaiEngine(
         structuredOutputHandler: StructuredOutputHandler? = null,
         toolRegistry: ToolRegistry = ToolRegistry(),
         operationObserver: OperationObserver = NoOpOperationObserver,
+        operationInterceptor: OperationInterceptor = NoOpOperationInterceptor,
         responseCache: OperationResponseCache = NoOpOperationResponseCache,
         circuitBreakerSettings: CircuitBreakerSettings = CircuitBreakerSettings(),
         retryPolicySettings: RetryPolicySettings = RetryPolicySettings(),
@@ -91,6 +95,7 @@ class TramaiEngine(
         structuredOutputHandler = structuredOutputHandler,
         toolRegistry = toolRegistry,
         operationObserver = operationObserver,
+        operationInterceptor = operationInterceptor,
         responseCache = responseCache,
         circuitBreakerSettings = circuitBreakerSettings,
         retryPolicySettings = retryPolicySettings,
@@ -109,6 +114,7 @@ class TramaiEngine(
             structuredOutputHandler = structuredOutputHandler,
             toolRegistry = toolRegistry,
             operationObserver = operationObserver,
+            operationInterceptor = operationInterceptor,
             responseCache = responseCache,
             circuitBreaker = circuitBreaker,
             retryDelayPolicy = retryDelayPolicy,
@@ -143,6 +149,7 @@ private class TramaiInvocationHandler(
     private val structuredOutputHandler: StructuredOutputHandler?,
     private val toolRegistry: ToolRegistry,
     private val operationObserver: OperationObserver,
+    private val operationInterceptor: OperationInterceptor,
     private val responseCache: OperationResponseCache,
     private val circuitBreaker: ProviderCircuitBreaker,
     private val retryDelayPolicy: ProviderRetryDelayPolicy,
@@ -222,15 +229,6 @@ private class TramaiInvocationHandler(
                 val streamCapable = route.provider as? StreamCapable
                     ?: throw ProviderCapabilityException(route.providerName, "streaming")
                 val request = operation.toRequest(arguments, modelName = route.effectiveModelName)
-                val observation = startObservation(
-                    providerId = route.providerName,
-                    operation = operation,
-                    attempt = attemptCounter.next(),
-                )
-                observation.onEngineEvent(
-                    name = "tramai.route.selected",
-                    attributes = routeSelectedAttributes(route, routeIndex),
-                )
 
                 when (
                     val result = collectStreamingRoute(
@@ -238,7 +236,8 @@ private class TramaiInvocationHandler(
                         request = request,
                         operation = operation,
                         route = route,
-                        observation = observation,
+                        attempt = attemptCounter.next(),
+                        routeIndex = routeIndex,
                         tokenBudgetTracker = tokenBudgetTracker,
                         emitChunk = { emit(it) },
                     )
@@ -268,15 +267,38 @@ private class TramaiInvocationHandler(
         request: ModelRequest,
         operation: OperationDefinition,
         route: ResolvedProviderRoute,
-        observation: OperationObservation,
+        attempt: Int,
+        routeIndex: Int,
         tokenBudgetTracker: TokenBudgetTracker,
         emitChunk: suspend (StreamChunk) -> Unit,
     ): StreamingRouteResult {
         var emittedAnyTokens = false
 
+        val callContext = OperationCallContext(
+            serviceInterface = serviceDefinition.serviceType.qualifiedName ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+            methodName = operation.method.name,
+            providerId = route.providerName,
+            requestedModel = operation.operation.model,
+            attempt = attempt,
+        )
+
+        val interceptedMessages = operationInterceptor.interceptRequest(callContext, request.messages)
+        val interceptedRequest = request.copy(messages = interceptedMessages)
+
+        val observation = startObservation(
+            providerId = route.providerName,
+            operation = operation,
+            attempt = attempt,
+        )
+
+        observation.onEngineEvent(
+            name = "tramai.route.selected",
+            attributes = routeSelectedAttributes(route, routeIndex),
+        )
+
         return try {
             withTimeout(request.timeoutMillis ?: operation.operation.timeoutMillis) {
-                streamCapable.stream(request).collect { chunk ->
+                streamCapable.stream(interceptedRequest).collect { chunk ->
                     when (chunk) {
                         is StreamChunk.Token -> {
                             emittedAnyTokens = true
@@ -290,11 +312,14 @@ private class TramaiInvocationHandler(
                                 modelUsed = route.effectiveModelName,
                                 finishReason = FinishReason.STOP,
                             )
-                            observation.onProviderResponse(response)
+
+                            val interceptedResponse = operationInterceptor.interceptResponse(callContext, response)
+                            observation.onProviderResponse(interceptedResponse)
+
                             try {
                                 enforceTokenBudget(
                                     tracker = tokenBudgetTracker,
-                                    response = response,
+                                    response = interceptedResponse,
                                     observation = observation,
                                     providerId = route.providerName,
                                     modelName = route.effectiveModelName,
@@ -307,7 +332,15 @@ private class TramaiInvocationHandler(
                             }
                             observation.onCallCompleted(parseSuccess = null)
                             circuitBreaker.onSuccess(route.providerName)
-                            emitChunk(chunk)
+
+                            // Emit potentially modified terminal chunk
+                            emitChunk(
+                                if (interceptedResponse.content != chunk.fullText) {
+                                    chunk.copy(fullText = interceptedResponse.content)
+                                } else {
+                                    chunk
+                                }
+                            )
                             throw StreamingRouteFinished(StreamingRouteResult.Completed)
                         }
                         is StreamChunk.Error -> {
@@ -617,7 +650,7 @@ private class TramaiInvocationHandler(
             }
 
             try {
-                val result = callProviderWithRetries(
+                return callProviderWithRetries(
                     providerId = route.providerName,
                     provider = route.provider,
                     request = ModelRequest(
@@ -632,8 +665,6 @@ private class TramaiInvocationHandler(
                     attemptCounter = attemptCounter,
                     routeIndex = routeIndex,
                 )
-                circuitBreaker.onSuccess(route.providerName)
-                return result
             } catch (error: Throwable) {
                 if (!shouldFallbackFrom(error)) {
                     throw error
@@ -648,6 +679,85 @@ private class TramaiInvocationHandler(
                 message = "No available provider route for model '${operation.operation.model}'",
                 retryable = true,
             )
+    }
+
+    private suspend fun callProviderWithRetries(
+        providerId: String,
+        provider: ModelProvider,
+        request: ModelRequest,
+        operation: OperationDefinition,
+        attemptCounter: AttemptCounter,
+        routeIndex: Int,
+    ): ProviderCallResult {
+        val maxAttempts = operation.operation.providerRetries + 1
+
+        repeat(maxAttempts) { retryIndex ->
+            val callContext = OperationCallContext(
+                serviceInterface = serviceDefinition.serviceType.qualifiedName ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+                methodName = operation.method.name,
+                providerId = providerId,
+                requestedModel = operation.operation.model,
+                attempt = attemptCounter.next(),
+            )
+
+            val interceptedMessages = operationInterceptor.interceptRequest(callContext, request.messages)
+            val interceptedRequest = request.copy(messages = interceptedMessages)
+
+            val observation = operationObserver.onCallStarted(callContext)
+            observation.onEngineEvent(
+                name = "tramai.route.selected",
+                attributes = routeSelectedAttributes(
+                    ResolvedProviderRoute(
+                        providerName = providerId,
+                        provider = provider,
+                        requestedModelName = operation.operation.model,
+                        effectiveModelName = request.model,
+                    ),
+                    routeIndex = routeIndex,
+                ),
+            )
+
+            try {
+                val rawResponse = callProviderOnce(providerId, provider, interceptedRequest, operation)
+                val interceptedResponse = operationInterceptor.interceptResponse(callContext, rawResponse)
+
+                observation.onProviderResponse(interceptedResponse)
+                return ProviderCallResult(
+                    response = interceptedResponse,
+                    observation = observation,
+                    providerId = providerId,
+                    modelName = request.model,
+                )
+            } catch (error: Throwable) {
+                observation.onProviderFailure(error)
+                observation.onCallCompleted(parseSuccess = null)
+
+                if (!shouldRetryProviderCall(error, retryIndex, maxAttempts)) {
+                    val opened = circuitBreaker.onFailure(providerId, error)
+                    if (opened) {
+                        observation.onEngineEvent(
+                            name = "tramai.circuit.opened",
+                            attributes = mapOf("provider_id" to providerId),
+                        )
+                    }
+                    throw error
+                }
+
+                val delayMillis = providerRetryDelayMillis(retryIndex, error)
+                observation.onEngineEvent(
+                    name = "tramai.retry.scheduled",
+                    attributes = mapOf(
+                        "provider_id" to providerId,
+                        "retry_index" to retryIndex,
+                        "delay_millis" to delayMillis,
+                        "delay_source" to retryDelaySource(error),
+                    ),
+                )
+                delay(delayMillis)
+            }
+        }
+
+        error("Provider retry loop exited without returning or throwing")
     }
 
     private suspend fun executeTool(
@@ -692,76 +802,6 @@ private class TramaiInvocationHandler(
         }
 
         error("Tool retry loop exited without returning")
-    }
-
-    private suspend fun callProviderWithRetries(
-        providerId: String,
-        provider: ModelProvider,
-        request: ModelRequest,
-        operation: OperationDefinition,
-        attemptCounter: AttemptCounter,
-        routeIndex: Int,
-    ): ProviderCallResult {
-        val maxAttempts = operation.operation.providerRetries + 1
-
-        repeat(maxAttempts) { retryIndex ->
-            val observation = startObservation(
-                providerId = providerId,
-                operation = operation,
-                attempt = attemptCounter.next(),
-            )
-            observation.onEngineEvent(
-                name = "tramai.route.selected",
-                attributes = routeSelectedAttributes(
-                    ResolvedProviderRoute(
-                        providerName = providerId,
-                        provider = provider,
-                        requestedModelName = operation.operation.model,
-                        effectiveModelName = request.model,
-                    ),
-                    routeIndex = routeIndex,
-                ),
-            )
-
-            try {
-                val response = callProviderOnce(providerId, provider, request, operation)
-                observation.onProviderResponse(response)
-                return ProviderCallResult(
-                    response = response,
-                    observation = observation,
-                    providerId = providerId,
-                    modelName = request.model,
-                )
-            } catch (error: Throwable) {
-                observation.onProviderFailure(error)
-                observation.onCallCompleted(parseSuccess = null)
-
-                if (!shouldRetryProviderCall(error, retryIndex, maxAttempts)) {
-                    val opened = circuitBreaker.onFailure(providerId, error)
-                    if (opened) {
-                        observation.onEngineEvent(
-                            name = "tramai.circuit.opened",
-                            attributes = mapOf("provider_id" to providerId),
-                        )
-                    }
-                    throw error
-                }
-
-                val delayMillis = providerRetryDelayMillis(retryIndex, error)
-                observation.onEngineEvent(
-                    name = "tramai.retry.scheduled",
-                    attributes = mapOf(
-                        "provider_id" to providerId,
-                        "retry_index" to retryIndex,
-                        "delay_millis" to delayMillis,
-                        "delay_source" to retryDelaySource(error),
-                    ),
-                )
-                delay(delayMillis)
-            }
-        }
-
-        error("Provider retry loop exited without returning or throwing")
     }
 
     private suspend fun callProviderOnce(
@@ -1291,7 +1331,7 @@ private class TokenBudgetTracker(
             return TokenBudgetCheckResult.Ok
         }
 
-        val attemptTokens = response.totalTokens() ?: return TokenBudgetCheckResult.UsageUnavailable
+        val attemptTokens = response.totalTokens()?.toLong() ?: return TokenBudgetCheckResult.UsageUnavailable
         totalTokensObserved += attemptTokens
 
         settings.hardMaxTokensPerAttempt?.let { limit ->
@@ -1348,15 +1388,6 @@ private sealed class TokenBudgetCheckResult {
         val limitTokens: Long,
         val observedTokens: Long,
     ) : TokenBudgetCheckResult()
-}
-
-private fun ModelResponse.totalTokens(): Long? {
-    val input = inputTokens?.toLong()
-    val output = outputTokens?.toLong()
-    return when {
-        input == null && output == null -> null
-        else -> (input ?: 0L) + (output ?: 0L)
-    }
 }
 
 private enum class ReturnKind {

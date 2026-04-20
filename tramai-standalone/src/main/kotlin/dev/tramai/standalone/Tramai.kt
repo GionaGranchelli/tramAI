@@ -1,6 +1,8 @@
 package dev.tramai.standalone
 
+import dev.tramai.core.observation.NoOpOperationInterceptor
 import dev.tramai.core.observation.NoOpOperationObserver
+import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
@@ -22,6 +24,7 @@ class Tramai private constructor(
     private val providerRegistry: ProviderRegistry,
     private val toolRegistry: ToolRegistry,
     private val operationObserver: OperationObserver,
+    private val operationInterceptor: OperationInterceptor,
     private val responseCache: OperationResponseCache,
     private val circuitBreakerSettings: CircuitBreakerSettings,
     private val retryPolicySettings: RetryPolicySettings,
@@ -35,6 +38,7 @@ class Tramai private constructor(
         structuredOutputHandler = JacksonStructuredOutputHandler(),
         toolRegistry = toolRegistry,
         operationObserver = operationObserver,
+        operationInterceptor = operationInterceptor,
         responseCache = responseCache,
         circuitBreakerSettings = circuitBreakerSettings,
         retryPolicySettings = retryPolicySettings,
@@ -56,6 +60,7 @@ class Tramai private constructor(
         private val registryBuilder = ProviderRegistry.builder()
         private val tools = mutableMapOf<String, dev.tramai.core.model.ResolvedTool>()
         private var operationObserver: OperationObserver = NoOpOperationObserver
+        private var operationInterceptor: OperationInterceptor = NoOpOperationInterceptor
         private var responseCache: OperationResponseCache = NoOpOperationResponseCache
         private var circuitBreakerSettings: CircuitBreakerSettings = CircuitBreakerSettings()
         private var retryPolicySettings: RetryPolicySettings = RetryPolicySettings()
@@ -173,6 +178,13 @@ class Tramai private constructor(
         }
 
         /**
+         * Configures the interceptor used for request/response modification.
+         */
+        fun interceptor(interceptor: OperationInterceptor): Builder = apply {
+            this.operationInterceptor = interceptor
+        }
+
+        /**
          * Configures the cache used for successful non-streaming operation results.
          */
         fun cache(cache: OperationResponseCache): Builder = apply {
@@ -207,6 +219,7 @@ class Tramai private constructor(
             providerRegistry = registryBuilder.build(),
             toolRegistry = dev.tramai.engine.ToolRegistry(tools.toMap()),
             operationObserver = operationObserver,
+            operationInterceptor = operationInterceptor,
             responseCache = responseCache,
             circuitBreakerSettings = circuitBreakerSettings,
             retryPolicySettings = retryPolicySettings,

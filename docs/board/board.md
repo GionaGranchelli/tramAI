@@ -3,7 +3,7 @@
 This board is the execution view for specs-driven development in Tramai.
 
 - Board owner: maintainer
-- Last updated: 2026-04-19
+- Last updated: 2026-04-20
 
 ## How To Use This Board
 
@@ -35,6 +35,10 @@ This board is the execution view for specs-driven development in Tramai.
 
 - [TASK-014: Implement Streaming Responses](./tasks/task-014.md)
 - [TASK-015: Implement Tool Calling](./tasks/task-015.md)
+
+### Future Design
+
+- [TASK-017: Design Typed Orchestration and Coordination](./tasks/task-017.md)
 
 ### Phase 1: Foundation
 
@@ -79,3 +83,4 @@ Conversation memory remains roadmap-only design work for now.
 | `TASK-014` | `SPEC-009` |
 | `TASK-015` | `SPEC-010` |
 | `TASK-016` | `SPEC-011` |
+| `TASK-017` | `SPEC-012` |

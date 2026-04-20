@@ -38,6 +38,7 @@ If you are using Spring Boot instead of the standalone builder:
 - [Structured Output](./guides/structured-output.md)
 - [Observability](./guides/observability.md)
 - [Native Image](./guides/native-image.md)
+- [Orchestration Persistence](./guides/orchestration-persistence.md)
 - [Testing Tramai Code](./guides/testing.md)
 - [Common Use Cases](./guides/use-cases.md)
 - [Extending Tramai](./guides/extending-tramai.md)
@@ -73,6 +74,7 @@ The repository currently contains working implementations for:
 - `tramai-openai`
 - `tramai-ollama`
 - `tramai-observability`
+- `tramai-orchestration`
 - `tramai-standalone`
 - `tramai-spring`
 - `tramai-testing`

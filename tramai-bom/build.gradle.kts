@@ -15,6 +15,7 @@ dependencies {
         api(project(":tramai-openai"))
         api(project(":tramai-ollama"))
         api(project(":tramai-observability"))
+        api(project(":tramai-orchestration"))
         api(project(":tramai-standalone"))
         api(project(":tramai-spring"))
         api(project(":tramai-testing"))

@@ -29,6 +29,7 @@ Use [templates/spec-template.md](./templates/spec-template.md) for new work.
 - Phase 3: `SPEC-007` to `SPEC-008`
 - Phase 4: `SPEC-009` to `SPEC-010`
 - Phase 5: `SPEC-011`
+- Future design: `SPEC-012`
 
 ## Current Status Snapshot
 
@@ -36,6 +37,7 @@ Use [templates/spec-template.md](./templates/spec-template.md) for new work.
 - `SPEC-008`: in progress, with release and credibility work still open
 - `SPEC-009` to `SPEC-010`: implemented in the repository
 - `SPEC-011`: in progress, with resilience work underway
+- `SPEC-012`: in progress, with a tested orchestration prototype and checkpoint/resume SPI now in the repository
 
 ## Status Meanings
 
@@ -71,6 +73,10 @@ Use [templates/spec-template.md](./templates/spec-template.md) for new work.
 ### Phase 5: Production Hardening
 
 - [SPEC-011: Production Hardening](./spec-011-production-hardening.md)
+
+### Future Design
+
+- [SPEC-012: Orchestration and Coordination](./spec-012-orchestration-and-coordination.md)
 
 Conversation memory, KSP proxy generation, and additional providers or framework adapters remain roadmap items only for now.
 

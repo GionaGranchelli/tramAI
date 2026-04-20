@@ -1,5 +1,9 @@
 package dev.tramai.spring
 
+import dev.tramai.core.secret.CompositeSecretValueResolver
+import dev.tramai.core.secret.EnvironmentSecretValueResolver
+import dev.tramai.core.secret.FileSecretValueResolver
+import dev.tramai.core.secret.SecretValueResolver
 import dev.tramai.anthropic.AnthropicProvider
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.openai.CodexAuthFileTokenSource

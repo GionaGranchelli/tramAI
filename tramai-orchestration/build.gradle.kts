@@ -21,17 +21,11 @@ kotlin {
 
 dependencies {
     api(project(":tramai-core"))
-    implementation(project(":tramai-orchestration"))
 
-    implementation(libs.opentelemetry.api)
+    implementation(libs.coroutines.core)
 
     testImplementation(project(":tramai-engine"))
-    testImplementation(project(":tramai-orchestration"))
-    testImplementation(project(":tramai-structured"))
-    testImplementation(libs.coroutines.core)
-    testImplementation(libs.opentelemetry.sdk.metrics)
-    testImplementation(libs.opentelemetry.sdk.trace)
-    testImplementation(libs.opentelemetry.sdk.testing)
+    testImplementation(project(":tramai-testing"))
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.assertj.core)
     testImplementation(libs.kotlin.test.junit5)
