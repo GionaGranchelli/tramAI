@@ -27,6 +27,12 @@ class RecordingOperationObserver : OperationObserver {
         var providerFailure: Throwable? = null,
         var parseFailureSummary: String? = null,
         var parseSuccess: Boolean? = null,
+        val engineEvents: MutableList<EngineEvent> = mutableListOf(),
+    )
+
+    data class EngineEvent(
+        val name: String,
+        val attributes: Map<String, Any?>,
     )
 
     private class RecordingObservation(
@@ -45,6 +51,13 @@ class RecordingOperationObserver : OperationObserver {
             errorSummary: String,
         ) {
             record.parseFailureSummary = errorSummary
+        }
+
+        override fun onEngineEvent(
+            name: String,
+            attributes: Map<String, Any?>,
+        ) {
+            record.engineEvents += EngineEvent(name = name, attributes = attributes)
         }
 
         override fun onCallCompleted(parseSuccess: Boolean?) {

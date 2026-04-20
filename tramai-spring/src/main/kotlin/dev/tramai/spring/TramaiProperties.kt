@@ -9,8 +9,76 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 data class TramaiProperties(
     var defaultProvider: String? = null,
     var models: Map<String, String> = emptyMap(),
+    var fallbacks: Map<String, List<FallbackRoute>> = emptyMap(),
+    var resilience: Resilience = Resilience(),
+    var cost: Cost = Cost(),
+    var cache: Cache = Cache(),
     var providers: Providers = Providers(),
 ) {
+    /**
+     * Explicit fallback route for a requested model.
+     */
+    data class FallbackRoute(
+        var provider: String? = null,
+        var model: String? = null,
+    )
+
+    /**
+     * Resilience controls applied by the engine.
+     */
+    data class Resilience(
+        var circuitBreaker: CircuitBreaker = CircuitBreaker(),
+        var retry: Retry = Retry(),
+    )
+
+    /**
+     * Circuit breaker settings for provider routing.
+     */
+    data class CircuitBreaker(
+        var enabled: Boolean = false,
+        var failureThreshold: Int = 3,
+        var openDurationMillis: Long = 30_000,
+    )
+
+    /**
+     * Retry pacing settings.
+     */
+    data class Retry(
+        var maxRetryAfterMillis: Long = 30_000,
+        var jitterRatio: Double = 0.2,
+    )
+
+    /**
+     * Cost-control settings applied by the engine.
+     */
+    data class Cost(
+        var tokenBudget: TokenBudget = TokenBudget(),
+    )
+
+    /**
+     * Token budget settings enforced from provider-reported usage.
+     */
+    data class TokenBudget(
+        var hardMaxTokensPerAttempt: Long? = null,
+        var hardMaxTokensPerOperation: Long? = null,
+        var softMaxTokensPerOperation: Long? = null,
+    )
+
+    /**
+     * Cache settings applied by the engine.
+     */
+    data class Cache(
+        var inMemory: InMemoryCache = InMemoryCache(),
+    )
+
+    /**
+     * In-memory response cache settings.
+     */
+    data class InMemoryCache(
+        var enabled: Boolean = false,
+        var maxEntries: Int = 1_000,
+    )
+
     /**
      * Nested provider-specific settings.
      */
@@ -26,6 +94,7 @@ data class TramaiProperties(
      */
     data class Anthropic(
         var apiKey: String? = null,
+        var apiKeySecretRef: String? = null,
         var baseUrl: String? = null,
     )
 
@@ -34,7 +103,9 @@ data class TramaiProperties(
      */
     data class OpenAi(
         var apiKey: String? = null,
+        var apiKeySecretRef: String? = null,
         var bearerToken: String? = null,
+        var bearerTokenSecretRef: String? = null,
         var baseUrl: String? = null,
         var organization: String? = null,
         var project: String? = null,
@@ -47,7 +118,9 @@ data class TramaiProperties(
     data class OpenAiCompatible(
         var providerName: String = "openai-compatible",
         var apiKey: String? = null,
+        var apiKeySecretRef: String? = null,
         var bearerToken: String? = null,
+        var bearerTokenSecretRef: String? = null,
         var baseUrl: String? = null,
         var codexAuth: CodexAuth = CodexAuth(),
     )

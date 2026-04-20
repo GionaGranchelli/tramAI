@@ -43,6 +43,81 @@ val tramai = Tramai {
 }
 ```
 
+## Resilience Controls
+
+The standalone builder exposes explicit fallback routing and engine-owned resilience settings:
+
+```kotlin
+val tramai = Tramai {
+    provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
+    provider(OllamaProvider("http://localhost:11434"), name = "ollama")
+
+    model("gpt-5.1-chat-latest", "openai")
+    model("gpt-5.1-mini", "openai")
+    model("llama3.2", "ollama")
+
+    fallbackModel("gpt-5.1-chat-latest", "gpt-5.1-mini", "openai")
+    fallbackProvider("gpt-5.1-chat-latest", "ollama")
+
+    circuitBreaker(
+        CircuitBreakerSettings(
+            enabled = true,
+            failureThreshold = 3,
+            openDurationMillis = 30_000,
+        ),
+    )
+    retryPolicy(
+        RetryPolicySettings(
+            maxRetryAfterMillis = 20_000,
+            jitterRatio = 0.1,
+        ),
+    )
+    tokenBudget(
+        TokenBudgetSettings(
+            hardMaxTokensPerAttempt = 4_000,
+            hardMaxTokensPerOperation = 12_000,
+            softMaxTokensPerOperation = 8_000,
+        ),
+    )
+}
+```
+
+These controls are explicit on purpose:
+
+- fallbacks are configured routes, not hidden model-prefix heuristics
+- `Retry-After` hints are honored when providers expose them
+- circuit breaking is engine-owned, so providers stay focused on transport and mapping
+- token budget policy is engine-owned and uses provider-reported usage across retries and tool loops
+
+## Response Caching
+
+Successful non-streaming operations can be cached explicitly per operation.
+
+```kotlin
+val tramai = Tramai {
+    provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
+    model("gpt-5.1-chat-latest", "openai")
+    cache(InMemoryOperationResponseCache(maxEntries = 1_000))
+}
+
+@AiService
+interface Analyzer {
+    @Operation(
+        prompt = "Analyze the invoice",
+        model = "gpt-5.1-chat-latest",
+        cacheable = true,
+        cacheTtlMillis = 60_000,
+    )
+    suspend fun analyze(invoiceId: String): String
+}
+```
+
+Current cache boundary:
+
+- caching is opt-in per operation
+- only successful non-streaming operations are cached
+- tool-enabled operations are not cached automatically
+
 ## Java-Style Builder
 
 The same setup can be built with the explicit builder:

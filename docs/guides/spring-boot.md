@@ -50,6 +50,90 @@ tramai:
       base-url: https://api.openai.com/v1
 ```
 
+Example with explicit fallback routing and resilience controls:
+
+```yaml
+tramai:
+  default-provider: openai
+  models:
+    gpt-5.1-chat-latest: openai
+    gpt-5.1-mini: openai
+    llama3.2: ollama
+  fallbacks:
+    gpt-5.1-chat-latest:
+      - provider: openai
+        model: gpt-5.1-mini
+      - provider: ollama
+        model: llama3.2
+  resilience:
+    circuit-breaker:
+      enabled: true
+      failure-threshold: 3
+      open-duration-millis: 30000
+    retry:
+      max-retry-after-millis: 20000
+      jitter-ratio: 0.1
+  cost:
+    token-budget:
+      hard-max-tokens-per-attempt: 4000
+      hard-max-tokens-per-operation: 12000
+      soft-max-tokens-per-operation: 8000
+  providers:
+    openai:
+      api-key: ${OPENAI_API_KEY}
+    ollama:
+      base-url: http://localhost:11434
+```
+
+This keeps the routing contract explicit:
+
+- the primary model still resolves through `models`
+- fallback order is taken from `fallbacks`
+- retry pacing and circuit breaking are engine settings under `tramai.resilience`
+- token budget policy is configured under `tramai.cost.token-budget`
+
+## Secret References
+
+Spring configuration can resolve provider credentials from secret references instead of embedding raw values.
+
+Built-in reference schemes are:
+
+- `env:NAME`
+- `file:/absolute/path/to/secret.txt`
+
+Example:
+
+```yaml
+tramai:
+  default-provider: openai
+  models:
+    gpt-5.1-chat-latest: openai
+  providers:
+    openai:
+      api-key-secret-ref: env:OPENAI_API_KEY
+```
+
+You can also provide your own `SecretValueResolver` bean for references like:
+
+- `vault:ai/openai`
+- `aws-secretsmanager:prod/openai/api-key`
+
+Tramai does not bundle AWS or Vault SDK adapters yet, but the resolver seam is designed for those integrations.
+
+## Response Caching
+
+Spring can enable the built-in in-memory cache for cacheable operations:
+
+```yaml
+tramai:
+  cache:
+    in-memory:
+      enabled: true
+      max-entries: 1000
+```
+
+Cache behavior is still explicit on the operation itself through `@Operation(cacheable = true, cacheTtlMillis = ...)`.
+
 Example using Anthropic:
 
 ```yaml

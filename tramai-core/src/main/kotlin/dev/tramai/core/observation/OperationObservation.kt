@@ -51,6 +51,14 @@ interface OperationObservation {
     )
 
     /**
+     * Records an engine-owned resilience or routing event for the current attempt.
+     */
+    fun onEngineEvent(
+        name: String,
+        attributes: Map<String, Any?> = emptyMap(),
+    ) = Unit
+
+    /**
      * Marks the end of an attempt.
      *
      * `parseSuccess` is `null` for raw string/unit operations.
@@ -76,6 +84,11 @@ object NoOpOperationObservation : OperationObservation {
     override fun onStructuredParseFailure(
         rawResponse: String,
         errorSummary: String,
+    ) = Unit
+
+    override fun onEngineEvent(
+        name: String,
+        attributes: Map<String, Any?>,
     ) = Unit
 
     override fun onCallCompleted(parseSuccess: Boolean?) = Unit

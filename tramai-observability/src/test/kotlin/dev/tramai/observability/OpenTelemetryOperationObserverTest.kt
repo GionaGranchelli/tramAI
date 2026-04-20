@@ -4,11 +4,23 @@ import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.engine.TramaiEngine
 import dev.tramai.engine.create
+import dev.tramai.observability.OpenTelemetryOperationObserverTest.MetricNames.ATTEMPTS
+import dev.tramai.observability.OpenTelemetryOperationObserverTest.MetricNames.DURATION
+import dev.tramai.observability.OpenTelemetryOperationObserverTest.MetricNames.ENGINE_EVENTS
+import dev.tramai.observability.OpenTelemetryOperationObserverTest.MetricNames.INPUT_TOKENS
+import dev.tramai.observability.OpenTelemetryOperationObserverTest.MetricNames.OUTPUT_TOKENS
+import dev.tramai.observability.OpenTelemetryOperationObserverTest.MetricNames.PARSE_FAILURES
 import dev.tramai.structured.JacksonStructuredOutputHandler
+import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.sdk.OpenTelemetrySdk
+import io.opentelemetry.sdk.metrics.SdkMeterProvider
+import io.opentelemetry.sdk.metrics.data.HistogramPointData
+import io.opentelemetry.sdk.metrics.data.LongPointData
+import io.opentelemetry.sdk.testing.exporter.InMemoryMetricReader
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter
 import io.opentelemetry.sdk.trace.SdkTracerProvider
 import io.opentelemetry.sdk.trace.`export`.SimpleSpanProcessor
@@ -19,16 +31,23 @@ import kotlin.test.Test
 
 class OpenTelemetryOperationObserverTest {
     private val exporter = InMemorySpanExporter.create()
+    private val metricReader = InMemoryMetricReader.create()
     private val tracerProvider = SdkTracerProvider.builder()
         .addSpanProcessor(SimpleSpanProcessor.create(exporter))
         .build()
+    private val meterProvider = SdkMeterProvider.builder()
+        .registerMetricReader(metricReader)
+        .build()
     private val openTelemetry = OpenTelemetrySdk.builder()
         .setTracerProvider(tracerProvider)
+        .setMeterProvider(meterProvider)
         .build()
 
     @AfterTest
     fun tearDown() {
         exporter.reset()
+        tracerProvider.shutdown()
+        meterProvider.shutdown()
     }
 
     @Test
@@ -53,9 +72,18 @@ class OpenTelemetryOperationObserverTest {
         val span = exporter.finishedSpanItems.single()
         assertThat(span.name).isEqualTo("ai.respond")
         assertThat(span.attributes.asMap())
-            .containsEntry(io.opentelemetry.api.common.AttributeKey.stringKey("gen_ai.system"), "anthropic")
-            .containsEntry(io.opentelemetry.api.common.AttributeKey.stringKey("gen_ai.request.model"), "claude-sonnet-4-20250514")
-            .containsEntry(io.opentelemetry.api.common.AttributeKey.stringKey("gen_ai.response.model"), "claude-sonnet-4-20250514")
+            .containsEntry(AttributeKey.stringKey("gen_ai.system"), "anthropic")
+            .containsEntry(AttributeKey.stringKey("gen_ai.request.model"), "claude-sonnet-4-20250514")
+            .containsEntry(AttributeKey.stringKey("gen_ai.response.model"), "claude-sonnet-4-20250514")
+
+        val metrics = metricReader.collectAllMetrics()
+        assertThat(longSumPoint(metrics, ATTEMPTS).value).isEqualTo(1L)
+        assertThat(longSumPoint(metrics, INPUT_TOKENS).value).isEqualTo(12L)
+        assertThat(longSumPoint(metrics, OUTPUT_TOKENS).value).isEqualTo(5L)
+        assertThat(histogramPoint(metrics, DURATION).count).isEqualTo(1L)
+        assertThat(histogramPoint(metrics, DURATION).sum).isGreaterThanOrEqualTo(0.0)
+        assertThat(histogramPoint(metrics, "tramai.operation.input_tokens.per_attempt").sum).isEqualTo(12.0)
+        assertThat(histogramPoint(metrics, "tramai.operation.output_tokens.per_attempt").sum).isEqualTo(5.0)
     }
 
     @Test
@@ -83,7 +111,76 @@ class OpenTelemetryOperationObserverTest {
             assertThat(event.attributes.asMap().keys.map { it.key }).contains("tramai.raw_response", "tramai.validation_error")
         }
         assertThat(firstAttempt.attributes.asMap())
-            .containsEntry(io.opentelemetry.api.common.AttributeKey.booleanKey("tramai.structured.parse_success"), false)
+            .containsEntry(AttributeKey.booleanKey("tramai.structured.parse_success"), false)
+
+        val metrics = metricReader.collectAllMetrics()
+        val parseFailure = longSumPoint(metrics, PARSE_FAILURES)
+        assertThat(parseFailure.value).isEqualTo(1L)
+        assertThat(parseFailure.attributes.asMap())
+            .containsEntry(AttributeKey.stringKey("tramai.outcome"), "parse_failure")
+    }
+
+    @Test
+    fun `records engine events as span events and metrics`() {
+        val observation = OpenTelemetryOperationObserver(openTelemetry).onCallStarted(
+            OperationCallContext(
+                serviceInterface = "test.Service",
+                methodName = "respond",
+                providerId = "openai",
+                requestedModel = "gpt-5.1-chat-latest",
+                attempt = 0,
+            ),
+        )
+
+        observation.onEngineEvent(
+            name = "tramai.retry.scheduled",
+            attributes = mapOf(
+                "delay_millis" to 42L,
+                "delay_source" to "retry_after",
+                "is_fallback" to false,
+            ),
+        )
+        observation.onCallCompleted(parseSuccess = null)
+
+        val span = exporter.finishedSpanItems.single()
+        assertThat(span.events).anySatisfy { event ->
+            assertThat(event.name).isEqualTo("tramai.retry.scheduled")
+            assertThat(event.attributes.asMap())
+                .containsEntry(AttributeKey.longKey("delay_millis"), 42L)
+                .containsEntry(AttributeKey.stringKey("delay_source"), "retry_after")
+                .containsEntry(AttributeKey.booleanKey("is_fallback"), false)
+        }
+
+        val eventMetric = longSumPoint(metricReader.collectAllMetrics(), ENGINE_EVENTS)
+        assertThat(eventMetric.value).isEqualTo(1L)
+        assertThat(eventMetric.attributes.asMap())
+            .containsEntry(AttributeKey.stringKey("tramai.event.name"), "tramai.retry.scheduled")
+            .containsEntry(AttributeKey.longKey("delay_millis"), 42L)
+            .containsEntry(AttributeKey.stringKey("delay_source"), "retry_after")
+            .containsEntry(AttributeKey.booleanKey("is_fallback"), false)
+    }
+
+    private fun longSumPoint(
+        metrics: Collection<io.opentelemetry.sdk.metrics.data.MetricData>,
+        name: String,
+    ): LongPointData {
+        return metrics.single { it.name == name }.longSumData.points.single()
+    }
+
+    private fun histogramPoint(
+        metrics: Collection<io.opentelemetry.sdk.metrics.data.MetricData>,
+        name: String,
+    ): HistogramPointData {
+        return metrics.single { it.name == name }.histogramData.points.single()
+    }
+
+    private object MetricNames {
+        const val ATTEMPTS = "tramai.operation.attempts"
+        const val DURATION = "tramai.operation.duration"
+        const val ENGINE_EVENTS = "tramai.engine.events"
+        const val INPUT_TOKENS = "tramai.operation.input_tokens"
+        const val OUTPUT_TOKENS = "tramai.operation.output_tokens"
+        const val PARSE_FAILURES = "tramai.operation.parse_failures"
     }
 }
 

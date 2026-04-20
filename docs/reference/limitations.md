@@ -20,8 +20,6 @@ It is not yet a production-complete `1.0`.
 
 These features are not implemented in the current runtime:
 
-- streaming responses
-- tool calling
 - conversation memory
 - generated proxy code or KSP support
 - provider-native structured output optimizations
@@ -33,13 +31,15 @@ For the explicitly frozen first-release scope, see [Release 0.1.0 Scope and Chec
 These concepts exist in the API shape or planning docs but are not fully realized:
 
 - OpenAI/Codex auth-file support exists, but it is experimental
+- streaming failover retries only before the first emitted token; Tramai does not attempt partial mid-stream recovery across providers
+- secret references are extensible through `SecretValueResolver`, but bundled AWS/Vault resolvers are not shipped yet
 
 ## Practical Consequences
 
 Before using Tramai in a serious service, assume you still need to make decisions about:
 
-- your own fallback strategy
-- your own deployment and secret management model
+- how aggressive your fallback topology should be for your workload
+- whether you want custom cloud secret resolvers beyond `env:` and `file:`
 - how much provider-specific behavior you are willing to accept
 
 ## What Is Solid Already
@@ -54,6 +54,8 @@ These parts are already coherent and tested:
 - standalone builder
 - Spring integration
 - OpenTelemetry observer seam
+- OpenTelemetry metrics for attempt latency, token usage, parse failures, and engine events
+- engine-owned token budget controls based on provider-reported usage
 - deterministic test support
 
 ## Recommended Usage Today

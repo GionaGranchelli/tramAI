@@ -18,6 +18,8 @@ This directory records the key architectural decisions currently implied by the 
 - [ADR-012: Keep `tramai-standalone` Minimal and Make Observability an Explicit Opt-In Module](./adr-012.md)
 - [ADR-013: Start Streaming with Raw Text and a Dedicated Streaming Contract](./adr-013.md)
 - [ADR-014: Keep Tool Calling Engine-Owned and Provider-Portable](./adr-014.md)
+- [ADR-015: Limit Streaming Failover to Startup Before the First Emitted Token](./adr-015.md)
+- [ADR-016: Keep Runtime Proxies and Ship Explicit Native-Image Proxy Metadata Support](./adr-016.md)
 
 ## ADR Conventions
 

@@ -20,6 +20,7 @@ If you are new to the project, read these in order:
 3. [Providers and Model Routing](./guides/providers.md)
 4. [Structured Output](./guides/structured-output.md)
 5. [Testing Tramai Code](./guides/testing.md)
+6. [Native Image](./guides/native-image.md)
 
 If you are using Spring Boot instead of the standalone builder:
 
@@ -36,6 +37,7 @@ If you are using Spring Boot instead of the standalone builder:
 - [Providers and Model Routing](./guides/providers.md)
 - [Structured Output](./guides/structured-output.md)
 - [Observability](./guides/observability.md)
+- [Native Image](./guides/native-image.md)
 - [Testing Tramai Code](./guides/testing.md)
 - [Common Use Cases](./guides/use-cases.md)
 - [Extending Tramai](./guides/extending-tramai.md)

@@ -4,11 +4,29 @@ import dev.tramai.core.annotations.Operation
 import dev.tramai.core.exception.ConfigurationException
 
 /**
+ * One explicit execution route for a requested model.
+ */
+data class ProviderRoute(
+    val providerName: String,
+    val effectiveModelName: String,
+)
+
+/**
+ * A provider route resolved to a concrete provider instance.
+ */
+data class ResolvedProviderRoute(
+    val providerName: String,
+    val provider: ModelProvider,
+    val requestedModelName: String,
+    val effectiveModelName: String,
+)
+
+/**
  * Explicit provider registry used to resolve operations to concrete providers.
  */
 class ProviderRegistry private constructor(
     private val providersByName: Map<String, ModelProvider>,
-    private val modelsToProviderNames: Map<String, String>,
+    private val routesByRequestedModel: Map<String, List<ProviderRoute>>,
     private val defaultProviderName: String?,
 ) {
     /**
@@ -17,26 +35,55 @@ class ProviderRegistry private constructor(
      * Resolution order is: explicit operation provider, explicit model mapping, default provider.
      */
     fun resolve(operation: Operation): ModelProvider {
+        return resolveCandidates(operation).first().provider
+    }
+
+    /**
+     * Resolves the ordered provider routes for an [operation], including any configured fallbacks.
+     */
+    fun resolveCandidates(operation: Operation): List<ResolvedProviderRoute> {
         val explicitProvider = operation.provider.takeIf { it.isNotBlank() }
         if (explicitProvider != null) {
-            return providersByName[explicitProvider]
+            val provider = providersByName[explicitProvider]
                 ?: throw ConfigurationException("Unknown provider '$explicitProvider' requested by operation model '${operation.model}'")
+            return listOf(
+                ResolvedProviderRoute(
+                    providerName = explicitProvider,
+                    provider = provider,
+                    requestedModelName = operation.model,
+                    effectiveModelName = operation.model,
+                ),
+            )
         }
 
-        val registeredProviderName = modelsToProviderNames[operation.model]
-        if (registeredProviderName != null) {
-            return providersByName[registeredProviderName]
-                ?: throw ConfigurationException("Model '${operation.model}' is mapped to unknown provider '$registeredProviderName'")
+        val registeredRoutes = routesByRequestedModel[operation.model]
+        if (registeredRoutes != null) {
+            return registeredRoutes.map { route ->
+                ResolvedProviderRoute(
+                    providerName = route.providerName,
+                    provider = providersByName[route.providerName]
+                        ?: throw ConfigurationException("Model '${operation.model}' is mapped to unknown provider '${route.providerName}'"),
+                    requestedModelName = operation.model,
+                    effectiveModelName = route.effectiveModelName,
+                )
+            }
         }
 
-        val defaultProvider = defaultProviderName?.let(providersByName::get)
-        if (defaultProvider != null) {
-            return defaultProvider
+        val defaultProviderName = defaultProviderName
+        if (defaultProviderName != null) {
+            val defaultProvider = providersByName[defaultProviderName]
+                ?: throw ConfigurationException("Default provider '$defaultProviderName' is not registered")
+            return listOf(
+                ResolvedProviderRoute(
+                    providerName = defaultProviderName,
+                    provider = defaultProvider,
+                    requestedModelName = operation.model,
+                    effectiveModelName = operation.model,
+                ),
+            )
         }
 
-        throw ConfigurationException(
-            "No provider is registered for model '${operation.model}'. Register the model explicitly or configure a default provider.",
-        )
+        throw ConfigurationException("No provider is registered for model '${operation.model}'. Register the model explicitly or configure a default provider.")
     }
 
     companion object {
@@ -58,7 +105,7 @@ class ProviderRegistry private constructor(
      */
     class Builder {
         private val providersByName = linkedMapOf<String, ModelProvider>()
-        private val modelsToProviderNames = linkedMapOf<String, String>()
+        private val routesByRequestedModel = linkedMapOf<String, MutableList<ProviderRoute>>()
         private var defaultProviderName: String? = null
 
         /**
@@ -83,9 +130,48 @@ class ProviderRegistry private constructor(
             modelName: String,
             providerName: String,
         ): Builder {
-            modelsToProviderNames[modelName] = providerName
+            val existingFallbacks = routesByRequestedModel[modelName]
+                ?.drop(1)
+                .orEmpty()
+            routesByRequestedModel[modelName] = mutableListOf(
+                ProviderRoute(
+                    providerName = providerName,
+                    effectiveModelName = modelName,
+                ),
+            ).apply {
+                addAll(existingFallbacks)
+            }
             return this
         }
+
+        /**
+         * Adds an explicit fallback route for [requestedModelName].
+         */
+        fun fallbackModel(
+            requestedModelName: String,
+            fallbackModelName: String,
+            providerName: String,
+        ): Builder = apply {
+            routesByRequestedModel.getOrPut(requestedModelName) { mutableListOf() }
+                .add(
+                    ProviderRoute(
+                        providerName = providerName,
+                        effectiveModelName = fallbackModelName,
+                    ),
+                )
+        }
+
+        /**
+         * Adds a fallback route that keeps the same model name but uses another provider.
+         */
+        fun fallbackProvider(
+            modelName: String,
+            providerName: String,
+        ): Builder = fallbackModel(
+            requestedModelName = modelName,
+            fallbackModelName = modelName,
+            providerName = providerName,
+        )
 
         /**
          * Selects the provider used when an operation does not specify an explicit provider or model mapping.
@@ -100,7 +186,7 @@ class ProviderRegistry private constructor(
          */
         fun build(): ProviderRegistry = ProviderRegistry(
             providersByName = providersByName.toMap(),
-            modelsToProviderNames = modelsToProviderNames.toMap(),
+            routesByRequestedModel = routesByRequestedModel.mapValues { (_, routes) -> routes.toList() },
             defaultProviderName = defaultProviderName,
         )
     }

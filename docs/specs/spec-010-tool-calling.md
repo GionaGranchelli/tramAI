@@ -1,8 +1,8 @@
 # SPEC-010: Tool Calling
 
-- Status: proposed
+- Status: implemented
 - Owner: maintainer
-- Last updated: 2026-04-18
+- Last updated: 2026-04-19
 - Related roadmap milestone: Phase 4 / post-0.1.0
 - Related ADRs: [ADR-014](../adr/adr-014.md), [ADR-001](../adr/adr-001.md), [ADR-009](../adr/adr-009.md)
 - Related docs: [Roadmap Summary](../roadmap.md), [Current Limitations](../reference/limitations.md)

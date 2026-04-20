@@ -112,6 +112,8 @@ This path reads a bearer token from the local Codex auth file. It is marked expe
 
 Prefer API keys or explicit bearer tokens for normal production integrations.
 
+For Spring applications, provider credentials can also come from secret references through `SecretValueResolver` beans and built-in `env:` / `file:` reference schemes.
+
 ## Ollama
 
 Use `OllamaProvider` for local development and self-hosted local-model experimentation.
@@ -174,11 +176,10 @@ interface LocalDevSummarizer {
 
 Provider support does not yet include:
 
-- streaming responses
-- provider-native tool calling
 - externalized provider-level retry-policy configuration
 - externalized provider-level timeout-policy configuration
 - provider-native structured-output optimizations
+- bundled cloud-specific secret-store resolvers
 
 Tramai does already support engine-owned retries for retryable provider failures and per-operation timeout control through `@Operation`.
 

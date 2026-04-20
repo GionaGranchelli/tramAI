@@ -7,6 +7,9 @@ import java.net.ConnectException
 import java.net.http.HttpRequest
 import java.net.http.HttpTimeoutException
 import java.time.Duration
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 /**
  * Applies the normalized Tramai timeout, when present, to a provider HTTP request.
@@ -22,10 +25,12 @@ fun providerHttpFailure(
     providerName: String,
     statusCode: Int,
     body: String,
+    retryAfterHeader: String? = null,
 ): ProviderException = ProviderException(
     message = "$providerName returned HTTP $statusCode: $body",
     statusCode = statusCode,
     retryable = isRetryableStatus(statusCode),
+    retryAfterMillis = parseRetryAfterMillis(retryAfterHeader),
 )
 
 /**
@@ -58,3 +63,16 @@ fun providerTransportFailure(
 }
 
 private fun isRetryableStatus(statusCode: Int): Boolean = statusCode in setOf(408, 425, 429, 500, 502, 503, 504)
+
+private fun parseRetryAfterMillis(value: String?): Long? {
+    val trimmed = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    trimmed.toLongOrNull()?.let { seconds ->
+        return if (seconds >= 0) seconds * 1_000 else null
+    }
+
+    val retryAt = runCatching {
+        Instant.from(DateTimeFormatter.RFC_1123_DATE_TIME.withZone(ZoneOffset.UTC).parse(trimmed))
+    }.getOrNull() ?: return null
+
+    return (retryAt.toEpochMilli() - System.currentTimeMillis()).coerceAtLeast(0L)
+}

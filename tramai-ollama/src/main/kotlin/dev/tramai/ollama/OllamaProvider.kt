@@ -50,7 +50,12 @@ class OllamaProvider(
 
             val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
             if (response.statusCode() !in 200..299) {
-                throw providerHttpFailure("Ollama", response.statusCode(), response.body())
+                throw providerHttpFailure(
+                    providerName = "Ollama",
+                    statusCode = response.statusCode(),
+                    body = response.body(),
+                    retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                )
             }
 
             val body = objectMapper.readTree(response.body())
@@ -106,7 +111,16 @@ class OllamaProvider(
 
         if (response.statusCode() !in 200..299) {
             val errorBody = response.body().toArray().joinToString("\n")
-            emit(dev.tramai.core.model.StreamChunk.Error(providerHttpFailure("Ollama", response.statusCode(), errorBody)))
+            emit(
+                dev.tramai.core.model.StreamChunk.Error(
+                    providerHttpFailure(
+                        providerName = "Ollama",
+                        statusCode = response.statusCode(),
+                        body = errorBody,
+                        retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    ),
+                ),
+            )
             return@flow
         }
 

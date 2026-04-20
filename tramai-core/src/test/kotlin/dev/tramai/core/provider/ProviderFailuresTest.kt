@@ -44,6 +44,18 @@ class ProviderFailuresTest {
     }
 
     @Test
+    fun `provider http failure captures retry after hints`() {
+        val error = providerHttpFailure(
+            providerName = "openai",
+            statusCode = 429,
+            body = """{"error":"rate limited"}""",
+            retryAfterHeader = "2",
+        )
+
+        assertThat(error.retryAfterMillis).isEqualTo(2_000)
+    }
+
+    @Test
     fun `provider http failure marks permanent statuses as non retryable`() {
         val error = providerHttpFailure(
             providerName = "openai",

@@ -28,12 +28,14 @@ Use [templates/spec-template.md](./templates/spec-template.md) for new work.
 - Phase 2: `SPEC-004` to `SPEC-006`
 - Phase 3: `SPEC-007` to `SPEC-008`
 - Phase 4: `SPEC-009` to `SPEC-010`
+- Phase 5: `SPEC-011`
 
 ## Current Status Snapshot
 
 - `SPEC-001` to `SPEC-007`: implemented in the repository
 - `SPEC-008`: in progress, with release and credibility work still open
-- `SPEC-009` to `SPEC-010`: committed future work, not yet scheduled for implementation
+- `SPEC-009` to `SPEC-010`: implemented in the repository
+- `SPEC-011`: in progress, with resilience work underway
 
 ## Status Meanings
 
@@ -65,6 +67,10 @@ Use [templates/spec-template.md](./templates/spec-template.md) for new work.
 
 - [SPEC-009: Streaming Responses](./spec-009-streaming-responses.md)
 - [SPEC-010: Tool Calling](./spec-010-tool-calling.md)
+
+### Phase 5: Production Hardening
+
+- [SPEC-011: Production Hardening](./spec-011-production-hardening.md)
 
 Conversation memory, KSP proxy generation, and additional providers or framework adapters remain roadmap items only for now.
 

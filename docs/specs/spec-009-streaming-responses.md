@@ -1,10 +1,10 @@
 # SPEC-009: Streaming Responses
 
-- Status: proposed
+- Status: implemented
 - Owner: maintainer
-- Last updated: 2026-04-18
+- Last updated: 2026-04-19
 - Related roadmap milestone: Phase 4 / post-0.1.0
-- Related ADRs: [ADR-013](../adr/adr-013.md), [ADR-001](../adr/adr-001.md), [ADR-008](../adr/adr-008.md)
+- Related ADRs: [ADR-013](../adr/adr-013.md), [ADR-015](../adr/adr-015.md), [ADR-001](../adr/adr-001.md), [ADR-008](../adr/adr-008.md)
 - Related docs: [Roadmap Summary](../roadmap.md), [Current Limitations](../reference/limitations.md)
 
 ## Problem
@@ -50,6 +50,7 @@ Tramai currently supports only request/response-style completion. That is suffic
 - Java-facing streaming should be treated as a follow-up design once the Kotlin streaming contract is validated.
 - The streaming path should stay aligned with Tramai's interface-method abstraction rather than introducing a separate chain-style API.
 - The first streaming milestone should bias toward correctness and cancellation semantics over provider feature maximalism.
+- Failover is permitted only before the first token is emitted. Once user-visible output has started, the engine must not attempt partial mid-stream recovery across providers.
 
 ## Acceptance Criteria
 
@@ -62,3 +63,4 @@ Tramai currently supports only request/response-style completion. That is suffic
 
 - Providers expose streaming differently, so the shared contract must avoid accidental bias toward a single provider's protocol.
 - Streamed structured output may require a later spec rather than an extension of this first milestone.
+- Mid-stream failover is intentionally constrained because token streams from different providers cannot be merged safely without inventing correctness rules the API does not guarantee.

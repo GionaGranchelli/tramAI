@@ -25,6 +25,8 @@ Fields:
 - `maxRetries`: structured-output retry count
 - `providerRetries`: provider retry count for transient failures
 - `timeoutMillis`: per-attempt provider timeout in milliseconds
+- `cacheable`: enables engine-owned caching for successful non-streaming responses
+- `cacheTtlMillis`: cache lifetime in milliseconds when caching is enabled
 
 Example:
 
@@ -36,6 +38,8 @@ Example:
     maxRetries = 3,
     providerRetries = 2,
     timeoutMillis = 15_000,
+    cacheable = true,
+    cacheTtlMillis = 60_000,
 )
 ```
 

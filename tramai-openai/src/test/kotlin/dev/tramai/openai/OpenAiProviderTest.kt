@@ -25,6 +25,7 @@ class OpenAiProviderTest {
     private var capturedBody: String = ""
     private var responseStatus: Int = 200
     private var responseBody: String = defaultSuccessBody()
+    private var retryAfterHeader: String? = null
 
     @BeforeTest
     fun setUp() {
@@ -38,6 +39,7 @@ class OpenAiProviderTest {
                 exchange = exchange,
                 body = responseBody,
                 status = responseStatus,
+                retryAfter = retryAfterHeader,
             )
         }
         server.start()
@@ -144,6 +146,7 @@ class OpenAiProviderTest {
     fun `marks transient http failures as retryable`() {
         responseStatus = 429
         responseBody = """{"error":{"message":"rate limited"}}"""
+        retryAfterHeader = "2"
         val provider = OpenAiProvider(
             apiKey = "test-openai-key",
             baseUrl = "http://localhost:${server.address.port}/v1",
@@ -162,6 +165,7 @@ class OpenAiProviderTest {
             .isInstanceOfSatisfying(ProviderException::class.java) { error ->
                 assertThat(error.statusCode).isEqualTo(429)
                 assertThat(error.retryable).isTrue()
+                assertThat(error.retryAfterMillis).isEqualTo(2_000)
             }
     }
 
@@ -236,8 +240,10 @@ class OpenAiProviderTest {
         exchange: HttpExchange,
         body: String,
         status: Int = 200,
+        retryAfter: String? = null,
     ) {
         exchange.responseHeaders.add("Content-Type", "application/json")
+        retryAfter?.let { exchange.responseHeaders.add("Retry-After", it) }
         exchange.sendResponseHeaders(status, body.toByteArray().size.toLong())
         exchange.responseBody.use { it.write(body.toByteArray()) }
     }

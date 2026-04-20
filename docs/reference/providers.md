@@ -23,6 +23,7 @@ tramai:
   providers:
     anthropic:
       api-key: ${ANTHROPIC_API_KEY}
+      api-key-secret-ref: null
       base-url: https://api.anthropic.com
 ```
 
@@ -44,6 +45,7 @@ Auth modes:
 - API key
 - explicit bearer token
 - local Codex auth file, experimental
+- Spring secret references through `SecretValueResolver`
 
 Config shape:
 
@@ -52,6 +54,9 @@ tramai:
   providers:
     openai:
       api-key: ${OPENAI_API_KEY}
+      api-key-secret-ref: null
+      bearer-token: null
+      bearer-token-secret-ref: null
 ```
 
 ## `tramai-ollama`
@@ -79,6 +84,8 @@ Current shared baseline:
 
 - request/response normalization
 - raw string operations
+- streaming support
+- tool-calling support through engine-owned orchestration
 - structured output via Tramai's schema-in-prompt pipeline
 - explicit provider registry integration
 - operation-level timeout propagation
@@ -86,11 +93,10 @@ Current shared baseline:
 
 Not implemented across the provider layer yet:
 
-- streaming
-- tool calling
 - native provider-specific structured output modes
 - externalized provider-level retry-policy configuration
 - externalized provider-level timeout-policy configuration
+- bundled cloud-specific secret-store resolvers
 
 ## Choosing A Provider
 

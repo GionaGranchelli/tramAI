@@ -21,15 +21,21 @@ This summary mirrors the current implementation plan and is intended to anchor d
 
 ## Phase 4: Growth
 
-Demand-gated work includes streaming, tool calling, memory, KSP generation, and additional providers and framework adapters.
+- M9: raw text streaming support (`Flow<StreamChunk>`)
+- M10: engine-owned tool calling orchestration
+- M11: Spring Boot automatic tool discovery
+
+## Phase 5: Production Hardening
+
+Operational readiness, advanced resilience, PII masking, GraalVM support, and OTel metrics.
 
 ## Current Delivery Snapshot
 
 - Phase 1: implemented
 - Phase 2: implemented
 - Phase 3: implemented
-- Phase 4: implemented (Streaming & Tool Calling)
-  The core engine and major providers now support raw text streaming and engine-owned tool calling orchestration.
+- Phase 4: implemented
+- Phase 5: in progress
 
 ## Documentation Implication
 
@@ -45,4 +51,5 @@ The docs in this repository should grow with the roadmap:
 - Phase 1: committed specs and tasks exist
 - Phase 2: committed specs and tasks exist
 - Phase 3: committed specs and tasks exist
-- Phase 4: committed specs exist for streaming and tool calling, but no execution tasks are scheduled yet
+- Phase 4: committed specs and tasks exist
+- Phase 5: implementation is in progress under `SPEC-011` and `TASK-016`

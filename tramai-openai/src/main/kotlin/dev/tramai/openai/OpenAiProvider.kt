@@ -148,7 +148,12 @@ open class OpenAiCompatibleProvider(
 
             val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
             if (response.statusCode() !in 200..299) {
-                throw providerHttpFailure(providerName, response.statusCode(), response.body())
+                throw providerHttpFailure(
+                    providerName = providerName,
+                    statusCode = response.statusCode(),
+                    body = response.body(),
+                    retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                )
             }
 
             val body = objectMapper.readTree(response.body())
@@ -220,7 +225,16 @@ open class OpenAiCompatibleProvider(
 
         if (response.statusCode() !in 200..299) {
             val errorBody = response.body().toArray().joinToString("\n")
-            emit(dev.tramai.core.model.StreamChunk.Error(providerHttpFailure(providerName, response.statusCode(), errorBody)))
+            emit(
+                dev.tramai.core.model.StreamChunk.Error(
+                    providerHttpFailure(
+                        providerName = providerName,
+                        statusCode = response.statusCode(),
+                        body = errorBody,
+                        retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    ),
+                ),
+            )
             return@flow
         }
 

@@ -21,4 +21,8 @@ annotation class Operation(
     val providerRetries: Int = 3,
     /** Maximum duration, in milliseconds, allowed for a single provider attempt. */
     val timeoutMillis: Long = 30_000,
+    /** Whether the engine may cache successful non-streaming responses for this operation. */
+    val cacheable: Boolean = false,
+    /** Cache TTL, in milliseconds, for successful responses when [cacheable] is enabled. */
+    val cacheTtlMillis: Long = 60_000,
 )

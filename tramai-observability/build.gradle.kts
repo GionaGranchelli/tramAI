@@ -27,6 +27,7 @@ dependencies {
     testImplementation(project(":tramai-engine"))
     testImplementation(project(":tramai-structured"))
     testImplementation(libs.coroutines.core)
+    testImplementation(libs.opentelemetry.sdk.metrics)
     testImplementation(libs.opentelemetry.sdk.trace)
     testImplementation(libs.opentelemetry.sdk.testing)
     testImplementation(platform(libs.junit.bom))
