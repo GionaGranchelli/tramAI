@@ -39,7 +39,7 @@ Content-Type: application/json
 ### Typed triage using a local request file
 POST {{baseUrl}}/invoice/triage
 Content-Type: application/json
-@examples/kotlin-springboot-example/sample-invoice.json
+< ./sample-invoice.json
 
 ### Streaming summary
 POST {{baseUrl}}/invoice/summary/stream

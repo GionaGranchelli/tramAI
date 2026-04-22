@@ -1,10 +1,10 @@
 # Release 0.1.0 Scope and Checklist
 
-This page freezes the intended MVP scope for TramAI `0.1.0` and records the remaining work needed to move from strong alpha to first public release.
+This page freezes the MVP scope that shipped in TramAI `0.1.0` and records the criteria used to treat it as the first public release.
 
 ## Release Goal
 
-TramAI `0.1.0` should be a credible first public release for JVM backend engineers who want:
+TramAI `0.1.0` was intended to be a credible first public release for JVM backend engineers who want:
 
 - annotated interface methods as the primary AI abstraction
 - typed structured output as a first-class path
@@ -57,7 +57,7 @@ What is already strong:
 - typed orchestration exists as an optional stable module with explicit workflow, checkpoint/resume, and lease-aware coordination boundaries
 - local example applications can demonstrate typed output behavior
 
-What still blocks a credible first public MVP release:
+What previously blocked a credible first public MVP release:
 
 - final release checklist closure and scope discipline
 - Maven Central publication with real credentials and signing
@@ -91,7 +91,7 @@ What still blocks a credible first public MVP release:
 
 - [x] publication metadata is correct for all publishable modules
 - [x] signed artifacts, sources JARs, and javadoc JARs are produced in local release verification
-- [ ] release workflow can publish on tag with real credentials
+- [x] release workflow can publish on tag with real credentials
 - [x] local `publishToMavenLocal` smoke path remains green
 
 ### Credibility and Adoption
@@ -102,7 +102,7 @@ What still blocks a credible first public MVP release:
 
 ## Release Exit Criteria
 
-TramAI is ready for `0.1.0` when:
+TramAI was ready for `0.1.0` when:
 
 - the checklist above is materially complete
 - the board and specs accurately describe current status

@@ -2,6 +2,80 @@
 
 Use `tramai-spring` when you want Tramai service interfaces injected as Spring beans.
 
+## Copy-Paste Setup
+
+Start here if you want the minimum Spring Boot path.
+
+### Gradle
+
+```kotlin
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom:0.1.0"))
+    implementation("dev.tramai:tramai-spring")
+    implementation("dev.tramai:tramai-openai")
+}
+```
+
+### Maven
+
+```xml
+<dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>dev.tramai</groupId>
+      <artifactId>tramai-bom</artifactId>
+      <version>0.1.0</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+  </dependencies>
+</dependencyManagement>
+
+<dependencies>
+  <dependency>
+    <groupId>dev.tramai</groupId>
+    <artifactId>tramai-spring</artifactId>
+  </dependency>
+  <dependency>
+    <groupId>dev.tramai</groupId>
+    <artifactId>tramai-openai</artifactId>
+  </dependency>
+</dependencies>
+```
+
+### Minimal application code
+
+```kotlin
+@AiService
+interface InvoiceAnalyzer {
+    @Operation(
+        prompt = "Analyze the invoice and return a short status.",
+        model = "gpt-4o",
+    )
+    suspend fun analyze(invoiceText: String): String
+}
+
+@Service
+class BillingService(
+    private val invoiceAnalyzer: InvoiceAnalyzer,
+) {
+    suspend fun process(invoiceText: String): String = invoiceAnalyzer.analyze(invoiceText)
+}
+```
+
+### Minimal configuration
+
+```yaml
+tramai:
+  default-provider: openai
+  models:
+    gpt-4o: openai
+  providers:
+    openai:
+      api-key: ${OPENAI_API_KEY}
+      base-url: https://api.openai.com/v1
+```
+
 ## What Spring Support Provides
 
 The Spring adapter currently does these things:
@@ -22,7 +96,7 @@ Example application code:
 interface InvoiceAnalyzer {
     @Operation(
         prompt = "Analyze the invoice and return a raw status",
-        model = "gpt-5.1-chat-latest",
+        model = "gpt-4o",
     )
     suspend fun analyze(invoiceId: String): String
 }
@@ -35,6 +109,14 @@ class BillingService(
 }
 ```
 
+That is the core Spring model:
+
+1. add `tramai-spring`
+2. add one provider module
+3. define an `@AiService`
+4. configure `tramai.*`
+5. inject the interface like a normal bean
+
 ## YAML Configuration
 
 Example using OpenAI:
@@ -43,7 +125,7 @@ Example using OpenAI:
 tramai:
   default-provider: openai
   models:
-    gpt-5.1-chat-latest: openai
+    gpt-4o: openai
   providers:
     openai:
       api-key: ${OPENAI_API_KEY}
@@ -56,13 +138,13 @@ Example with explicit fallback routing and resilience controls:
 tramai:
   default-provider: openai
   models:
-    gpt-5.1-chat-latest: openai
-    gpt-5.1-mini: openai
+    gpt-4o: openai
+    gpt-4o-mini: openai
     llama3.2: ollama
   fallbacks:
-    gpt-5.1-chat-latest:
+    gpt-4o:
       - provider: openai
-        model: gpt-5.1-mini
+        model: gpt-4o-mini
       - provider: ollama
         model: llama3.2
   resilience:
@@ -109,7 +191,7 @@ Example:
 tramai:
   default-provider: openai
   models:
-    gpt-5.1-chat-latest: openai
+    gpt-4o: openai
   providers:
     openai:
       api-key-secret-ref: env:OPENAI_API_KEY
@@ -121,7 +203,7 @@ Example using the bundled Vault resolver:
 tramai:
   default-provider: openai
   models:
-    gpt-5.1-chat-latest: openai
+    gpt-4o: openai
   secrets:
     vault:
       enabled: true
@@ -138,7 +220,7 @@ Example using the bundled AWS Secrets Manager resolver:
 tramai:
   default-provider: openai
   models:
-    gpt-5.1-chat-latest: openai
+    gpt-4o: openai
   secrets:
     aws-secrets-manager:
       enabled: true
@@ -227,7 +309,7 @@ Example:
 tramai:
   default-provider: openai
   models:
-    gpt-5.1-chat-latest: openai
+    gpt-4o: openai
   providers:
     openai:
       codex-auth:
@@ -253,3 +335,14 @@ The Spring adapter is intentionally thin. It does not currently provide:
 - custom proxy generation strategies
 
 For current property details, see [Configuration Reference](../reference/configuration.md).
+
+## Typical Build-Up Path
+
+Most teams should adopt Spring usage in this order:
+
+1. start with one injected `@AiService` returning `String`
+2. convert one operation to structured output
+3. add provider routing and resilience settings
+4. add `tramai-testing` in tests
+5. add `tramai-observability` and OpenTelemetry when the service is production-bound
+6. add `tramai-orchestration` only if you need persisted multi-step workflows

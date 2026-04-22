@@ -2,6 +2,8 @@
 
 Tramai's testing support currently lives in `tramai-testing`.
 
+If you want the fastest first test, start with [Testing TramAI Code](../guides/testing.md) first. This page is the lower-level helper summary.
+
 ## `MockAiProvider`
 
 Purpose:
@@ -89,3 +91,8 @@ It is not a replacement for:
 - system tests against real services
 
 Use both where appropriate.
+
+## Related Pages
+
+- [Testing TramAI Code](../guides/testing.md)
+- [Structured Output](../guides/structured-output.md)

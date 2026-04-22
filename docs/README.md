@@ -10,9 +10,18 @@ TramAI is a structured-first AI integration library for the JVM, designed for ba
 
 ### 🟢 Getting Started
 New to TramAI? Start here.
-*   [**Getting Started Guide**](./guides/getting-started.md) — From zero to your first AI-backed service in 5 minutes.
+*   [**Getting Started Guide**](./guides/getting-started.md) — From zero to your first working AI-backed service.
+*   [**30-Minute Quickstart**](./guides/quickstart.md) — Copy-paste paths for standalone and Spring Boot applications.
+*   [**Tutorial: Build an Invoice Analyzer**](./guides/tutorial-invoice-analyzer.md) — One realistic end-to-end tutorial from dependencies to tests.
+*   [**Maven Setup**](./guides/maven.md) — BOM usage and full Maven dependency snippets.
 *   [**Quickstart: Standalone**](./guides/standalone-usage.md) — Using TramAI in plain Kotlin/Java applications.
 *   [**Quickstart: Spring Boot**](./guides/spring-boot.md) — Seamless integration with the Spring ecosystem.
+
+### 🟠 Choose Your Modules
+If you are deciding what to depend on:
+*   [**Getting Started: Choose Your Dependencies**](./guides/getting-started.md#choose-your-dependencies)
+*   [**Module Overview**](./architecture/modules.md) — What each published module is responsible for.
+*   [**Maven Setup**](./guides/maven.md) — Maven-first installation guidance.
 
 ### 🔵 Core Features
 Deep dives into the primary capabilities of the engine.
@@ -47,11 +56,12 @@ Learn more about our decisions in the [**ADR Index**](./adr/README.md).
 ## 📚 Reference
 
 *   [**Annotation Reference**](./reference/annotations.md) — `@AiService`, `@Operation`, `@SystemPrompt`.
+*   [**Standalone Builder Reference**](./reference/standalone-builder.md) — Exact `Tramai` builder methods and current behavior.
 *   [**Configuration Reference**](./reference/configuration.md) — Spring Boot properties and Builder settings.
 *   [**API Stability**](./reference/api-stability.md) — Stable vs experimental public surface for `0.1.x`.
 *   [**Module Overview**](./architecture/modules.md) — The project's module structure.
 *   [**Limitations**](./reference/limitations.md) — What TramAI is (and isn't) built for.
-*   [**Release Validation**](./reference/release-validation.md) — Concrete local proof points for the current release candidate.
+*   [**Release Validation**](./reference/release-validation.md) — Concrete proof points for the published `0.1.0` release path.
 *   [**Roadmap**](./roadmap.md) — Our path to 1.0.
 
 ---

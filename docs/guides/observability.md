@@ -20,7 +20,7 @@ val observer = OpenTelemetryOperationObserver(openTelemetry)
 
 val tramai = Tramai {
     provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
-    model("gpt-5.1-chat-latest", "openai")
+    model("gpt-4o", "openai")
     observer(observer)
 }
 ```

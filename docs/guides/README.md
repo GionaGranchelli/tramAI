@@ -5,6 +5,9 @@ User-facing how-to documentation for Tramai.
 ## Core Guides
 
 - [Getting Started](./getting-started.md)
+- [30-Minute Quickstart](./quickstart.md)
+- [Tutorial: Build an Invoice Analyzer](./tutorial-invoice-analyzer.md)
+- [Maven Setup](./maven.md)
 - [Standalone Usage](./standalone-usage.md)
 - [Spring Boot Integration](./spring-boot.md)
 - [Providers and Model Routing](./providers.md)
@@ -17,7 +20,11 @@ User-facing how-to documentation for Tramai.
 ## Suggested Order
 
 1. start with `getting-started`
-2. choose `standalone-usage` or `spring-boot`
-3. read `providers`
-4. read `structured-output`
-5. add `testing` and `observability` as needed
+2. if needed, read `quickstart` for a copy-paste setup
+3. read `tutorial-invoice-analyzer` for one end-to-end example
+4. if you use Maven, read `maven`
+5. choose your dependency setup from `getting-started`
+6. choose `standalone-usage` or `spring-boot`
+7. read `providers`
+8. read `structured-output`
+9. add `testing` and `observability` as needed

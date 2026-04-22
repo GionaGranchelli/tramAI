@@ -2,6 +2,8 @@
 
 This page summarizes the current provider modules.
 
+If you want the quickest setup path, start with [Providers and Model Routing](../guides/providers.md) first. This page is the lower-level module summary.
+
 ## `tramai-anthropic`
 
 Class:
@@ -107,3 +109,8 @@ Use:
 - Ollama for local development and self-hosted local runs
 
 Use multiple providers when different tasks have different needs.
+
+## Related Pages
+
+- [Providers and Model Routing](../guides/providers.md)
+- [Configuration Reference](./configuration.md)

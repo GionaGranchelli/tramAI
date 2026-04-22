@@ -1,6 +1,7 @@
 package dev.tramai.examples.springboot
 
 import dev.tramai.core.nativeimage.NativeImageProxyConfig
+import dev.tramai.examples.springboot.ai.InvoiceAnalyzer
 import java.nio.file.Path
 
 /**

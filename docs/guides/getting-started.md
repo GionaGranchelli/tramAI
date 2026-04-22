@@ -1,52 +1,144 @@
 # Getting Started with TramAI
 
-This guide will walk you through setting up **TramAI** and creating your first AI-backed service in minutes.
+This guide is the shortest path from zero to a working TramAI service.
 
----
+If you are evaluating the library, read this page in order:
 
-## 🏗️ What is TramAI?
+1. choose your dependency setup
+2. copy one installation snippet
+3. define one `@AiService`
+4. wire one provider
+5. make one call
 
-TramAI allows you to define clean service boundaries using standard Kotlin or Java interfaces, then back those interfaces with LLM calls. It handles all the heavy lifting of prompt construction, model routing, structured parsing, and resilience.
+## What TramAI Gives You
 
-### The Core Pattern
+TramAI lets you write normal JVM interfaces and back them with model execution.
 
-1.  **Define an Interface**: Use `@AiService` and `@Operation`.
-2.  **Choose a Provider**: Map your models to providers like OpenAI, Anthropic, or Ollama.
-3.  **Execute**: Call the interface methods as you would any other local service.
+The core pattern is:
 
----
+1. define an interface with `@AiService`
+2. annotate methods with `@Operation`
+3. map a model name to a provider
+4. call the interface like normal application code
 
-## 🛠️ Prerequisites
+## Prerequisites
 
-*   **Java 25+**: TramAI `0.1.x` targets Java 25 as its runtime and build baseline.
-*   **Kotlin 2.3.0+**: Primary development language.
-*   **Gradle 9.0+**: Build tool.
+- Java `25+`
+- Kotlin `2.3.0+` for Kotlin examples
+- Gradle `9.0+` for the Gradle snippets below
 
----
+## Choose Your Dependencies
 
-## 🚀 Installation
+Most first-time users get blocked here, so make the decision in this order.
 
-When the public artifacts are available, depend on TramAI like any other Gradle library:
+### 1. Choose your runtime style
+
+- use `tramai-standalone` for CLI apps, background workers, and non-Spring services
+- use `tramai-spring` for Spring Boot applications
+
+Do not start with `tramai-core` unless you are extending TramAI itself. It is a low-level module, not the normal entry point for application code.
+
+### 2. Choose one provider
+
+Add exactly the provider module you plan to call:
+
+- `tramai-openai`
+- `tramai-anthropic`
+- `tramai-ollama`
+
+### 3. Add optional modules only when you need them
+
+- add `tramai-observability` for OpenTelemetry integration
+- add `tramai-orchestration` for typed persisted workflows
+- add `tramai-testing` in tests for deterministic provider behavior
+
+## Installation
+
+Use the BOM so all TramAI modules stay on the same version.
+
+### Gradle
+
+Standalone + OpenAI:
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:<version>"))
-implementation("dev.tramai:tramai-standalone")
-implementation("dev.tramai:tramai-openai")
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom:0.1.0"))
+    implementation("dev.tramai:tramai-standalone")
+    implementation("dev.tramai:tramai-openai")
+}
 ```
 
-Use `0.1.0` for the first public release.
+Spring Boot + OpenAI:
 
-Until that release is published, the current pre-release workflow is to build from source and publish locally:
-
-```bash
-git clone https://github.com/GionaGranchelli/tramAI.git
-cd tramAI
-./gradlew publishToMavenLocal
+```kotlin
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom:0.1.0"))
+    implementation("dev.tramai:tramai-spring")
+    implementation("dev.tramai:tramai-openai")
+}
 ```
 
----
+Standalone + Ollama:
 
-## 📝 Your First Service
+```kotlin
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom:0.1.0"))
+    implementation("dev.tramai:tramai-standalone")
+    implementation("dev.tramai:tramai-ollama")
+}
+```
+
+### Maven
+
+Import the BOM:
+
+```xml
+<dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>dev.tramai</groupId>
+      <artifactId>tramai-bom</artifactId>
+      <version>0.1.0</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+  </dependencies>
+</dependencyManagement>
+```
+
+Standalone + OpenAI:
+
+```xml
+<dependencies>
+  <dependency>
+    <groupId>dev.tramai</groupId>
+    <artifactId>tramai-standalone</artifactId>
+  </dependency>
+
+  <dependency>
+    <groupId>dev.tramai</groupId>
+    <artifactId>tramai-openai</artifactId>
+  </dependency>
+</dependencies>
+```
+
+Spring Boot + OpenAI:
+
+```xml
+<dependencies>
+  <dependency>
+    <groupId>dev.tramai</groupId>
+    <artifactId>tramai-spring</artifactId>
+  </dependency>
+
+  <dependency>
+    <groupId>dev.tramai</groupId>
+    <artifactId>tramai-openai</artifactId>
+  </dependency>
+</dependencies>
+```
+
+## Your First Service
 
 ### 1. Define the AI Service
 
@@ -61,7 +153,9 @@ interface GreetingService {
 }
 ```
 
-### 2. Configure and Run (Standalone)
+### 2. Configure and Run
+
+For a plain JVM application, use `tramai-standalone`:
 
 ```kotlin
 import dev.tramai.standalone.Tramai
@@ -83,26 +177,34 @@ suspend fun main() {
 }
 ```
 
----
+For Spring Boot, the next guide is [Spring Boot Integration](./spring-boot.md).
 
-## 🧩 Choosing Your Path
+## Module Cheat Sheet
 
-TramAI is designed to be modular. Depending on your needs, you might include different modules:
+Use this when you are not sure what to add:
 
-*   **Standalone**: For CLI apps, background workers, or non-Spring services.
-    *   `tramai-standalone` + `tramai-openai`
-*   **Spring Boot**: For modern web applications and microservices.
-    *   `tramai-spring` + `tramai-anthropic`
-*   **Local AI**: For offline or privacy-sensitive processing.
-    *   `tramai-standalone` + `tramai-ollama`
+| Goal | Modules |
+| --- | --- |
+| Plain JVM app | `tramai-standalone` + one provider |
+| Spring Boot app | `tramai-spring` + one provider |
+| Structured output | already included in normal runtime paths |
+| OTel observability | add `tramai-observability` |
+| Workflow orchestration | add `tramai-orchestration` |
+| Deterministic tests | add `tramai-testing` in test scope |
 
----
+## Common Mistakes
 
-## 🔍 Next Steps
+- depending on `tramai-core` directly and expecting it to be the full runtime
+- forgetting to add a provider module
+- skipping the BOM and then mixing module versions manually
+- adding every module “just in case” instead of starting with one runtime module and one provider
+
+## Next Steps
 
 Now that you have your first service running, explore the more advanced features of TramAI:
 
-*   **[Structured Output](./structured-output.md)**: Learn how to extract typed data instead of raw strings.
-*   **[Spring Boot Integration](./spring-boot.md)**: Deep-dive into Spring-native configuration.
-*   **[Production Hardening](./production-hardening.md)**: Configure circuit breakers, budgets, and security hooks.
-*   **[Observability](./observability.md)**: Track your AI performance with OpenTelemetry.
+- **[Structured Output](./structured-output.md)** to return typed objects instead of raw text
+- **[Spring Boot Integration](./spring-boot.md)** if your app is Spring-based
+- **[Providers and Model Routing](./providers.md)** to configure OpenAI, Anthropic, or Ollama
+- **[Production Hardening](./production-hardening.md)** for retries, budgets, and secret handling
+- **[Observability](./observability.md)** for OpenTelemetry integration

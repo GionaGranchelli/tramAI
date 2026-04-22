@@ -9,6 +9,34 @@
 
 ---
 
+## Start Here
+
+If you are evaluating TramAI for the first time, do not start by reading the whole repository.
+
+Choose one path:
+
+- I want the fastest copy-paste setup:
+  [30-Minute Quickstart](docs/guides/quickstart.md)
+- I use Maven:
+  [Maven Setup](docs/guides/maven.md)
+- I use Gradle and want the dependency rules first:
+  [Getting Started](docs/guides/getting-started.md)
+- I have a plain JVM app:
+  [Standalone Usage](docs/guides/standalone-usage.md)
+- I have a Spring Boot app:
+  [Spring Boot Integration](docs/guides/spring-boot.md)
+
+Use this minimum-default rule:
+
+- non-Spring app: `tramai-standalone` + one provider
+- Spring Boot app: `tramai-spring` + one provider
+- add `tramai-observability` only if you want OpenTelemetry
+- add `tramai-orchestration` only if you want typed persisted workflows
+
+Do not start from `tramai-core` unless you are extending TramAI itself.
+
+---
+
 ## 🧵 The Name
 
 **TramAI** is an Italian word (*Tramai*). It means **I wove**.
@@ -26,7 +54,7 @@ In Italian, *trama* is the weft — the horizontal thread that passes through th
 interface InvoiceAnalyzer {
     @Operation(
         prompt = "Analyze the invoice and return a structured status",
-        model = "claude-3-5-sonnet-20240620"
+        model = "gpt-4o"
     )
     suspend fun analyze(invoiceText: String): InvoiceStatus
 }
@@ -35,8 +63,8 @@ data class InvoiceStatus(val status: String, val amount: Double?)
 
 // Initialize the engine
 val tramai = Tramai {
-    provider(AnthropicProvider(apiKey = "your-key"), name = "anthropic")
-    model("claude-3-5-sonnet-20240620", "anthropic")
+    provider(OpenAiProvider(apiKey = "your-key"), name = "openai")
+    model("gpt-4o", "openai")
 }
 
 // Create and use your service
@@ -94,22 +122,96 @@ Those are composable concerns that belong in application code or in dedicated li
 
 TramAI `0.1.x` targets Java `25+`.
 
-### Published Coordinates (Gradle)
+### Start Here
+
+Most developers do not want every module. They want the smallest correct setup for their application style.
+
+Use this rule:
+
+- plain JVM application: `tramai-standalone`
+- Spring Boot application: `tramai-spring`
+- then add one provider module such as `tramai-openai`, `tramai-anthropic`, or `tramai-ollama`
+- add `tramai-observability` only if you want OpenTelemetry integration
+- add `tramai-orchestration` only if you want persisted multi-step workflows
+
+### Gradle
+
+Use the BOM to keep all TramAI modules on the same version:
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:<version>"))
-implementation("dev.tramai:tramai-standalone")
-implementation("dev.tramai:tramai-openai") 
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom:0.1.0"))
+    implementation("dev.tramai:tramai-standalone")
+    implementation("dev.tramai:tramai-openai")
+}
 ```
 
-Use `0.1.0` for the first public release once it is available from Maven Central.
+### Maven
 
-### Before The First Public Release
+Import the BOM once:
 
-Until the public artifacts are live, build from source and publish the modules to your local Maven repository:
+```xml
+<dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>dev.tramai</groupId>
+      <artifactId>tramai-bom</artifactId>
+      <version>0.1.0</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+  </dependencies>
+</dependencyManagement>
+```
 
-```bash
-./gradlew publishToMavenLocal
+Then add the modules you want:
+
+```xml
+<dependencies>
+  <dependency>
+    <groupId>dev.tramai</groupId>
+    <artifactId>tramai-standalone</artifactId>
+  </dependency>
+
+  <dependency>
+    <groupId>dev.tramai</groupId>
+    <artifactId>tramai-openai</artifactId>
+  </dependency>
+</dependencies>
+```
+
+### Common Setups
+
+Standalone + OpenAI:
+
+```kotlin
+implementation(platform("dev.tramai:tramai-bom:0.1.0"))
+implementation("dev.tramai:tramai-standalone")
+implementation("dev.tramai:tramai-openai")
+```
+
+Spring Boot + OpenAI:
+
+```kotlin
+implementation(platform("dev.tramai:tramai-bom:0.1.0"))
+implementation("dev.tramai:tramai-spring")
+implementation("dev.tramai:tramai-openai")
+```
+
+Standalone + Ollama:
+
+```kotlin
+implementation(platform("dev.tramai:tramai-bom:0.1.0"))
+implementation("dev.tramai:tramai-standalone")
+implementation("dev.tramai:tramai-ollama")
+```
+
+Spring Boot + Anthropic:
+
+```kotlin
+implementation(platform("dev.tramai:tramai-bom:0.1.0"))
+implementation("dev.tramai:tramai-spring")
+implementation("dev.tramai:tramai-anthropic")
 ```
 
 | Module | Description |
@@ -127,7 +229,11 @@ Until the public artifacts are live, build from source and publish the modules t
 ## 📖 Documentation
 
 *   [Getting Started Guide](docs/guides/getting-started.md)
+*   [30-Minute Quickstart](docs/guides/quickstart.md)
+*   [Maven Setup](docs/guides/maven.md)
+*   [Choosing Modules and Dependencies](docs/guides/getting-started.md#choose-your-dependencies)
 *   [Spring Boot Integration](docs/guides/spring-boot.md)
+*   [Standalone Usage](docs/guides/standalone-usage.md)
 *   [Streaming](docs/guides/streaming.md)
 *   [Tool Calling](docs/guides/tool-calling.md)
 *   [Production Hardening & Security](docs/guides/production-hardening.md)

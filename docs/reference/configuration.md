@@ -4,27 +4,9 @@ This reference describes configuration that exists in the current codebase.
 
 ## Standalone Builder
 
-The standalone builder exposes:
+For the standalone builder API, use the dedicated reference:
 
-- `provider(provider, name = ..., default = ...)`
-- `model(modelName, providerName)`
-- `fallbackModel(requestedModelName, fallbackModelName, providerName)`
-- `fallbackProvider(modelName, providerName)`
-- `defaultProvider(providerName)`
-- `observer(observer)`
-- `circuitBreaker(settings)`
-- `retryPolicy(settings)`
-- `tokenBudget(settings)`
-
-Example:
-
-```kotlin
-val tramai = Tramai {
-    provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai")
-    model("gpt-5.1-chat-latest", "openai")
-    defaultProvider("openai")
-}
-```
+- [Standalone Builder Reference](./standalone-builder.md)
 
 ## Spring Boot Namespace
 
@@ -51,14 +33,14 @@ Top-level keys:
 tramai:
   default-provider: openai
   models:
-    gpt-5.1-chat-latest: openai
-    gpt-5.1-mini: openai
+    gpt-4o: openai
+    gpt-4o-mini: openai
     claude-sonnet-4-20250514: anthropic
     llama3.2: ollama
   fallbacks:
-    gpt-5.1-chat-latest:
+    gpt-4o:
       - provider: openai
-        model: gpt-5.1-mini
+        model: gpt-4o-mini
       - provider: ollama
         model: llama3.2
   resilience:

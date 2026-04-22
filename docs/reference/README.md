@@ -6,6 +6,7 @@ Low-level reference documentation for the current Tramai implementation.
 
 - [Configuration Reference](./configuration.md)
 - [Annotation Reference](./annotations.md)
+- [Standalone Builder Reference](./standalone-builder.md)
 - [Provider Reference](./providers.md)
 - [Testing Reference](./testing.md)
 - [Release 0.1.0 Scope and Checklist](./release-0.1.0.md)

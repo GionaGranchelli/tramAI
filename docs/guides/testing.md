@@ -2,6 +2,14 @@
 
 Tramai includes a dedicated testing module so you can test AI-dependent application code without network calls.
 
+## Start With This
+
+If you only need one working pattern, use:
+
+- `MockAiProvider` to control model responses
+- `RecordingOperationObserver` if you want to assert retries and execution details
+- `TramaiAssertions` to assert Tramai behavior fluently
+
 ## What The Testing Module Provides
 
 - `MockAiProvider`
@@ -9,7 +17,7 @@ Tramai includes a dedicated testing module so you can test AI-dependent applicat
 - `RecordingOperationObserver`
 - `TramaiAssertions`
 
-## Basic Test Pattern
+## Copy-Paste Test Pattern
 
 ```kotlin
 val provider = MockAiProvider {
@@ -20,7 +28,7 @@ val observer = RecordingOperationObserver()
 
 val tramai = Tramai {
     provider(provider, default = true)
-    model("gpt-5.1-chat-latest", "mock")
+    model("gpt-4o", "mock")
     observer(observer)
 }
 ```
@@ -34,7 +42,7 @@ Then call the service and assert both result and behavior.
 interface Analyzer {
     @Operation(
         prompt = "Analyze the invoice",
-        model = "gpt-5.1-chat-latest",
+        model = "gpt-4o",
     )
     suspend fun analyze(invoiceId: String): Status
 }
@@ -59,6 +67,14 @@ TramaiAssertions.assertThat(provider, observer)
     .andParsedSuccessfully()
     .emittedProvider("mock")
 ```
+
+## The Fastest Useful Tests
+
+Most application teams should start with these three tests:
+
+1. happy path returns the typed result you expect
+2. malformed first response retries and then succeeds
+3. retryable provider failure recovers or fails the way you expect
 
 ## Simulating Retries
 
@@ -92,6 +108,32 @@ This lets application tests verify:
 - non-retryable failure handling
 - recovery after transient provider errors
 
+## Structured Output Test From Zero
+
+This is the most common first testing need:
+
+```kotlin
+data class Status(
+    val status: String,
+)
+
+val provider = MockAiProvider {
+    onMethod("analyze") respondWith """{"status":"ok"}"""
+}
+```
+
+Then assert the typed value returned from your `@AiService` method. That proves your application code is consuming structured output, not a fragile raw string.
+
+## Spring Test Shape
+
+For Spring applications, the practical pattern is:
+
+1. wire your normal Spring context
+2. replace the real provider with a deterministic `ModelProvider` bean in tests
+3. exercise the service or controller normally
+
+That keeps the test close to real application wiring without making network calls.
+
 ## What To Test
 
 Recommended Tramai-facing application tests:
@@ -112,10 +154,6 @@ You usually do not need to unit test:
 
 Those belong in Tramai module tests or provider integration tests.
 
-## Spring Applications
-
-For Spring applications, you can override real providers with a test `ModelProvider` bean or assemble Tramai manually in isolated tests, depending on how integrated the code under test is.
-
 ## Confidence Model
 
 The goal is not to prove model intelligence. The goal is to prove:
@@ -123,3 +161,11 @@ The goal is not to prove model intelligence. The goal is to prove:
 - your application sends the expected inputs
 - Tramai routes and retries as expected
 - your code handles the typed result correctly
+
+## Next Step
+
+After the first deterministic tests are in place:
+
+- read [Structured Output](./structured-output.md) if your methods still return raw strings
+- read [Providers and Model Routing](./providers.md) if you need to verify routing behavior
+- read [Observability](./observability.md) if you want to assert emitted spans or metrics

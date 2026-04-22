@@ -1,6 +1,6 @@
 # Releasing Tramai
 
-This page is the maintainer runbook for cutting Tramai releases.
+This page is the maintainer runbook for cutting TramAI releases after `0.1.0`.
 
 It complements the frozen scope in [Release 0.1.0 Scope and Checklist](./release-0.1.0.md).
 
@@ -51,6 +51,8 @@ For Sonatype Central Portal with the current Gradle `maven-publish` flow, set:
 - `TRAMAI_PUBLISH_PASSWORD=<central-portal-token-password>`
 
 The publish workflow now performs the required post-upload handoff to the Central Portal for tagged releases by calling the OSSRH Staging API manual upload endpoint for the `dev.tramai` namespace with `publishing_type=user_managed`.
+
+The `0.1.0` release has already exercised this path successfully. This runbook remains the operational reference for subsequent releases.
 
 Before a real release publish, the public half of the signing key must already be available from a Sonatype-supported public keyserver. Sonatype currently documents these supported servers:
 

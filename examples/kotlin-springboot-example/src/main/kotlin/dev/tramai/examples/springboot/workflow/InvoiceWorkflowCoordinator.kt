@@ -1,13 +1,11 @@
-package dev.tramai.examples.springboot
+package dev.tramai.examples.springboot.workflow
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import dev.tramai.orchestration.FileWorkflowLeaseStore
-import dev.tramai.orchestration.MarkdownWorkflowCheckpointStore
+import dev.tramai.examples.springboot.ai.InvoiceAnalyzer
+import dev.tramai.examples.springboot.domain.toApiResponse
+import dev.tramai.orchestration.WorkflowCheckpoint
 import dev.tramai.orchestration.WorkflowCheckpointConflictException
 import dev.tramai.orchestration.WorkflowContext
-import dev.tramai.orchestration.WorkflowLeasePolicy
 import dev.tramai.orchestration.WorkflowPersistence
-import dev.tramai.orchestration.WorkflowStateCodec
 import dev.tramai.orchestration.workflow
 import jakarta.annotation.PreDestroy
 import kotlinx.coroutines.CancellationException
@@ -19,64 +17,28 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.context.annotation.Bean
-import org.springframework.context.annotation.Configuration
 import org.springframework.stereotype.Component
 import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Path
 import java.time.Instant
-import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
 
 /**
- * Spring wiring for the example orchestration workflow.
+ * Coordinates a small, audit-friendly workflow:
+ * summarize -> triage -> branch -> optional tool enrichment -> finalize.
  *
- * The example keeps checkpoints after completion so users can inspect the generated markdown state files.
- */
-@Configuration
-class InvoiceWorkflowConfiguration {
-    @Bean
-    fun invoiceWorkflowPersistence(
-        objectMapper: ObjectMapper,
-        @Value("\${tramai.example.workflow.persistence-root:build/tramai-example/workflows}") persistenceRoot: String,
-        @Value("\${tramai.example.workflow.lease-owner-id:example-node-1}") leaseOwnerId: String,
-    ): WorkflowPersistence<InvoiceWorkflowState> {
-        val rootPath = Path.of(persistenceRoot)
-        return WorkflowPersistence(
-            checkpointStore = MarkdownWorkflowCheckpointStore(rootPath),
-            stateCodec = InvoiceWorkflowStateCodec(objectMapper),
-            leaseStore = FileWorkflowLeaseStore(rootPath),
-            leasePolicy = WorkflowLeasePolicy(ownerId = leaseOwnerId),
-            deleteCheckpointOnCompletion = false,
-        )
-    }
-}
-
-/**
- * Small Jackson-backed workflow codec used by the example's persistence layer.
- */
-class InvoiceWorkflowStateCodec(
-    private val objectMapper: ObjectMapper,
-) : WorkflowStateCodec<InvoiceWorkflowState> {
-    override fun encode(state: InvoiceWorkflowState): String = objectMapper.writeValueAsString(state)
-
-    override fun decode(payload: String): InvoiceWorkflowState = objectMapper.readValue(
-        payload,
-        InvoiceWorkflowState::class.java,
-    )
-}
-
-/**
- * Coordinates a narrow invoice review workflow without turning the example into an agent system.
+ * The workflow stays intentionally explicit so the example demonstrates typed orchestration,
+ * not a hidden agent loop.
  */
 @Component
 class InvoiceWorkflowCoordinator(
     private val analyzer: InvoiceAnalyzer,
     private val persistence: WorkflowPersistence<InvoiceWorkflowState>,
-    @Value("\${tramai.example.workflow.persistence-root:build/tramai-example/workflows}")
+    @param:Value("\${tramai.example.workflow.persistence-root:build/tramai-example/workflows}")
     private val persistenceRoot: String,
 ) {
     private val monitor = Any()
@@ -97,7 +59,7 @@ class InvoiceWorkflowCoordinator(
             name = "triage",
             input = { it.invoiceText },
             invoke = analyzer::triage,
-            merge = { state, triage -> state.copy(triage = triage.toResponse()) },
+            merge = { state, triage -> state.copy(triage = triage.toApiResponse()) },
         )
         branchStep(
             name = "route",
@@ -228,7 +190,7 @@ class InvoiceWorkflowCoordinator(
     }
 
     suspend fun loadRun(workflowId: String): InvoiceWorkflowRunView? {
-        val checkpoint = persistence.checkpointStore.load(WORKFLOW_NAME, workflowId)
+        val checkpoint = loadCheckpointWithRetry(workflowId)
         val isActive = activeRuns[workflowId]?.isActive == true
         if (checkpoint == null && !isActive) {
             return null
@@ -256,8 +218,7 @@ class InvoiceWorkflowCoordinator(
         )
     }
 
-    suspend fun loadCheckpoint(workflowId: String): InvoiceWorkflowCheckpointView? = persistence.checkpointStore
-        .load(WORKFLOW_NAME, workflowId)
+    suspend fun loadCheckpoint(workflowId: String): InvoiceWorkflowCheckpointView? = loadCheckpointWithRetry(workflowId)
         ?.toView()
 
     suspend fun loadEvents(workflowId: String): List<InvoiceWorkflowEventView>? {
@@ -501,6 +462,19 @@ class InvoiceWorkflowCoordinator(
         result = runner(context),
     )
 
+    private suspend fun loadCheckpointWithRetry(workflowId: String): WorkflowCheckpoint? {
+        repeat(40) { attempt ->
+            try {
+                return persistence.checkpointStore.load(WORKFLOW_NAME, workflowId)
+            } catch (_: OverlappingFileLockException) {
+                if (attempt < 39) {
+                    delay(10)
+                }
+            }
+        }
+        return null
+    }
+
     private fun discoverCheckpointWorkflowIds(): List<String> {
         val workflowRoot = Path.of(persistenceRoot).resolve(WORKFLOW_NAME)
         if (!workflowRoot.exists() || !workflowRoot.isDirectory()) {
@@ -522,7 +496,7 @@ class InvoiceWorkflowCoordinator(
     }
 }
 
-private fun dev.tramai.orchestration.WorkflowCheckpoint.toView(): InvoiceWorkflowCheckpointView = InvoiceWorkflowCheckpointView(
+private fun WorkflowCheckpoint.toView(): InvoiceWorkflowCheckpointView = InvoiceWorkflowCheckpointView(
     workflowName = workflowName,
     workflowId = workflowId,
     nextStepIndex = nextStepIndex,
@@ -546,111 +520,3 @@ private fun InvoiceWorkflowState.toResultOrNull(): InvoiceWorkflowResult? {
         operatorBrief = operatorBriefValue,
     )
 }
-
-data class InvoiceWorkflowRequest(
-    val invoiceText: String,
-    val workflowId: String? = null,
-)
-
-data class InvoiceWorkflowStartResponse(
-    val workflowId: String,
-    val status: WorkflowExecutionStatus,
-    val acceptedAtEpochMillis: Long,
-)
-
-data class InvoiceWorkflowExecution(
-    val workflowId: String,
-    val result: InvoiceWorkflowResult,
-)
-
-data class InvoiceWorkflowRunView(
-    val workflowId: String,
-    val status: WorkflowExecutionStatus,
-    val result: InvoiceWorkflowResult?,
-    val errorMessage: String?,
-    val checkpoint: InvoiceWorkflowCheckpointView?,
-)
-
-data class InvoiceWorkflowRunSummary(
-    val workflowId: String,
-    val status: WorkflowExecutionStatus,
-    val updatedAtEpochMillis: Long,
-    val hasResult: Boolean,
-    val errorMessage: String?,
-)
-
-data class InvoiceWorkflowEventView(
-    val timestampEpochMillis: Long,
-    val type: WorkflowEventType,
-    val status: WorkflowExecutionStatus?,
-    val message: String,
-)
-
-data class InvoiceWorkflowCancelResponse(
-    val workflowId: String,
-    val status: WorkflowExecutionStatus,
-    val cancelledAtEpochMillis: Long,
-)
-
-data class InvoiceWorkflowResult(
-    val summary: String,
-    val triage: InvoiceTriageResult,
-    val enrichment: String?,
-    val handlingLane: WorkflowLane,
-    val operatorBrief: String,
-)
-
-data class InvoiceWorkflowCheckpointView(
-    val workflowName: String,
-    val workflowId: String,
-    val nextStepIndex: Int,
-    val stepExecutions: Int,
-    val lastCompletedStepName: String?,
-    val revision: Long,
-    val savedAtEpochMillis: Long,
-    val metadata: Map<String, String>,
-)
-
-enum class WorkflowLane {
-    ESCALATION,
-    STANDARD_REVIEW,
-}
-
-enum class WorkflowExecutionStatus {
-    PENDING,
-    RUNNING,
-    COMPLETED,
-    FAILED,
-    CANCELLED,
-}
-
-enum class WorkflowEventType {
-    ACCEPTED,
-    RUN_STARTED,
-    RUN_COMPLETED,
-    RUN_FAILED,
-    RUN_CANCELLED,
-    CANCEL_REQUESTED,
-    RESUME_REQUESTED,
-}
-
-class WorkflowAlreadyRunningException(
-    message: String,
-) : RuntimeException(message)
-
-class WorkflowNotRunningException(
-    message: String,
-) : RuntimeException(message)
-
-class WorkflowNotFoundException(
-    message: String,
-) : RuntimeException(message)
-
-data class InvoiceWorkflowState(
-    val invoiceText: String,
-    val summary: String? = null,
-    val triage: InvoiceTriageResult? = null,
-    val enrichment: String? = null,
-    val handlingLane: WorkflowLane? = null,
-    val operatorBrief: String? = null,
-)

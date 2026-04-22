@@ -99,11 +99,11 @@ What this proves:
 
 This validation note does not claim that the following are complete:
 
-- remote publish to Maven Central with real credentials
-- release-key signing with the final maintainer key
 - real-provider validation with live external credentials during the release cut
 
-Those remain operator-driven release steps tracked in:
+The Maven Central publication path and release-key signing are now complete for `0.1.0`.
+
+Remaining operator-driven confidence work is still tracked in:
 
 - [TASK-012](../board/tasks/task-012.md)
 - [TASK-013](../board/tasks/task-013.md)

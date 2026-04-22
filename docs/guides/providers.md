@@ -4,6 +4,23 @@ Tramai keeps provider routing explicit.
 
 That is one of the core design rules of the project.
 
+## Start With This
+
+If you only need the shortest working rule:
+
+1. register one provider
+2. map one model to that provider
+3. use that model name in `@Operation`
+
+Example:
+
+```kotlin
+val tramai = Tramai {
+    provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai")
+    model("gpt-4o", "openai")
+}
+```
+
 ## Currently Implemented Providers
 
 - `AnthropicProvider`
@@ -28,8 +45,53 @@ val tramai = Tramai {
     provider(OllamaProvider("http://localhost:11434"), name = "ollama")
 
     model("claude-sonnet-4-20250514", "anthropic")
-    model("gpt-5.1-chat-latest", "openai")
+    model("gpt-4o", "openai")
     model("llama3.2", "ollama")
+}
+```
+
+## Minimal Snippets By Provider
+
+### OpenAI
+
+```kotlin
+val tramai = Tramai {
+    provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai")
+    model("gpt-4o", "openai")
+}
+```
+
+### Anthropic
+
+```kotlin
+val tramai = Tramai {
+    provider(AnthropicProvider(System.getenv("ANTHROPIC_API_KEY")), name = "anthropic")
+    model("claude-sonnet-4-20250514", "anthropic")
+}
+```
+
+### Ollama
+
+```kotlin
+val tramai = Tramai {
+    provider(OllamaProvider("http://localhost:11434"), name = "ollama")
+    model("llama3.2", "ollama")
+}
+```
+
+### OpenAI-Compatible
+
+```kotlin
+val tramai = Tramai {
+    provider(
+        OpenAiCompatibleProvider.bearerToken(
+            bearerToken = System.getenv("COMPATIBLE_API_TOKEN"),
+            baseUrl = "https://compatible.example.com/v1",
+            providerName = "compatible",
+        ),
+        name = "compatible",
+    )
+    model("my-compatible-model", "compatible")
 }
 ```
 
@@ -73,10 +135,9 @@ val provider = OpenAiProvider(
 )
 ```
 
-Typical models in the current codebase examples:
+Typical example model:
 
-- `gpt-5.1-chat-latest`
-- `gpt-5-codex`
+- `gpt-4o`
 
 ## OpenAI-Compatible APIs
 
@@ -128,6 +189,12 @@ Typical models:
 
 - `llama3.2`
 
+## First Good Default
+
+If you are new to TramAI, start with one provider only. Add multi-provider routing later.
+
+That keeps initial setup simpler and makes failures easier to reason about.
+
 ## Provider Selection Patterns
 
 ### One Provider Per App
@@ -155,7 +222,7 @@ Example:
 interface Extractor {
     @Operation(
         prompt = "Extract billing fields",
-        model = "gpt-5.1-chat-latest",
+        model = "gpt-4o",
         provider = "openai",
     )
     suspend fun extract(input: String): BillingFields
@@ -172,6 +239,21 @@ interface LocalDevSummarizer {
 }
 ```
 
+## Spring Configuration Shortcut
+
+If you use Spring Boot, this is the minimum OpenAI setup:
+
+```yaml
+tramai:
+  default-provider: openai
+  models:
+    gpt-4o: openai
+  providers:
+    openai:
+      api-key: ${OPENAI_API_KEY}
+      base-url: https://api.openai.com/v1
+```
+
 ## What Is Not Implemented Yet
 
 Provider support does not yet include:
@@ -184,3 +266,11 @@ Provider support does not yet include:
 Tramai does already support engine-owned retries for retryable provider failures and per-operation timeout control through `@Operation`.
 
 See [Current Limitations](../reference/limitations.md) for the current boundaries.
+
+## Next Step
+
+After provider wiring works:
+
+- read [Structured Output](./structured-output.md) to move beyond raw strings
+- read [Testing TramAI Code](./testing.md) to make provider-dependent code deterministic
+- read [Production Hardening](./production-hardening.md) if you need budgets, retries, and secret handling

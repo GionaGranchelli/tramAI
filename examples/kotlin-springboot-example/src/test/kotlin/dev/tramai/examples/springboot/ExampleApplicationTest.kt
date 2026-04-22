@@ -11,6 +11,8 @@ import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.nativeimage.NativeImageProxyConfig
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.StreamCapable
+import dev.tramai.examples.springboot.ai.InvoiceAnalyzer
+import dev.tramai.examples.springboot.workflow.InvoiceWorkflowCoordinator
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flow
@@ -449,6 +451,8 @@ class ExampleApplicationTest {
         mockMvc.perform(get("/"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.product").value("TramAI"))
+            .andExpect(jsonPath("$.capabilities[?(@.capability=='structured-output')]").isNotEmpty)
+            .andExpect(jsonPath("$.docs[?(@.label=='Manual')]").isNotEmpty)
             .andExpect(jsonPath("$.streamEndpoint").value("POST /invoice/summary/stream"))
             .andExpect(jsonPath("$.workflowEndpoint").value("POST /invoice/workflow"))
             .andExpect(jsonPath("$.workflowStartEndpoint").value("POST /invoice/workflow/start"))

@@ -2,6 +2,78 @@
 
 Use `tramai-standalone` when you want a small runtime without framework integration.
 
+## Copy-Paste Setup
+
+Start with this if you want the minimum normal setup.
+
+### Gradle
+
+```kotlin
+dependencies {
+    implementation(platform("dev.tramai:tramai-bom:0.1.0"))
+    implementation("dev.tramai:tramai-standalone")
+    implementation("dev.tramai:tramai-openai")
+}
+```
+
+### Maven
+
+```xml
+<dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>dev.tramai</groupId>
+      <artifactId>tramai-bom</artifactId>
+      <version>0.1.0</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+  </dependencies>
+</dependencyManagement>
+
+<dependencies>
+  <dependency>
+    <groupId>dev.tramai</groupId>
+    <artifactId>tramai-standalone</artifactId>
+  </dependency>
+  <dependency>
+    <groupId>dev.tramai</groupId>
+    <artifactId>tramai-openai</artifactId>
+  </dependency>
+</dependencies>
+```
+
+### Minimal runnable example
+
+```kotlin
+import dev.tramai.core.annotations.AiService
+import dev.tramai.core.annotations.Operation
+import dev.tramai.openai.OpenAiProvider
+import dev.tramai.standalone.Tramai
+
+@AiService
+interface GreetingService {
+    @Operation(
+        prompt = "Greet the user warmly in one sentence based on their name.",
+        model = "gpt-4o",
+    )
+    suspend fun greet(name: String): String
+}
+
+suspend fun main() {
+    val tramai = Tramai {
+        provider(
+            OpenAiProvider(apiKey = System.getenv("OPENAI_API_KEY")),
+            name = "openai",
+        )
+        model("gpt-4o", "openai")
+    }
+
+    val greetingService = tramai.create<GreetingService>()
+    println(greetingService.greet("Ada"))
+}
+```
+
 ## What The Standalone Module Does
 
 The standalone module composes:
@@ -17,7 +89,7 @@ It does not bring observability transitively. Observability remains opt-in.
 ```kotlin
 val tramai = Tramai {
     provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
-    model("gpt-5.1-chat-latest", "openai")
+    model("gpt-4o", "openai")
 }
 ```
 
@@ -26,6 +98,13 @@ Then create services:
 ```kotlin
 val service = tramai.create<MyService>()
 ```
+
+That is the full standalone mental model:
+
+1. register one or more providers
+2. map model names to providers
+3. create a typed service proxy
+4. call it like application code
 
 ## Kotlin DSL
 
@@ -52,12 +131,12 @@ val tramai = Tramai {
     provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
     provider(OllamaProvider("http://localhost:11434"), name = "ollama")
 
-    model("gpt-5.1-chat-latest", "openai")
-    model("gpt-5.1-mini", "openai")
+    model("gpt-4o", "openai")
+    model("gpt-4o-mini", "openai")
     model("llama3.2", "ollama")
 
-    fallbackModel("gpt-5.1-chat-latest", "gpt-5.1-mini", "openai")
-    fallbackProvider("gpt-5.1-chat-latest", "ollama")
+    fallbackModel("gpt-4o", "gpt-4o-mini", "openai")
+    fallbackProvider("gpt-4o", "ollama")
 
     circuitBreaker(
         CircuitBreakerSettings(
@@ -96,7 +175,7 @@ Successful non-streaming operations can be cached explicitly per operation.
 ```kotlin
 val tramai = Tramai {
     provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
-    model("gpt-5.1-chat-latest", "openai")
+    model("gpt-4o", "openai")
     cache(InMemoryOperationResponseCache(maxEntries = 1_000))
 }
 
@@ -104,7 +183,7 @@ val tramai = Tramai {
 interface Analyzer {
     @Operation(
         prompt = "Analyze the invoice",
-        model = "gpt-5.1-chat-latest",
+        model = "gpt-4o",
         cacheable = true,
         cacheTtlMillis = 60_000,
     )
@@ -125,7 +204,7 @@ The same setup can be built with the explicit builder:
 ```kotlin
 val tramai = Tramai.builder()
     .provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), "openai", true)
-    .model("gpt-5.1-chat-latest", "openai")
+    .model("gpt-4o", "openai")
     .build()
 ```
 
@@ -138,7 +217,7 @@ Raw strings are the simplest starting point.
 interface Summarizer {
     @Operation(
         prompt = "Summarize the input in three bullet points",
-        model = "gpt-5.1-chat-latest",
+        model = "gpt-4o",
     )
     suspend fun summarize(text: String): String
 }
@@ -158,7 +237,7 @@ data class Summary(
 interface Analyzer {
     @Operation(
         prompt = "Analyze the customer feedback and return a structured summary",
-        model = "gpt-5.1-chat-latest",
+        model = "gpt-4o",
     )
     suspend fun analyze(feedback: String): Summary
 }
@@ -179,13 +258,13 @@ Tramai supports both:
 ```kotlin
 @AiService
 interface SuspendService {
-    @Operation(prompt = "Reply briefly", model = "gpt-5.1-chat-latest")
+    @Operation(prompt = "Reply briefly", model = "gpt-4o")
     suspend fun respond(input: String): String
 }
 
 @AiService
 interface BlockingService {
-    @Operation(prompt = "Reply briefly", model = "gpt-5.1-chat-latest")
+    @Operation(prompt = "Reply briefly", model = "gpt-4o")
     fun respond(input: String): String
 }
 ```
@@ -214,9 +293,19 @@ Standalone usage can attach an observer:
 ```kotlin
 val tramai = Tramai {
     provider(OpenAiProvider(System.getenv("OPENAI_API_KEY")), name = "openai", default = true)
-    model("gpt-5.1-chat-latest", "openai")
+    model("gpt-4o", "openai")
     observer(OpenTelemetryOperationObserver(openTelemetry))
 }
 ```
+
+## Typical Build-Up Path
+
+Most teams should adopt standalone usage in this order:
+
+1. start with one raw `String` operation
+2. convert one operation to structured output
+3. add tests with `tramai-testing`
+4. add observability if the code is moving toward production
+5. add orchestration only if you truly need multi-step persisted control flow
 
 See [Observability](./observability.md) for details.
