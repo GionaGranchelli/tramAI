@@ -527,7 +527,9 @@ private class TramaiInvocationHandler(
             when (
                 val analysis = handler.analyze(
                     rawResponse = result.response.content,
-                    targetType = operation.returnType,
+                    targetType = requireNotNull(operation.returnType) {
+                        "Structured return type ${operation.returnTypeDescription} could not be inspected without Kotlin reflection metadata"
+                    },
                 )
             ) {
                 is StructuredOutputResult.Success -> {
@@ -994,10 +996,10 @@ private data class ServiceDefinition(
         fun create(serviceType: KClass<*>, toolRegistry: ToolRegistry): ServiceDefinition {
             val javaType = serviceType.java
             if (!javaType.isInterface) {
-                throw ConfigurationException("${serviceType.qualifiedName} must be an interface")
+                throw ConfigurationException("${javaType.name} must be an interface")
             }
-            if (serviceType.annotations.none { it is AiService }) {
-                throw ConfigurationException("${serviceType.qualifiedName} must be annotated with @AiService")
+            if (!javaType.isAnnotationPresent(AiService::class.java)) {
+                throw ConfigurationException("${javaType.name} must be annotated with @AiService")
             }
 
             val systemPrompt = serviceType.java.getAnnotation(SystemPrompt::class.java)?.value?.takeIf { it.isNotBlank() }
@@ -1005,7 +1007,7 @@ private data class ServiceDefinition(
                 .filterNot { it.declaringClass == Any::class.java }
                 .associateWith { method ->
                     val operation = method.getAnnotation(Operation::class.java)
-                        ?: throw ConfigurationException("${serviceType.qualifiedName}.${method.name} must be annotated with @Operation")
+                        ?: throw ConfigurationException("${javaType.name}.${method.name} must be annotated with @Operation")
 
                     val toolDefinitions = operation.tools.map { toolName ->
                         val tool = toolRegistry.resolve(toolName)
@@ -1032,7 +1034,7 @@ private data class OperationDefinition(
     val isSuspend: Boolean,
     val parameterNames: List<String>,
     val returnKind: ReturnKind,
-    val returnType: kotlin.reflect.KType,
+    val returnType: kotlin.reflect.KType?,
     val returnTypeDescription: String,
     val toolDefinitions: List<ToolDefinition>,
 ) {
@@ -1101,7 +1103,11 @@ private data class OperationDefinition(
         },
     )
 
-    fun structuredContract(handler: StructuredOutputHandler) = handler.createContract(returnType)
+    fun structuredContract(handler: StructuredOutputHandler) = handler.createContract(
+        requireNotNull(returnType) {
+            "Structured return type $returnTypeDescription could not be inspected without Kotlin reflection metadata"
+        },
+    )
 
     companion object {
         fun create(
@@ -1123,12 +1129,12 @@ private data class OperationDefinition(
                 "@Operation(cacheTtlMillis) must be greater than zero when caching is enabled for ${method.declaringClass.name}.${method.name}"
             }
 
-            val kotlinFunction = method.kotlinFunction
-            val isSuspend = kotlinFunction?.isSuspend == true
+            val kotlinFunction = runCatching { method.kotlinFunction }.getOrNull()
+            val isSuspend = kotlinFunction?.isSuspend ?: method.isSuspendSignature()
             val parameterNames = resolveParameterNames(method, kotlinFunction)
-            val returnType = resolveReturnType(method, kotlinFunction)
-            val returnKind = resolveReturnKind(method, kotlinFunction)
-            val returnTypeDescription = resolveReturnTypeDescription(method, kotlinFunction)
+            val returnType = resolveReturnType(kotlinFunction)
+            val returnKind = resolveReturnKind(method, isSuspend, returnType)
+            val returnTypeDescription = resolveReturnTypeDescription(method, returnType)
 
             return OperationDefinition(
                 method = method,
@@ -1161,17 +1167,21 @@ private data class OperationDefinition(
 
         private fun resolveReturnKind(
             method: Method,
-            kotlinFunction: KFunction<*>?,
+            isSuspend: Boolean,
+            returnType: kotlin.reflect.KType?,
         ): ReturnKind {
-            val type = resolveReturnType(method, kotlinFunction)
-            val classifier = type.classifier
+            val classifier = returnType?.classifier
             return when (classifier) {
                 String::class -> ReturnKind.STRING
                 Unit::class -> ReturnKind.UNIT
                 kotlinx.coroutines.flow.Flow::class -> ReturnKind.STREAMING
-                null -> when (method.returnType) {
-                    String::class.java -> ReturnKind.STRING
-                    Void.TYPE -> ReturnKind.UNIT
+                null -> when {
+                    isSuspend -> throw ConfigurationException(
+                        "Suspend method ${method.declaringClass.name}.${method.name} requires Kotlin reflection metadata to inspect its return type",
+                    )
+                    method.returnType == String::class.java -> ReturnKind.STRING
+                    method.returnType == Void.TYPE -> ReturnKind.UNIT
+                    kotlinx.coroutines.flow.Flow::class.java.isAssignableFrom(method.returnType) -> ReturnKind.STREAMING
                     else -> ReturnKind.STRUCTURED
                 }
                 else -> ReturnKind.STRUCTURED
@@ -1179,15 +1189,16 @@ private data class OperationDefinition(
         }
 
         private fun resolveReturnType(
-            method: Method,
             kotlinFunction: KFunction<*>?,
         ) = kotlinFunction?.returnType
-            ?: throw ConfigurationException("Method ${method.name} must be a Kotlin-declared function so Tramai can inspect its return type")
 
         private fun resolveReturnTypeDescription(
             method: Method,
-            kotlinFunction: KFunction<*>?,
-        ): String = resolveReturnType(method, kotlinFunction).toString()
+            returnType: kotlin.reflect.KType?,
+        ): String = returnType?.toString() ?: method.genericReturnType.typeName
+
+        private fun Method.isSuspendSignature(): Boolean =
+            parameterTypes.lastOrNull()?.name == "kotlin.coroutines.Continuation"
     }
 }
 

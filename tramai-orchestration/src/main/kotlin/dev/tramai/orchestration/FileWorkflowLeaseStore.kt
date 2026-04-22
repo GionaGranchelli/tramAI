@@ -1,17 +1,12 @@
-@file:OptIn(ExperimentalTramAIOrchestration::class)
-
 package dev.tramai.orchestration
-
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Properties
 import java.util.UUID
-
 /**
  * Plain file-backed lease store for local and single-filesystem deployments that still need active ownership.
  */
-@ExperimentalTramAIOrchestration
 class FileWorkflowLeaseStore(
     private val rootDirectory: Path,
     private val pathStrategy: WorkflowCheckpointPathStrategy = DefaultWorkflowCheckpointPathStrategy("lease.properties"),
@@ -25,7 +20,6 @@ class FileWorkflowLeaseStore(
         if (!Files.exists(leasePath)) {
             return null
         }
-
         return withFileLock(leasePath) {
             val existing = readLeaseIfPresent(leasePath)
             if (existing == null) {
@@ -38,7 +32,6 @@ class FileWorkflowLeaseStore(
             }
         }
     }
-
     override suspend fun claim(
         workflowName: String,
         workflowId: String,
@@ -54,7 +47,6 @@ class FileWorkflowLeaseStore(
                     "Workflow '$workflowName' and workflowId='$workflowId' is already leased by owner '${existing.ownerId}' until ${existing.expiresAtEpochMillis}",
                 )
             }
-
             val now = clockMillis()
             val lease = WorkflowLease(
                 workflowName = workflowName,
@@ -69,7 +61,6 @@ class FileWorkflowLeaseStore(
             lease
         }
     }
-
     override suspend fun renew(
         lease: WorkflowLease,
         checkpointRevision: Long?,
@@ -81,20 +72,17 @@ class FileWorkflowLeaseStore(
                 ?: throw WorkflowLeaseConflictException(
                     "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' has no active lease to renew",
                 )
-
             if (isExpired(existing)) {
                 Files.deleteIfExists(leasePath)
                 throw WorkflowLeaseConflictException(
                     "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' lease has expired before renewal",
                 )
             }
-
             if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
                 throw WorkflowLeaseConflictException(
                     "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' is leased by owner '${existing.ownerId}', not '${lease.ownerId}'",
                 )
             }
-
             val now = clockMillis()
             val renewed = existing.copy(
                 checkpointRevision = checkpointRevision,
@@ -104,7 +92,6 @@ class FileWorkflowLeaseStore(
             renewed
         }
     }
-
     override suspend fun release(lease: WorkflowLease) {
         val leasePath = leasePath(lease.workflowName, lease.workflowId)
         withFileLock(leasePath) {
@@ -113,31 +100,25 @@ class FileWorkflowLeaseStore(
                 Files.deleteIfExists(leasePath)
                 return@withFileLock
             }
-
             if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
                 throw WorkflowLeaseConflictException(
                     "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' is leased by owner '${existing.ownerId}', not '${lease.ownerId}'",
                 )
             }
-
             Files.deleteIfExists(leasePath)
         }
     }
-
     private fun leasePath(
         workflowName: String,
         workflowId: String,
     ): Path = pathStrategy.resolve(rootDirectory, workflowName, workflowId)
-
     private fun readLeaseIfPresent(path: Path): WorkflowLease? = if (Files.exists(path)) {
         decodeLease(Files.readString(path))
     } else {
         null
     }
-
     private fun isExpired(lease: WorkflowLease): Boolean = clockMillis() >= lease.expiresAtEpochMillis
 }
-
 internal fun encodeLease(lease: WorkflowLease): String {
     val properties = Properties()
     properties["workflowName"] = lease.workflowName
@@ -151,7 +132,6 @@ internal fun encodeLease(lease: WorkflowLease): String {
         properties.store(writer, "Tramai workflow lease")
     }.toString()
 }
-
 internal fun decodeLease(content: String): WorkflowLease {
     val properties = Properties().apply {
         load(content.reader())

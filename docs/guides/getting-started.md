@@ -18,28 +18,30 @@ TramAI allows you to define clean service boundaries using standard Kotlin or Ja
 
 ## 🛠️ Prerequisites
 
-*   **Java 25+**: TramAI takes advantage of modern JVM features.
-*   **Kotlin 2.1.0+**: Primary development language.
+*   **Java 25+**: TramAI `0.1.x` targets Java 25 as its runtime and build baseline.
+*   **Kotlin 2.3.0+**: Primary development language.
 *   **Gradle 9.0+**: Build tool.
 
 ---
 
 ## 🚀 Installation
 
-TramAI is currently in early-stage development and is best consumed by building from source or publishing to your local Maven repository.
+When the public artifacts are available, depend on TramAI like any other Gradle library:
+
+```kotlin
+implementation(platform("dev.tramai:tramai-bom:<version>"))
+implementation("dev.tramai:tramai-standalone")
+implementation("dev.tramai:tramai-openai")
+```
+
+Use `0.1.0` for the first public release.
+
+Until that release is published, the current pre-release workflow is to build from source and publish locally:
 
 ```bash
 git clone https://github.com/GionaGranchelli/tramAI.git
 cd tramAI
 ./gradlew publishToMavenLocal
-```
-
-### Dependency Configuration (Gradle)
-
-```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.1.0-SNAPSHOT"))
-implementation("dev.tramai:tramai-standalone")
-implementation("dev.tramai:tramai-openai")
 ```
 
 ---

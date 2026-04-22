@@ -35,31 +35,19 @@ val tramai = Tramai {
 
 ### Spring Boot Usage
 
-Spring Boot auto-configuration does not currently auto-compose `OperationInterceptor` beans into the generated `TramAI` instance.
-
-If you need interceptors in Spring today, define the `TramAI` bean explicitly and wire the interceptor through the standalone builder:
+Spring Boot auto-configuration composes ordered `OperationInterceptor` beans into the generated `TramAI` instance.
 
 ```kotlin
 @Configuration
 class TramaiSecurityConfiguration {
     @Bean
-    fun tramai(): Tramai = Tramai.builder()
-        .provider(
-            OpenAiProvider(System.getenv("OPENAI_API_KEY")),
-            name = "openai",
-            default = true,
-        )
-        .model("gpt-5.1-chat-latest", "openai")
-        .interceptor(PiiMaskingInterceptor())
-        .build()
-}
-
-class PiiMaskingInterceptor : OperationInterceptor {
-    override fun interceptRequest(
-        context: OperationCallContext,
-        messages: List<Message>,
-    ): List<Message> = messages.map { message ->
-        message.copy(content = maskSensitiveData(message.content))
+    fun piiMaskingInterceptor(): OperationInterceptor = object : OperationInterceptor {
+        override fun interceptRequest(
+            context: OperationCallContext,
+            messages: List<Message>,
+        ): List<Message> = messages.map { message ->
+            message.copy(content = maskSensitiveData(message.content))
+        }
     }
 }
 ```
@@ -68,7 +56,7 @@ Current boundary:
 
 - interceptors are engine-level request/response hooks
 - they are opt-in
-- Spring auto-configuration does not yet auto-register interceptor beans
+- Spring auto-configuration composes registered interceptor beans in order
 
 ---
 
@@ -80,6 +68,8 @@ Built-in resolvers:
 
 - `env:NAME`
 - `file:/path/to/secret.txt`
+- `vault:path[#field]` through `tramai-spring` when `tramai.secrets.vault.enabled=true`
+- `aws-secretsmanager:secret-id[#field]` through `tramai-spring` when `tramai.secrets.aws-secrets-manager.enabled=true`
 
 ### Standalone Usage
 
@@ -115,34 +105,44 @@ val tramai = Tramai {
 
 ### Spring Boot Usage
 
-Spring Boot auto-configuration does compose `SecretValueResolver` beans. Register your resolver and then point provider properties at `*-secret-ref` values:
+Spring Boot auto-configuration composes `SecretValueResolver` beans and also ships bundled Vault and AWS Secrets Manager resolvers behind `tramai.secrets.*`.
 
-```kotlin
-@Configuration
-class SecretResolverConfiguration {
-    @Bean
-    fun vaultSecretValueResolver(): SecretValueResolver = SecretValueResolver { secretRef ->
-        if (!secretRef.startsWith("vault:")) {
-            null
-        } else {
-            vaultClient.read(secretRef.removePrefix("vault:"))
-        }
-    }
-}
-```
+Built-in Vault example:
 
 ```yaml
 tramai:
+  secrets:
+    vault:
+      enabled: true
+      base-url: https://vault.example.com
+      token-secret-ref: env:VAULT_TOKEN
   providers:
     openai:
       api-key-secret-ref: vault:providers/openai/api-key
 ```
 
+Built-in AWS Secrets Manager example:
+
+```yaml
+tramai:
+  secrets:
+    aws-secrets-manager:
+      enabled: true
+      region: eu-west-1
+      access-key-id-secret-ref: env:AWS_ACCESS_KEY_ID
+      secret-access-key-secret-ref: env:AWS_SECRET_ACCESS_KEY
+  providers:
+    openai:
+      api-key-secret-ref: aws-secretsmanager:prod/openai/api-key
+```
+
+Custom resolvers still work the same way when you need a different backend or client implementation.
+
 Current boundary:
 
-- built-in support covers `env:` and `file:`
-- cloud secret stores are integrated through custom `SecretValueResolver` implementations
-- bundled AWS or Vault adapters are not shipped yet
+- built-in support covers `env:` and `file:` in the shared secret SPI
+- `tramai-spring` bundles Vault and AWS Secrets Manager resolvers behind `tramai.secrets.*`
+- standalone usage still resolves the secret before provider construction
 
 ---
 

@@ -1,16 +1,11 @@
-@file:OptIn(ExperimentalTramAIOrchestration::class)
-
 package dev.tramai.orchestration
-
 import java.sql.SQLException
 import javax.sql.DataSource
-
 /**
  * JDBC-backed lease store for multi-node workflow ownership.
  *
  * Applications are responsible for supplying a JDBC driver and creating the target table.
  */
-@ExperimentalTramAIOrchestration
 class JdbcWorkflowLeaseStore(
     private val dataSource: DataSource,
     private val table: JdbcWorkflowLeaseTable = JdbcWorkflowLeaseTable(),
@@ -23,7 +18,6 @@ class JdbcWorkflowLeaseStore(
         val lease = loadLease(workflowName, workflowId) ?: return null
         return lease.takeUnless(::isExpired)
     }
-
     override suspend fun claim(
         workflowName: String,
         workflowId: String,
@@ -48,7 +42,6 @@ class JdbcWorkflowLeaseStore(
             )
         }
     }
-
     override suspend fun renew(
         lease: WorkflowLease,
         checkpointRevision: Long?,
@@ -59,7 +52,6 @@ class JdbcWorkflowLeaseStore(
             checkpointRevision = checkpointRevision,
             expiresAtEpochMillis = now + leaseDurationMillis,
         )
-
         dataSource.connection.use { connection ->
             connection.prepareStatement(renewSql()).use { statement ->
                 if (checkpointRevision == null) {
@@ -73,7 +65,6 @@ class JdbcWorkflowLeaseStore(
                 statement.setString(5, lease.leaseId)
                 statement.setString(6, lease.ownerId)
                 statement.setLong(7, now)
-
                 val updated = statement.executeUpdate()
                 if (updated == 0) {
                     val existing = loadLease(lease.workflowName, lease.workflowId)
@@ -84,10 +75,8 @@ class JdbcWorkflowLeaseStore(
                 }
             }
         }
-
         return renewed
     }
-
     override suspend fun release(lease: WorkflowLease) {
         dataSource.connection.use { connection ->
             connection.prepareStatement(releaseSql()).use { statement ->
@@ -95,7 +84,6 @@ class JdbcWorkflowLeaseStore(
                 statement.setString(2, lease.workflowId)
                 statement.setString(3, lease.leaseId)
                 statement.setString(4, lease.ownerId)
-
                 val deleted = statement.executeUpdate()
                 if (deleted == 0) {
                     val existing = loadLease(lease.workflowName, lease.workflowId) ?: return
@@ -111,7 +99,6 @@ class JdbcWorkflowLeaseStore(
             }
         }
     }
-
     fun createTableSql(): String = """
         CREATE TABLE ${table.tableName} (
             ${table.workflowNameColumn} VARCHAR(255) NOT NULL,
@@ -124,7 +111,6 @@ class JdbcWorkflowLeaseStore(
             PRIMARY KEY (${table.workflowNameColumn}, ${table.workflowIdColumn})
         )
     """.trimIndent()
-
     private suspend fun insertLease(lease: WorkflowLease): WorkflowLease {
         dataSource.connection.use { connection ->
             try {
@@ -142,7 +128,6 @@ class JdbcWorkflowLeaseStore(
         }
         return lease
     }
-
     private suspend fun replaceExpiredLease(
         lease: WorkflowLease,
         previous: WorkflowLease,
@@ -163,7 +148,6 @@ class JdbcWorkflowLeaseStore(
                 statement.setString(8, previous.leaseId)
                 statement.setString(9, previous.ownerId)
                 statement.setLong(10, clockMillis())
-
                 val updated = statement.executeUpdate()
                 if (updated == 0) {
                     val current = loadLease(lease.workflowName, lease.workflowId)
@@ -178,7 +162,6 @@ class JdbcWorkflowLeaseStore(
         }
         return lease
     }
-
     private suspend fun loadLease(
         workflowName: String,
         workflowId: String,
@@ -195,7 +178,6 @@ class JdbcWorkflowLeaseStore(
             }
         }
     }
-
     private suspend fun deleteExpiredLease(lease: WorkflowLease) {
         dataSource.connection.use { connection ->
             connection.prepareStatement(deleteExpiredSql()).use { statement ->
@@ -206,12 +188,10 @@ class JdbcWorkflowLeaseStore(
             }
         }
     }
-
     private fun activeLeaseConflict(existing: WorkflowLease): WorkflowLeaseConflictException =
         WorkflowLeaseConflictException(
             "Workflow '${existing.workflowName}' and workflowId='${existing.workflowId}' is already leased by owner '${existing.ownerId}' until ${existing.expiresAtEpochMillis}",
         )
-
     private fun renewalConflict(
         attempted: WorkflowLease,
         existing: WorkflowLease?,
@@ -226,14 +206,12 @@ class JdbcWorkflowLeaseStore(
             "Workflow '${attempted.workflowName}' and workflowId='${attempted.workflowId}' is leased by owner '${existing.ownerId}', not '${attempted.ownerId}'",
         )
     }
-
     private fun releaseConflict(
         attempted: WorkflowLease,
         existing: WorkflowLease,
     ): WorkflowLeaseConflictException = WorkflowLeaseConflictException(
         "Workflow '${attempted.workflowName}' and workflowId='${attempted.workflowId}' is leased by owner '${existing.ownerId}', not '${attempted.ownerId}'",
     )
-
     private fun newLease(
         workflowName: String,
         workflowId: String,
@@ -252,9 +230,7 @@ class JdbcWorkflowLeaseStore(
             expiresAtEpochMillis = now + leaseDurationMillis,
         )
     }
-
     private fun isExpired(lease: WorkflowLease): Boolean = clockMillis() >= lease.expiresAtEpochMillis
-
     private fun insertSql(): String = """
         INSERT INTO ${table.tableName} (
             ${table.workflowNameColumn},
@@ -266,7 +242,6 @@ class JdbcWorkflowLeaseStore(
             ${table.expiresAtEpochMillisColumn}
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
     """.trimIndent()
-
     private fun replaceExpiredSql(): String = """
         UPDATE ${table.tableName}
         SET
@@ -281,7 +256,6 @@ class JdbcWorkflowLeaseStore(
             AND ${table.ownerIdColumn} = ?
             AND ${table.expiresAtEpochMillisColumn} <= ?
     """.trimIndent()
-
     private fun renewSql(): String = """
         UPDATE ${table.tableName}
         SET
@@ -293,7 +267,6 @@ class JdbcWorkflowLeaseStore(
             AND ${table.ownerIdColumn} = ?
             AND ${table.expiresAtEpochMillisColumn} > ?
     """.trimIndent()
-
     private fun releaseSql(): String = """
         DELETE FROM ${table.tableName}
         WHERE ${table.workflowNameColumn} = ?
@@ -301,14 +274,12 @@ class JdbcWorkflowLeaseStore(
             AND ${table.leaseIdColumn} = ?
             AND ${table.ownerIdColumn} = ?
     """.trimIndent()
-
     private fun deleteExpiredSql(): String = """
         DELETE FROM ${table.tableName}
         WHERE ${table.workflowNameColumn} = ?
             AND ${table.workflowIdColumn} = ?
             AND ${table.expiresAtEpochMillisColumn} <= ?
     """.trimIndent()
-
     private fun selectSql(): String = """
         SELECT
             ${table.workflowNameColumn},
@@ -322,7 +293,6 @@ class JdbcWorkflowLeaseStore(
         WHERE ${table.workflowNameColumn} = ?
             AND ${table.workflowIdColumn} = ?
     """.trimIndent()
-
     private fun java.sql.PreparedStatement.bindLease(lease: WorkflowLease) {
         setString(1, lease.workflowName)
         setString(2, lease.workflowId)
@@ -336,7 +306,6 @@ class JdbcWorkflowLeaseStore(
         setLong(6, lease.acquiredAtEpochMillis)
         setLong(7, lease.expiresAtEpochMillis)
     }
-
     private fun java.sql.ResultSet.toLease(): WorkflowLease = WorkflowLease(
         workflowName = getString(table.workflowNameColumn),
         workflowId = getString(table.workflowIdColumn),
@@ -347,8 +316,6 @@ class JdbcWorkflowLeaseStore(
         expiresAtEpochMillis = getLong(table.expiresAtEpochMillisColumn),
     )
 }
-
-@ExperimentalTramAIOrchestration
 data class JdbcWorkflowLeaseTable(
     val tableName: String = "tramai_workflow_lease",
     val workflowNameColumn: String = "workflow_name",

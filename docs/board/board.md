@@ -3,7 +3,7 @@
 This board is the execution view for specs-driven development in Tramai.
 
 - Board owner: maintainer
-- Last updated: 2026-04-20
+- Last updated: 2026-04-22
 
 ## How To Use This Board
 
@@ -17,13 +17,12 @@ This board is the execution view for specs-driven development in Tramai.
 - Phase 2: done
 - Phase 3: done
 - Phase 4: done
-- Phase 5: in progress
+- Phase 5: done
 
 ## In Progress
 
 - [TASK-012: Execute 0.1.0 Release Operations and Credibility Closure](./tasks/task-012.md)
 - [TASK-013: Final 0.1.0 Release Execution Summary](./tasks/task-013.md)
-- [TASK-016: Phase 5 - Production Hardening](./tasks/task-016.md)
 
 ## Blocked
 
@@ -31,10 +30,24 @@ This board is the execution view for specs-driven development in Tramai.
 
 ## Done
 
+### Orchestration Stabilization
+
+- [TASK-018: Promote Orchestration From Experimental To Stable](./tasks/task-018.md)
+- [TASK-019: Harden Workflow Resume Compatibility](./tasks/task-019.md)
+- [TASK-020: Fix Workflow Observability Correlation](./tasks/task-020.md)
+- [TASK-021: Tighten Parallel Execution Bounds](./tasks/task-021.md)
+- [TASK-022: Expand Orchestration Stability Test Matrix](./tasks/task-022.md)
+- [TASK-023: Freeze Stable Orchestration API Surface](./tasks/task-023.md)
+- [TASK-024: Promote Orchestration In Code And Public Docs](./tasks/task-024.md)
+
 ### Phase 4: Capabilities
 
 - [TASK-014: Implement Streaming Responses](./tasks/task-014.md)
 - [TASK-015: Implement Tool Calling](./tasks/task-015.md)
+
+### Phase 5: Production Hardening
+
+- [TASK-016: Phase 5 - Production Hardening](./tasks/task-016.md)
 
 ### Future Design
 
@@ -62,7 +75,7 @@ This board is the execution view for specs-driven development in Tramai.
 
 ## Planned But Not Scheduled
 
-Conversation memory remains roadmap-only design work for now.
+- Conversation memory remains roadmap-only design work for now.
 
 ## Traceability
 
@@ -84,3 +97,10 @@ Conversation memory remains roadmap-only design work for now.
 | `TASK-015` | `SPEC-010` |
 | `TASK-016` | `SPEC-011` |
 | `TASK-017` | `SPEC-012` |
+| `TASK-018` | `SPEC-012` |
+| `TASK-019` | `SPEC-012` |
+| `TASK-020` | `SPEC-012` |
+| `TASK-021` | `SPEC-012` |
+| `TASK-022` | `SPEC-012` |
+| `TASK-023` | `SPEC-012` |
+| `TASK-024` | `SPEC-012` |

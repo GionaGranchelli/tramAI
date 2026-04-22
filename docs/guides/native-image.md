@@ -100,7 +100,14 @@ A reasonable smoke path for native-image support is:
 2. run the normal JVM tests
 3. build one minimal native sample or smoke binary that instantiates at least one `@AiService`
 
-The repository currently provides the metadata generator and tests for it. Applications are still responsible for wiring the final native build for their runtime and deployment environment.
+The repository now includes `examples/kotlin-native-smoke-example`, which does exactly that with a blocking `@AiService` and a stub provider.
+
+```bash
+JAVA_HOME=/path/to/graalvm ./gradlew -p examples/kotlin-native-smoke-example nativeSmokeCompile
+./examples/kotlin-native-smoke-example/build/native/nativeSmoke/tramai-native-smoke
+```
+
+Applications are still responsible for wiring the final native build for their runtime and deployment environment.
 
 ## Current Boundary
 

@@ -32,15 +32,15 @@ These concepts exist in the API shape or planning docs but are not fully realize
 
 - OpenAI/Codex auth-file support exists, but it is experimental
 - streaming failover retries only before the first emitted token; TramAI does not attempt partial mid-stream recovery across providers
-- secret references are extensible through `SecretValueResolver`, but bundled AWS/Vault resolvers are not shipped yet
-- `tramai-orchestration` is shipped but should still be treated as experimental while its API surface settles
+- bundled Vault and AWS Secrets Manager resolvers ship in `tramai-spring`; standalone usage still resolves secrets explicitly before provider construction
+- `tramai-orchestration` is stable, but it remains intentionally bounded to explicit workflows, step-boundary checkpointing, and optional lease-aware coordination
 
 ## Practical Consequences
 
 Before using TramAI in a serious service, assume you still need to make decisions about:
 
 - how aggressive your fallback topology should be for your workload
-- whether you want custom cloud secret resolvers beyond `env:` and `file:`
+- whether the built-in Spring secret resolvers are sufficient or you need custom secret resolution behavior
 - how much provider-specific behavior you are willing to accept
 
 ## What Is Solid Already

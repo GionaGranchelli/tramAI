@@ -6,8 +6,11 @@ import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.exception.TokenBudgetExceededException
+import dev.tramai.core.model.Message
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.observation.OperationCallContext
+import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.provider.ModelProvider
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -150,6 +153,164 @@ class TramaiAutoConfigurationTest {
     }
 
     @Test
+    fun `creates an openai provider from the built in vault secret resolver`() {
+        var capturedProviderAuthorization = ""
+        var capturedVaultRequestPath = ""
+        var capturedVaultToken = ""
+        val providerServer = HttpServer.create(InetSocketAddress(0), 0)
+        providerServer.createContext("/v1/chat/completions") { exchange ->
+            capturedProviderAuthorization = exchange.requestHeaders.getFirst("Authorization")
+            respond(
+                exchange = exchange,
+                body = """
+                    {
+                      "model": "gpt-5.1-chat-latest",
+                      "choices": [
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "vault spring hello"
+                          },
+                          "finish_reason": "stop"
+                        }
+                      ]
+                    }
+                """.trimIndent(),
+            )
+        }
+        providerServer.start()
+
+        val vaultServer = HttpServer.create(InetSocketAddress(0), 0)
+        vaultServer.createContext("/") { exchange ->
+            capturedVaultRequestPath = exchange.requestURI.path
+            capturedVaultToken = exchange.requestHeaders.getFirst("X-Vault-Token")
+            respond(
+                exchange = exchange,
+                body = """
+                    {
+                      "data": {
+                        "data": {
+                          "value": "resolved-vault-key"
+                        }
+                      }
+                    }
+                """.trimIndent(),
+            )
+        }
+        vaultServer.start()
+
+        try {
+            val contextRunner = ApplicationContextRunner()
+                .withConfiguration(
+                    AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                )
+                .withUserConfiguration(TestApplication::class.java)
+                .withPropertyValues(
+                    "tramai.default-provider=openai",
+                    "tramai.models.gpt-5.1-chat-latest=openai",
+                    "tramai.providers.openai.apiKeySecretRef=vault:built-in/openai/api-key",
+                    "tramai.providers.openai.baseUrl=http://localhost:${providerServer.address.port}/v1",
+                    "tramai.secrets.vault.enabled=true",
+                    "tramai.secrets.vault.base-url=http://localhost:${vaultServer.address.port}",
+                    "tramai.secrets.vault.token=test-vault-token",
+                )
+
+            contextRunner.run { context ->
+                val analyzer = context.getBean(TestInvoiceAnalyzer::class.java)
+
+                val result = runBlocking { analyzer.analyze("invoice-123") }
+
+                assertThat(capturedProviderAuthorization).isEqualTo("Bearer resolved-vault-key")
+                assertThat(capturedVaultRequestPath).isEqualTo("/v1/secret/data/built-in/openai/api-key")
+                assertThat(capturedVaultToken).isEqualTo("test-vault-token")
+                assertThat(result).isEqualTo("vault spring hello")
+            }
+        } finally {
+            providerServer.stop(0)
+            vaultServer.stop(0)
+        }
+    }
+
+    @Test
+    fun `creates an openai provider from the built in aws secrets manager resolver`() {
+        var capturedProviderAuthorization = ""
+        var capturedAwsTarget = ""
+        var capturedAwsBody = ""
+        val providerServer = HttpServer.create(InetSocketAddress(0), 0)
+        providerServer.createContext("/v1/chat/completions") { exchange ->
+            capturedProviderAuthorization = exchange.requestHeaders.getFirst("Authorization")
+            respond(
+                exchange = exchange,
+                body = """
+                    {
+                      "model": "gpt-5.1-chat-latest",
+                      "choices": [
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "aws spring hello"
+                          },
+                          "finish_reason": "stop"
+                        }
+                      ]
+                    }
+                """.trimIndent(),
+            )
+        }
+        providerServer.start()
+
+        val awsServer = HttpServer.create(InetSocketAddress(0), 0)
+        awsServer.createContext("/") { exchange ->
+            capturedAwsTarget = exchange.requestHeaders.getFirst("X-Amz-Target")
+            capturedAwsBody = exchange.requestBody.readBytes().decodeToString()
+            respond(
+                exchange = exchange,
+                body = """
+                    {
+                      "ARN": "arn:aws:secretsmanager:eu-west-1:123456789012:secret:prod/openai/api-key",
+                      "Name": "prod/openai/api-key",
+                      "SecretString": "{\"value\":\"resolved-aws-key\"}"
+                    }
+                """.trimIndent(),
+            )
+        }
+        awsServer.start()
+
+        try {
+            val contextRunner = ApplicationContextRunner()
+                .withConfiguration(
+                    AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+                )
+                .withUserConfiguration(TestApplication::class.java)
+                .withPropertyValues(
+                    "tramai.default-provider=openai",
+                    "tramai.models.gpt-5.1-chat-latest=openai",
+                    "tramai.providers.openai.apiKeySecretRef=aws-secretsmanager:prod/openai/api-key",
+                    "tramai.providers.openai.baseUrl=http://localhost:${providerServer.address.port}/v1",
+                    "tramai.secrets.aws-secrets-manager.enabled=true",
+                    "tramai.secrets.aws-secrets-manager.region=eu-west-1",
+                    "tramai.secrets.aws-secrets-manager.endpoint=http://localhost:${awsServer.address.port}",
+                    "tramai.secrets.aws-secrets-manager.access-key-id=test-access-key",
+                    "tramai.secrets.aws-secrets-manager.secret-access-key=test-secret-key",
+                )
+
+            contextRunner.run { context ->
+                val analyzer = context.getBean(TestInvoiceAnalyzer::class.java)
+
+                val result = runBlocking { analyzer.analyze("invoice-123") }
+
+                assertThat(capturedAwsTarget).isEqualTo("secretsmanager.GetSecretValue")
+                assertThat(capturedAwsBody).contains("prod/openai/api-key")
+                assertThat(capturedProviderAuthorization).isEqualTo("Bearer resolved-aws-key")
+                assertThat(result).isEqualTo("aws spring hello")
+            }
+        } finally {
+            providerServer.stop(0)
+            awsServer.stop(0)
+        }
+    }
+
+    @Test
     fun `applies configured fallback routes and circuit breaker settings`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
@@ -226,6 +387,32 @@ class TramaiAutoConfigurationTest {
             assertThat(first).isEqualTo("cached spring hello 1")
             assertThat(second).isEqualTo("cached spring hello 1")
             assertThat(provider.requests).hasSize(1)
+        }
+    }
+
+    @Test
+    fun `auto composes operation interceptor beans`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, InterceptorConfiguration::class.java)
+            .withPropertyValues(
+                "tramai.default-provider=intercepted",
+                "tramai.models.gpt-5.1-chat-latest=intercepted",
+            )
+
+        contextRunner.run { context ->
+            val analyzer = context.getBean(TestInvoiceAnalyzer::class.java)
+            val provider = context.getBean(InterceptingProvider::class.java)
+
+            val result = runBlocking { analyzer.analyze("secret-id") }
+
+            assertThat(result).isEqualTo("contains redacted payload")
+            assertThat(provider.requests).hasSize(1)
+            assertThat(provider.requests.single().messages.last().content)
+                .contains("[REDACTED_ID]")
+                .doesNotContain("secret-id")
         }
     }
 }
@@ -312,6 +499,27 @@ open class CacheProviderConfiguration {
     open fun cachedProvider(): CachedProvider = CachedProvider()
 }
 
+@TestConfiguration
+open class InterceptorConfiguration {
+    @Bean
+    open fun interceptingProvider(): InterceptingProvider = InterceptingProvider()
+
+    @Bean
+    open fun piiMaskingInterceptor(): OperationInterceptor = object : OperationInterceptor {
+        override fun interceptRequest(
+            context: OperationCallContext,
+            messages: List<Message>,
+        ): List<Message> = messages.map { message ->
+            message.copy(content = message.content.replace("secret-id", "[REDACTED_ID]"))
+        }
+
+        override fun interceptResponse(
+            context: OperationCallContext,
+            response: ModelResponse,
+        ): ModelResponse = response.copy(content = response.content.replace("sensitive", "redacted"))
+    }
+}
+
 class PrimaryFailingProvider : ModelProvider {
     val requests = mutableListOf<ModelRequest>()
 
@@ -343,6 +551,17 @@ class CachedProvider : ModelProvider {
     }
 
     override fun providerId(): String = "cached"
+}
+
+class InterceptingProvider : ModelProvider {
+    val requests = mutableListOf<ModelRequest>()
+
+    override suspend fun complete(request: ModelRequest): ModelResponse {
+        requests += request
+        return ModelResponse(content = "contains sensitive payload")
+    }
+
+    override fun providerId(): String = "intercepted"
 }
 
 private fun respond(

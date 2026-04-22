@@ -36,10 +36,22 @@ jobs:
       - name: Verify build
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
-        run: ./gradlew test --no-configuration-cache
+        run: ./gradlew verifyReleaseReadiness --no-configuration-cache
+
+      - name: Verify remote publish inputs
+        if: ${{ secrets.TRAMAI_PUBLISH_RELEASE_URL != '' && secrets.TRAMAI_PUBLISH_USERNAME != '' && secrets.TRAMAI_PUBLISH_PASSWORD != '' && secrets.TRAMAI_SIGNING_KEY != '' && secrets.TRAMAI_SIGNING_PASSWORD != '' }}
+        env:
+          ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
+          ORG_GRADLE_PROJECT_tramaiPublishReleaseUrl: ${{ secrets.TRAMAI_PUBLISH_RELEASE_URL }}
+          ORG_GRADLE_PROJECT_tramaiPublishSnapshotUrl: ${{ secrets.TRAMAI_PUBLISH_SNAPSHOT_URL }}
+          ORG_GRADLE_PROJECT_tramaiPublishUsername: ${{ secrets.TRAMAI_PUBLISH_USERNAME }}
+          ORG_GRADLE_PROJECT_tramaiPublishPassword: ${{ secrets.TRAMAI_PUBLISH_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.TRAMAI_SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.TRAMAI_SIGNING_PASSWORD }}
+        run: ./gradlew verifyReleasePublishInputs --no-configuration-cache
 
       - name: Publish to configured repository
-        if: ${{ secrets.TRAMAI_PUBLISH_RELEASE_URL != '' && secrets.TRAMAI_PUBLISH_USERNAME != '' && secrets.TRAMAI_PUBLISH_PASSWORD != '' }}
+        if: ${{ secrets.TRAMAI_PUBLISH_RELEASE_URL != '' && secrets.TRAMAI_PUBLISH_USERNAME != '' && secrets.TRAMAI_PUBLISH_PASSWORD != '' && secrets.TRAMAI_SIGNING_KEY != '' && secrets.TRAMAI_SIGNING_PASSWORD != '' }}
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
           ORG_GRADLE_PROJECT_tramaiPublishReleaseUrl: ${{ secrets.TRAMAI_PUBLISH_RELEASE_URL }}
@@ -51,7 +63,7 @@ jobs:
         run: ./gradlew publish --no-configuration-cache
 
       - name: Publish to Maven Local smoke target
-        if: ${{ !(secrets.TRAMAI_PUBLISH_RELEASE_URL != '' && secrets.TRAMAI_PUBLISH_USERNAME != '' && secrets.TRAMAI_PUBLISH_PASSWORD != '') }}
+        if: ${{ !(secrets.TRAMAI_PUBLISH_RELEASE_URL != '' && secrets.TRAMAI_PUBLISH_USERNAME != '' && secrets.TRAMAI_PUBLISH_PASSWORD != '' && secrets.TRAMAI_SIGNING_KEY != '' && secrets.TRAMAI_SIGNING_PASSWORD != '') }}
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
         run: ./gradlew publishToMavenLocal --no-configuration-cache

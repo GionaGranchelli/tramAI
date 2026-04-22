@@ -96,7 +96,7 @@ Not implemented across the provider layer yet:
 - native provider-specific structured output modes
 - externalized provider-level retry-policy configuration
 - externalized provider-level timeout-policy configuration
-- bundled cloud-specific secret-store resolvers
+- provider-native secret-store integrations outside the shared Spring secret resolver path
 
 ## Choosing A Provider
 

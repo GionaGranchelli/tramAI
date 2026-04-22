@@ -1,18 +1,13 @@
-@file:OptIn(ExperimentalTramAIOrchestration::class)
-
 package dev.tramai.orchestration
-
 import java.io.StringWriter
 import java.sql.SQLException
 import java.util.Properties
 import javax.sql.DataSource
-
 /**
  * JDBC-backed checkpoint store with revision-aware optimistic concurrency.
  *
  * Applications are responsible for supplying a JDBC driver and creating the target table.
  */
-@ExperimentalTramAIOrchestration
 class JdbcWorkflowCheckpointStore(
     private val dataSource: DataSource,
     private val table: JdbcWorkflowCheckpointTable = JdbcWorkflowCheckpointTable(),
@@ -33,7 +28,6 @@ class JdbcWorkflowCheckpointStore(
             }
         }
     }
-
     override suspend fun save(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
@@ -42,7 +36,6 @@ class JdbcWorkflowCheckpointStore(
     } else {
         updateCheckpoint(checkpoint, expectedRevision)
     }
-
     override suspend fun delete(
         workflowName: String,
         workflowId: String,
@@ -68,7 +61,6 @@ class JdbcWorkflowCheckpointStore(
             }
         }
     }
-
     fun createTableSql(): String = """
         CREATE TABLE ${table.tableName} (
             ${table.workflowNameColumn} VARCHAR(255) NOT NULL,
@@ -83,7 +75,6 @@ class JdbcWorkflowCheckpointStore(
             PRIMARY KEY (${table.workflowNameColumn}, ${table.workflowIdColumn})
         )
     """.trimIndent()
-
     private suspend fun insertCheckpoint(checkpoint: WorkflowCheckpoint): WorkflowCheckpoint {
         val existing = load(checkpoint.workflowName, checkpoint.workflowId)
         validateExpectedRevision(
@@ -92,7 +83,6 @@ class JdbcWorkflowCheckpointStore(
             existing = existing,
             expectedRevision = null,
         )
-
         val persisted = checkpoint.copy(revision = 1)
         dataSource.connection.use { connection ->
             try {
@@ -115,7 +105,6 @@ class JdbcWorkflowCheckpointStore(
         }
         return persisted
     }
-
     private suspend fun updateCheckpoint(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long,
@@ -147,7 +136,6 @@ class JdbcWorkflowCheckpointStore(
         }
         return persisted
     }
-
     private fun insertSql(): String = """
         INSERT INTO ${table.tableName} (
             ${table.workflowNameColumn},
@@ -161,7 +149,6 @@ class JdbcWorkflowCheckpointStore(
             ${table.savedAtEpochMillisColumn}
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """.trimIndent()
-
     private fun updateSql(): String = """
         UPDATE ${table.tableName}
         SET
@@ -176,7 +163,6 @@ class JdbcWorkflowCheckpointStore(
             AND ${table.workflowIdColumn} = ?
             AND ${table.revisionColumn} = ?
     """.trimIndent()
-
     private fun selectSql(): String = """
         SELECT
             ${table.workflowNameColumn},
@@ -192,7 +178,6 @@ class JdbcWorkflowCheckpointStore(
         WHERE ${table.workflowNameColumn} = ?
             AND ${table.workflowIdColumn} = ?
     """.trimIndent()
-
     private fun deleteSql(revisionAware: Boolean): String = if (revisionAware) {
         """
         DELETE FROM ${table.tableName}
@@ -207,7 +192,6 @@ class JdbcWorkflowCheckpointStore(
             AND ${table.workflowIdColumn} = ?
         """.trimIndent()
     }
-
     private fun java.sql.PreparedStatement.bindCheckpoint(checkpoint: WorkflowCheckpoint) {
         setString(1, checkpoint.workflowName)
         setString(2, checkpoint.workflowId)
@@ -219,7 +203,6 @@ class JdbcWorkflowCheckpointStore(
         setString(8, encodeMetadata(checkpoint.metadata))
         setLong(9, checkpoint.savedAtEpochMillis)
     }
-
     private fun java.sql.ResultSet.toCheckpoint(): WorkflowCheckpoint = WorkflowCheckpoint(
         workflowName = getString(table.workflowNameColumn),
         workflowId = getString(table.workflowIdColumn),
@@ -232,8 +215,6 @@ class JdbcWorkflowCheckpointStore(
         savedAtEpochMillis = getLong(table.savedAtEpochMillisColumn),
     )
 }
-
-@ExperimentalTramAIOrchestration
 data class JdbcWorkflowCheckpointTable(
     val tableName: String = "tramai_workflow_checkpoint",
     val workflowNameColumn: String = "workflow_name",
@@ -246,7 +227,6 @@ data class JdbcWorkflowCheckpointTable(
     val metadataColumn: String = "metadata_payload",
     val savedAtEpochMillisColumn: String = "saved_at_epoch_millis",
 )
-
 internal fun encodeMetadata(metadata: Map<String, String>): String {
     val properties = Properties()
     metadata.forEach { (key, value) ->
@@ -256,12 +236,10 @@ internal fun encodeMetadata(metadata: Map<String, String>): String {
         properties.store(writer, "Tramai workflow checkpoint metadata")
     }.toString()
 }
-
 internal fun decodeMetadata(payload: String?): Map<String, String> {
     if (payload.isNullOrBlank()) {
         return emptyMap()
     }
-
     val properties = Properties().apply {
         load(payload.reader())
     }

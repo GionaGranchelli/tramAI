@@ -42,6 +42,7 @@ Top-level keys:
 - `resilience`
 - `cost`
 - `cache`
+- `secrets`
 - `providers`
 
 ## Full Current Spring Shape
@@ -77,6 +78,27 @@ tramai:
     in-memory:
       enabled: true
       max-entries: 1000
+  secrets:
+    vault:
+      enabled: false
+      base-url: https://vault.example.com
+      token: null
+      token-secret-ref: env:VAULT_TOKEN
+      namespace: null
+      mount-path: secret
+      kv-version: 2
+      default-field: value
+    aws-secrets-manager:
+      enabled: false
+      region: eu-west-1
+      endpoint: null
+      access-key-id: null
+      access-key-id-secret-ref: env:AWS_ACCESS_KEY_ID
+      secret-access-key: null
+      secret-access-key-secret-ref: env:AWS_SECRET_ACCESS_KEY
+      session-token: null
+      session-token-secret-ref: null
+      default-field: value
   providers:
     anthropic:
       api-key: ${ANTHROPIC_API_KEY}
@@ -123,6 +145,8 @@ tramai:
 - `tramai.cost.token-budget.hard-max-tokens-per-operation` fails a logical operation when cumulative reported usage exceeds budget across retries or tool loops
 - `tramai.cost.token-budget.soft-max-tokens-per-operation` emits an engine event without failing the call
 - `*-secret-ref` fields are resolved through Spring `SecretValueResolver` beans; built-in resolvers support `env:NAME` and `file:/path/to/secret.txt`
+- `tramai.secrets.vault.*` enables the bundled Vault resolver for `vault:path[#field]` references
+- `tramai.secrets.aws-secrets-manager.*` enables the bundled AWS Secrets Manager resolver for `aws-secretsmanager:secret-id[#field]` references
 
 ## What Does Not Exist Yet
 
@@ -132,6 +156,5 @@ These configuration concepts appear in planning documents but are not fully impl
 - default max tokens and temperature at the framework level
 - streaming configuration
 - preflight token estimation before a provider call is sent
-- bundled AWS Secrets Manager or Vault resolver implementations
 
 Document them only when they land in code.

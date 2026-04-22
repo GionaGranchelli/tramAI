@@ -37,7 +37,7 @@ Use [templates/spec-template.md](./templates/spec-template.md) for new work.
 - `SPEC-008`: in progress, with release and credibility work still open
 - `SPEC-009` to `SPEC-010`: implemented in the repository
 - `SPEC-011`: in progress, with resilience work underway
-- `SPEC-012`: in progress, with a tested orchestration prototype and checkpoint/resume SPI now in the repository
+- `SPEC-012`: implemented in the repository, with promotion and follow-up documentation work tracked through `TASK-024`
 
 ## Status Meanings
 

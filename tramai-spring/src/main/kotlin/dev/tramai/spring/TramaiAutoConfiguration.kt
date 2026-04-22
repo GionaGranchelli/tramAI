@@ -4,6 +4,9 @@ import dev.tramai.core.secret.CompositeSecretValueResolver
 import dev.tramai.core.secret.EnvironmentSecretValueResolver
 import dev.tramai.core.secret.FileSecretValueResolver
 import dev.tramai.core.secret.SecretValueResolver
+import dev.tramai.core.observation.CompositeOperationInterceptor
+import dev.tramai.core.observation.NoOpOperationInterceptor
+import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.anthropic.AnthropicProvider
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.openai.CodexAuthFileTokenSource
@@ -11,6 +14,8 @@ import dev.tramai.openai.ExperimentalCodexAuth
 import dev.tramai.openai.OpenAiCompatibleProvider
 import dev.tramai.openai.OpenAiProvider
 import dev.tramai.ollama.OllamaProvider
+import dev.tramai.spring.secret.AwsSecretsManagerSecretValueResolver
+import dev.tramai.spring.secret.VaultSecretValueResolver
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.InMemoryOperationResponseCache
 import dev.tramai.engine.NoOpOperationResponseCache
@@ -39,12 +44,25 @@ class TramaiAutoConfiguration {
         properties: TramaiProperties,
         modelProviders: ObjectProvider<ModelProvider>,
         operationResponseCache: ObjectProvider<OperationResponseCache>,
+        operationInterceptors: ObjectProvider<OperationInterceptor>,
         secretResolvers: ObjectProvider<SecretValueResolver>,
         applicationContext: org.springframework.context.ApplicationContext,
     ): Tramai {
         val builder = Tramai.builder()
+        val interceptorChain = operationInterceptors.orderedStream().toList()
+        val userSecretResolvers = secretResolvers.orderedStream().toList()
+        val bootstrapSecretResolver = CompositeSecretValueResolver(
+            userSecretResolvers + listOf(
+                EnvironmentSecretValueResolver,
+                FileSecretValueResolver,
+            ),
+        )
+        val builtInSecretResolvers = listOfNotNull(
+            createVaultSecretValueResolver(properties.secrets.vault, bootstrapSecretResolver),
+            createAwsSecretsManagerSecretValueResolver(properties.secrets.awsSecretsManager, bootstrapSecretResolver),
+        )
         val secretResolver = CompositeSecretValueResolver(
-            secretResolvers.orderedStream().toList() + listOf(
+            userSecretResolvers + builtInSecretResolvers + listOf(
                 EnvironmentSecretValueResolver,
                 FileSecretValueResolver,
             ),
@@ -60,6 +78,13 @@ class TramaiAutoConfiguration {
                 } else {
                     NoOpOperationResponseCache
                 },
+        )
+        builder.interceptor(
+            if (interceptorChain.isEmpty()) {
+                NoOpOperationInterceptor
+            } else {
+                CompositeOperationInterceptor(interceptorChain)
+            },
         )
 
         // Register property-backed providers first so explicit provider beans can override them when needed.
@@ -246,5 +271,73 @@ class TramaiAutoConfiguration {
 
         return secretResolver.resolve(trimmedRef)
             ?: throw IllegalStateException("No SecretValueResolver could resolve '$trimmedRef' for $fieldName")
+    }
+
+    private fun createVaultSecretValueResolver(
+        properties: TramaiProperties.Vault,
+        bootstrapSecretResolver: SecretValueResolver,
+    ): SecretValueResolver? {
+        if (!properties.enabled) {
+            return null
+        }
+
+        val baseUrl = properties.baseUrl?.trim()?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("tramai.secrets.vault.baseUrl must be configured when Vault secret resolution is enabled")
+        val token = resolveSecret(
+            directValue = properties.token,
+            secretRef = properties.tokenSecretRef,
+            fieldName = "tramai.secrets.vault.token",
+            secretResolver = bootstrapSecretResolver,
+        ) ?: throw IllegalStateException("tramai.secrets.vault.token must be configured when Vault secret resolution is enabled")
+
+        return VaultSecretValueResolver(
+            baseUrl = baseUrl,
+            token = token,
+            mountPath = properties.mountPath,
+            kvVersion = properties.kvVersion,
+            namespace = properties.namespace,
+            defaultField = properties.defaultField,
+        )
+    }
+
+    private fun createAwsSecretsManagerSecretValueResolver(
+        properties: TramaiProperties.AwsSecretsManager,
+        bootstrapSecretResolver: SecretValueResolver,
+    ): SecretValueResolver? {
+        if (!properties.enabled) {
+            return null
+        }
+
+        val region = properties.region?.trim()?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException(
+                "tramai.secrets.aws-secrets-manager.region must be configured when AWS Secrets Manager resolution is enabled",
+            )
+        val accessKeyId = resolveSecret(
+            directValue = properties.accessKeyId,
+            secretRef = properties.accessKeyIdSecretRef,
+            fieldName = "tramai.secrets.aws-secrets-manager.accessKeyId",
+            secretResolver = bootstrapSecretResolver,
+        )
+        val secretAccessKey = resolveSecret(
+            directValue = properties.secretAccessKey,
+            secretRef = properties.secretAccessKeySecretRef,
+            fieldName = "tramai.secrets.aws-secrets-manager.secretAccessKey",
+            secretResolver = bootstrapSecretResolver,
+        )
+        val sessionToken = resolveSecret(
+            directValue = properties.sessionToken,
+            secretRef = properties.sessionTokenSecretRef,
+            fieldName = "tramai.secrets.aws-secrets-manager.sessionToken",
+            secretResolver = bootstrapSecretResolver,
+        )
+
+        return AwsSecretsManagerSecretValueResolver.fromSdk(
+            region = region,
+            endpoint = properties.endpoint,
+            accessKeyId = accessKeyId,
+            secretAccessKey = secretAccessKey,
+            sessionToken = sessionToken,
+            defaultField = properties.defaultField,
+        )
     }
 }

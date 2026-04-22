@@ -5,6 +5,10 @@ import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.javadoc.Javadoc
 import org.gradle.kotlin.dsl.configure
 import org.gradle.plugins.signing.SigningExtension
+import org.w3c.dom.Element
+import java.io.File
+import java.net.URI
+import javax.xml.parsers.DocumentBuilderFactory
 
 plugins {
     base
@@ -22,6 +26,21 @@ val tramaiLicenseUrl = providers.gradleProperty("tramaiLicenseUrl").orElse("http
 val tramaiDeveloperId = providers.gradleProperty("tramaiDeveloperId").orElse("GionaGranchelli")
 val tramaiDeveloperName = providers.gradleProperty("tramaiDeveloperName").orElse("Giona")
 val tramaiDeveloperEmail = providers.gradleProperty("tramaiDeveloperEmail").orElse("opensource@giona.dev")
+val publishableProjectNames = listOf(
+    "tramai-anthropic",
+    "tramai-bom",
+    "tramai-core",
+    "tramai-engine",
+    "tramai-observability",
+    "tramai-ollama",
+    "tramai-openai",
+    "tramai-orchestration",
+    "tramai-spring",
+    "tramai-standalone",
+    "tramai-structured",
+    "tramai-testing",
+)
+val jarPublishingProjectNames = publishableProjectNames - "tramai-bom"
 
 subprojects {
     group = tramaiGroup.get()
@@ -135,9 +154,11 @@ fun Project.configureTramaiPublishing(
                 maven {
                     name = "tramaiRemote"
                     url = uri(targetRepositoryUrl)
-                    credentials {
-                        username = providers.gradleProperty("tramaiPublishUsername").orNull
-                        password = providers.gradleProperty("tramaiPublishPassword").orNull
+                    if (!targetRepositoryUrl.startsWith("file:")) {
+                        credentials {
+                            username = providers.gradleProperty("tramaiPublishUsername").orNull
+                            password = providers.gradleProperty("tramaiPublishPassword").orNull
+                        }
                     }
                 }
             }
@@ -168,4 +189,264 @@ fun projectDescription(projectName: String): String = when (projectName) {
     "tramai-testing" -> "Testing utilities and deterministic assertion support for Tramai."
     "tramai-bom" -> "Bill of materials for aligning Tramai module versions."
     else -> "Tramai module ${projectName.removePrefix("tramai-")}."
+}
+
+fun Element.directChild(name: String): Element? {
+    val children = childNodes
+    for (index in 0 until children.length) {
+        val node = children.item(index)
+        if (node is Element && node.tagName == name) {
+            return node
+        }
+    }
+    return null
+}
+
+fun Element.directChildText(name: String): String? = directChild(name)?.textContent?.trim()
+
+fun parseXml(file: File): Element {
+    val documentBuilderFactory = DocumentBuilderFactory.newInstance()
+    documentBuilderFactory.isNamespaceAware = false
+    return documentBuilderFactory.newDocumentBuilder().parse(file).documentElement
+}
+
+fun releaseRepositoryUrlFor(version: String): String? {
+    val releaseRepositoryUrl = providers.gradleProperty("tramaiPublishReleaseUrl").orNull
+    val snapshotRepositoryUrl = providers.gradleProperty("tramaiPublishSnapshotUrl").orNull
+    return when {
+        version.endsWith("-SNAPSHOT") -> snapshotRepositoryUrl ?: releaseRepositoryUrl
+        else -> releaseRepositoryUrl ?: snapshotRepositoryUrl
+    }
+}
+
+tasks.register("verifyPublicationMetadata") {
+    group = "verification"
+    description = "Verifies generated Maven POM metadata for every publishable Tramai module."
+    notCompatibleWithConfigurationCache("Release metadata verification inspects generated publication files at execution time.")
+    dependsOn(publishableProjectNames.map { ":$it:generatePomFileForMavenPublication" })
+
+    doLast {
+        val expectedGroup = tramaiGroup.get()
+        val expectedVersion = tramaiVersion.get()
+        val expectedProjectUrl = tramaiProjectUrl.get()
+        val expectedScmUrl = tramaiScmUrl.get()
+        val expectedScmConnection = tramaiScmConnection.get()
+        val expectedScmDeveloperConnection = tramaiScmDeveloperConnection.get()
+        val expectedLicenseName = tramaiLicenseName.get()
+        val expectedLicenseUrl = tramaiLicenseUrl.get()
+        val expectedDeveloperId = tramaiDeveloperId.get()
+        val expectedDeveloperName = tramaiDeveloperName.get()
+        val expectedDeveloperEmail = tramaiDeveloperEmail.get()
+
+        publishableProjectNames.forEach { projectName ->
+            val pomFile = rootProject.file("$projectName/build/publications/maven/pom-default.xml")
+            require(pomFile.isFile) { "Missing generated POM for $projectName at ${pomFile.absolutePath}" }
+
+            val project = parseXml(pomFile)
+            require(project.directChildText("groupId") == expectedGroup) { "Unexpected groupId in $projectName POM" }
+            require(project.directChildText("artifactId") == projectName) { "Unexpected artifactId in $projectName POM" }
+            require(project.directChildText("version") == expectedVersion) { "Unexpected version in $projectName POM" }
+            require(project.directChildText("name") == projectName) { "Unexpected name in $projectName POM" }
+            require(project.directChildText("description") == projectDescription(projectName)) {
+                "Unexpected description in $projectName POM"
+            }
+            require(project.directChildText("url") == expectedProjectUrl) { "Unexpected project URL in $projectName POM" }
+
+            val license = requireNotNull(project.directChild("licenses")?.directChild("license")) {
+                "Missing license section in $projectName POM"
+            }
+            require(license.directChildText("name") == expectedLicenseName) { "Unexpected license name in $projectName POM" }
+            require(license.directChildText("url") == expectedLicenseUrl) { "Unexpected license URL in $projectName POM" }
+
+            val developer = requireNotNull(project.directChild("developers")?.directChild("developer")) {
+                "Missing developer section in $projectName POM"
+            }
+            require(developer.directChildText("id") == expectedDeveloperId) { "Unexpected developer id in $projectName POM" }
+            require(developer.directChildText("name") == expectedDeveloperName) { "Unexpected developer name in $projectName POM" }
+            require(developer.directChildText("email") == expectedDeveloperEmail) { "Unexpected developer email in $projectName POM" }
+
+            val scm = requireNotNull(project.directChild("scm")) { "Missing SCM section in $projectName POM" }
+            require(scm.directChildText("url") == expectedScmUrl) { "Unexpected SCM URL in $projectName POM" }
+            require(scm.directChildText("connection") == expectedScmConnection) { "Unexpected SCM connection in $projectName POM" }
+            require(scm.directChildText("developerConnection") == expectedScmDeveloperConnection) {
+                "Unexpected SCM developer connection in $projectName POM"
+            }
+
+            val packaging = project.directChildText("packaging")
+            if (projectName == "tramai-bom") {
+                require(packaging == "pom") { "The BOM must publish as packaging=pom" }
+                val dependencyManagement = requireNotNull(project.directChild("dependencyManagement")) {
+                    "Missing dependencyManagement section in tramai-bom POM"
+                }
+                val dependencies = requireNotNull(dependencyManagement.directChild("dependencies")) {
+                    "Missing dependencyManagement dependencies in tramai-bom POM"
+                }
+                val managedArtifactIds = buildList {
+                    val children = dependencies.childNodes
+                    for (index in 0 until children.length) {
+                        val child = children.item(index)
+                        if (child is Element && child.tagName == "dependency") {
+                            add(child.directChildText("artifactId").orEmpty())
+                        }
+                    }
+                }
+                val expectedManagedArtifacts = jarPublishingProjectNames.toSet()
+                require(managedArtifactIds.toSet() == expectedManagedArtifacts) {
+                    "Unexpected BOM contents. Expected $expectedManagedArtifacts but found ${managedArtifactIds.toSet()}"
+                }
+            } else {
+                require(packaging == null || packaging == "jar") { "Unexpected packaging in $projectName POM: $packaging" }
+            }
+        }
+    }
+}
+
+tasks.register("verifyPublishedLocalArtifacts") {
+    group = "verification"
+    description = "Publishes to Maven Local and verifies POM/module/jar/sources/javadoc artifacts for every Tramai module."
+    notCompatibleWithConfigurationCache("Local Maven repository verification inspects published artifacts at execution time.")
+    dependsOn(publishableProjectNames.map { ":$it:publishToMavenLocal" })
+
+    doLast {
+        val expectedVersion = tramaiVersion.get()
+        val baseRepository = File(System.getProperty("user.home"))
+            .resolve(".m2/repository")
+            .resolve(tramaiGroup.get().replace('.', '/'))
+        require(baseRepository.isDirectory) {
+            "Missing local Maven repository root for ${tramaiGroup.get()} at ${baseRepository.absolutePath}"
+        }
+
+        publishableProjectNames.forEach { projectName ->
+            val moduleDirectory = baseRepository.resolve("$projectName/$expectedVersion")
+            require(moduleDirectory.isDirectory) {
+                "Missing local Maven module directory for $projectName at ${moduleDirectory.absolutePath}"
+            }
+
+            val baseName = "$projectName-$expectedVersion"
+            val requiredFiles = mutableListOf(
+                "$baseName.pom",
+                "$baseName.module",
+            )
+            if (projectName != "tramai-bom") {
+                requiredFiles += listOf(
+                    "$baseName.jar",
+                    "$baseName-sources.jar",
+                    "$baseName-javadoc.jar",
+                )
+            }
+
+            requiredFiles.forEach { fileName ->
+                val artifact = moduleDirectory.resolve(fileName)
+                require(artifact.isFile) { "Missing local Maven artifact for $projectName: ${artifact.absolutePath}" }
+                require(artifact.length() > 0) { "Published artifact is empty for $projectName: ${artifact.absolutePath}" }
+            }
+        }
+    }
+}
+
+tasks.register("verifyReleasePublishInputs") {
+    group = "verification"
+    description = "Verifies that the properties required for a real remote release publish are present."
+    notCompatibleWithConfigurationCache("Release input verification reads Gradle properties directly at execution time.")
+
+    doLast {
+        val requiredProperties = listOf(
+            "tramaiPublishReleaseUrl",
+            "tramaiPublishUsername",
+            "tramaiPublishPassword",
+            "signingKey",
+            "signingPassword",
+        )
+        requiredProperties.forEach { propertyName ->
+            require(!providers.gradleProperty(propertyName).orNull.isNullOrBlank()) {
+                "Missing required Gradle property for remote release publishing: $propertyName"
+            }
+        }
+        require(!tramaiVersion.get().endsWith("-SNAPSHOT")) {
+            "Remote release validation expects a non-SNAPSHOT tramaiVersion, but found ${tramaiVersion.get()}"
+        }
+    }
+}
+
+tasks.register("verifySignedPublicationBundle") {
+    group = "verification"
+    description = "Publishes to a configured file-based Maven repository and verifies generated signature files."
+    notCompatibleWithConfigurationCache("Signed publication verification inspects a published file repository at execution time.")
+    dependsOn(publishableProjectNames.map { ":$it:publish" })
+
+    doFirst {
+        require(!providers.gradleProperty("signingKey").orNull.isNullOrBlank()) {
+            "Missing signingKey. Provide -PsigningKey=<ascii-armored-private-key>."
+        }
+        require(!providers.gradleProperty("signingPassword").orNull.isNullOrBlank()) {
+            "Missing signingPassword. Provide -PsigningPassword=<key-password>."
+        }
+
+        val repositoryUrl = releaseRepositoryUrlFor(tramaiVersion.get())
+        require(!repositoryUrl.isNullOrBlank()) {
+            "Missing publish repository URL. Provide -PtramaiPublishReleaseUrl=file:///... or -PtramaiPublishSnapshotUrl=file:///..."
+        }
+        require(repositoryUrl.startsWith("file:")) {
+            "verifySignedPublicationBundle only supports file:// repositories for local verification, but got $repositoryUrl"
+        }
+    }
+
+    doLast {
+        val repositoryUrl = requireNotNull(releaseRepositoryUrlFor(tramaiVersion.get()))
+        val repositoryDirectory = File(URI(repositoryUrl))
+        val expectedVersion = tramaiVersion.get()
+        val groupPath = tramaiGroup.get().replace('.', '/')
+
+        publishableProjectNames.forEach { projectName ->
+            val moduleDirectory = repositoryDirectory.resolve("$groupPath/$projectName/$expectedVersion")
+            require(moduleDirectory.isDirectory) {
+                "Missing published module directory for $projectName at ${moduleDirectory.absolutePath}"
+            }
+            val publishedFiles = moduleDirectory.listFiles()?.filter(File::isFile).orEmpty()
+
+            fun requirePublishedArtifact(
+                description: String,
+                predicate: (String) -> Boolean,
+            ) {
+                val matchingFiles = publishedFiles.filter { predicate(it.name) }
+                require(matchingFiles.isNotEmpty()) {
+                    "Missing published $description for $projectName in ${moduleDirectory.absolutePath}"
+                }
+                require(matchingFiles.all { it.length() > 0 }) {
+                    "Published $description is empty for $projectName in ${moduleDirectory.absolutePath}"
+                }
+            }
+
+            requirePublishedArtifact("POM", { it.endsWith(".pom") })
+            requirePublishedArtifact("POM signature", { it.endsWith(".pom.asc") })
+            requirePublishedArtifact("Gradle module metadata", { it.endsWith(".module") })
+            requirePublishedArtifact("Gradle module metadata signature", { it.endsWith(".module.asc") })
+
+            if (projectName != "tramai-bom") {
+                requirePublishedArtifact(
+                    "binary jar",
+                    { it.endsWith(".jar") && !it.endsWith("-sources.jar") && !it.endsWith("-javadoc.jar") },
+                )
+                requirePublishedArtifact(
+                    "binary jar signature",
+                    { it.endsWith(".jar.asc") && !it.endsWith("-sources.jar.asc") && !it.endsWith("-javadoc.jar.asc") },
+                )
+                requirePublishedArtifact("sources jar", { it.endsWith("-sources.jar") })
+                requirePublishedArtifact("sources jar signature", { it.endsWith("-sources.jar.asc") })
+                requirePublishedArtifact("javadoc jar", { it.endsWith("-javadoc.jar") })
+                requirePublishedArtifact("javadoc jar signature", { it.endsWith("-javadoc.jar.asc") })
+            }
+        }
+    }
+}
+
+tasks.register("verifyReleaseReadiness") {
+    group = "verification"
+    description = "Runs the repo-local release verification checks for publication metadata and published artifacts."
+    notCompatibleWithConfigurationCache("Release readiness aggregates execution-time verification tasks.")
+    dependsOn(
+        jarPublishingProjectNames.map { ":$it:test" },
+        "verifyPublicationMetadata",
+        "verifyPublishedLocalArtifacts",
+    )
 }

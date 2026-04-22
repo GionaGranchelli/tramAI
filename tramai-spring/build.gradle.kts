@@ -25,8 +25,12 @@ dependencies {
     implementation(project(":tramai-anthropic"))
     implementation(project(":tramai-openai"))
     implementation(project(":tramai-ollama"))
+    implementation(libs.jackson.databind)
     implementation(libs.spring.context)
     implementation(libs.spring.boot.autoconfigure)
+    implementation(libs.aws.sdk.auth)
+    implementation(libs.aws.sdk.regions)
+    implementation(libs.aws.sdk.secretsmanager)
 
     annotationProcessor(libs.spring.boot.configuration.processor)
 

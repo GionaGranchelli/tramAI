@@ -27,8 +27,8 @@ Deep dives into the primary capabilities of the engine.
 Taking your integration to the next level.
 *   [**Testing TramAI Code**](./guides/testing.md) — Mocking AI responses and writing deterministic tests.
 *   [**Native Image**](./guides/native-image.md) — Running AI services with GraalVM Native Image.
-*   [**Orchestration**](./guides/orchestration.md) — (Experimental) Typed workflow coordination above the core engine.
-*   [**Orchestration Persistence**](./guides/orchestration-persistence.md) — (Experimental) Checkpoint, resume, and lease-aware ownership.
+*   [**Orchestration**](./guides/orchestration.md) — Typed workflow coordination above the core engine.
+*   [**Orchestration Persistence**](./guides/orchestration-persistence.md) — Checkpoint, resume, and lease-aware ownership.
 *   [**Extending TramAI**](./guides/extending-tramai.md) — Writing custom providers, observers, or interceptors.
 
 ---
@@ -48,8 +48,10 @@ Learn more about our decisions in the [**ADR Index**](./adr/README.md).
 
 *   [**Annotation Reference**](./reference/annotations.md) — `@AiService`, `@Operation`, `@SystemPrompt`.
 *   [**Configuration Reference**](./reference/configuration.md) — Spring Boot properties and Builder settings.
+*   [**API Stability**](./reference/api-stability.md) — Stable vs experimental public surface for `0.1.x`.
 *   [**Module Overview**](./architecture/modules.md) — The project's module structure.
 *   [**Limitations**](./reference/limitations.md) — What TramAI is (and isn't) built for.
+*   [**Release Validation**](./reference/release-validation.md) — Concrete local proof points for the current release candidate.
 *   [**Roadmap**](./roadmap.md) — Our path to 1.0.
 
 ---

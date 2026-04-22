@@ -1,9 +1,9 @@
 # SPEC-012: Orchestration and Coordination
 
-- Status: in_progress
+- Status: implemented
 - Owner: maintainer
-- Last updated: 2026-04-20
-- Related roadmap milestone: future / post-Phase 5
+- Last updated: 2026-04-22
+- Related roadmap milestone: stable orchestration foundation
 - Related ADRs: [ADR-017](../adr/adr-017.md), [ADR-001](../adr/adr-001.md), [ADR-009](../adr/adr-009.md), [ADR-014](../adr/adr-014.md)
 - Related docs: [Roadmap Summary](../roadmap.md), [Current Limitations](../reference/limitations.md)
 
@@ -38,11 +38,11 @@ Today users can hand-roll those flows in application code, but that creates repe
 - Tramai must keep orchestration as an optional module rather than making it a new mandatory core abstraction.
 - The orchestration layer must compose typed `@AiService` methods and typed local steps rather than normalizing everything into raw prompt strings.
 - Workflows must support explicit sequential composition, conditional branching, and bounded fan-out/fan-in patterns.
-- Workflow execution must have explicit stop controls such as maximum rounds, maximum branch width, or terminal predicates.
+- Workflow execution must have explicit stop controls for maximum step executions and maximum branch width.
 - The orchestration API must support both AI-backed steps and deterministic local application steps.
 - Workflow state must be explicit and inspectable rather than hidden inside an agent memory abstraction.
 - The orchestration layer must integrate with engine-level observability, token budgets, caching, fallback routing, and retries rather than bypassing them.
-- The public model must make it possible to insert human approval or policy gates as first-class workflow steps.
+- The public model must make it possible to insert approval or policy gates as first-class workflow steps.
 - The orchestration layer must expose a persistence SPI that allows checkpointing and resuming workflow state without hardwiring a storage backend into `tramai-engine`.
 - The checkpoint SPI should support stale-writer protection so database, object-store, and filesystem adapters can enforce safe resume semantics under concurrent executors.
 - The orchestration layer should expose an optional lease and claim SPI so distributed executors can enforce active ownership, not just stale-write protection.
@@ -71,28 +71,69 @@ Today users can hand-roll those flows in application code, but that creates repe
   - workflow stop conditions
   - workflow-level observability
 
-### Core Abstractions
+### Stable Public Contract
 
-The first orchestration design should stay small and explicit. A plausible core set is:
+The stable orchestration surface is intentionally narrow and matches the shipped runtime.
+
+Stable public types:
 
 - `Workflow<S, R>`
   - typed workflow over state `S` that yields result `R`
-- `WorkflowStep<S>`
-  - one transition over workflow state
-- `AiStep<S, I, O>`
-  - extracts typed input `I` from state `S`, invokes an `@AiService` method, and writes typed output `O` back into state
-- `LocalStep<S>`
-  - deterministic application logic over workflow state
-- `BranchStep<S>`
-  - explicit conditional routing
-- `ParallelStep<S, I, O>`
-  - bounded fan-out to multiple typed branches with a typed merge
-- `StopPolicy`
-  - maximum rounds, maximum branches, or terminal predicates
+- `WorkflowBuilder<S>` and `workflow(name, definitionVersion, configure)`
+  - explicit workflow definition entry points with caller-owned `definitionVersion`
 - `WorkflowContext`
-  - workflow id, deadlines, budget hints, observability correlation, human-approval metadata
+  - `workflowId`
+  - free-form `attributes`
+- `StopPolicy`
+  - `maxStepExecutions`
+  - `maxParallelBranches`
+- `WorkflowObserver`
+  - workflow and step lifecycle observation seam
+- `GateDecision`
+  - explicit allow or reject outcome for gate steps
+- `WorkflowPersistence<S>`
+  - typed state codec, checkpoint store, optional lease store, optional lease policy, and delete-on-completion control
+- `WorkflowCheckpoint`
+  - persisted step-boundary snapshot with revision and metadata
+- `WorkflowCheckpointStore`
+  - storage-agnostic load/save/delete SPI with revision-aware conflict semantics
+- `WorkflowStateCodec<S>`
+  - typed state serialization boundary for checkpoints
+- `WorkflowLease`
+  - active ownership record for one workflow run
+- `WorkflowLeasePolicy`
+  - `ownerId` and `leaseDurationMillis`
+- `WorkflowLeaseStore`
+  - optional active-ownership SPI for distributed executors
 
-The first milestone should not require a separate “agent” abstraction. A role can just be a normal typed service used by an `AiStep`.
+Stable workflow step shapes:
+
+- `localStep(...)`
+- `aiStep(...)`
+- `gateStep(...)`
+- `branchStep(...)`
+- `parallelStep(...)`
+
+The stable builder surface does not introduce a separate “agent” abstraction. A role remains a normal typed service used by `aiStep(...)`.
+
+For the current stop-policy contract:
+
+- each top-level workflow step consumes one step-execution slot
+- each branch executed inside `ParallelStep` consumes one additional step-execution slot
+- maximum branch width should be enforced before branch invocation without requiring full materialization of oversized lazy iterables
+
+### Explicitly Deferred Or Out Of Scope
+
+These concepts are intentionally not part of the frozen `0.1.x` orchestration contract:
+
+- max-round controls separate from `maxStepExecutions`
+- terminal predicates in `StopPolicy`
+- typed deadline fields or typed budget-hint fields in `WorkflowContext`
+- typed human-approval metadata fields in `WorkflowContext`
+- mid-step replay, in-flight branch resume, or token-level stream resume
+- dynamic graph mutation during workflow execution
+
+These may be revisited in later specs, but they are not implied by the current public types.
 
 ### Engine vs Orchestration Boundary
 
@@ -128,6 +169,7 @@ That means:
 
 - completed top-level steps can be skipped on resume
 - state snapshots and execution counters survive process restarts when the store is durable
+- checkpoints persist explicit workflow definition compatibility metadata so resume can reject incompatible workflow changes loudly
 - nested branch internals, in-flight parallel branches, and partially emitted streams are not resumed mid-step
 - storage adapters can use optimistic concurrency or equivalent revision checks to reject stale checkpoint writers
 - multi-node executors can add active ownership through optional lease claims layered above checkpoint revisions
@@ -166,6 +208,7 @@ These patterns provide concrete backend value while keeping execution bounded an
 - Workflow execution reuses engine-level retries, budgets, caching, and observability instead of duplicating them.
 - Automated tests can deterministically assert workflow state transitions, branch choices, and final outputs without live provider dependencies.
 - The orchestration module exposes a storage-agnostic checkpoint/resume SPI with tests proving resume from the last completed top-level step.
+- Workflow checkpoints persist explicit definition-version and structural-digest metadata, and resume fails loudly when the metadata is missing or incompatible.
 - The checkpoint SPI exposes revision-aware save/delete semantics with tests proving stale-write conflicts.
 - The orchestration module exposes an optional lease/claim SPI with tests proving competing owners are rejected.
 - The first public design does not require open-ended autonomous chat loops or hidden memory to be useful.

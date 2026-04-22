@@ -8,8 +8,7 @@ It complements the frozen scope in [Release 0.1.0 Scope and Checklist](./release
 
 Before cutting a release:
 
-- `./gradlew test` passes
-- `./gradlew publishToMavenLocal` passes
+- `./gradlew verifyReleaseReadiness` passes
 - `./gradlew -p examples/kotlin-springboot-example test` passes
 - the board and specs reflect the actual repository state
 - the changelog is updated for the version being released
@@ -44,17 +43,38 @@ Without those secrets, the publish workflow falls back to `publishToMavenLocal`.
 Useful commands:
 
 ```bash
-./gradlew test
-./gradlew publishToMavenLocal
+./gradlew verifyReleaseReadiness
 ./gradlew -p examples/kotlin-springboot-example test
 ```
 
 These validate:
 
-- the internal module graph
-- local publication metadata
+- the internal module graph through the root test suite
+- generated POM metadata for every publishable module
+- published local artifacts including sources and javadoc jars
 - consumer resolution from `mavenLocal()`
 - the Spring example smoke path
+
+For a public credibility summary of the currently validated paths, see [Release Validation](./release-validation.md).
+
+## Local Signed-Artifact Validation
+
+When you want to validate signing locally without touching a real remote repository, publish to a file-based Maven repository and verify signatures there:
+
+```bash
+./gradlew verifySignedPublicationBundle \
+  -PtramaiPublishReleaseUrl=file://$PWD/build/release-verification-repo \
+  -PsigningKey="$SIGNING_KEY" \
+  -PsigningPassword="$SIGNING_PASSWORD"
+```
+
+This verifies:
+
+- signed POMs
+- signed binary JARs for library modules
+- signed sources and javadoc JARs for library modules
+
+Use `verifyReleasePublishInputs` when you want to preflight the real remote-publish property set before tagging.
 
 ## Guarded Real-Provider Checks
 

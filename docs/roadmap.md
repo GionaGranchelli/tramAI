@@ -31,7 +31,7 @@ Operational readiness, advanced resilience, PII masking, GraalVM support, and OT
 
 ## Future Direction
 
-Typed orchestration and coordination for multi-service AI workflows.
+Conversation memory, provider-native structured output optimizations, and other post-`0.1.0` capabilities above the now-stable orchestration foundation.
 
 ## Current Delivery Snapshot
 
@@ -39,7 +39,7 @@ Typed orchestration and coordination for multi-service AI workflows.
 - Phase 2: implemented
 - Phase 3: implemented
 - Phase 4: implemented
-- Phase 5: in progress
+- Phase 5: implemented
 
 ## Documentation Implication
 
@@ -56,5 +56,5 @@ The docs in this repository should grow with the roadmap:
 - Phase 2: committed specs and tasks exist
 - Phase 3: committed specs and tasks exist
 - Phase 4: committed specs and tasks exist
-- Phase 5: implementation is in progress under `SPEC-011` and `TASK-016`
-- Future direction: orchestration prototype work is underway under `SPEC-012`, `ADR-017`, and `TASK-017`
+- Phase 5: implemented under `SPEC-011` and `TASK-016`
+- Future direction: orchestration is now stabilized under `SPEC-012` and `TASK-018` to `TASK-024`; later roadmap items build above that foundation

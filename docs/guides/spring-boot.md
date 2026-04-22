@@ -100,6 +100,8 @@ Built-in reference schemes are:
 
 - `env:NAME`
 - `file:/absolute/path/to/secret.txt`
+- `vault:path[#field]` when `tramai.secrets.vault.enabled=true`
+- `aws-secretsmanager:secret-id[#field]` when `tramai.secrets.aws-secrets-manager.enabled=true`
 
 Example:
 
@@ -113,12 +115,42 @@ tramai:
       api-key-secret-ref: env:OPENAI_API_KEY
 ```
 
-You can also provide your own `SecretValueResolver` bean for references like:
+Example using the bundled Vault resolver:
 
-- `vault:ai/openai`
-- `aws-secretsmanager:prod/openai/api-key`
+```yaml
+tramai:
+  default-provider: openai
+  models:
+    gpt-5.1-chat-latest: openai
+  secrets:
+    vault:
+      enabled: true
+      base-url: https://vault.example.com
+      token-secret-ref: env:VAULT_TOKEN
+  providers:
+    openai:
+      api-key-secret-ref: vault:providers/openai/api-key
+```
 
-Tramai does not bundle AWS or Vault SDK adapters yet, but the resolver seam is designed for those integrations.
+Example using the bundled AWS Secrets Manager resolver:
+
+```yaml
+tramai:
+  default-provider: openai
+  models:
+    gpt-5.1-chat-latest: openai
+  secrets:
+    aws-secrets-manager:
+      enabled: true
+      region: eu-west-1
+      access-key-id-secret-ref: env:AWS_ACCESS_KEY_ID
+      secret-access-key-secret-ref: env:AWS_SECRET_ACCESS_KEY
+  providers:
+    openai:
+      api-key-secret-ref: aws-secretsmanager:prod/openai/api-key
+```
+
+You can still provide your own `SecretValueResolver` bean when you need a different scheme or a different client implementation.
 
 ## Response Caching
 

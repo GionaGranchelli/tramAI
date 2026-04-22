@@ -38,6 +38,8 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import java.util.Collections
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 
 class TramaiEngineTest {
@@ -71,6 +73,17 @@ class TramaiEngineTest {
         val result = service.summarize("raw input")
 
         assertThat(result).isEqualTo("summary")
+    }
+
+    @Test
+    fun `supports java declared blocking interfaces without kotlin reflection metadata`() {
+        val provider = RecordingProvider { ModelResponse(content = "echoed") }
+        val engine = TramaiEngine(provider)
+        val service = engine.create(JavaBlockingEchoService::class)
+
+        val result = service.echo("raw input")
+
+        assertThat(result).isEqualTo("echoed")
     }
 
     @Test
@@ -743,30 +756,62 @@ class TramaiEngineTest {
     @Test
     fun `rate limiting works correctly in high-concurrency simulations`() {
         val observer = RecordingObserver()
-        val provider = RecordingProvider {
-            ModelResponse(content = "ok", inputTokens = 1, outputTokens = 1)
+        val requestCount = AtomicInteger(0)
+        val rateLimitCount = AtomicInteger(0)
+        val inFlight = AtomicInteger(0)
+        val recordedRequests = Collections.synchronizedList(mutableListOf<ModelRequest>())
+        val provider = object : ModelProvider {
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                recordedRequests += request
+                requestCount.incrementAndGet()
+                val currentInFlight = inFlight.incrementAndGet()
+                if (currentInFlight > 5) {
+                    inFlight.decrementAndGet()
+                    rateLimitCount.incrementAndGet()
+                    throw ProviderException(
+                        message = "rate limited",
+                        statusCode = 429,
+                        retryable = true,
+                        retryAfterMillis = 10,
+                    )
+                }
+
+                return try {
+                    delay(10)
+                    ModelResponse(content = "ok", inputTokens = 1, outputTokens = 1)
+                } finally {
+                    inFlight.decrementAndGet()
+                }
+            }
+
+            override fun providerId(): String = "rate-limited"
         }
         val engine = TramaiEngine(
             provider = provider,
             operationObserver = observer,
-            tokenBudgetSettings = TokenBudgetSettings(
-                hardMaxTokensPerAttempt = 1,
+            retryPolicySettings = RetryPolicySettings(
+                maxRetryAfterMillis = 50,
+                jitterRatio = 0.0,
             ),
         )
-        val service = engine.create<SuspendAnalyzer>()
+        val service = engine.create<HighConcurrencyRetryService>()
 
-        runBlocking {
+        val results = runBlocking {
             val jobs = (1..50).map {
                 async {
-                    runCatching { service.analyze("input") }
+                    service.analyze("input-$it")
                 }
             }
             jobs.awaitAll()
         }
 
-        assertThat(observer.records).hasSize(50)
-        assertThat(observer.records.all { it.response?.totalTokens() == 2 }).isTrue()
-        // verify they all threw TokenBudgetExceededException
+        assertThat(results).allMatch { it == "ok" }
+        assertThat(rateLimitCount.get()).isGreaterThan(0)
+        assertThat(requestCount.get()).isGreaterThan(50)
+        assertThat(recordedRequests).hasSize(requestCount.get())
+        assertThat(observer.records.count { it.response?.content == "ok" }).isEqualTo(50)
+        assertThat(observer.records.flatMap { it.engineEvents }.count { it.name == "tramai.retry.scheduled" })
+            .isGreaterThan(0)
     }
 }
 
@@ -776,6 +821,16 @@ private interface SuspendAnalyzer {
     @Operation(
         prompt = "Analyze the invoice and return a raw summary",
         model = "claude-sonnet-4-20250514",
+    )
+    suspend fun analyze(invoiceId: String): String
+}
+
+@AiService
+private interface HighConcurrencyRetryService {
+    @Operation(
+        prompt = "Analyze under concurrent rate limiting",
+        model = "claude-sonnet-4-20250514",
+        providerRetries = 12,
     )
     suspend fun analyze(invoiceId: String): String
 }

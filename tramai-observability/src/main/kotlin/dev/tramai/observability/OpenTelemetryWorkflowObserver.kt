@@ -1,8 +1,4 @@
-@file:OptIn(ExperimentalTramAIOrchestration::class)
-
 package dev.tramai.observability
-
-import dev.tramai.orchestration.ExperimentalTramAIOrchestration
 import dev.tramai.orchestration.WorkflowContext
 import dev.tramai.orchestration.WorkflowObserver
 import io.opentelemetry.api.OpenTelemetry
@@ -14,18 +10,15 @@ import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.api.trace.Tracer
 import java.util.concurrent.ConcurrentHashMap
-
 /**
  * OpenTelemetry-backed [WorkflowObserver] implementation.
  */
-@ExperimentalTramAIOrchestration
 class OpenTelemetryWorkflowObserver(
     private val tracer: Tracer,
     private val meter: Meter = OpenTelemetry.noop().getMeter("dev.tramai.observability"),
 ) : WorkflowObserver {
     private val metrics = OpenTelemetryWorkflowMetrics(meter)
-    private val activeWorkflows = ConcurrentHashMap<String, ActiveWorkflowSpan>()
-
+    private val activeWorkflows = ConcurrentHashMap<WorkflowRunKey, ActiveWorkflowSpan>()
     constructor(
         openTelemetry: OpenTelemetry,
         instrumentationName: String = "dev.tramai.observability",
@@ -33,11 +26,14 @@ class OpenTelemetryWorkflowObserver(
         tracer = openTelemetry.getTracer(instrumentationName),
         meter = openTelemetry.getMeter(instrumentationName),
     )
-
     override fun onWorkflowStarted(
         workflowName: String,
         context: WorkflowContext,
     ) {
+        val runKey = WorkflowRunKey(
+            workflowName = workflowName,
+            workflowId = context.workflowId,
+        )
         val span = tracer.spanBuilder("workflow.$workflowName").startSpan()
         val baseAttributes = mutableMapOf<String, Any?>(
             "tramai.workflow.name" to workflowName,
@@ -45,7 +41,6 @@ class OpenTelemetryWorkflowObserver(
         ).apply {
             putAll(context.attributes.mapKeys { "tramai.workflow.context.${it.key}" })
         }
-
         span.setAttribute("tramai.workflow.name", workflowName)
         span.setAttribute("tramai.workflow.id", context.workflowId)
         context.attributes.forEach { (key, value) ->
@@ -60,21 +55,19 @@ class OpenTelemetryWorkflowObserver(
                 else -> span.setAttribute("tramai.workflow.context.$key", value.toString())
             }
         }
-
-        activeWorkflows[context.workflowId] = ActiveWorkflowSpan(
+        activeWorkflows[runKey] = ActiveWorkflowSpan(
             span = span,
             startedAtNanos = System.nanoTime(),
             baseAttributes = baseAttributes,
         )
     }
-
     override fun onWorkflowEvent(
         workflowName: String,
         name: String,
         attributes: Map<String, Any?>,
         context: WorkflowContext,
     ) {
-        activeWorkflows[context.workflowId]?.recordEvent(name, attributes)
+        activeWorkflows[WorkflowRunKey(workflowName, context.workflowId)]?.recordEvent(name, attributes)
         metrics.events.add(
             1,
             workflowAttributes(
@@ -85,36 +78,33 @@ class OpenTelemetryWorkflowObserver(
             ),
         )
     }
-
     override fun onStepStarted(
         workflowName: String,
         stepName: String,
         context: WorkflowContext,
     ) {
-        activeWorkflows[context.workflowId]?.recordEvent(
+        activeWorkflows[WorkflowRunKey(workflowName, context.workflowId)]?.recordEvent(
             name = "tramai.workflow.step.started",
             attributes = mapOf("step_name" to stepName),
         )
     }
-
     override fun onStepCompleted(
         workflowName: String,
         stepName: String,
         context: WorkflowContext,
     ) {
-        activeWorkflows[context.workflowId]?.recordEvent(
+        activeWorkflows[WorkflowRunKey(workflowName, context.workflowId)]?.recordEvent(
             name = "tramai.workflow.step.completed",
             attributes = mapOf("step_name" to stepName),
         )
     }
-
     override fun onStepFailed(
         workflowName: String,
         stepName: String,
         error: Throwable,
         context: WorkflowContext,
     ) {
-        activeWorkflows[context.workflowId]?.apply {
+        activeWorkflows[WorkflowRunKey(workflowName, context.workflowId)]?.apply {
             span.recordException(error)
             recordEvent(
                 name = "tramai.workflow.step.failed",
@@ -125,7 +115,6 @@ class OpenTelemetryWorkflowObserver(
             )
         }
     }
-
     override fun onWorkflowCompleted(
         workflowName: String,
         context: WorkflowContext,
@@ -137,7 +126,6 @@ class OpenTelemetryWorkflowObserver(
             error = null,
         )
     }
-
     override fun onWorkflowFailed(
         workflowName: String,
         error: Throwable,
@@ -150,14 +138,18 @@ class OpenTelemetryWorkflowObserver(
             error = error,
         )
     }
-
     private fun completeWorkflow(
         workflowName: String,
         context: WorkflowContext,
         outcome: String,
         error: Throwable?,
     ) {
-        val active = activeWorkflows.remove(context.workflowId) ?: return
+        val active = activeWorkflows.remove(
+            WorkflowRunKey(
+                workflowName = workflowName,
+                workflowId = context.workflowId,
+            ),
+        ) ?: return
         if (error != null) {
             active.span.recordException(error)
             active.span.setStatus(StatusCode.ERROR, error.message ?: "Workflow failed")
@@ -178,7 +170,6 @@ class OpenTelemetryWorkflowObserver(
         )
         active.span.end()
     }
-
     private fun workflowAttributes(
         workflowName: String,
         workflowId: String,
@@ -191,7 +182,10 @@ class OpenTelemetryWorkflowObserver(
         putAll(extraAttributes)
     }.toOpenTelemetryAttributes()
 }
-
+private data class WorkflowRunKey(
+    val workflowName: String,
+    val workflowId: String,
+)
 private class OpenTelemetryWorkflowMetrics(
     meter: Meter,
 ) {
@@ -199,18 +193,15 @@ private class OpenTelemetryWorkflowMetrics(
         .setDescription("Completed Tramai workflows")
         .setUnit("{workflow}")
         .build()
-
     val duration: DoubleHistogram = meter.histogramBuilder("tramai.workflow.duration")
         .setDescription("Duration of Tramai workflows")
         .setUnit("ms")
         .build()
-
     val events: LongCounter = meter.counterBuilder("tramai.workflow.events")
         .setDescription("Workflow-level checkpoint, lease, and step events emitted by Tramai")
         .setUnit("{event}")
         .build()
 }
-
 private data class ActiveWorkflowSpan(
     val span: Span,
     val startedAtNanos: Long,

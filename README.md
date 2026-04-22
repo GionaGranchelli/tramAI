@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/GionaGranchelli/tramAI/actions/workflows/ci.yml/badge.svg)](https://github.com/GionaGranchelli/tramAI/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Kotlin](https://img.shields.io/badge/kotlin-2.1.0-blue.svg?logo=kotlin)](http://kotlinlang.org)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.2-brightgreen.svg?logo=springboot)](https://spring.io/projects/spring-boot)
+[![Kotlin](https://img.shields.io/badge/kotlin-2.3.0-blue.svg?logo=kotlin)](http://kotlinlang.org)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.5-brightgreen.svg?logo=springboot)](https://spring.io/projects/spring-boot)
 
 **TramAI** is a structured-first AI integration library for the JVM.
 
@@ -92,12 +92,24 @@ Those are composable concerns that belong in application code or in dedicated li
 
 ## 📦 Installation & Modules
 
-### Dependency Management (Gradle)
+TramAI `0.1.x` targets Java `25+`.
+
+### Published Coordinates (Gradle)
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.1.0-SNAPSHOT"))
+implementation(platform("dev.tramai:tramai-bom:<version>"))
 implementation("dev.tramai:tramai-standalone")
 implementation("dev.tramai:tramai-openai") 
+```
+
+Use `0.1.0` for the first public release once it is available from Maven Central.
+
+### Before The First Public Release
+
+Until the public artifacts are live, build from source and publish the modules to your local Maven repository:
+
+```bash
+./gradlew publishToMavenLocal
 ```
 
 | Module | Description |
@@ -107,7 +119,7 @@ implementation("dev.tramai:tramai-openai")
 | `tramai-standalone` | Minimal builder for non-Spring environments. |
 | `tramai-spring` | Spring Boot Starters and Auto-configuration. |
 | `tramai-observability` | OpenTelemetry Tracing and Metrics. |
-| `tramai-orchestration` | Experimental typed workflow coordination with checkpoint/resume support. |
+| `tramai-orchestration` | Typed workflow coordination with checkpoint/resume and optional lease-aware execution. |
 | `tramai-testing` | Mock providers and deterministic assertion support. |
 
 ---
@@ -123,6 +135,8 @@ implementation("dev.tramai:tramai-openai")
 *   [Native Image](docs/guides/native-image.md)
 *   [Orchestration](docs/guides/orchestration.md)
 *   [Observability & Monitoring](docs/guides/observability.md)
+*   [API Stability](docs/reference/api-stability.md)
+*   [Release Validation](docs/reference/release-validation.md)
 
 ---
 

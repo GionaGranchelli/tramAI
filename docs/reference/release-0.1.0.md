@@ -28,7 +28,7 @@ The `0.1.0` release is frozen to the following feature set:
 - OpenTelemetry integration through `tramai-observability`
 - OpenTelemetry metrics for engine attempts, token usage, parse failures, engine events, and workflow execution
 - standalone runtime, Kotlin DSL, Java entry points, and blocking interfaces
-- Spring Boot autoconfiguration and `tramai.*` configuration binding
+- Spring Boot autoconfiguration, `tramai.*` configuration binding, and built-in Vault/AWS secret reference resolution
 - testing module with deterministic mock provider support and assertion helpers
 - streaming responses
 - engine-owned tool calling
@@ -54,7 +54,7 @@ What is already strong:
 - structured output works and now includes timeout and provider-retry hardening
 - streaming, tool calling, and engine-owned resilience controls are implemented in code
 - standalone, Spring, observability, testing, and publication conventions all exist in code
-- typed orchestration exists as an optional module and should be documented as experimental rather than excluded
+- typed orchestration exists as an optional stable module with explicit workflow, checkpoint/resume, and lease-aware coordination boundaries
 - local example applications can demonstrate typed output behavior
 
 What still blocks a credible first public MVP release:
@@ -70,7 +70,7 @@ What still blocks a credible first public MVP release:
 
 - [x] README is concise, accurate, and reflects shipped behavior rather than aspirational APIs
 - [x] CONTRIBUTING guidance reflects the current module and quality boundaries
-- [ ] CHANGELOG contains a real `0.1.0` entry
+- [x] CHANGELOG contains a real `0.1.0` entry
 - [x] examples are runnable and align with current provider/runtime behavior
 - [x] limitations and roadmap pages are consistent with implementation reality
 
@@ -83,22 +83,22 @@ What still blocks a credible first public MVP release:
 
 ### API and Scope Discipline
 
-- [ ] public APIs included in `0.1.0` are stable enough to document honestly
-- [ ] explicitly experimental features are labeled as experimental in code and docs
+- [x] public APIs included in `0.1.0` are stable enough to document honestly
+- [x] explicitly experimental features are labeled as experimental in code and docs
 - [x] `0.1.0` documents shipped features as shipped and labels experimental surfaces explicitly
 
 ### Release and Publishing
 
-- [ ] publication metadata is correct for all publishable modules
-- [ ] signed artifacts, sources JARs, and javadoc JARs are produced
+- [x] publication metadata is correct for all publishable modules
+- [x] signed artifacts, sources JARs, and javadoc JARs are produced in local release verification
 - [ ] release workflow can publish on tag with real credentials
 - [x] local `publishToMavenLocal` smoke path remains green
 
 ### Credibility and Adoption
 
-- [ ] at least one real usage proof or internal integration story is documented
-- [ ] provider configuration and structured-output docs are easy for a new user to follow
-- [ ] Spring and standalone quickstarts are both credible and current
+- [x] at least one real usage proof or internal integration story is documented
+- [x] provider configuration and structured-output docs are easy for a new user to follow
+- [x] Spring and standalone quickstarts are both credible and current
 
 ## Release Exit Criteria
 

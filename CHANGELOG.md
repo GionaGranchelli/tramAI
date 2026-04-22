@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-## 0.1.0-SNAPSHOT
+- No unreleased changes yet.
+
+## 0.1.0
+
+Release entry prepared for the first public release of TramAI.
 
 ### Added
 
@@ -24,5 +28,6 @@
 
 ### Notes
 
-- This is still a snapshot line, not a final public release tag.
-- The eventual `0.1.0` release entry should be cut from this section once publish operations complete.
+- TramAI `0.1.x` targets Java `25+`.
+- `tramai-orchestration` ships as an optional experimental module while its API settles.
+- Add the final release date when the `v0.1.0` tag and Maven Central publication complete.

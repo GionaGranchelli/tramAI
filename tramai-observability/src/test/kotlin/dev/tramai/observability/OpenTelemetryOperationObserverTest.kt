@@ -15,17 +15,24 @@ import dev.tramai.observability.OpenTelemetryOperationObserverTest.MetricNames.I
 import dev.tramai.observability.OpenTelemetryOperationObserverTest.MetricNames.OUTPUT_TOKENS
 import dev.tramai.observability.OpenTelemetryOperationObserverTest.MetricNames.PARSE_FAILURES
 import dev.tramai.structured.JacksonStructuredOutputHandler
+import com.sun.net.httpserver.HttpServer
+import io.opentelemetry.exporter.otlp.http.metrics.OtlpHttpMetricExporter
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.sdk.OpenTelemetrySdk
 import io.opentelemetry.sdk.metrics.SdkMeterProvider
 import io.opentelemetry.sdk.metrics.data.HistogramPointData
 import io.opentelemetry.sdk.metrics.data.LongPointData
+import io.opentelemetry.sdk.metrics.export.PeriodicMetricReader
 import io.opentelemetry.sdk.testing.exporter.InMemoryMetricReader
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter
 import io.opentelemetry.sdk.trace.SdkTracerProvider
 import io.opentelemetry.sdk.trace.`export`.SimpleSpanProcessor
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import java.net.InetSocketAddress
+import java.time.Duration
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.test.AfterTest
 import kotlin.test.Test
 
@@ -158,6 +165,65 @@ class OpenTelemetryOperationObserverTest {
             .containsEntry(AttributeKey.longKey("delay_millis"), 42L)
             .containsEntry(AttributeKey.stringKey("delay_source"), "retry_after")
             .containsEntry(AttributeKey.booleanKey("is_fallback"), false)
+    }
+
+    @Test
+    fun `exports operation metrics over OTLP HTTP`() {
+        val exportLatch = CountDownLatch(1)
+        var capturedRequestPath = ""
+        var capturedContentType = ""
+        var capturedBody = ByteArray(0)
+        val server = HttpServer.create(InetSocketAddress(0), 0)
+        server.createContext("/v1/metrics") { exchange ->
+            capturedRequestPath = exchange.requestURI.path
+            capturedContentType = exchange.requestHeaders.getFirst("Content-Type")
+            capturedBody = exchange.requestBody.readBytes()
+            exchange.sendResponseHeaders(200, -1)
+            exchange.close()
+            exportLatch.countDown()
+        }
+        server.start()
+
+        val metricExporter = OtlpHttpMetricExporter.builder()
+            .setEndpoint("http://localhost:${server.address.port}/v1/metrics")
+            .build()
+        val periodicMetricReader = PeriodicMetricReader.builder(metricExporter)
+            .setInterval(Duration.ofMillis(25))
+            .build()
+        val otlpMeterProvider = SdkMeterProvider.builder()
+            .registerMetricReader(periodicMetricReader)
+            .build()
+        val otlpOpenTelemetry = OpenTelemetrySdk.builder()
+            .setMeterProvider(otlpMeterProvider)
+            .build()
+
+        try {
+            val provider = RecordingProvider("openai") {
+                ModelResponse(
+                    content = "hello",
+                    inputTokens = 9,
+                    outputTokens = 4,
+                    modelUsed = "gpt-5.1-chat-latest",
+                )
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                operationObserver = OpenTelemetryOperationObserver(otlpOpenTelemetry),
+            )
+            val service = engine.create<RawService>()
+
+            val result = runBlocking { service.respond("world") }
+
+            assertThat(result).isEqualTo("hello")
+            assertThat(otlpMeterProvider.forceFlush().join(5, TimeUnit.SECONDS).isSuccess()).isTrue()
+            assertThat(exportLatch.await(5, TimeUnit.SECONDS)).isTrue()
+            assertThat(capturedRequestPath).isEqualTo("/v1/metrics")
+            assertThat(capturedContentType).startsWith("application/x-protobuf")
+            assertThat(capturedBody).isNotEmpty()
+        } finally {
+            otlpMeterProvider.shutdown()
+            server.stop(0)
+        }
     }
 
     private fun longSumPoint(

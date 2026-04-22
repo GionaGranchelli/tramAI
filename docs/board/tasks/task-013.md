@@ -1,10 +1,10 @@
 # TASK-013: Final 0.1.0 Release Execution Summary
 
-- Status: planned
+- Status: in_progress
 - Priority: high
 - Primary spec: [SPEC-008](../../specs/spec-008-documentation-publishing.md)
 - Related ADRs: [ADR-005](../../adr/adr-005.md), [ADR-008](../../adr/adr-008.md)
-- Last updated: 2026-04-18
+- Last updated: 2026-04-21
 
 ## Purpose
 
@@ -25,15 +25,14 @@ Already complete inside the repository:
 
 Still not complete:
 
-- final non-snapshot `0.1.0` changelog entry
-- remote publish validation with real credentials and signing
+- remote publish validation with real credentials
 - execution of the guarded provider checks with real environment values
-- a stronger public credibility anchor or live proof
+- final operator confirmation that the intended release key and repository credentials work together end to end
 
 ## Next Step Sequence
 
 1. Finalize release metadata.
-   Convert the current snapshot-style changelog and release docs into the exact `0.1.0` release wording.
+   Confirm the release docs still match the exact `0.1.0` release wording after publication details are finalized.
 
 2. Run guarded real-provider checks intentionally.
    Execute the Ollama and OpenAI integration tests with real environment variables and capture the outcome.
@@ -44,8 +43,8 @@ Still not complete:
 4. Confirm published consumer experience.
    Verify that the released coordinates resolve cleanly and that the example still works as a consumer.
 
-5. Record a credibility anchor.
-   Add one concrete public proof point, such as a documented internal usage story, release validation note, or other evidence that Tramai has been exercised as intended.
+5. Record final operator evidence.
+   Capture the real publish run, real-provider checks, and release-key signing outcome so `TASK-012` can close honestly.
 
 ## Exit Criteria
 

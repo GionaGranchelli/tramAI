@@ -113,7 +113,10 @@ That gives database, object-store, and filesystem implementations the same optim
 Once you have a codec and store, attach them through `WorkflowPersistence`:
 
 ```kotlin
-val workflow = workflow<ReviewState>("review-workflow") {
+val workflow = workflow<ReviewState>(
+    name = "review-workflow",
+    definitionVersion = "review-v1",
+) {
     localStep(
         name = "draft",
         transform = { state, _ -> state.copy(draft = "draft:${state.requestId}") },
@@ -146,6 +149,32 @@ val result = workflow.resume(
     persistence = persistence,
 )
 ```
+
+## Resume Compatibility Contract
+
+Resume is intentionally strict.
+
+A checkpoint may resume only when all of the following are true:
+
+- the checkpoint exists for the same workflow name and `workflowId`
+- the checkpoint was written with the runtime's required definition metadata
+- the current workflow uses the same explicit `definitionVersion`
+- the current workflow definition digest matches the persisted digest
+
+The persisted digest is structural. It includes:
+
+- workflow name
+- top-level and nested step topology
+- step names and branch keys
+- stop-policy compatibility inputs such as max step executions and max parallel branches
+
+Practical consequences:
+
+- changing workflow structure without changing `definitionVersion` still fails loudly on resume
+- changing `definitionVersion` intentionally also fails loudly on resume against older checkpoints
+- checkpoints created before the stable resume-compatibility metadata contract are rejected rather than resumed heuristically
+
+For persisted workflows, treat `definitionVersion` as an intentional operator-controlled compatibility boundary.
 
 ## Multi-Node Ownership
 

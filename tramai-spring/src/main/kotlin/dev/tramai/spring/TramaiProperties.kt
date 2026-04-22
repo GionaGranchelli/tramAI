@@ -13,6 +13,7 @@ data class TramaiProperties(
     var resilience: Resilience = Resilience(),
     var cost: Cost = Cost(),
     var cache: Cache = Cache(),
+    var secrets: Secrets = Secrets(),
     var providers: Providers = Providers(),
 ) {
     /**
@@ -77,6 +78,44 @@ data class TramaiProperties(
     data class InMemoryCache(
         var enabled: Boolean = false,
         var maxEntries: Int = 1_000,
+    )
+
+    /**
+     * Built-in secret resolver settings.
+     */
+    data class Secrets(
+        var vault: Vault = Vault(),
+        var awsSecretsManager: AwsSecretsManager = AwsSecretsManager(),
+    )
+
+    /**
+     * Vault-backed secret resolution settings.
+     */
+    data class Vault(
+        var enabled: Boolean = false,
+        var baseUrl: String? = null,
+        var token: String? = null,
+        var tokenSecretRef: String? = null,
+        var namespace: String? = null,
+        var mountPath: String = "secret",
+        var kvVersion: Int = 2,
+        var defaultField: String = "value",
+    )
+
+    /**
+     * AWS Secrets Manager-backed secret resolution settings.
+     */
+    data class AwsSecretsManager(
+        var enabled: Boolean = false,
+        var region: String? = null,
+        var endpoint: String? = null,
+        var accessKeyId: String? = null,
+        var accessKeyIdSecretRef: String? = null,
+        var secretAccessKey: String? = null,
+        var secretAccessKeySecretRef: String? = null,
+        var sessionToken: String? = null,
+        var sessionTokenSecretRef: String? = null,
+        var defaultField: String = "value",
     )
 
     /**

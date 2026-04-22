@@ -1,7 +1,4 @@
-@file:OptIn(ExperimentalTramAIOrchestration::class)
-
 package dev.tramai.orchestration
-
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -17,7 +14,6 @@ import java.sql.ResultSet
 import java.sql.SQLException
 import java.util.logging.Logger
 import javax.sql.DataSource
-
 class WorkflowCheckpointStoreTest {
     @Test
     fun `file checkpoint store round trips and enforces revision conflicts`() {
@@ -29,7 +25,6 @@ class WorkflowCheckpointStoreTest {
                 workflowId = "wf-1",
                 statePayload = "draft\nreview",
             )
-
             val first = runBlocking { store.save(checkpoint) }
             val second = runBlocking {
                 store.save(
@@ -42,11 +37,9 @@ class WorkflowCheckpointStoreTest {
                 )
             }
             val loaded = runBlocking { store.load("file-workflow", "wf-1") }
-
             assertThat(first.revision).isEqualTo(1)
             assertThat(second.revision).isEqualTo(2)
             assertThat(loaded).isEqualTo(second)
-
             assertThatThrownBy {
                 runBlocking {
                     store.save(
@@ -57,7 +50,6 @@ class WorkflowCheckpointStoreTest {
             }
                 .isInstanceOf(WorkflowCheckpointConflictException::class.java)
                 .hasMessageContaining("expected revision 1")
-
             runBlocking {
                 store.delete(
                     workflowName = "file-workflow",
@@ -70,7 +62,6 @@ class WorkflowCheckpointStoreTest {
             deleteRecursively(directory)
         }
     }
-
     @Test
     fun `markdown checkpoint store writes readable markdown and round trips payload`() {
         val directory = createTempDirectory("tramai-markdown-store")
@@ -81,7 +72,6 @@ class WorkflowCheckpointStoreTest {
                 workflowId = "wf-md",
                 statePayload = "line-1\n```json\n{\"ok\":true}\n```",
             )
-
             val persisted = runBlocking { store.save(checkpoint) }
             val checkpointPath = directory
                 .resolve("markdown-workflow")
@@ -89,7 +79,6 @@ class WorkflowCheckpointStoreTest {
                 .resolve("checkpoint.md")
             val markdown = Files.readString(checkpointPath)
             val loaded = runBlocking { store.load("markdown-workflow", "wf-md") }
-
             assertThat(markdown)
                 .contains("# Tramai Workflow Checkpoint")
                 .contains("## State Payload")
@@ -100,7 +89,6 @@ class WorkflowCheckpointStoreTest {
             deleteRecursively(directory)
         }
     }
-
     @Test
     fun `jdbc checkpoint store round trips and rejects stale revisions`() {
         val backend = FakeJdbcBackend()
@@ -110,7 +98,6 @@ class WorkflowCheckpointStoreTest {
             workflowId = "wf-jdbc",
             statePayload = "state-1",
         )
-
         val first = runBlocking { store.save(checkpoint) }
         val loaded = runBlocking { store.load("jdbc-workflow", "wf-jdbc") }
         val second = runBlocking {
@@ -124,14 +111,12 @@ class WorkflowCheckpointStoreTest {
                 expectedRevision = first.revision,
             )
         }
-
         assertThat(first.revision).isEqualTo(1)
         assertThat(loaded).isEqualTo(first)
         assertThat(second.revision).isEqualTo(2)
         assertThat(runBlocking { store.load("jdbc-workflow", "wf-jdbc") }).isEqualTo(second)
         assertThat(store.createTableSql()).contains("CREATE TABLE")
             .contains("tramai_workflow_checkpoint")
-
         assertThatThrownBy {
             runBlocking {
                 store.save(
@@ -142,7 +127,6 @@ class WorkflowCheckpointStoreTest {
         }
             .isInstanceOf(WorkflowCheckpointConflictException::class.java)
             .hasMessageContaining("expected revision 1")
-
         assertThatThrownBy {
             runBlocking {
                 store.delete(
@@ -154,7 +138,6 @@ class WorkflowCheckpointStoreTest {
         }
             .isInstanceOf(WorkflowCheckpointConflictException::class.java)
             .hasMessageContaining("expected revision 1")
-
         runBlocking {
             store.delete(
                 workflowName = "jdbc-workflow",
@@ -165,7 +148,6 @@ class WorkflowCheckpointStoreTest {
         assertThat(runBlocking { store.load("jdbc-workflow", "wf-jdbc") }).isNull()
     }
 }
-
 private fun sampleCheckpoint(
     workflowName: String,
     workflowId: String,
@@ -180,39 +162,27 @@ private fun sampleCheckpoint(
     metadata = mapOf("tenant" to "alpha", "format" to "test"),
     savedAtEpochMillis = 1234,
 )
-
 private fun deleteRecursively(directory: Path) {
     Files.walk(directory)
         .sorted(Comparator.reverseOrder())
         .forEach(Files::deleteIfExists)
 }
-
 private class FakeJdbcBackend {
     private val rows = linkedMapOf<Pair<String, String>, WorkflowCheckpoint>()
-
     fun dataSource(): DataSource = object : DataSource {
         override fun getConnection(): Connection = connectionProxy()
-
         override fun getConnection(
             username: String?,
             password: String?,
         ): Connection = connectionProxy()
-
         override fun getLogWriter(): PrintWriter? = null
-
         override fun setLogWriter(out: PrintWriter?) = Unit
-
         override fun setLoginTimeout(seconds: Int) = Unit
-
         override fun getLoginTimeout(): Int = 0
-
         override fun getParentLogger(): Logger = Logger.getGlobal()
-
         override fun <T : Any?> unwrap(iface: Class<T>?): T = throw SQLException("Unsupported")
-
         override fun isWrapperFor(iface: Class<*>?): Boolean = false
     }
-
     private fun connectionProxy(): Connection = proxy(Connection::class.java) { method, args ->
         when (method.name) {
             "prepareStatement" -> preparedStatementProxy(args[0] as String)
@@ -224,11 +194,9 @@ private class FakeJdbcBackend {
             else -> defaultValue(method.returnType)
         }
     }
-
     private fun preparedStatementProxy(sql: String): PreparedStatement {
         val normalizedSql = sql.trim().uppercase()
         val parameters = linkedMapOf<Int, Any?>()
-
         return proxy(PreparedStatement::class.java) { method, args ->
             when (method.name) {
                 "setString", "setInt", "setLong" -> {
@@ -244,11 +212,9 @@ private class FakeJdbcBackend {
             }
         }
     }
-
     private fun selectRow(parameters: Map<Int, Any?>): WorkflowCheckpoint? = rows[
         (parameters[1] as String) to (parameters[2] as String)
     ]
-
     private fun executeUpdate(
         normalizedSql: String,
         parameters: Map<Int, Any?>,
@@ -275,7 +241,6 @@ private class FakeJdbcBackend {
             if (existing.revision != expectedRevision) {
                 return 0
             }
-
             rows[key] = existing.copy(
                 nextStepIndex = parameters[1] as Int,
                 stepExecutions = parameters[2] as Int,
@@ -299,7 +264,6 @@ private class FakeJdbcBackend {
         }
         else -> error("Unsupported SQL '$normalizedSql'")
     }
-
     private fun resultSetProxy(row: WorkflowCheckpoint?): ResultSet {
         var consumed = false
         return proxy(ResultSet::class.java) { method, args ->
@@ -322,7 +286,6 @@ private class FakeJdbcBackend {
         }
     }
 }
-
 private fun WorkflowCheckpoint.stringValue(column: Any?): String? = when (column) {
     "workflow_name" -> workflowName
     "workflow_id" -> workflowId
@@ -331,19 +294,16 @@ private fun WorkflowCheckpoint.stringValue(column: Any?): String? = when (column
     "metadata_payload" -> encodeMetadata(metadata)
     else -> error("Unsupported column '$column'")
 }
-
 private fun WorkflowCheckpoint.intValue(column: Any?): Int = when (column) {
     "next_step_index" -> nextStepIndex
     "step_executions" -> stepExecutions
     else -> error("Unsupported column '$column'")
 }
-
 private fun WorkflowCheckpoint.longValue(column: Any?): Long = when (column) {
     "revision" -> revision
     "saved_at_epoch_millis" -> savedAtEpochMillis
     else -> error("Unsupported column '$column'")
 }
-
 private fun <T> proxy(
     type: Class<T>,
     handler: (method: java.lang.reflect.Method, args: Array<out Any?>) -> Any?,
@@ -356,7 +316,6 @@ private fun <T> proxy(
         handler(method, args ?: emptyArray())
     } as T
 }
-
 private fun defaultValue(returnType: Class<*>): Any? = when {
     !returnType.isPrimitive -> null
     returnType == Boolean::class.javaPrimitiveType -> false

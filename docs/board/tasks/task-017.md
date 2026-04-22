@@ -4,7 +4,7 @@
 - Priority: medium
 - Primary spec: [SPEC-012](../../specs/spec-012-orchestration-and-coordination.md)
 - Related ADRs: [ADR-017](../../adr/adr-017.md)
-- Last updated: 2026-04-20
+- Last updated: 2026-04-22
 
 ## Purpose
 
@@ -30,3 +30,8 @@ Define an orchestration module that coordinates multiple typed AI services witho
 - [x] The engine/orchestration boundary is preserved and documented.
 - [x] At least one prototype API sketch proves typed workflow composition without hidden memory.
 - [x] The design remains aligned with Tramai's typed backend-first identity.
+
+## Notes
+
+This design task is complete.
+The follow-on stabilization and promotion work is now tracked under `TASK-018` through `TASK-024`.
