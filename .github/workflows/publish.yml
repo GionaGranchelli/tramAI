@@ -6,6 +6,10 @@ on:
     tags:
       - "v*"
 
+env:
+  TRAMAI_CENTRAL_NAMESPACE: dev.tramai
+  TRAMAI_CENTRAL_STAGING_API_URL: https://ossrh-staging-api.central.sonatype.com
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -61,6 +65,19 @@ jobs:
           ORG_GRADLE_PROJECT_signingKey: ${{ secrets.TRAMAI_SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.TRAMAI_SIGNING_PASSWORD }}
         run: ./gradlew publish --no-configuration-cache
+
+      - name: Upload tagged release deployment to Central Portal
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.TRAMAI_PUBLISH_RELEASE_URL != '' && secrets.TRAMAI_PUBLISH_USERNAME != '' && secrets.TRAMAI_PUBLISH_PASSWORD != '' && secrets.TRAMAI_SIGNING_KEY != '' && secrets.TRAMAI_SIGNING_PASSWORD != '' }}
+        env:
+          TRAMAI_PUBLISH_USERNAME: ${{ secrets.TRAMAI_PUBLISH_USERNAME }}
+          TRAMAI_PUBLISH_PASSWORD: ${{ secrets.TRAMAI_PUBLISH_PASSWORD }}
+        run: |
+          AUTH_TOKEN=$(printf '%s:%s' "$TRAMAI_PUBLISH_USERNAME" "$TRAMAI_PUBLISH_PASSWORD" | base64 | tr -d '\n')
+          curl --fail-with-body --retry 3 --retry-delay 5 \
+            -X POST \
+            -H "Authorization: Bearer $AUTH_TOKEN" \
+            -H "Accept: application/json" \
+            "${TRAMAI_CENTRAL_STAGING_API_URL}/manual/upload/defaultRepository/${TRAMAI_CENTRAL_NAMESPACE}?publishing_type=user_managed"
 
       - name: Publish to Maven Local smoke target
         if: ${{ !(secrets.TRAMAI_PUBLISH_RELEASE_URL != '' && secrets.TRAMAI_PUBLISH_USERNAME != '' && secrets.TRAMAI_PUBLISH_PASSWORD != '' && secrets.TRAMAI_SIGNING_KEY != '' && secrets.TRAMAI_SIGNING_PASSWORD != '') }}

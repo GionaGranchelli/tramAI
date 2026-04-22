@@ -4,7 +4,7 @@
 - Priority: high
 - Primary spec: [SPEC-008](../../specs/spec-008-documentation-publishing.md)
 - Related ADRs: [ADR-005](../../adr/adr-005.md), [ADR-008](../../adr/adr-008.md)
-- Last updated: 2026-04-21
+- Last updated: 2026-04-22
 
 ## Purpose
 
@@ -38,7 +38,7 @@ Still not complete:
    Execute the Ollama and OpenAI integration tests with real environment variables and capture the outcome.
 
 3. Execute the publish path with real credentials.
-   Validate signing and remote publication through the release workflow or equivalent operator path.
+   Validate signing, OSSRH Staging API upload, and Central Portal deployment handoff through the release workflow or equivalent operator path.
 
 4. Confirm published consumer experience.
    Verify that the released coordinates resolve cleanly and that the example still works as a consumer.

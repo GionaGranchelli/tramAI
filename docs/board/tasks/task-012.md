@@ -4,7 +4,7 @@
 - Priority: high
 - Primary spec: [SPEC-008](../../specs/spec-008-documentation-publishing.md)
 - Related ADRs: [ADR-005](../../adr/adr-005.md), [ADR-008](../../adr/adr-008.md)
-- Last updated: 2026-04-21
+- Last updated: 2026-04-22
 
 ## Rationale
 
@@ -31,3 +31,4 @@ Repo-local release validation is now in place through root tests, `publishToMave
 The release-facing docs, quickstarts, and `0.1.0` changelog entry are now updated to reflect the current repository state.
 Repo-local API stability, publication metadata checks, local artifact verification, local signed publish verification, and a public release-validation note are now in place.
 Remaining work is mostly external or release-operator driven: remote publishing with real credentials and guarded real-provider execution.
+The GitHub publish workflow is now wired for Sonatype Central Portal compatibility by publishing to the OSSRH Staging API service and issuing the required manual upload handoff for tagged releases.

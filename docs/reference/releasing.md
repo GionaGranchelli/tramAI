@@ -38,6 +38,22 @@ Remote publishing requires these GitHub Actions secrets:
 
 Without those secrets, the publish workflow falls back to `publishToMavenLocal`.
 
+For Sonatype Central Portal with the current Gradle `maven-publish` flow, set:
+
+- `TRAMAI_PUBLISH_RELEASE_URL=https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/`
+- `TRAMAI_PUBLISH_SNAPSHOT_URL=https://central.sonatype.com/repository/maven-snapshots/`
+- `TRAMAI_PUBLISH_USERNAME=<central-portal-token-username>`
+- `TRAMAI_PUBLISH_PASSWORD=<central-portal-token-password>`
+
+The publish workflow now performs the required post-upload handoff to the Central Portal for tagged releases by calling the OSSRH Staging API manual upload endpoint for the `dev.tramai` namespace with `publishing_type=user_managed`.
+
+That means the first live release flow is:
+
+1. push the release tag
+2. let GitHub Actions upload the artifacts and hand them off to the Portal
+3. open the Central Portal deployment view and inspect validation
+4. press `Publish` in the Portal once validation passes
+
 ## Local Release Validation
 
 Useful commands:
@@ -125,8 +141,10 @@ These checks are intentionally light-touch. They verify that Tramai can make a r
 2. Update `CHANGELOG.md` from snapshot wording to the release entry.
 3. Commit the release-ready state.
 4. Create and push a tag such as `v0.1.0`.
-5. Verify the `Publish` workflow result.
-6. Confirm the published coordinates and artifacts externally.
+5. Verify the `Publish` workflow result, including the Central Portal handoff step.
+6. Open the deployment in Central Portal and confirm validation succeeds.
+7. Publish from the Portal UI.
+8. Confirm the published coordinates and artifacts externally.
 
 ## What This Runbook Does Not Replace
 
