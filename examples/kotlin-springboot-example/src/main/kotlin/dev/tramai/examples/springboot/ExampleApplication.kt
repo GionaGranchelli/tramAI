@@ -1,5 +1,3 @@
-@file:OptIn(dev.tramai.orchestration.ExperimentalTramAIOrchestration::class)
-
 package dev.tramai.examples.springboot
 
 import dev.tramai.core.annotations.AiDescription
