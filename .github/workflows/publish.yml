@@ -76,6 +76,51 @@ jobs:
           ORG_GRADLE_PROJECT_signingPassword: ${{ env.TRAMAI_SIGNING_PASSWORD }}
         run: ./gradlew verifyReleasePublishInputs --no-configuration-cache
 
+      - name: Verify signing key is published to supported keyservers
+        if: ${{ env.TRAMAI_IS_RELEASE_VERSION == 'true' && env.TRAMAI_PUBLISH_RELEASE_URL != '' && env.TRAMAI_PUBLISH_USERNAME != '' && env.TRAMAI_PUBLISH_PASSWORD != '' && env.TRAMAI_SIGNING_KEY != '' && env.TRAMAI_SIGNING_PASSWORD != '' }}
+        env:
+          TRAMAI_SIGNING_KEY: ${{ env.TRAMAI_SIGNING_KEY }}
+        run: |
+          SOURCE_GNUPGHOME="$(mktemp -d)"
+          chmod 700 "$SOURCE_GNUPGHOME"
+          trap 'rm -rf "$SOURCE_GNUPGHOME"' EXIT
+
+          GNUPGHOME="$SOURCE_GNUPGHOME" gpg --batch --import <<'EOF'
+          ${{ env.TRAMAI_SIGNING_KEY }}
+          EOF
+
+          SIGNING_FINGERPRINT="$(
+            GNUPGHOME="$SOURCE_GNUPGHOME" gpg --batch --with-colons --list-secret-keys \
+              | awk -F: '$1 == "fpr" { print $10; exit }'
+          )"
+
+          if [[ -z "$SIGNING_FINGERPRINT" ]]; then
+            echo "::error::Could not determine the signing key fingerprint from TRAMAI_SIGNING_KEY."
+            exit 1
+          fi
+
+          echo "Resolved signing key fingerprint: $SIGNING_FINGERPRINT"
+
+          FOUND_KEY=false
+          for KEYSERVER in hkps://keys.openpgp.org hkps://keyserver.ubuntu.com; do
+            LOOKUP_GNUPGHOME="$(mktemp -d)"
+            chmod 700 "$LOOKUP_GNUPGHOME"
+
+            if GNUPGHOME="$LOOKUP_GNUPGHOME" gpg --batch --no-tty --keyserver "$KEYSERVER" --recv-keys "$SIGNING_FINGERPRINT" >/dev/null 2>&1; then
+              echo "Signing key is available from $KEYSERVER"
+              FOUND_KEY=true
+              rm -rf "$LOOKUP_GNUPGHOME"
+              break
+            fi
+
+            rm -rf "$LOOKUP_GNUPGHOME"
+          done
+
+          if [[ "$FOUND_KEY" != "true" ]]; then
+            echo "::error::Signing key $SIGNING_FINGERPRINT is not available from the Sonatype-supported public keyservers checked by this workflow. Publish the public key before retrying the release, for example: gpg --keyserver keyserver.ubuntu.com --send-keys $SIGNING_FINGERPRINT"
+            exit 1
+          fi
+
       - name: Publish to configured repository
         if: ${{ env.TRAMAI_PUBLISH_RELEASE_URL != '' && env.TRAMAI_PUBLISH_USERNAME != '' && env.TRAMAI_PUBLISH_PASSWORD != '' && env.TRAMAI_SIGNING_KEY != '' && env.TRAMAI_SIGNING_PASSWORD != '' }}
         env:

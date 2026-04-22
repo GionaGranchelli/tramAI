@@ -52,6 +52,14 @@ For Sonatype Central Portal with the current Gradle `maven-publish` flow, set:
 
 The publish workflow now performs the required post-upload handoff to the Central Portal for tagged releases by calling the OSSRH Staging API manual upload endpoint for the `dev.tramai` namespace with `publishing_type=user_managed`.
 
+Before a real release publish, the public half of the signing key must already be available from a Sonatype-supported public keyserver. Sonatype currently documents these supported servers:
+
+- `keyserver.ubuntu.com`
+- `keys.openpgp.org`
+- `pgp.mit.edu`
+
+If the public key is not visible there, Central will reject the uploaded `.asc` signatures during deployment validation even if Gradle signed the artifacts successfully.
+
 That means the first live release flow is:
 
 1. push the release tag
@@ -96,6 +104,26 @@ This verifies:
 - signed sources and javadoc JARs for library modules
 
 Use `verifyReleasePublishInputs` when you want to preflight the real remote-publish property set before tagging.
+
+## Publish The Signing Key
+
+Before the first live release with a given signing key, publish its public key to at least one supported keyserver and verify that it can be fetched by fingerprint.
+
+Example:
+
+```bash
+gpg --list-keys
+gpg --keyserver keyserver.ubuntu.com --send-keys <your-signing-key-fingerprint>
+gpg --keyserver keys.openpgp.org --send-keys <your-signing-key-fingerprint>
+```
+
+Then verify resolution:
+
+```bash
+gpg --keyserver keyserver.ubuntu.com --recv-keys <your-signing-key-fingerprint>
+```
+
+If this step fails, do not tag the release yet. Central will reject the deployment with an invalid-signature error because it cannot resolve the public key for the uploaded signatures.
 
 In GitHub Actions, that means running `Publish` with `workflow_dispatch` and setting the `version` input to the intended release version, for example `0.1.0`.
 
