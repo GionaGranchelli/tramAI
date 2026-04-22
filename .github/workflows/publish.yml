@@ -2,6 +2,11 @@ name: Publish
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish or validate. Leave empty for 0.1.0-SNAPSHOT, or set a release like 0.1.0."
+        required: false
+        type: string
   push:
     tags:
       - "v*"
@@ -40,8 +45,18 @@ jobs:
         run: |
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             echo "TRAMAI_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            echo "TRAMAI_VERSION=${{ github.event.inputs.version }}" >> "$GITHUB_ENV"
           else
             echo "TRAMAI_VERSION=0.1.0-SNAPSHOT" >> "$GITHUB_ENV"
+          fi
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "TRAMAI_IS_RELEASE_VERSION=true" >> "$GITHUB_ENV"
+          elif [[ -n "${{ github.event.inputs.version }}" && ! "${{ github.event.inputs.version }}" =~ -SNAPSHOT$ ]]; then
+            echo "TRAMAI_IS_RELEASE_VERSION=true" >> "$GITHUB_ENV"
+          else
+            echo "TRAMAI_IS_RELEASE_VERSION=false" >> "$GITHUB_ENV"
           fi
 
       - name: Verify build
@@ -50,7 +65,7 @@ jobs:
         run: ./gradlew verifyReleaseReadiness --no-configuration-cache
 
       - name: Verify remote publish inputs
-        if: ${{ env.TRAMAI_PUBLISH_RELEASE_URL != '' && env.TRAMAI_PUBLISH_USERNAME != '' && env.TRAMAI_PUBLISH_PASSWORD != '' && env.TRAMAI_SIGNING_KEY != '' && env.TRAMAI_SIGNING_PASSWORD != '' }}
+        if: ${{ env.TRAMAI_IS_RELEASE_VERSION == 'true' && env.TRAMAI_PUBLISH_RELEASE_URL != '' && env.TRAMAI_PUBLISH_USERNAME != '' && env.TRAMAI_PUBLISH_PASSWORD != '' && env.TRAMAI_SIGNING_KEY != '' && env.TRAMAI_SIGNING_PASSWORD != '' }}
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
           ORG_GRADLE_PROJECT_tramaiPublishReleaseUrl: ${{ env.TRAMAI_PUBLISH_RELEASE_URL }}

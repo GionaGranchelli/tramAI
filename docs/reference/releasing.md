@@ -25,6 +25,11 @@ The repository contains:
 - `workflow_dispatch`
 - tags matching `v*`
 
+For `workflow_dispatch`, you can optionally provide a `version` input:
+
+- leave it empty to run the snapshot path as `0.1.0-SNAPSHOT`
+- set it to a release like `0.1.0` when you want to preflight the real release publish path before pushing the tag
+
 ## Required Secrets
 
 Remote publishing requires these GitHub Actions secrets:
@@ -91,6 +96,8 @@ This verifies:
 - signed sources and javadoc JARs for library modules
 
 Use `verifyReleasePublishInputs` when you want to preflight the real remote-publish property set before tagging.
+
+In GitHub Actions, that means running `Publish` with `workflow_dispatch` and setting the `version` input to the intended release version, for example `0.1.0`.
 
 ## Guarded Real-Provider Checks
 
