@@ -89,7 +89,7 @@ jobs:
         run: ./gradlew publish --no-configuration-cache
 
       - name: Upload tagged release deployment to Central Portal
-        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.TRAMAI_PUBLISH_RELEASE_URL != '' && env.TRAMAI_PUBLISH_USERNAME != '' && env.TRAMAI_PUBLISH_PASSWORD != '' && env.TRAMAI_SIGNING_KEY != '' && env.TRAMAI_SIGNING_PASSWORD != '' }}
+        if: ${{ env.TRAMAI_IS_RELEASE_VERSION == 'true' && env.TRAMAI_PUBLISH_RELEASE_URL != '' && env.TRAMAI_PUBLISH_USERNAME != '' && env.TRAMAI_PUBLISH_PASSWORD != '' && env.TRAMAI_SIGNING_KEY != '' && env.TRAMAI_SIGNING_PASSWORD != '' }}
         env:
           TRAMAI_PUBLISH_USERNAME: ${{ env.TRAMAI_PUBLISH_USERNAME }}
           TRAMAI_PUBLISH_PASSWORD: ${{ env.TRAMAI_PUBLISH_PASSWORD }}
