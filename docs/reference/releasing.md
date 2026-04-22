@@ -74,7 +74,7 @@ These validate:
 - generated POM metadata for every publishable module
 - published local artifacts including sources and javadoc jars
 - consumer resolution from `mavenLocal()`
-- the Spring example smoke path
+- the narrow Spring example consumer smoke path
 
 For a public credibility summary of the currently validated paths, see [Release Validation](./release-validation.md).
 

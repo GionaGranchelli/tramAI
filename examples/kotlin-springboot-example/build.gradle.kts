@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.gradle.api.tasks.SourceSetContainer
+import org.gradle.api.tasks.testing.Test
 
 plugins {
     id("org.springframework.boot") version "3.4.5"
@@ -43,6 +44,17 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+tasks.register<Test>("smokeTest") {
+    group = "verification"
+    description = "Runs the narrow downstream consumer smoke tests for the Spring Boot example."
+    useJUnitPlatform()
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching("dev.tramai.examples.springboot.ExampleSmokeTest")
+    }
 }
 
 val sourceSets = the<SourceSetContainer>()
