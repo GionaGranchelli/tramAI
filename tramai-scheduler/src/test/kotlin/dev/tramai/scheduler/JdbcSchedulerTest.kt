@@ -266,6 +266,65 @@ class JdbcSchedulerTest {
         }
     }
 
+    @Test
+    fun `jdbc store persists calendar rules and business hours mode`() {
+        runBlocking {
+            val schedule = at(
+                expression = "0 9 * * *",
+                zoneId = ZoneId.of("UTC"),
+                skipCalendar = listOf(CalendarRule.FixedDate(month = 12, dayOfMonth = 25)),
+                businessHoursOnly = true,
+            )
+            store.upsertSchedule(
+                ScheduleRecord(
+                    scheduleId = "workflow:calendar",
+                    workflowName = "calendar",
+                    schedule = schedule,
+                    nextFireAt = Instant.parse("2026-12-24T09:00:00Z"),
+                ),
+            )
+
+            val restored = store.getSchedule("workflow:calendar")!!
+            val restoredSchedule = restored.schedule as CronSchedule
+
+            assertThat(restored.skipCalendar).containsExactly(CalendarRule.FixedDate(month = 12, dayOfMonth = 25))
+            assertThat(restored.businessHoursOnly).isTrue()
+            assertThat(restoredSchedule.skipCalendar).containsExactly(CalendarRule.FixedDate(month = 12, dayOfMonth = 25))
+            assertThat(restoredSchedule.businessHoursOnly).isTrue()
+        }
+    }
+
+    @Test
+    fun `jdbc store emits skipped tick when advancing past calendar rule`() {
+        runBlocking {
+            val schedule = at(
+                expression = "0 9 * * *",
+                zoneId = ZoneId.of("UTC"),
+                skipCalendar = listOf(CalendarRule.FixedDate(month = 12, dayOfMonth = 25)),
+            )
+            store.upsertSchedule(
+                ScheduleRecord(
+                    scheduleId = "workflow:calendar-skip",
+                    workflowName = "calendar-skip",
+                    schedule = schedule,
+                    nextFireAt = Instant.parse("2026-12-24T09:00:00Z"),
+                ),
+            )
+
+            store.claimDueTicks(
+                now = Instant.parse("2026-12-24T09:00:00Z"),
+                ownerId = "owner-1",
+                claimDuration = Duration.ofSeconds(30),
+                limit = 10,
+            ).single()
+
+            assertThat(store.getSchedule("workflow:calendar-skip")!!.nextFireAt)
+                .isEqualTo(Instant.parse("2026-12-26T09:00:00Z"))
+            assertThat(observer.skippedTicks)
+                .containsExactly(Instant.parse("2026-12-25T09:00:00Z") to "calendar_skip:fixed_date:12-25")
+        }
+    }
+
     private suspend fun claimTick(workflowName: String): ClaimedScheduledTick {
         val nextFireAt = Instant.parse("2026-05-03T09:00:05Z")
         store.upsertSchedule(scheduleRecord(workflowName, nextFireAt))
@@ -336,6 +395,7 @@ class JdbcSchedulerTest {
 
     private class RecordingRecoveryObserver : WorkflowObserver {
         val missedTicks = mutableListOf<Instant>()
+        val skippedTicks = mutableListOf<Pair<Instant, String>>()
 
         override fun onMissedTick(
             workflowName: String,
@@ -344,6 +404,15 @@ class JdbcSchedulerTest {
             context: WorkflowContext,
         ) {
             missedTicks += scheduledFireAt
+        }
+
+        override fun onSkippedTick(
+            workflowName: String,
+            scheduledFireAt: Instant,
+            reason: String,
+            context: WorkflowContext,
+        ) {
+            skippedTicks += scheduledFireAt to reason
         }
     }
 }

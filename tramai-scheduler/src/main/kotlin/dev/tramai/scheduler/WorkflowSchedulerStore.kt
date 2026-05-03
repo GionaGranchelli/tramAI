@@ -11,6 +11,8 @@ data class ScheduleRecord(
     val schedule: WorkflowScheduleDefinition,
     val nextFireAt: Instant,
     val enabled: Boolean = true,
+    val skipCalendar: List<CalendarRule> = (schedule as? CronSchedule)?.skipCalendar ?: emptyList(),
+    val businessHoursOnly: Boolean = (schedule as? CronSchedule)?.businessHoursOnly ?: false,
 )
 
 data class ClaimedScheduledTick(

@@ -9,9 +9,12 @@ import dev.tramai.orchestration.WorkflowStateCodec
 import dev.tramai.orchestration.workflow
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatExceptionOfType
 import org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import org.junit.jupiter.api.Test
 import java.time.Clock
+import java.time.DayOfWeek
+import java.time.DateTimeException
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -53,6 +56,101 @@ class SchedulerTest {
         assertThatIllegalArgumentException()
             .isThrownBy { at("0 25 * * 1", ZoneId.of("UTC")) }
             .withMessageContaining("hours")
+    }
+
+    @Test
+    fun `cron schedule adjusts for timezone correctly`() {
+        val schedule = at("0 9 * * 1", zone = "Europe/Rome")
+
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-05-03T10:15:00Z")))
+            .isEqualTo(Instant.parse("2026-05-04T07:00:00Z"))
+    }
+
+    @Test
+    fun `business-hours-only mode skips a two AM tick and fires at nine AM next business day`() {
+        val skipped = mutableListOf<Pair<Instant, String>>()
+        val schedule = at(
+            expression = "0 2 * * *",
+            zoneId = ZoneId.of("UTC"),
+            businessHoursOnly = true,
+        )
+
+        val next = schedule.nextFireAfter(Instant.parse("2026-05-08T18:00:00Z")) { fireAt, reason ->
+            skipped += fireAt to reason
+        }
+
+        assertThat(next).isEqualTo(Instant.parse("2026-05-11T09:00:00Z"))
+        assertThat(skipped).containsExactly(Instant.parse("2026-05-09T02:00:00Z") to "business_hours")
+    }
+
+    @Test
+    fun `fixed date calendar rule skips Christmas`() {
+        val skipped = mutableListOf<Pair<Instant, String>>()
+        val schedule = at(
+            expression = "0 9 * * *",
+            zoneId = ZoneId.of("UTC"),
+            skipCalendar = listOf(CalendarRule.FixedDate(month = 12, dayOfMonth = 25)),
+        )
+
+        val next = schedule.nextFireAfter(Instant.parse("2026-12-24T10:00:00Z")) { fireAt, reason ->
+            skipped += fireAt to reason
+        }
+
+        assertThat(next).isEqualTo(Instant.parse("2026-12-26T09:00:00Z"))
+        assertThat(skipped).containsExactly(
+            Instant.parse("2026-12-25T09:00:00Z") to "calendar_skip:fixed_date:12-25",
+        )
+    }
+
+    @Test
+    fun `dailyAt creates correct cron expression`() {
+        val schedule = dailyAt(hour = 9, minute = 30, second = 15, zoneId = ZoneId.of("UTC"))
+
+        assertThat(schedule.expression).isEqualTo("15 30 9 * * *")
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-05-03T09:30:14Z")))
+            .isEqualTo(Instant.parse("2026-05-03T09:30:15Z"))
+    }
+
+    @Test
+    fun `invalid timezone ID rejected at build time`() {
+        assertThatExceptionOfType(DateTimeException::class.java)
+            .isThrownBy { at("0 9 * * 1", zone = "Not/A_Zone") }
+    }
+
+    @Test
+    fun `calendar rules reject invalid dates at build time`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                at(
+                    expression = "0 9 * * *",
+                    zoneId = ZoneId.of("UTC"),
+                    skipCalendar = listOf(CalendarRule.FixedDate(month = 2, dayOfMonth = 29)),
+                )
+            }
+            .withMessageContaining("not valid every year")
+    }
+
+    @Test
+    fun `nth weekday calendar rule skips third monday of december`() {
+        val skipped = mutableListOf<Instant>()
+        val schedule = at(
+            expression = "0 9 * 12 1",
+            zoneId = ZoneId.of("UTC"),
+            skipCalendar = listOf(
+                CalendarRule.NthWeekdayOfMonth(
+                    month = 12,
+                    nth = 3,
+                    dayOfWeek = DayOfWeek.MONDAY,
+                ),
+            ),
+        )
+
+        val next = schedule.nextFireAfter(Instant.parse("2026-12-20T00:00:00Z")) { fireAt, _ ->
+            skipped += fireAt
+        }
+
+        assertThat(skipped).containsExactly(Instant.parse("2026-12-21T09:00:00Z"))
+        assertThat(next).isEqualTo(Instant.parse("2026-12-28T09:00:00Z"))
     }
 
     @Test

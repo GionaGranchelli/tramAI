@@ -18,6 +18,8 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
                 schedule = schedule.schedule,
                 nextFireAt = schedule.nextFireAt,
                 enabled = schedule.enabled,
+                skipCalendar = schedule.skipCalendar,
+                businessHoursOnly = schedule.businessHoursOnly,
             )
         }
     }
@@ -276,6 +278,8 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
         val schedule: dev.tramai.orchestration.WorkflowScheduleDefinition,
         var nextFireAt: Instant,
         val enabled: Boolean,
+        val skipCalendar: List<CalendarRule>,
+        val businessHoursOnly: Boolean,
     ) {
         fun toRecord(): ScheduleRecord = ScheduleRecord(
             scheduleId = scheduleId,
@@ -283,6 +287,8 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
             schedule = schedule,
             nextFireAt = nextFireAt,
             enabled = enabled,
+            skipCalendar = skipCalendar,
+            businessHoursOnly = businessHoursOnly,
         )
     }
 

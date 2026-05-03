@@ -10,6 +10,7 @@ import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.SQLException
 import java.sql.Timestamp
+import java.time.DayOfWeek
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -38,6 +39,8 @@ class JdbcWorkflowSchedulerStore(
                 statement.setString(4, cronSchedule.zoneId.id)
                 statement.setTimestamp(5, timestamp(schedule.nextFireAt))
                 statement.setBoolean(6, schedule.enabled)
+                statement.setString(7, encodeCalendarRules(schedule.skipCalendar))
+                statement.setBoolean(8, schedule.businessHoursOnly)
                 statement.executeUpdate()
             }
         }
@@ -47,7 +50,7 @@ class JdbcWorkflowSchedulerStore(
         dataSource.connection.use { connection ->
             connection.prepareStatement(
                 """
-                SELECT schedule_id, workflow_name, cron_expression, timezone, next_fire_at, enabled
+                SELECT schedule_id, workflow_name, cron_expression, timezone, next_fire_at, enabled, skip_calendar, business_hours_only
                 FROM workflow_schedules
                 WHERE schedule_id = ?
                 """.trimIndent(),
@@ -351,7 +354,7 @@ class JdbcWorkflowSchedulerStore(
         return transaction { connection ->
             connection.prepareStatement(
                 """
-                SELECT schedule_id, workflow_name, cron_expression, timezone, next_fire_at, version
+                SELECT schedule_id, workflow_name, cron_expression, timezone, next_fire_at, version, skip_calendar, business_hours_only
                 FROM workflow_schedules
                 WHERE enabled = TRUE
                     AND next_fire_at <= ?
@@ -370,6 +373,8 @@ class JdbcWorkflowSchedulerStore(
                         val schedule = CronSchedule.parse(
                             expression = resultSet.getString("cron_expression"),
                             zoneId = ZoneId.of(resultSet.getString("timezone")),
+                            skipCalendar = decodeCalendarRules(resultSet.getString("skip_calendar")),
+                            businessHoursOnly = resultSet.getBoolean("business_hours_only"),
                         )
                         val scheduledFireAt = resultSet.instant("next_fire_at")
                         val inserted = insertTickIfAbsent(
@@ -382,7 +387,12 @@ class JdbcWorkflowSchedulerStore(
                         advanceSchedule(
                             connection = connection,
                             scheduleId = scheduleId,
-                            nextFireAt = schedule.nextFireAfter(scheduledFireAt),
+                            nextFireAt = observedNextFireAfter(
+                                schedule = schedule,
+                                scheduleId = scheduleId,
+                                workflowName = workflowName,
+                                after = scheduledFireAt,
+                            ),
                         )
                         if (inserted) {
                             recovered += 1
@@ -413,6 +423,8 @@ class JdbcWorkflowSchedulerStore(
             timezone VARCHAR(255) DEFAULT 'UTC',
             next_fire_at TIMESTAMP NOT NULL,
             enabled BOOLEAN DEFAULT TRUE,
+            skip_calendar TEXT,
+            business_hours_only BOOLEAN DEFAULT FALSE,
             version BIGINT DEFAULT 0
         )
         """.trimIndent(),
@@ -499,14 +511,16 @@ class JdbcWorkflowSchedulerStore(
             """
             MERGE INTO workflow_schedules target
             USING (
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ) source (
                 schedule_id,
                 workflow_name,
                 cron_expression,
                 timezone,
                 next_fire_at,
-                enabled
+                enabled,
+                skip_calendar,
+                business_hours_only
             )
             ON target.schedule_id = source.schedule_id
             WHEN MATCHED THEN UPDATE SET
@@ -515,6 +529,8 @@ class JdbcWorkflowSchedulerStore(
                 timezone = source.timezone,
                 next_fire_at = source.next_fire_at,
                 enabled = source.enabled,
+                skip_calendar = source.skip_calendar,
+                business_hours_only = source.business_hours_only,
                 version = target.version + 1
             WHEN NOT MATCHED THEN INSERT (
                 schedule_id,
@@ -523,6 +539,8 @@ class JdbcWorkflowSchedulerStore(
                 timezone,
                 next_fire_at,
                 enabled,
+                skip_calendar,
+                business_hours_only,
                 version
             ) VALUES (
                 source.schedule_id,
@@ -531,6 +549,8 @@ class JdbcWorkflowSchedulerStore(
                 source.timezone,
                 source.next_fire_at,
                 source.enabled,
+                source.skip_calendar,
+                source.business_hours_only,
                 0
             )
             """.trimIndent()
@@ -543,14 +563,18 @@ class JdbcWorkflowSchedulerStore(
                 timezone,
                 next_fire_at,
                 enabled,
+                skip_calendar,
+                business_hours_only,
                 version
-            ) VALUES (?, ?, ?, ?, ?, ?, 0)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT (schedule_id) DO UPDATE SET
                 workflow_name = EXCLUDED.workflow_name,
                 cron_expression = EXCLUDED.cron_expression,
                 timezone = EXCLUDED.timezone,
                 next_fire_at = EXCLUDED.next_fire_at,
                 enabled = EXCLUDED.enabled,
+                skip_calendar = EXCLUDED.skip_calendar,
+                business_hours_only = EXCLUDED.business_hours_only,
                 version = workflow_schedules.version + 1
             """.trimIndent()
         }
@@ -564,7 +588,7 @@ class JdbcWorkflowSchedulerStore(
     ): List<ClaimedScheduledTick> =
         connection.prepareStatement(
             """
-            SELECT schedule_id, workflow_name, cron_expression, timezone, next_fire_at
+            SELECT schedule_id, workflow_name, cron_expression, timezone, next_fire_at, skip_calendar, business_hours_only
             FROM workflow_schedules
             WHERE enabled = TRUE
                 AND next_fire_at <= ?
@@ -583,6 +607,8 @@ class JdbcWorkflowSchedulerStore(
                     val schedule = CronSchedule.parse(
                         expression = resultSet.getString("cron_expression"),
                         zoneId = ZoneId.of(resultSet.getString("timezone")),
+                        skipCalendar = decodeCalendarRules(resultSet.getString("skip_calendar")),
+                        businessHoursOnly = resultSet.getBoolean("business_hours_only"),
                     )
                     val scheduledFireAt = resultSet.instant("next_fire_at")
                     val tickId = tickId(scheduleId, scheduledFireAt)
@@ -596,7 +622,12 @@ class JdbcWorkflowSchedulerStore(
                     advanceSchedule(
                         connection = connection,
                         scheduleId = scheduleId,
-                        nextFireAt = schedule.nextFireAfter(scheduledFireAt),
+                        nextFireAt = observedNextFireAfter(
+                            schedule = schedule,
+                            scheduleId = scheduleId,
+                            workflowName = workflowName,
+                            after = scheduledFireAt,
+                        ),
                     )
                     if (inserted) {
                         val claimToken = UUID.randomUUID().toString()
@@ -734,6 +765,24 @@ class JdbcWorkflowSchedulerStore(
         }
     }
 
+    private fun observedNextFireAfter(
+        schedule: CronSchedule,
+        scheduleId: String,
+        workflowName: String,
+        after: Instant,
+    ): Instant = schedule.nextFireAfter(after) { skippedFireAt, reason ->
+        observer.onSkippedTick(
+            workflowName = workflowName,
+            scheduledFireAt = skippedFireAt,
+            reason = reason,
+            context = scheduledTickContext(
+                tickId = tickId(scheduleId, skippedFireAt),
+                scheduleId = scheduleId,
+                scheduledFireAt = skippedFireAt,
+            ),
+        )
+    }
+
     private fun markTerminalTick(
         tickId: String,
         claimToken: String,
@@ -822,12 +871,21 @@ class JdbcWorkflowSchedulerStore(
     private fun ResultSet.toScheduleRecord(): ScheduleRecord {
         val expression = getString("cron_expression")
         val zoneId = ZoneId.of(getString("timezone") ?: "UTC")
+        val skipCalendar = decodeCalendarRules(getString("skip_calendar"))
+        val businessHoursOnly = getBoolean("business_hours_only")
         return ScheduleRecord(
             scheduleId = getString("schedule_id"),
             workflowName = getString("workflow_name"),
-            schedule = CronSchedule.parse(expression = expression, zoneId = zoneId),
+            schedule = CronSchedule.parse(
+                expression = expression,
+                zoneId = zoneId,
+                skipCalendar = skipCalendar,
+                businessHoursOnly = businessHoursOnly,
+            ),
             nextFireAt = instant("next_fire_at"),
             enabled = getBoolean("enabled"),
+            skipCalendar = skipCalendar,
+            businessHoursOnly = businessHoursOnly,
         )
     }
 
@@ -872,3 +930,52 @@ private fun ResultSet.instant(column: String): Instant = getTimestamp(column).to
 
 private fun SQLException.isUniqueConstraintViolation(): Boolean =
     sqlState == "23505"
+
+private fun encodeCalendarRules(rules: List<CalendarRule>): String =
+    rules.joinToString(prefix = "[", postfix = "]") { rule ->
+        when (rule) {
+            is CalendarRule.FixedDate ->
+                """{"type":"fixed_date","month":${rule.month},"dayOfMonth":${rule.dayOfMonth}}"""
+            is CalendarRule.NthWeekdayOfMonth ->
+                """{"type":"nth_weekday_of_month","month":${rule.month},"nth":${rule.nth},"dayOfWeek":${rule.dayOfWeek.value}}"""
+            is CalendarRule.DateRange ->
+                """{"type":"date_range","startMonth":${rule.startMonth},"startDayOfMonth":${rule.startDayOfMonth},"endMonth":${rule.endMonth},"endDayOfMonth":${rule.endDayOfMonth}}"""
+        }
+    }
+
+private fun decodeCalendarRules(payload: String?): List<CalendarRule> {
+    if (payload.isNullOrBlank() || payload.trim() == "[]") {
+        return emptyList()
+    }
+    return Regex("\\{([^}]*)}").findAll(payload).map { match ->
+        val fields = Regex(""""([A-Za-z]+)":("[^"]*"|\d+)""")
+            .findAll(match.value)
+            .associate { field ->
+                val key = field.groupValues[1]
+                val value = field.groupValues[2].trim('"')
+                key to value
+            }
+        when (fields["type"]) {
+            "fixed_date" -> CalendarRule.FixedDate(
+                month = fields.requiredInt("month"),
+                dayOfMonth = fields.requiredInt("dayOfMonth"),
+            )
+            "nth_weekday_of_month" -> CalendarRule.NthWeekdayOfMonth(
+                month = fields.requiredInt("month"),
+                nth = fields.requiredInt("nth"),
+                dayOfWeek = DayOfWeek.of(fields.requiredInt("dayOfWeek")),
+            )
+            "date_range" -> CalendarRule.DateRange(
+                startMonth = fields.requiredInt("startMonth"),
+                startDayOfMonth = fields.requiredInt("startDayOfMonth"),
+                endMonth = fields.requiredInt("endMonth"),
+                endDayOfMonth = fields.requiredInt("endDayOfMonth"),
+            )
+            else -> throw IllegalArgumentException("Unknown calendar rule type '${fields["type"]}'")
+        }
+    }.toList()
+}
+
+private fun Map<String, String>.requiredInt(name: String): Int =
+    this[name]?.toIntOrNull()
+        ?: throw IllegalArgumentException("Calendar rule field '$name' must be an integer")
