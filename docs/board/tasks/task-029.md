@@ -1,6 +1,6 @@
 # TASK-029: Implement REST API for Workflow Management
 
-- Status: planned
+- Status: done
 - Priority: high
 - Primary spec: [SPEC-014](../../specs/spec-014-server.md)
 - Related ADRs:
@@ -25,9 +25,10 @@ and inspect workflow executions.
 
 ## Exit Criteria
 
-- [ ] `POST /workflows/invoice/run` with valid JSON starts the workflow
-- [ ] `POST /workflows/invoice/run` with invalid JSON returns 400 + problem detail
-- [ ] `GET /workflows/invoice/runs` returns paginated list
-- [ ] `DELETE /workflows/invoice/runs/{id}` cancels a running workflow
-- [ ] Two different workflow types are registered and accessible
-- [ ] OpenAPI spec is auto-generated and accessible at `/openapi.json`
+- [x] `POST /workflows/invoice/run` with valid JSON starts the workflow
+- [x] `POST /workflows/invoice/run` with invalid JSON returns 400 + problem detail
+- [x] `GET /workflows/invoice/runs` returns paginated list
+- [x] `DELETE /workflows/invoice/runs/{id}` cancels a running workflow
+- [x] Two different workflow types are registered and accessible
+- [x] OpenAPI spec is auto-generated and accessible at `/openapi.json`
+- [x] Idempotency-Key header returns same run ID on duplicate requests
