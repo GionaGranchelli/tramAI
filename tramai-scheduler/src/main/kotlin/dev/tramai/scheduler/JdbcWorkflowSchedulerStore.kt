@@ -47,7 +47,7 @@ class JdbcWorkflowSchedulerStore(
     }
 
     override suspend fun getSchedule(scheduleId: String): ScheduleRecord? =
-        dataSource.connection.use { connection ->
+        transaction { connection ->
             connection.prepareStatement(
                 """
                 SELECT schedule_id, workflow_name, cron_expression, timezone, next_fire_at, enabled, skip_calendar, business_hours_only

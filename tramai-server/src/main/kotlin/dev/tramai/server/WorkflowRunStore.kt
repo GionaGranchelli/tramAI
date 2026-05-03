@@ -1,5 +1,8 @@
 package dev.tramai.server
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import kotlinx.coroutines.Job
 import org.slf4j.LoggerFactory
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import java.time.Instant
@@ -47,6 +50,7 @@ data class SseEvent(
 class WorkflowRunStore(
     private val maxHistorySize: Int = 1_000,
     private val sseEventBufferSize: Int = 100,
+    private val objectMapper: ObjectMapper = jacksonObjectMapper().findAndRegisterModules(),
 ) {
     private val logger = LoggerFactory.getLogger(WorkflowRunStore::class.java)
 
@@ -129,7 +133,9 @@ class WorkflowRunStore(
             updatedAt = now,
             idempotencyKey = idempotencyKey?.takeIf(String::isNotBlank),
             nextSequence = 1,
+            sseEvents = mutableListOf(),
             emitters = mutableListOf(),
+            executionJob = null,
         )
         runs[key] = record
         record.idempotencyKey?.let {
@@ -145,46 +151,40 @@ class WorkflowRunStore(
         name: String,
         stepName: String? = null,
         status: WorkflowRunStatus? = null,
-    ) = synchronized(monitor) {
-        val record = runs[RunKey(workflowName, workflowId)] ?: return@synchronized
-        if (status != null && record.status.isTerminal()) {
-            return@synchronized
-        }
-        val now = Instant.now()
-        val event = WorkflowRunEvent(
-            sequence = record.nextSequence++,
-            name = name,
-            stepName = stepName,
-            timestamp = now,
-        )
-        record.history += event
-        if (record.history.size > sseEventBufferSize) {
-            record.history.removeAt(0)
-        }
-        record.currentStep = stepName ?: record.currentStep
-        if (status != null) {
-            record.status = status
-        }
-        record.updatedAt = now
-        val sseEvent = SseEvent(
-            id = event.sequence.toString(),
-            event = event.name,
-            data = """{"stepName":"${event.stepName}","timestamp":"${event.timestamp}"}""",
-        )
-        val deadEmitters = mutableListOf<SseEmitter>()
-        record.emitters.forEach { emitter ->
-            try {
-                emitter.send(
-                    SseEmitter.event()
-                        .id(sseEvent.id)
-                        .name(sseEvent.event)
-                        .data(sseEvent.data)
-                )
-            } catch (e: Exception) {
-                deadEmitters.add(emitter)
+    ) {
+        val dispatch = synchronized(monitor) {
+            val record = runs[RunKey(workflowName, workflowId)] ?: return@synchronized null
+            if (status != null && record.status.isTerminal()) {
+                return@synchronized null
             }
+            val now = Instant.now()
+            val event = WorkflowRunEvent(
+                sequence = record.nextSequence++,
+                name = name,
+                stepName = stepName,
+                timestamp = now,
+            )
+            record.history += event
+            record.sseEvents += event
+            if (record.sseEvents.size > sseEventBufferSize) {
+                record.sseEvents.removeAt(0)
+            }
+            record.currentStep = stepName ?: record.currentStep
+            if (status != null) {
+                record.status = status
+            }
+            record.updatedAt = now
+            SseDispatch(
+                workflowName = workflowName,
+                workflowId = workflowId,
+                sseEvent = event.toSseEvent(),
+                emitters = record.emitters.toList(),
+            )
         }
-        deadEmitters.forEach { record.emitters.remove(it) }
+        if (dispatch == null) {
+            return
+        }
+        dispatchToEmitters(dispatch)
     }
 
     fun complete(
@@ -218,33 +218,38 @@ class WorkflowRunStore(
     fun cancel(
         workflowName: String,
         workflowId: String,
-    ): WorkflowRunRecord = synchronized(monitor) {
-        val record = runs[RunKey(workflowName, workflowId)]
-            ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
-        if (record.status.isTerminal()) {
-            throw WorkflowConflictException(
-                "Workflow '$workflowName' run '$workflowId' is ${record.status.wireName} and cannot be cancelled",
-            )
+    ): WorkflowRunRecord {
+        val executionJob = synchronized(monitor) {
+            val record = runs[RunKey(workflowName, workflowId)]
+                ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
+            if (record.status.isTerminal()) {
+                throw WorkflowConflictException(
+                    "Workflow '$workflowName' run '$workflowId' is ${record.status.wireName} and cannot be cancelled",
+                )
+            }
+            record.executionJob.also { record.executionJob = null }
         }
-        val now = Instant.now()
-        record.status = WorkflowRunStatus.CANCELLING
-        record.history += WorkflowRunEvent(
-            sequence = record.nextSequence++,
+
+        event(
+            workflowName = workflowName,
+            workflowId = workflowId,
             name = "tramai.workflow.cancelling",
-            stepName = record.currentStep,
-            timestamp = now,
+            stepName = currentStep(workflowName, workflowId),
+            status = WorkflowRunStatus.CANCELLING,
         )
-        record.status = WorkflowRunStatus.CANCELLED
-        record.history += WorkflowRunEvent(
-            sequence = record.nextSequence++,
+        event(
+            workflowName = workflowName,
+            workflowId = workflowId,
             name = "tramai.workflow.cancelled",
-            stepName = record.currentStep,
-            timestamp = now,
+            stepName = currentStep(workflowName, workflowId),
+            status = WorkflowRunStatus.CANCELLED,
         )
-        record.updatedAt = now
-        record.emitters.forEach { it.complete() }
-        record.emitters.clear()
-        record.snapshot()
+
+        // TODO(spec-014): This is cooperative cancellation. Active workflow work may keep consuming
+        // resources until the executing step observes coroutine cancellation and exits.
+        executionJob?.cancel()
+        completeEmitters(workflowName, workflowId)
+        return get(workflowName, workflowId)
     }
 
     fun requireResumable(
@@ -264,24 +269,45 @@ class WorkflowRunStore(
     fun markResuming(
         workflowName: String,
         workflowId: String,
-    ): WorkflowRunRecord = synchronized(monitor) {
-        val record = runs[RunKey(workflowName, workflowId)]
-            ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
-        if (record.status != WorkflowRunStatus.DELAYED && record.status != WorkflowRunStatus.WAITING_FOR_GATE) {
-            throw WorkflowConflictException(
-                "Workflow '$workflowName' run '$workflowId' is ${record.status.wireName} and cannot be resumed",
-            )
+    ): WorkflowRunRecord {
+        synchronized(monitor) {
+            val record = runs[RunKey(workflowName, workflowId)]
+                ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
+            if (record.status != WorkflowRunStatus.DELAYED && record.status != WorkflowRunStatus.WAITING_FOR_GATE) {
+                throw WorkflowConflictException(
+                    "Workflow '$workflowName' run '$workflowId' is ${record.status.wireName} and cannot be resumed",
+                )
+            }
+            record.status = WorkflowRunStatus.RUNNING
+            record.updatedAt = Instant.now()
+            record.snapshot()
         }
-        val now = Instant.now()
-        record.history += WorkflowRunEvent(
-            sequence = record.nextSequence++,
+        event(
+            workflowName = workflowName,
+            workflowId = workflowId,
             name = "tramai.workflow.running",
-            stepName = null,
-            timestamp = now,
         )
-        record.status = WorkflowRunStatus.RUNNING
-        record.updatedAt = now
-        record.snapshot()
+        return get(workflowName, workflowId)
+    }
+
+    fun attachExecution(
+        workflowName: String,
+        workflowId: String,
+        job: Job,
+    ) {
+        val cancelImmediately = synchronized(monitor) {
+            val record = runs[RunKey(workflowName, workflowId)]
+                ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
+            if (record.status.isTerminal()) {
+                true
+            } else {
+                record.executionJob = job
+                false
+            }
+        }
+        if (cancelImmediately) {
+            job.cancel()
+        }
     }
 
     fun list(
@@ -311,31 +337,44 @@ class WorkflowRunStore(
         workflowId: String,
         emitter: SseEmitter,
         since: Long?,
-    ) = synchronized(monitor) {
-        val record = runs[RunKey(workflowName, workflowId)]
-            ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
+    ) {
+        val registration = synchronized(monitor) {
+            val record = runs[RunKey(workflowName, workflowId)]
+                ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
 
-        emitter.onCompletion { synchronized(monitor) { record.emitters.remove(emitter) } }
-        emitter.onError { synchronized(monitor) { record.emitters.remove(emitter) } }
-        record.emitters.add(emitter)
+            emitter.onCompletion { synchronized(monitor) { record.emitters.remove(emitter) } }
+            emitter.onError { synchronized(monitor) { record.emitters.remove(emitter) } }
+            record.emitters.add(emitter)
 
-        val eventsToSend = if (since != null) {
-            record.history.filter { it.sequence > since }
-        } else {
-            record.history
-        }
+            val eventsToSend = if (since != null) {
+                record.sseEvents.filter { it.sequence > since }
+            } else {
+                record.sseEvents.toList()
+            }
 
-        eventsToSend.forEach { event ->
-            emitter.send(
-                SseEmitter.event()
-                    .id(event.sequence.toString())
-                    .name(event.name)
-                    .data("""{"stepName":"${event.stepName}","timestamp":"${event.timestamp}"}""")
+            SseRegistration(
+                events = eventsToSend.map { it.toSseEvent() },
+                completeAfterReplay = record.status.isTerminal(),
             )
         }
 
-        if (record.status.isTerminal()) {
-            emitter.complete()
+        try {
+            registration.events.forEach { sseEvent ->
+                emitter.send(
+                    SseEmitter.event()
+                        .id(sseEvent.id)
+                        .name(sseEvent.event)
+                        .data(sseEvent.data),
+                )
+            }
+            if (registration.completeAfterReplay) {
+                emitter.complete()
+            }
+        } catch (_: Exception) {
+            synchronized(monitor) {
+                runs[RunKey(workflowName, workflowId)]?.emitters?.remove(emitter)
+            }
+            emitter.completeWithError(IllegalStateException("Failed to register workflow SSE emitter"))
         }
     }
 
@@ -345,22 +384,78 @@ class WorkflowRunStore(
         status: WorkflowRunStatus,
         result: Any?,
         error: String?,
-    ): WorkflowRunRecord = synchronized(monitor) {
-        val record = runs[RunKey(workflowName, workflowId)]
-            ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
-        if (record.status.isTerminal()) {
-            return@synchronized record.snapshot()
+    ): WorkflowRunRecord {
+        val terminalUpdate = synchronized(monitor) {
+            val record = runs[RunKey(workflowName, workflowId)]
+                ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
+            if (record.status.isTerminal()) {
+                return@synchronized TerminalUpdate(record.snapshot(), emptyList())
+            }
+            val now = Instant.now()
+            record.status = status
+            record.currentStep = null
+            record.result = result
+            record.error = error
+            record.updatedAt = now
+            record.executionJob = null
+            TerminalUpdate(
+                snapshot = record.snapshot(),
+                emitters = record.emitters.toList().also { record.emitters.clear() },
+            )
         }
-        val now = Instant.now()
-        record.status = status
-        record.currentStep = null
-        record.result = result
-        record.error = error
-        record.updatedAt = now
-        record.emitters.forEach { it.complete() }
-        record.emitters.clear()
-        record.snapshot()
+        terminalUpdate.emitters.forEach { it.complete() }
+        return terminalUpdate.snapshot
     }
+
+    private fun currentStep(
+        workflowName: String,
+        workflowId: String,
+    ): String? = synchronized(monitor) {
+        runs[RunKey(workflowName, workflowId)]?.currentStep
+    }
+
+    private fun completeEmitters(
+        workflowName: String,
+        workflowId: String,
+    ) {
+        val emitters = synchronized(monitor) {
+            val record = runs[RunKey(workflowName, workflowId)] ?: return
+            record.emitters.toList().also { record.emitters.clear() }
+        }
+        emitters.forEach { it.complete() }
+    }
+
+    private fun dispatchToEmitters(dispatch: SseDispatch) {
+        val deadEmitters = mutableListOf<SseEmitter>()
+        dispatch.emitters.forEach { emitter ->
+            try {
+                emitter.send(
+                    SseEmitter.event()
+                        .id(dispatch.sseEvent.id)
+                        .name(dispatch.sseEvent.event)
+                        .data(dispatch.sseEvent.data),
+                )
+            } catch (_: Exception) {
+                deadEmitters += emitter
+            }
+        }
+        if (deadEmitters.isNotEmpty()) {
+            synchronized(monitor) {
+                runs[RunKey(dispatch.workflowName, dispatch.workflowId)]?.emitters?.removeAll(deadEmitters.toSet())
+            }
+        }
+    }
+
+    private fun WorkflowRunEvent.toSseEvent(): SseEvent = SseEvent(
+        id = sequence.toString(),
+        event = name,
+        data = objectMapper.writeValueAsString(
+            SsePayload(
+                stepName = stepName,
+                timestamp = timestamp,
+            ),
+        ),
+    )
 
     private fun evictOldestIfNeeded() {
         while (runs.size > maxHistorySize) {
@@ -406,7 +501,9 @@ private data class MutableWorkflowRunRecord(
     var updatedAt: Instant,
     val idempotencyKey: String?,
     var nextSequence: Long,
+    val sseEvents: MutableList<WorkflowRunEvent>,
     val emitters: MutableList<SseEmitter>,
+    var executionJob: Job?,
 ) {
     fun snapshot(): WorkflowRunRecord = WorkflowRunRecord(
         workflowName = workflowName,
@@ -422,6 +519,28 @@ private data class MutableWorkflowRunRecord(
         idempotencyKey = idempotencyKey,
     )
 }
+
+private data class SsePayload(
+    val stepName: String?,
+    val timestamp: Instant,
+)
+
+private data class SseDispatch(
+    val workflowName: String,
+    val workflowId: String,
+    val sseEvent: SseEvent,
+    val emitters: List<SseEmitter>,
+)
+
+private data class SseRegistration(
+    val events: List<SseEvent>,
+    val completeAfterReplay: Boolean,
+)
+
+private data class TerminalUpdate(
+    val snapshot: WorkflowRunRecord,
+    val emitters: List<SseEmitter>,
+)
 
 private fun WorkflowRunStatus.isTerminal(): Boolean =
     this == WorkflowRunStatus.COMPLETED ||

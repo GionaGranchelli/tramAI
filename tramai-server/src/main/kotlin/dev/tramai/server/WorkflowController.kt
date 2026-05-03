@@ -6,7 +6,9 @@ import dev.tramai.orchestration.WorkflowObserver
 import dev.tramai.orchestration.WorkflowPersistence
 import dev.tramai.orchestration.WorkflowResumeException
 import dev.tramai.orchestration.WorkflowSuspendedException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
@@ -56,13 +58,15 @@ class WorkflowController(
         }
         runStore.event(entry.workflow.name, workflowId, "tramai.workflow.running", status = WorkflowRunStatus.RUNNING)
         val running = runStore.get(entry.workflow.name, workflowId).toResponse()
-        workflowExecutionScope.launch {
+        val job = workflowExecutionScope.launch(start = CoroutineStart.LAZY) {
             executeRunSafely(
                 entry = entry,
                 workflowId = workflowId,
                 initialState = initialState,
             )
         }
+        runStore.attachExecution(entry.workflow.name, workflowId, job)
+        job.start()
         return running
     }
 
@@ -74,13 +78,15 @@ class WorkflowController(
         val entry = registry.get(name)
         val persistence = persistenceOrConflict(entry, id)
         val running = runStore.markResuming(entry.workflow.name, id).toResponse()
-        workflowExecutionScope.launch {
+        val job = workflowExecutionScope.launch(start = CoroutineStart.LAZY) {
             executeResumeSafely(
                 entry = entry,
                 workflowId = id,
                 persistence = persistence,
             )
         }
+        runStore.attachExecution(entry.workflow.name, id, job)
+        job.start()
         return running
     }
 
@@ -183,6 +189,10 @@ class WorkflowController(
             runStore.complete(entry.workflow.name, workflowId, result)
         } catch (suspended: WorkflowSuspendedException) {
             runStore.fail(entry.workflow.name, workflowId, suspended, WorkflowRunStatus.DELAYED)
+        } catch (_: CancellationException) {
+            if (runStore.get(entry.workflow.name, workflowId).status != WorkflowRunStatus.CANCELLED) {
+                throw CancellationException("Workflow '${entry.workflow.name}' run '$workflowId' was cancelled")
+            }
         } catch (error: Throwable) {
             runStore.fail(entry.workflow.name, workflowId, error)
         }
@@ -208,6 +218,10 @@ class WorkflowController(
             runStore.complete(entry.workflow.name, workflowId, result)
         } catch (suspended: WorkflowSuspendedException) {
             runStore.fail(entry.workflow.name, workflowId, suspended, WorkflowRunStatus.DELAYED)
+        } catch (_: CancellationException) {
+            if (runStore.get(entry.workflow.name, workflowId).status != WorkflowRunStatus.CANCELLED) {
+                throw CancellationException("Workflow '${entry.workflow.name}' run '$workflowId' was cancelled")
+            }
         } catch (error: Throwable) {
             runStore.fail(entry.workflow.name, workflowId, error)
         }

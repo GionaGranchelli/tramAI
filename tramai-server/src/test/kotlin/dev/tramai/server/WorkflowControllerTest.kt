@@ -5,6 +5,7 @@ import dev.tramai.orchestration.InMemoryWorkflowCheckpointStore
 import dev.tramai.orchestration.WorkflowPersistence
 import dev.tramai.orchestration.WorkflowStateCodec
 import dev.tramai.orchestration.workflow
+import kotlinx.coroutines.Job
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -100,6 +101,62 @@ class WorkflowControllerTest @Autowired constructor(
                 jsonPath("$.workflowId") { value(workflowId) }
                 jsonPath("$.status") { value("cancelled") }
             }
+    }
+
+    @Test
+    fun `cancel transitions dispatch through event for sse subscribers`() {
+        val store = WorkflowRunStore(maxHistorySize = 10, sseEventBufferSize = 100)
+        val workflowId = "cancel-sse-dispatch"
+        store.create(
+            workflowName = "invoice",
+            workflowId = workflowId,
+            definitionVersion = "1.0.0",
+            idempotencyKey = null,
+        )
+        store.event("invoice", workflowId, "tramai.workflow.running", status = WorkflowRunStatus.RUNNING)
+
+        store.cancel("invoice", workflowId)
+
+        val run = store.get("invoice", workflowId)
+        assertThat(run.status).isEqualTo(WorkflowRunStatus.CANCELLED)
+        assertThat(run.history.map { it.name }).contains(
+            "tramai.workflow.cancelling",
+            "tramai.workflow.cancelled",
+        )
+    }
+
+    @Test
+    fun `sse payload serializes null step name as json null`() {
+        val mapper = com.fasterxml.jackson.module.kotlin.jacksonObjectMapper().findAndRegisterModules()
+        val event = WorkflowRunEvent(
+            sequence = 1,
+            name = "tramai.workflow.running",
+            stepName = null,
+            timestamp = java.time.Instant.now(),
+        )
+        val json = mapper.writeValueAsString(
+            mapOf("stepName" to event.stepName, "timestamp" to event.timestamp.toString())
+        )
+        assertThat(json).contains("\"stepName\":null")
+    }
+
+    @Test
+    fun `sse event buffer independent from canonical run history`() {
+        val store = WorkflowRunStore(maxHistorySize = 10, sseEventBufferSize = 2)
+        val workflowId = "history-buffer"
+        store.create(
+            workflowName = "invoice",
+            workflowId = workflowId,
+            definitionVersion = "1.0.0",
+            idempotencyKey = null,
+        )
+
+        store.event("invoice", workflowId, "event-1")
+        store.event("invoice", workflowId, "event-2")
+        store.event("invoice", workflowId, "event-3")
+
+        assertThat(store.get("invoice", workflowId).history.map { it.name })
+            .containsExactly("event-1", "event-2", "event-3")
     }
 
     @Test
@@ -325,6 +382,25 @@ class WorkflowControllerTest @Autowired constructor(
         assertThat(completed.status).isEqualTo(WorkflowRunStatus.CANCELLED)
         assertThat(failed.status).isEqualTo(WorkflowRunStatus.CANCELLED)
         assertThat(store.get("invoice", workflowId).status).isEqualTo(WorkflowRunStatus.CANCELLED)
+    }
+
+    @Test
+    fun `cancel signals attached execution job`() {
+        val store = WorkflowRunStore(maxHistorySize = 10)
+        val workflowId = "cancel-job"
+        val job = Job()
+        store.create(
+            workflowName = "invoice",
+            workflowId = workflowId,
+            definitionVersion = "1.0.0",
+            idempotencyKey = null,
+        )
+        store.event("invoice", workflowId, "tramai.workflow.running", status = WorkflowRunStatus.RUNNING)
+        store.attachExecution("invoice", workflowId, job)
+
+        store.cancel("invoice", workflowId)
+
+        assertThat(job.isCancelled).isTrue()
     }
 
     @Test
