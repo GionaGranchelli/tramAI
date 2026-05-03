@@ -1,4 +1,5 @@
 package dev.tramai.orchestration
+import java.time.Instant
 /**
  * Serialized checkpoint for one workflow run.
  *
@@ -43,11 +44,23 @@ interface WorkflowCheckpointStore {
     )
 }
 /**
+ * Optional scheduler bridge used by delay workflow steps to persist wakeups
+ * without making the orchestration module depend on a scheduler backend.
+ */
+interface WorkflowDelayWakeupScheduler {
+    suspend fun scheduleDelayWakeup(
+        runId: String,
+        stepId: String,
+        resumeAt: Instant,
+    )
+}
+/**
  * Persistence configuration for a typed workflow.
  */
 data class WorkflowPersistence<S>(
     val checkpointStore: WorkflowCheckpointStore,
     val stateCodec: WorkflowStateCodec<S>,
+    val delayWakeupScheduler: WorkflowDelayWakeupScheduler? = null,
     val leaseStore: WorkflowLeaseStore? = null,
     val leasePolicy: WorkflowLeasePolicy? = null,
     val deleteCheckpointOnCompletion: Boolean = true,

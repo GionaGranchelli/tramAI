@@ -1,5 +1,6 @@
 package dev.tramai.scheduler
 
+import dev.tramai.orchestration.WorkflowDelayWakeupScheduler
 import dev.tramai.orchestration.WorkflowScheduleDefinition
 import java.time.Duration
 import java.time.Instant
@@ -18,6 +19,7 @@ data class ClaimedScheduledTick(
     val workflowName: String,
     val scheduledFireAt: Instant,
     val claimToken: String,
+    val claimExpiresAt: Instant,
 )
 
 data class ClaimedDelayWakeup(
@@ -25,9 +27,10 @@ data class ClaimedDelayWakeup(
     val stepId: String,
     val resumeAt: Instant,
     val claimToken: String,
+    val claimExpiresAt: Instant,
 )
 
-interface WorkflowSchedulerStore {
+interface WorkflowSchedulerStore : WorkflowDelayWakeupScheduler {
     suspend fun upsertSchedule(schedule: ScheduleRecord)
     suspend fun getSchedule(scheduleId: String): ScheduleRecord?
     suspend fun claimDueTicks(
@@ -40,6 +43,10 @@ interface WorkflowSchedulerStore {
         tickId: String,
         claimToken: String,
         runId: String,
+    )
+    suspend fun releaseTickClaim(
+        tickId: String,
+        claimToken: String,
     )
     suspend fun markTickCompleted(
         tickId: String,
@@ -55,7 +62,7 @@ interface WorkflowSchedulerStore {
         claimToken: String,
         reason: String,
     )
-    suspend fun scheduleDelayWakeup(
+    override suspend fun scheduleDelayWakeup(
         runId: String,
         stepId: String,
         resumeAt: Instant,
@@ -66,4 +73,14 @@ interface WorkflowSchedulerStore {
         claimDuration: Duration,
         limit: Int,
     ): List<ClaimedDelayWakeup>
+    suspend fun releaseDelayWakeupClaim(
+        runId: String,
+        stepId: String,
+        claimToken: String,
+    )
+    suspend fun markDelayWakeupCompleted(
+        runId: String,
+        stepId: String,
+        claimToken: String,
+    )
 }

@@ -11,10 +11,15 @@ import dev.tramai.engine.TramaiEngine
 import dev.tramai.engine.create
 import dev.tramai.testing.RecordingOperationObserver
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import java.time.Clock
+import java.time.Instant
 import java.time.ZoneId
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
+import kotlin.test.fail
 class WorkflowTest {
     @Test
     fun `executes plan execute review finalize workflow`() {
@@ -886,6 +891,117 @@ class WorkflowTest {
         ).isNull()
     }
     @Test
+    fun `delay step pauses and resumes after resume timestamp elapses`() {
+        val clock = MutableClock(Instant.parse("2026-05-03T09:00:00Z"))
+        val store = InMemoryWorkflowCheckpointStore()
+        val delayScheduler = RecordingDelayWakeupScheduler()
+        val persistence = WorkflowPersistence(
+            checkpointStore = store,
+            stateCodec = ResumeStateCodec,
+            delayWakeupScheduler = delayScheduler,
+        )
+        val context = WorkflowContext(workflowId = "delay-1")
+        val observer = RecordingWorkflowObserver()
+        val workflow = workflow<ResumeState>("delay-resume") {
+            localStep("draft") { state, _ -> state.copy(draft = "draft:${state.request}") }
+            delayStep("pause", 5, TimeUnit.SECONDS)
+            localStep("finalize") { state, _ -> state.copy(finalAnswer = "final:${state.draft}") }
+        }.build(clock = clock) { it.finalAnswer ?: error("final answer must exist") }
+
+        assertThatThrownBy {
+            runBlocking {
+                workflow.run(
+                    initialState = ResumeState(request = "invoice-123"),
+                    context = context,
+                    observer = observer,
+                    persistence = persistence,
+                )
+            }
+        }
+            .isInstanceOf(WorkflowSuspendedException::class.java)
+            .hasMessageContaining("pause")
+        val paused = runBlocking { store.load("delay-resume", "delay-1") }
+        assertThat(paused).isNotNull
+        assertThat(paused!!.nextStepIndex).isEqualTo(1)
+        assertThat(paused.lastCompletedStepName).isNull()
+        assertThat(paused.metadata["tramai.workflow.delay.step"]).isEqualTo("pause")
+        assertThat(paused.metadata["tramai.workflow.delay.resume_at_epoch_millis"])
+            .isEqualTo("1777798805000")
+        assertThat(delayScheduler.wakeups)
+            .containsExactly(DelayWakeup("delay-1", "pause", Instant.parse("2026-05-03T09:00:05Z")))
+
+        clock.instant = Instant.parse("2026-05-03T09:00:04Z")
+        assertThatThrownBy {
+            runBlocking {
+                workflow.resume(
+                    context = context,
+                    observer = observer,
+                    persistence = persistence,
+                )
+            }
+        }
+            .isInstanceOf(WorkflowSuspendedException::class.java)
+
+        clock.instant = Instant.parse("2026-05-03T09:00:05Z")
+        val result = runBlocking {
+            workflow.resume(
+                context = context,
+                observer = observer,
+                persistence = persistence,
+            )
+        }
+
+        assertThat(result).isEqualTo("final:draft:invoice-123")
+        assertThat(runBlocking { store.load("delay-resume", "delay-1") }).isNull()
+        assertThat(observer.workflowEvents).contains(
+            "tramai.workflow.delay.started",
+            "tramai.workflow.delay.waiting",
+            "tramai.workflow.delay.resumed",
+        )
+        assertThat(observer.completedSteps).contains("pause", "finalize")
+    }
+    @Test
+    fun `zero delay step is a no op`() {
+        val workflow = workflow<ResumeState>("zero-delay") {
+            localStep("draft") { state, _ -> state.copy(draft = "draft:${state.request}") }
+            delayStep("pause", 0, TimeUnit.SECONDS)
+            localStep("finalize") { state, _ -> state.copy(finalAnswer = "final:${state.draft}") }
+        }.build { it.finalAnswer ?: error("final answer must exist") }
+
+        val result = runBlocking {
+            workflow.run(ResumeState(request = "invoice-123"))
+        }
+
+        assertThat(result).isEqualTo("final:draft:invoice-123")
+    }
+    @Test
+    fun `delay step cancellation returns control immediately`() {
+        val clock = MutableClock(Instant.parse("2026-05-03T09:00:00Z"))
+        val store = InMemoryWorkflowCheckpointStore()
+        val workflow = workflow<ResumeState>("delay-cancellation") {
+            delayStep("pause", 1, TimeUnit.HOURS)
+        }.build(clock = clock) { it.request }
+
+        runBlocking {
+            withTimeout(100) {
+                try {
+                    workflow.run(
+                        initialState = ResumeState(request = "invoice-123"),
+                        context = WorkflowContext(workflowId = "delay-cancel-1"),
+                        persistence = WorkflowPersistence(
+                            checkpointStore = store,
+                            stateCodec = ResumeStateCodec,
+                            delayWakeupScheduler = RecordingDelayWakeupScheduler(),
+                        ),
+                    )
+                    fail("Expected delay workflow to suspend")
+                } catch (_: WorkflowSuspendedException) {
+                    Unit
+                }
+            }
+        }
+    }
+    @Test
     fun `resume fails loudly when no checkpoint exists`() {
         val workflow = workflow<ResumeState>("missing-resume") {
             localStep(
@@ -1442,6 +1558,29 @@ private object ResumeStateCodec : WorkflowStateCodec<ResumeState> {
         )
     }
 }
+private data class DelayWakeup(
+    val runId: String,
+    val stepId: String,
+    val resumeAt: Instant,
+)
+private class RecordingDelayWakeupScheduler : WorkflowDelayWakeupScheduler {
+    val wakeups = mutableListOf<DelayWakeup>()
+    override suspend fun scheduleDelayWakeup(
+        runId: String,
+        stepId: String,
+        resumeAt: Instant,
+    ) {
+        wakeups += DelayWakeup(runId, stepId, resumeAt)
+    }
+}
+private class MutableClock(
+    var instant: Instant,
+    private val zoneId: ZoneId = ZoneId.of("UTC"),
+) : Clock() {
+    override fun instant(): Instant = instant
+    override fun getZone(): ZoneId = zoneId
+    override fun withZone(zone: ZoneId): Clock = MutableClock(instant, zone)
+}
 private class DeleteConflictCheckpointStore(
     private val delegate: WorkflowCheckpointStore,
     private val failOnDeleteWorkflowName: String,
@@ -1471,6 +1610,15 @@ private class RecordingWorkflowObserver : WorkflowObserver {
     val startedSteps = mutableListOf<String>()
     val completedSteps = mutableListOf<String>()
     val failedSteps = mutableListOf<String>()
+    val workflowEvents = mutableListOf<String>()
+    override fun onWorkflowEvent(
+        workflowName: String,
+        name: String,
+        attributes: Map<String, Any?>,
+        context: WorkflowContext,
+    ) {
+        workflowEvents += name
+    }
     override fun onStepStarted(
         workflowName: String,
         stepName: String,

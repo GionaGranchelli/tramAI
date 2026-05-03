@@ -157,9 +157,14 @@ internal data class CronField(
                     name = name,
                     normalizeSunday = normalizeSunday,
                 )
+                val steppedRange = if (rangeAndStep.size == 2 && rangeText != "*" && range.first == range.last) {
+                    range.first..max
+                } else {
+                    range
+                }
                 wildcard = wildcard || rangeText == "*"
-                var current = range.first
-                while (current <= range.last) {
+                var current = steppedRange.first
+                while (current <= steppedRange.last) {
                     values += normalize(value = current, max = max, normalizeSunday = normalizeSunday)
                     current += step
                 }

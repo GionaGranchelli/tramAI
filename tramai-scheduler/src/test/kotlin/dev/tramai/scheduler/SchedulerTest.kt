@@ -1,8 +1,11 @@
 package dev.tramai.scheduler
 
 import dev.tramai.orchestration.WorkflowContext
+import dev.tramai.orchestration.InMemoryWorkflowCheckpointStore
 import dev.tramai.orchestration.WorkflowObserver
+import dev.tramai.orchestration.WorkflowPersistence
 import dev.tramai.orchestration.WorkflowScheduleDefinition
+import dev.tramai.orchestration.WorkflowStateCodec
 import dev.tramai.orchestration.workflow
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -12,6 +15,7 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import java.util.concurrent.TimeUnit
 
 class SchedulerTest {
     @Test
@@ -30,6 +34,18 @@ class SchedulerTest {
             .isEqualTo(Instant.parse("2026-05-03T09:00:05Z"))
         assertThat(schedule.nextFireAfter(Instant.parse("2026-05-03T09:00:05Z")))
             .isEqualTo(Instant.parse("2026-05-03T09:00:10Z"))
+    }
+
+    @Test
+    fun `cron schedule steps from explicit value through field maximum`() {
+        val schedule = at("1/5 * * * *", ZoneId.of("UTC"))
+
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-05-03T09:00:00Z")))
+            .isEqualTo(Instant.parse("2026-05-03T09:01:00Z"))
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-05-03T09:01:00Z")))
+            .isEqualTo(Instant.parse("2026-05-03T09:06:00Z"))
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-05-03T09:51:00Z")))
+            .isEqualTo(Instant.parse("2026-05-03T09:56:00Z"))
     }
 
     @Test
@@ -76,6 +92,181 @@ class SchedulerTest {
 
             assertThat(observer.scheduledTicks).containsExactly(Instant.parse("2026-05-03T09:00:05Z"))
             assertThat(observer.completedWorkflows).containsExactly("scheduled-counter")
+        }
+    }
+
+    @Test
+    fun `timer resumes workflow from due delay wakeup`() {
+        runBlocking {
+            val clock = MutableClock(Instant.parse("2026-05-03T09:00:00Z"))
+            val schedulerStore = InMemoryWorkflowSchedulerStore()
+            val checkpointStore = InMemoryWorkflowCheckpointStore()
+            val observer = RecordingSchedulerObserver()
+            val workflow = workflow<CounterState>("scheduled-delay") {
+                schedule = at("5 0 9 * * *", ZoneId.of("UTC"))
+                localStep("increment-before-delay") { state, _ -> state.copy(value = state.value + 1) }
+                delayStep("pause", 5, TimeUnit.SECONDS)
+                localStep("increment-after-delay") { state, _ -> state.copy(value = state.value + 1) }
+            }.build(clock = clock) { it.value }
+            val persistence = WorkflowPersistence(
+                checkpointStore = checkpointStore,
+                stateCodec = CounterStateCodec,
+                delayWakeupScheduler = schedulerStore,
+            )
+            val timer = ScheduledWorkflowTimer(
+                store = schedulerStore,
+                clock = clock,
+            )
+
+            timer.register(
+                workflow = workflow,
+                initialState = { CounterState(0) },
+                observer = observer,
+                persistence = persistence,
+            )
+            clock.instant = Instant.parse("2026-05-03T09:00:05Z")
+            timer.pollOnce()
+
+            assertThat(observer.completedWorkflows).isEmpty()
+
+            clock.instant = Instant.parse("2026-05-03T09:00:10Z")
+            timer.pollOnce()
+
+            assertThat(observer.completedWorkflows).containsExactly("scheduled-delay")
+        }
+    }
+
+    @Test
+    fun `timer completes delay wakeup and reports unknown claimed wakeup`() {
+        runBlocking {
+            val clock = MutableClock(Instant.parse("2026-05-03T09:00:00Z"))
+            val schedulerStore = InMemoryWorkflowSchedulerStore()
+            val checkpointStore = InMemoryWorkflowCheckpointStore()
+            val observer = RecordingSchedulerObserver()
+            val workflow = workflow<CounterState>("scheduled-delay-with-unknown") {
+                schedule = at("5 0 9 * * *", ZoneId.of("UTC"))
+                delayStep("pause", 5, TimeUnit.SECONDS)
+            }.build(clock = clock) { it.value }
+            val persistence = WorkflowPersistence(
+                checkpointStore = checkpointStore,
+                stateCodec = CounterStateCodec,
+                delayWakeupScheduler = schedulerStore,
+            )
+            val timer = ScheduledWorkflowTimer(
+                store = schedulerStore,
+                clock = clock,
+                observer = observer,
+            )
+
+            timer.register(
+                workflow = workflow,
+                initialState = { CounterState(0) },
+                observer = observer,
+                persistence = persistence,
+            )
+            clock.instant = Instant.parse("2026-05-03T09:00:05Z")
+            timer.pollOnce()
+            schedulerStore.scheduleDelayWakeup(
+                runId = "unknown-run",
+                stepId = "pause",
+                resumeAt = Instant.parse("2026-05-03T09:00:10Z"),
+            )
+
+            clock.instant = Instant.parse("2026-05-03T09:00:10Z")
+            timer.pollOnce()
+            timer.pollOnce()
+
+            assertThat(observer.completedWorkflows).containsExactly("scheduled-delay-with-unknown")
+            assertThat(observer.events).contains("tramai.scheduler.delay_wakeup.unregistered")
+        }
+    }
+
+    @Test
+    fun `in memory store reclaims expired tick and delay claims`() {
+        runBlocking {
+            val store = InMemoryWorkflowSchedulerStore()
+            val schedule = at("*/5 * * * * *", ZoneId.of("UTC"))
+            store.upsertSchedule(
+                ScheduleRecord(
+                    scheduleId = "workflow:reclaim",
+                    workflowName = "reclaim",
+                    schedule = schedule,
+                    nextFireAt = Instant.parse("2026-05-03T09:00:05Z"),
+                ),
+            )
+            val firstTickClaim = store.claimDueTicks(
+                now = Instant.parse("2026-05-03T09:00:05Z"),
+                ownerId = "owner-1",
+                claimDuration = Duration.ofSeconds(1),
+                limit = 10,
+            ).single()
+
+            assertThat(
+                store.claimDueTicks(
+                    now = Instant.parse("2026-05-03T09:00:05.500Z"),
+                    ownerId = "owner-2",
+                    claimDuration = Duration.ofSeconds(1),
+                    limit = 10,
+                ),
+            ).isEmpty()
+
+            val reclaimedTick = store.claimDueTicks(
+                now = Instant.parse("2026-05-03T09:00:06Z"),
+                ownerId = "owner-2",
+                claimDuration = Duration.ofSeconds(1),
+                limit = 10,
+            ).single()
+            assertThat(reclaimedTick.tickId).isEqualTo(firstTickClaim.tickId)
+            assertThat(reclaimedTick.claimToken).isNotEqualTo(firstTickClaim.claimToken)
+
+            store.scheduleDelayWakeup(
+                runId = "run-1",
+                stepId = "pause",
+                resumeAt = Instant.parse("2026-05-03T09:00:05Z"),
+            )
+            val firstWakeupClaim = store.claimDueDelayWakeups(
+                now = Instant.parse("2026-05-03T09:00:05Z"),
+                ownerId = "owner-1",
+                claimDuration = Duration.ofSeconds(1),
+                limit = 10,
+            ).single()
+
+            assertThat(
+                store.claimDueDelayWakeups(
+                    now = Instant.parse("2026-05-03T09:00:05.500Z"),
+                    ownerId = "owner-2",
+                    claimDuration = Duration.ofSeconds(1),
+                    limit = 10,
+                ),
+            ).isEmpty()
+
+            val reclaimedWakeup = store.claimDueDelayWakeups(
+                now = Instant.parse("2026-05-03T09:00:06Z"),
+                ownerId = "owner-2",
+                claimDuration = Duration.ofSeconds(1),
+                limit = 10,
+            ).single()
+            assertThat(reclaimedWakeup.runId).isEqualTo(firstWakeupClaim.runId)
+            assertThat(reclaimedWakeup.claimToken).isNotEqualTo(firstWakeupClaim.claimToken)
+        }
+    }
+
+    @Test
+    fun `timer releases expired tick claim before execution`() {
+        runBlocking {
+            val store = ExpiredTickClaimStore()
+            val observer = RecordingSchedulerObserver()
+            val timer = ScheduledWorkflowTimer(
+                store = store,
+                clock = MutableClock(Instant.parse("2026-05-03T09:00:05Z")),
+                observer = observer,
+            )
+
+            timer.pollOnce()
+
+            assertThat(store.releasedTickClaims).containsExactly("expired-tick:expired-token")
+            assertThat(observer.skippedTicks).isEmpty()
+            assertThat(observer.scheduledTicks).isEmpty()
         }
     }
 
@@ -152,6 +343,11 @@ class SchedulerTest {
 
     private data class CounterState(val value: Int)
 
+    private object CounterStateCodec : WorkflowStateCodec<CounterState> {
+        override fun encode(state: CounterState): String = state.value.toString()
+        override fun decode(payload: String): CounterState = CounterState(payload.toInt())
+    }
+
     private object InvalidSchedule : WorkflowScheduleDefinition {
         override val kind: String = "invalid"
         override val expression: String = "invalid"
@@ -175,6 +371,16 @@ class SchedulerTest {
         val skippedTicks = mutableListOf<Instant>()
         val missedTicks = mutableListOf<Instant>()
         val completedWorkflows = mutableListOf<String>()
+        val events = mutableListOf<String>()
+
+        override fun onWorkflowEvent(
+            workflowName: String,
+            name: String,
+            attributes: Map<String, Any?>,
+            context: WorkflowContext,
+        ) {
+            events += name
+        }
 
         override fun onScheduledTick(
             workflowName: String,
@@ -208,5 +414,90 @@ class SchedulerTest {
         ) {
             completedWorkflows += workflowName
         }
+    }
+
+    private class ExpiredTickClaimStore : WorkflowSchedulerStore {
+        val releasedTickClaims = mutableListOf<String>()
+
+        override suspend fun upsertSchedule(schedule: ScheduleRecord) = Unit
+        override suspend fun getSchedule(scheduleId: String): ScheduleRecord? = null
+        override suspend fun claimDueTicks(
+            now: Instant,
+            ownerId: String,
+            claimDuration: Duration,
+            limit: Int,
+        ): List<ClaimedScheduledTick> = listOf(
+            ClaimedScheduledTick(
+                tickId = "expired-tick",
+                scheduleId = "workflow:expired",
+                workflowName = "expired",
+                scheduledFireAt = Instant.parse("2026-05-03T09:00:05Z"),
+                claimToken = "expired-token",
+                claimExpiresAt = Instant.parse("2026-05-03T09:00:04Z"),
+            ),
+        )
+
+        override suspend fun markTickStarted(
+            tickId: String,
+            claimToken: String,
+            runId: String,
+        ) {
+            error("Expired tick claims must not be started")
+        }
+
+        override suspend fun releaseTickClaim(
+            tickId: String,
+            claimToken: String,
+        ) {
+            releasedTickClaims += "$tickId:$claimToken"
+        }
+
+        override suspend fun markTickCompleted(
+            tickId: String,
+            claimToken: String,
+        ) {
+            error("Expired tick claims must not be completed")
+        }
+
+        override suspend fun markTickSkipped(
+            tickId: String,
+            claimToken: String,
+            reason: String,
+        ) {
+            error("Expired tick claims must not be skipped as terminal")
+        }
+
+        override suspend fun markTickMisfired(
+            tickId: String,
+            claimToken: String,
+            reason: String,
+        ) {
+            error("Expired tick claims must not be marked as misfired")
+        }
+
+        override suspend fun scheduleDelayWakeup(
+            runId: String,
+            stepId: String,
+            resumeAt: Instant,
+        ) = Unit
+
+        override suspend fun claimDueDelayWakeups(
+            now: Instant,
+            ownerId: String,
+            claimDuration: Duration,
+            limit: Int,
+        ): List<ClaimedDelayWakeup> = emptyList()
+
+        override suspend fun releaseDelayWakeupClaim(
+            runId: String,
+            stepId: String,
+            claimToken: String,
+        ) = Unit
+
+        override suspend fun markDelayWakeupCompleted(
+            runId: String,
+            stepId: String,
+            claimToken: String,
+        ) = Unit
     }
 }

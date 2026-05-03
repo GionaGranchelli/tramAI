@@ -37,15 +37,27 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
             "WorkflowSchedulerStore.claimDueTicks claimDuration must be positive"
         }
         return synchronized(this) {
-            schedules.values
+            val reclaimed = ticks.values
+                .asSequence()
+                .filter { it.status.isClaimed && !it.claimExpiresAt.isAfter(now) }
+                .sortedBy { it.scheduledFireAt }
+                .take(limit)
+                .map { tick -> tick.reclaim(ownerId, now.plus(claimDuration)) }
+                .toList()
+            if (reclaimed.size == limit) {
+                return@synchronized reclaimed
+            }
+            val remaining = limit - reclaimed.size
+            reclaimed + schedules.values
                 .asSequence()
                 .filter { it.enabled && !it.nextFireAt.isAfter(now) }
                 .sortedBy { it.nextFireAt }
-                .take(limit)
+                .take(remaining)
                 .map { schedule ->
                     val scheduledFireAt = schedule.nextFireAt
                     val tickId = tickId(schedule.scheduleId, scheduledFireAt)
                     val claimToken = UUID.randomUUID().toString()
+                    val claimExpiresAt = now.plus(claimDuration)
                     ticks[tickId] = MutableTickRecord(
                         tickId = tickId,
                         scheduleId = schedule.scheduleId,
@@ -53,7 +65,7 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
                         scheduledFireAt = scheduledFireAt,
                         ownerId = ownerId,
                         claimToken = claimToken,
-                        claimExpiresAt = now.plus(claimDuration),
+                        claimExpiresAt = claimExpiresAt,
                         status = TickStatus.CLAIMED,
                     )
                     schedule.nextFireAt = nextFireAfter(schedule.schedule, scheduledFireAt)
@@ -63,6 +75,7 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
                         workflowName = schedule.workflowName,
                         scheduledFireAt = scheduledFireAt,
                         claimToken = claimToken,
+                        claimExpiresAt = claimExpiresAt,
                     )
                 }
                 .toList()
@@ -77,6 +90,19 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
         updateTick(tickId, claimToken) {
             status = TickStatus.STARTED
             workflowRunId = runId
+        }
+    }
+
+    override suspend fun releaseTickClaim(
+        tickId: String,
+        claimToken: String,
+    ) {
+        updateTick(tickId, claimToken) {
+            status = TickStatus.CLAIMED
+            ownerId = null
+            this.claimToken = null
+            claimExpiresAt = Instant.EPOCH
+            workflowRunId = null
         }
     }
 
@@ -142,23 +168,54 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
         return synchronized(this) {
             delayWakeups.values
                 .asSequence()
-                .filter { it.status == WakeupStatus.PENDING && !it.resumeAt.isAfter(now) }
+                .filter {
+                    !it.resumeAt.isAfter(now) &&
+                        (it.status == WakeupStatus.PENDING || (it.status == WakeupStatus.CLAIMED && !it.claimExpiresAt!!.isAfter(now)))
+                }
                 .sortedBy { it.resumeAt }
                 .take(limit)
                 .map { wakeup ->
                     val claimToken = UUID.randomUUID().toString()
+                    val claimExpiresAt = now.plus(claimDuration)
                     wakeup.status = WakeupStatus.CLAIMED
                     wakeup.ownerId = ownerId
                     wakeup.claimToken = claimToken
-                    wakeup.claimExpiresAt = now.plus(claimDuration)
+                    wakeup.claimExpiresAt = claimExpiresAt
                     ClaimedDelayWakeup(
                         runId = wakeup.runId,
                         stepId = wakeup.stepId,
                         resumeAt = wakeup.resumeAt,
                         claimToken = claimToken,
+                        claimExpiresAt = claimExpiresAt,
                     )
                 }
                 .toList()
+        }
+    }
+
+    override suspend fun releaseDelayWakeupClaim(
+        runId: String,
+        stepId: String,
+        claimToken: String,
+    ) {
+        updateDelayWakeup(runId, stepId, claimToken) {
+            status = WakeupStatus.PENDING
+            ownerId = null
+            this.claimToken = null
+            claimExpiresAt = null
+        }
+    }
+
+    override suspend fun markDelayWakeupCompleted(
+        runId: String,
+        stepId: String,
+        claimToken: String,
+    ) {
+        synchronized(this) {
+            updateDelayWakeupLocked(runId, stepId, claimToken) {
+                status = WakeupStatus.COMPLETED
+            }
+            delayWakeups.remove(delayWakeupId(runId, stepId))
         }
     }
 
@@ -170,11 +227,37 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
         synchronized(this) {
             val tick = ticks[tickId]
                 ?: throw IllegalArgumentException("Unknown scheduled tick '$tickId'")
-            require(tick.claimToken == claimToken) {
+            require(tick.claimToken == claimToken && tick.status.isClaimed) {
                 "Scheduled tick '$tickId' claim token does not match"
             }
             tick.update()
         }
+    }
+
+    private fun updateDelayWakeup(
+        runId: String,
+        stepId: String,
+        claimToken: String,
+        update: MutableDelayWakeupRecord.() -> Unit,
+    ) {
+        synchronized(this) {
+            updateDelayWakeupLocked(runId, stepId, claimToken, update)
+        }
+    }
+
+    private fun updateDelayWakeupLocked(
+        runId: String,
+        stepId: String,
+        claimToken: String,
+        update: MutableDelayWakeupRecord.() -> Unit,
+    ) {
+        val wakeupId = delayWakeupId(runId, stepId)
+        val wakeup = delayWakeups[wakeupId]
+            ?: throw IllegalArgumentException("Unknown delay wakeup '$wakeupId'")
+        require(wakeup.claimToken == claimToken && wakeup.status == WakeupStatus.CLAIMED) {
+            "Delay wakeup '$wakeupId' claim token does not match"
+        }
+        wakeup.update()
     }
 
     private fun nextFireAfter(
@@ -208,13 +291,30 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
         val scheduleId: String,
         val workflowName: String,
         val scheduledFireAt: Instant,
-        val ownerId: String,
-        val claimToken: String,
-        val claimExpiresAt: Instant,
+        var ownerId: String?,
+        var claimToken: String?,
+        var claimExpiresAt: Instant,
         var status: TickStatus,
         var workflowRunId: String? = null,
         var terminalReason: String? = null,
-    )
+    ) {
+        fun reclaim(ownerId: String, claimExpiresAt: Instant): ClaimedScheduledTick {
+            val claimToken = UUID.randomUUID().toString()
+            this.ownerId = ownerId
+            this.claimToken = claimToken
+            this.claimExpiresAt = claimExpiresAt
+            status = TickStatus.CLAIMED
+            workflowRunId = null
+            return ClaimedScheduledTick(
+                tickId = tickId,
+                scheduleId = scheduleId,
+                workflowName = workflowName,
+                scheduledFireAt = scheduledFireAt,
+                claimToken = claimToken,
+                claimExpiresAt = claimExpiresAt,
+            )
+        }
+    }
 
     private data class MutableDelayWakeupRecord(
         val runId: String,
@@ -232,11 +332,16 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
         COMPLETED,
         SKIPPED,
         MISFIRED,
+        ;
+
+        val isClaimed: Boolean
+            get() = this == CLAIMED || this == STARTED
     }
 
     private enum class WakeupStatus {
         PENDING,
         CLAIMED,
+        COMPLETED,
     }
 }
 

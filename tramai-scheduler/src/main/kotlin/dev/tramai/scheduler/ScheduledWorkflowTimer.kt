@@ -5,6 +5,8 @@ import dev.tramai.orchestration.Workflow
 import dev.tramai.orchestration.WorkflowContext
 import dev.tramai.orchestration.WorkflowObserver
 import dev.tramai.orchestration.WorkflowPersistence
+import dev.tramai.orchestration.WorkflowSuspendedException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -29,8 +31,11 @@ class ScheduledWorkflowTimer(
     private val observer: WorkflowObserver = NoOpWorkflowObserver,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) : AutoCloseable {
+    private val monitor = Any()
     private val registrations = linkedMapOf<String, ScheduledWorkflowRegistration<*, *>>()
+    private val delayRegistrations = linkedMapOf<String, ScheduledWorkflowRegistration<*, *>>()
     private var loopJob: Job? = null
+    private var running = false
 
     init {
         require(!pollInterval.isNegative && !pollInterval.isZero) {
@@ -60,12 +65,15 @@ class ScheduledWorkflowTimer(
         }
         schedule.validate()
         val scheduleId = scheduleId(workflow.name)
-        registrations[scheduleId] = ScheduledWorkflowRegistration(
+        val registration = ScheduledWorkflowRegistration(
             workflow = workflow,
             initialState = initialState,
             observer = observer,
             persistence = persistence,
         )
+        synchronized(monitor) {
+            registrations[scheduleId] = registration
+        }
         store.upsertSchedule(
             ScheduleRecord(
                 scheduleId = scheduleId,
@@ -77,20 +85,28 @@ class ScheduledWorkflowTimer(
     }
 
     fun start(): Job {
-        check(loopJob == null) { "ScheduledWorkflowTimer is already started" }
-        val job = scope.launch {
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             while (isActive) {
                 pollOnce()
                 delay(pollInterval.toMillis())
             }
         }
-        loopJob = job
+        synchronized(monitor) {
+            check(!running && loopJob == null) { "ScheduledWorkflowTimer is already started" }
+            running = true
+            loopJob = job
+        }
+        job.start()
         return job
     }
 
     suspend fun stop() {
-        val job = loopJob ?: return
-        loopJob = null
+        val job = synchronized(monitor) {
+            val job = loopJob
+            loopJob = null
+            running = false
+            job
+        } ?: return
         job.cancelAndJoin()
     }
 
@@ -105,18 +121,38 @@ class ScheduledWorkflowTimer(
         for (tick in ticks) {
             handleTick(tick = tick, now = now)
         }
+        if (hasDelayRegistrations()) {
+            val wakeups = store.claimDueDelayWakeups(
+                now = now,
+                ownerId = ownerId,
+                claimDuration = claimDuration,
+                limit = batchSize,
+            )
+            for (wakeup in wakeups) {
+                handleDelayWakeup(wakeup)
+            }
+        }
     }
 
     override fun close() {
-        loopJob?.cancel()
-        loopJob = null
+        val job = synchronized(monitor) {
+            val job = loopJob
+            loopJob = null
+            running = false
+            job
+        }
+        job?.cancel()
     }
 
     private suspend fun handleTick(
         tick: ClaimedScheduledTick,
         now: Instant,
     ) {
-        val registration = registrations[tick.scheduleId]
+        if (!tick.claimExpiresAt.isAfter(clock.instant())) {
+            store.releaseTickClaim(tick.tickId, tick.claimToken)
+            return
+        }
+        val registration = registrationFor(tick.scheduleId)
         if (registration == null) {
             val reason = "workflow_not_registered"
             val context = scheduledTickContext(tick)
@@ -135,8 +171,64 @@ class ScheduledWorkflowTimer(
         val runId = context.workflowId
         observer.onScheduledTick(tick.workflowName, tick.scheduledFireAt, context)
         store.markTickStarted(tick.tickId, tick.claimToken, runId)
-        registration.run(tick, context)
+        try {
+            registration.run(tick, context)
+        } catch (_: WorkflowSuspendedException) {
+            synchronized(monitor) {
+                delayRegistrations[runId] = registration
+            }
+            // The workflow has durably checkpointed itself; the delay wakeup will resume it.
+        }
         store.markTickCompleted(tick.tickId, tick.claimToken)
+    }
+
+    private suspend fun handleDelayWakeup(wakeup: ClaimedDelayWakeup) {
+        if (!wakeup.claimExpiresAt.isAfter(clock.instant())) {
+            store.releaseDelayWakeupClaim(wakeup.runId, wakeup.stepId, wakeup.claimToken)
+            return
+        }
+        val registration = synchronized(monitor) {
+            delayRegistrations[wakeup.runId]
+        }
+        if (registration == null) {
+            observer.onWorkflowEvent(
+                workflowName = "unknown",
+                name = "tramai.scheduler.delay_wakeup.unregistered",
+                attributes = mapOf(
+                    "workflow_id" to wakeup.runId,
+                    "step_id" to wakeup.stepId,
+                    "resume_at_epoch_millis" to wakeup.resumeAt.toEpochMilli(),
+                ),
+                context = WorkflowContext(workflowId = wakeup.runId),
+            )
+            store.releaseDelayWakeupClaim(wakeup.runId, wakeup.stepId, wakeup.claimToken)
+            return
+        }
+        val context = WorkflowContext(
+            workflowId = wakeup.runId,
+            attributes = mapOf(
+                "tramai.delay.step_id" to wakeup.stepId,
+                "tramai.delay.resume_at_epoch_millis" to wakeup.resumeAt.toEpochMilli(),
+            ),
+        )
+        try {
+            registration.resume(context)
+            synchronized(monitor) {
+                delayRegistrations.remove(wakeup.runId)
+            }
+            store.markDelayWakeupCompleted(wakeup.runId, wakeup.stepId, wakeup.claimToken)
+        } catch (_: WorkflowSuspendedException) {
+            // The workflow re-checkpointed the delay because its own clock says it is still waiting.
+            store.releaseDelayWakeupClaim(wakeup.runId, wakeup.stepId, wakeup.claimToken)
+        }
+    }
+
+    private fun hasDelayRegistrations(): Boolean = synchronized(monitor) {
+        delayRegistrations.isNotEmpty()
+    }
+
+    private fun registrationFor(scheduleId: String): ScheduledWorkflowRegistration<*, *>? = synchronized(monitor) {
+        registrations[scheduleId]
     }
 
     private fun scheduledTickContext(tick: ClaimedScheduledTick): WorkflowContext = WorkflowContext(
@@ -159,6 +251,14 @@ class ScheduledWorkflowTimer(
         ) {
             workflow.run(
                 initialState = initialState(tick),
+                context = context,
+                observer = observer,
+                persistence = persistence,
+            )
+        }
+        suspend fun resume(context: WorkflowContext) {
+            val persistence = persistence ?: return
+            workflow.resume(
                 context = context,
                 observer = observer,
                 persistence = persistence,
