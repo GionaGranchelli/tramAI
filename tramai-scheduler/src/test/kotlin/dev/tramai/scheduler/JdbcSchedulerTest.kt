@@ -6,12 +6,19 @@ import dev.tramai.orchestration.WorkflowContext
 import dev.tramai.orchestration.WorkflowObserver
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatExceptionOfType
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.lang.reflect.InvocationHandler
+import java.lang.reflect.InvocationTargetException
+import java.lang.reflect.Proxy
+import java.sql.Connection
+import java.sql.SQLException
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import javax.sql.DataSource
 
 class JdbcSchedulerTest {
     private lateinit var dataSource: HikariDataSource
@@ -272,7 +279,16 @@ class JdbcSchedulerTest {
             val schedule = at(
                 expression = "0 9 * * *",
                 zoneId = ZoneId.of("UTC"),
-                skipCalendar = listOf(CalendarRule.FixedDate(month = 12, dayOfMonth = 25)),
+                skipCalendar = listOf(
+                    CalendarRule.FixedDate(month = 12, dayOfMonth = 25),
+                    CalendarRule.NthWeekdayOfMonth(month = 11, nth = 4, dayOfWeek = java.time.DayOfWeek.THURSDAY),
+                    CalendarRule.DateRange(
+                        startMonth = 12,
+                        startDayOfMonth = 24,
+                        endMonth = 12,
+                        endDayOfMonth = 26,
+                    ),
+                ),
                 businessHoursOnly = true,
             )
             store.upsertSchedule(
@@ -287,10 +303,91 @@ class JdbcSchedulerTest {
             val restored = store.getSchedule("workflow:calendar")!!
             val restoredSchedule = restored.schedule as CronSchedule
 
-            assertThat(restored.skipCalendar).containsExactly(CalendarRule.FixedDate(month = 12, dayOfMonth = 25))
+            assertThat(restored.skipCalendar).containsExactly(
+                CalendarRule.FixedDate(month = 12, dayOfMonth = 25),
+                CalendarRule.NthWeekdayOfMonth(month = 11, nth = 4, dayOfWeek = java.time.DayOfWeek.THURSDAY),
+                CalendarRule.DateRange(
+                    startMonth = 12,
+                    startDayOfMonth = 24,
+                    endMonth = 12,
+                    endDayOfMonth = 26,
+                ),
+            )
             assertThat(restored.businessHoursOnly).isTrue()
-            assertThat(restoredSchedule.skipCalendar).containsExactly(CalendarRule.FixedDate(month = 12, dayOfMonth = 25))
+            assertThat(restoredSchedule.skipCalendar).containsExactlyElementsOf(restored.skipCalendar)
             assertThat(restoredSchedule.businessHoursOnly).isTrue()
+        }
+    }
+
+    @Test
+    fun `jdbc store roundtrips empty calendar rules`() {
+        runBlocking {
+            store.upsertSchedule(scheduleRecord("empty-calendar", Instant.parse("2026-05-03T09:00:05Z")))
+
+            val restored = store.getSchedule("workflow:empty-calendar")!!
+            val restoredSchedule = restored.schedule as CronSchedule
+
+            assertThat(restored.skipCalendar).isEmpty()
+            assertThat(restoredSchedule.skipCalendar).isEmpty()
+            assertThat(restored.businessHoursOnly).isFalse()
+        }
+    }
+
+    @Test
+    fun `jdbc store rejects malformed calendar rule payload`() {
+        runBlocking {
+            dataSource.connection.use { connection ->
+                connection.prepareStatement(
+                    """
+                    INSERT INTO workflow_schedules (
+                        schedule_id,
+                        workflow_name,
+                        cron_expression,
+                        timezone,
+                        next_fire_at,
+                        enabled,
+                        skip_calendar,
+                        business_hours_only
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setString(1, "workflow:malformed-calendar")
+                    statement.setString(2, "malformed-calendar")
+                    statement.setString(3, "0 9 * * *")
+                    statement.setString(4, "UTC")
+                    statement.setObject(5, java.sql.Timestamp.from(Instant.parse("2026-05-03T09:00:00Z")))
+                    statement.setBoolean(6, true)
+                    statement.setString(7, "[42]")
+                    statement.setBoolean(8, false)
+                    statement.executeUpdate()
+                }
+            }
+
+            assertThatExceptionOfType(IllegalArgumentException::class.java)
+                .isThrownBy { runBlocking { store.getSchedule("workflow:malformed-calendar") } }
+                .withMessageContaining("must contain JSON objects")
+        }
+    }
+
+    @Test
+    fun `jdbc transaction preserves commit failure when rollback also fails`() {
+        runBlocking {
+            val commitFailure = SQLException("commit failed")
+            val rollbackFailure = SQLException("rollback failed")
+            val failingStore = JdbcWorkflowSchedulerStore(
+                CommitAndRollbackFailingDataSource(dataSource, commitFailure, rollbackFailure),
+            )
+
+            assertThatExceptionOfType(SQLException::class.java)
+                .isThrownBy {
+                    runBlocking {
+                        failingStore.upsertSchedule(scheduleRecord("commit-failure", Instant.parse("2026-05-03T09:00:05Z")))
+                    }
+                }
+                .isSameAs(commitFailure)
+                .satisfies({ error ->
+                    assertThat(error.suppressed).containsExactly(rollbackFailure)
+                })
         }
     }
 
@@ -413,6 +510,45 @@ class JdbcSchedulerTest {
             context: WorkflowContext,
         ) {
             skippedTicks += scheduledFireAt to reason
+        }
+    }
+
+    private class CommitAndRollbackFailingDataSource(
+        private val delegate: DataSource,
+        private val commitFailure: SQLException,
+        private val rollbackFailure: SQLException,
+    ) : DataSource by delegate {
+        override fun getConnection(): Connection =
+            delegate.connection.withFailingCommitAndRollback(commitFailure, rollbackFailure)
+
+        override fun getConnection(
+            username: String?,
+            password: String?,
+        ): Connection =
+            delegate.getConnection(username, password).withFailingCommitAndRollback(commitFailure, rollbackFailure)
+    }
+
+    private companion object {
+        fun Connection.withFailingCommitAndRollback(
+            commitFailure: SQLException,
+            rollbackFailure: SQLException,
+        ): Connection {
+            val target = this
+            return Proxy.newProxyInstance(
+                Connection::class.java.classLoader,
+                arrayOf(Connection::class.java),
+                InvocationHandler { _, method, args ->
+                    when (method.name) {
+                        "commit" -> throw commitFailure
+                        "rollback" -> throw rollbackFailure
+                        else -> try {
+                            method.invoke(target, *(args ?: emptyArray()))
+                        } catch (error: InvocationTargetException) {
+                            throw error.targetException
+                        }
+                    }
+                },
+            ) as Connection
         }
     }
 }

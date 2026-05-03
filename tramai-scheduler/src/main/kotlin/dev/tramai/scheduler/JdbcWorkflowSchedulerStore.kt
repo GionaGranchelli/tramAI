@@ -858,7 +858,11 @@ class JdbcWorkflowSchedulerStore(
                 connection.commit()
                 result
             } catch (error: Throwable) {
-                connection.rollback()
+                try {
+                    connection.rollback()
+                } catch (rollbackError: Throwable) {
+                    error.addSuppressed(rollbackError)
+                }
                 throw error
             } finally {
                 connection.autoCommit = originalAutoCommit
@@ -947,14 +951,16 @@ private fun decodeCalendarRules(payload: String?): List<CalendarRule> {
     if (payload.isNullOrBlank() || payload.trim() == "[]") {
         return emptyList()
     }
-    return Regex("\\{([^}]*)}").findAll(payload).map { match ->
-        val fields = Regex(""""([A-Za-z]+)":("[^"]*"|\d+)""")
-            .findAll(match.value)
-            .associate { field ->
-                val key = field.groupValues[1]
-                val value = field.groupValues[2].trim('"')
-                key to value
-            }
+    val trimmed = payload.trim()
+    require(trimmed.startsWith("[") && trimmed.endsWith("]")) {
+        "Calendar rules payload must be a JSON array"
+    }
+    val body = trimmed.substring(1, trimmed.length - 1).trim()
+    if (body.isEmpty()) {
+        return emptyList()
+    }
+    return splitJsonObjects(body).map { objectPayload ->
+        val fields = parseCalendarRuleObject(objectPayload)
         when (fields["type"]) {
             "fixed_date" -> CalendarRule.FixedDate(
                 month = fields.requiredInt("month"),
@@ -972,10 +978,169 @@ private fun decodeCalendarRules(payload: String?): List<CalendarRule> {
                 endDayOfMonth = fields.requiredInt("endDayOfMonth"),
             )
             else -> throw IllegalArgumentException("Unknown calendar rule type '${fields["type"]}'")
-        }
-    }.toList()
+        }.also { it.validate() }
+    }
 }
 
 private fun Map<String, String>.requiredInt(name: String): Int =
     this[name]?.toIntOrNull()
         ?: throw IllegalArgumentException("Calendar rule field '$name' must be an integer")
+
+private fun splitJsonObjects(body: String): List<String> {
+    val objects = mutableListOf<String>()
+    var index = 0
+    while (index < body.length) {
+        while (index < body.length && body[index].isWhitespace()) {
+            index++
+        }
+        require(index < body.length && body[index] == '{') {
+            "Calendar rules payload must contain JSON objects"
+        }
+        val start = index
+        var foundEnd = false
+        var inString = false
+        var escaped = false
+        var depth = 0
+        while (index < body.length) {
+            val char = body[index]
+            when {
+                escaped -> escaped = false
+                char == '\\' && inString -> escaped = true
+                char == '"' -> inString = !inString
+                !inString && char == '{' -> depth++
+                !inString && char == '}' -> {
+                    depth--
+                    if (depth == 0) {
+                        index++
+                        objects += body.substring(start, index)
+                        foundEnd = true
+                        break
+                    }
+                }
+            }
+            index++
+        }
+        require(foundEnd) {
+            "Calendar rules payload contains an unterminated object"
+        }
+        while (index < body.length && body[index].isWhitespace()) {
+            index++
+        }
+        if (index < body.length) {
+            require(body[index] == ',') {
+                "Calendar rules payload must separate objects with commas"
+            }
+            index++
+            require(index < body.length) {
+                "Calendar rules payload must not end with a trailing comma"
+            }
+        }
+    }
+    return objects
+}
+
+private fun parseCalendarRuleObject(payload: String): Map<String, String> {
+    val trimmed = payload.trim()
+    require(trimmed.startsWith("{") && trimmed.endsWith("}")) {
+        "Calendar rule must be a JSON object"
+    }
+    val body = trimmed.substring(1, trimmed.length - 1).trim()
+    if (body.isEmpty()) {
+        return emptyMap()
+    }
+    val fields = linkedMapOf<String, String>()
+    var index = 0
+    while (index < body.length) {
+        while (index < body.length && body[index].isWhitespace()) {
+            index++
+        }
+        val key = readJsonString(body, index, "Calendar rule field name")
+        index = key.nextIndex
+        while (index < body.length && body[index].isWhitespace()) {
+            index++
+        }
+        require(index < body.length && body[index] == ':') {
+            "Calendar rule field '${key.value}' must be followed by ':'"
+        }
+        index++
+        while (index < body.length && body[index].isWhitespace()) {
+            index++
+        }
+        val value = if (index < body.length && body[index] == '"') {
+            val stringValue = readJsonString(body, index, "Calendar rule field '${key.value}'")
+            index = stringValue.nextIndex
+            stringValue.value
+        } else {
+            val start = index
+            if (index < body.length && body[index] == '-') {
+                index++
+            }
+            while (index < body.length && body[index].isDigit()) {
+                index++
+            }
+            require(index > start && body.substring(start, index) != "-") {
+                "Calendar rule field '${key.value}' must be a string or integer"
+            }
+            body.substring(start, index)
+        }
+        require(fields.put(key.value, value) == null) {
+            "Calendar rule field '${key.value}' is duplicated"
+        }
+        while (index < body.length && body[index].isWhitespace()) {
+            index++
+        }
+        if (index < body.length) {
+            require(body[index] == ',') {
+                "Calendar rule fields must be separated by commas"
+            }
+            index++
+            require(index < body.length) {
+                "Calendar rule must not end with a trailing comma"
+            }
+        }
+    }
+    return fields
+}
+
+private data class JsonStringToken(
+    val value: String,
+    val nextIndex: Int,
+)
+
+private fun readJsonString(
+    text: String,
+    startIndex: Int,
+    owner: String,
+): JsonStringToken {
+    require(startIndex < text.length && text[startIndex] == '"') {
+        "$owner must be a JSON string"
+    }
+    val value = StringBuilder()
+    var index = startIndex + 1
+    while (index < text.length) {
+        val char = text[index]
+        if (char == '"') {
+            return JsonStringToken(value.toString(), index + 1)
+        }
+        if (char == '\\') {
+            require(index + 1 < text.length) { "$owner contains an unterminated escape sequence" }
+            val escaped = text[index + 1]
+            value.append(
+                when (escaped) {
+                    '"', '\\', '/' -> escaped
+                    'b' -> '\b'
+                    'f' -> '\u000C'
+                    'n' -> '\n'
+                    'r' -> '\r'
+                    't' -> '\t'
+                    else -> throw IllegalArgumentException("$owner contains unsupported escape '\\$escaped'")
+                },
+            )
+            index += 2
+        } else {
+            value.append(char)
+            index++
+        }
+    }
+    throw IllegalArgumentException("$owner is unterminated")
+}

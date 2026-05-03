@@ -38,7 +38,7 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
         require(!claimDuration.isNegative && !claimDuration.isZero) {
             "WorkflowSchedulerStore.claimDueTicks claimDuration must be positive"
         }
-        return synchronized(this) {
+        val reclaimed = synchronized(this) {
             val reclaimed = ticks.values
                 .asSequence()
                 .filter { it.status.isClaimed && !it.claimExpiresAt.isAfter(now) }
@@ -47,42 +47,98 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
                 .map { tick -> tick.reclaim(ownerId, now.plus(claimDuration)) }
                 .toList()
             if (reclaimed.size == limit) {
-                return@synchronized reclaimed
+                return reclaimed
             }
-            val remaining = limit - reclaimed.size
-            reclaimed + schedules.values
-                .asSequence()
-                .filter { it.enabled && !it.nextFireAt.isAfter(now) }
-                .sortedBy { it.nextFireAt }
-                .take(remaining)
-                .map { schedule ->
-                    val scheduledFireAt = schedule.nextFireAt
-                    val tickId = tickId(schedule.scheduleId, scheduledFireAt)
-                    val claimToken = UUID.randomUUID().toString()
-                    val claimExpiresAt = now.plus(claimDuration)
-                    ticks[tickId] = MutableTickRecord(
-                        tickId = tickId,
-                        scheduleId = schedule.scheduleId,
-                        workflowName = schedule.workflowName,
-                        scheduledFireAt = scheduledFireAt,
-                        ownerId = ownerId,
-                        claimToken = claimToken,
-                        claimExpiresAt = claimExpiresAt,
-                        status = TickStatus.CLAIMED,
-                    )
-                    schedule.nextFireAt = nextFireAfter(schedule.schedule, scheduledFireAt)
-                    ClaimedScheduledTick(
-                        tickId = tickId,
-                        scheduleId = schedule.scheduleId,
-                        workflowName = schedule.workflowName,
-                        scheduledFireAt = scheduledFireAt,
-                        claimToken = claimToken,
-                        claimExpiresAt = claimExpiresAt,
-                    )
+            reclaimed
+        }
+        val remaining = limit - reclaimed.size
+        return reclaimed + claimDueScheduleTicks(now, ownerId, claimDuration, remaining)
+    }
+
+    private fun claimDueScheduleTicks(
+        now: Instant,
+        ownerId: String,
+        claimDuration: Duration,
+        limit: Int,
+    ): List<ClaimedScheduledTick> {
+        if (limit == 0) {
+            return emptyList()
+        }
+        while (true) {
+            val dueSchedules = synchronized(this) {
+                schedules.values
+                    .asSequence()
+                    .filter { it.enabled && !it.nextFireAt.isAfter(now) }
+                    .sortedBy { it.nextFireAt }
+                    .take(limit)
+                    .map { it.snapshot() }
+                    .toList()
+            }
+            if (dueSchedules.isEmpty()) {
+                return emptyList()
+            }
+            val claims = dueSchedules.map { schedule ->
+                PendingScheduleClaim(
+                    schedule = schedule,
+                    tickId = tickId(schedule.scheduleId, schedule.nextFireAt),
+                    claimToken = UUID.randomUUID().toString(),
+                    claimExpiresAt = now.plus(claimDuration),
+                    nextFireAt = nextFireAfter(schedule.schedule, schedule.nextFireAt),
+                )
+            }
+            val claimed = synchronized(this) {
+                claims.mapNotNull { pending ->
+                    val current = schedules[pending.schedule.scheduleId]
+                    if (
+                        current == null ||
+                        !current.enabled ||
+                        current.nextFireAt != pending.schedule.nextFireAt ||
+                        ticks.containsKey(pending.tickId)
+                    ) {
+                        null
+                    } else {
+                        ticks[pending.tickId] = MutableTickRecord(
+                            tickId = pending.tickId,
+                            scheduleId = pending.schedule.scheduleId,
+                            workflowName = pending.schedule.workflowName,
+                            scheduledFireAt = pending.schedule.nextFireAt,
+                            ownerId = ownerId,
+                            claimToken = pending.claimToken,
+                            claimExpiresAt = pending.claimExpiresAt,
+                            status = TickStatus.CLAIMED,
+                        )
+                        current.nextFireAt = pending.nextFireAt
+                        ClaimedScheduledTick(
+                            tickId = pending.tickId,
+                            scheduleId = pending.schedule.scheduleId,
+                            workflowName = pending.schedule.workflowName,
+                            scheduledFireAt = pending.schedule.nextFireAt,
+                            claimToken = pending.claimToken,
+                            claimExpiresAt = pending.claimExpiresAt,
+                        )
+                    }
                 }
-                .toList()
+            }
+            if (claimed.isNotEmpty()) {
+                return claimed
+            }
         }
     }
+
+    private data class ScheduleSnapshot(
+        val scheduleId: String,
+        val workflowName: String,
+        val schedule: dev.tramai.orchestration.WorkflowScheduleDefinition,
+        val nextFireAt: Instant,
+    )
+
+    private data class PendingScheduleClaim(
+        val schedule: ScheduleSnapshot,
+        val tickId: String,
+        val claimToken: String,
+        val claimExpiresAt: Instant,
+        val nextFireAt: Instant,
+    )
 
     override suspend fun markTickStarted(
         tickId: String,
@@ -281,6 +337,13 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
         val skipCalendar: List<CalendarRule>,
         val businessHoursOnly: Boolean,
     ) {
+        fun snapshot(): ScheduleSnapshot = ScheduleSnapshot(
+            scheduleId = scheduleId,
+            workflowName = workflowName,
+            schedule = schedule,
+            nextFireAt = nextFireAt,
+        )
+
         fun toRecord(): ScheduleRecord = ScheduleRecord(
             scheduleId = scheduleId,
             workflowName = workflowName,

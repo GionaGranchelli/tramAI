@@ -5,6 +5,14 @@ import dev.tramai.orchestration.WorkflowScheduleDefinition
 import java.time.Duration
 import java.time.Instant
 
+/**
+ * Durable schedule registration.
+ *
+ * The [skipCalendar] and [businessHoursOnly] defaults mirror [CronSchedule]
+ * fields for convenience. Non-cron schedule implementations cannot expose
+ * those cron-specific policies through the default cast, so callers must pass
+ * explicit values if they need store-level metadata for another schedule kind.
+ */
 data class ScheduleRecord(
     val scheduleId: String,
     val workflowName: String,

@@ -77,6 +77,63 @@ fun dailyAt(
     businessHoursOnly = businessHoursOnly,
 )
 
+/**
+ * Creates a cron-backed recurring schedule.
+ *
+ * For [ChronoUnit.DAYS], `amount == 1` means daily at local midnight.
+ * Larger day amounts use cron day-of-month step semantics, so `every(2, DAYS)`
+ * fires on every second selected day within each month and resets at month
+ * boundaries. A continuous "every N days" interval cannot be represented by
+ * standard cron alone.
+ */
+fun every(
+    amount: Long,
+    unit: ChronoUnit,
+    zoneId: ZoneId = ZoneId.systemDefault(),
+    skipCalendar: List<CalendarRule> = emptyList(),
+    businessHoursOnly: Boolean = false,
+): CronSchedule {
+    require(amount >= 1) { "every amount must be at least 1" }
+    require(amount <= Int.MAX_VALUE) { "every amount must fit within Int, got $amount" }
+    require(
+        unit == ChronoUnit.SECONDS ||
+            unit == ChronoUnit.MINUTES ||
+            unit == ChronoUnit.HOURS ||
+            unit == ChronoUnit.DAYS,
+    ) { "every unit '$unit' is not supported" }
+    val expression = when (unit) {
+        ChronoUnit.SECONDS -> "*/$amount * * * * *"
+        ChronoUnit.MINUTES -> "0 */$amount * * * *"
+        ChronoUnit.HOURS -> "0 0 */$amount * * *"
+        ChronoUnit.DAYS -> if (amount == 1L) {
+            "0 0 0 * * *"
+        } else {
+            "0 0 0 */$amount * *"
+        }
+        else -> error("Unsupported every unit passed validation: $unit")
+    }
+    return at(
+        expression = expression,
+        zoneId = zoneId,
+        skipCalendar = skipCalendar,
+        businessHoursOnly = businessHoursOnly,
+    )
+}
+
+fun every(
+    amount: Long,
+    unit: ChronoUnit,
+    zone: String,
+    skipCalendar: List<CalendarRule> = emptyList(),
+    businessHoursOnly: Boolean = false,
+): CronSchedule = every(
+    amount = amount,
+    unit = unit,
+    zoneId = ZoneId.of(zone),
+    skipCalendar = skipCalendar,
+    businessHoursOnly = businessHoursOnly,
+)
+
 class CronSchedule internal constructor(
     override val expression: String,
     override val zoneId: ZoneId,
@@ -100,6 +157,16 @@ class CronSchedule internal constructor(
     override fun canonicalForm(): String =
         "$kind:${zoneId.id}:$expression:businessHoursOnly=$businessHoursOnly:skipCalendar=${skipCalendar.joinToString("|") { it.description }}"
 
+    /**
+     * Returns the next cron-selected instant after [after], then applies calendar
+     * and business-hour policies.
+     *
+     * Business-hour adjustment is intentionally a post-cron policy: when a cron
+     * fire falls outside business hours, the returned business-hour start (09:00
+     * local time) is not revalidated against the cron expression. For example,
+     * `0 2 * * *` with `businessHoursOnly=true` returns 09:00 for the skipped
+     * 02:00 fire.
+     */
     fun nextFireAfter(
         after: Instant,
         onSkippedTick: (scheduledFireAt: Instant, reason: String) -> Unit = { _, _ -> },
@@ -213,6 +280,13 @@ class CronSchedule internal constructor(
         private val BUSINESS_START: LocalTime = LocalTime.of(9, 0)
         private val BUSINESS_END: LocalTime = LocalTime.of(18, 0)
 
+        /**
+         * Parses a cron expression. Expressions produced by `every(N, DAYS)`
+         * use cron day-of-month step semantics for `N > 1`: they fire on every
+         * Nth day of the month and the sequence resets at month boundaries.
+         * Continuous "every N days" intervals cannot be represented by standard
+         * cron alone.
+         */
         fun parse(
             expression: String,
             zoneId: ZoneId = ZoneId.systemDefault(),
@@ -359,8 +433,14 @@ internal data class CronField(
                 require(rangeAndStep.size <= 2) {
                     "Cron $name field segment '$segment' has too many step separators"
                 }
-                val step = rangeAndStep.getOrNull(1)?.toIntOrNull()
-                    ?: 1
+                val step = if (rangeAndStep.size == 2) {
+                    rangeAndStep[1].toIntOrNull()
+                        ?: throw IllegalArgumentException(
+                            "Cron $name field segment '$segment' step is not an integer",
+                        )
+                } else {
+                    1
+                }
                 require(step > 0) {
                     "Cron $name field segment '$segment' must use a positive step"
                 }

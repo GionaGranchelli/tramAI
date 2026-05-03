@@ -18,6 +18,8 @@ import java.time.DateTimeException
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
 
 class SchedulerTest {
@@ -112,6 +114,109 @@ class SchedulerTest {
     }
 
     @Test
+    fun `every five minutes fires every five minutes`() {
+        val schedule = every(5, ChronoUnit.MINUTES, ZoneId.of("UTC"))
+
+        assertThat(schedule.expression).isEqualTo("0 */5 * * * *")
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-05-03T09:04:59Z")))
+            .isEqualTo(Instant.parse("2026-05-03T09:05:00Z"))
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-05-03T09:05:00Z")))
+            .isEqualTo(Instant.parse("2026-05-03T09:10:00Z"))
+    }
+
+    @Test
+    fun `every thirty seconds fires every thirty seconds`() {
+        val schedule = every(30, ChronoUnit.SECONDS, ZoneId.of("UTC"))
+
+        assertThat(schedule.expression).isEqualTo("*/30 * * * * *")
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-05-03T09:00:29Z")))
+            .isEqualTo(Instant.parse("2026-05-03T09:00:30Z"))
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-05-03T09:00:30Z")))
+            .isEqualTo(Instant.parse("2026-05-03T09:01:00Z"))
+    }
+
+    @Test
+    fun `every two hours fires every two hours`() {
+        val schedule = every(2, ChronoUnit.HOURS, ZoneId.of("UTC"))
+
+        assertThat(schedule.expression).isEqualTo("0 0 */2 * * *")
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-05-03T09:59:59Z")))
+            .isEqualTo(Instant.parse("2026-05-03T10:00:00Z"))
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-05-03T10:00:00Z")))
+            .isEqualTo(Instant.parse("2026-05-03T12:00:00Z"))
+    }
+
+    @Test
+    fun `every one day fires daily at midnight`() {
+        val schedule = every(1, ChronoUnit.DAYS, ZoneId.of("UTC"))
+
+        assertThat(schedule.expression).isEqualTo("0 0 0 * * *")
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-05-03T23:59:59Z")))
+            .isEqualTo(Instant.parse("2026-05-04T00:00:00Z"))
+    }
+
+    @Test
+    fun `every two days uses day-of-month cron stepping at month boundaries`() {
+        val schedule = every(2, ChronoUnit.DAYS, ZoneId.of("UTC"))
+
+        assertThat(schedule.expression).isEqualTo("0 0 0 */2 * *")
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-01-29T00:00:00Z")))
+            .isEqualTo(Instant.parse("2026-01-31T00:00:00Z"))
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-01-31T00:00:00Z")))
+            .isEqualTo(Instant.parse("2026-02-01T00:00:00Z"))
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-02-01T00:00:00Z")))
+            .isEqualTo(Instant.parse("2026-02-03T00:00:00Z"))
+    }
+
+    @Test
+    fun `every rejects unsupported chrono unit`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy { every(1, ChronoUnit.WEEKS, ZoneId.of("UTC")) }
+            .withMessageContaining("not supported")
+    }
+
+    @Test
+    fun `every rejects zero amount`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy { every(0, ChronoUnit.MINUTES, ZoneId.of("UTC")) }
+            .withMessageContaining("at least 1")
+    }
+
+    @Test
+    fun `every rejects amount that cannot fit cron step integer`() {
+        val schedule = every(Int.MAX_VALUE.toLong(), ChronoUnit.SECONDS, ZoneId.of("UTC"))
+
+        assertThat(schedule.expression).isEqualTo("*/${Int.MAX_VALUE} * * * * *")
+        assertThatIllegalArgumentException()
+            .isThrownBy { every(Int.MAX_VALUE.toLong() + 1, ChronoUnit.SECONDS, ZoneId.of("UTC")) }
+            .withMessageContaining("must fit within Int")
+    }
+
+    @Test
+    fun `every respects timezone`() {
+        val schedule = every(1, ChronoUnit.DAYS, zone = "Europe/Rome")
+
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-05-03T21:59:59Z")))
+            .isEqualTo(Instant.parse("2026-05-03T22:00:00Z"))
+    }
+
+    @Test
+    fun `every hourly crosses spring DST gap using timezone rules`() {
+        val schedule = every(1, ChronoUnit.HOURS, zone = "Europe/Rome")
+
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-03-29T00:59:59Z")))
+            .isEqualTo(Instant.parse("2026-03-29T01:00:00Z"))
+    }
+
+    @Test
+    fun `every hourly crosses fall DST overlap using timezone rules`() {
+        val schedule = every(1, ChronoUnit.HOURS, zone = "Europe/Rome")
+
+        assertThat(schedule.nextFireAfter(Instant.parse("2026-10-25T00:59:59Z")))
+            .isEqualTo(Instant.parse("2026-10-25T01:00:00Z"))
+    }
+
+    @Test
     fun `invalid timezone ID rejected at build time`() {
         assertThatExceptionOfType(DateTimeException::class.java)
             .isThrownBy { at("0 9 * * 1", zone = "Not/A_Zone") }
@@ -151,6 +256,70 @@ class SchedulerTest {
 
         assertThat(skipped).containsExactly(Instant.parse("2026-12-21T09:00:00Z"))
         assertThat(next).isEqualTo(Instant.parse("2026-12-28T09:00:00Z"))
+    }
+
+    @Test
+    fun `date range calendar rule skips inclusive range`() {
+        val skipped = mutableListOf<Instant>()
+        val schedule = at(
+            expression = "0 9 * * *",
+            zoneId = ZoneId.of("UTC"),
+            skipCalendar = listOf(
+                CalendarRule.DateRange(
+                    startMonth = 12,
+                    startDayOfMonth = 24,
+                    endMonth = 12,
+                    endDayOfMonth = 26,
+                ),
+            ),
+        )
+
+        val next = schedule.nextFireAfter(Instant.parse("2026-12-23T09:00:00Z")) { fireAt, _ ->
+            skipped += fireAt
+        }
+
+        assertThat(skipped).containsExactly(
+            Instant.parse("2026-12-24T09:00:00Z"),
+            Instant.parse("2026-12-25T09:00:00Z"),
+            Instant.parse("2026-12-26T09:00:00Z"),
+        )
+        assertThat(next).isEqualTo(Instant.parse("2026-12-27T09:00:00Z"))
+    }
+
+    @Test
+    fun `business hour adjustment is not revalidated against cron expression`() {
+        val schedule = at(
+            expression = "0 2 * * *",
+            zoneId = ZoneId.of("UTC"),
+            businessHoursOnly = true,
+        )
+
+        val next = schedule.nextFireAfter(Instant.parse("2026-05-03T03:00:00Z"))
+
+        assertThat(next).isEqualTo(Instant.parse("2026-05-04T09:00:00Z"))
+        assertThat(schedule.matches(ZonedDateTime.ofInstant(next, ZoneId.of("UTC")))).isFalse()
+    }
+
+    @Test
+    fun `business hour adjustment continues when adjusted date matches calendar rule`() {
+        val skipped = mutableListOf<Pair<Instant, String>>()
+        val schedule = at(
+            expression = "0 2 * * *",
+            zoneId = ZoneId.of("UTC"),
+            skipCalendar = listOf(CalendarRule.FixedDate(month = 5, dayOfMonth = 4)),
+            businessHoursOnly = true,
+        )
+
+        val next = schedule.nextFireAfter(Instant.parse("2026-05-02T03:00:00Z")) { fireAt, reason ->
+            skipped += fireAt to reason
+        }
+
+        assertThat(next).isEqualTo(Instant.parse("2026-05-05T09:00:00Z"))
+        assertThat(skipped).containsExactly(
+            Instant.parse("2026-05-03T02:00:00Z") to "business_hours",
+            Instant.parse("2026-05-04T09:00:00Z") to "calendar_skip:fixed_date:5-4",
+            Instant.parse("2026-05-05T02:00:00Z") to "business_hours",
+        )
     }
 
     @Test
