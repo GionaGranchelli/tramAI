@@ -378,6 +378,12 @@ class Workflow<S, R> internal constructor(
                     observer = observer,
                     httpClient = httpClient,
                 )
+                is ShellWorkflowStep<S> -> step.execute(
+                    workflowName = name,
+                    state = state,
+                    context = context,
+                    observer = observer,
+                )
                 is GateWorkflowStep -> step.execute(state, context)
                 is DelayWorkflowStep -> {
                     val result = step.execute(
@@ -519,6 +525,19 @@ abstract class AbstractWorkflowBuilder<S> {
         appendStep(HttpWorkflowStep(
             name = name,
             requestBuilder = request,
+            merge = merge,
+            config = config,
+        ))
+    }
+    fun shellStep(
+        name: String,
+        config: ShellStepConfig = ShellStepConfig(),
+        command: suspend (S, WorkflowContext) -> ShellCommand,
+        merge: suspend (S, ShellResult, WorkflowContext) -> S,
+    ) = apply {
+        appendStep(ShellWorkflowStep(
+            name = name,
+            commandBuilder = command,
             merge = merge,
             config = config,
         ))
@@ -885,6 +904,19 @@ private fun <S> renderStepsCanonical(
                 append(step.config.maxRetries)
                 append(':')
                 append(step.config.retryOnStatus.sorted().joinToString(","))
+                append('\n')
+            }
+            is ShellWorkflowStep<*> -> {
+                append("shell:")
+                append(step.name)
+                append(':')
+                append(step.config.timeoutSeconds)
+                append(':')
+                append(step.config.maxOutputBytes)
+                append(':')
+                append(step.config.failOnNonZeroExit)
+                append(':')
+                append(step.config.failOnStderr)
                 append('\n')
             }
             is GateWorkflowStep -> {
