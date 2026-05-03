@@ -8,21 +8,39 @@ import jakarta.servlet.http.HttpServletRequestWrapper
 import org.springframework.web.filter.OncePerRequestFilter
 
 class RequestBodySizeLimitFilter(
-    private val maxRequestBodyBytes: Long,
+    private val workflowMaxRequestBodyBytes: Long,
+    private val webhookMaxRequestBodyBytes: Long,
 ) : OncePerRequestFilter() {
     init {
-        require(maxRequestBodyBytes > 0) { "maxRequestBodyBytes must be greater than zero" }
+        require(workflowMaxRequestBodyBytes > 0) { "workflowMaxRequestBodyBytes must be greater than zero" }
+        require(webhookMaxRequestBodyBytes > 0) { "webhookMaxRequestBodyBytes must be greater than zero" }
     }
 
     override fun shouldNotFilter(request: HttpServletRequest): Boolean =
-        request.method !in setOf("POST", "PUT", "PATCH") || !request.requestURI.startsWith("/workflows/")
+        requestBodyLimit(request) == null
 
     override fun doFilterInternal(
         request: HttpServletRequest,
         response: jakarta.servlet.http.HttpServletResponse,
         filterChain: FilterChain,
     ) {
+        val maxRequestBodyBytes = requestBodyLimit(request)
+            ?: run {
+                filterChain.doFilter(request, response)
+                return
+            }
         filterChain.doFilter(LimitedBodyRequest(request, maxRequestBodyBytes), response)
+    }
+
+    private fun requestBodyLimit(request: HttpServletRequest): Long? {
+        if (request.method !in setOf("POST", "PUT", "PATCH")) {
+            return null
+        }
+        return when {
+            request.requestURI.startsWith("/workflows/") -> workflowMaxRequestBodyBytes
+            request.requestURI.startsWith("/webhooks/") -> webhookMaxRequestBodyBytes
+            else -> null
+        }
     }
 }
 

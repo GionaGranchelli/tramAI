@@ -18,18 +18,26 @@ import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
+import java.nio.charset.StandardCharsets.UTF_8
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.reflect.KClass
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import javax.sql.DataSource
+
+private const val WEBHOOK_SECRET = "test-webhook-secret"
 
 @SpringBootTest(
     classes = [
         TramaiServerApplication::class,
         WorkflowControllerTest.TestWorkflowConfiguration::class,
+    ],
+    properties = [
+        "tramai.server.webhooks.secret=$WEBHOOK_SECRET",
     ],
 )
 @AutoConfigureMockMvc
@@ -68,6 +76,98 @@ class WorkflowControllerTest @Autowired constructor(
                 jsonPath("$.title") { value("Invalid workflow request") }
                 jsonPath("$.status") { value(400) }
                 jsonPath("$.detail") { exists() }
+            }
+    }
+
+    @Test
+    fun `webhook with valid signature starts workflow and returns accepted`() {
+        val body = """{"invoiceId":"inv-webhook","amount":125}"""
+        val workflowId = mockMvc.post("/webhooks/invoice") {
+            contentType = MediaType.APPLICATION_JSON
+            header("X-Hub-Signature-256", webhookSignature(body))
+            content = body
+        }
+            .andExpect {
+                status { isAccepted() }
+                jsonPath("$.workflowId") { exists() }
+                jsonPath("$.status") { value("running") }
+                jsonPath("$.definitionVersion") { value("1.0.0") }
+            }
+            .andReturn()
+            .response
+            .contentAsString
+            .let { objectMapper.readTree(it).get("workflowId").asText() }
+
+        waitForStatus("invoice", workflowId, "completed")
+    }
+
+    @Test
+    fun `webhook with invalid signature is rejected`() {
+        mockMvc.post("/webhooks/invoice") {
+            contentType = MediaType.APPLICATION_JSON
+            header("X-Hub-Signature-256", "sha256=deadbeef")
+            content = """{"invoiceId":"inv-webhook-invalid","amount":10}"""
+        }
+            .andExpect {
+                status { isUnauthorized() }
+                jsonPath("$.type") { value("https://tramai.dev/problems/401") }
+                jsonPath("$.title") { value("Invalid webhook signature") }
+                jsonPath("$.status") { value(401) }
+                jsonPath("$.detail") { value("Webhook signature is invalid") }
+            }
+    }
+
+    @Test
+    fun `valid github hmac signature passes for webhook`() {
+        val body = """{"refundId":"ref-webhook","reason":"duplicate"}"""
+        val workflowId = mockMvc.post("/webhooks/refund") {
+            contentType = MediaType.APPLICATION_JSON
+            header("X-Hub-Signature-256", webhookSignature(body))
+            content = body
+        }
+            .andExpect {
+                status { isAccepted() }
+                jsonPath("$.workflowId") { exists() }
+            }
+            .andReturn()
+            .response
+            .contentAsString
+            .let { objectMapper.readTree(it).get("workflowId").asText() }
+
+        waitForStatus("refund", workflowId, "completed")
+    }
+
+    @Test
+    fun `webhook with invalid body returns problem detail`() {
+        val body = """{"invoiceId":"""
+        mockMvc.post("/webhooks/invoice") {
+            contentType = MediaType.APPLICATION_JSON
+            header("X-Hub-Signature-256", webhookSignature(body))
+            content = body
+        }
+            .andExpect {
+                status { isBadRequest() }
+                jsonPath("$.type") { value("https://tramai.dev/problems/400") }
+                jsonPath("$.title") { value("Invalid workflow request") }
+                jsonPath("$.status") { value(400) }
+                jsonPath("$.detail") { exists() }
+            }
+    }
+
+    @Test
+    fun `oversized webhook body returns problem detail`() {
+        val body = "x".repeat(1_048_577)
+        mockMvc.post("/webhooks/invoice") {
+            contentType = MediaType.APPLICATION_JSON
+            header("X-Hub-Signature-256", webhookSignature(body))
+            content = body
+        }
+            .andExpect {
+                status { isPayloadTooLarge() }
+                jsonPath("$.type") { value("https://tramai.dev/problems/413") }
+                jsonPath("$.title") { value("Request body too large") }
+                jsonPath("$.status") { value(413) }
+                jsonPath("$.detail") { value("Request body is too large") }
             }
     }
 
@@ -565,6 +665,13 @@ class WorkflowControllerTest @Autowired constructor(
             Thread.sleep(20)
         }
         error("Workflow '$workflowName' run '$workflowId' did not reach status '$expectedStatus'")
+    }
+
+    private fun webhookSignature(body: String): String {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(WEBHOOK_SECRET.toByteArray(UTF_8), "HmacSHA256"))
+        val digest = mac.doFinal(body.toByteArray(UTF_8))
+        return "sha256=${digest.joinToString(separator = "") { "%02x".format(it.toInt() and 0xff) }}"
     }
 
     @TestConfiguration(proxyBeanMethods = false)

@@ -13,6 +13,15 @@ fun interface WorkflowRegistration {
     fun register(registry: WorkflowRegistry)
 }
 
+data class WebhookConfiguration(
+    val secret: String,
+    val maxRequestBodyBytes: Long,
+) {
+    init {
+        require(maxRequestBodyBytes > 0) { "maxRequestBodyBytes must be greater than zero" }
+    }
+}
+
 @Configuration(proxyBeanMethods = false)
 class ServerConfiguration {
     @Bean
@@ -39,7 +48,21 @@ class ServerConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    fun webhookConfiguration(
+        @Value("\${tramai.server.webhooks.secret:}") secret: String,
+        @Value("\${tramai.server.webhooks.max-request-body-bytes:\${tramai.server.max-request-body-bytes:1048576}}") maxRequestBodyBytes: Long,
+    ): WebhookConfiguration = WebhookConfiguration(
+        secret = secret,
+        maxRequestBodyBytes = maxRequestBodyBytes,
+    )
+
+    @Bean
+    @ConditionalOnMissingBean
     fun requestBodySizeLimitFilter(
         @Value("\${tramai.server.max-request-body-bytes:1048576}") maxRequestBodyBytes: Long,
-    ): RequestBodySizeLimitFilter = RequestBodySizeLimitFilter(maxRequestBodyBytes)
+        webhookConfiguration: WebhookConfiguration,
+    ): RequestBodySizeLimitFilter = RequestBodySizeLimitFilter(
+        workflowMaxRequestBodyBytes = maxRequestBodyBytes,
+        webhookMaxRequestBodyBytes = webhookConfiguration.maxRequestBodyBytes,
+    )
 }

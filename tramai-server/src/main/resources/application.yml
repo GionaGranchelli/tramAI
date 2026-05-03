@@ -11,3 +11,6 @@ tramai:
   server:
     max-request-body-bytes: 1048576
     max-run-history-size: 1000
+    webhooks:
+      secret:
+      max-request-body-bytes: ${tramai.server.max-request-body-bytes}
