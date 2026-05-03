@@ -11,6 +11,7 @@ include(
     "tramai-ollama",
     "tramai-spring",
     "tramai-scheduler",
+    "tramai-server",
     "tramai-standalone",
     "tramai-structured",
     "tramai-testing",
