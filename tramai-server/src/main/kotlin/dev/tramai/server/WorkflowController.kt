@@ -6,7 +6,8 @@ import dev.tramai.orchestration.WorkflowObserver
 import dev.tramai.orchestration.WorkflowPersistence
 import dev.tramai.orchestration.WorkflowResumeException
 import dev.tramai.orchestration.WorkflowSuspendedException
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.bind.annotation.RestController
+import org.slf4j.LoggerFactory
 import java.net.URI
 import java.util.UUID
 
@@ -27,6 +29,7 @@ import java.util.UUID
 class WorkflowController(
     private val registry: WorkflowRegistry,
     private val runStore: WorkflowRunStore,
+    private val workflowExecutionScope: CoroutineScope,
 ) {
     @PostMapping("/workflows/{name}/run")
     fun runWorkflow(
@@ -35,24 +38,31 @@ class WorkflowController(
         @RequestHeader("Idempotency-Key", required = false) idempotencyKey: String?,
     ): WorkflowRunResponse {
         val entry = registry.get(name)
-        val existing = runStore.findByIdempotencyKey(name, idempotencyKey)
-        if (existing != null) {
-            return existing.toResponse()
+        val initialState = try {
+            entry.decodeState(body)
+        } catch (error: Throwable) {
+            throw BadWorkflowRequestException("Workflow '${entry.workflow.name}' state JSON is invalid", error)
         }
         val workflowId = UUID.randomUUID().toString()
-        runStore.create(
+        val creation = runStore.getOrCreate(
             workflowName = name,
             workflowId = workflowId,
             definitionVersion = entry.workflow.definitionVersion,
             idempotencyKey = idempotencyKey,
         )
-        return runBlocking {
-            executeRun(
+        if (!creation.created) {
+            return creation.record.toResponse()
+        }
+        runStore.event(entry.workflow.name, workflowId, "tramai.workflow.running", status = WorkflowRunStatus.RUNNING)
+        val running = runStore.get(entry.workflow.name, workflowId).toResponse()
+        workflowExecutionScope.launch {
+            executeRunSafely(
                 entry = entry,
                 workflowId = workflowId,
-                body = body,
+                initialState = initialState,
             )
         }
+        return running
     }
 
     @PostMapping("/workflows/{name}/runs/{id}/resume")
@@ -62,13 +72,15 @@ class WorkflowController(
     ): WorkflowRunResponse {
         val entry = registry.get(name)
         val persistence = persistenceOrConflict(entry, id)
-        return runBlocking {
-            executeResume(
+        val running = runStore.markResuming(entry.workflow.name, id).toResponse()
+        workflowExecutionScope.launch {
+            executeResumeSafely(
                 entry = entry,
                 workflowId = id,
                 persistence = persistence,
             )
         }
+        return running
     }
 
     @GetMapping("/workflows/{name}/runs")
@@ -134,52 +146,52 @@ class WorkflowController(
         )
     }
 
-    private suspend fun <S, R> executeRun(
-        entry: WorkflowEntry<S, R>,
+    private suspend fun executeRunSafely(
+        entry: WorkflowEntry<*, *>,
         workflowId: String,
-        body: String,
-    ): WorkflowRunResponse {
-        val initialState = try {
-            entry.decodeState(body)
-        } catch (error: Throwable) {
-            runStore.fail(entry.workflow.name, workflowId, error)
-            throw BadWorkflowRequestException("Workflow '${entry.workflow.name}' state JSON is invalid", error)
-        }
+        initialState: Any?,
+    ) {
+        @Suppress("UNCHECKED_CAST")
+        val typedEntry = entry as WorkflowEntry<Any?, Any?>
         val persistence = entry.persistenceFactory(workflowId)
         val observer = ServerWorkflowObserver(runStore, workflowId)
-        return try {
-            runStore.event(entry.workflow.name, workflowId, "tramai.workflow.running", status = WorkflowRunStatus.RUNNING)
-            val result = entry.run(
+        try {
+            val result = typedEntry.run(
                 initialState = initialState,
                 context = WorkflowContext(workflowId = workflowId),
                 observer = observer,
-                persistence = persistence,
+                persistence = persistence as WorkflowPersistence<Any?>?,
             )
-            runStore.complete(entry.workflow.name, workflowId, result).toResponse()
+            runStore.complete(entry.workflow.name, workflowId, result)
         } catch (suspended: WorkflowSuspendedException) {
-            runStore.fail(entry.workflow.name, workflowId, suspended, WorkflowRunStatus.DELAYED).toResponse()
+            runStore.fail(entry.workflow.name, workflowId, suspended, WorkflowRunStatus.DELAYED)
+        } catch (error: Throwable) {
+            runStore.fail(entry.workflow.name, workflowId, error)
         }
     }
 
-    private suspend fun <S, R> executeResume(
-        entry: WorkflowEntry<S, R>,
+    private suspend fun executeResumeSafely(
+        entry: WorkflowEntry<*, *>,
         workflowId: String,
         @Suppress("UNCHECKED_CAST")
         persistence: WorkflowPersistence<*>,
-    ): WorkflowRunResponse {
+    ) {
         val observer = ServerWorkflowObserver(runStore, workflowId)
         @Suppress("UNCHECKED_CAST")
-        val typedPersistence = persistence as WorkflowPersistence<S>
-        return try {
-            runStore.event(entry.workflow.name, workflowId, "tramai.workflow.running", status = WorkflowRunStatus.RUNNING)
-            val result = entry.resume(
+        val typedEntry = entry as WorkflowEntry<Any?, Any?>
+        @Suppress("UNCHECKED_CAST")
+        val typedPersistence = persistence as WorkflowPersistence<Any?>
+        try {
+            val result = typedEntry.resume(
                 context = WorkflowContext(workflowId = workflowId),
                 observer = observer,
                 persistence = typedPersistence,
             )
-            runStore.complete(entry.workflow.name, workflowId, result).toResponse()
+            runStore.complete(entry.workflow.name, workflowId, result)
         } catch (suspended: WorkflowSuspendedException) {
-            runStore.fail(entry.workflow.name, workflowId, suspended, WorkflowRunStatus.DELAYED).toResponse()
+            runStore.fail(entry.workflow.name, workflowId, suspended, WorkflowRunStatus.DELAYED)
+        } catch (error: Throwable) {
+            runStore.fail(entry.workflow.name, workflowId, error)
         }
     }
 
@@ -242,6 +254,8 @@ class WorkflowConflictException(
 
 @RestControllerAdvice
 class WorkflowErrorHandler {
+    private val logger = LoggerFactory.getLogger(WorkflowErrorHandler::class.java)
+
     @ExceptionHandler(BadWorkflowRequestException::class, IllegalArgumentException::class)
     fun badRequest(error: RuntimeException): ResponseEntity<ProblemDetail> =
         problem(HttpStatus.BAD_REQUEST, "Invalid workflow request", error.message ?: "Request is invalid")
@@ -254,9 +268,19 @@ class WorkflowErrorHandler {
     fun conflict(error: WorkflowConflictException): ResponseEntity<ProblemDetail> =
         problem(HttpStatus.CONFLICT, "Workflow conflict", error.message ?: "Workflow request conflicts with current state")
 
+    @ExceptionHandler(RequestBodyTooLargeException::class)
+    fun payloadTooLarge(error: RequestBodyTooLargeException): ResponseEntity<ProblemDetail> =
+        problem(HttpStatus.PAYLOAD_TOO_LARGE, "Request body too large", error.message ?: "Request body is too large")
+
     @ExceptionHandler(Throwable::class)
-    fun unexpected(error: Throwable): ResponseEntity<ProblemDetail> =
-        problem(HttpStatus.INTERNAL_SERVER_ERROR, "Workflow execution failed", error.message ?: error::class.java.name)
+    fun unexpected(error: Throwable): ResponseEntity<ProblemDetail> {
+        logger.error("Unexpected workflow server error", error)
+        return problem(
+            HttpStatus.INTERNAL_SERVER_ERROR,
+            "Workflow execution failed",
+            "Workflow execution failed unexpectedly",
+        )
+    }
 
     private fun problem(
         status: HttpStatus,
@@ -312,14 +336,14 @@ private class ServerWorkflowObserver(
         error: Throwable,
         context: WorkflowContext,
     ) {
-        runStore.event(workflowName, workflowId, "tramai.step.failed", stepName, WorkflowRunStatus.FAILED)
+        runStore.event(workflowName, workflowId, "tramai.step.failed", stepName)
     }
 
     override fun onWorkflowCompleted(
         workflowName: String,
         context: WorkflowContext,
     ) {
-        runStore.event(workflowName, workflowId, "tramai.workflow.completed", status = WorkflowRunStatus.COMPLETED)
+        runStore.event(workflowName, workflowId, "tramai.workflow.completed")
     }
 
     override fun onWorkflowFailed(
@@ -327,7 +351,7 @@ private class ServerWorkflowObserver(
         error: Throwable,
         context: WorkflowContext,
     ) {
-        runStore.event(workflowName, workflowId, "tramai.workflow.failed", status = WorkflowRunStatus.FAILED)
+        runStore.event(workflowName, workflowId, "tramai.workflow.failed")
     }
 }
 

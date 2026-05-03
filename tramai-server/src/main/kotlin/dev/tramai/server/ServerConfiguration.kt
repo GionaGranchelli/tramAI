@@ -1,6 +1,10 @@
 package dev.tramai.server
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import org.springframework.beans.factory.ObjectProvider
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -24,5 +28,17 @@ class ServerConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    fun workflowRunStore(): WorkflowRunStore = WorkflowRunStore()
+    fun workflowRunStore(
+        @Value("\${tramai.server.max-run-history-size:1000}") maxHistorySize: Int,
+    ): WorkflowRunStore = WorkflowRunStore(maxHistorySize = maxHistorySize)
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun workflowExecutionScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun requestBodySizeLimitFilter(
+        @Value("\${tramai.server.max-request-body-bytes:1048576}") maxRequestBodyBytes: Long,
+    ): RequestBodySizeLimitFilter = RequestBodySizeLimitFilter(maxRequestBodyBytes)
 }

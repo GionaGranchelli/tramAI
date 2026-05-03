@@ -6,3 +6,8 @@ spring:
     url:
     username:
     password:
+
+tramai:
+  server:
+    max-request-body-bytes: 1048576
+    max-run-history-size: 1000

@@ -1,5 +1,6 @@
 package dev.tramai.server
 
+import org.slf4j.LoggerFactory
 import java.time.Instant
 
 enum class WorkflowRunStatus(
@@ -36,22 +37,53 @@ data class WorkflowRunEvent(
     val timestamp: Instant,
 )
 
-class WorkflowRunStore {
+class WorkflowRunStore(
+    private val maxHistorySize: Int = 1_000,
+) {
+    private val logger = LoggerFactory.getLogger(WorkflowRunStore::class.java)
+
+    init {
+        require(maxHistorySize > 0) { "maxHistorySize must be greater than zero" }
+    }
+
     private val monitor = Any()
     private val runs = linkedMapOf<RunKey, MutableWorkflowRunRecord>()
     private val idempotencyKeys = linkedMapOf<IdempotencyKey, RunKey>()
+
+    fun getOrCreate(
+        workflowName: String,
+        workflowId: String,
+        definitionVersion: String,
+        idempotencyKey: String?,
+    ): WorkflowRunCreation = synchronized(monitor) {
+        val existing = idempotencyKey?.takeIf(String::isNotBlank)
+            ?.let { IdempotencyKey(workflowName, it) }
+            ?.let(idempotencyKeys::get)
+            ?.let(runs::get)
+        if (existing != null) {
+            WorkflowRunCreation(existing.snapshot(), created = false)
+        } else {
+            WorkflowRunCreation(
+                createLocked(
+                    workflowName = workflowName,
+                    workflowId = workflowId,
+                    definitionVersion = definitionVersion,
+                    idempotencyKey = idempotencyKey,
+                ),
+                created = true,
+            )
+        }
+    }
 
     fun findByIdempotencyKey(
         workflowName: String,
         idempotencyKey: String?,
     ): WorkflowRunRecord? = synchronized(monitor) {
-        if (idempotencyKey.isNullOrBlank()) {
-            null
-        } else {
-            idempotencyKeys[IdempotencyKey(workflowName, idempotencyKey)]
+        idempotencyKey?.takeIf(String::isNotBlank)
+            ?.let { IdempotencyKey(workflowName, it) }
+            ?.let(idempotencyKeys::get)
                 ?.let(runs::get)
                 ?.snapshot()
-        }
     }
 
     fun create(
@@ -60,6 +92,20 @@ class WorkflowRunStore {
         definitionVersion: String,
         idempotencyKey: String?,
     ): WorkflowRunRecord = synchronized(monitor) {
+        createLocked(
+            workflowName = workflowName,
+            workflowId = workflowId,
+            definitionVersion = definitionVersion,
+            idempotencyKey = idempotencyKey,
+        )
+    }
+
+    private fun createLocked(
+        workflowName: String,
+        workflowId: String,
+        definitionVersion: String,
+        idempotencyKey: String?,
+    ): WorkflowRunRecord {
         val key = RunKey(workflowName, workflowId)
         val now = Instant.now()
         val record = MutableWorkflowRunRecord(
@@ -80,7 +126,8 @@ class WorkflowRunStore {
         record.idempotencyKey?.let {
             idempotencyKeys[IdempotencyKey(workflowName, it)] = key
         }
-        record.snapshot()
+        evictOldestIfNeeded()
+        return record.snapshot()
     }
 
     fun event(
@@ -91,6 +138,9 @@ class WorkflowRunStore {
         status: WorkflowRunStatus? = null,
     ) = synchronized(monitor) {
         val record = runs[RunKey(workflowName, workflowId)] ?: return@synchronized
+        if (status != null && record.status.isTerminal()) {
+            return@synchronized
+        }
         val now = Instant.now()
         record.history += WorkflowRunEvent(
             sequence = record.nextSequence++,
@@ -122,13 +172,16 @@ class WorkflowRunStore {
         workflowId: String,
         error: Throwable,
         status: WorkflowRunStatus = WorkflowRunStatus.FAILED,
-    ): WorkflowRunRecord = terminal(
-        workflowName = workflowName,
-        workflowId = workflowId,
-        status = status,
-        result = null,
-        error = error.message ?: error::class.java.name,
-    )
+    ): WorkflowRunRecord {
+        logger.error("Workflow '{}' run '{}' failed", workflowName, workflowId, error)
+        return terminal(
+            workflowName = workflowName,
+            workflowId = workflowId,
+            status = status,
+            result = null,
+            error = "Workflow execution failed",
+        )
+    }
 
     fun cancel(
         workflowName: String,
@@ -136,6 +189,11 @@ class WorkflowRunStore {
     ): WorkflowRunRecord = synchronized(monitor) {
         val record = runs[RunKey(workflowName, workflowId)]
             ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
+        if (record.status.isTerminal()) {
+            throw WorkflowConflictException(
+                "Workflow '$workflowName' run '$workflowId' is ${record.status.wireName} and cannot be cancelled",
+            )
+        }
         val now = Instant.now()
         record.status = WorkflowRunStatus.CANCELLING
         record.history += WorkflowRunEvent(
@@ -151,6 +209,43 @@ class WorkflowRunStore {
             stepName = record.currentStep,
             timestamp = now,
         )
+        record.updatedAt = now
+        record.snapshot()
+    }
+
+    fun requireResumable(
+        workflowName: String,
+        workflowId: String,
+    ): WorkflowRunRecord = synchronized(monitor) {
+        val record = runs[RunKey(workflowName, workflowId)]
+            ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
+        if (record.status != WorkflowRunStatus.DELAYED && record.status != WorkflowRunStatus.WAITING_FOR_GATE) {
+            throw WorkflowConflictException(
+                "Workflow '$workflowName' run '$workflowId' is ${record.status.wireName} and cannot be resumed",
+            )
+        }
+        record.snapshot()
+    }
+
+    fun markResuming(
+        workflowName: String,
+        workflowId: String,
+    ): WorkflowRunRecord = synchronized(monitor) {
+        val record = runs[RunKey(workflowName, workflowId)]
+            ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
+        if (record.status != WorkflowRunStatus.DELAYED && record.status != WorkflowRunStatus.WAITING_FOR_GATE) {
+            throw WorkflowConflictException(
+                "Workflow '$workflowName' run '$workflowId' is ${record.status.wireName} and cannot be resumed",
+            )
+        }
+        val now = Instant.now()
+        record.history += WorkflowRunEvent(
+            sequence = record.nextSequence++,
+            name = "tramai.workflow.running",
+            stepName = null,
+            timestamp = now,
+        )
+        record.status = WorkflowRunStatus.RUNNING
         record.updatedAt = now
         record.snapshot()
     }
@@ -186,6 +281,9 @@ class WorkflowRunStore {
     ): WorkflowRunRecord = synchronized(monitor) {
         val record = runs[RunKey(workflowName, workflowId)]
             ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
+        if (record.status.isTerminal()) {
+            return@synchronized record.snapshot()
+        }
         val now = Instant.now()
         record.status = status
         record.currentStep = null
@@ -194,7 +292,22 @@ class WorkflowRunStore {
         record.updatedAt = now
         record.snapshot()
     }
+
+    private fun evictOldestIfNeeded() {
+        while (runs.size > maxHistorySize) {
+            val oldestKey = runs.keys.first()
+            val oldest = runs.remove(oldestKey)
+            oldest?.idempotencyKey?.let {
+                idempotencyKeys.remove(IdempotencyKey(oldest.workflowName, it))
+            }
+        }
+    }
 }
+
+data class WorkflowRunCreation(
+    val record: WorkflowRunRecord,
+    val created: Boolean,
+)
 
 class WorkflowRunNotFoundException(
     workflowName: String,
@@ -239,3 +352,8 @@ private data class MutableWorkflowRunRecord(
         idempotencyKey = idempotencyKey,
     )
 }
+
+private fun WorkflowRunStatus.isTerminal(): Boolean =
+    this == WorkflowRunStatus.COMPLETED ||
+        this == WorkflowRunStatus.FAILED ||
+        this == WorkflowRunStatus.CANCELLED

@@ -7,11 +7,14 @@ import dev.tramai.orchestration.WorkflowObserver
 import dev.tramai.orchestration.WorkflowPersistence
 import dev.tramai.orchestration.WorkflowStateCodec
 import dev.tramai.scheduler.JdbcWorkflowSchedulerStore
+import org.slf4j.LoggerFactory
+import java.sql.SQLException
 import javax.sql.DataSource
 
 class WorkflowRegistry(
     private val dataSource: DataSource? = null,
 ) {
+    private val logger = LoggerFactory.getLogger(WorkflowRegistry::class.java)
     private val entries = linkedMapOf<String, WorkflowEntry<*, *>>()
     private var jdbcTablesCreated = false
 
@@ -61,17 +64,27 @@ class WorkflowRegistry(
         }
         val checkpointStore = JdbcWorkflowCheckpointStore(source)
         val schedulerStore = JdbcWorkflowSchedulerStore(source)
-        source.connection.use { connection ->
-            runCatching {
+        try {
+            source.connection.use { connection ->
                 connection.createStatement().use { statement ->
-                    statement.execute(checkpointStore.createTableSql())
+                    try {
+                        statement.execute(checkpointStore.createTableSql())
+                    } catch (error: SQLException) {
+                        if (!error.isTableAlreadyExists()) {
+                            throw error
+                        }
+                        logger.debug("Workflow checkpoint table already exists", error)
+                    }
+                }
+                schedulerStore.createTableSql().forEach { sql ->
+                    connection.createStatement().use { statement ->
+                        statement.execute(sql)
+                    }
                 }
             }
-            schedulerStore.createTableSql().forEach { sql ->
-                connection.createStatement().use { statement ->
-                    statement.execute(sql)
-                }
-            }
+        } catch (error: SQLException) {
+            logger.error("Failed to create workflow JDBC tables", error)
+            throw IllegalStateException("Failed to create workflow JDBC tables", error)
         }
         jdbcTablesCreated = true
     }
@@ -110,3 +123,6 @@ data class WorkflowEntry<S, R>(
 class WorkflowNotRegisteredException(
     workflowName: String,
 ) : RuntimeException("Workflow '$workflowName' is not registered")
+
+private fun SQLException.isTableAlreadyExists(): Boolean =
+    sqlState == "42S01" || errorCode == 42101
