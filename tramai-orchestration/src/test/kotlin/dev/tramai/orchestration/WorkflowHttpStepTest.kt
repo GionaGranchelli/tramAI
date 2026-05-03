@@ -23,6 +23,7 @@ class WorkflowHttpStepTest {
             val workflow = workflow<HttpState>("http-get") {
                 httpStep(
                     name = "fetch",
+                    config = localHttpConfig(),
                     request = { _, _ -> HttpRequest(method = "GET", url = server.url("/status")) },
                     merge = { state, response, _ -> state.copy(status = response.status, body = response.body) },
                 )
@@ -46,6 +47,7 @@ class WorkflowHttpStepTest {
             val workflow = workflow<HttpState>("http-post") {
                 httpStep(
                     name = "create",
+                    config = localHttpConfig(),
                     request = { _, _ ->
                         HttpRequest(
                             method = "POST",
@@ -79,7 +81,7 @@ class WorkflowHttpStepTest {
             val workflow = workflow<HttpState>("http-retry") {
                 httpStep(
                     name = "fetch",
-                    config = HttpStepConfig(
+                    config = localHttpConfig(
                         retryOnStatus = setOf(503),
                         maxRetries = 2,
                     ),
@@ -99,14 +101,14 @@ class WorkflowHttpStepTest {
     @Test
     fun `http step truncates oversized responses and continues`() {
         val observer = RecordingHttpWorkflowObserver()
-        val largeBody = "a".repeat(128)
+        val largeBody = ByteArray(2 * 1024 * 1024) { 'a'.code.toByte() }
         httpServer { exchange ->
             exchange.respond(200, largeBody)
         }.use { server ->
             val workflow = workflow<HttpState>("http-large-response") {
                 httpStep(
                     name = "fetch",
-                    config = HttpStepConfig(maxResponseBytes = 32),
+                    config = localHttpConfig(maxResponseBytes = 1_024),
                     request = { _, _ -> HttpRequest(method = "GET", url = server.url("/large")) },
                     merge = { state, response, _ -> state.copy(status = response.status, body = response.body) },
                 )
@@ -120,7 +122,7 @@ class WorkflowHttpStepTest {
             }
 
             assertThat(result.status).isEqualTo(200)
-            assertThat(result.body).hasSize(32)
+            assertThat(result.body).hasSize(1_024)
             assertThat(observer.eventNames).contains("tramai.workflow.http.response.truncated")
         }
     }
@@ -134,15 +136,16 @@ class WorkflowHttpStepTest {
             val workflow = workflow<HttpState>("http-timeout") {
                 httpStep(
                     name = "fetch",
-                    config = HttpStepConfig(timeoutSeconds = 1),
+                    config = localHttpConfig(timeoutSeconds = 1),
                     request = { _, _ -> HttpRequest(method = "GET", url = server.url("/slow")) },
                     merge = { state, response, _ -> state.copy(status = response.status, body = response.body) },
                 )
             }.build { it }
 
-            assertThatThrownBy {
-                runBlocking { workflow.run(HttpState()) }
-            }.isInstanceOf(HttpTimeoutException::class.java)
+        assertThatThrownBy {
+            runBlocking { workflow.run(HttpState()) }
+        }.isInstanceOf(WorkflowHttpException::class.java)
+            .hasCauseInstanceOf(HttpTimeoutException::class.java)
         }
     }
 
@@ -155,6 +158,7 @@ class WorkflowHttpStepTest {
             val workflow = workflow<HttpState>("http-redaction") {
                 httpStep(
                     name = "fetch",
+                    config = localHttpConfig(),
                     request = { _, _ ->
                         HttpRequest(
                             method = "POST",
@@ -184,6 +188,235 @@ class WorkflowHttpStepTest {
             assertThat(renderedAttributes).contains("/secret")
         }
     }
+
+    @Test
+    fun `http step rejects non-http schemes and records validation failure`() {
+        val observer = RecordingHttpWorkflowObserver()
+        val workflow = workflow<HttpState>("http-invalid-scheme") {
+            httpStep(
+                name = "fetch",
+                request = { _, _ -> HttpRequest(method = "GET", url = "file:///tmp/secret.txt") },
+                merge = { state, response, _ -> state.copy(status = response.status, body = response.body) },
+            )
+        }.build { it }
+
+        assertThatThrownBy {
+            runBlocking {
+                workflow.run(
+                    initialState = HttpState(),
+                    observer = observer,
+                )
+            }
+        }.isInstanceOf(WorkflowHttpException::class.java)
+            .hasMessageContaining("step 'fetch'")
+            .hasMessageContaining("/tmp/secret.txt")
+            .cause()
+            .isInstanceOf(IllegalArgumentException::class.java)
+
+        assertThat(observer.eventNames).contains("tramai.workflow.http.request.validation.failed")
+    }
+
+    @Test
+    fun `http step rejects private hosts by default before sending the request`() {
+        val observer = RecordingHttpWorkflowObserver()
+        val requests = AtomicInteger()
+        httpServer { exchange ->
+            requests.incrementAndGet()
+            exchange.respond(200, "ok")
+        }.use { server ->
+            val workflow = workflow<HttpState>("http-private-host") {
+                httpStep(
+                    name = "fetch",
+                    request = { _, _ -> HttpRequest(method = "GET", url = server.url("/internal")) },
+                    merge = { state, response, _ -> state.copy(status = response.status, body = response.body) },
+                )
+            }.build { it }
+
+            assertThatThrownBy {
+                runBlocking {
+                    workflow.run(
+                        initialState = HttpState(),
+                        observer = observer,
+                    )
+                }
+            }.isInstanceOf(WorkflowHttpException::class.java)
+                .hasMessageContaining("step 'fetch'")
+                .hasMessageContaining("127.0.0.1")
+                .cause()
+                .isInstanceOf(IllegalArgumentException::class.java)
+
+            assertThat(requests.get()).isZero()
+            assertThat(observer.eventNames).contains("tramai.workflow.http.request.validation.failed")
+        }
+    }
+
+    @Test
+    fun `http step does not follow redirects to a different host`() {
+        val internalRequests = AtomicInteger()
+        httpServer { exchange ->
+            internalRequests.incrementAndGet()
+            exchange.respond(200, "internal")
+        }.use { internalServer ->
+            httpServer { exchange ->
+                exchange.respond(
+                    status = 302,
+                    body = ByteArray(0),
+                    headers = mapOf("Location" to "http://localhost:${internalServer.port}/internal"),
+                )
+            }.use { externalServer ->
+                val workflow = workflow<HttpState>("http-redirect") {
+                    httpStep(
+                        name = "fetch",
+                        config = localHttpConfig(),
+                        request = { _, _ -> HttpRequest(method = "GET", url = externalServer.url("/redirect")) },
+                        merge = { state, response, _ -> state.copy(status = response.status, body = response.body) },
+                    )
+                }.build { it }
+
+                val result = runBlocking { workflow.run(HttpState()) }
+
+                assertThat(result.status).isEqualTo(302)
+                assertThat(result.body).isNull()
+                assertThat(internalRequests.get()).isZero()
+            }
+        }
+    }
+
+    @Test
+    fun `http step rejects unsupported HTTP methods`() {
+        val observer = RecordingHttpWorkflowObserver()
+        val workflow = workflow<HttpState>("http-unsupported-method") {
+            httpStep(
+                name = "fetch",
+                request = { _, _ -> HttpRequest(method = "TRACE", url = "https://example.com/resource") },
+                merge = { state, response, _ -> state.copy(status = response.status, body = response.body) },
+            )
+        }.build { it }
+
+        assertThatThrownBy {
+            runBlocking {
+                workflow.run(
+                    initialState = HttpState(),
+                    observer = observer,
+                )
+            }
+        }.isInstanceOf(WorkflowHttpException::class.java)
+            .hasCauseInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("TRACE")
+
+        assertThat(observer.eventNames).contains("tramai.workflow.http.request.validation.failed")
+    }
+
+    @Test
+    fun `http step rejects malformed URLs with empty host`() {
+        val observer = RecordingHttpWorkflowObserver()
+        val workflow = workflow<HttpState>("http-malformed-url") {
+            httpStep(
+                name = "fetch",
+                request = { _, _ -> HttpRequest(method = "GET", url = "https:///missing-host") },
+                merge = { state, response, _ -> state.copy(status = response.status, body = response.body) },
+            )
+        }.build { it }
+
+        assertThatThrownBy {
+            runBlocking {
+                workflow.run(
+                    initialState = HttpState(),
+                    observer = observer,
+                )
+            }
+        }.isInstanceOf(WorkflowHttpException::class.java)
+            .hasCauseInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("missing-host")
+
+        assertThat(observer.eventNames).contains("tramai.workflow.http.request.validation.failed")
+    }
+
+    @Test
+    fun `http step returns non-2xx responses when they are not retried`() {
+        val observer = RecordingHttpWorkflowObserver()
+        httpServer { exchange ->
+            exchange.respond(404, "missing")
+        }.use { server ->
+            val workflow = workflow<HttpState>("http-not-found") {
+                httpStep(
+                    name = "fetch",
+                    config = localHttpConfig(),
+                    request = { _, _ -> HttpRequest(method = "GET", url = server.url("/missing")) },
+                    merge = { state, response, _ -> state.copy(status = response.status, body = response.body) },
+                )
+            }.build { it }
+
+            val result = runBlocking {
+                workflow.run(
+                    initialState = HttpState(),
+                    observer = observer,
+                )
+            }
+
+            assertThat(result.status).isEqualTo(404)
+            assertThat(result.body).isEqualTo("missing")
+            assertThat(observer.eventNames).doesNotContain("tramai.workflow.http.request.retrying")
+        }
+    }
+
+    @Test
+    fun `http step decodes non-utf8 responses using replacement characters`() {
+        val invalidUtf8 = byteArrayOf(0x48, 0x69, 0x20, 0xC3.toByte(), 0x28)
+        httpServer { exchange ->
+            exchange.respond(200, invalidUtf8)
+        }.use { server ->
+            val workflow = workflow<HttpState>("http-non-utf8") {
+                httpStep(
+                    name = "fetch",
+                    config = localHttpConfig(),
+                    request = { _, _ -> HttpRequest(method = "GET", url = server.url("/bytes")) },
+                    merge = { state, response, _ -> state.copy(status = response.status, body = response.body) },
+                )
+            }.build { it }
+
+            val result = runBlocking { workflow.run(HttpState()) }
+
+            assertThat(result.status).isEqualTo(200)
+            assertThat(result.body).isEqualTo("Hi \uFFFD(")
+        }
+    }
+
+    @Test
+    fun `http step validation uses a safe redacted URL when query stripping fails`() {
+        val observer = RecordingHttpWorkflowObserver()
+        val workflow = workflow<HttpState>("http-strip-query-edge") {
+            httpStep(
+                name = "fetch",
+                request = { _, _ -> HttpRequest(method = "GET", url = "http://exa mple.com/path?token=secret") },
+                merge = { state, response, _ -> state.copy(status = response.status, body = response.body) },
+            )
+        }.build { it }
+
+        assertThatThrownBy {
+            runBlocking {
+                workflow.run(
+                    initialState = HttpState(),
+                    observer = observer,
+                )
+            }
+        }.isInstanceOf(WorkflowHttpException::class.java)
+            .hasCauseInstanceOf(IllegalArgumentException::class.java)
+
+        val validationEvent = observer.events.single { (eventName, _) ->
+            eventName == "tramai.workflow.http.request.validation.failed"
+        }
+        assertThat(validationEvent.second["url"]).isEqualTo("http://exa mple.com/path")
+        assertThat(validationEvent.second["url"].toString()).doesNotContain("token=secret")
+    }
+
+    @Test
+    fun `http step config rejects response limits above int max`() {
+        assertThatThrownBy {
+            HttpStepConfig(maxResponseBytes = Int.MAX_VALUE.toLong() + 1)
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("maxResponseBytes")
+    }
 }
 
 private data class HttpState(
@@ -212,11 +445,18 @@ private class TestHttpServer(
     private val executor = Executors.newCachedThreadPool()
     private val server = HttpServer.create(InetSocketAddress(0), 0).apply {
         createContext("/", HttpHandler { exchange ->
-            exchange.use(handler)
+            try {
+                handler(exchange)
+            } finally {
+                exchange.close()
+            }
         })
         this.executor = executor
         start()
     }
+
+    val port: Int
+        get() = server.address.port
 
     fun url(path: String): String = "http://127.0.0.1:${server.address.port}$path"
 
@@ -228,8 +468,28 @@ private class TestHttpServer(
 
 private fun httpServer(handler: (HttpExchange) -> Unit): TestHttpServer = TestHttpServer(handler)
 
-private fun HttpExchange.respond(status: Int, body: String) {
-    val bytes = body.toByteArray(StandardCharsets.UTF_8)
-    sendResponseHeaders(status, bytes.size.toLong())
-    responseBody.use { output -> output.write(bytes) }
+private fun HttpExchange.respond(status: Int, body: String, headers: Map<String, String> = emptyMap()) {
+    respond(status, body.toByteArray(StandardCharsets.UTF_8), headers)
 }
+
+private fun HttpExchange.respond(status: Int, body: ByteArray, headers: Map<String, String> = emptyMap()) {
+    headers.forEach { (headerName, headerValue) ->
+        responseHeaders.add(headerName, headerValue)
+    }
+    sendResponseHeaders(status, body.size.toLong())
+    responseBody.use { output -> output.write(body) }
+}
+
+private fun localHttpConfig(
+    timeoutSeconds: Long = 30,
+    maxResponseBytes: Long = 1_048_576,
+    retryOnStatus: Set<Int> = emptySet(),
+    maxRetries: Int = 0,
+    allowedHosts: Set<String>? = setOf("127.0.0.1", "localhost"),
+): HttpStepConfig = HttpStepConfig(
+    timeoutSeconds = timeoutSeconds,
+    maxResponseBytes = maxResponseBytes,
+    retryOnStatus = retryOnStatus,
+    maxRetries = maxRetries,
+    allowedHosts = allowedHosts,
+)
