@@ -28,6 +28,8 @@ spring-context = { module = "org.springframework:spring-context", version = "6.2
 aws-sdk-auth = { module = "software.amazon.awssdk:auth", version.ref = "aws-sdk" }
 aws-sdk-regions = { module = "software.amazon.awssdk:regions", version.ref = "aws-sdk" }
 aws-sdk-secretsmanager = { module = "software.amazon.awssdk:secretsmanager", version.ref = "aws-sdk" }
+hikaricp = { module = "com.zaxxer:HikariCP", version = "6.3.0" }
+h2database = { module = "com.h2database:h2", version = "2.3.232" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
