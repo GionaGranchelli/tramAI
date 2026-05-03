@@ -13,6 +13,7 @@ import dev.tramai.testing.RecordingOperationObserver
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import java.time.ZoneId
 import kotlin.test.Test
 class WorkflowTest {
     @Test
@@ -644,6 +645,53 @@ class WorkflowTest {
                 maxParallelBranches = 3,
             ),
         ) { it.draft ?: error("draft must exist") }
+        assertThatThrownBy {
+            runBlocking {
+                changed.resume(
+                    context = WorkflowContext(workflowId = workflowId),
+                    persistence = persistence,
+                )
+            }
+        }
+            .isInstanceOf(WorkflowResumeException::class.java)
+            .hasMessageContaining("different workflow definition digest")
+    }
+    @Test
+    fun `resume fails when schedule changes without changing the definition version`() {
+        val store = InMemoryWorkflowCheckpointStore()
+        val persistence = WorkflowPersistence(
+            checkpointStore = store,
+            stateCodec = ResumeStateCodec,
+            deleteCheckpointOnCompletion = false,
+        )
+        val workflowId = "schedule-mismatch-1"
+        val original = workflow<ResumeState>(
+            name = "schedule-mismatch",
+            definitionVersion = "resume-v1",
+        ) {
+            schedule = TestWorkflowSchedule("0 9 * * 1")
+            localStep(
+                name = "draft",
+                transform = { state, _ -> state.copy(draft = "draft:${state.request}") },
+            )
+        }.build { it.draft ?: error("draft must exist") }
+        runBlocking {
+            original.run(
+                initialState = ResumeState(request = "invoice-123"),
+                context = WorkflowContext(workflowId = workflowId),
+                persistence = persistence,
+            )
+        }
+        val changed = workflow<ResumeState>(
+            name = "schedule-mismatch",
+            definitionVersion = "resume-v1",
+        ) {
+            schedule = TestWorkflowSchedule("0 10 * * 1")
+            localStep(
+                name = "draft",
+                transform = { state, _ -> state.copy(draft = "draft:${state.request}") },
+            )
+        }.build { it.draft ?: error("draft must exist") }
         assertThatThrownBy {
             runBlocking {
                 changed.resume(
@@ -1445,4 +1493,11 @@ private class RecordingWorkflowObserver : WorkflowObserver {
     ) {
         failedSteps += stepName
     }
+}
+private data class TestWorkflowSchedule(
+    override val expression: String,
+) : WorkflowScheduleDefinition {
+    override val kind: String = "test"
+    override val zoneId: ZoneId = ZoneId.of("UTC")
+    override fun validate() = Unit
 }

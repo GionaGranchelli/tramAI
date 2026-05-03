@@ -1,5 +1,5 @@
 @baseUrl = http://localhost:8080
-@workflowId = wf-1045
+@workflowId = wf-1045gi
 
 ### Health check
 GET {{baseUrl}}/

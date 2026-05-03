@@ -3,6 +3,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import java.security.MessageDigest
+import java.time.Instant
+import java.time.ZoneId
 import java.util.UUID
 /**
  * Workflow-level execution metadata.
@@ -22,6 +24,16 @@ data class StopPolicy(
         require(maxStepExecutions > 0) { "StopPolicy.maxStepExecutions must be greater than zero" }
         require(maxParallelBranches > 0) { "StopPolicy.maxParallelBranches must be greater than zero" }
     }
+}
+/**
+ * Workflow schedule metadata supplied by optional scheduler modules.
+ */
+interface WorkflowScheduleDefinition {
+    val kind: String
+    val expression: String
+    val zoneId: ZoneId
+    fun validate()
+    fun canonicalForm(): String = "$kind:${zoneId.id}:$expression"
 }
 /**
  * Workflow-level observation seam.
@@ -60,6 +72,23 @@ interface WorkflowObserver {
     fun onWorkflowFailed(
         workflowName: String,
         error: Throwable,
+        context: WorkflowContext,
+    ) = Unit
+    fun onScheduledTick(
+        workflowName: String,
+        scheduledFireAt: Instant,
+        context: WorkflowContext,
+    ) = Unit
+    fun onSkippedTick(
+        workflowName: String,
+        scheduledFireAt: Instant,
+        reason: String,
+        context: WorkflowContext,
+    ) = Unit
+    fun onMissedTick(
+        workflowName: String,
+        scheduledFireAt: Instant,
+        reason: String,
         context: WorkflowContext,
     ) = Unit
 }
@@ -108,6 +137,7 @@ data class GateDecision(
 class Workflow<S, R> internal constructor(
     val name: String,
     val definitionVersion: String,
+    val schedule: WorkflowScheduleDefinition?,
     private val steps: List<InternalWorkflowStep<S>>,
     private val resultSelector: (S) -> R,
     private val stopPolicy: StopPolicy,
@@ -115,6 +145,7 @@ class Workflow<S, R> internal constructor(
     private val definitionCompatibility: WorkflowDefinitionCompatibility = workflowDefinitionCompatibility(
         workflowName = name,
         definitionVersion = definitionVersion,
+        schedule = schedule,
         stopPolicy = stopPolicy,
         steps = steps,
     )
@@ -321,11 +352,14 @@ class WorkflowBuilder<S> internal constructor(
     private val workflowName: String,
     private val definitionVersion: String,
 ) : AbstractWorkflowBuilder<S>() {
+    var schedule: WorkflowScheduleDefinition? = null
+
     fun <R> build(
         stopPolicy: StopPolicy = StopPolicy(),
         resultSelector: (S) -> R,
     ): Workflow<S, R> {
         val snapshot = stepsSnapshot()
+        schedule?.validate()
         validateWorkflowDefinition(
             workflowName = workflowName,
             steps = snapshot,
@@ -333,6 +367,7 @@ class WorkflowBuilder<S> internal constructor(
         return Workflow(
             name = workflowName,
             definitionVersion = definitionVersion,
+            schedule = schedule,
             steps = snapshot,
             resultSelector = resultSelector,
             stopPolicy = stopPolicy,
@@ -605,6 +640,7 @@ private fun <S> collectStepNames(
 private fun <S> workflowDefinitionCompatibility(
     workflowName: String,
     definitionVersion: String,
+    schedule: WorkflowScheduleDefinition?,
     stopPolicy: StopPolicy,
     steps: List<InternalWorkflowStep<S>>,
 ): WorkflowDefinitionCompatibility {
@@ -617,6 +653,9 @@ private fun <S> workflowDefinitionCompatibility(
         append('\n')
         append("stop_policy.max_parallel_branches:")
         append(stopPolicy.maxParallelBranches)
+        append('\n')
+        append("schedule:")
+        append(schedule?.canonicalForm() ?: "none")
         append('\n')
         append(renderStepsCanonical(steps))
     }
