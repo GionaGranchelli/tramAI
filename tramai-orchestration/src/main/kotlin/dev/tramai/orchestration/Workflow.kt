@@ -532,11 +532,13 @@ abstract class AbstractWorkflowBuilder<S> {
     fun shellStep(
         name: String,
         config: ShellStepConfig = ShellStepConfig(),
+        definition: ShellCommandDefinition = ShellCommandDefinition(),
         command: suspend (S, WorkflowContext) -> ShellCommand,
         merge: suspend (S, ShellResult, WorkflowContext) -> S,
     ) = apply {
         appendStep(ShellWorkflowStep(
             name = name,
+            definition = definition,
             commandBuilder = command,
             merge = merge,
             config = config,
@@ -917,6 +919,14 @@ private fun <S> renderStepsCanonical(
                 append(step.config.failOnNonZeroExit)
                 append(':')
                 append(step.config.failOnStderr)
+                append(':')
+                append(step.config.allowedCommands?.sorted()?.joinToString(",") ?: "*")
+                append(':')
+                append(step.config.deniedCommands.sorted().joinToString(","))
+                append(':')
+                append(step.definition.hasWorkdir)
+                append(':')
+                append(step.definition.envKeys.sorted().joinToString(","))
                 append('\n')
             }
             is GateWorkflowStep -> {

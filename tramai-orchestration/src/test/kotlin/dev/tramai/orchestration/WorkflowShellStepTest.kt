@@ -1,9 +1,14 @@
 package dev.tramai.orchestration
 
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import java.nio.file.Files
+import java.nio.file.Path
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 
 class WorkflowShellStepTest {
@@ -105,6 +110,41 @@ class WorkflowShellStepTest {
     }
 
     @Test
+    fun `shell step destroys the process when the workflow coroutine is cancelled`() {
+        val pidFile = Files.createTempFile("workflow-shell-step", ".pid")
+        try {
+            val workflow = shellWorkflow("shell-cancel") {
+                shellStep(
+                    name = "sleep",
+                    command = { _, _ ->
+                        ShellCommand(
+                            command = listOf(
+                                "sh",
+                                "-c",
+                                "echo $$ > '${pidFile.toAbsolutePath()}'; exec sleep 30",
+                            ),
+                        )
+                    },
+                    merge = { state, result, _ -> state.copy(result = result) },
+                )
+            }
+            runBlocking {
+                val job = launch {
+                    workflow.run(ShellState())
+                }
+
+                val pid = awaitPid(pidFile)
+                job.cancelAndJoin()
+
+                awaitProcessExit(pid)
+                assertThat(ProcessHandle.of(pid).map { it.isAlive }.orElse(false)).isFalse()
+            }
+        } finally {
+            Files.deleteIfExists(pidFile)
+        }
+    }
+
+    @Test
     fun `shell step truncates oversized output and records it`() {
         val observer = RecordingShellWorkflowObserver()
         val workflow = shellWorkflow("shell-truncate") {
@@ -140,6 +180,7 @@ class WorkflowShellStepTest {
             val workflow = shellWorkflow("shell-workdir") {
                 shellStep(
                     name = "pwd",
+                    definition = ShellCommandDefinition(hasWorkdir = true),
                     command = { _, _ ->
                         ShellCommand(
                             command = listOf("pwd"),
@@ -163,6 +204,7 @@ class WorkflowShellStepTest {
         val workflow = shellWorkflow("shell-env") {
             shellStep(
                 name = "env",
+                definition = ShellCommandDefinition(envKeys = setOf("MY_VAR")),
                 command = { _, _ ->
                     ShellCommand(
                         command = listOf("sh", "-c", "echo \$MY_VAR"),
@@ -179,11 +221,79 @@ class WorkflowShellStepTest {
     }
 
     @Test
+    fun `shell step redacts command names in failure errors`() {
+        val observer = RecordingShellWorkflowObserver()
+        val secretCommand = "my-secret-tool"
+        val workflow = shellWorkflow("shell-redaction-failure") {
+            shellStep(
+                name = "missing-command",
+                command = { _, _ -> ShellCommand(command = listOf(secretCommand)) },
+                merge = { state, result, _ -> state.copy(result = result) },
+            )
+        }
+
+        assertThatThrownBy {
+            runBlocking {
+                workflow.run(
+                    initialState = ShellState(),
+                    observer = observer,
+                )
+            }
+        }.isInstanceOf(WorkflowShellException::class.java)
+            .hasMessageContaining("[command]")
+            .hasMessageNotContaining(secretCommand)
+
+        assertThat(observer.failedErrors)
+            .isNotEmpty
+            .allSatisfy { error ->
+                assertThat(error)
+                    .isInstanceOf(WorkflowShellException::class.java)
+                    .hasMessageContaining("[command]")
+                    .hasMessageNotContaining(secretCommand)
+            }
+    }
+
+    @Test
+    fun `shell step rejects denied commands`() {
+        val workflow = shellWorkflow("shell-denied") {
+            shellStep(
+                name = "echo",
+                config = ShellStepConfig(deniedCommands = setOf("echo")),
+                command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
+                merge = { state, result, _ -> state.copy(result = result) },
+            )
+        }
+
+        assertThatThrownBy {
+            runBlocking { workflow.run(ShellState()) }
+        }.isInstanceOf(WorkflowShellException::class.java)
+            .hasMessageContaining("denylist")
+    }
+
+    @Test
+    fun `shell step blocks commands outside the allowlist`() {
+        val workflow = shellWorkflow("shell-allowlist") {
+            shellStep(
+                name = "echo",
+                config = ShellStepConfig(allowedCommands = setOf("pwd")),
+                command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
+                merge = { state, result, _ -> state.copy(result = result) },
+            )
+        }
+
+        assertThatThrownBy {
+            runBlocking { workflow.run(ShellState()) }
+        }.isInstanceOf(WorkflowShellException::class.java)
+            .hasMessageContaining("allowlist")
+    }
+
+    @Test
     fun `shell step workflow events redact command arguments and output content`() {
         val observer = RecordingShellWorkflowObserver()
         val workflow = shellWorkflow("shell-redaction") {
             shellStep(
                 name = "redacted",
+                definition = ShellCommandDefinition(envKeys = setOf("MY_SECRET")),
                 command = { _, _ ->
                     ShellCommand(
                         command = listOf(
@@ -216,7 +326,36 @@ class WorkflowShellStepTest {
         assertThat(renderedAttributes).doesNotContain("stderr-secret-token")
         assertThat(renderedAttributes).doesNotContain("env-secret-token")
         assertThat(shellEvents.flatMap { (_, attributes) -> attributes.keys })
-            .allMatch { it in setOf("exit_code", "stdout_bytes", "stderr_bytes", "stream", "actual_size", "max_size") }
+            .allMatch { it in setOf("step_name", "exit_code", "stdout_bytes", "stderr_bytes", "stream", "actual_size", "max_size") }
+    }
+
+    @Test
+    fun `shell step started and completed events include the step name`() {
+        val observer = RecordingShellWorkflowObserver()
+        val workflow = shellWorkflow("shell-event-step-name") {
+            shellStep(
+                name = "echo",
+                command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
+                merge = { state, result, _ -> state.copy(result = result) },
+            )
+        }
+
+        runBlocking {
+            workflow.run(
+                initialState = ShellState(),
+                observer = observer,
+            )
+        }
+
+        val startedAttributes = observer.events.single { (eventName, _) ->
+            eventName == "tramai.workflow.shell.started"
+        }.second
+        val completedAttributes = observer.events.single { (eventName, _) ->
+            eventName == "tramai.workflow.shell.completed"
+        }.second
+
+        assertThat(startedAttributes).containsEntry("step_name", "echo")
+        assertThat(completedAttributes).containsEntry("step_name", "echo")
     }
 
     @Test
@@ -247,6 +386,7 @@ private fun shellWorkflow(
 private class RecordingShellWorkflowObserver : WorkflowObserver {
     val eventNames = mutableListOf<String>()
     val events = mutableListOf<Pair<String, Map<String, Any?>>>()
+    val failedErrors = mutableListOf<Throwable>()
 
     override fun onWorkflowEvent(
         workflowName: String,
@@ -257,4 +397,39 @@ private class RecordingShellWorkflowObserver : WorkflowObserver {
         eventNames += name
         events += name to attributes
     }
+
+    override fun onStepFailed(
+        workflowName: String,
+        stepName: String,
+        error: Throwable,
+        context: WorkflowContext,
+    ) {
+        failedErrors += error
+    }
+}
+
+private suspend fun awaitPid(pidFile: Path): Long {
+    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+    while (System.nanoTime() < deadlineNanos) {
+        if (Files.exists(pidFile)) {
+            val rawPid = Files.readString(pidFile).trim()
+            if (rawPid.isNotEmpty()) {
+                return rawPid.toLong()
+            }
+        }
+        delay(25)
+    }
+    error("Timed out waiting for shell step PID at $pidFile")
+}
+
+private suspend fun awaitProcessExit(pid: Long) {
+    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+    while (System.nanoTime() < deadlineNanos) {
+        val handle = ProcessHandle.of(pid)
+        if (handle.isEmpty || !handle.get().isAlive) {
+            return
+        }
+        delay(25)
+    }
+    error("Timed out waiting for process $pid to exit")
 }

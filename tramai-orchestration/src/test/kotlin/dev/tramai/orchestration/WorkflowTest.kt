@@ -14,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import java.nio.file.Files
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
@@ -708,6 +709,79 @@ class WorkflowTest {
             .isInstanceOf(WorkflowResumeException::class.java)
             .hasMessageContaining("different workflow definition digest")
     }
+
+    @Test
+    fun `resume fails when shell command fingerprint metadata changes without changing the definition version`() {
+        val store = InMemoryWorkflowCheckpointStore()
+        val persistence = WorkflowPersistence(
+            checkpointStore = store,
+            stateCodec = ResumeStateCodec,
+            deleteCheckpointOnCompletion = false,
+        )
+        val workflowId = "shell-definition-mismatch-1"
+        val original = workflow<ResumeState>(
+            name = "shell-definition-mismatch",
+            definitionVersion = "resume-v1",
+        ) {
+            shellStep(
+                name = "deploy",
+                definition = ShellCommandDefinition(
+                    hasWorkdir = false,
+                    envKeys = setOf("API_TOKEN"),
+                ),
+                command = { state, _ ->
+                    ShellCommand(
+                        command = listOf("sh", "-c", "echo ${state.request}"),
+                        env = mapOf("API_TOKEN" to "secret"),
+                    )
+                },
+                merge = { state, result, _ -> state.copy(draft = result.stdout.trim()) },
+            )
+        }.build { it.draft ?: error("draft must exist") }
+        runBlocking {
+            original.run(
+                initialState = ResumeState(request = "invoice-123"),
+                context = WorkflowContext(workflowId = workflowId),
+                persistence = persistence,
+            )
+        }
+        val changedWorkdir = Files.createTempDirectory("workflow-shell-definition")
+        try {
+            val changed = workflow<ResumeState>(
+                name = "shell-definition-mismatch",
+                definitionVersion = "resume-v1",
+            ) {
+                shellStep(
+                    name = "deploy",
+                    definition = ShellCommandDefinition(
+                        hasWorkdir = true,
+                        envKeys = setOf("OTHER_TOKEN"),
+                    ),
+                    command = { state, _ ->
+                        ShellCommand(
+                            command = listOf("sh", "-c", "echo ${state.request}"),
+                            workdir = changedWorkdir.toString(),
+                            env = mapOf("OTHER_TOKEN" to "secret"),
+                        )
+                    },
+                    merge = { state, result, _ -> state.copy(draft = result.stdout.trim()) },
+                )
+            }.build { it.draft ?: error("draft must exist") }
+            assertThatThrownBy {
+                runBlocking {
+                    changed.resume(
+                        context = WorkflowContext(workflowId = workflowId),
+                        persistence = persistence,
+                    )
+                }
+            }
+                .isInstanceOf(WorkflowResumeException::class.java)
+                .hasMessageContaining("different workflow definition digest")
+        } finally {
+            Files.deleteIfExists(changedWorkdir)
+        }
+    }
+
     @Test
     fun `resume fails loudly when checkpoint is missing required workflow definition metadata`() {
         val store = InMemoryWorkflowCheckpointStore()
