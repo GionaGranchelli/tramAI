@@ -6,6 +6,7 @@ import java.security.MessageDigest
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
+import java.net.http.HttpClient
 import java.util.concurrent.TimeUnit
 import java.util.UUID
 import kotlin.reflect.KType
@@ -155,6 +156,7 @@ class Workflow<S, R> internal constructor(
     private val resultSelector: (S) -> R,
     private val stopPolicy: StopPolicy,
     private val clock: Clock,
+    private val httpClient: HttpClient = WorkflowHttpClients.default,
 ) {
     private val definitionCompatibility: WorkflowDefinitionCompatibility = workflowDefinitionCompatibility(
         workflowName = name,
@@ -369,6 +371,13 @@ class Workflow<S, R> internal constructor(
             when (step) {
                 is LocalWorkflowStep -> step.transform(state, context)
                 is AiWorkflowStep<S, *, *> -> step.execute(state, context)
+                is HttpWorkflowStep<S> -> step.execute(
+                    workflowName = name,
+                    state = state,
+                    context = context,
+                    observer = observer,
+                    httpClient = httpClient,
+                )
                 is GateWorkflowStep -> step.execute(state, context)
                 is DelayWorkflowStep -> {
                     val result = step.execute(
@@ -499,6 +508,19 @@ abstract class AbstractWorkflowBuilder<S> {
             input = input,
             invoke = invoke,
             merge = merge,
+        ))
+    }
+    fun httpStep(
+        name: String,
+        config: HttpStepConfig = HttpStepConfig(),
+        request: suspend (S, WorkflowContext) -> HttpRequest,
+        merge: suspend (S, HttpResponse, WorkflowContext) -> S,
+    ) = apply {
+        appendStep(HttpWorkflowStep(
+            name = name,
+            requestBuilder = request,
+            merge = merge,
+            config = config,
         ))
     }
     fun gateStep(
@@ -850,6 +872,19 @@ private fun <S> renderStepsCanonical(
             is AiWorkflowStep<*, *, *> -> {
                 append("ai:")
                 append(step.name)
+                append('\n')
+            }
+            is HttpWorkflowStep<*> -> {
+                append("http:")
+                append(step.name)
+                append(':')
+                append(step.config.timeoutSeconds)
+                append(':')
+                append(step.config.maxResponseBytes)
+                append(':')
+                append(step.config.maxRetries)
+                append(':')
+                append(step.config.retryOnStatus.sorted().joinToString(","))
                 append('\n')
             }
             is GateWorkflowStep -> {
