@@ -408,6 +408,37 @@ class WorkflowControllerTest @Autowired constructor(
             }
     }
 
+    @Test
+    fun `sse events endpoint streams workflow execution`() {
+        val workflowId = startInvoiceWorkflow("inv-sse")
+        val mvcResult = mockMvc.get("/workflows/invoice/runs/$workflowId/events")
+            .andExpect {
+                status { isOk() }
+                header { string("Content-Type", "text/event-stream") }
+            }
+            .andReturn()
+
+        waitForStatus("invoice", workflowId, "completed")
+
+        val responseBody = mvcResult.response.contentAsString
+        assertThat(responseBody).contains("event:tramai.workflow.started")
+        assertThat(responseBody).contains("event:tramai.step.started")
+        assertThat(responseBody).contains("event:tramai.step.completed")
+        assertThat(responseBody).contains("event:tramai.workflow.completed")
+
+        val lastEventId = responseBody.lines().last { it.startsWith("id:") }.substring(3).trim()
+
+        val reconnMvcResult = mockMvc.get("/workflows/invoice/runs/$workflowId/events") {
+            header("Last-Event-ID", lastEventId)
+        }
+            .andExpect {
+                status { isOk() }
+            }
+            .andReturn()
+
+        assertThat(reconnMvcResult.response.contentAsString).doesNotContain("event:tramai.workflow.started")
+    }
+
     private fun startInvoiceWorkflow(invoiceId: String): String {
         val response = mockMvc.post("/workflows/invoice/run") {
             contentType = MediaType.APPLICATION_JSON

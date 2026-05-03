@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import org.slf4j.LoggerFactory
 import java.net.URI
 import java.util.UUID
@@ -120,6 +121,23 @@ class WorkflowController(
         return ResponseEntity
             .accepted()
             .body(cancelled.toResponse())
+    }
+
+    @GetMapping("/workflows/{name}/runs/{id}/events")
+    fun getRunEvents(
+        @PathVariable name: String,
+        @PathVariable id: String,
+        @RequestHeader("Last-Event-ID", required = false) since: String?,
+    ): SseEmitter {
+        registry.get(name)
+        val emitter = SseEmitter(-1L)
+        runStore.registerSseEmitter(
+            workflowName = name,
+            workflowId = id,
+            emitter = emitter,
+            since = since?.toLongOrNull(),
+        )
+        return emitter
     }
 
     @GetMapping("/openapi.json")

@@ -30,7 +30,8 @@ class ServerConfiguration {
     @ConditionalOnMissingBean
     fun workflowRunStore(
         @Value("\${tramai.server.max-run-history-size:1000}") maxHistorySize: Int,
-    ): WorkflowRunStore = WorkflowRunStore(maxHistorySize = maxHistorySize)
+        @Value("\${tramai.server.sse-event-buffer-size:100}") sseEventBufferSize: Int,
+    ): WorkflowRunStore = WorkflowRunStore(maxHistorySize = maxHistorySize, sseEventBufferSize = sseEventBufferSize)
 
     @Bean
     @ConditionalOnMissingBean

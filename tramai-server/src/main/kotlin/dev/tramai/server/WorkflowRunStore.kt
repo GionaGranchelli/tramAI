@@ -1,6 +1,7 @@
 package dev.tramai.server
 
 import org.slf4j.LoggerFactory
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import java.time.Instant
 
 enum class WorkflowRunStatus(
@@ -37,8 +38,15 @@ data class WorkflowRunEvent(
     val timestamp: Instant,
 )
 
+data class SseEvent(
+    val id: String,
+    val event: String,
+    val data: String,
+)
+
 class WorkflowRunStore(
     private val maxHistorySize: Int = 1_000,
+    private val sseEventBufferSize: Int = 100,
 ) {
     private val logger = LoggerFactory.getLogger(WorkflowRunStore::class.java)
 
@@ -121,6 +129,7 @@ class WorkflowRunStore(
             updatedAt = now,
             idempotencyKey = idempotencyKey?.takeIf(String::isNotBlank),
             nextSequence = 1,
+            emitters = mutableListOf(),
         )
         runs[key] = record
         record.idempotencyKey?.let {
@@ -142,17 +151,40 @@ class WorkflowRunStore(
             return@synchronized
         }
         val now = Instant.now()
-        record.history += WorkflowRunEvent(
+        val event = WorkflowRunEvent(
             sequence = record.nextSequence++,
             name = name,
             stepName = stepName,
             timestamp = now,
         )
+        record.history += event
+        if (record.history.size > sseEventBufferSize) {
+            record.history.removeAt(0)
+        }
         record.currentStep = stepName ?: record.currentStep
         if (status != null) {
             record.status = status
         }
         record.updatedAt = now
+        val sseEvent = SseEvent(
+            id = event.sequence.toString(),
+            event = event.name,
+            data = """{"stepName":"${event.stepName}","timestamp":"${event.timestamp}"}""",
+        )
+        val deadEmitters = mutableListOf<SseEmitter>()
+        record.emitters.forEach { emitter ->
+            try {
+                emitter.send(
+                    SseEmitter.event()
+                        .id(sseEvent.id)
+                        .name(sseEvent.event)
+                        .data(sseEvent.data)
+                )
+            } catch (e: Exception) {
+                deadEmitters.add(emitter)
+            }
+        }
+        deadEmitters.forEach { record.emitters.remove(it) }
     }
 
     fun complete(
@@ -210,6 +242,8 @@ class WorkflowRunStore(
             timestamp = now,
         )
         record.updatedAt = now
+        record.emitters.forEach { it.complete() }
+        record.emitters.clear()
         record.snapshot()
     }
 
@@ -272,6 +306,39 @@ class WorkflowRunStore(
             ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
     }
 
+    fun registerSseEmitter(
+        workflowName: String,
+        workflowId: String,
+        emitter: SseEmitter,
+        since: Long?,
+    ) = synchronized(monitor) {
+        val record = runs[RunKey(workflowName, workflowId)]
+            ?: throw WorkflowRunNotFoundException(workflowName, workflowId)
+
+        emitter.onCompletion { synchronized(monitor) { record.emitters.remove(emitter) } }
+        emitter.onError { synchronized(monitor) { record.emitters.remove(emitter) } }
+        record.emitters.add(emitter)
+
+        val eventsToSend = if (since != null) {
+            record.history.filter { it.sequence > since }
+        } else {
+            record.history
+        }
+
+        eventsToSend.forEach { event ->
+            emitter.send(
+                SseEmitter.event()
+                    .id(event.sequence.toString())
+                    .name(event.name)
+                    .data("""{"stepName":"${event.stepName}","timestamp":"${event.timestamp}"}""")
+            )
+        }
+
+        if (record.status.isTerminal()) {
+            emitter.complete()
+        }
+    }
+
     private fun terminal(
         workflowName: String,
         workflowId: String,
@@ -290,6 +357,8 @@ class WorkflowRunStore(
         record.result = result
         record.error = error
         record.updatedAt = now
+        record.emitters.forEach { it.complete() }
+        record.emitters.clear()
         record.snapshot()
     }
 
@@ -337,6 +406,7 @@ private data class MutableWorkflowRunRecord(
     var updatedAt: Instant,
     val idempotencyKey: String?,
     var nextSequence: Long,
+    val emitters: MutableList<SseEmitter>,
 ) {
     fun snapshot(): WorkflowRunRecord = WorkflowRunRecord(
         workflowName = workflowName,
