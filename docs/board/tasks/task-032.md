@@ -1,6 +1,6 @@
 # TASK-032: Implement SSE Streaming for Live Traces
 
-- Status: planned
+- Status: done
 - Priority: medium
 - Primary spec: [SPEC-014](../../specs/spec-014-server.md)
 - Related ADRs:
@@ -23,8 +23,23 @@ Server-Sent Events.
 
 ## Exit Criteria
 
-- [ ] SSE stream sends events for each step of a running workflow
-- [ ] Reconnecting with `Last-Event-Id` does not miss any events
-- [ ] Stream closes when the workflow completes or is cancelled
-- [ ] Multiple clients can subscribe to the same workflow run simultaneously
-- [ ] Events are JSON-encoded and include all required fields
+- [x] SSE stream sends events for each step of a running workflow
+- [x] Reconnecting with `Last-Event-Id` does not miss any events
+- [x] Stream closes when the workflow completes or is cancelled
+- [x] Multiple clients can subscribe to the same workflow run simultaneously
+- [x] Events are JSON-encoded and include all required fields
+
+## Implementation Notes
+
+- SSE events built via Jackson serialization (no string interpolation)
+- sseEvents buffer independent from canonical run history
+- emitter.send() outside synchronized(monitor) to prevent lock contention
+- cancel/markResuming transitions routed through event() for SSE dispatch
+- Execution Job attached to runs; cancel() signals via job.cancel()
+- Transaction wrapper applied to getSchedule() for consistency
+
+## Review
+
+Reviewed by Copilot (gpt-5.4): 5/6 checks passed. One false positive on
+markResuming event routing — status transition is atomic inside lock, event
+dispatch follows outside. Effective PASS.

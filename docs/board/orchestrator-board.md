@@ -18,7 +18,7 @@ phases.
 ## Delivery Snapshot
 
 - Phase 6 (Scheduler): complete ✅
-- Phase 7 (Server): in progress (TASK-030, TASK-031, TASK-032 remaining)
+- Phase 7 (Server): in progress (TASK-031 remaining)
 - Phase 8 (Agent Steps): in design
 - Phase 9 (Distributed): in design
 - Phase 10 (Platform): in design
@@ -41,9 +41,9 @@ phases.
 | Task | Priority | Status |
 |------|----------|--------|
 | [TASK-029: Implement REST API for Workflow Management](./tasks/task-029.md) | high | done |
-| [TASK-030: Implement MCP Server Adapter](./tasks/task-030.md) | high | planned |
+| [TASK-030: Implement MCP Server Adapter](./tasks/task-030.md) | high | done |
 | [TASK-031: Implement Webhook Receiver](./tasks/task-031.md) | medium | planned |
-| [TASK-032: Implement SSE Streaming for Live Traces](./tasks/task-032.md) | medium | planned |
+| [TASK-032: Implement SSE Streaming for Live Traces](./tasks/task-032.md) | medium | done |
 
 ## Phase 8: Agent Steps (SPEC-015)
 

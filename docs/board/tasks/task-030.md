@@ -1,6 +1,6 @@
 # TASK-030: Implement MCP Server Adapter
 
-- Status: planned
+- Status: done
 - Priority: high
 - Primary spec: [SPEC-014](../../specs/spec-014-server.md)
 - Related ADRs:
