@@ -138,6 +138,52 @@ class WorkflowControllerTest @Autowired constructor(
     }
 
     @Test
+    fun `webhook with duplicate X-GitHub-Delivery returns same run`() {
+        val body = """{"invoiceId":"inv-dup-delivery","amount":125}"""
+        val deliveryId = "abc-123-delivery-001"
+
+        val first = mockMvc.post("/webhooks/invoice") {
+            contentType = MediaType.APPLICATION_JSON
+            header("X-Hub-Signature-256", webhookSignature(body))
+            header("X-GitHub-Delivery", deliveryId)
+            content = body
+        }
+            .andExpect { status { isAccepted() } }
+            .andReturn().response.contentAsString
+
+        val second = mockMvc.post("/webhooks/invoice") {
+            contentType = MediaType.APPLICATION_JSON
+            header("X-Hub-Signature-256", webhookSignature(body))
+            header("X-GitHub-Delivery", deliveryId)
+            content = body
+        }
+            .andExpect { status { isAccepted() } }
+            .andReturn().response.contentAsString
+
+        assertThat(objectMapper.readTree(second).get("workflowId").asText())
+            .isEqualTo(objectMapper.readTree(first).get("workflowId").asText())
+    }
+
+    @Test
+    fun `webhook without X-GitHub-Delivery still works`() {
+        val body = """{"invoiceId":"inv-no-delivery","amount":125}"""
+        val workflowId = mockMvc.post("/webhooks/invoice") {
+            contentType = MediaType.APPLICATION_JSON
+            header("X-Hub-Signature-256", webhookSignature(body))
+            content = body
+        }
+            .andExpect {
+                status { isAccepted() }
+                jsonPath("$.workflowId") { exists() }
+                jsonPath("$.status") { value("running") }
+            }
+            .andReturn().response.contentAsString
+            .let { objectMapper.readTree(it).get("workflowId").asText() }
+
+        waitForStatus("invoice", workflowId, "completed")
+    }
+
+    @Test
     fun `webhook with invalid body returns problem detail`() {
         val body = """{"invoiceId":"""
         mockMvc.post("/webhooks/invoice") {

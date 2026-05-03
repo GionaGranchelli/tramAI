@@ -27,17 +27,14 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import org.slf4j.LoggerFactory
 import java.net.URI
 import java.nio.charset.StandardCharsets.UTF_8
-import java.security.MessageDigest
 import java.util.UUID
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 
 @RestController
 class WorkflowController(
     private val registry: WorkflowRegistry,
     private val runStore: WorkflowRunStore,
     private val workflowExecutionScope: CoroutineScope,
-    private val webhookConfiguration: WebhookConfiguration,
+    private val signatureVerifier: WebhookSignatureVerifier,
 ) {
     private val logger = LoggerFactory.getLogger(WorkflowController::class.java)
 
@@ -57,22 +54,26 @@ class WorkflowController(
         @PathVariable name: String,
         @RequestBody body: String,
         @RequestHeader("X-Hub-Signature-256", required = false) signature: String?,
+        @RequestHeader("X-GitHub-Delivery", required = false) deliveryId: String?,
     ): ResponseEntity<WorkflowRunResponse> {
         val entry = registry.get(name)
         val payloadSize = body.toByteArray(UTF_8).size
         logger.info(
             "Received webhook for workflow '{}' source={} size={} bytes",
             entry.workflow.name,
-            "github",
+            signatureVerifier.name,
             payloadSize,
         )
-        verifyWebhookSignature(body, signature)
+        val headers = mapOf("X-Hub-Signature-256" to (signature ?: ""))
+        if (!signatureVerifier.verify(body, headers)) {
+            throw InvalidWebhookSignatureException("Webhook signature is invalid")
+        }
         val initialState = decodeInitialState(entry, body)
-        val running = startWorkflow(entry, initialState, idempotencyKey = null)
+        val running = startWorkflow(entry, initialState, idempotencyKey = deliveryId)
         logger.info(
             "Started workflow '{}' from webhook source={} workflowId={} size={} bytes",
             entry.workflow.name,
-            "github",
+            signatureVerifier.name,
             running.workflowId,
             payloadSize,
         )
@@ -216,21 +217,6 @@ class WorkflowController(
         entry.decodeState(body)
     } catch (error: Throwable) {
         throw BadWorkflowRequestException("Workflow '${entry.workflow.name}' state JSON is invalid", error)
-    }
-
-    private fun verifyWebhookSignature(
-        body: String,
-        signature: String?,
-    ) {
-        val secret = webhookConfiguration.secret
-        val candidate = signature?.trim()
-        if (secret.isBlank() || candidate.isNullOrBlank()) {
-            throw InvalidWebhookSignatureException("Webhook signature is invalid")
-        }
-        val expected = githubSignature(secret, body)
-        if (!MessageDigest.isEqual(expected.toByteArray(UTF_8), candidate.toByteArray(UTF_8))) {
-            throw InvalidWebhookSignatureException("Webhook signature is invalid")
-        }
     }
 
     private suspend fun executeRunSafely(
@@ -457,28 +443,6 @@ private class ServerWorkflowObserver(
         runStore.event(workflowName, workflowId, "tramai.workflow.failed")
     }
 }
-
-private fun githubSignature(
-    secret: String,
-    payload: String,
-): String {
-    val mac = Mac.getInstance("HmacSHA256")
-    mac.init(SecretKeySpec(secret.toByteArray(UTF_8), "HmacSHA256"))
-    val digest = mac.doFinal(payload.toByteArray(UTF_8))
-    return "sha256=${digest.toHexString()}"
-}
-
-private fun ByteArray.toHexString(): String {
-    val chars = CharArray(size * 2)
-    forEachIndexed { index, byte ->
-        val value = byte.toInt() and 0xff
-        chars[index * 2] = HEX_DIGITS[value ushr 4]
-        chars[index * 2 + 1] = HEX_DIGITS[value and 0x0f]
-    }
-    return String(chars)
-}
-
-private val HEX_DIGITS = "0123456789abcdef".toCharArray()
 
 private fun WorkflowRunRecord.toResponse(): WorkflowRunResponse = WorkflowRunResponse(
     workflowId = workflowId,

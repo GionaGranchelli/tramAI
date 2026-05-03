@@ -58,6 +58,12 @@ class ServerConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    fun webhookSignatureVerifier(
+        webhookConfiguration: WebhookConfiguration,
+    ): WebhookSignatureVerifier = GitHubWebhookSignatureVerifier(secret = webhookConfiguration.secret)
+
+    @Bean
+    @ConditionalOnMissingBean
     fun requestBodySizeLimitFilter(
         @Value("\${tramai.server.max-request-body-bytes:1048576}") maxRequestBodyBytes: Long,
         webhookConfiguration: WebhookConfiguration,
