@@ -6,6 +6,7 @@ include(
     "tramai-core",
     "tramai-engine",
     "tramai-observability",
+    "tramai-mcp",
     "tramai-orchestration",
     "tramai-openai",
     "tramai-ollama",

@@ -10,6 +10,7 @@ import dev.tramai.scheduler.JdbcWorkflowSchedulerStore
 import org.slf4j.LoggerFactory
 import java.sql.SQLException
 import javax.sql.DataSource
+import kotlin.reflect.KType
 
 class WorkflowRegistry(
     private val dataSource: DataSource? = null,
@@ -31,6 +32,8 @@ class WorkflowRegistry(
         entries[workflow.name] = WorkflowEntry(
             workflow = workflow,
             stateCodec = stateCodec,
+            stateType = workflow.stateType,
+            resultType = workflow.resultType,
             persistenceFactory = defaultPersistence,
         )
     }
@@ -93,6 +96,8 @@ class WorkflowRegistry(
 data class WorkflowEntry<S, R>(
     val workflow: Workflow<S, R>,
     val stateCodec: WorkflowStateCodec<S>,
+    val stateType: KType,
+    val resultType: KType,
     val persistenceFactory: (String) -> WorkflowPersistence<S>?,
 ) {
     fun decodeState(payload: String): S = stateCodec.decode(payload)

@@ -8,6 +8,8 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 import java.util.UUID
+import kotlin.reflect.KType
+import kotlin.reflect.typeOf
 /**
  * Workflow-level execution metadata.
  */
@@ -146,6 +148,8 @@ data class GateDecision(
 class Workflow<S, R> internal constructor(
     val name: String,
     val definitionVersion: String,
+    val stateType: KType,
+    val resultType: KType,
     val schedule: WorkflowScheduleDefinition?,
     private val steps: List<InternalWorkflowStep<S>>,
     private val resultSelector: (S) -> R,
@@ -415,15 +419,29 @@ class Workflow<S, R> internal constructor(
         return StepExecutionResult.Completed(nextState)
     }
 }
-class WorkflowBuilder<S> internal constructor(
+class WorkflowBuilder<S> constructor(
     private val workflowName: String,
     private val definitionVersion: String,
+    private val stateType: KType,
 ) : AbstractWorkflowBuilder<S>() {
     var schedule: WorkflowScheduleDefinition? = null
 
-    fun <R> build(
+    inline fun <reified R> build(
         stopPolicy: StopPolicy = StopPolicy(),
         clock: Clock = Clock.systemUTC(),
+        noinline resultSelector: (S) -> R,
+    ): Workflow<S, R> = buildTyped(
+        stopPolicy = stopPolicy,
+        clock = clock,
+        resultType = typeOf<R>(),
+        resultSelector = resultSelector,
+    )
+
+    @PublishedApi
+    internal fun <R> buildTyped(
+        stopPolicy: StopPolicy,
+        clock: Clock,
+        resultType: KType,
         resultSelector: (S) -> R,
     ): Workflow<S, R> {
         val snapshot = stepsSnapshot()
@@ -435,6 +453,8 @@ class WorkflowBuilder<S> internal constructor(
         return Workflow(
             name = workflowName,
             definitionVersion = definitionVersion,
+            stateType = stateType,
+            resultType = resultType,
             schedule = schedule,
             steps = snapshot,
             resultSelector = resultSelector,
@@ -443,7 +463,7 @@ class WorkflowBuilder<S> internal constructor(
         )
     }
 }
-fun <S> workflow(
+inline fun <reified S> workflow(
     name: String,
     definitionVersion: String = DEFAULT_WORKFLOW_DEFINITION_VERSION,
     configure: WorkflowBuilder<S>.() -> Unit,
@@ -457,6 +477,7 @@ fun <S> workflow(
     return WorkflowBuilder<S>(
         workflowName = name,
         definitionVersion = definitionVersion,
+        stateType = typeOf<S>(),
     ).apply(configure)
 }
 abstract class AbstractWorkflowBuilder<S> {
@@ -871,7 +892,7 @@ private fun <S> renderStepsCanonical(
         }
     }
 }
-private const val DEFAULT_WORKFLOW_DEFINITION_VERSION: String = "1"
+const val DEFAULT_WORKFLOW_DEFINITION_VERSION: String = "1"
 private const val WORKFLOW_DEFINITION_VERSION_METADATA_KEY: String =
     "tramai.workflow.definition.version"
 private const val WORKFLOW_DEFINITION_DIGEST_METADATA_KEY: String =
