@@ -17,7 +17,7 @@ phases.
 
 ## Delivery Snapshot
 
-- Phase 6 (Scheduler): in progress (TASK-025, TASK-026 remaining)
+- Phase 6 (Scheduler): complete ✅
 - Phase 7 (Server): in design
 - Phase 8 (Agent Steps): in design
 - Phase 9 (Distributed): in design
@@ -31,8 +31,8 @@ phases.
 
 | Task | Priority | Status |
 |------|----------|--------|
-| [TASK-025: Implement Cron Schedule DSL and In-Process Timer](./tasks/task-025.md) | high | planned |
-| [TASK-026: Implement Delay Step](./tasks/task-026.md) | high | planned |
+| [TASK-025: Implement Cron Schedule DSL and In-Process Timer](./tasks/task-025.md) | high | done |
+| [TASK-026: Implement Delay Step](./tasks/task-026.md) | high | done |
 | [TASK-027: Add Durable Scheduling with JDBC Checkpoint Integration](./tasks/task-027.md) | high | done |
 | [TASK-028: Add Timezone and Calendar-Aware Scheduling](./tasks/task-028.md) | medium | done |
 
