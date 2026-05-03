@@ -1,6 +1,6 @@
 # TASK-034: Implement Shell Step Type
 
-- Status: planned
+- Status: done
 - Priority: high
 - Primary spec: [SPEC-015](../../specs/spec-015-agent-steps.md)
 - Related ADRs:
@@ -25,9 +25,18 @@ scripts, and deployment commands as a step.
 
 ## Exit Criteria
 
-- [ ] Shell step runs `echo "hello"` and captures output in state
-- [ ] Shell step with non-zero exit code fails with stderr content
-- [ ] Shell step timeout kills the subprocess correctly
-- [ ] Environment variables are passed to the subprocess
-- [ ] Working directory is respected
-- [ ] OpenTelemetry span captures command, exit code, and duration
+- [x] Shell step runs `echo "hello"` and captures output in state
+- [x] Shell step with non-zero exit code fails with stderr content
+- [x] Shell step timeout kills the subprocess correctly
+- [x] Environment variables are passed to the subprocess
+- [x] Working directory is respected
+- [x] OpenTelemetry span captures command, exit code, and duration
+
+## Implementation summary
+
+- **Commits**: `c5615fc` (initial), `a9693eb` (hardening)
+- **New file**: `ShellStep.kt` — `ShellCommand`, `ShellResult`, `ShellStepConfig`, `ShellWorkflowStep`, `WorkflowShellException`
+- **Modified**: `Workflow.kt` — DSL `shellStep()`, dispatch, canonical rendering
+- **Tests**: `WorkflowShellStepTest.kt` — 14 tests including happy path, stderr, non-zero exit, timeout, truncation, workdir, env vars, redaction, cancellation cleanup, command allow/deny
+- **Security**: command allowlist/denylist, redacted observer events, cancellation-safe process cleanup, command name sanitized in exceptions
+- **Total tests**: 74 (orchestration module), 0 failures
