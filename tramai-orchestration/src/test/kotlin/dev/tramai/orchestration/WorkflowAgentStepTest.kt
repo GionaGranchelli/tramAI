@@ -1,6 +1,7 @@
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -78,7 +79,8 @@ class WorkflowAgentStepTest {
                 content = """
                     |#!/bin/sh
                     |[ "$1" = "exec" ] || exit 21
-                    |printf 'cwd=%s prompt=%s' "${'$'}PWD" "$2"
+                    |[ "$2" = "--" ] || exit 22
+                    |printf 'cwd=%s prompt=%s' "${'$'}PWD" "$3"
                 """.trimMargin(),
             ) { codexCli ->
                 val workflow = agentWorkflow("codex-review") {
@@ -102,6 +104,32 @@ class WorkflowAgentStepTest {
             }
         } finally {
             Files.deleteIfExists(workdir)
+        }
+    }
+
+    @Test
+    fun `codex step treats prompts starting with a dash as prompt text`() {
+        withExecutableScript(
+            name = "fake-codex-dash-prompt",
+            content = """
+                |#!/bin/sh
+                |[ "$1" = "exec" ] || exit 41
+                |[ "$2" = "--" ] || exit 42
+                |printf 'prompt=%s' "$3"
+            """.trimMargin(),
+        ) { codexCli ->
+            val workflow = agentWorkflow("codex-dash-prompt") {
+                codexStep(
+                    name = "review-ui",
+                    config = CodexStepConfig(cliPath = codexCli.toString()),
+                    prompt = { _, _ -> "-review frontend" },
+                    merge = { state, response, _ -> state.copy(codexResponse = response) },
+                )
+            }
+
+            val result = runBlocking { workflow.run(AgentState()) }
+
+            assertThat(result.codexResponse).isEqualTo("prompt=-review frontend")
         }
     }
 
@@ -146,13 +174,68 @@ class WorkflowAgentStepTest {
     }
 
     @Test
+    fun `hermes step includes stderr in non-zero exit failures`() {
+        withExecutableScript(
+            name = "failing-hermes",
+            content = """
+                |#!/bin/sh
+                |echo 'hermes stderr message' >&2
+                |exit 17
+            """.trimMargin(),
+        ) { hermesCli ->
+            val workflow = agentWorkflow("hermes-non-zero") {
+                hermesStep(
+                    name = "review-ui",
+                    config = HermesStepConfig(cliPath = hermesCli.toString()),
+                    prompt = { _, _ -> "fail" },
+                    merge = { state, response, _ -> state.copy(hermesResponse = response) },
+                )
+            }
+
+            assertThatThrownBy {
+                runBlocking { workflow.run(AgentState()) }
+            }.isInstanceOf(WorkflowHermesException::class.java)
+                .hasMessageContaining("exit code 17")
+                .hasMessageContaining("hermes stderr message")
+        }
+    }
+
+    @Test
+    fun `codex step includes stderr in non-zero exit failures`() {
+        withExecutableScript(
+            name = "failing-codex",
+            content = """
+                |#!/bin/sh
+                |echo 'codex stderr message' >&2
+                |exit 27
+            """.trimMargin(),
+        ) { codexCli ->
+            val workflow = agentWorkflow("codex-non-zero") {
+                codexStep(
+                    name = "review-ui",
+                    config = CodexStepConfig(cliPath = codexCli.toString()),
+                    prompt = { _, _ -> "fail" },
+                    merge = { state, response, _ -> state.copy(codexResponse = response) },
+                )
+            }
+
+            assertThatThrownBy {
+                runBlocking { workflow.run(AgentState()) }
+            }.isInstanceOf(WorkflowCodexException::class.java)
+                .hasMessageContaining("exit code 27")
+                .hasMessageContaining("codex stderr message")
+        }
+    }
+
+    @Test
     fun `codex step uses a custom cli path`() {
         withExecutableScript(
             name = "custom-codex-cli",
             content = """
                 |#!/bin/sh
                 |[ "$1" = "exec" ] || exit 31
-                |printf 'custom:%s' "$2"
+                |[ "$2" = "--" ] || exit 32
+                |printf 'custom:%s' "$3"
             """.trimMargin(),
         ) { codexCli ->
             val workflow = agentWorkflow("codex-custom-path") {
@@ -167,6 +250,102 @@ class WorkflowAgentStepTest {
             val result = runBlocking { workflow.run(AgentState()) }
 
             assertThat(result.codexResponse).isEqualTo("custom:hello codex")
+        }
+    }
+
+    @Test
+    fun `hermes step timeout cleans up descendant processes`() {
+        val parentPidFile = Files.createTempFile("workflow-hermes-timeout-parent", ".pid")
+        val childPidFile = Files.createTempFile("workflow-hermes-timeout-child", ".pid")
+        try {
+            withExecutableScript(
+                name = "slow-hermes-descendants",
+                content = """
+                    |#!/bin/sh
+                    |echo $$ > '${parentPidFile.toAbsolutePath()}'
+                    |sleep 30 &
+                    |child=$!
+                    |echo ${'$'}child > '${childPidFile.toAbsolutePath()}'
+                    |wait ${'$'}child
+                """.trimMargin(),
+            ) { hermesCli ->
+                val workflow = agentWorkflow("hermes-timeout-descendants") {
+                    hermesStep(
+                        name = "review-ui",
+                        config = HermesStepConfig(
+                            cliPath = hermesCli.toString(),
+                            timeoutSeconds = 1,
+                        ),
+                        prompt = { _, _ -> "slow prompt" },
+                        merge = { state, response, _ -> state.copy(hermesResponse = response) },
+                    )
+                }
+
+                assertThatThrownBy {
+                    runBlocking { workflow.run(AgentState()) }
+                }.isInstanceOf(WorkflowHermesException::class.java)
+                    .hasMessageContaining("timed out after 1s")
+
+                runBlocking {
+                    val parentPid = awaitAgentPid(parentPidFile)
+                    val childPid = awaitAgentPid(childPidFile)
+                    awaitAgentProcessExit(parentPid)
+                    awaitAgentProcessExit(childPid)
+                    assertThat(ProcessHandle.of(parentPid).map { it.isAlive }.orElse(false)).isFalse()
+                    assertThat(ProcessHandle.of(childPid).map { it.isAlive }.orElse(false)).isFalse()
+                }
+            }
+        } finally {
+            Files.deleteIfExists(parentPidFile)
+            Files.deleteIfExists(childPidFile)
+        }
+    }
+
+    @Test
+    fun `codex step cancellation cleans up descendant processes`() {
+        val parentPidFile = Files.createTempFile("workflow-codex-cancel-parent", ".pid")
+        val childPidFile = Files.createTempFile("workflow-codex-cancel-child", ".pid")
+        try {
+            withExecutableScript(
+                name = "slow-codex-descendants",
+                content = """
+                    |#!/bin/sh
+                    |echo $$ > '${parentPidFile.toAbsolutePath()}'
+                    |sleep 30 &
+                    |child=$!
+                    |echo ${'$'}child > '${childPidFile.toAbsolutePath()}'
+                    |wait ${'$'}child
+                """.trimMargin(),
+            ) { codexCli ->
+                val workflow = agentWorkflow("codex-cancel-descendants") {
+                    codexStep(
+                        name = "review-ui",
+                        config = CodexStepConfig(cliPath = codexCli.toString()),
+                        prompt = { _, _ -> "slow prompt" },
+                        merge = { state, response, _ -> state.copy(codexResponse = response) },
+                    )
+                }
+
+                runBlocking {
+                    val job = launch {
+                        workflow.run(AgentState())
+                    }
+
+                    val parentPid = awaitAgentPid(parentPidFile)
+                    val childPid = awaitAgentPid(childPidFile)
+
+                    job.cancel()
+                    job.join()
+
+                    awaitAgentProcessExit(parentPid)
+                    awaitAgentProcessExit(childPid)
+                    assertThat(ProcessHandle.of(parentPid).map { it.isAlive }.orElse(false)).isFalse()
+                    assertThat(ProcessHandle.of(childPid).map { it.isAlive }.orElse(false)).isFalse()
+                }
+            }
+        } finally {
+            Files.deleteIfExists(parentPidFile)
+            Files.deleteIfExists(childPidFile)
         }
     }
 

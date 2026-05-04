@@ -65,7 +65,7 @@ internal data class HermesWorkflowStep<S>(
         if (result.exitCode != 0) {
             throw WorkflowHermesException(
                 stepName = name,
-                message = "failed with exit code ${result.exitCode}",
+                message = result.describeNonZeroExit(),
             )
         }
 

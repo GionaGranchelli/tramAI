@@ -51,7 +51,7 @@ internal data class CodexWorkflowStep<S>(
                 eventPrefix = "tramai.workflow.codex",
                 agentType = "codex",
                 processBuilder = ProcessBuilder(
-                    listOf(config.cliPath, "exec", prompt),
+                    listOf(config.cliPath, "exec", "--", prompt),
                 ).apply {
                     config.workdir?.let { directory(File(it)) }
                 },
@@ -69,7 +69,7 @@ internal data class CodexWorkflowStep<S>(
         if (result.exitCode != 0) {
             throw WorkflowCodexException(
                 stepName = name,
-                message = "failed with exit code ${result.exitCode}",
+                message = result.describeNonZeroExit(),
             )
         }
 

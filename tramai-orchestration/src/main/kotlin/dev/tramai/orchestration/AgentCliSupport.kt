@@ -15,10 +15,12 @@ import java.nio.charset.Charset
 import java.util.concurrent.TimeUnit
 import kotlin.math.min
 import kotlin.time.Duration.Companion.seconds
+import kotlin.streams.toList
 
 internal data class AgentCliExecution(
     val exitCode: Int,
     val output: String,
+    val stderr: String,
     val truncated: Boolean,
     val actualSizeBytes: Long,
     val durationMillis: Long,
@@ -62,7 +64,7 @@ internal suspend fun executeAgentCli(
     try {
         return coroutineScope {
             val stdoutDeferred = async(Dispatchers.IO) { process.inputStream.captureAgentOutput(maxOutputBytes) }
-            val stderrDeferred = async(Dispatchers.IO) { process.errorStream.drainAgentStream() }
+            val stderrDeferred = async(Dispatchers.IO) { process.errorStream.captureAgentOutput(maxOutputBytes) }
 
             try {
                 withTimeout(timeoutSeconds.seconds) {
@@ -71,13 +73,14 @@ internal suspend fun executeAgentCli(
                     }
                 }
             } catch (_: TimeoutCancellationException) {
-                process.destroyForcibly()
+                terminateAgentProcessTree(process)
                 throw AgentCliTimeoutException(timeoutSeconds)
             }
 
             val stdout = stdoutDeferred.await()
-            stderrDeferred.await()
+            val stderr = stderrDeferred.await()
             val renderedOutput = stdout.asTextWithFooter(maxOutputBytes)
+            val renderedStderr = stderr.asTextWithFooter(maxOutputBytes)
             val durationMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos)
 
             observer.onWorkflowEvent(
@@ -97,18 +100,14 @@ internal suspend fun executeAgentCli(
             AgentCliExecution(
                 exitCode = process.exitValue(),
                 output = renderedOutput,
+                stderr = renderedStderr,
                 truncated = stdout.truncated,
                 actualSizeBytes = stdout.actualSizeBytes,
                 durationMillis = durationMillis,
             )
         }
     } finally {
-        withContext(NonCancellable + Dispatchers.IO) {
-            if (process.isAlive) {
-                process.destroyForcibly()
-            }
-            process.waitForAgentExitUninterruptibly()
-        }
+        terminateAgentProcessTree(process)
     }
 }
 
@@ -171,15 +170,6 @@ private fun InputStream.captureAgentOutput(
     )
 }
 
-private fun InputStream.drainAgentStream() {
-    use { stream ->
-        val buffer = ByteArray(agentCliStreamChunkSize)
-        while (stream.read(buffer) >= 0) {
-            // discard stderr to avoid blocking on a full pipe buffer
-        }
-    }
-}
-
 private fun Process.waitForAgentExitUninterruptibly() {
     var interrupted = false
     while (true) {
@@ -195,6 +185,82 @@ private fun Process.waitForAgentExitUninterruptibly() {
     }
 }
 
+private suspend fun terminateAgentProcessTree(process: Process) {
+    withContext(NonCancellable + Dispatchers.IO) {
+        val handles = process.processTreeHandles()
+        if (handles.isEmpty()) {
+            process.waitForAgentExitUninterruptibly()
+            return@withContext
+        }
+
+        handles.forEach { handle ->
+            if (handle.isAlive) {
+                handle.destroy()
+            }
+        }
+        waitForHandlesToExitUninterruptibly(handles, agentCliTerminationGracePeriodMillis)
+
+        handles.forEach { handle ->
+            if (handle.isAlive) {
+                handle.destroyForcibly()
+            }
+        }
+        waitForHandlesToExitUninterruptibly(handles, agentCliTerminationKillWaitMillis)
+        process.waitForAgentExitUninterruptibly()
+    }
+}
+
+private fun Process.processTreeHandles(): List<ProcessHandle> {
+    val handle = toHandle()
+    val descendants = handle.descendants().use { stream -> stream.toList() }
+    return descendants + handle
+}
+
+private fun waitForHandlesToExitUninterruptibly(
+    handles: List<ProcessHandle>,
+    timeoutMillis: Long,
+) {
+    var interrupted = false
+    try {
+        if (handles.none(ProcessHandle::isAlive)) {
+            return
+        }
+        val deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+        while (System.nanoTime() < deadlineNanos) {
+            if (handles.none(ProcessHandle::isAlive)) {
+                return
+            }
+            try {
+                TimeUnit.MILLISECONDS.sleep(agentCliTerminationPollIntervalMillis)
+            } catch (_: InterruptedException) {
+                interrupted = true
+            }
+        }
+    } finally {
+        if (interrupted) {
+            Thread.currentThread().interrupt()
+        }
+    }
+}
+
+internal fun AgentCliExecution.describeNonZeroExit(): String {
+    val stderrSummary = stderr.trim()
+    if (stderrSummary.isEmpty()) {
+        return "failed with exit code $exitCode"
+    }
+    return buildString {
+        append("failed with exit code ")
+        append(exitCode)
+        append("; stderr: ")
+        if (stderrSummary.length <= agentCliFailureMessageMaxChars) {
+            append(stderrSummary)
+        } else {
+            append(stderrSummary.take(agentCliFailureMessageMaxChars))
+            append("... [truncated stderr]")
+        }
+    }
+}
+
 internal fun Throwable.rethrowAgentCancellation() {
     if (this is CancellationException) {
         throw this
@@ -203,3 +269,7 @@ internal fun Throwable.rethrowAgentCancellation() {
 
 private const val agentCliStreamChunkSize = 8_192
 private const val agentCliMinimumBufferSize = 16
+private const val agentCliFailureMessageMaxChars = 4_096
+private const val agentCliTerminationGracePeriodMillis = 1_000L
+private const val agentCliTerminationKillWaitMillis = 1_000L
+private const val agentCliTerminationPollIntervalMillis = 25L
