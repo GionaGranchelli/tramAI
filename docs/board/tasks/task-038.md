@@ -4,30 +4,198 @@
 - Priority: medium
 - Primary spec: [SPEC-017](../../specs/spec-017-platform.md)
 - Related ADRs:
-- Last updated: 2026-05-03
+- Last updated: 2026-05-04
+- Architecture: Spring Boot Admin packaging pattern (Vue 3 + Vite → JAR → optional serve)
 
 ## Purpose
 
 Build a web-based admin dashboard for monitoring and managing workflow
-executions across the TramAI deployment.
+executions across the TramAI deployment. The dashboard follows the same
+architecture as Spring Boot Admin — a separate Gradle module that builds
+a Vue.js SPA and embeds it in a JAR, optionally served by `tramai-server`.
+
+## Architecture Decision
+
+This task copies the **Spring Boot Admin pattern** exactly:
+
+| Aspect | Spring Boot Admin | TramAI Dashboard |
+|--------|------------------|------------------|
+| Frontend | Vue 3 + Vite + TypeScript | Vue 3 + Vite + TypeScript |
+| Build tool | frontend-maven-plugin (node + npm) | node-gradle plugin (node + npm) |
+| Output | `META-INF/spring-boot-admin-server-ui/` | `META-INF/tramai-dashboard/` |
+| Serving | MVC @Controller + static resources | MVC @Controller + static resources |
+| Dynamic config | `sba-settings.js` (server-side template) | `tramai-settings.js` (server-side template) |
+| Dependency | Optional in server | Optional (`optional()`) in tramai-server |
 
 ## Scope
 
-- Vue.js SPA (or server-rendered HTMX if SPA scope is too large)
-- Workflow list page: all registered types with schedule, version, last run
-- Run history page: searchable table with status, duration, worker, trigger
-- Run detail page: step-by-step trace with timing, I/O, retries, error context
-- Worker list page: registered workers, heartbeats, lease counts
-- Schedule calendar: upcoming scheduled runs
-- Settings page: API key management, webhook config
-- Real-time updates via SSE connection
-- REST API consumed from TramaiServer (SPEC-014 / TASK-029)
+### Module: `tramai-dashboard`
+
+A new Gradle submodule in the monorepo:
+
+```
+tramai-dashboard/
+├── build.gradle.kts                 ← com.github.node-gradle.node plugin
+├── src/main/frontend/               ← Vue.js 3 SPA source
+│   ├── package.json                 ← vue, vite, typescript, vue-router, pinia
+│   ├── vite.config.ts
+│   ├── tsconfig.json
+│   └── src/
+│       ├── main.ts                  ← app bootstrap
+│       ├── App.vue                  ← layout shell (sidebar + router-view)
+│       ├── router/index.ts          ← vue-router with 7 routes
+│       ├── stores/                  ← Pinia stores (workflow, run, worker, auth)
+│       ├── composables/             ← useSSE, useWorkflowApi, useWorkerApi
+│       ├── views/                   ← page components
+│       │   ├── WorkflowListView.vue
+│       │   ├── RunHistoryView.vue
+│       │   ├── RunDetailView.vue
+│       │   ├── WorkerListView.vue
+│       │   ├── ScheduleListView.vue
+│       │   ├── SettingsView.vue
+│       │   └── AuditLogView.vue
+│       └── components/              ← reusable UI components
+│           ├── AppLayout.vue
+│           ├── StepTrace.vue
+│           ├── SearchableTable.vue
+│           ├── CalendarHeatmap.vue
+│           ├── WorkerStatusBadge.vue
+│           └── PayloadViewer.vue    ← truncated + redacted display
+└── src/main/kotlin/dev/tramai/dashboard/
+    ├── DashboardAutoConfiguration.kt  ← @ConditionalOnClass, serves static resources
+    ├── DashboardSettingsController.kt ← /tramai-settings.js endpoint
+    └── DashboardMarker.kt             ← marker class for @ConditionalOnClass
+```
+
+### Build pipeline (build.gradle.kts)
+
+```kotlin
+plugins {
+    kotlin("jvm")
+    id("com.github.node-gradle.node") version "7.1.0"
+}
+
+node {
+    version.set("22.12.0")
+    npmVersion.set("10.9.2")
+    download.set(true)
+    nodeProjectDir.set(file("src/main/frontend"))
+}
+
+tasks.register<NpxTask>("buildDashboard") {
+    command.set("vite")
+    args.set(listOf("build", "--emptyOutDir", "--sourcemap"))
+    dependsOn(tasks.named("npmCi"))
+    inputs.dir("src/main/frontend/src")
+    outputs.dir("src/main/frontend/dist")
+}
+
+tasks.named("processResources") {
+    dependsOn("buildDashboard")
+    from("src/main/frontend/dist") {
+        into("META-INF/tramai-dashboard")
+    }
+}
+```
+
+### Serving (DashboardAutoConfiguration.kt)
+
+- `@Configuration` + `@ConditionalOnClass(DashboardMarker::class)`
+- Implements `WebMvcConfigurer` to add resource handler for `/dashboard/**` →
+  `classpath:/META-INF/tramai-dashboard/`
+- `@Controller` for `/` → redirects to `/dashboard/index.html`
+- `/tramai-settings.js` endpoint dynamically generates:
+  ```javascript
+  window.__TRAMAI__ = {
+      apiBaseUrl: "/",              // or context path from request
+      features: {                   // feature flags from server config
+          auditLog: true,
+          workerManagement: true,
+          scheduleManagement: true,
+      },
+      auth: {                       // auth config from server
+          required: false,
+          provider: "apikey"        // or "oauth", "none"
+      }
+  };
+  ```
+- Vue app reads `window.__TRAMAI__` at startup (same as SBA reads `window.__SBA__`)
+
+### Dependency in tramai-server
+
+```kotlin
+// tramai-server/build.gradle.kts
+dependencies {
+    optional(project(":tramai-dashboard"))
+}
+```
+
+The `optional()` Gradle configuration means:
+- `tramai-dashboard` is NOT a transitive dependency
+- Server builds WITHOUT it by default
+- Users add it explicitly: `implementation("dev.tramai:tramai-dashboard")` or
+  include the JAR in their Docker image
+- When absent → headless API-only server. When present → dashboard at `/`
+
+### Pages
+
+| Page | Route | Data Source |
+|------|-------|-------------|
+| Workflow list | `/` | `GET /workflows` (REST API) |
+| Run history | `/workflows/:name/runs` | `GET /workflows/:name/runs` |
+| Run detail | `/workflows/:name/runs/:id` | `GET /workflows/:name/runs/:id` + SSE stream |
+| Worker list | `/workers` | New `GET /workers` endpoint |
+| Schedule list | `/schedules` | New `GET /schedules` endpoint |
+| Settings | `/settings` | API key CRUD endpoints |
+| Audit log | `/audit` | New `GET /audit` endpoint |
+
+### Additional REST Endpoints (in tramai-server)
+
+The dashboard needs these new endpoints:
+- `GET /workers` — list registered workers with heartbeat freshness
+- `GET /schedules` — list scheduled workflows with next/last tick times
+- `GET /audit` — paginated audit log with filters
+
+These are implemented in `tramai-server`, not `tramai-dashboard`. The dashboard
+module only contains frontend code + auto-configuration.
+
+### SSE Integration
+
+- Existing `SseEmitter` infrastructure in `tramai-server` already pushes
+  workflow run events
+- Dashboard subscribes via `EventSource` to `/workflows/:name/runs/:id/events`
+- Worker status changes extend the SSE event stream with `workerOnline` /
+  `workerOffline` events
+- `useSSE` composable handles auto-reconnect with exponential backoff
+
+### Component Library
+
+Use **PrimeVue 4** (same as Spring Boot Admin) for:
+- Data tables with sorting, filtering, pagination
+- Timeline component for step traces
+- Badges for status indicators
+- Cards, dialogs, forms for settings pages
+
+Styled with Tailwind CSS 4 (utility-first, consistent with SBA).
+
+### Redaction & Truncation
+
+- Sensitive fields (API keys, secrets) marked with metadata annotation →
+  displayed as `****` in the UI
+- Large payloads (>10 KB) truncated with `[truncated N bytes]` + "Download raw" link
+- PayloadViewer component handles both cases
 
 ## Exit Criteria
 
+- [ ] `tramai-dashboard` module builds via `./gradlew :tramai-dashboard:build`
+- [ ] Adding `tramai-dashboard` JAR to `tramai-server` classpath enables dashboard at `/`
+- [ ] Removing the JAR returns `tramai-server` to headless mode with no errors
 - [ ] Dashboard shows all registered workflow types with status
 - [ ] Run history is searchable by workflow name, status, and date range
-- [ ] Run detail page shows each step with timing, input, and output
-- [ ] Worker list shows all registered workers with heartbeat freshness
-- [ ] SSE-connected live view updates when a workflow progresses
+- [ ] Run detail page shows step-by-step trace with expandable input/output
+- [ ] Worker list shows all registered workers with real-time status
+- [ ] SSE-connected detail view updates live when a workflow progresses
+- [ ] Sensitive fields are redacted; large payloads are truncated
+- [ ] `tramai-settings.js` correctly reflects server configuration
 - [ ] Dashboard loads in < 2 seconds for up to 1000 runs
+- [ ] No Node.js or npm required to build `tramai-server` alone

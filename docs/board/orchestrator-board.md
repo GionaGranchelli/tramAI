@@ -64,7 +64,7 @@ phases.
 
 | Task | Priority | Status |
 |------|----------|--------|
-| [TASK-038: Implement Admin Dashboard](./tasks/task-038.md) | medium | planned |
+| [TASK-038: Implement Admin Dashboard (Vue 3 + Vite, tramai-dashboard module)](./tasks/task-038.md) | medium | planned |
 | [TASK-039: Implement Plugin System and Multi-Tenancy](./tasks/task-039.md) | medium | done |
 
 ## Traceability

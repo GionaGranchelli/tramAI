@@ -2,7 +2,7 @@
 
 - Status: planned
 - Owner: maintainer
-- Last updated: 2026-05-03
+- Last updated: 2026-05-04
 
 ## Why This Exists
 
@@ -58,8 +58,14 @@ identity: type-safe, testable, observable, and framework-agnostic.
 │                   tramai-platform                      │  ← optional platform
 │  (Admin UI, plugin system, multi-tenancy, auth)        │     on top of server
 ├──────────────────────────────────────────────────────┤
+│      ┌─────────────────────┐                          │
+│      │  tramai-dashboard    │  ← optional (Vue 3 +    │
+│      │  (SPA → JAR → serve) │     Vite, Spring Boot   │
+│      └─────────────────────┘     Admin pattern)       │
+├──────────────────────────────────────────────────────┤
 │                   tramai-server                        │  ← optional service
 │  (REST API, MCP server, webhooks, SSE)                 │     layer
+│  depends on tramai-dashboard as optional()             │
 ├──────────────────────────────────────────────────────┤
 │            ┌──────────────┐  ┌──────────────────┐     │
 │            │tramai-agent  │  │tramai-scheduler   │     │  ← optional modules

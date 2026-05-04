@@ -2,7 +2,7 @@
 
 - Status: proposed
 - Owner: maintainer
-- Last updated: 2026-05-03
+- Last updated: 2026-05-04
 - Related roadmap milestone: Phase 10 — Platform
 - Related ADRs:
 - Related docs: [Orchestrator Vision](../architecture/orchestrator-vision.md)
@@ -15,7 +15,7 @@ multi-tenancy, and operational tooling.
 
 ## Scope
 
-- Admin dashboard (Vue.js or server-rendered)
+- Admin dashboard (Vue.js 3 + Vite, separate `tramai-dashboard` module)
 - Plugin system (compile-time DSL plugins + runtime platform plugins)
 - Multi-tenancy (teams, projects, RBAC)
 - Audit logging (first-class citizen, append-only)
@@ -192,15 +192,65 @@ Roles are per-team. A user can belong to multiple teams with different roles.
 
 ### 10. Admin Dashboard (v1 Scope)
 
-- Workflow list: all registered types with version, schedule, last run
-- Run history: searchable table (status, date, version, worker)
-- Run detail: step-by-step trace with timing, I/O, errors, redacted
-- Worker list: registered workers, heartbeats, lease counts, pool
-- Schedule list: upcoming ticks, missed ticks, misfire events
-- SSE live updates for running workflows
-- API key management: create, list, revoke
-- Audit log viewer: filterable by actor, action, time range
-- **No visual workflow editor**
+The dashboard follows the **Spring Boot Admin packaging pattern** — a separate Gradle
+module (`tramai-dashboard`) that builds a Vue.js 3 SPA and embeds it in a JAR served
+as static resources by `tramai-server` when present on the classpath.
+
+#### Architecture
+
+```
+tramai-dashboard/                    ← separate Gradle module
+├── build.gradle.kts                 ← node-gradle plugin, vite build → JAR
+├── src/main/frontend/               ← Vue.js 3 + Vite + TypeScript
+│   ├── src/
+│   │   ├── views/                   ← WorkflowList, RunHistory, RunDetail,
+│   │   │                               Workers, Schedule, Settings
+│   │   ├── components/              ← StepTrace, SearchableTable, Calendar
+│   │   ├── composables/             ← useSSE, useWorkflowApi, useWorkerApi
+│   │   └── router/
+│   ├── package.json
+│   └── vite.config.ts
+└── src/main/kotlin/                 ← DashboardAutoConfiguration
+    └── dev/tramai/dashboard/
+        └── DashboardAutoConfiguration.kt  ← serves META-INF/tramai-dashboard/
+```
+
+In `tramai-server/build.gradle.kts`:
+```kotlin
+dependencies {
+    optional(project(":tramai-dashboard"))  // absent → headless server
+}
+```
+
+#### Key Design Decisions
+
+- **Frontend stack:** Vue.js 3 + Vite + TypeScript (same as Spring Boot Admin in 2026)
+- **Build tooling:** `com.github.node-gradle.node` plugin — auto-downloads Node.js,
+  runs `npm ci` + `vite build`, copies output to `META-INF/tramai-dashboard/` in the JAR
+- **Serving:** MVC `@Controller` returns view names, Spring Boot serves static resources.
+  Present only when `tramai-dashboard` is on the classpath (via `@ConditionalOnClass`)
+- **Server URL injection:** A `tramai-settings.js` endpoint dynamically generates the
+  API base URL, feature flags, and auth config (same pattern as SBA's `sba-settings.js`)
+- **SSE live updates:** Reuses existing `SseEmitter` infrastructure in `tramai-server`
+- **No SPA build dependency for backend developers** — the dashboard module encapsulates
+  all npm tooling. Backend devs working on `tramai-server` never install Node.js
+- **Can graduate to CDN later** — the SPA communicates exclusively through the REST API.
+  In future, serve the same `dist/` from a CDN with zero backend changes
+
+#### Pages
+
+| Page | Route | Contents |
+|------|-------|----------|
+| Workflow list | `/` | All registered types with version, schedule, last run status |
+| Run history | `/workflows/:name/runs` | Searchable table (status, date, version, worker), pagination |
+| Run detail | `/workflows/:name/runs/:id` | Step-by-step trace with timing, I/O, errors, redacted secrets |
+| Worker list | `/workers` | Registered workers, heartbeats, lease counts, pool, drain status |
+| Schedule list | `/schedules` | Upcoming ticks, missed ticks, misfire events |
+| Settings | `/settings` | API key management, webhook config |
+| Audit log | `/audit` | Filterable by actor, action, time range |
+
+- **No visual workflow editor** — workflows remain code-defined and CI-deployed
+- Redaction masks secrets in the detail view; payloads truncated at configurable limit
 
 ### 11. Versioning (Cross-Cutting)
 
