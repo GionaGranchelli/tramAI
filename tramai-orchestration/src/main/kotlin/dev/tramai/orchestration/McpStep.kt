@@ -39,11 +39,12 @@ data class McpToolCall(
 
 /**
  * Canonical metadata mirroring what a workflow declares at build time.
- * Prevents state-influenced command changes after the DSL is parsed.
+ * Freezes command, env (keys and values), tool name, and argument keys
+ * so state-influenced workflows cannot change what executes at runtime.
  */
 data class McpToolCallDefinition(
     val serverCommand: List<String>,
-    val envKeys: Set<String> = emptySet(),
+    val serverEnv: Map<String, String> = emptyMap(),
     val toolName: String,
     val argumentKeys: Set<String> = emptySet(),
 ) {
@@ -51,7 +52,7 @@ data class McpToolCallDefinition(
         require(serverCommand.isNotEmpty()) { "McpToolCallDefinition.serverCommand must not be empty" }
         require(serverCommand.none { it.isBlank() }) { "McpToolCallDefinition.serverCommand must not contain blank arguments" }
         require(toolName.isNotBlank()) { "McpToolCallDefinition.toolName must not be blank" }
-        require(envKeys.none { it.isBlank() }) { "McpToolCallDefinition.envKeys must not contain blank values" }
+        require(serverEnv.none { it.key.isBlank() }) { "McpToolCallDefinition.serverEnv must not contain blank keys" }
         require(argumentKeys.none { it.isBlank() }) { "McpToolCallDefinition.argumentKeys must not contain blank values" }
     }
 }
@@ -261,7 +262,7 @@ internal data class McpWorkflowStep<S>(
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
                 lastError = error
-                if (attempt < maxAttempts) {
+                if (attempt < maxAttempts && error.isTransientForReconnect()) {
                     observer.onWorkflowEvent(
                         workflowName = workflowName,
                         name = "tramai.workflow.mcp.reconnecting",
@@ -273,6 +274,8 @@ internal data class McpWorkflowStep<S>(
                         ),
                         context = context,
                     )
+                } else {
+                    throw wrapMcpError(error)
                 }
             }
         }
@@ -329,20 +332,10 @@ internal data class McpWorkflowStep<S>(
 
         val structured = result.structuredContent?.let {
             val raw = Json.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), it)
-            if (raw.length > config.maxOutputBytes) {
-                raw.take(config.maxOutputBytes.toInt()) + "\n\n[truncated at ${config.maxOutputBytes} bytes]"
-            } else {
-                raw
-            }
+            truncateToMaxBytes(raw)
         }
 
-        val text = textContent?.let {
-            if (it.length > config.maxOutputBytes) {
-                it.take(config.maxOutputBytes.toInt()) + "\n\n[truncated at ${config.maxOutputBytes} bytes]"
-            } else {
-                it
-            }
-        }
+        val text = textContent?.let { truncateToMaxBytes(it) }
 
         return McpToolResult(
             content = text,
@@ -351,12 +344,31 @@ internal data class McpWorkflowStep<S>(
         )
     }
 
+    /**
+     * Truncates the string so its UTF-8 encoded byte length does not exceed
+     * [McpStepConfig.maxOutputBytes]. Appends a truncation footer if cut.
+     */
+    private fun truncateToMaxBytes(value: String): String {
+        val bytes = value.encodeToByteArray()
+        if (bytes.size <= config.maxOutputBytes) {
+            return value
+        }
+        // Walk backwards from the byte limit to find a valid UTF-8 boundary.
+        val limit = config.maxOutputBytes.toInt()
+        var cutIndex = limit
+        while (cutIndex > 0 && (bytes[cutIndex].toInt() and 0xC0) == 0x80) {
+            cutIndex--
+        }
+        val truncatedBytes = bytes.copyOf(cutIndex)
+        return truncatedBytes.toString(Charsets.UTF_8) + "\n\n[truncated at ${config.maxOutputBytes} bytes]"
+    }
+
     private fun validateDefinition(toolCall: McpToolCall) {
         require(toolCall.serverCommand == definition.serverCommand) {
             "Workflow MCP step '$name' runtime server command does not match the canonical definition"
         }
-        require(toolCall.serverEnv.keys == definition.envKeys) {
-            "Workflow MCP step '$name' runtime env keys do not match the canonical definition"
+        require(toolCall.serverEnv == definition.serverEnv) {
+            "Workflow MCP step '$name' runtime env does not match the canonical definition"
         }
         require(toolCall.toolName == definition.toolName) {
             "Workflow MCP step '$name' runtime tool name does not match the canonical definition"
@@ -397,6 +409,16 @@ internal data class McpWorkflowStep<S>(
             cause = error,
         )
     }
+}
+
+/**
+ * Only retry on transport/setup failures, not timeouts or tool-level errors.
+ * A non-idempotent MCP tool must not run twice after partial completion.
+ */
+private fun Throwable.isTransientForReconnect(): Boolean = when (this) {
+    is TimeoutCancellationException -> false
+    is WorkflowMcpException -> !message.orEmpty().contains("timed out")
+    else -> true
 }
 
 private fun List<String>.commandIdentifiers(): Set<String> {
