@@ -320,33 +320,66 @@ class PluginStateRepository(
     private val dataSource: DataSource,
 ) {
     internal fun find(id: String): PluginStateRecord? = dataSource.connection.use { connection ->
-        connection.prepareStatement("select * from platform_plugin where id = ?").use { statement ->
+        find(connection, id)
+    }
+
+    internal fun upsert(record: PluginStateRecord) {
+        dataSource.connection.use { connection ->
+            val existing = find(connection, record.id)
+            val updatedAt = Timestamp.from(Instant.now())
+            if (existing == null) {
+                connection.prepareStatement(
+                    """
+                    insert into platform_plugin(
+                        id,
+                        version,
+                        jar_path,
+                        enabled,
+                        status,
+                        error,
+                        updated_at
+                    ) values (?, ?, ?, ?, ?, ?, ?)
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setString(1, record.id)
+                    statement.setString(2, record.version)
+                    statement.setString(3, record.jarPath)
+                    statement.setBoolean(4, record.enabled)
+                    statement.setString(5, record.status.wireName)
+                    statement.setString(6, record.error)
+                    statement.setTimestamp(7, updatedAt)
+                    statement.executeUpdate()
+                }
+            } else {
+                connection.prepareStatement(
+                    """
+                    update platform_plugin
+                    set version = ?, jar_path = ?, enabled = ?, status = ?, error = ?, updated_at = ?
+                    where id = ?
+                    """.trimIndent(),
+                ).use { statement ->
+                    statement.setString(1, record.version)
+                    statement.setString(2, record.jarPath)
+                    statement.setBoolean(3, record.enabled)
+                    statement.setString(4, record.status.wireName)
+                    statement.setString(5, record.error)
+                    statement.setTimestamp(6, updatedAt)
+                    statement.setString(7, record.id)
+                    statement.executeUpdate()
+                }
+            }
+        }
+    }
+
+    private fun find(
+        connection: java.sql.Connection,
+        id: String,
+    ): PluginStateRecord? = connection.prepareStatement("select * from platform_plugin where id = ?").use { statement ->
             statement.setString(1, id)
             statement.executeQuery().use { result ->
                 if (!result.next()) null else result.toPluginState()
             }
         }
-    }
-
-    internal fun upsert(record: PluginStateRecord) {
-        dataSource.connection.use { connection ->
-            connection.prepareStatement(
-                """
-                merge into platform_plugin key(id)
-                values (?, ?, ?, ?, ?, ?, ?)
-                """.trimIndent(),
-            ).use { statement ->
-                statement.setString(1, record.id)
-                statement.setString(2, record.version)
-                statement.setString(3, record.jarPath)
-                statement.setBoolean(4, record.enabled)
-                statement.setString(5, record.status.wireName)
-                statement.setString(6, record.error)
-                statement.setTimestamp(7, Timestamp.from(Instant.now()))
-                statement.executeUpdate()
-            }
-        }
-    }
 
     fun setEnabled(
         id: String,

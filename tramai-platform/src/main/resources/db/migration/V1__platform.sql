@@ -43,7 +43,7 @@ create table if not exists platform_audit_log (
     resource_type varchar(128) not null,
     resource_id varchar(255) not null,
     team_id varchar(128) not null,
-    metadata_json clob not null,
+    metadata_json text not null,
     constraint fk_platform_audit_team
         foreign key (team_id) references platform_team(id)
 );
@@ -57,6 +57,6 @@ create table if not exists platform_plugin (
     jar_path varchar(1024) not null,
     enabled boolean not null,
     status varchar(32) not null,
-    error clob null,
+    error text null,
     updated_at timestamp not null
 );

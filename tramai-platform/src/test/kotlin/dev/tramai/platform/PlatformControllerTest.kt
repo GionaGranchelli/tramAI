@@ -15,6 +15,8 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.http.MediaType
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
@@ -30,9 +32,6 @@ import javax.sql.DataSource
         TramaiPlatformApplication::class,
         PlatformControllerTest.TestPlatformConfiguration::class,
     ],
-    properties = [
-        "tramai.platform.plugins.dir=/tmp/tramai-platform-test-plugins",
-    ],
 )
 @AutoConfigureMockMvc
 class PlatformControllerTest @Autowired constructor(
@@ -43,7 +42,7 @@ class PlatformControllerTest @Autowired constructor(
     private val apiKeyService: ApiKeyService,
     private val pluginManager: PluginManager,
 ) {
-    private val pluginDirectory = Path.of("/tmp/tramai-platform-test-plugins")
+    private val pluginDirectory = TEST_PLUGIN_DIRECTORY
 
     @BeforeEach
     fun resetPluginDirectory() {
@@ -116,7 +115,7 @@ class PlatformControllerTest @Autowired constructor(
     @Test
     fun `plugin lifecycle endpoints install disable and enable`() {
         val tenant = bootstrapTenant("lifecycle")
-        val sourceJar = Files.createTempFile("tramai-plugin-source", ".jar")
+        val sourceJar = Files.createTempDirectory("tramai-plugin-source").resolve("demo-plugin.jar")
         createPluginJar(sourceJar)
 
         mockMvc.post("/plugins/install") {
@@ -314,24 +313,45 @@ class PlatformControllerTest @Autowired constructor(
     }
 
     private fun createPluginJar(target: Path) {
-        Files.newOutputStream(target).use { output ->
-            JarOutputStream(output).use { jar ->
-                listOf(
-                    TestPlatformPlugin::class.java,
-                    EchoStepExecutorFactory::class.java,
-                    DemoWebhookAdapterFactory::class.java,
-                ).forEach { clazz ->
-                    val entryName = "${clazz.name.replace('.', '/')}.class"
-                    jar.putNextEntry(JarEntry(entryName))
-                    clazz.classLoader.getResourceAsStream(entryName).use { input ->
-                        requireNotNull(input) { "Missing compiled class resource '$entryName'" }
-                        input.copyTo(jar)
+        Companion.createPluginJar(target)
+    }
+
+    companion object {
+        private val TEST_PLUGIN_DIRECTORY: Path =
+            Path.of(System.getProperty("java.io.tmpdir"), "tramai-platform-test-plugins")
+
+        @JvmStatic
+        @DynamicPropertySource
+        fun registerProperties(registry: DynamicPropertyRegistry) {
+            Files.createDirectories(TEST_PLUGIN_DIRECTORY)
+            Files.list(TEST_PLUGIN_DIRECTORY).use { entries ->
+                entries.forEach { Files.deleteIfExists(it) }
+            }
+            createPluginJar(TEST_PLUGIN_DIRECTORY.resolve("startup-demo-plugin.jar"))
+            registry.add("tramai.platform.plugins.dir") { TEST_PLUGIN_DIRECTORY.toString() }
+        }
+
+        private fun createPluginJar(target: Path) {
+            Files.createDirectories(target.parent)
+            Files.newOutputStream(target).use { output ->
+                JarOutputStream(output).use { jar ->
+                    listOf(
+                        TestPlatformPlugin::class.java,
+                        EchoStepExecutorFactory::class.java,
+                        DemoWebhookAdapterFactory::class.java,
+                    ).forEach { clazz ->
+                        val entryName = "${clazz.name.replace('.', '/')}.class"
+                        jar.putNextEntry(JarEntry(entryName))
+                        clazz.classLoader.getResourceAsStream(entryName).use { input ->
+                            requireNotNull(input) { "Missing compiled class resource '$entryName'" }
+                            input.copyTo(jar)
+                        }
+                        jar.closeEntry()
                     }
+                    jar.putNextEntry(JarEntry("META-INF/services/${TramaiPlugin::class.qualifiedName}"))
+                    jar.write(TestPlatformPlugin::class.qualifiedName!!.toByteArray())
                     jar.closeEntry()
                 }
-                jar.putNextEntry(JarEntry("META-INF/services/${TramaiPlugin::class.qualifiedName}"))
-                jar.write(TestPlatformPlugin::class.qualifiedName!!.toByteArray())
-                jar.closeEntry()
             }
         }
     }
@@ -354,7 +374,10 @@ class PlatformControllerTest @Autowired constructor(
         }
 
         @Bean
-        fun testWorkflows(objectMapper: ObjectMapper): WorkflowRegistration = WorkflowRegistration { registry ->
+        fun testWorkflows(
+            objectMapper: ObjectMapper,
+            externalStepExecutorRegistry: dev.tramai.orchestration.ExternalStepExecutorRegistry,
+        ): WorkflowRegistration = WorkflowRegistration { registry ->
             registry.register(
                 workflow = workflow<Map<String, Any?>>(
                     name = "plugin-echo",
@@ -365,7 +388,7 @@ class PlatformControllerTest @Autowired constructor(
                         type = "demo.echo",
                         config = mapOf("message" to "hello-plugin"),
                     )
-                }.build { it },
+                }.build(externalStepExecutorResolver = externalStepExecutorRegistry) { it },
                 stateCodec = MapWorkflowStateCodec(objectMapper),
                 defaultPersistence = { null },
             )

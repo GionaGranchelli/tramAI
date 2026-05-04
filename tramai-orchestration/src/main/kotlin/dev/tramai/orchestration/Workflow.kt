@@ -33,7 +33,15 @@ class ExternalStepExecutorNotRegisteredException(
     typeId: String,
 ) : RuntimeException("No external step executor is registered for plugin step type '$typeId'")
 
-object ExternalStepExecutorRegistry {
+interface ExternalStepExecutorResolver {
+    fun isRegistered(typeId: String): Boolean
+
+    fun registeredTypeIds(): Set<String>
+
+    fun create(typeId: String): ExternalStepExecutor
+}
+
+class ExternalStepExecutorRegistry : ExternalStepExecutorResolver {
     private val factories = ConcurrentHashMap<String, ExternalStepExecutorFactory>()
 
     fun register(factory: ExternalStepExecutorFactory) {
@@ -49,10 +57,33 @@ object ExternalStepExecutorRegistry {
         factories.clear()
     }
 
-    fun typeIds(): Set<String> = factories.keys.toSortedSet()
+    fun replaceAll(factories: Collection<ExternalStepExecutorFactory>) {
+        val replacements = linkedMapOf<String, ExternalStepExecutorFactory>()
+        factories.forEach { factory ->
+            require(factory.typeId.isNotBlank()) { "External step executor typeId must not be blank" }
+            replacements[factory.typeId] = factory
+        }
+        this.factories.clear()
+        this.factories.putAll(replacements)
+    }
 
-    fun create(typeId: String): ExternalStepExecutor =
+    override fun isRegistered(typeId: String): Boolean = factories.containsKey(typeId)
+
+    override fun registeredTypeIds(): Set<String> = factories.keys.toSortedSet()
+
+    fun typeIds(): Set<String> = registeredTypeIds()
+
+    override fun create(typeId: String): ExternalStepExecutor =
         factories[typeId]?.create() ?: throw ExternalStepExecutorNotRegisteredException(typeId)
+}
+
+object NoOpExternalStepExecutorResolver : ExternalStepExecutorResolver {
+    override fun isRegistered(typeId: String): Boolean = false
+
+    override fun registeredTypeIds(): Set<String> = emptySet()
+
+    override fun create(typeId: String): ExternalStepExecutor =
+        throw ExternalStepExecutorNotRegisteredException(typeId)
 }
 /**
  * Explicit execution bounds for one workflow run.
@@ -192,6 +223,7 @@ class Workflow<S, R> internal constructor(
     private val resultSelector: (S) -> R,
     private val stopPolicy: StopPolicy,
     private val clock: Clock,
+    private val externalStepExecutorResolver: ExternalStepExecutorResolver,
     private val httpClient: HttpClient = WorkflowHttpClients.default,
 ) {
     private val definitionCompatibility: WorkflowDefinitionCompatibility = workflowDefinitionCompatibility(
@@ -328,6 +360,9 @@ class Workflow<S, R> internal constructor(
             throw error
         }
     }
+
+    fun requiredExternalStepTypes(): Set<String> = collectPluginStepTypes(steps)
+
     private suspend fun executeTopLevelSteps(
         startIndex: Int,
         state: S,
@@ -442,6 +477,7 @@ class Workflow<S, R> internal constructor(
                     workflowName = name,
                     state = state,
                     context = context,
+                    executorResolver = externalStepExecutorResolver,
                 )
                 is GateWorkflowStep -> step.execute(state, context)
                 is DelayWorkflowStep -> {
@@ -503,10 +539,12 @@ class WorkflowBuilder<S> constructor(
     inline fun <reified R> build(
         stopPolicy: StopPolicy = StopPolicy(),
         clock: Clock = Clock.systemUTC(),
+        externalStepExecutorResolver: ExternalStepExecutorResolver = NoOpExternalStepExecutorResolver,
         noinline resultSelector: (S) -> R,
     ): Workflow<S, R> = buildTyped(
         stopPolicy = stopPolicy,
         clock = clock,
+        externalStepExecutorResolver = externalStepExecutorResolver,
         resultType = typeOf<R>(),
         resultSelector = resultSelector,
     )
@@ -515,6 +553,7 @@ class WorkflowBuilder<S> constructor(
     internal fun <R> buildTyped(
         stopPolicy: StopPolicy,
         clock: Clock,
+        externalStepExecutorResolver: ExternalStepExecutorResolver,
         resultType: KType,
         resultSelector: (S) -> R,
     ): Workflow<S, R> {
@@ -534,6 +573,7 @@ class WorkflowBuilder<S> constructor(
             resultSelector = resultSelector,
             stopPolicy = stopPolicy,
             clock = clock,
+            externalStepExecutorResolver = externalStepExecutorResolver,
         )
     }
 }
@@ -798,11 +838,12 @@ private data class PluginWorkflowStep<S>(
         workflowName: String,
         state: S,
         context: WorkflowContext,
+        executorResolver: ExternalStepExecutorResolver,
     ): S {
         require(type.isNotBlank()) {
             "Workflow '$workflowName' plugin step '$name' type must not be blank"
         }
-        val result = ExternalStepExecutorRegistry.create(type).execute(config)
+        val result = executorResolver.create(type).execute(config)
         return merge(state, result, context)
     }
 }
@@ -1480,6 +1521,21 @@ private fun sha256Hex(value: String): String = MessageDigest
     .joinToString(separator = "") { byte ->
         byte.toInt().and(0xff).toString(16).padStart(2, '0')
     }
+
+private fun collectPluginStepTypes(steps: List<InternalWorkflowStep<*>>): Set<String> = buildSet {
+    steps.forEach { step ->
+        when (step) {
+            is PluginWorkflowStep<*> -> add(step.type)
+            is BranchWorkflowStep<*> -> {
+                step.branches.values.forEach { branchSteps ->
+                    addAll(collectPluginStepTypes(branchSteps))
+                }
+                step.defaultSteps?.let { addAll(collectPluginStepTypes(it)) }
+            }
+            else -> Unit
+        }
+    }
+}
 
 @Suppress("UNCHECKED_CAST")
 private fun <S> mergePluginStepResult(

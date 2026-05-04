@@ -444,6 +444,52 @@ class WorkflowTest {
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("Workflow step name must not be blank")
     }
+
+    @Test
+    fun `plugin step uses the workflow injected executor registry`() {
+        val firstRegistry = ExternalStepExecutorRegistry().apply {
+            register(
+                FixedPluginExecutorFactory(
+                    typeId = "demo.echo",
+                    response = mapOf("pluginMessage" to "from-first"),
+                ),
+            )
+        }
+        val secondRegistry = ExternalStepExecutorRegistry().apply {
+            register(
+                FixedPluginExecutorFactory(
+                    typeId = "demo.echo",
+                    response = mapOf("pluginMessage" to "from-second"),
+                ),
+            )
+        }
+        val firstWorkflow = workflow<Map<String, Any?>>("plugin-first") {
+            pluginStep(name = "echo", type = "demo.echo")
+        }.build(externalStepExecutorResolver = firstRegistry) { it.getValue("pluginMessage") }
+        val secondWorkflow = workflow<Map<String, Any?>>("plugin-second") {
+            pluginStep(name = "echo", type = "demo.echo")
+        }.build(externalStepExecutorResolver = secondRegistry) { it.getValue("pluginMessage") }
+
+        val firstResult = runBlocking { firstWorkflow.run(emptyMap()) }
+        val secondResult = runBlocking { secondWorkflow.run(emptyMap()) }
+
+        assertThat(firstResult).isEqualTo("from-first")
+        assertThat(secondResult).isEqualTo("from-second")
+    }
+
+    @Test
+    fun `plugin step fails loudly when no executor is registered in the workflow resolver`() {
+        val workflow = workflow<Map<String, Any?>>("plugin-missing") {
+            pluginStep(name = "echo", type = "demo.echo")
+        }.build { it }
+
+        assertThatThrownBy {
+            runBlocking { workflow.run(emptyMap()) }
+        }
+            .isInstanceOf(ExternalStepExecutorNotRegisteredException::class.java)
+            .hasMessageContaining("demo.echo")
+    }
+
     @Test
     fun `resume fails loudly on invalid checkpoint next step index`() {
         val store = InMemoryWorkflowCheckpointStore()
@@ -1615,6 +1661,14 @@ private class RecordingProvider(
     }
     override fun providerId(): String = name
 }
+
+private class FixedPluginExecutorFactory(
+    override val typeId: String,
+    private val response: Map<String, Any?>,
+) : ExternalStepExecutorFactory {
+    override fun create(): ExternalStepExecutor = ExternalStepExecutor { response }
+}
+
 private object ResumeStateCodec : WorkflowStateCodec<ResumeState> {
     override fun encode(state: ResumeState): String = listOf(
         state.request,

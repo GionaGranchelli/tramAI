@@ -1,11 +1,12 @@
 package dev.tramai.platform
 
-import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Clock
 import java.time.Instant
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.ceil
+import org.springframework.security.crypto.password.PasswordEncoder
 
 data class CreateApiKeyRequest(
     val teamId: String,
@@ -57,6 +58,7 @@ class ApiKeyService(
     private val repository: ApiKeyRepository,
     private val auditLogService: AuditLogService,
     private val clock: Clock,
+    private val passwordEncoder: PasswordEncoder,
     private val secureRandom: SecureRandom = SecureRandom(),
 ) {
     fun create(
@@ -87,7 +89,7 @@ class ApiKeyService(
             revokedAt = null,
             lastUsedAt = null,
         )
-        repository.create(record, sha256Hex(rawKey))
+        repository.create(record, passwordEncoder.encode(rawKey))
         auditLogService.record(
             actorId = actorId,
             action = "api_key.create",
@@ -136,19 +138,13 @@ class ApiKeyService(
 
     companion object {
         private const val API_KEY_LOOKUP_PREFIX_LENGTH = 16
-
-        internal fun sha256Hex(value: String): String = MessageDigest
-            .getInstance("SHA-256")
-            .digest(value.toByteArray())
-            .joinToString(separator = "") { byte ->
-                byte.toInt().and(0xff).toString(16).padStart(2, '0')
-            }
     }
 }
 
 class ApiKeyAuthenticator(
     private val repository: ApiKeyRepository,
     private val clock: Clock,
+    private val passwordEncoder: PasswordEncoder,
 ) {
     fun authenticate(rawKey: String?): AuthenticatedApiKey {
         val candidate = rawKey?.trim().orEmpty()
@@ -157,7 +153,7 @@ class ApiKeyAuthenticator(
         }
         val stored = repository.findActiveByPrefix(candidate.take(16))
             ?: throw AuthenticationException("API key is invalid")
-        if (ApiKeyService.sha256Hex(candidate) != stored.hashedKey) {
+        if (!passwordEncoder.matches(candidate, stored.hashedKey)) {
             throw AuthenticationException("API key is invalid")
         }
         repository.updateLastUsed(stored.record.id, clock.instant())
@@ -176,28 +172,35 @@ class ApiKeyAuthenticator(
 
 class ApiKeyRateLimiter(
     private val clock: Clock,
+    private val nanoTimeSource: () -> Long = System::nanoTime,
 ) {
     private data class BucketState(
         var tokens: Double,
-        var updatedAt: Instant,
+        var lastRefillNanos: Long,
     )
 
     private val buckets = ConcurrentHashMap<String, BucketState>()
 
     fun check(record: ApiKeyRecord): RateLimitDecision {
         val now = clock.instant()
-        val state = buckets.compute(record.id) { _, existing ->
-            val current = existing ?: BucketState(record.burstCapacity.toDouble(), now)
-            val elapsedMillis = now.toEpochMilli() - current.updatedAt.toEpochMilli()
-            if (elapsedMillis > 0) {
-                val replenished = current.tokens + (elapsedMillis / 1000.0) * record.refillTokensPerSecond
-                current.tokens = replenished.coerceAtMost(record.burstCapacity.toDouble())
-                current.updatedAt = now
-            }
-            current
-        } ?: error("Token bucket state was not created")
+        val nowNanos = nanoTimeSource()
+        val state = buckets.computeIfAbsent(record.id) {
+            BucketState(
+                tokens = record.burstCapacity.toDouble(),
+                lastRefillNanos = nowNanos,
+            )
+        }
 
         return synchronized(state) {
+            val elapsedNanos = (nowNanos - state.lastRefillNanos).coerceAtLeast(0L)
+            if (elapsedNanos > 0L) {
+                val replenished = state.tokens + (elapsedNanos / 1_000_000_000.0) * record.refillTokensPerSecond
+                state.tokens = replenished.coerceAtMost(record.burstCapacity.toDouble())
+                state.lastRefillNanos = nowNanos
+            } else if (state.tokens > record.burstCapacity) {
+                state.tokens = record.burstCapacity.toDouble()
+            }
+
             if (state.tokens >= 1.0) {
                 state.tokens -= 1.0
                 RateLimitDecision(
@@ -210,7 +213,7 @@ class ApiKeyRateLimiter(
             } else {
                 val secondsUntilNextToken = ((1.0 - state.tokens) / record.refillTokensPerSecond)
                     .coerceAtLeast(0.0)
-                val retryAfterSeconds = kotlin.math.ceil(secondsUntilNextToken).toLong().coerceAtLeast(1)
+                val retryAfterSeconds = ceil(secondsUntilNextToken).toLong().coerceAtLeast(1)
                 RateLimitDecision(
                     allowed = false,
                     limit = record.burstCapacity,

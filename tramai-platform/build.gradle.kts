@@ -29,6 +29,7 @@ dependencies {
     implementation(libs.kotlin.reflect)
     implementation(libs.spring.boot.starter.jdbc)
     implementation(libs.spring.boot.starter.web)
+    implementation(libs.spring.security.crypto)
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.assertj.core)

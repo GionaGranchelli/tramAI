@@ -12,6 +12,8 @@ import org.springframework.boot.ApplicationRunner
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
+import org.springframework.security.crypto.password.PasswordEncoder
 import java.nio.file.Path
 import java.time.Clock
 import javax.sql.DataSource
@@ -35,6 +37,9 @@ class PlatformConfiguration {
 
     @Bean
     fun clock(): Clock = Clock.systemUTC()
+
+    @Bean
+    fun passwordEncoder(): PasswordEncoder = BCryptPasswordEncoder()
 
     @Bean
     fun teamRepository(dataSource: DataSource): TeamRepository = TeamRepository(dataSource)
@@ -67,19 +72,22 @@ class PlatformConfiguration {
         repository: ApiKeyRepository,
         auditLogService: AuditLogService,
         clock: Clock,
+        passwordEncoder: PasswordEncoder,
     ): ApiKeyService = ApiKeyService(
         teamRepository = teamRepository,
         projectRepository = projectRepository,
         repository = repository,
         auditLogService = auditLogService,
         clock = clock,
+        passwordEncoder = passwordEncoder,
     )
 
     @Bean
     fun apiKeyAuthenticator(
         repository: ApiKeyRepository,
         clock: Clock,
-    ): ApiKeyAuthenticator = ApiKeyAuthenticator(repository, clock)
+        passwordEncoder: PasswordEncoder,
+    ): ApiKeyAuthenticator = ApiKeyAuthenticator(repository, clock, passwordEncoder)
 
     @Bean
     fun rateLimiter(clock: Clock): ApiKeyRateLimiter = ApiKeyRateLimiter(clock)
@@ -97,19 +105,38 @@ class PlatformConfiguration {
     fun webhookAdapterRegistry(): WebhookAdapterRegistry = WebhookAdapterRegistry()
 
     @Bean
+    fun externalStepExecutorRegistry(): dev.tramai.orchestration.ExternalStepExecutorRegistry =
+        dev.tramai.orchestration.ExternalStepExecutorRegistry()
+
+    @Bean
+    fun pluginWorkflowStartupValidator(
+        workflowRegistry: WorkflowRegistry,
+        externalStepExecutorRegistry: dev.tramai.orchestration.ExternalStepExecutorRegistry,
+    ): PluginWorkflowStartupValidator = PluginWorkflowStartupValidator(
+        workflowRegistry = workflowRegistry,
+        executorResolver = externalStepExecutorRegistry,
+    )
+
+    @Bean
     fun pluginManager(
         pluginStateRepository: PluginStateRepository,
+        externalStepExecutorRegistry: dev.tramai.orchestration.ExternalStepExecutorRegistry,
         webhookAdapterRegistry: WebhookAdapterRegistry,
         @Value("\${tramai.platform.plugins.dir:\${java.io.tmpdir}/tramai-platform-plugins}") pluginDirectory: String,
     ): PluginManager = PluginManager(
         pluginDirectory = Path.of(pluginDirectory),
         pluginStateRepository = pluginStateRepository,
+        stepExecutorRegistry = externalStepExecutorRegistry,
         webhookAdapterRegistry = webhookAdapterRegistry,
     )
 
     @Bean
-    fun pluginDiscoveryRunner(pluginManager: PluginManager): ApplicationRunner = ApplicationRunner {
+    fun pluginDiscoveryRunner(
+        pluginManager: PluginManager,
+        pluginWorkflowStartupValidator: PluginWorkflowStartupValidator,
+    ): ApplicationRunner = ApplicationRunner {
         pluginManager.refresh()
+        pluginWorkflowStartupValidator.validate()
     }
 
     @Bean

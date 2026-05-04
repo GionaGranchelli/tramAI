@@ -27,6 +27,7 @@ spring-boot-configuration-processor = { module = "org.springframework.boot:sprin
 spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web", version.ref = "spring-boot" }
 spring-boot-starter-jdbc = { module = "org.springframework.boot:spring-boot-starter-jdbc", version.ref = "spring-boot" }
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test", version.ref = "spring-boot" }
+spring-security-crypto = { module = "org.springframework.security:spring-security-crypto", version = "6.4.5" }
 spring-context = { module = "org.springframework:spring-context", version = "6.2.6" }
 flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 aws-sdk-auth = { module = "software.amazon.awssdk:auth", version.ref = "aws-sdk" }

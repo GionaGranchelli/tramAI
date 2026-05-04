@@ -276,6 +276,7 @@ class WorkflowMcpStepTest {
         resultSelector = { it },
         stopPolicy = StopPolicy(),
         clock = Clock.systemUTC(),
+        externalStepExecutorResolver = NoOpExternalStepExecutorResolver,
     )
 
     private class RecordingMcpObserver : WorkflowObserver {

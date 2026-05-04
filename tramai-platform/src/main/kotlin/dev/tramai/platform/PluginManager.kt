@@ -1,5 +1,6 @@
 package dev.tramai.platform
 
+import dev.tramai.orchestration.ExternalStepExecutorFactory
 import dev.tramai.orchestration.ExternalStepExecutorRegistry
 import org.slf4j.LoggerFactory
 import java.net.URLClassLoader
@@ -41,11 +42,11 @@ class WebhookAdapterRegistry {
 class PluginManager(
     private val pluginDirectory: Path,
     private val pluginStateRepository: PluginStateRepository,
+    private val stepExecutorRegistry: ExternalStepExecutorRegistry,
     private val webhookAdapterRegistry: WebhookAdapterRegistry,
 ) {
     private val logger = LoggerFactory.getLogger(PluginManager::class.java)
     private val views = linkedMapOf<String, PluginView>()
-    private val activeStepTypes = linkedSetOf<String>()
 
     init {
         pluginDirectory.createDirectories()
@@ -83,51 +84,48 @@ class PluginManager(
 
     @Synchronized
     fun refresh() {
-        activeStepTypes.forEach(ExternalStepExecutorRegistry::unregister)
-        activeStepTypes.clear()
-        webhookAdapterRegistry.replaceAll(emptyList())
-        views.clear()
-
+        val stepExecutorFactories = mutableListOf<ExternalStepExecutorFactory>()
         val webhookFactories = mutableListOf<WebhookAdapterFactory>()
+        val refreshedViews = linkedMapOf<String, PluginView>()
         if (!pluginDirectory.isDirectory()) {
             pluginDirectory.createDirectories()
-            return
+        } else {
+            Files.list(pluginDirectory).use { paths ->
+                paths.filter { Files.isRegularFile(it) && it.extension == "jar" }
+                    .sorted()
+                    .forEach { jar ->
+                        loadJar(jar).forEach { discovered ->
+                            val persisted = pluginStateRepository.find(discovered.plugin.id)
+                            val enabled = persisted?.enabled ?: true
+                            val status = if (enabled) PluginStatus.ENABLED else PluginStatus.DISABLED
+                            pluginStateRepository.upsert(
+                                PluginStateRecord(
+                                    id = discovered.plugin.id,
+                                    version = discovered.plugin.version,
+                                    jarPath = jar.pathString,
+                                    enabled = enabled,
+                                    status = status,
+                                    error = null,
+                                ),
+                            )
+                            if (enabled) {
+                                stepExecutorFactories += discovered.stepExecutors
+                                webhookFactories += discovered.webhookAdapters
+                            }
+                            refreshedViews[discovered.plugin.id] = discovered.toView(
+                                status = status,
+                                jarPath = jar.pathString,
+                                error = null,
+                            )
+                        }
+                    }
+            }
         }
 
-        Files.list(pluginDirectory).use { paths ->
-            paths.filter { Files.isRegularFile(it) && it.extension == "jar" }
-                .sorted()
-                .forEach { jar ->
-                    loadJar(jar).forEach { discovered ->
-                        val persisted = pluginStateRepository.find(discovered.plugin.id)
-                        val enabled = persisted?.enabled ?: true
-                        val status = if (enabled) PluginStatus.ENABLED else PluginStatus.DISABLED
-                        pluginStateRepository.upsert(
-                            PluginStateRecord(
-                                id = discovered.plugin.id,
-                                version = discovered.plugin.version,
-                                jarPath = jar.pathString,
-                                enabled = enabled,
-                                status = status,
-                                error = null,
-                            ),
-                        )
-                        if (enabled) {
-                            discovered.stepExecutors.forEach { factory ->
-                                ExternalStepExecutorRegistry.register(factory)
-                                activeStepTypes += factory.typeId
-                            }
-                            webhookFactories += discovered.webhookAdapters
-                        }
-                        views[discovered.plugin.id] = discovered.toView(
-                            status = status,
-                            jarPath = jar.pathString,
-                            error = null,
-                        )
-                    }
-                }
-        }
+        stepExecutorRegistry.replaceAll(stepExecutorFactories)
         webhookAdapterRegistry.replaceAll(webhookFactories)
+        views.clear()
+        views.putAll(refreshedViews)
     }
 
     private fun loadJar(jar: Path): List<DiscoveredPlugin> = try {
@@ -154,7 +152,7 @@ class PluginManager(
 
     private data class DiscoveredPlugin(
         val plugin: TramaiPlugin,
-        val stepExecutors: List<dev.tramai.orchestration.ExternalStepExecutorFactory>,
+        val stepExecutors: List<ExternalStepExecutorFactory>,
         val webhookAdapters: List<WebhookAdapterFactory>,
         val dashboardExtensions: List<DashboardExtension>,
     ) {
