@@ -1,6 +1,6 @@
 # TASK-036: Implement Hermes and Codex Agent Step Types
 
-- Status: planned
+- Status: in_progress
 - Priority: medium
 - Primary spec: [SPEC-015](../../specs/spec-015-agent-steps.md)
 - Related ADRs:
