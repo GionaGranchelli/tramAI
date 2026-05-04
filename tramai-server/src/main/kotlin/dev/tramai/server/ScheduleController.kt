@@ -57,38 +57,38 @@ class ScheduleController(
         workflowName: String,
         scheduledFireAt: Instant,
     ) {
-        pushScheduleEvent("scheduleTick", summaryFor(workflowName, scheduledFireAt))
+        pushScheduleEvent("scheduleTick", ScheduleSummary(
+            scheduleId = workflowName,
+            workflowName = workflowName,
+            cronExpression = "",
+            enabled = true,
+            nextTick = null,
+            lastTick = scheduledFireAt.toString(),
+            lastRunStatus = null,
+            lastRunId = null,
+            misfireCount = 0,
+        ))
     }
 
     fun onMissedTick(
         workflowName: String,
         scheduledFireAt: Instant,
     ) {
-        pushScheduleEvent("scheduleMisfire", summaryFor(workflowName, scheduledFireAt))
+        pushScheduleEvent("scheduleMisfire", ScheduleSummary(
+            scheduleId = workflowName,
+            workflowName = workflowName,
+            cronExpression = "",
+            enabled = true,
+            nextTick = null,
+            lastTick = scheduledFireAt.toString(),
+            lastRunStatus = null,
+            lastRunId = null,
+            misfireCount = 0,
+        ))
     }
 
     fun pushScheduleTick(schedule: ScheduleSummary) {
         pushScheduleEvent("scheduleTick", schedule)
-    }
-
-    private fun summaryFor(
-        workflowName: String,
-        scheduledFireAt: Instant,
-    ): ScheduleSummary = runBlocking {
-        schedulerStore?.listScheduleStatus()
-            ?.firstOrNull { it.workflowName == workflowName }
-            ?.toSummary()
-            ?: ScheduleSummary(
-                scheduleId = workflowName,
-                workflowName = workflowName,
-                cronExpression = "",
-                enabled = false,
-                nextTick = null,
-                lastTick = scheduledFireAt.toString(),
-                lastRunStatus = null,
-                lastRunId = null,
-                misfireCount = 0,
-            )
     }
 
     private fun pushScheduleEvent(

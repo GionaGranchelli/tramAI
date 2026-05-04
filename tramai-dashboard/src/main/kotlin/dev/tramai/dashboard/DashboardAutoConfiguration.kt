@@ -6,8 +6,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.ApplicationContext
 import org.springframework.context.annotation.Bean
 import com.fasterxml.jackson.databind.ObjectMapper
-import org.springframework.stereotype.Controller
-import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 
@@ -26,11 +24,4 @@ class DashboardAutoConfiguration : WebMvcConfigurer {
         applicationContext: ApplicationContext,
         objectMapper: ObjectMapper,
     ): DashboardSettingsController = DashboardSettingsController(applicationContext, objectMapper)
-
-    @Controller
-    class DashboardRedirectController {
-
-        @GetMapping("/")
-        fun index(): String = "redirect:/dashboard/index.html"
-    }
 }
