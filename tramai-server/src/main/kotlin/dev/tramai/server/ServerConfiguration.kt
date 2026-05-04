@@ -71,4 +71,14 @@ class ServerConfiguration {
         workflowMaxRequestBodyBytes = maxRequestBodyBytes,
         webhookMaxRequestBodyBytes = webhookConfiguration.maxRequestBodyBytes,
     )
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun workerRegistry(): InMemoryWorkerRegistry = InMemoryWorkerRegistry()
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun auditLogStore(
+        @Value("\${tramai.server.max-audit-entries:10000}") maxEntries: Int,
+    ): InMemoryAuditLogStore = InMemoryAuditLogStore(maxEntries = maxEntries)
 }
