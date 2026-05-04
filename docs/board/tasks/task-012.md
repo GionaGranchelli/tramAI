@@ -1,10 +1,11 @@
 # TASK-012: Execute 0.1.0 Release Operations and Credibility Closure
 
-- Status: in_progress
+- Status: done
 - Priority: high
 - Primary spec: [SPEC-008](../../specs/spec-008-documentation-publishing.md)
 - Related ADRs: [ADR-005](../../adr/adr-005.md), [ADR-008](../../adr/adr-008.md)
-- Last updated: 2026-04-22
+- Last updated: 2026-05-04
+- Note: 0.1.0 released. This task tracked the operational release closure now complete.
 
 ## Rationale
 

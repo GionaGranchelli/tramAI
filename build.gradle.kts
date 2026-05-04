@@ -16,7 +16,7 @@ plugins {
 }
 
 val tramaiGroup = providers.gradleProperty("tramaiGroup").orElse("dev.tramai")
-val tramaiVersion = providers.gradleProperty("tramaiVersion").orElse("0.1.0-SNAPSHOT")
+val tramaiVersion = providers.gradleProperty("tramaiVersion").orElse("0.2.0")
 val tramaiProjectUrl = providers.gradleProperty("tramaiProjectUrl").orElse("https://github.com/GionaGranchelli/tramAI")
 val tramaiScmUrl = providers.gradleProperty("tramaiScmUrl").orElse("https://github.com/GionaGranchelli/tramAI.git")
 val tramaiScmConnection = providers.gradleProperty("tramaiScmConnection").orElse("scm:git:https://github.com/GionaGranchelli/tramAI.git")

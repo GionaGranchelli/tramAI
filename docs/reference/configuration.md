@@ -27,6 +27,13 @@ Top-level keys:
 - `secrets`
 - `providers`
 
+Runtime and platform modules add their own namespaces:
+
+- `tramai.server.*`
+- `tramai.mcp.*`
+- `tramai.dashboard.*`
+- `tramai.platform.*`
+
 ## Full Current Spring Shape
 
 ```yaml
@@ -129,6 +136,91 @@ tramai:
 - `*-secret-ref` fields are resolved through Spring `SecretValueResolver` beans; built-in resolvers support `env:NAME` and `file:/path/to/secret.txt`
 - `tramai.secrets.vault.*` enables the bundled Vault resolver for `vault:path[#field]` references
 - `tramai.secrets.aws-secrets-manager.*` enables the bundled AWS Secrets Manager resolver for `aws-secretsmanager:secret-id[#field]` references
+
+## Workflow Server Configuration
+
+These properties exist in the current server module:
+
+```yaml
+tramai:
+  server:
+    max-request-body-bytes: 1048576
+    max-run-history-size: 1000
+    sse-event-buffer-size: 100
+    max-audit-entries: 10000
+    webhooks:
+      secret: ""
+      max-request-body-bytes: ${tramai.server.max-request-body-bytes}
+```
+
+Current behavior:
+
+- `tramai.server.max-request-body-bytes` limits workflow run request bodies
+- `tramai.server.webhooks.max-request-body-bytes` can override the workflow limit for webhook requests
+- `tramai.server.max-run-history-size` bounds in-memory retained run records
+- `tramai.server.sse-event-buffer-size` bounds replayable in-memory SSE history per run
+- `tramai.server.max-audit-entries` bounds the in-memory audit store used by the server module
+- `tramai.server.webhooks.secret` configures the GitHub-style HMAC verifier used by `POST /webhooks/{name}`
+
+## MCP Configuration
+
+The MCP adapter binds under:
+
+```yaml
+tramai:
+  mcp:
+    stdio:
+      enabled: false
+    sse:
+      enabled: false
+      host: 127.0.0.1
+      port: 8091
+      path: /mcp
+```
+
+Current behavior:
+
+- MCP auto-configuration activates only when the workflow server beans are present
+- `stdio.enabled=true` starts an MCP stdio session inside the application process
+- `sse.enabled=true` starts a separate embedded Ktor server for MCP over SSE
+- the SSE transport is independent from the Spring Boot HTTP port
+
+## Dashboard Configuration
+
+The dashboard-related runtime keys currently used by code are:
+
+```yaml
+tramai:
+  dashboard:
+    enabled: true
+    auth:
+      required: false
+      provider: custom
+```
+
+Current behavior:
+
+- `tramai.dashboard.enabled=false` disables the dashboard static resources
+- the same flag also disables the server's worker, schedule, and audit endpoints that are currently grouped with the dashboard feature
+- `tramai.dashboard.auth.required` influences the generated `/tramai-settings.js` runtime payload for the SPA
+- `tramai.dashboard.auth.provider` is only used when auto-detection cannot infer a provider
+
+## Platform Configuration
+
+The platform module currently exposes one direct property:
+
+```yaml
+tramai:
+  platform:
+    plugins:
+      dir: ${java.io.tmpdir}/tramai-platform-plugins
+```
+
+Current behavior:
+
+- the plugin manager scans this directory for JARs implementing `TramaiPlugin`
+- plugin state is persisted in the platform database; dropping a JAR is not the whole lifecycle story
+- teams, projects, API keys, audit, and plugin state require a JDBC `DataSource` plus the platform migration set
 
 ## What Does Not Exist Yet
 

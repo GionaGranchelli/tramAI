@@ -4,7 +4,7 @@ This page is intentionally blunt. It documents what TramAI does not do yet.
 
 ## Status Level
 
-TramAI is a strong alpha moving toward `0.1.0`.
+Tramai is now in the `0.2.0` line: credible as a library surface, broader in runtime scope, and still pre-`1.0`.
 
 It is usable for:
 
@@ -24,7 +24,7 @@ These features are not implemented in the current runtime:
 - generated proxy code or KSP support
 - provider-native structured output optimizations
 
-For the explicitly frozen first-release scope, see [Release 0.1.0 Scope and Checklist](./release-0.1.0.md).
+For the original first-release scope, see [Release 0.1.0 Scope and Checklist](./release-0.1.0.md).
 
 ## Partially Implemented Or Reserved
 
@@ -60,6 +60,8 @@ These parts are already coherent and tested:
 - OpenTelemetry metrics for attempt latency, token usage, parse failures, and engine events
 - engine-owned token budget controls based on provider-reported usage
 - deterministic test support
+- workflow checkpointing and lease-aware worker execution
+- server-side operational APIs, scheduling, and platform governance modules in the repository
 
 ## Recommended Usage Today
 

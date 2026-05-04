@@ -16,6 +16,15 @@ User-facing how-to documentation for Tramai.
 - [Testing Tramai Code](./testing.md)
 - [Common Use Cases](./use-cases.md)
 - [Extending Tramai](./extending-tramai.md)
+- [Orchestration](./orchestration.md)
+- [Orchestration Persistence](./orchestration-persistence.md)
+
+## Runtime & Platform Guides
+
+- [Workflow Scheduling](./scheduling.md)
+- [Workflow Server](./server.md)
+- [MCP Integration](./mcp.md)
+- [Platform Operations](./platform.md)
 
 ## Suggested Order
 
@@ -28,3 +37,5 @@ User-facing how-to documentation for Tramai.
 7. read `providers`
 8. read `structured-output`
 9. add `testing` and `observability` as needed
+10. add `orchestration` when you need explicit persisted workflows
+11. add `scheduling`, `server`, `mcp`, or `platform` only when you need operational runtime features

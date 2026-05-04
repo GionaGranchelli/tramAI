@@ -1,6 +1,6 @@
 # Annotation Reference
 
-This page describes the current TramAI annotation surface in `0.1.x`.
+This page describes the current TramAI annotation surface in `0.2.x`.
 
 If you are learning TramAI, start with the guides first. Use this page when you need exact field meanings and current behavior.
 

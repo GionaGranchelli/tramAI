@@ -181,7 +181,7 @@ class WorkflowController(
             "openapi" to "3.1.0",
             "info" to mapOf(
                 "title" to "Tramai Workflow Server",
-                "version" to "0.1.0",
+                "version" to "0.2.0",
             ),
             "paths" to paths,
         )

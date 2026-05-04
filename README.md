@@ -1,30 +1,23 @@
-# TramAI
+# Tramai
 
 [![CI](https://github.com/GionaGranchelli/tramAI/actions/workflows/ci.yml/badge.svg)](https://github.com/GionaGranchelli/tramAI/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.3.0-blue.svg?logo=kotlin)](http://kotlinlang.org)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.5-brightgreen.svg?logo=springboot)](https://spring.io/projects/spring-boot)
 
-**TramAI** is a structured-first AI integration library for the JVM.
+Tramai is a structured-first, observability-native AI workflow library for the JVM.
 
----
+It is built for backend engineers who want typed AI integration through interface methods, explicit provider routing, strong testability, and optional operational modules for workflows, scheduling, server APIs, MCP, multi-tenancy, and dashboarding.
 
 ## Start Here
 
-If you are evaluating TramAI for the first time, do not start by reading the whole repository.
+If you are evaluating Tramai for the first time, use one of these entry points:
 
-Choose one path:
-
-- I want the fastest copy-paste setup:
-  [30-Minute Quickstart](docs/guides/quickstart.md)
-- I use Maven:
-  [Maven Setup](docs/guides/maven.md)
-- I use Gradle and want the dependency rules first:
-  [Getting Started](docs/guides/getting-started.md)
-- I have a plain JVM app:
-  [Standalone Usage](docs/guides/standalone-usage.md)
-- I have a Spring Boot app:
-  [Spring Boot Integration](docs/guides/spring-boot.md)
+- [30-Minute Quickstart](docs/guides/quickstart.md)
+- [Getting Started](docs/guides/getting-started.md)
+- [Maven Setup](docs/guides/maven.md)
+- [Standalone Usage](docs/guides/standalone-usage.md)
+- [Spring Boot Integration](docs/guides/spring-boot.md)
 
 Use this minimum-default rule:
 
@@ -33,21 +26,9 @@ Use this minimum-default rule:
 - add `tramai-observability` only if you want OpenTelemetry
 - add `tramai-orchestration` only if you want typed persisted workflows
 
-Do not start from `tramai-core` unless you are extending TramAI itself.
+Do not start from `tramai-core` unless you are extending Tramai itself.
 
----
-
-## 🧵 The Name
-
-**TramAI** is an Italian word (*Tramai*). It means **I wove**.
-
-In Italian, *trama* is the weft — the horizontal thread that passes through the vertical threads of a loom to create fabric. Without the *trama*, you have parallel threads that never touch. With it, you have structure.
-
-*Tramai* is the past tense, first person. *I wove*. The developer speaking. The act already completed. The name carries two readings simultaneously, and both are intentional.
-
----
-
-## 🏁 Quick Start
+## Quick Example
 
 ```kotlin
 @AiService
@@ -61,86 +42,66 @@ interface InvoiceAnalyzer {
 
 data class InvoiceStatus(val status: String, val amount: Double?)
 
-// Initialize the engine
 val tramai = Tramai {
-    provider(OpenAiProvider(apiKey = "your-key"), name = "openai")
+    provider(OpenAiProvider(apiKey = System.getenv("OPENAI_API_KEY")), name = "openai")
     model("gpt-4o", "openai")
 }
 
-// Create and use your service
 val analyzer = tramai.create<InvoiceAnalyzer>()
 val result = analyzer.analyze("Vendor: ACME, Total: $150.00")
 ```
 
----
+## What Tramai Optimizes For
 
-## 🧠 The Philosophy
+- typed contracts over raw prompt plumbing
+- structured output as the default path for non-`String` returns
+- framework-agnostic core with thin adapters
+- explicit provider and tool routing
+- OpenTelemetry-friendly observability
+- deterministic testing without live model calls
 
-Most AI integration libraries ask you to learn a new programming model. Chains. Agents. Pipelines. Prompt templates with their own syntax. Memory stores with their own lifecycle. You stop writing your service and start writing framework code.
+## What It Is Not
 
-**TramAI starts from a different premise.**
+- not a chain framework
+- not an open-ended autonomous agent framework
+- not a RAG or vector-store toolkit
 
-You already know how to define a typed interface. You already know how to inject a dependency. You already know how to write a unit test. TramAI does not replace those skills — it weaves AI capability into the fabric of code you already know how to write.
+The orchestration surface is explicit and bounded. Tramai does not hide application logic behind a reasoning loop.
 
-It is the programming model you already have, extended by one annotation. The weft passing through existing threads.
+## Current Feature Set
 
----
+Core library features:
 
-## 🏗️ What TramAI Is
+- `@AiService` proxy generation for Kotlin and Java-friendly service contracts
+- structured output with schema generation, extraction, deserialization, and retry feedback
+- provider integrations for OpenAI, Anthropic, Ollama, and OpenAI-compatible APIs
+- streaming responses
+- engine-owned tool calling
+- retry, timeout, circuit breaker, token budget, and response cache controls
+- OpenTelemetry operation and workflow observers
+- deterministic test helpers in `tramai-testing`
 
-TramAI is built on four core convictions:
+Operational workflow features added in the recent `0.2.0` line:
 
-1.  **Typed contracts over prompt-heavy application code.** The model's output should map to a type your compiler knows about. Parse failures are not exceptions to handle in application code — they are a runtime concern that TramAI resolves (via retries and feedback) before your method returns.
-2.  **Explicit over implicit.** Provider routing is declared. Tool access is declared per operation. Orchestration is an optional module for coordinated tasks, not a black-box autonomous reasoning loop.
-3.  **Observability is not optional.** AI calls are the most expensive, most variable, and most failure-prone operations in any system. TramAI instruments every operation with OpenTelemetry semantic conventions from the first release, not as an afterthought.
-4.  **The core runtime must be testable without a network.** `tramai-testing` is not a utility module. It is a first-class module that ships with the runtime, because AI-dependent code that cannot be tested deterministically is not production code.
+- typed workflow orchestration with checkpoint/resume
+- worker pool with lease-based work stealing and fencing
+- cron scheduling with durable stores
+- REST server endpoints for workflow runs, workers, schedules, audit, and SSE
+- MCP workflow adapter
+- platform services for tenants, API keys, rate limiting, plugins, and audit logs
+- optional Vue 3 dashboard module
 
----
+## Installation
 
-## 🧱 What TramAI is NOT
+Tramai `0.2.0` targets Java `25+`.
 
-*   **TramAI is not a chain framework.** It does not have a pipeline abstraction or "chain" objects that hide your logic.
-*   **TramAI is not an autonomous agent framework.** It does not own an open-ended reasoning loop or autonomous swarms. Orchestration in TramAI is explicit, bounded, and deterministic.
-*   **TramAI is not a RAG toolkit.** It does not manage embeddings or vector stores.
-
-Those are composable concerns that belong in application code or in dedicated libraries. TramAI is the thread that connects your typed interfaces to AI providers — nothing more, and nothing less. The boundary is intentional. **The weft does not try to become the loom.**
-
----
-
-## 🚀 Key Features
-
-*   **Typed Interface Mapping**: Turn annotated interfaces into AI-backed proxies.
-*   **Structured-First**: Native support for JSON schema generation, extraction, and validation.
-*   **Explicit Orchestration**: Coordinated multi-step workflows (plan-execute-review) with typed state and checkpoint/resume support.
-*   **Production Resilience**: Built-in Circuit Breakers, Exponential Backoff, and Fallback Routing.
-*   **Security & Governance**: Pluggable redaction hooks (PII masking), secret-store integration, and token-usage budgets.
-*   **Native-Image Ready**: Optimized for GraalVM Native Image with pre-generated metadata.
-
----
-
-## 📦 Installation & Modules
-
-TramAI `0.1.x` targets Java `25+`.
-
-### Start Here
-
-Most developers do not want every module. They want the smallest correct setup for their application style.
-
-Use this rule:
-
-- plain JVM application: `tramai-standalone`
-- Spring Boot application: `tramai-spring`
-- then add one provider module such as `tramai-openai`, `tramai-anthropic`, or `tramai-ollama`
-- add `tramai-observability` only if you want OpenTelemetry integration
-- add `tramai-orchestration` only if you want persisted multi-step workflows
+Use the BOM to keep consumer modules aligned:
 
 ### Gradle
 
-Use the BOM to keep all TramAI modules on the same version:
-
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.1.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.2.0"))
     implementation("dev.tramai:tramai-standalone")
     implementation("dev.tramai:tramai-openai")
 }
@@ -148,15 +109,13 @@ dependencies {
 
 ### Maven
 
-Import the BOM once:
-
 ```xml
 <dependencyManagement>
   <dependencies>
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.1.0</version>
+      <version>0.2.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -164,92 +123,65 @@ Import the BOM once:
 </dependencyManagement>
 ```
 
-Then add the modules you want:
+Common published consumer setups:
 
-```xml
-<dependencies>
-  <dependency>
-    <groupId>dev.tramai</groupId>
-    <artifactId>tramai-standalone</artifactId>
-  </dependency>
+- standalone runtime: `tramai-standalone` + provider
+- Spring Boot runtime: `tramai-spring` + provider
+- observability: add `tramai-observability`
+- orchestration: add `tramai-orchestration`
+- tests: add `tramai-testing` in test scope
 
-  <dependency>
-    <groupId>dev.tramai</groupId>
-    <artifactId>tramai-openai</artifactId>
-  </dependency>
-</dependencies>
-```
+## Module Map
 
-### Common Setups
+Published consumer modules:
 
-Standalone + OpenAI:
+| Module | Responsibility |
+| --- | --- |
+| `tramai-bom` | Version alignment for published Tramai artifacts. |
+| `tramai-core` | Annotations, contracts, shared models, provider SPI, exceptions. |
+| `tramai-engine` | Proxy dispatch, execution, retry, timeout, cache, and tool orchestration. |
+| `tramai-structured` | Schema generation, extraction, validation, and structured failure analysis. |
+| `tramai-standalone` | Minimal framework-free entry point. |
+| `tramai-spring` | Spring Boot auto-configuration and bean registration. |
+| `tramai-openai` | OpenAI and OpenAI-compatible provider integration. |
+| `tramai-anthropic` | Anthropic provider integration. |
+| `tramai-ollama` | Ollama provider integration. |
+| `tramai-observability` | Optional OpenTelemetry integration. |
+| `tramai-orchestration` | Typed workflow orchestration and persistence contracts. |
+| `tramai-testing` | Mock providers and deterministic assertions. |
 
-```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.1.0"))
-implementation("dev.tramai:tramai-standalone")
-implementation("dev.tramai:tramai-openai")
-```
+Repository runtime and platform modules:
 
-Spring Boot + OpenAI:
+| Module | Responsibility |
+| --- | --- |
+| `tramai-scheduler` | Cron scheduling and durable schedule stores. |
+| `tramai-server` | HTTP API, webhooks, run management, OpenAPI, and SSE streams. |
+| `tramai-mcp` | MCP server adapter exposing workflows as tools. |
+| `tramai-platform` | Multi-tenancy, API keys, rate limiting, plugins, and audit. |
+| `tramai-dashboard` | Optional Vue 3 admin dashboard served by the runtime. |
 
-```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.1.0"))
-implementation("dev.tramai:tramai-spring")
-implementation("dev.tramai:tramai-openai")
-```
+## Documentation
 
-Standalone + Ollama:
+- [Docs Index](docs/README.md)
+- [Architecture Overview](docs/architecture/overview.md)
+- [Module Overview](docs/architecture/modules.md)
+- [API Stability](docs/reference/api-stability.md)
+- [0.2.0 Changelog](docs/releases/CHANGELOG-0.2.0.md)
+- [Roadmap](docs/roadmap.md)
 
-```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.1.0"))
-implementation("dev.tramai:tramai-standalone")
-implementation("dev.tramai:tramai-ollama")
-```
+For the newer operational modules, start with:
 
-Spring Boot + Anthropic:
+- [Orchestration Guide](docs/guides/orchestration.md)
+- [Orchestration Persistence](docs/guides/orchestration-persistence.md)
+- [Workflow Scheduling](docs/guides/scheduling.md)
+- [Workflow Server](docs/guides/server.md)
+- [MCP Integration](docs/guides/mcp.md)
+- [Platform Operations](docs/guides/platform.md)
 
-```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.1.0"))
-implementation("dev.tramai:tramai-spring")
-implementation("dev.tramai:tramai-anthropic")
-```
+## Contributing
 
-| Module | Description |
-| :--- | :--- |
-| `tramai-core` | Core annotations, models, and SPIs. |
-| `tramai-engine` | The runtime execution engine and resilience logic. |
-| `tramai-standalone` | Minimal builder for non-Spring environments. |
-| `tramai-spring` | Spring Boot Starters and Auto-configuration. |
-| `tramai-observability` | OpenTelemetry Tracing and Metrics. |
-| `tramai-orchestration` | Typed workflow coordination with checkpoint/resume and optional lease-aware execution. |
-| `tramai-testing` | Mock providers and deterministic assertion support. |
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
----
+## License
 
-## 📖 Documentation
-
-*   [Getting Started Guide](docs/guides/getting-started.md)
-*   [30-Minute Quickstart](docs/guides/quickstart.md)
-*   [Maven Setup](docs/guides/maven.md)
-*   [Choosing Modules and Dependencies](docs/guides/getting-started.md#choose-your-dependencies)
-*   [Spring Boot Integration](docs/guides/spring-boot.md)
-*   [Standalone Usage](docs/guides/standalone-usage.md)
-*   [Streaming](docs/guides/streaming.md)
-*   [Tool Calling](docs/guides/tool-calling.md)
-*   [Production Hardening & Security](docs/guides/production-hardening.md)
-*   [Structured Output Deep-Dive](docs/guides/structured-output.md)
-*   [Native Image](docs/guides/native-image.md)
-*   [Orchestration](docs/guides/orchestration.md)
-*   [Observability & Monitoring](docs/guides/observability.md)
-*   [API Stability](docs/reference/api-stability.md)
-*   [Release Validation](docs/reference/release-validation.md)
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
-
-## 📄 License
-
-TramAI is released under the [Apache License 2.0](LICENSE).
+Tramai is released under the [Apache License 2.0](LICENSE).

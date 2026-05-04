@@ -39,11 +39,11 @@ For a plain JVM app, start with:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.1.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.2.0"))
     implementation("dev.tramai:tramai-standalone")
     implementation("dev.tramai:tramai-openai")
 
-    testImplementation(platform("dev.tramai:tramai-bom:0.1.0"))
+    testImplementation(platform("dev.tramai:tramai-bom:0.2.0"))
     testImplementation("dev.tramai:tramai-testing")
 }
 ```
@@ -56,7 +56,7 @@ dependencies {
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.1.0</version>
+      <version>0.2.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
