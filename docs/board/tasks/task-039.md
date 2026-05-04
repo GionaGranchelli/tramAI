@@ -1,6 +1,6 @@
 # TASK-039: Implement Plugin System and Multi-Tenancy
 
-- Status: in_progress
+- Status: done
 - Priority: medium
 - Primary spec: [SPEC-017](../../specs/spec-017-platform.md)
 - Related ADRs:
@@ -39,3 +39,31 @@ platform.
 - [ ] API key with "run-only" scope can start workflows but not list them
 - [ ] Rate-limited API key receives 429 after exceeding limits
 - [ ] Audit log records actor, action, timestamp for every workflow start
+
+## Implementation Summary
+
+**Completed**: 2026-05-04
+
+### Module
+New `tramai-platform` module with Spring Boot + Flyway + JDBC.
+
+### Files (26 files, +3829 lines)
+| File | Lines | Purpose |
+|---|---|---|
+| `Security.kt` | 242 | BCrypt API key hashing, time-aware token bucket rate limiter, scopes |
+| `JdbcRepositories.kt` | 442 | Team/Project/API Key/Audit log/Plugin state repositories |
+| `PlatformController.kt` | 267 | REST API: plugins, API keys, audit log, tenant-scoped workflows |
+| `PlatformWorkflowService.kt` | 318 | Tenant-scoped workflow execution, webhook handling |
+| `PlatformModels.kt` | 120 | Team, Project, ApiKey, AuditEntry, PluginState data classes |
+| `PluginManager.kt` | 174 | JAR scanning, ServiceLoader, lifecycle (install/enable/disable) |
+| `PlatformConfiguration.kt` | 160 | Spring auto-configuration, beans |
+| `PluginWorkflowStartupValidator.kt` | 35 | Startup validation of plugin executor registration |
+| `V1__platform.sql` | 62 | Flyway migration (team, project, api_key, audit_log, plugin_state tables) |
+| `Workflow.kt` | +249 | pluginStep() DSL, ExternalStepExecutorRegistry injection |
+| Tests (6 files) | 726 | Plugin discovery, step execution, webhook adapt, team isolation, scope enforcement, rate limiting, audit log, BCrypt verification |
+
+### Review Cycle
+- Copilot implemented (16m 33s, 8.3M tokens, +2427 lines)
+- Codex reviewed: FAIL (4 findings: unsalted SHA-256 hash, broken rate limiter, H2-specific SQL, global mutable state)
+- Copilot fixed all 4 (10m 59s, 4.1M tokens, +589/-114 lines)
+- Full suite: 65 tasks, BUILD SUCCESSFUL
