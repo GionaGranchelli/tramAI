@@ -40,6 +40,10 @@ class WorkflowController(
 ) {
     private val logger = LoggerFactory.getLogger(WorkflowController::class.java)
 
+    @GetMapping("/workflows")
+    fun listWorkflows(): List<Map<String, String>> =
+        registry.list().map { mapOf("name" to it.workflow.name) }
+
     @PostMapping("/workflows/{name}/run")
     fun runWorkflow(
         @PathVariable name: String,

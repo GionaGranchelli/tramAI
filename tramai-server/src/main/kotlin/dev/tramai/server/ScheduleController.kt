@@ -15,8 +15,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import java.time.Instant
 
 data class ScheduleSummary(
+    val scheduleId: String,
     val workflowName: String,
     val cronExpression: String,
+    val enabled: Boolean,
     val nextTick: String?, // ISO timestamp
     val lastTick: String?, // ISO timestamp
     val lastRunStatus: String?,
@@ -77,8 +79,10 @@ class ScheduleController(
             ?.firstOrNull { it.workflowName == workflowName }
             ?.toSummary()
             ?: ScheduleSummary(
+                scheduleId = workflowName,
                 workflowName = workflowName,
                 cronExpression = "",
+                enabled = false,
                 nextTick = null,
                 lastTick = scheduledFireAt.toString(),
                 lastRunStatus = null,
@@ -115,8 +119,10 @@ class ScheduleController(
 }
 
 private fun ScheduleStatusView.toSummary(): ScheduleSummary = ScheduleSummary(
+    scheduleId = scheduleId,
     workflowName = workflowName,
     cronExpression = cronExpression,
+    enabled = true,
     nextTick = nextTick?.toString(),
     lastTick = lastTick?.toString(),
     lastRunStatus = lastRunStatus,

@@ -4,10 +4,10 @@
     <div v-if="error" class="error">{{ error }}</div>
     <div v-if="loading">Loading schedules...</div>
     <ul v-if="schedules.length" class="list">
-      <li v-for="s in schedules" :key="s.id" class="list-item">
+      <li v-for="s in schedules" :key="s.scheduleId" class="list-item">
         <div>
           <strong>{{ s.workflowName }}</strong>
-          <span class="cron">{{ s.cron }}</span>
+          <span class="cron">{{ s.cronExpression }}</span>
         </div>
         <span :class="['status-badge', s.enabled ? 'running' : 'idle']">
           {{ s.enabled ? 'Enabled' : 'Disabled' }}
@@ -23,9 +23,9 @@ import { ref, onMounted } from 'vue'
 import { apiGet } from '@/composables/useApi'
 
 interface Schedule {
-  id: string
+  scheduleId: string
   workflowName: string
-  cron: string
+  cronExpression: string
   enabled: boolean
 }
 

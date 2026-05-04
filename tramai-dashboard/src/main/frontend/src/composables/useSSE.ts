@@ -1,13 +1,14 @@
 import { ref, onUnmounted } from 'vue'
 
 /**
- * EventSource wrapper with automatic reconnection.
+ * EventSource wrapper with named event support and automatic reconnection.
  *
- * Connects to a server-sent events endpoint and exposes a reactive `data` ref
- * that emits each parsed event. Reconnects on error after a brief delay.
+ * Connects to a server-sent events endpoint and exposes reactive refs
+ * for each named event type. Reconnects on error after a brief delay.
  */
 export function useSSE(url: string) {
   const data = ref<any>(null)
+  const lastEvent = ref<string | null>(null)
   const connected = ref(false)
   const error = ref<string | null>(null)
 
@@ -27,13 +28,31 @@ export function useSSE(url: string) {
       error.value = null
     }
 
+    // Default handler for unnamed events
     eventSource.onmessage = (event) => {
+      lastEvent.value = null
       try {
         data.value = JSON.parse(event.data)
       } catch {
         data.value = event.data
       }
     }
+
+    // Listen for common named events from the backend
+    const namedEvents = [
+      'workerOnline', 'workerOffline', 'workerList',
+      'scheduleTick', 'scheduleMisfire',
+    ]
+    namedEvents.forEach((eventName) => {
+      eventSource!.addEventListener(eventName, (event: MessageEvent) => {
+        lastEvent.value = eventName
+        try {
+          data.value = JSON.parse(event.data)
+        } catch {
+          data.value = event.data
+        }
+      })
+    })
 
     eventSource.onerror = () => {
       connected.value = false
@@ -53,5 +72,5 @@ export function useSSE(url: string) {
     eventSource = null
   })
 
-  return { data, connected, error }
+  return { data, lastEvent, connected, error }
 }

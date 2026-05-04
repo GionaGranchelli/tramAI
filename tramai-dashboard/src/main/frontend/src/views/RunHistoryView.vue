@@ -5,9 +5,9 @@
     <div v-if="error" class="error">{{ error }}</div>
     <div v-if="loading">Loading runs...</div>
     <ul v-if="runs.length" class="list">
-      <li v-for="run in runs" :key="run.id" class="list-item">
-        <router-link :to="`/workflows/${encodeURIComponent(name)}/runs/${run.id}`">
-          Run #{{ run.id }} — {{ run.status }}
+      <li v-for="run in runs" :key="run.workflowId" class="list-item">
+        <router-link :to="`/workflows/${encodeURIComponent(name)}/runs/${run.workflowId}`">
+          Run #{{ run.workflowId }} — {{ run.status }}
         </router-link>
       </li>
     </ul>
@@ -21,23 +21,27 @@ import { useRoute } from 'vue-router'
 import { apiGet } from '@/composables/useApi'
 
 interface Run {
-  id: string
+  workflowId: string
   status: string
 }
 
 const route = useRoute()
 const name = route.params.name as string
 
+interface RunPage {
+  runs: Run[]
+}
+
 const runs = ref<Run[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 
 onMounted(async () => {
-  const res = await apiGet<Run[]>(`/workflows/${encodeURIComponent(name)}/runs`)
+  const res = await apiGet<RunPage>(`/workflows/${encodeURIComponent(name)}/runs`)
   if (res.error) {
     error.value = res.error
   } else {
-    runs.value = res.data ?? []
+    runs.value = res.data?.runs ?? []
   }
   loading.value = false
 })

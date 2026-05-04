@@ -4,7 +4,7 @@
     <div v-if="error" class="error">{{ error }}</div>
     <div v-if="loading">Loading audit entries...</div>
     <ul v-if="entries.length" class="list">
-      <li v-for="entry in entries" :key="entry.id" class="list-item">
+      <li v-for="(entry, idx) in entries" :key="idx" class="list-item">
         <span class="timestamp">{{ formatTime(entry.timestamp) }}</span>
         <span class="action">{{ entry.action }}</span>
         <span class="actor">{{ entry.actor }}</span>
@@ -19,10 +19,13 @@ import { ref, onMounted } from 'vue'
 import { apiGet } from '@/composables/useApi'
 
 interface AuditEntry {
-  id: string
   timestamp: string
-  action: string
   actor: string
+  action: string
+}
+
+interface AuditPage {
+  entries: AuditEntry[]
 }
 
 const entries = ref<AuditEntry[]>([])
@@ -38,11 +41,11 @@ function formatTime(ts: string): string {
 }
 
 onMounted(async () => {
-  const res = await apiGet<AuditEntry[]>('/audit')
+  const res = await apiGet<AuditPage>('/audit')
   if (res.error) {
     error.value = res.error
   } else {
-    entries.value = res.data ?? []
+    entries.value = res.data?.entries ?? []
   }
   loading.value = false
 })
