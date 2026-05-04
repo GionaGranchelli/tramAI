@@ -5,7 +5,7 @@ It sits alongside the [main board](./board.md) which tracks the existing core
 phases.
 
 - Board owner: maintainer
-- Last updated: 2026-05-03
+- Last updated: 2026-05-04
 - Vision: [Orchestrator Vision](../architecture/orchestrator-vision.md)
 
 ## How To Use This Board
@@ -20,8 +20,8 @@ phases.
 - Phase 6 (Scheduler): complete ✅
 - Phase 7 (Server): complete ✅
 - Phase 8 (Agent Steps): complete ✅
-- Phase 9 (Distributed): in design
-- Phase 10 (Platform): in design
+- Phase 9 (Distributed): complete ✅
+- Phase 10 (Platform): 1/2 done
 
 ## Blocked
 
@@ -58,7 +58,7 @@ phases.
 
 | Task | Priority | Status |
 |------|----------|--------|
-| [TASK-037: Implement Worker Pool with Lease-Based Work Stealing](./tasks/task-037.md) | high | planned |
+| [TASK-037: Implement Worker Pool with Lease-Based Work Stealing](./tasks/task-037.md) | high | done |
 
 ## Phase 10: Platform (SPEC-017)
 
