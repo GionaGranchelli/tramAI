@@ -14,6 +14,7 @@ REST API server for workflow management. Trigger workflows via HTTP endpoints, r
 - `DELETE /workflows/{name}/runs/{id}` — cancel running workflows
 - `GET /openapi.json` — generated OpenAPI 3.1 route document
 - Idempotency-key support for exactly-once execution
+- Spring Boot auto-configuration with `@ConditionalOnProperty`
 - webhook HMAC verification and request-body limits
 
 ### tramai-scheduler
