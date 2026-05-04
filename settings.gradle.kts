@@ -17,5 +17,5 @@ include(
     "tramai-standalone",
     "tramai-structured",
     "tramai-testing",
+    "tramai-dashboard",
 )
-// Planned: "tramai-dashboard" — Vue 3 + Vite SPA, optional dependency of tramai-server (TASK-038)
