@@ -239,6 +239,9 @@ class Workflow<S, R> internal constructor(
         observer: WorkflowObserver = NoOpWorkflowObserver,
         persistence: WorkflowPersistence<S>? = null,
     ): R {
+        if (persistence != null) {
+            rememberWorkerWorkflowBinding(this, persistence)
+        }
         observer.onWorkflowStarted(name, context)
         var persistenceSession: WorkflowPersistenceSession<S>? = null
         return try {
@@ -287,6 +290,7 @@ class Workflow<S, R> internal constructor(
         observer: WorkflowObserver = NoOpWorkflowObserver,
         persistence: WorkflowPersistence<S>,
     ): R {
+        rememberWorkerWorkflowBinding(this, persistence)
         val checkpoint = persistence.checkpointStore.load(name, context.workflowId)
             ?: throw WorkflowResumeException(
                 "No checkpoint exists for workflow '$name' and workflowId='${context.workflowId}'",
@@ -362,6 +366,18 @@ class Workflow<S, R> internal constructor(
     }
 
     fun requiredExternalStepTypes(): Set<String> = collectPluginStepTypes(steps)
+
+    internal fun checkpointMetadata(): Map<String, String> = definitionCompatibility.toCheckpointMetadata()
+
+    internal fun stepNameAt(index: Int): String? = steps.getOrNull(index)?.name
+
+    internal fun topLevelStepNames(): Set<String> = steps.mapTo(linkedSetOf()) { it.name }
+
+    internal suspend fun replayDescriptorAt(
+        stepIndex: Int,
+        state: S,
+        context: WorkflowContext,
+    ): WorkflowStepReplayDescriptor? = steps.getOrNull(stepIndex)?.replayDescriptor(state, context)
 
     private suspend fun executeTopLevelSteps(
         startIndex: Int,
@@ -913,6 +929,58 @@ private data class BranchWorkflowStep<S>(
     val branches: Map<String, List<InternalWorkflowStep<S>>>,
     val defaultSteps: List<InternalWorkflowStep<S>>?,
 ) : InternalWorkflowStep<S>
+
+private suspend fun <S> InternalWorkflowStep<S>.replayDescriptor(
+    state: S,
+    context: WorkflowContext,
+): WorkflowStepReplayDescriptor = when (this) {
+    is LocalWorkflowStep -> WorkflowStepReplayDescriptor(ReplayPolicy.PURE)
+    is AiWorkflowStep<*, *, *> -> WorkflowStepReplayDescriptor(ReplayPolicy.IDEMPOTENT)
+    is HttpWorkflowStep<S> -> replayDescriptor(state, context)
+    is ShellWorkflowStep<S> -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
+    is HermesWorkflowStep<S> -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
+    is CodexWorkflowStep<S> -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
+    is McpWorkflowStep<S> -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
+    is PluginWorkflowStep<S> -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
+    is GateWorkflowStep -> WorkflowStepReplayDescriptor(ReplayPolicy.PURE)
+    is DelayWorkflowStep -> WorkflowStepReplayDescriptor(ReplayPolicy.PURE)
+    is BranchWorkflowStep<S> -> WorkflowStepReplayDescriptor(ReplayPolicy.PURE)
+    is ParallelWorkflowStep<S, *, *> -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
+}
+
+private suspend fun <S> HttpWorkflowStep<S>.replayDescriptor(
+    state: S,
+    context: WorkflowContext,
+): WorkflowStepReplayDescriptor {
+    val request = requestBuilder(state, context)
+    val method = request.method.trim().uppercase()
+    return when (method) {
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "PUT",
+        "DELETE",
+        -> WorkflowStepReplayDescriptor(ReplayPolicy.IDEMPOTENT)
+
+        "POST",
+        "PATCH",
+        -> {
+            val idempotencyKey = request.headers.entries.firstOrNull { (name, _) ->
+                name.equals("Idempotency-Key", ignoreCase = true)
+            }?.value
+            if (idempotencyKey.isNullOrBlank()) {
+                WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
+            } else {
+                WorkflowStepReplayDescriptor(
+                    replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                    idempotencyKey = idempotencyKey,
+                )
+            }
+        }
+
+        else -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
+    }
+}
 private enum class DelayExecutionResult {
     Completed,
     Suspended,

@@ -57,8 +57,9 @@ class WorkflowLeaseConflictException(
  */
 class InMemoryWorkflowLeaseStore(
     private val clockMillis: () -> Long = System::currentTimeMillis,
-) : WorkflowLeaseStore {
+) : WorkflowLeaseStore, WorkerRegistryStore {
     private val leases = linkedMapOf<LeaseKey, WorkflowLease>()
+    private val workers = linkedMapOf<String, WorkerRegistryRecord>()
     private val monitor = Any()
     override suspend fun currentLease(
         workflowName: String,
@@ -147,6 +148,57 @@ class InMemoryWorkflowLeaseStore(
             leases.remove(key)
         }
     }
+
+    override suspend fun registerWorker(
+        workerId: String,
+        poolName: String,
+        version: String,
+        capabilityLabels: Set<String>,
+        host: String,
+    ) {
+        synchronized(monitor) {
+            val now = clockMillis()
+            val existing = workers[workerId]
+            workers[workerId] = WorkerRegistryRecord(
+                workerId = workerId,
+                poolName = poolName,
+                version = version,
+                capabilityLabels = capabilityLabels.toSortedSet(),
+                host = host,
+                registeredAtEpochMillis = existing?.registeredAtEpochMillis ?: now,
+                lastHeartbeatEpochMillis = now,
+            )
+        }
+    }
+
+    override suspend fun updateHeartbeat(workerId: String) {
+        synchronized(monitor) {
+            val existing = workers[workerId]
+                ?: throw IllegalArgumentException("Worker '$workerId' is not registered")
+            workers[workerId] = existing.copy(lastHeartbeatEpochMillis = clockMillis())
+        }
+    }
+
+    override suspend fun unregisterWorker(workerId: String) {
+        synchronized(monitor) {
+            workers.remove(workerId)
+        }
+    }
+
+    override suspend fun listActiveWorkers(): List<WorkerRegistryRecord> = synchronized(monitor) {
+        workers.values.sortedBy { it.workerId }
+    }
+
+    override suspend fun listStaleWorkers(staleThresholdMillis: Long): List<WorkerRegistryRecord> = synchronized(monitor) {
+        require(staleThresholdMillis >= 0) {
+            "staleThresholdMillis must be zero or greater"
+        }
+        val cutoff = clockMillis() - staleThresholdMillis
+        workers.values
+            .filter { it.lastHeartbeatEpochMillis <= cutoff }
+            .sortedBy { it.workerId }
+    }
+
     private fun isExpired(lease: WorkflowLease): Boolean = clockMillis() >= lease.expiresAtEpochMillis
 }
 private data class LeaseKey(

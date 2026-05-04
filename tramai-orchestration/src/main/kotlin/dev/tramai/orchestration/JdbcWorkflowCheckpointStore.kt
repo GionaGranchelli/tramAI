@@ -11,7 +11,7 @@ import javax.sql.DataSource
 class JdbcWorkflowCheckpointStore(
     private val dataSource: DataSource,
     private val table: JdbcWorkflowCheckpointTable = JdbcWorkflowCheckpointTable(),
-) : WorkflowCheckpointStore {
+) : WorkflowCheckpointStore, WorkflowCheckpointCatalog {
     override suspend fun load(
         workflowName: String,
         workflowId: String,
@@ -58,6 +58,18 @@ class JdbcWorkflowCheckpointStore(
                         expectedRevision = expectedRevision,
                     )
                 }
+            }
+        }
+    }
+
+    override suspend fun listCheckpoints(): List<WorkflowCheckpoint> = dataSource.connection.use { connection ->
+        connection.prepareStatement(listSql()).use { statement ->
+            statement.executeQuery().use { resultSet ->
+                val checkpoints = mutableListOf<WorkflowCheckpoint>()
+                while (resultSet.next()) {
+                    checkpoints += resultSet.toCheckpoint()
+                }
+                checkpoints
             }
         }
     }
@@ -177,6 +189,20 @@ class JdbcWorkflowCheckpointStore(
         FROM ${table.tableName}
         WHERE ${table.workflowNameColumn} = ?
             AND ${table.workflowIdColumn} = ?
+    """.trimIndent()
+    private fun listSql(): String = """
+        SELECT
+            ${table.workflowNameColumn},
+            ${table.workflowIdColumn},
+            ${table.nextStepIndexColumn},
+            ${table.stepExecutionsColumn},
+            ${table.lastCompletedStepNameColumn},
+            ${table.statePayloadColumn},
+            ${table.revisionColumn},
+            ${table.metadataColumn},
+            ${table.savedAtEpochMillisColumn}
+        FROM ${table.tableName}
+        ORDER BY ${table.workflowNameColumn}, ${table.workflowIdColumn}
     """.trimIndent()
     private fun deleteSql(revisionAware: Boolean): String = if (revisionAware) {
         """

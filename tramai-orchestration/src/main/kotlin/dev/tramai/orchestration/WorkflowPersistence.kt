@@ -43,6 +43,10 @@ interface WorkflowCheckpointStore {
         expectedRevision: Long? = null,
     )
 }
+
+interface WorkflowCheckpointCatalog {
+    suspend fun listCheckpoints(): List<WorkflowCheckpoint>
+}
 /**
  * Optional scheduler bridge used by delay workflow steps to persist wakeups
  * without making the orchestration module depend on a scheduler backend.
@@ -86,8 +90,9 @@ class WorkflowCheckpointConflictException(
 /**
  * Simple in-memory checkpoint store for tests and lightweight local use.
  */
-class InMemoryWorkflowCheckpointStore : WorkflowCheckpointStore {
+class InMemoryWorkflowCheckpointStore : WorkflowCheckpointStore, WorkflowCheckpointCatalog, StepAttemptRecordStore {
     private val checkpoints = linkedMapOf<CheckpointKey, WorkflowCheckpoint>()
+    private val stepAttempts = linkedMapOf<AttemptKey, StepAttemptRecord>()
     private val monitor = Any()
     override suspend fun load(
         workflowName: String,
@@ -143,8 +148,49 @@ class InMemoryWorkflowCheckpointStore : WorkflowCheckpointStore {
             checkpoints.remove(key)
         }
     }
+
+    override suspend fun listCheckpoints(): List<WorkflowCheckpoint> = synchronized(monitor) {
+        checkpoints.values.toList()
+    }
+
+    override suspend fun recordStepAttempt(record: StepAttemptRecord): StepAttemptRecord = synchronized(monitor) {
+        val key = AttemptKey(record.runId, record.stepName, record.attemptId)
+        stepAttempts[key] = record
+        record
+    }
+
+    override suspend fun updateStepAttempt(record: StepAttemptRecord): StepAttemptRecord = synchronized(monitor) {
+        val key = AttemptKey(record.runId, record.stepName, record.attemptId)
+        require(stepAttempts.containsKey(key)) {
+            "Step attempt '${record.attemptId}' for run '${record.runId}' and step '${record.stepName}' does not exist"
+        }
+        stepAttempts[key] = record
+        record
+    }
+
+    override suspend fun latestStepAttempt(
+        runId: String,
+        stepName: String,
+    ): StepAttemptRecord? = synchronized(monitor) {
+        stepAttempts.values
+            .asSequence()
+            .filter { it.runId == runId && it.stepName == stepName }
+            .maxWithOrNull(compareBy<StepAttemptRecord>({ it.startedAt }, { it.attemptId }))
+    }
+
+    override suspend fun listStepAttempts(runId: String): List<StepAttemptRecord> = synchronized(monitor) {
+        stepAttempts.values
+            .filter { it.runId == runId }
+            .sortedWith(compareBy<StepAttemptRecord>({ it.startedAt }, { it.stepName }, { it.attemptId }))
+    }
 }
 private data class CheckpointKey(
     val workflowName: String,
     val workflowId: String,
+)
+
+private data class AttemptKey(
+    val runId: String,
+    val stepName: String,
+    val attemptId: String,
 )

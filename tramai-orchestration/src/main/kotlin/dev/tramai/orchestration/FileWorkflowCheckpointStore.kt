@@ -15,7 +15,7 @@ import java.io.StringWriter
 class FileWorkflowCheckpointStore(
     private val rootDirectory: Path,
     private val pathStrategy: WorkflowCheckpointPathStrategy = DefaultWorkflowCheckpointPathStrategy("checkpoint.properties"),
-) : WorkflowCheckpointStore {
+) : WorkflowCheckpointStore, WorkflowCheckpointCatalog {
     override suspend fun load(
         workflowName: String,
         workflowId: String,
@@ -75,6 +75,21 @@ class FileWorkflowCheckpointStore(
                 expectedRevision = expectedRevision,
             )
             Files.deleteIfExists(checkpointPath)
+        }
+    }
+
+    override suspend fun listCheckpoints(): List<WorkflowCheckpoint> {
+        if (!Files.exists(rootDirectory)) {
+            return emptyList()
+        }
+        Files.walk(rootDirectory).use { paths ->
+            return paths
+                .filter(Files::isRegularFile)
+                .filter { !it.fileName.toString().endsWith(".lock") }
+                .map(Files::readString)
+                .map(::decodeCheckpoint)
+                .toList()
+                .sortedWith(compareBy<WorkflowCheckpoint>({ it.workflowName }, { it.workflowId }))
         }
     }
     private fun checkpointPath(
