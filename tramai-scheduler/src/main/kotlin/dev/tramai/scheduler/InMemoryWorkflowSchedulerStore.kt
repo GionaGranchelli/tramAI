@@ -28,6 +28,27 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
         schedules[scheduleId]?.toRecord()
     }
 
+    override suspend fun listScheduleStatus(): List<ScheduleStatusView> = synchronized(this) {
+        schedules.values.map { schedule ->
+            val scheduleTicks = ticks.values
+                .asSequence()
+                .filter { it.scheduleId == schedule.scheduleId }
+                .sortedByDescending { it.scheduledFireAt }
+                .toList()
+            val latestTick = scheduleTicks.firstOrNull()
+            ScheduleStatusView(
+                scheduleId = schedule.scheduleId,
+                workflowName = schedule.workflowName,
+                cronExpression = schedule.schedule.expression,
+                nextTick = schedule.nextFireAt,
+                lastTick = latestTick?.scheduledFireAt,
+                lastRunStatus = latestTick?.status?.wireName,
+                lastRunId = latestTick?.workflowRunId,
+                misfireCount = scheduleTicks.count { it.status == TickStatus.MISFIRED },
+            )
+        }
+    }
+
     override suspend fun claimDueTicks(
         now: Instant,
         ownerId: String,
@@ -405,6 +426,9 @@ class InMemoryWorkflowSchedulerStore : WorkflowSchedulerStore {
 
         val isClaimed: Boolean
             get() = this == CLAIMED || this == STARTED
+
+        val wireName: String
+            get() = name.lowercase()
     }
 
     private enum class WakeupStatus {

@@ -1,12 +1,13 @@
 package dev.tramai.server
 
-import org.slf4j.LoggerFactory
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
+import java.time.Clock
 import java.time.Instant
 
 data class WorkerInfo(
     val workerId: String,
-    val status: String, // "online" or "offline"
+    val status: String, // "online", "stale", or "offline"
     val poolName: String,
     val capabilityLabels: Set<String>,
     val version: String,
@@ -16,8 +17,10 @@ data class WorkerInfo(
     val draining: Boolean,
 )
 
-class InMemoryWorkerRegistry {
-    private val logger = LoggerFactory.getLogger(InMemoryWorkerRegistry::class.java)
+class InMemoryWorkerRegistry(
+    private val objectMapper: ObjectMapper,
+    private val clock: Clock = Clock.systemUTC(),
+) {
     private val monitor = Any()
     private val workers = linkedMapOf<String, MutableWorkerRecord>()
     private val emitters = mutableListOf<SseEmitter>()
@@ -28,60 +31,73 @@ class InMemoryWorkerRegistry {
         capabilityLabels: Set<String>,
         version: String,
         host: String,
-    ): WorkerInfo = synchronized(monitor) {
-        val now = Instant.now()
-        val record = MutableWorkerRecord(
-            workerId = workerId,
-            poolName = poolName,
-            capabilityLabels = capabilityLabels.toSet(),
-            version = version,
-            host = host,
-            lastHeartbeat = now,
-            activeRunCount = 0,
-            draining = false,
-        )
-        workers[workerId] = record
-        val info = record.toInfo()
-        dispatchSse("workerOnline", info)
-        info
-    }
-
-    fun heartbeat(workerId: String): WorkerInfo? = synchronized(monitor) {
-        val record = workers[workerId] ?: return null
-        val wasOffline = Instant.now().minusSeconds(30).isAfter(record.lastHeartbeat)
-        record.lastHeartbeat = Instant.now()
-        if (wasOffline) {
-            dispatchSse("workerOnline", record.toInfo())
+    ): WorkerInfo {
+        val info: WorkerInfo
+        val emitterSnapshot: List<SseEmitter>
+        synchronized(monitor) {
+            val now = clock.instant()
+            val record = MutableWorkerRecord(
+                workerId = workerId,
+                poolName = poolName,
+                capabilityLabels = capabilityLabels.toSet(),
+                version = version,
+                host = host,
+                lastHeartbeat = now,
+                activeRunCount = 0,
+                draining = false,
+            )
+            workers[workerId] = record
+            info = record.toInfo(statusFor(record.lastHeartbeat, now))
+            emitterSnapshot = emitters.toList()
         }
-        record.toInfo()
+        dispatchSse("workerOnline", info, emitterSnapshot)
+        return info
     }
 
-    fun unregister(workerId: String): WorkerInfo? = synchronized(monitor) {
-        val record = workers.remove(workerId) ?: return null
-        val info = record.toInfo()
-        dispatchSse("workerOffline", info)
-        info
+    fun heartbeat(workerId: String): WorkerInfo? {
+        var emitterSnapshot: List<SseEmitter>? = null
+        val info = synchronized(monitor) {
+            val record = workers[workerId] ?: return null
+            val now = clock.instant()
+            val wasOffline = statusFor(record.lastHeartbeat, now) == "offline"
+            record.lastHeartbeat = now
+            if (wasOffline) {
+                emitterSnapshot = emitters.toList()
+            }
+            record.toInfo(statusFor(record.lastHeartbeat, now))
+        }
+        emitterSnapshot?.let { dispatchSse("workerOnline", info, it) }
+        return info
+    }
+
+    fun unregister(workerId: String): WorkerInfo? {
+        val info: WorkerInfo
+        val emitterSnapshot: List<SseEmitter>
+        synchronized(monitor) {
+            val record = workers.remove(workerId) ?: return null
+            info = record.toInfo("offline")
+            emitterSnapshot = emitters.toList()
+        }
+        dispatchSse("workerOffline", info, emitterSnapshot)
+        return info
     }
 
     fun listWorkers(): List<WorkerInfo> = synchronized(monitor) {
-        val now = Instant.now()
-        val staleThreshold = now.minusSeconds(30)
-        workers.values.map { record ->
-            val isOnline = !record.lastHeartbeat.isBefore(staleThreshold)
-            record.toInfo().copy(status = if (isOnline) "online" else "offline")
-        }
+        val now = clock.instant()
+        workers.values.map { record -> record.toInfo(statusFor(record.lastHeartbeat, now)) }
     }
 
     fun registerSseEmitter(emitter: SseEmitter) {
         synchronized(monitor) {
             emitter.onCompletion { synchronized(monitor) { emitters.remove(emitter) } }
             emitter.onError { synchronized(monitor) { emitters.remove(emitter) } }
+            emitter.onTimeout { synchronized(monitor) { emitters.remove(emitter) } }
             emitters.add(emitter)
         }
         // Send current worker list as initial state
         try {
             val workerList = listWorkers()
-            val json = workerListToJson(workerList)
+            val json = objectMapper.writeValueAsString(workerList)
             emitter.send(
                 SseEmitter.event()
                     .id("0")
@@ -94,10 +110,14 @@ class InMemoryWorkerRegistry {
         }
     }
 
-    private fun dispatchSse(eventName: String, worker: WorkerInfo) {
-        val json = workerToJson(worker)
+    private fun dispatchSse(
+        eventName: String,
+        worker: WorkerInfo,
+        emitterSnapshot: List<SseEmitter>,
+    ) {
+        val json = objectMapper.writeValueAsString(worker)
         val deadEmitters = mutableListOf<SseEmitter>()
-        emitters.forEach { emitter ->
+        emitterSnapshot.forEach { emitter ->
             try {
                 emitter.send(
                     SseEmitter.event()
@@ -113,38 +133,28 @@ class InMemoryWorkerRegistry {
         }
     }
 
-    private fun workerToJson(worker: WorkerInfo): String {
-        return """{"workerId":"${escapeJson(worker.workerId)}","status":"${escapeJson(worker.status)}","poolName":"${escapeJson(worker.poolName)}","capabilityLabels":${labelsToJson(worker.capabilityLabels)},"version":"${escapeJson(worker.version)}","host":"${escapeJson(worker.host)}","lastHeartbeat":"${worker.lastHeartbeat}","activeRunCount":${worker.activeRunCount},"draining":${worker.draining}}"""
+    private fun statusFor(
+        lastHeartbeat: Instant,
+        now: Instant,
+    ): String = when {
+        lastHeartbeat.isBefore(now.minusSeconds(30)) -> "offline"
+        lastHeartbeat.isBefore(now.minusSeconds(15)) -> "stale"
+        else -> "online"
     }
 
-    private fun workerListToJson(workers: List<WorkerInfo>): String {
-        return workers.joinToString(prefix = "[", postfix = "]", separator = ",") { workerToJson(it) }
-    }
-
-    private fun labelsToJson(labels: Set<String>): String {
-        return labels.joinToString(prefix = "[", postfix = "]", separator = ",") { "\"${escapeJson(it)}\"" }
-    }
-
-    private fun escapeJson(s: String): String = s
-        .replace("\\", "\\\\")
-        .replace("\"", "\\\"")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-
-    private data class MutableWorkerRecord(
-        val workerId: String,
-        val poolName: String,
-        val capabilityLabels: Set<String>,
-        val version: String,
-        val host: String,
+    private class MutableWorkerRecord(
+        var workerId: String,
+        var poolName: String,
+        var capabilityLabels: Set<String>,
+        var version: String,
+        var host: String,
         var lastHeartbeat: Instant,
         var activeRunCount: Int,
         var draining: Boolean,
     ) {
-        fun toInfo(): WorkerInfo = WorkerInfo(
+        fun toInfo(status: String): WorkerInfo = WorkerInfo(
             workerId = workerId,
-            status = "online",
+            status = status,
             poolName = poolName,
             capabilityLabels = capabilityLabels,
             version = version,
@@ -153,5 +163,10 @@ class InMemoryWorkerRegistry {
             activeRunCount = activeRunCount,
             draining = draining,
         )
+
+        override fun equals(other: Any?): Boolean =
+            this === other || (other is MutableWorkerRecord && workerId == other.workerId)
+
+        override fun hashCode(): Int = workerId.hashCode()
     }
 }

@@ -66,6 +66,59 @@ class JdbcWorkflowSchedulerStore(
             }
         }
 
+    override suspend fun listScheduleStatus(): List<ScheduleStatusView> =
+        transaction { connection ->
+            connection.prepareStatement(
+                """
+                SELECT
+                    schedules.schedule_id,
+                    schedules.workflow_name,
+                    schedules.cron_expression,
+                    schedules.next_fire_at,
+                    latest_tick.scheduled_fire_at AS last_tick_at,
+                    latest_tick.status AS last_run_status,
+                    latest_tick.workflow_run_id AS last_run_id,
+                    COALESCE(misfires.misfire_count, 0) AS misfire_count
+                FROM workflow_schedules schedules
+                LEFT JOIN workflow_schedule_ticks latest_tick
+                    ON latest_tick.tick_id = (
+                        SELECT ticks.tick_id
+                        FROM workflow_schedule_ticks ticks
+                        WHERE ticks.schedule_id = schedules.schedule_id
+                        ORDER BY ticks.scheduled_fire_at DESC, ticks.tick_id DESC
+                        LIMIT 1
+                    )
+                LEFT JOIN (
+                    SELECT schedule_id, COUNT(*) AS misfire_count
+                    FROM workflow_schedule_ticks
+                    WHERE status = 'MISFIRED'
+                    GROUP BY schedule_id
+                ) misfires
+                    ON misfires.schedule_id = schedules.schedule_id
+                ORDER BY schedules.workflow_name, schedules.schedule_id
+                """.trimIndent(),
+            ).use { statement ->
+                statement.executeQuery().use { resultSet ->
+                    buildList {
+                        while (resultSet.next()) {
+                            add(
+                                ScheduleStatusView(
+                                    scheduleId = resultSet.getString("schedule_id"),
+                                    workflowName = resultSet.getString("workflow_name"),
+                                    cronExpression = resultSet.getString("cron_expression"),
+                                    nextTick = resultSet.instantOrNull("next_fire_at"),
+                                    lastTick = resultSet.instantOrNull("last_tick_at"),
+                                    lastRunStatus = resultSet.getString("last_run_status")?.lowercase(),
+                                    lastRunId = resultSet.getString("last_run_id"),
+                                    misfireCount = resultSet.getInt("misfire_count"),
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
     override suspend fun claimDueTicks(
         now: Instant,
         ownerId: String,
@@ -931,6 +984,8 @@ private fun delayWakeupId(
 private fun timestamp(instant: Instant): Timestamp = Timestamp.from(instant)
 
 private fun ResultSet.instant(column: String): Instant = getTimestamp(column).toInstant()
+
+private fun ResultSet.instantOrNull(column: String): Instant? = getTimestamp(column)?.toInstant()
 
 private fun SQLException.isUniqueConstraintViolation(): Boolean =
     sqlState == "23505"

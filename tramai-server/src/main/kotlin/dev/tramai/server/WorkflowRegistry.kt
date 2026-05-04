@@ -14,6 +14,7 @@ import kotlin.reflect.KType
 
 class WorkflowRegistry(
     private val dataSource: DataSource? = null,
+    private val schedulerStore: dev.tramai.scheduler.WorkflowSchedulerStore? = null,
 ) {
     private val logger = LoggerFactory.getLogger(WorkflowRegistry::class.java)
     private val entries = linkedMapOf<String, WorkflowEntry<*, *>>()
@@ -51,11 +52,10 @@ class WorkflowRegistry(
             null
         } else {
             createJdbcTablesIfNeeded(source)
-            val schedulerStore = JdbcWorkflowSchedulerStore(source)
             WorkflowPersistence(
                 checkpointStore = JdbcWorkflowCheckpointStore(source),
                 stateCodec = stateCodec,
-                delayWakeupScheduler = schedulerStore,
+                delayWakeupScheduler = schedulerStore ?: JdbcWorkflowSchedulerStore(source),
             )
         }
     }
@@ -66,7 +66,6 @@ class WorkflowRegistry(
             return
         }
         val checkpointStore = JdbcWorkflowCheckpointStore(source)
-        val schedulerStore = JdbcWorkflowSchedulerStore(source)
         try {
             source.connection.use { connection ->
                 connection.createStatement().use { statement ->
@@ -79,7 +78,12 @@ class WorkflowRegistry(
                         logger.debug("Workflow checkpoint table already exists", error)
                     }
                 }
-                schedulerStore.createTableSql().forEach { sql ->
+                val schedulerSchemaStore = when (val store = schedulerStore) {
+                    is JdbcWorkflowSchedulerStore -> store
+                    null -> JdbcWorkflowSchedulerStore(source)
+                    else -> null
+                }
+                schedulerSchemaStore?.createTableSql()?.forEach { sql ->
                     connection.createStatement().use { statement ->
                         statement.execute(sql)
                     }

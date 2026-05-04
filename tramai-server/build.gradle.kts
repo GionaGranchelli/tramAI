@@ -26,6 +26,7 @@ dependencies {
     implementation(libs.coroutines.core)
     implementation(libs.jackson.module.kotlin)
     implementation(libs.kotlin.reflect)
+    implementation(libs.spring.boot.starter.validation)
     implementation(libs.spring.boot.starter.web)
 
     testImplementation(platform(libs.junit.bom))

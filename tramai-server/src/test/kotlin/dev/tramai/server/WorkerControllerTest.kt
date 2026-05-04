@@ -52,7 +52,7 @@ class WorkerControllerTest @Autowired constructor(
         assertThat(workers.isArray).isTrue()
         workers.forEach { worker ->
             val status = worker.get("status").asText()
-            assertThat(status).`isIn`("online", "offline")
+            assertThat(status).`isIn`("online", "stale", "offline")
         }
     }
 

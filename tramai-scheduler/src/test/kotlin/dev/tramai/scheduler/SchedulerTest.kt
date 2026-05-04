@@ -688,6 +688,7 @@ class SchedulerTest {
 
         override suspend fun upsertSchedule(schedule: ScheduleRecord) = Unit
         override suspend fun getSchedule(scheduleId: String): ScheduleRecord? = null
+        override suspend fun listScheduleStatus(): List<ScheduleStatusView> = emptyList()
         override suspend fun claimDueTicks(
             now: Instant,
             ownerId: String,

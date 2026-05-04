@@ -148,6 +148,45 @@ class AuditControllerTest @Autowired constructor(
     }
 
     @Test
+    fun `GET audit rejects negative page with problem detail`() {
+        mockMvc.get("/audit") {
+            param("page", "-1")
+        }
+            .andExpect {
+                status { isBadRequest() }
+                jsonPath("$.type") { value("https://tramai.dev/problems/400") }
+                jsonPath("$.title") { value("Invalid workflow request") }
+                jsonPath("$.status") { value(400) }
+            }
+    }
+
+    @Test
+    fun `GET audit rejects oversized page size with problem detail`() {
+        mockMvc.get("/audit") {
+            param("size", "101")
+        }
+            .andExpect {
+                status { isBadRequest() }
+                jsonPath("$.type") { value("https://tramai.dev/problems/400") }
+                jsonPath("$.title") { value("Invalid workflow request") }
+                jsonPath("$.status") { value(400) }
+            }
+    }
+
+    @Test
+    fun `GET audit rejects invalid timestamps with problem detail`() {
+        mockMvc.get("/audit") {
+            param("from", "not-an-instant")
+        }
+            .andExpect {
+                status { isBadRequest() }
+                jsonPath("$.type") { value("https://tramai.dev/problems/400") }
+                jsonPath("$.title") { value("Invalid workflow request") }
+                jsonPath("$.status") { value(400) }
+            }
+    }
+
+    @Test
     fun `audit entries have correct field structure`() {
         val response = mockMvc.get("/audit")
             .andExpect {

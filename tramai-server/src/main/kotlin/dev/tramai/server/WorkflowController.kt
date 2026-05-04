@@ -13,6 +13,8 @@ import kotlinx.coroutines.launch
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
+import org.springframework.web.method.annotation.HandlerMethodValidationException
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.GetMapping
@@ -344,6 +346,29 @@ class WorkflowErrorHandler {
     @ExceptionHandler(BadWorkflowRequestException::class, IllegalArgumentException::class)
     fun badRequest(error: RuntimeException): ResponseEntity<ProblemDetail> =
         problem(HttpStatus.BAD_REQUEST, "Invalid workflow request", error.message ?: "Request is invalid")
+
+    @ExceptionHandler(HandlerMethodValidationException::class)
+    fun validation(error: HandlerMethodValidationException): ResponseEntity<ProblemDetail> =
+        problem(
+            HttpStatus.BAD_REQUEST,
+            "Invalid workflow request",
+            error.allValidationResults
+                .flatMap { result ->
+                    result.resolvableErrors.mapNotNull { resolvable ->
+                        resolvable.defaultMessage?.takeIf(String::isNotBlank)
+                    }
+                }
+                .ifEmpty { listOf(error.message ?: "Request is invalid") }
+                .joinToString("; "),
+        )
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException::class)
+    fun argumentTypeMismatch(error: MethodArgumentTypeMismatchException): ResponseEntity<ProblemDetail> =
+        problem(
+            HttpStatus.BAD_REQUEST,
+            "Invalid workflow request",
+            "Parameter '${error.name}' has an invalid value",
+        )
 
     @ExceptionHandler(WorkflowNotRegisteredException::class, WorkflowRunNotFoundException::class, WorkflowResumeException::class)
     fun notFound(error: RuntimeException): ResponseEntity<ProblemDetail> =

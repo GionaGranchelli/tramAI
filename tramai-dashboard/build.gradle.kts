@@ -27,11 +27,16 @@ node {
 }
 
 val buildDashboard by tasks.registering(NpxTask::class) {
+    val tramaiDev = providers.gradleProperty("tramai.dev")
+        .map(String::toBooleanStrictOrNull)
+        .orElse(false)
+
     command.set("vite")
-    args.set(listOf("build", "--emptyOutDir", "--sourcemap"))
+    args.set(listOf("build", "--emptyOutDir"))
     dependsOn("npmInstall")
     inputs.dir("src/main/frontend/src")
     outputs.dir("src/main/frontend/dist")
+    environment.set(mapOf("TRAMAI_DEV" to tramaiDev.get().toString()))
 }
 
 tasks.named<ProcessResources>("processResources") {

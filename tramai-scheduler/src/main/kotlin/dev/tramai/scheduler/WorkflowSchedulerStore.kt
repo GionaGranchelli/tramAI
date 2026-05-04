@@ -23,6 +23,17 @@ data class ScheduleRecord(
     val businessHoursOnly: Boolean = (schedule as? CronSchedule)?.businessHoursOnly ?: false,
 )
 
+data class ScheduleStatusView(
+    val scheduleId: String,
+    val workflowName: String,
+    val cronExpression: String,
+    val nextTick: Instant?,
+    val lastTick: Instant?,
+    val lastRunStatus: String?,
+    val lastRunId: String?,
+    val misfireCount: Int,
+)
+
 data class ClaimedScheduledTick(
     val tickId: String,
     val scheduleId: String,
@@ -43,6 +54,7 @@ data class ClaimedDelayWakeup(
 interface WorkflowSchedulerStore : WorkflowDelayWakeupScheduler {
     suspend fun upsertSchedule(schedule: ScheduleRecord)
     suspend fun getSchedule(scheduleId: String): ScheduleRecord?
+    suspend fun listScheduleStatus(): List<ScheduleStatusView>
     suspend fun claimDueTicks(
         now: Instant,
         ownerId: String,

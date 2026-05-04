@@ -5,9 +5,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import com.fasterxml.jackson.databind.ObjectMapper
+import dev.tramai.orchestration.NoOpWorkflowObserver
+import dev.tramai.scheduler.JdbcWorkflowSchedulerStore
+import dev.tramai.scheduler.WorkflowSchedulerStore
 
 fun interface WorkflowRegistration {
     fun register(registry: WorkflowRegistry)
@@ -29,8 +34,12 @@ class ServerConfiguration {
     fun workflowRegistry(
         registrations: List<WorkflowRegistration>,
         dataSource: ObjectProvider<javax.sql.DataSource>,
+        schedulerStore: ObjectProvider<WorkflowSchedulerStore>,
     ): WorkflowRegistry {
-        val registry = WorkflowRegistry(dataSource.ifAvailable)
+        val registry = WorkflowRegistry(
+            dataSource = dataSource.ifAvailable,
+            schedulerStore = schedulerStore.ifAvailable,
+        )
         registrations.forEach { it.register(registry) }
         return registry
     }
@@ -74,11 +83,30 @@ class ServerConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    fun workerRegistry(): InMemoryWorkerRegistry = InMemoryWorkerRegistry()
+    fun workerRegistry(
+        objectMapper: ObjectMapper,
+    ): InMemoryWorkerRegistry = InMemoryWorkerRegistry(objectMapper = objectMapper)
 
     @Bean
     @ConditionalOnMissingBean
     fun auditLogStore(
         @Value("\${tramai.server.max-audit-entries:10000}") maxEntries: Int,
     ): InMemoryAuditLogStore = InMemoryAuditLogStore(maxEntries = maxEntries)
+
+    @Bean
+    @ConditionalOnBean(javax.sql.DataSource::class)
+    @ConditionalOnMissingBean(WorkflowSchedulerStore::class)
+    fun workflowSchedulerStore(
+        dataSource: javax.sql.DataSource,
+        scheduleEventObserver: ObjectProvider<ScheduleEventObserver>,
+    ): WorkflowSchedulerStore = JdbcWorkflowSchedulerStore(
+        dataSource = dataSource,
+        observer = scheduleEventObserver.ifAvailable ?: NoOpWorkflowObserver,
+    )
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun scheduleEventObserver(
+        scheduleController: ObjectProvider<ScheduleController>,
+    ): ScheduleEventObserver = ScheduleEventObserver(scheduleController)
 }
