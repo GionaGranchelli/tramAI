@@ -384,6 +384,12 @@ class Workflow<S, R> internal constructor(
                     context = context,
                     observer = observer,
                 )
+                is McpWorkflowStep<S> -> step.execute(
+                    workflowName = name,
+                    state = state,
+                    context = context,
+                    observer = observer,
+                )
                 is GateWorkflowStep -> step.execute(state, context)
                 is DelayWorkflowStep -> {
                     val result = step.execute(
@@ -544,6 +550,20 @@ abstract class AbstractWorkflowBuilder<S> {
             config = config,
         ))
     }
+    fun mcpStep(
+        name: String,
+        config: McpStepConfig = McpStepConfig(),
+        toolCall: suspend (S, WorkflowContext) -> McpToolCall,
+        merge: suspend (S, McpToolResult, WorkflowContext) -> S,
+    ) = apply {
+        appendStep(McpWorkflowStep(
+            name = name,
+            toolCallBuilder = toolCall,
+            merge = merge,
+            config = config,
+        ))
+    }
+
     fun gateStep(
         name: String,
         decide: suspend (S, WorkflowContext) -> GateDecision,
@@ -927,6 +947,19 @@ private fun <S> renderStepsCanonical(
                 append(step.definition.hasWorkdir)
                 append(':')
                 append(step.definition.envKeys.sorted().joinToString(","))
+                append('\n')
+            }
+            is McpWorkflowStep<*> -> {
+                append("mcp:")
+                append(step.name)
+                append(':')
+                append(step.config.timeoutSeconds)
+                append(':')
+                append(step.config.maxOutputBytes)
+                append(':')
+                append(step.config.reconnect)
+                append(':')
+                append(step.config.toolAllowlist?.sorted()?.joinToString(",") ?: "*")
                 append('\n')
             }
             is GateWorkflowStep -> {

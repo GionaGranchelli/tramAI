@@ -49,9 +49,9 @@ phases.
 
 | Task | Priority | Status |
 |------|----------|--------|
-| [TASK-033: Implement HTTP Step Type](./tasks/task-033.md) | high | planned |
-| [TASK-034: Implement Shell Step Type](./tasks/task-034.md) | high | planned |
-| [TASK-035: Implement MCP Step Type](./tasks/task-035.md) | high | planned |
+| [TASK-033: Implement HTTP Step Type](./tasks/task-033.md) | high | done |
+| [TASK-034: Implement Shell Step Type](./tasks/task-034.md) | high | done |
+| [TASK-035: Implement MCP Step Type](./tasks/task-035.md) | high | done |
 | [TASK-036: Implement Hermes and Codex Agent Step Types](./tasks/task-036.md) | medium | planned |
 
 ## Phase 9: Distributed Execution (SPEC-016)

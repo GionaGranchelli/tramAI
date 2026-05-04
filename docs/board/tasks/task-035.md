@@ -1,6 +1,6 @@
 # TASK-035: Implement MCP Step Type
 
-- Status: planned
+- Status: done
 - Priority: high
 - Primary spec: [SPEC-015](../../specs/spec-015-agent-steps.md)
 - Related ADRs:
