@@ -7,10 +7,10 @@ import javax.sql.DataSource
  * Applications are responsible for supplying a JDBC driver and creating the target table.
  */
 class JdbcWorkflowLeaseStore(
-    private val dataSource: DataSource,
-    private val table: JdbcWorkflowLeaseTable = JdbcWorkflowLeaseTable(),
+    internal val dataSource: DataSource,
+    internal val table: JdbcWorkflowLeaseTable = JdbcWorkflowLeaseTable(),
     private val clockMillis: () -> Long = System::currentTimeMillis,
-) : WorkflowLeaseStore {
+) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence {
     override suspend fun currentLease(
         workflowName: String,
         workflowId: String,
@@ -99,6 +99,41 @@ class JdbcWorkflowLeaseStore(
             }
         }
     }
+
+    override suspend fun saveCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        checkpoint: WorkflowCheckpoint,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ): WorkflowCheckpoint {
+        val jdbcCheckpointStore = checkpointStore as? JdbcWorkflowCheckpointStore
+            ?: throw unsupportedFence(checkpointStore)
+        require(jdbcCheckpointStore.dataSource === dataSource) {
+            "JdbcWorkflowLeaseStore can only fence JdbcWorkflowCheckpointStore instances that share the same DataSource"
+        }
+        return withTransaction { connection ->
+            lockLeaseRow(connection, expectedLease)
+            jdbcCheckpointStore.saveInConnection(connection, checkpoint, expectedRevision)
+        }
+    }
+
+    override suspend fun deleteCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ) {
+        val jdbcCheckpointStore = checkpointStore as? JdbcWorkflowCheckpointStore
+            ?: throw unsupportedFence(checkpointStore)
+        require(jdbcCheckpointStore.dataSource === dataSource) {
+            "JdbcWorkflowLeaseStore can only fence JdbcWorkflowCheckpointStore instances that share the same DataSource"
+        }
+        withTransaction { connection ->
+            lockLeaseRow(connection, expectedLease)
+            jdbcCheckpointStore.deleteInConnection(connection, workflowName, workflowId, expectedRevision)
+        }
+    }
     fun createTableSql(): String = """
         CREATE TABLE ${table.tableName} (
             ${table.workflowNameColumn} VARCHAR(255) NOT NULL,
@@ -166,15 +201,21 @@ class JdbcWorkflowLeaseStore(
         workflowName: String,
         workflowId: String,
     ): WorkflowLease? = dataSource.connection.use { connection ->
-        connection.prepareStatement(selectSql()).use { statement ->
-            statement.setString(1, workflowName)
-            statement.setString(2, workflowId)
-            statement.executeQuery().use { resultSet ->
-                if (!resultSet.next()) {
-                    null
-                } else {
-                    resultSet.toLease()
-                }
+        loadLease(connection, workflowName, workflowId)
+    }
+
+    private fun loadLease(
+        connection: java.sql.Connection,
+        workflowName: String,
+        workflowId: String,
+    ): WorkflowLease? = connection.prepareStatement(selectSql()).use { statement ->
+        statement.setString(1, workflowName)
+        statement.setString(2, workflowId)
+        statement.executeQuery().use { resultSet ->
+            if (!resultSet.next()) {
+                null
+            } else {
+                resultSet.toLease()
             }
         }
     }
@@ -188,6 +229,55 @@ class JdbcWorkflowLeaseStore(
             }
         }
     }
+
+    private fun lockLeaseRow(
+        connection: java.sql.Connection,
+        expectedLease: WorkflowLease,
+    ) {
+        connection.prepareStatement(lockLeaseSql()).use { statement ->
+            if (expectedLease.checkpointRevision == null) {
+                statement.setNull(1, java.sql.Types.BIGINT)
+            } else {
+                statement.setLong(1, expectedLease.checkpointRevision)
+            }
+            statement.setString(2, expectedLease.workflowName)
+            statement.setString(3, expectedLease.workflowId)
+            statement.setString(4, expectedLease.leaseId)
+            statement.setString(5, expectedLease.ownerId)
+            statement.setLong(6, clockMillis())
+            val updated = statement.executeUpdate()
+            if (updated == 0) {
+                val existing = loadLease(connection, expectedLease.workflowName, expectedLease.workflowId)
+                throw when {
+                    existing == null || isExpired(existing) -> StaleWorkflowLeaseException(
+                        "Workflow '${expectedLease.workflowName}' and workflowId='${expectedLease.workflowId}' lease '${expectedLease.leaseId}' is no longer active",
+                    )
+                    else -> StaleWorkflowLeaseException(
+                        "Workflow '${expectedLease.workflowName}' and workflowId='${expectedLease.workflowId}' is now fenced by lease '${existing.leaseId}' owned by '${existing.ownerId}'",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun <T> withTransaction(block: (java.sql.Connection) -> T): T = dataSource.connection.use { connection ->
+        val previousAutoCommit = connection.autoCommit
+        connection.autoCommit = false
+        try {
+            val result = block(connection)
+            connection.commit()
+            result
+        } catch (error: Throwable) {
+            connection.rollback()
+            throw error
+        } finally {
+            connection.autoCommit = previousAutoCommit
+        }
+    }
+
+    private fun unsupportedFence(checkpointStore: WorkflowCheckpointStore): IllegalArgumentException = IllegalArgumentException(
+        "JdbcWorkflowLeaseStore can only fence JdbcWorkflowCheckpointStore instances, not ${checkpointStore::class.qualifiedName}",
+    )
     private fun activeLeaseConflict(existing: WorkflowLease): WorkflowLeaseConflictException =
         WorkflowLeaseConflictException(
             "Workflow '${existing.workflowName}' and workflowId='${existing.workflowId}' is already leased by owner '${existing.ownerId}' until ${existing.expiresAtEpochMillis}",
@@ -261,6 +351,15 @@ class JdbcWorkflowLeaseStore(
         SET
             ${table.checkpointRevisionColumn} = ?,
             ${table.expiresAtEpochMillisColumn} = ?
+        WHERE ${table.workflowNameColumn} = ?
+            AND ${table.workflowIdColumn} = ?
+            AND ${table.leaseIdColumn} = ?
+            AND ${table.ownerIdColumn} = ?
+            AND ${table.expiresAtEpochMillisColumn} > ?
+    """.trimIndent()
+    private fun lockLeaseSql(): String = """
+        UPDATE ${table.tableName}
+        SET ${table.checkpointRevisionColumn} = ?
         WHERE ${table.workflowNameColumn} = ?
             AND ${table.workflowIdColumn} = ?
             AND ${table.leaseIdColumn} = ?

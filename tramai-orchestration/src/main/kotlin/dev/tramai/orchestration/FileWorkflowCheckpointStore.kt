@@ -1,4 +1,7 @@
 package dev.tramai.orchestration
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -78,6 +81,12 @@ class FileWorkflowCheckpointStore(
         }
     }
 
+    /**
+     * Reads every checkpoint file into memory before sorting.
+     *
+     * Large deployments should prefer a paged or indexed catalog implementation to avoid heap pressure
+     * during worker scans.
+     */
     override suspend fun listCheckpoints(): List<WorkflowCheckpoint> {
         if (!Files.exists(rootDirectory)) {
             return emptyList()
@@ -171,6 +180,23 @@ internal inline fun <T> withFileLock(
     ).use { channel ->
         channel.lock().use {
             return block()
+        }
+    }
+}
+
+internal suspend inline fun <T> withFileLockSuspending(
+    checkpointPath: Path,
+    crossinline block: suspend () -> T,
+): T = withContext(Dispatchers.IO) {
+    val lockPath = checkpointPath.resolveSibling("${checkpointPath.fileName}.lock")
+    Files.createDirectories(lockPath.parent)
+    FileChannel.open(
+        lockPath,
+        StandardOpenOption.CREATE,
+        StandardOpenOption.WRITE,
+    ).use { channel ->
+        channel.lock().use {
+            block()
         }
     }
 }

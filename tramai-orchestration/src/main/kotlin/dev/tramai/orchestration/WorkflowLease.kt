@@ -1,4 +1,7 @@
 package dev.tramai.orchestration
+
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 /**
  * Active ownership claim for one workflow execution.
@@ -46,6 +49,26 @@ interface WorkflowLeaseStore {
     ): WorkflowLease
     suspend fun release(lease: WorkflowLease)
 }
+
+/**
+ * Optional coordination SPI that can fence a checkpoint mutation against an active lease atomically.
+ */
+interface WorkflowLeaseCheckpointFence {
+    suspend fun saveCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        checkpoint: WorkflowCheckpoint,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ): WorkflowCheckpoint
+
+    suspend fun deleteCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    )
+}
 /**
  * Raised when a workflow cannot claim or renew active ownership because another executor holds the lease.
  */
@@ -57,95 +80,128 @@ class WorkflowLeaseConflictException(
  */
 class InMemoryWorkflowLeaseStore(
     private val clockMillis: () -> Long = System::currentTimeMillis,
-) : WorkflowLeaseStore, WorkerRegistryStore {
+) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence, WorkerRegistryStore {
     private val leases = linkedMapOf<LeaseKey, WorkflowLease>()
     private val workers = linkedMapOf<String, WorkerRegistryRecord>()
     private val monitor = Any()
+    private val leaseMutex = Mutex()
+
     override suspend fun currentLease(
         workflowName: String,
         workflowId: String,
-    ): WorkflowLease? = synchronized(monitor) {
-        val key = LeaseKey(workflowName, workflowId)
-        val lease = leases[key]
-        if (lease == null) {
-            null
-        } else if (isExpired(lease)) {
-            leases.remove(key)
-            null
-        } else {
-            lease
+    ): WorkflowLease? = leaseMutex.withLock {
+        synchronized(monitor) {
+            activeLease(workflowName, workflowId)
         }
     }
+
     override suspend fun claim(
         workflowName: String,
         workflowId: String,
         ownerId: String,
         checkpointRevision: Long?,
         leaseDurationMillis: Long,
-    ): WorkflowLease = synchronized(monitor) {
-        val key = LeaseKey(workflowName, workflowId)
-        val existing = leases[key]
-        if (existing != null && !isExpired(existing)) {
-            throw WorkflowLeaseConflictException(
-                "Workflow '$workflowName' and workflowId='$workflowId' is already leased by owner '${existing.ownerId}' until ${existing.expiresAtEpochMillis}",
+    ): WorkflowLease = leaseMutex.withLock {
+        synchronized(monitor) {
+            val key = LeaseKey(workflowName, workflowId)
+            val existing = leases[key]
+            if (existing != null && !isExpired(existing)) {
+                throw WorkflowLeaseConflictException(
+                    "Workflow '$workflowName' and workflowId='$workflowId' is already leased by owner '${existing.ownerId}' until ${existing.expiresAtEpochMillis}",
+                )
+            }
+            val now = clockMillis()
+            val lease = WorkflowLease(
+                workflowName = workflowName,
+                workflowId = workflowId,
+                leaseId = UUID.randomUUID().toString(),
+                ownerId = ownerId,
+                checkpointRevision = checkpointRevision,
+                acquiredAtEpochMillis = now,
+                expiresAtEpochMillis = now + leaseDurationMillis,
             )
+            leases[key] = lease
+            lease
         }
-        val now = clockMillis()
-        val lease = WorkflowLease(
-            workflowName = workflowName,
-            workflowId = workflowId,
-            leaseId = UUID.randomUUID().toString(),
-            ownerId = ownerId,
-            checkpointRevision = checkpointRevision,
-            acquiredAtEpochMillis = now,
-            expiresAtEpochMillis = now + leaseDurationMillis,
-        )
-        leases[key] = lease
-        lease
     }
+
     override suspend fun renew(
         lease: WorkflowLease,
         checkpointRevision: Long?,
         leaseDurationMillis: Long,
-    ): WorkflowLease = synchronized(monitor) {
-        val key = LeaseKey(lease.workflowName, lease.workflowId)
-        val existing = leases[key]
-            ?: throw WorkflowLeaseConflictException(
-                "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' has no active lease to renew",
-            )
-        if (isExpired(existing)) {
-            leases.remove(key)
-            throw WorkflowLeaseConflictException(
-                "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' lease has expired before renewal",
-            )
-        }
-        if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
-            throw WorkflowLeaseConflictException(
-                "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' is leased by owner '${existing.ownerId}', not '${lease.ownerId}'",
-            )
-        }
-        val now = clockMillis()
-        val renewed = existing.copy(
-            checkpointRevision = checkpointRevision,
-            expiresAtEpochMillis = now + leaseDurationMillis,
-        )
-        leases[key] = renewed
-        renewed
-    }
-    override suspend fun release(lease: WorkflowLease) {
+    ): WorkflowLease = leaseMutex.withLock {
         synchronized(monitor) {
             val key = LeaseKey(lease.workflowName, lease.workflowId)
-            val existing = leases[key] ?: return
+            val existing = leases[key]
+                ?: throw WorkflowLeaseConflictException(
+                    "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' has no active lease to renew",
+                )
             if (isExpired(existing)) {
                 leases.remove(key)
-                return
+                throw WorkflowLeaseConflictException(
+                    "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' lease has expired before renewal",
+                )
             }
             if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
                 throw WorkflowLeaseConflictException(
                     "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' is leased by owner '${existing.ownerId}', not '${lease.ownerId}'",
                 )
             }
-            leases.remove(key)
+            val now = clockMillis()
+            val renewed = existing.copy(
+                checkpointRevision = checkpointRevision,
+                expiresAtEpochMillis = now + leaseDurationMillis,
+            )
+            leases[key] = renewed
+            renewed
+        }
+    }
+
+    override suspend fun release(lease: WorkflowLease) {
+        leaseMutex.withLock {
+            synchronized(monitor) {
+                val key = LeaseKey(lease.workflowName, lease.workflowId)
+                val existing = leases[key] ?: return
+                if (isExpired(existing)) {
+                    leases.remove(key)
+                    return
+                }
+                if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
+                    throw WorkflowLeaseConflictException(
+                        "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' is leased by owner '${existing.ownerId}', not '${lease.ownerId}'",
+                    )
+                }
+                leases.remove(key)
+            }
+        }
+    }
+
+    override suspend fun saveCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        checkpoint: WorkflowCheckpoint,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ): WorkflowCheckpoint = leaseMutex.withLock {
+        val current = synchronized(monitor) {
+            activeLease(expectedLease.workflowName, expectedLease.workflowId)
+        }
+        validateExpectedLease(expectedLease, current)
+        checkpointStore.save(checkpoint, expectedRevision)
+    }
+
+    override suspend fun deleteCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ) {
+        leaseMutex.withLock {
+            val current = synchronized(monitor) {
+                activeLease(workflowName, workflowId)
+            }
+            validateExpectedLease(expectedLease, current)
+            checkpointStore.delete(workflowName, workflowId, expectedRevision)
         }
     }
 
@@ -200,6 +256,35 @@ class InMemoryWorkflowLeaseStore(
     }
 
     private fun isExpired(lease: WorkflowLease): Boolean = clockMillis() >= lease.expiresAtEpochMillis
+
+    private fun activeLease(
+        workflowName: String,
+        workflowId: String,
+    ): WorkflowLease? {
+        val key = LeaseKey(workflowName, workflowId)
+        val lease = leases[key] ?: return null
+        if (isExpired(lease)) {
+            leases.remove(key)
+            return null
+        }
+        return lease
+    }
+
+    private fun validateExpectedLease(
+        expectedLease: WorkflowLease,
+        current: WorkflowLease?,
+    ) {
+        if (current == null) {
+            throw StaleWorkflowLeaseException(
+                "Workflow '${expectedLease.workflowName}' and workflowId='${expectedLease.workflowId}' lease '${expectedLease.leaseId}' is no longer active",
+            )
+        }
+        if (current.leaseId != expectedLease.leaseId || current.ownerId != expectedLease.ownerId) {
+            throw StaleWorkflowLeaseException(
+                "Workflow '${expectedLease.workflowName}' and workflowId='${expectedLease.workflowId}' is now fenced by lease '${current.leaseId}' owned by '${current.ownerId}'",
+            )
+        }
+    }
 }
 private data class LeaseKey(
     val workflowName: String,

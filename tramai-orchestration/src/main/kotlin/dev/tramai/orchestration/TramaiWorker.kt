@@ -1,10 +1,13 @@
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -18,6 +21,7 @@ import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 interface TramaiWorkerObserver {
@@ -30,6 +34,23 @@ interface TramaiWorkerObserver {
     fun onLeaseReleased(workflowId: String, workerId: String) = Unit
 
     fun onLeaseExpired(workflowId: String, workerId: String) = Unit
+
+    fun onLeaseRenewalFailed(
+        workflowId: String,
+        workerId: String,
+        error: Throwable,
+    ) = Unit
+
+    fun onLeaseReleaseFailed(
+        workflowId: String,
+        workerId: String,
+        error: Throwable,
+    ) = Unit
+
+    fun onPollFailed(
+        workerId: String,
+        error: Throwable,
+    ) = Unit
 
     fun onWorkTakenOver(
         workflowId: String,
@@ -140,20 +161,15 @@ class TramaiWorker(
     private val config: WorkerConfig,
     private val leaseStore: WorkflowLeaseStore,
     private val checkpointStore: WorkflowCheckpointStore,
+    private val checkpointCatalog: WorkflowCheckpointCatalog,
+    private val stepAttemptStore: StepAttemptRecordStore,
     private val workflowRegistry: Map<String, Workflow<*, *>>,
     private val observability: TramaiWorkerObserver = NoOpTramaiWorkerObserver,
 ) : AutoCloseable {
-    private val checkpointCatalog = checkpointStore as? WorkflowCheckpointCatalog
-        ?: throw IllegalArgumentException(
-            "TramaiWorker requires a WorkflowCheckpointStore that also implements WorkflowCheckpointCatalog",
-        )
-    private val stepAttemptStore = checkpointStore as? StepAttemptRecordStore
-        ?: throw IllegalArgumentException(
-            "TramaiWorker requires a WorkflowCheckpointStore that also implements StepAttemptRecordStore",
-        )
     private val workerRegistryStore = leaseStore as? WorkerRegistryStore
     private val activeExecutions = ConcurrentHashMap<String, ActiveExecution>()
     private val executionFailures = ConcurrentHashMap<String, Throwable>()
+    private val shutdownStarted = AtomicBoolean(false)
     private var workerScope: CoroutineScope? = null
     private var workerJob: Job? = null
     private var pollJob: Job? = null
@@ -165,10 +181,34 @@ class TramaiWorker(
     @Volatile
     private var shuttingDownGracefully: Boolean = false
 
+    constructor(
+        config: WorkerConfig,
+        leaseStore: WorkflowLeaseStore,
+        checkpointStore: WorkflowCheckpointStore,
+        workflowRegistry: Map<String, Workflow<*, *>>,
+        observability: TramaiWorkerObserver = NoOpTramaiWorkerObserver,
+    ) : this(
+        config = config,
+        leaseStore = leaseStore,
+        checkpointStore = checkpointStore,
+        checkpointCatalog = checkpointStore as? WorkflowCheckpointCatalog
+            ?: throw IllegalArgumentException(
+                "TramaiWorker requires a WorkflowCheckpointCatalog when checkpointStore does not implement it directly",
+            ),
+        stepAttemptStore = checkpointStore as? StepAttemptRecordStore
+            ?: throw IllegalArgumentException(
+                "TramaiWorker requires a StepAttemptRecordStore when checkpointStore does not implement it directly",
+            ),
+        workflowRegistry = workflowRegistry,
+        observability = observability,
+    )
+
     suspend fun start() {
         if (workerJob != null) {
             return
         }
+        shutdownStarted.set(false)
+        shuttingDownGracefully = false
         val supervisor = SupervisorJob()
         val scope = CoroutineScope(supervisor + Dispatchers.Default)
         workerScope = scope
@@ -189,14 +229,17 @@ class TramaiWorker(
     }
 
     suspend fun shutdown() {
-        if (workerJob == null || shuttingDownGracefully) {
+        val supervisor = workerJob ?: return
+        if (!shutdownStarted.compareAndSet(false, true)) {
             return
         }
         shuttingDownGracefully = true
         acceptingWork = false
         pollJob?.cancelAndJoin()
         val executions = activeExecutions.values.toList()
-        val drained = withTimeoutOrNull(config.drainTimeoutMillis) {
+        val drainStartedAt = System.currentTimeMillis()
+        val drainTimeoutMillis = config.drainTimeoutMillis
+        val drained = withTimeoutOrNull(drainTimeoutMillis) {
             executions.mapNotNull { it.executionJob }.joinAll()
             true
         } ?: false
@@ -204,12 +247,15 @@ class TramaiWorker(
             executions.forEach { execution ->
                 execution.executionJob?.cancel(CancellationException("Worker drain timeout exceeded"))
             }
-            executions.mapNotNull { it.executionJob }.joinAll()
+            val residualTimeoutMillis = (drainTimeoutMillis - (System.currentTimeMillis() - drainStartedAt)).coerceAtLeast(1L)
+            withTimeoutOrNull(residualTimeoutMillis) {
+                executions.mapNotNull { it.executionJob }.joinAll()
+            }
         }
         heartbeatJob?.cancelAndJoin()
         workerRegistryStore?.unregisterWorker(config.workerId)
         observability.onWorkerStopped(config.workerId)
-        workerJob?.cancel()
+        supervisor.cancel()
         workerJob = null
         workerScope = null
         pollJob = null
@@ -244,35 +290,42 @@ class TramaiWorker(
 
     private suspend fun pollLoop() {
         while (currentCoroutineContext().isActive && acceptingWork) {
-            val checkpoints = checkpointCatalog.listCheckpoints()
-                .sortedWith(compareBy<WorkflowCheckpoint>({ it.workflowName }, { it.workflowId }))
-            checkpoints.forEach { checkpoint ->
-                if (!acceptingWork || activeExecutions.containsKey(checkpoint.workflowId)) {
-                    return@forEach
+            try {
+                val checkpoints = checkpointCatalog.listCheckpoints()
+                    .sortedWith(compareBy<WorkflowCheckpoint>({ it.workflowName }, { it.workflowId }))
+                checkpoints.forEach { checkpoint ->
+                    if (!acceptingWork || activeExecutions.containsKey(checkpoint.workflowId)) {
+                        return@forEach
+                    }
+                    if (!ownsPartition(checkpoint.workflowId)) {
+                        return@forEach
+                    }
+                    if (leaseStore.currentLease(checkpoint.workflowName, checkpoint.workflowId) != null) {
+                        return@forEach
+                    }
+                    val lease = try {
+                        leaseStore.claim(
+                            workflowName = checkpoint.workflowName,
+                            workflowId = checkpoint.workflowId,
+                            ownerId = config.workerId,
+                            checkpointRevision = checkpoint.revision,
+                            leaseDurationMillis = config.leaseDurationMillis,
+                        )
+                    } catch (_: WorkflowLeaseConflictException) {
+                        null
+                    }
+                    if (lease != null) {
+                        observability.onLeaseAcquired(checkpoint.workflowId, config.workerId)
+                        launchExecution(checkpoint, lease)
+                    }
                 }
-                if (!ownsPartition(checkpoint.workflowId)) {
-                    return@forEach
-                }
-                if (leaseStore.currentLease(checkpoint.workflowName, checkpoint.workflowId) != null) {
-                    return@forEach
-                }
-                val lease = try {
-                    leaseStore.claim(
-                        workflowName = checkpoint.workflowName,
-                        workflowId = checkpoint.workflowId,
-                        ownerId = config.workerId,
-                        checkpointRevision = checkpoint.revision,
-                        leaseDurationMillis = config.leaseDurationMillis,
-                    )
-                } catch (_: WorkflowLeaseConflictException) {
-                    null
-                }
-                if (lease != null) {
-                    observability.onLeaseAcquired(checkpoint.workflowId, config.workerId)
-                    launchExecution(checkpoint, lease)
-                }
+                delay(config.pollIntervalMillis)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                observability.onPollFailed(config.workerId, error)
+                delay(maxOf(100L, config.pollIntervalMillis))
             }
-            delay(config.pollIntervalMillis)
         }
     }
 
@@ -297,6 +350,7 @@ class TramaiWorker(
             try {
                 executeClaimedWorkflow(checkpoint, handle)
             } finally {
+                handle.tracker?.close()
                 handle.renewalJob?.cancel()
                 activeExecutions.remove(checkpoint.workflowId, handle)
             }
@@ -417,8 +471,9 @@ class TramaiWorker(
 
     private suspend fun renewLeaseLoop(handle: ActiveExecution) {
         val interval = maxOf(1L, config.leaseDurationMillis / 2)
+        var nextDelayMillis = interval
         while (currentCoroutineContext().isActive) {
-            delay(interval)
+            delay(nextDelayMillis)
             val currentLease = handle.lease.get() ?: return
             val renewed = try {
                 leaseStore.renew(
@@ -431,17 +486,26 @@ class TramaiWorker(
                 handle.lease.set(null)
                 handle.executionJob?.cancel(CancellationException("Workflow lease for '${handle.workflowId}' was lost"))
                 return
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                observability.onLeaseRenewalFailed(handle.workflowId, config.workerId, error)
+                nextDelayMillis = maxOf(50L, interval / 2)
+                continue
             }
             handle.lease.set(renewed)
+            nextDelayMillis = interval
         }
     }
 
     private suspend fun releaseLease(handle: ActiveExecution) {
         val lease = handle.lease.getAndSet(null) ?: return
-        runCatching {
+        try {
             leaseStore.release(lease)
+            observability.onLeaseReleased(handle.workflowId, config.workerId)
+        } catch (error: Throwable) {
+            observability.onLeaseReleaseFailed(handle.workflowId, config.workerId, error)
         }
-        observability.onLeaseReleased(handle.workflowId, config.workerId)
     }
 
     private suspend fun ownsPartition(workflowId: String): Boolean {
@@ -475,6 +539,12 @@ class TramaiWorker(
 
     private fun workerVersion(): String = TramaiWorker::class.java.`package`?.implementationVersion ?: "dev"
 
+    /**
+     * Uses the high 64 bits of SHA-256 to keep partition routing deterministic without carrying the full digest.
+     *
+     * This truncation still has the usual birthday-bound collision risk, so operators with very large worker counts
+     * should expect extremely rare but possible hash collisions.
+     */
     private fun stableHash(workflowId: String): Long {
         val bytes = MessageDigest.getInstance("SHA-256").digest(workflowId.toByteArray(Charsets.UTF_8))
         return ByteBuffer.wrap(bytes.copyOfRange(0, Long.SIZE_BYTES)).long and Long.MAX_VALUE
@@ -501,9 +571,7 @@ private class WorkerExecutionObserver(
         context: WorkflowContext,
     ) {
         if (this.workflowName == workflowName) {
-            runBlocking {
-                tracker.startAttempt(stepName)
-            }
+            tracker.enqueueStartAttempt(stepName)
         }
     }
 
@@ -514,9 +582,7 @@ private class WorkerExecutionObserver(
         context: WorkflowContext,
     ) {
         if (this.workflowName == workflowName) {
-            runBlocking {
-                tracker.failAttempt(stepName, error)
-            }
+            tracker.enqueueFailedAttempt(stepName, error)
         }
     }
 }
@@ -531,6 +597,11 @@ private class ExecutionTracker(
     private val leaseProvider: () -> WorkflowLease?,
 ) {
     private val monitor = Any()
+    private val observerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val completedObserverTransition = CompletableDeferred<Result<Unit>>().also {
+        it.complete(Result.success(Unit))
+    }
+    private var observerTransitionTail: Deferred<Result<Unit>> = completedObserverTransition
     private val trackedStepNames = workflow.topLevelStepNames()
     private var inputFingerprint: String? = null
     private var preparedStepName: String? = null
@@ -602,9 +673,16 @@ private class ExecutionTracker(
         observability.onStepAttemptStarted(context.workflowId, stepName, attempt.attemptId, workerId)
     }
 
+    fun enqueueStartAttempt(stepName: String) {
+        enqueueObserverTransition {
+            startAttempt(stepName)
+        }
+    }
+
     suspend fun completeAttempt(
         persistedCheckpoint: WorkflowCheckpoint,
     ) {
+        awaitObserverTransitions()
         val attempt = synchronized(monitor) {
             activeAttempt?.takeIf { it.stepName == persistedCheckpoint.lastCompletedStepName }
         } ?: run {
@@ -644,11 +722,13 @@ private class ExecutionTracker(
     }
 
     suspend fun failActiveAttempt(error: Throwable) {
+        awaitObserverTransitions()
         val attempt = synchronized(monitor) { activeAttempt } ?: return
         failAttempt(attempt.stepName, error)
     }
 
     suspend fun cancelActiveAttempt(summary: String) {
+        awaitObserverTransitions()
         val attempt = synchronized(monitor) { activeAttempt } ?: return
         val cancelled = attempt.copy(
             status = StepAttemptStatus.CANCELLED,
@@ -659,6 +739,41 @@ private class ExecutionTracker(
         synchronized(monitor) {
             activeAttempt = null
         }
+    }
+
+    fun enqueueFailedAttempt(
+        stepName: String,
+        error: Throwable,
+    ) {
+        enqueueObserverTransition {
+            failAttempt(stepName, error)
+        }
+    }
+
+    fun close() {
+        observerScope.coroutineContext[Job]?.cancel()
+    }
+
+    private fun enqueueObserverTransition(
+        block: suspend ExecutionTracker.() -> Unit,
+    ) {
+        synchronized(monitor) {
+            val previous = observerTransitionTail
+            observerTransitionTail = observerScope.async {
+                previous.await().getOrThrow()
+                try {
+                    this@ExecutionTracker.block()
+                    Result.success(Unit)
+                } catch (error: Throwable) {
+                    Result.failure(error)
+                }
+            }
+        }
+    }
+
+    private suspend fun awaitObserverTransitions() {
+        val tail = synchronized(monitor) { observerTransitionTail }
+        tail.await().getOrThrow()
     }
 
     private fun summarize(error: Throwable): String =
@@ -679,6 +794,11 @@ private class LeaseFencedCheckpointStore(
     private val tracker: ExecutionTracker,
     private val revisionSink: (Long?) -> Unit,
 ) : WorkflowCheckpointStore {
+    private val leaseFence = leaseStore as? WorkflowLeaseCheckpointFence
+        ?: throw IllegalArgumentException(
+            "TramaiWorker requires a WorkflowLeaseStore that can atomically fence checkpoint mutations",
+        )
+
     override suspend fun load(
         workflowName: String,
         workflowId: String,
@@ -688,8 +808,13 @@ private class LeaseFencedCheckpointStore(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
     ): WorkflowCheckpoint {
-        validateLease(checkpoint.workflowName, checkpoint.workflowId)
-        val persisted = delegate.save(checkpoint, expectedRevision)
+        val expectedLease = expectedLease(checkpoint.workflowName, checkpoint.workflowId)
+        val persisted = leaseFence.saveCheckpointIfLeaseOwner(
+            checkpointStore = delegate,
+            checkpoint = checkpoint,
+            expectedRevision = expectedRevision,
+            expectedLease = expectedLease,
+        )
         revisionSink(persisted.revision)
         tracker.completeAttempt(persisted)
         return persisted
@@ -700,28 +825,23 @@ private class LeaseFencedCheckpointStore(
         workflowId: String,
         expectedRevision: Long?,
     ) {
-        validateLease(workflowName, workflowId)
-        delegate.delete(workflowName, workflowId, expectedRevision)
+        val expectedLease = expectedLease(workflowName, workflowId)
+        leaseFence.deleteCheckpointIfLeaseOwner(
+            checkpointStore = delegate,
+            workflowName = workflowName,
+            workflowId = workflowId,
+            expectedRevision = expectedRevision,
+            expectedLease = expectedLease,
+        )
     }
 
-    private suspend fun validateLease(
+    private fun expectedLease(
         workflowName: String,
         workflowId: String,
-    ) {
-        val expected = leaseProvider()
-            ?: throw StaleWorkflowLeaseException(
-                "Workflow '$workflowName' and workflowId='$workflowId' has no active lease for checkpoint mutation",
-            )
-        val current = leaseStore.currentLease(workflowName, workflowId)
-            ?: throw StaleWorkflowLeaseException(
-                "Workflow '$workflowName' and workflowId='$workflowId' lease '${expected.leaseId}' is no longer active",
-            )
-        if (current.leaseId != expected.leaseId || current.ownerId != expected.ownerId) {
-            throw StaleWorkflowLeaseException(
-                "Workflow '$workflowName' and workflowId='$workflowId' is now fenced by lease '${current.leaseId}' owned by '${current.ownerId}'",
-            )
-        }
-    }
+    ): WorkflowLease = leaseProvider()
+        ?: throw StaleWorkflowLeaseException(
+            "Workflow '$workflowName' and workflowId='$workflowId' has no active lease for checkpoint mutation",
+        )
 }
 
 private fun sha256Hex(value: String): String = MessageDigest.getInstance("SHA-256")

@@ -9,32 +9,20 @@ import javax.sql.DataSource
  * Applications are responsible for supplying a JDBC driver and creating the target table.
  */
 class JdbcWorkflowCheckpointStore(
-    private val dataSource: DataSource,
+    internal val dataSource: DataSource,
     private val table: JdbcWorkflowCheckpointTable = JdbcWorkflowCheckpointTable(),
 ) : WorkflowCheckpointStore, WorkflowCheckpointCatalog {
     override suspend fun load(
         workflowName: String,
         workflowId: String,
     ): WorkflowCheckpoint? = dataSource.connection.use { connection ->
-        connection.prepareStatement(selectSql()).use { statement ->
-            statement.setString(1, workflowName)
-            statement.setString(2, workflowId)
-            statement.executeQuery().use { resultSet ->
-                if (!resultSet.next()) {
-                    null
-                } else {
-                    resultSet.toCheckpoint()
-                }
-            }
-        }
+        load(connection, workflowName, workflowId)
     }
     override suspend fun save(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
-    ): WorkflowCheckpoint = if (expectedRevision == null) {
-        insertCheckpoint(checkpoint)
-    } else {
-        updateCheckpoint(checkpoint, expectedRevision)
+    ): WorkflowCheckpoint = dataSource.connection.use { connection ->
+        saveInConnection(connection, checkpoint, expectedRevision)
     }
     override suspend fun delete(
         workflowName: String,
@@ -42,23 +30,7 @@ class JdbcWorkflowCheckpointStore(
         expectedRevision: Long?,
     ) {
         dataSource.connection.use { connection ->
-            connection.prepareStatement(deleteSql(expectedRevision != null)).use { statement ->
-                statement.setString(1, workflowName)
-                statement.setString(2, workflowId)
-                if (expectedRevision != null) {
-                    statement.setLong(3, expectedRevision)
-                }
-                val updated = statement.executeUpdate()
-                if (expectedRevision != null && updated == 0) {
-                    val existing = load(workflowName, workflowId)
-                    validateDeleteExpectedRevision(
-                        workflowName = workflowName,
-                        workflowId = workflowId,
-                        existing = existing,
-                        expectedRevision = expectedRevision,
-                    )
-                }
-            }
+            deleteInConnection(connection, workflowName, workflowId, expectedRevision)
         }
     }
 
@@ -87,8 +59,62 @@ class JdbcWorkflowCheckpointStore(
             PRIMARY KEY (${table.workflowNameColumn}, ${table.workflowIdColumn})
         )
     """.trimIndent()
-    private suspend fun insertCheckpoint(checkpoint: WorkflowCheckpoint): WorkflowCheckpoint {
-        val existing = load(checkpoint.workflowName, checkpoint.workflowId)
+    internal fun saveInConnection(
+        connection: java.sql.Connection,
+        checkpoint: WorkflowCheckpoint,
+        expectedRevision: Long?,
+    ): WorkflowCheckpoint = if (expectedRevision == null) {
+        insertCheckpoint(connection, checkpoint)
+    } else {
+        updateCheckpoint(connection, checkpoint, expectedRevision)
+    }
+
+    internal fun deleteInConnection(
+        connection: java.sql.Connection,
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long?,
+    ) {
+        connection.prepareStatement(deleteSql(expectedRevision != null)).use { statement ->
+            statement.setString(1, workflowName)
+            statement.setString(2, workflowId)
+            if (expectedRevision != null) {
+                statement.setLong(3, expectedRevision)
+            }
+            val updated = statement.executeUpdate()
+            if (expectedRevision != null && updated == 0) {
+                val existing = load(connection, workflowName, workflowId)
+                validateDeleteExpectedRevision(
+                    workflowName = workflowName,
+                    workflowId = workflowId,
+                    existing = existing,
+                    expectedRevision = expectedRevision,
+                )
+            }
+        }
+    }
+
+    internal fun load(
+        connection: java.sql.Connection,
+        workflowName: String,
+        workflowId: String,
+    ): WorkflowCheckpoint? = connection.prepareStatement(selectSql()).use { statement ->
+        statement.setString(1, workflowName)
+        statement.setString(2, workflowId)
+        statement.executeQuery().use { resultSet ->
+            if (!resultSet.next()) {
+                null
+            } else {
+                resultSet.toCheckpoint()
+            }
+        }
+    }
+
+    private fun insertCheckpoint(
+        connection: java.sql.Connection,
+        checkpoint: WorkflowCheckpoint,
+    ): WorkflowCheckpoint {
+        val existing = load(connection, checkpoint.workflowName, checkpoint.workflowId)
         validateExpectedRevision(
             workflowName = checkpoint.workflowName,
             workflowId = checkpoint.workflowId,
@@ -96,54 +122,51 @@ class JdbcWorkflowCheckpointStore(
             expectedRevision = null,
         )
         val persisted = checkpoint.copy(revision = 1)
-        dataSource.connection.use { connection ->
-            try {
-                connection.prepareStatement(insertSql()).use { statement ->
-                    statement.bindCheckpoint(persisted)
-                    statement.executeUpdate()
-                }
-            } catch (error: SQLException) {
-                val current = load(checkpoint.workflowName, checkpoint.workflowId)
-                if (current != null) {
-                    validateExpectedRevision(
-                        workflowName = checkpoint.workflowName,
-                        workflowId = checkpoint.workflowId,
-                        existing = current,
-                        expectedRevision = null,
-                    )
-                }
-                throw error
+        try {
+            connection.prepareStatement(insertSql()).use { statement ->
+                statement.bindCheckpoint(persisted)
+                statement.executeUpdate()
             }
+        } catch (error: SQLException) {
+            val current = load(connection, checkpoint.workflowName, checkpoint.workflowId)
+            if (current != null) {
+                validateExpectedRevision(
+                    workflowName = checkpoint.workflowName,
+                    workflowId = checkpoint.workflowId,
+                    existing = current,
+                    expectedRevision = null,
+                )
+            }
+            throw error
         }
         return persisted
     }
-    private suspend fun updateCheckpoint(
+    private fun updateCheckpoint(
+        connection: java.sql.Connection,
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long,
     ): WorkflowCheckpoint {
         val persisted = checkpoint.copy(revision = expectedRevision + 1)
-        dataSource.connection.use { connection ->
-            connection.prepareStatement(updateSql()).use { statement ->
-                statement.setInt(1, persisted.nextStepIndex)
-                statement.setInt(2, persisted.stepExecutions)
-                statement.setString(3, persisted.lastCompletedStepName)
-                statement.setString(4, persisted.statePayload)
-                statement.setLong(5, persisted.revision)
-                statement.setString(6, encodeMetadata(persisted.metadata))
-                statement.setLong(7, persisted.savedAtEpochMillis)
-                statement.setString(8, checkpoint.workflowName)
-                statement.setString(9, checkpoint.workflowId)
-                statement.setLong(10, expectedRevision)
-                val updated = statement.executeUpdate()
-                if (updated == 0) {
-                    val existing = load(checkpoint.workflowName, checkpoint.workflowId)
-                    validateExpectedRevision(
-                        workflowName = checkpoint.workflowName,
-                        workflowId = checkpoint.workflowId,
-                        existing = existing,
-                        expectedRevision = expectedRevision,
-                    )
-                }
+        connection.prepareStatement(updateSql()).use { statement ->
+            statement.setInt(1, persisted.nextStepIndex)
+            statement.setInt(2, persisted.stepExecutions)
+            statement.setString(3, persisted.lastCompletedStepName)
+            statement.setString(4, persisted.statePayload)
+            statement.setLong(5, persisted.revision)
+            statement.setString(6, encodeMetadata(persisted.metadata))
+            statement.setLong(7, persisted.savedAtEpochMillis)
+            statement.setString(8, checkpoint.workflowName)
+            statement.setString(9, checkpoint.workflowId)
+            statement.setLong(10, expectedRevision)
+            val updated = statement.executeUpdate()
+            if (updated == 0) {
+                val existing = load(connection, checkpoint.workflowName, checkpoint.workflowId)
+                validateExpectedRevision(
+                    workflowName = checkpoint.workflowName,
+                    workflowId = checkpoint.workflowId,
+                    existing = existing,
+                    expectedRevision = expectedRevision,
+                )
             }
         }
         return persisted

@@ -1,12 +1,22 @@
 package dev.tramai.orchestration
 
+import com.sun.net.httpserver.HttpExchange
+import com.sun.net.httpserver.HttpHandler
+import com.sun.net.httpserver.HttpServer
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
+import java.net.InetSocketAddress
 import java.nio.ByteBuffer
+import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.system.measureTimeMillis
 import kotlin.test.Test
 
 class TramaiWorkerTest {
@@ -134,6 +144,111 @@ class TramaiWorkerTest {
     }
 
     @Test
+    fun `worker takeover re executes idempotent http put step after crash`() = runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        var now = 3_000L
+        val leaseStore = InMemoryWorkflowLeaseStore(clockMillis = { now })
+        val requests = AtomicInteger()
+        workerHttpServer { exchange ->
+            requests.incrementAndGet()
+            Thread.sleep(200)
+            exchange.respondText(200, "updated")
+        }.use { server ->
+            val workflow = workerWorkflow("idempotent-put") {
+                httpStep(
+                    name = "update",
+                    config = workerHttpConfig(),
+                    request = { _, _ -> HttpRequest(method = "PUT", url = server.url("/resource")) },
+                    merge = { state, response, _ -> state.copy(value = "${state.value}:${response.status}") },
+                )
+            }
+            val runId = "run-idempotent-put"
+            seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+
+            val workerA = worker("worker-a", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+            workerA.start()
+            waitUntil {
+                requests.get() == 1 &&
+                    checkpointStore.latestStepAttempt(runId, "update")?.status == StepAttemptStatus.STARTED
+            }
+            workerA.crash()
+
+            now += 250
+            val workerB = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+            workerB.start()
+            try {
+                waitUntil {
+                    requests.get() >= 2 && checkpointStore.load(workflow.name, runId) == null
+                }
+
+                val attempts = checkpointStore.listStepAttempts(runId)
+                assertThat(attempts).hasSize(2)
+                assertThat(attempts.map { it.status }).containsExactly(StepAttemptStatus.UNKNOWN, StepAttemptStatus.COMPLETED)
+                assertThat(attempts.first().replayPolicy).isEqualTo(ReplayPolicy.IDEMPOTENT)
+                assertThat(attempts.last().workerId).isEqualTo("worker-b")
+            } finally {
+                workerB.shutdown()
+            }
+        }
+    }
+
+    @Test
+    fun `worker takeover re executes externally idempotent http post step with stable key`() = runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        var now = 4_000L
+        val leaseStore = InMemoryWorkflowLeaseStore(clockMillis = { now })
+        val idempotencyKeys = CopyOnWriteArrayList<String>()
+        workerHttpServer { exchange ->
+            idempotencyKeys += exchange.requestHeaders.getFirst("Idempotency-Key")
+            Thread.sleep(200)
+            exchange.respondText(201, "created")
+        }.use { server ->
+            val workflow = workerWorkflow("external-idempotent-post") {
+                httpStep(
+                    name = "create",
+                    config = workerHttpConfig(),
+                    request = { _, context ->
+                        HttpRequest(
+                            method = "POST",
+                            url = server.url("/resource"),
+                            headers = mapOf("Idempotency-Key" to "key-${context.workflowId}"),
+                            body = """{"ok":true}""",
+                        )
+                    },
+                    merge = { state, response, _ -> state.copy(value = "${state.value}:${response.status}") },
+                )
+            }
+            val runId = "run-external-idempotent-post"
+            seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+
+            val workerA = worker("worker-a", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+            workerA.start()
+            waitUntil {
+                idempotencyKeys.size == 1 &&
+                    checkpointStore.latestStepAttempt(runId, "create")?.status == StepAttemptStatus.STARTED
+            }
+            workerA.crash()
+
+            now += 250
+            val workerB = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+            workerB.start()
+            try {
+                waitUntil {
+                    idempotencyKeys.size >= 2 && checkpointStore.load(workflow.name, runId) == null
+                }
+
+                val attempts = checkpointStore.listStepAttempts(runId)
+                assertThat(attempts).hasSize(2)
+                assertThat(attempts.map { it.status }).containsExactly(StepAttemptStatus.UNKNOWN, StepAttemptStatus.COMPLETED)
+                assertThat(attempts.first().replayPolicy).isEqualTo(ReplayPolicy.EXTERNALLY_IDEMPOTENT)
+                assertThat(attempts.map { it.idempotencyKey }.distinct()).containsExactly("key-$runId")
+            } finally {
+                workerB.shutdown()
+            }
+        }
+    }
+
+    @Test
     fun `graceful shutdown drains in progress work and releases leases`() = runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         val leaseStore = InMemoryWorkflowLeaseStore()
@@ -161,6 +276,40 @@ class TramaiWorkerTest {
         assertThat(leaseStore.currentLease(workflow.name, runId)).isNull()
         assertThat(leaseStore.listActiveWorkers()).isEmpty()
         assertThat(checkpointStore.latestStepAttempt(runId, "slow")?.status).isEqualTo(StepAttemptStatus.COMPLETED)
+    }
+
+    @Test
+    fun `shutdown returns after drain timeout when a step ignores cancellation`() = runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val workflow = workerWorkflow("drain-timeout") {
+            localStep(
+                name = "blocking",
+                transform = { state, _ ->
+                    Thread.sleep(400)
+                    state.copy(value = "${state.value}:done")
+                },
+            )
+        }
+        val runId = "run-drain-timeout"
+        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+
+        val worker = worker("worker-0", leaseStore, checkpointStore, workflow, drainTimeoutMillis = 50, pollIntervalMillis = 20)
+        worker.start()
+        waitUntil {
+            checkpointStore.latestStepAttempt(runId, "blocking")?.status == StepAttemptStatus.STARTED
+        }
+
+        val shutdownMillis = measureTimeMillis {
+            worker.shutdown()
+        }
+
+        assertThat(shutdownMillis).isLessThan(250)
+        delay(450)
+        assertThat(checkpointStore.load(workflow.name, runId)).isNotNull()
+        assertThat(checkpointStore.latestStepAttempt(runId, "blocking")?.status)
+            .isIn(StepAttemptStatus.CANCELLED, StepAttemptStatus.FAILED)
+        assertThat(leaseStore.listActiveWorkers()).isEmpty()
     }
 
     @Test
@@ -259,6 +408,115 @@ class TramaiWorkerTest {
     }
 
     @Test
+    fun `lease renewal retries transient failures without abandoning the execution`() = runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val delegateLeaseStore = InMemoryWorkflowLeaseStore()
+        val leaseStore = FlakyRenewLeaseStore(delegateLeaseStore)
+        val workflow = workerWorkflow("renew-retry") {
+            localStep(
+                name = "slow",
+                transform = { state, _ ->
+                    delay(350)
+                    state.copy(value = "${state.value}:done")
+                },
+            )
+        }
+        val runId = "run-renew-retry"
+        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+
+        val worker = worker("worker-0", leaseStore, checkpointStore, workflow, leaseDurationMillis = 200, pollIntervalMillis = 20)
+        worker.start()
+        try {
+            waitUntil {
+                checkpointStore.load(workflow.name, runId) == null
+            }
+
+            assertThat(leaseStore.transientRenewFailures.get()).isEqualTo(1)
+            assertThat(checkpointStore.latestStepAttempt(runId, "slow")?.status).isEqualTo(StepAttemptStatus.COMPLETED)
+            assertThat(worker.latestFailure(runId)).isNull()
+        } finally {
+            worker.shutdown()
+        }
+    }
+
+    @Test
+    fun `concurrent shutdown only unregisters the worker once`() = runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val leaseStore = CountingWorkerRegistryLeaseStore(InMemoryWorkflowLeaseStore())
+        val workflow = workerWorkflow("shutdown-once") {
+            localStep(
+                name = "noop",
+                transform = { state, _ -> state },
+            )
+        }
+        val worker = worker("worker-0", leaseStore, checkpointStore, workflow, pollIntervalMillis = 20)
+        worker.start()
+        waitUntil {
+            leaseStore.listActiveWorkers().singleOrNull()?.workerId == "worker-0"
+        }
+
+        coroutineScope {
+            repeat(2) {
+                launch {
+                    worker.shutdown()
+                }
+            }
+        }
+
+        assertThat(leaseStore.unregisterCalls.get()).isEqualTo(1)
+        assertThat(leaseStore.listActiveWorkers()).isEmpty()
+    }
+
+    @Test
+    fun `externally idempotent recovery without a recorded key is blocked`() = runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val workflow = workerWorkflow("missing-key") {
+            httpStep(
+                name = "create",
+                config = workerHttpConfig(),
+                request = { _, _ ->
+                    HttpRequest(
+                        method = "POST",
+                        url = "http://127.0.0.1/unused",
+                        body = """{"ok":true}""",
+                    )
+                },
+                merge = { state, response, _ -> state.copy(value = "${state.value}:${response.status}") },
+            )
+        }
+        val runId = "run-missing-key"
+        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+        checkpointStore.recordStepAttempt(
+            StepAttemptRecord(
+                runId = runId,
+                stepName = "create",
+                attemptId = "attempt-1",
+                workerId = "worker-a",
+                leaseToken = "lease-a",
+                status = StepAttemptStatus.STARTED,
+                startedAt = 10L,
+                replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                idempotencyKey = null,
+            ),
+        )
+
+        val worker = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        worker.start()
+        try {
+            waitUntil {
+                worker.latestFailure(runId) is NonReplayableStepStateUnknownException
+            }
+
+            val failure = worker.latestFailure(runId) as NonReplayableStepStateUnknownException
+            assertThat(failure.recoveryInstructions).contains("stable idempotency key")
+            assertThat(checkpointStore.latestStepAttempt(runId, "create")?.status).isEqualTo(StepAttemptStatus.UNKNOWN)
+        } finally {
+            worker.shutdown()
+        }
+    }
+
+    @Test
     fun `non replayable step exception includes full context`() {
         val exception = NonReplayableStepStateUnknownException(
             runId = "run-123",
@@ -291,6 +549,9 @@ class TramaiWorkerTest {
         leaseStore: WorkflowLeaseStore,
         checkpointStore: WorkflowCheckpointStore,
         workflow: Workflow<WorkerState, String>,
+        checkpointCatalog: WorkflowCheckpointCatalog = checkpointStore as WorkflowCheckpointCatalog,
+        stepAttemptStore: StepAttemptRecordStore = checkpointStore as StepAttemptRecordStore,
+        observability: TramaiWorkerObserver = NoOpTramaiWorkerObserver,
         pollIntervalMillis: Long = 20,
         leaseDurationMillis: Long = 200,
         drainTimeoutMillis: Long = 1_000,
@@ -308,7 +569,10 @@ class TramaiWorkerTest {
         ),
         leaseStore = leaseStore,
         checkpointStore = checkpointStore,
+        checkpointCatalog = checkpointCatalog,
+        stepAttemptStore = stepAttemptStore,
         workflowRegistry = mapOf(workflow.name to workflow),
+        observability = observability,
     )
 
     private suspend fun seedCheckpoint(
@@ -371,3 +635,173 @@ private fun runIdForPartition(
         index += 1
     }
 }
+
+private class FlakyRenewLeaseStore(
+    private val delegate: InMemoryWorkflowLeaseStore,
+) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence, WorkerRegistryStore by delegate {
+    val transientRenewFailures = AtomicInteger()
+    private val failedLeaseIds = mutableSetOf<String>()
+
+    override suspend fun currentLease(
+        workflowName: String,
+        workflowId: String,
+    ): WorkflowLease? = delegate.currentLease(workflowName, workflowId)
+
+    override suspend fun claim(
+        workflowName: String,
+        workflowId: String,
+        ownerId: String,
+        checkpointRevision: Long?,
+        leaseDurationMillis: Long,
+    ): WorkflowLease = delegate.claim(workflowName, workflowId, ownerId, checkpointRevision, leaseDurationMillis)
+
+    override suspend fun renew(
+        lease: WorkflowLease,
+        checkpointRevision: Long?,
+        leaseDurationMillis: Long,
+    ): WorkflowLease {
+        synchronized(failedLeaseIds) {
+            if (failedLeaseIds.add(lease.leaseId)) {
+                transientRenewFailures.incrementAndGet()
+                throw IllegalStateException("temporary renew failure")
+            }
+        }
+        return delegate.renew(lease, checkpointRevision, leaseDurationMillis)
+    }
+
+    override suspend fun release(lease: WorkflowLease) {
+        delegate.release(lease)
+    }
+
+    override suspend fun saveCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        checkpoint: WorkflowCheckpoint,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ): WorkflowCheckpoint = delegate.saveCheckpointIfLeaseOwner(checkpointStore, checkpoint, expectedRevision, expectedLease)
+
+    override suspend fun deleteCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ) {
+        delegate.deleteCheckpointIfLeaseOwner(checkpointStore, workflowName, workflowId, expectedRevision, expectedLease)
+    }
+}
+
+private class CountingWorkerRegistryLeaseStore(
+    private val delegate: InMemoryWorkflowLeaseStore,
+) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence, WorkerRegistryStore {
+    val unregisterCalls = AtomicInteger()
+
+    override suspend fun currentLease(
+        workflowName: String,
+        workflowId: String,
+    ): WorkflowLease? = delegate.currentLease(workflowName, workflowId)
+
+    override suspend fun claim(
+        workflowName: String,
+        workflowId: String,
+        ownerId: String,
+        checkpointRevision: Long?,
+        leaseDurationMillis: Long,
+    ): WorkflowLease = delegate.claim(workflowName, workflowId, ownerId, checkpointRevision, leaseDurationMillis)
+
+    override suspend fun renew(
+        lease: WorkflowLease,
+        checkpointRevision: Long?,
+        leaseDurationMillis: Long,
+    ): WorkflowLease = delegate.renew(lease, checkpointRevision, leaseDurationMillis)
+
+    override suspend fun release(lease: WorkflowLease) {
+        delegate.release(lease)
+    }
+
+    override suspend fun saveCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        checkpoint: WorkflowCheckpoint,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ): WorkflowCheckpoint = delegate.saveCheckpointIfLeaseOwner(checkpointStore, checkpoint, expectedRevision, expectedLease)
+
+    override suspend fun deleteCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ) {
+        delegate.deleteCheckpointIfLeaseOwner(checkpointStore, workflowName, workflowId, expectedRevision, expectedLease)
+    }
+
+    override suspend fun registerWorker(
+        workerId: String,
+        poolName: String,
+        version: String,
+        capabilityLabels: Set<String>,
+        host: String,
+    ) {
+        delegate.registerWorker(workerId, poolName, version, capabilityLabels, host)
+    }
+
+    override suspend fun updateHeartbeat(workerId: String) {
+        delegate.updateHeartbeat(workerId)
+    }
+
+    override suspend fun unregisterWorker(workerId: String) {
+        unregisterCalls.incrementAndGet()
+        delegate.unregisterWorker(workerId)
+    }
+
+    override suspend fun listActiveWorkers(): List<WorkerRegistryRecord> = delegate.listActiveWorkers()
+
+    override suspend fun listStaleWorkers(staleThresholdMillis: Long): List<WorkerRegistryRecord> =
+        delegate.listStaleWorkers(staleThresholdMillis)
+}
+
+private class WorkerTestHttpServer(
+    handler: (HttpExchange) -> Unit,
+) : AutoCloseable {
+    private val executor = Executors.newCachedThreadPool()
+    private val server = HttpServer.create(InetSocketAddress(0), 0).apply {
+        createContext("/", HttpHandler { exchange ->
+            try {
+                handler(exchange)
+            } finally {
+                exchange.close()
+            }
+        })
+        this.executor = executor
+        start()
+    }
+
+    fun url(path: String): String = "http://127.0.0.1:${server.address.port}$path"
+
+    override fun close() {
+        server.stop(0)
+        executor.shutdownNow()
+    }
+}
+
+private fun workerHttpServer(handler: (HttpExchange) -> Unit): WorkerTestHttpServer = WorkerTestHttpServer(handler)
+
+private fun HttpExchange.respondText(
+    status: Int,
+    body: String,
+    headers: Map<String, String> = emptyMap(),
+) {
+    headers.forEach { (headerName, headerValue) ->
+        responseHeaders.add(headerName, headerValue)
+    }
+    val bytes = body.toByteArray(StandardCharsets.UTF_8)
+    sendResponseHeaders(status, bytes.size.toLong())
+    responseBody.use { output -> output.write(bytes) }
+}
+
+private fun workerHttpConfig(): HttpStepConfig = HttpStepConfig(
+    timeoutSeconds = 30,
+    maxResponseBytes = 1_048_576,
+    allowedHosts = setOf("127.0.0.1", "localhost"),
+)

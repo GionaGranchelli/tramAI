@@ -11,7 +11,7 @@ class FileWorkflowLeaseStore(
     private val rootDirectory: Path,
     private val pathStrategy: WorkflowCheckpointPathStrategy = DefaultWorkflowCheckpointPathStrategy("lease.properties"),
     private val clockMillis: () -> Long = System::currentTimeMillis,
-) : WorkflowLeaseStore {
+) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence {
     override suspend fun currentLease(
         workflowName: String,
         workflowId: String,
@@ -108,6 +108,36 @@ class FileWorkflowLeaseStore(
             Files.deleteIfExists(leasePath)
         }
     }
+
+    override suspend fun saveCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        checkpoint: WorkflowCheckpoint,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ): WorkflowCheckpoint {
+        val leasePath = leasePath(expectedLease.workflowName, expectedLease.workflowId)
+        return withFileLockSuspending(leasePath) {
+            val current = readLeaseIfPresent(leasePath)?.takeUnless(::isExpired)
+            validateExpectedLease(expectedLease, current)
+            checkpointStore.save(checkpoint, expectedRevision)
+        }
+    }
+
+    override suspend fun deleteCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ) {
+        val leasePath = leasePath(expectedLease.workflowName, expectedLease.workflowId)
+        withFileLockSuspending(leasePath) {
+            val current = readLeaseIfPresent(leasePath)?.takeUnless(::isExpired)
+            validateExpectedLease(expectedLease, current)
+            checkpointStore.delete(workflowName, workflowId, expectedRevision)
+        }
+    }
+
     private fun leasePath(
         workflowName: String,
         workflowId: String,
@@ -118,6 +148,22 @@ class FileWorkflowLeaseStore(
         null
     }
     private fun isExpired(lease: WorkflowLease): Boolean = clockMillis() >= lease.expiresAtEpochMillis
+
+    private fun validateExpectedLease(
+        expectedLease: WorkflowLease,
+        current: WorkflowLease?,
+    ) {
+        if (current == null) {
+            throw StaleWorkflowLeaseException(
+                "Workflow '${expectedLease.workflowName}' and workflowId='${expectedLease.workflowId}' lease '${expectedLease.leaseId}' is no longer active",
+            )
+        }
+        if (current.leaseId != expectedLease.leaseId || current.ownerId != expectedLease.ownerId) {
+            throw StaleWorkflowLeaseException(
+                "Workflow '${expectedLease.workflowName}' and workflowId='${expectedLease.workflowId}' is now fenced by lease '${current.leaseId}' owned by '${current.ownerId}'",
+            )
+        }
+    }
 }
 internal fun encodeLease(lease: WorkflowLease): String {
     val properties = Properties()

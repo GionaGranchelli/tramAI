@@ -958,6 +958,8 @@ private suspend fun <S> HttpWorkflowStep<S>.replayDescriptor(
         "GET",
         "HEAD",
         "OPTIONS",
+        // HTTP defines PUT and DELETE as idempotent, but replay safety still assumes the remote
+        // application handler avoids additional side effects when the same request is repeated.
         "PUT",
         "DELETE",
         -> WorkflowStepReplayDescriptor(ReplayPolicy.IDEMPOTENT)
