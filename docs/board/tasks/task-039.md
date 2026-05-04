@@ -1,6 +1,6 @@
 # TASK-039: Implement Plugin System and Multi-Tenancy
 
-- Status: planned
+- Status: in_progress
 - Priority: medium
 - Primary spec: [SPEC-017](../../specs/spec-017-platform.md)
 - Related ADRs:
