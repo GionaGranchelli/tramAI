@@ -1,6 +1,6 @@
 # TASK-036: Implement Hermes and Codex Agent Step Types
 
-- Status: in_progress
+- Status: done
 - Priority: medium
 - Primary spec: [SPEC-015](../../specs/spec-015-agent-steps.md)
 - Related ADRs:
@@ -32,3 +32,20 @@ workflows that orchestrate external AI agents.
 - [ ] Timeout kills the CLI process and fails the step
 - [ ] Custom CLI path configuration works
 - [ ] OpenTelemetry span captures agent type, prompt size, and duration
+
+## Implementation Summary
+
+**Completed**: 2026-05-04
+
+### Files
+- `AgentCliSupport.kt` (new, 275 lines) — shared subprocess helper with process-tree cleanup, stderr capture, timeout handling (SIGTERM → SIGKILL grace period)
+- `HermesStep.kt` (new, 93 lines) — `HermesStepConfig`, `HermesWorkflowStep<S>`, invokes `hermes chat -q "<prompt>" --model <model>`
+- `CodexStep.kt` (new, 97 lines) — `CodexStepConfig`, `CodexWorkflowStep<S>`, invokes `codex exec -- <prompt>` (double-dash safe)
+- `Workflow.kt` (+64 lines) — DSL `hermesStep`/`codexStep`, dispatch, canonical rendering
+- `WorkflowAgentStepTest.kt` (new, 454 lines) — 10 tests covering: prompt forwarding, response capture, custom CLI path, workdir, timeout, truncation, dash-prefixed Codex prompts, stderr-in-error, cancellation cleanup, descendant cleanup
+
+### Review Cycle
+- Copilot implemented (1.1M tokens, 5m 27s)
+- Codex reviewed: FAIL (4 findings: process tree cleanup, Codex arg injection, stderr discarded, test gaps)
+- Copilot fixed all 4 findings (+289/-40 lines, 4m 55s)
+- Full suite: 60 tasks, BUILD SUCCESSFUL

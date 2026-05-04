@@ -19,7 +19,7 @@ phases.
 
 - Phase 6 (Scheduler): complete ✅
 - Phase 7 (Server): complete ✅
-- Phase 8 (Agent Steps): in design
+- Phase 8 (Agent Steps): complete ✅
 - Phase 9 (Distributed): in design
 - Phase 10 (Platform): in design
 
@@ -52,7 +52,7 @@ phases.
 | [TASK-033: Implement HTTP Step Type](./tasks/task-033.md) | high | done |
 | [TASK-034: Implement Shell Step Type](./tasks/task-034.md) | high | done |
 | [TASK-035: Implement MCP Step Type](./tasks/task-035.md) | high | done |
-| [TASK-036: Implement Hermes and Codex Agent Step Types](./tasks/task-036.md) | medium | planned |
+| [TASK-036: Implement Hermes and Codex Agent Step Types](./tasks/task-036.md) | medium | done |
 
 ## Phase 9: Distributed Execution (SPEC-016)
 
