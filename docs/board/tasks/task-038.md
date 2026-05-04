@@ -7,8 +7,8 @@
 - Last updated: 2026-05-04
 - Architecture: Spring Boot Admin packaging pattern (Vue 3 + Vite → JAR → optional serve)
 - Implemented by: delegate_task (deepseek-v4-pro backend), delegate_task (deepseek-v4-pro frontend), Copilot (gpt-5.4 fixes), Copilot (gpt-5.4 integration fixes)
-- Commits: e27b261 (backend), 121ee82 (dashboard module), dda70df (review fixes), 52cddf2 (integration fixes)
-- Review: Codex (deepseek-v4-pro) found 12 issues fixed by Copilot; Copilot (gpt-5.4) re-review found 6 frontend/backend JSON mismatches (fixed)
+- Commits: e27b261 (backend), 121ee82 (dashboard module), dda70df (review fixes), 52cddf2 (integration fixes), d8232f7 (Codex re-review fixes)
+- Review: Codex (deepseek-v4-pro) found 12 issues fixed by Copilot; Copilot (gpt-5.4) re-review found 6 frontend/backend JSON mismatches (fixed); Codex (deepseek-v4-pro) re-review found 3 new issues (fixed)
 
 ## Purpose
 
@@ -229,5 +229,14 @@ Styled with Tailwind CSS 4 (utility-first, consistent with SBA).
 - Updated `useSSE` composable to handle named SSE events (workerOnline, workerOffline)
 - Wired SSE into WorkerListView for live updates
 - Fixed `index.html` to use relative path for `tramai-settings.js`
+
+**Codex re-review fixes (commit d8232f7):**
+- 🔴 Removed `DashboardRedirectController` — its `@GetMapping("/")` collided with
+  host apps that already own `/`. Dashboard accessible at `/dashboard/index.html`.
+- 🔴 Eliminated `runBlocking` in schedule SSE callbacks — `onScheduledTick` /
+  `onMissedTick` now construct `ScheduleSummary` directly from tick data instead of
+  blocking the scheduler thread on `listScheduleStatus()` JDBC queries.
+- 🟡 Added 15-second periodic worker poll + `lastHeartbeat` display —
+  workers aging to `stale` / `offline` now reflected in UI even without SSE push.
 
 **Tests:** 25 new tests (WorkerControllerTest, ScheduleControllerTest, AuditControllerTest, WorkerRegistryTest, AuditLogStoreTest)
