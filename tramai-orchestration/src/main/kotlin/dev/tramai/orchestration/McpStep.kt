@@ -6,11 +6,12 @@ import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.io.Source
@@ -21,7 +22,6 @@ import kotlinx.io.buffered
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
-import java.io.ByteArrayOutputStream
 import kotlin.time.Duration.Companion.seconds
 
 data class McpToolCall(
@@ -130,18 +130,18 @@ internal class SubprocessMcpTransportProvider : McpTransportProvider {
             )
         }
 
-        // Drain stderr concurrently so OS pipe buffer never blocks the subprocess.
-        val stderrDrainJob = coroutineScope {
-            async(Dispatchers.IO) {
-                drainStream(process.errorStream)
-            }
+        // Fire-and-forget stderr drain so OS pipe buffer never blocks the subprocess.
+        // Must not use coroutineScope — it would wait for the drain to complete (never, until EOF).
+        val drainScope = CoroutineScope(Dispatchers.IO)
+        drainScope.launch {
+            drainStream(process.errorStream)
         }
 
         return McpTransportConnection(
             input = process.inputStream.asSource().buffered(),
             output = process.outputStream.asSink().buffered(),
             cleanup = {
-                stderrDrainJob.cancel()
+                drainScope.cancel()
                 withContext(NonCancellable + Dispatchers.IO) {
                     if (process.isAlive) {
                         process.destroyForcibly()
