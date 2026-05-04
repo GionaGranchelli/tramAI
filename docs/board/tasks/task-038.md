@@ -1,11 +1,13 @@
 # TASK-038: Implement Admin Dashboard
 
-- Status: planned
+- Status: done
 - Priority: medium
 - Primary spec: [SPEC-017](../../specs/spec-017-platform.md)
 - Related ADRs:
 - Last updated: 2026-05-04
 - Architecture: Spring Boot Admin packaging pattern (Vue 3 + Vite → JAR → optional serve)
+- Implemented by: delegate_task (deepseek-v4-pro backend), delegate_task (deepseek-v4-pro frontend), Copilot (gpt-5.4 fixes)
+- Commits: e27b261 (backend), 121ee82 (dashboard module), dda70df (review fixes)
 
 ## Purpose
 
@@ -187,15 +189,35 @@ Styled with Tailwind CSS 4 (utility-first, consistent with SBA).
 
 ## Exit Criteria
 
-- [ ] `tramai-dashboard` module builds via `./gradlew :tramai-dashboard:build`
-- [ ] Adding `tramai-dashboard` JAR to `tramai-server` classpath enables dashboard at `/`
-- [ ] Removing the JAR returns `tramai-server` to headless mode with no errors
-- [ ] Dashboard shows all registered workflow types with status
-- [ ] Run history is searchable by workflow name, status, and date range
-- [ ] Run detail page shows step-by-step trace with expandable input/output
-- [ ] Worker list shows all registered workers with real-time status
-- [ ] SSE-connected detail view updates live when a workflow progresses
-- [ ] Sensitive fields are redacted; large payloads are truncated
-- [ ] `tramai-settings.js` correctly reflects server configuration
-- [ ] Dashboard loads in < 2 seconds for up to 1000 runs
-- [ ] No Node.js or npm required to build `tramai-server` alone
+- [x] `tramai-dashboard` module builds via `./gradlew :tramai-dashboard:build`
+- [x] Adding `tramai-dashboard` JAR to `tramai-server` classpath enables dashboard at `/`
+- [x] Removing the JAR returns `tramai-server` to headless mode with no errors
+- [x] Dashboard shows all registered workflow types with status
+- [x] Run history is searchable by workflow name, status, and date range
+- [x] Run detail page shows step-by-step trace with expandable input/output
+- [x] Worker list shows all registered workers with real-time status
+- [x] SSE-connected detail view updates live when a workflow progresses
+- [x] Sensitive fields are redacted; large payloads are truncated
+- [x] `tramai-settings.js` correctly reflects server configuration
+- [x] Dashboard loads in < 2 seconds for up to 1000 runs
+- [x] No Node.js or npm required to build `tramai-server` alone
+
+## Implementation Summary
+
+3 commits, 47 files, +3686/-145 lines across 2 modules (tramai-dashboard, tramai-server).
+
+**New module: tramai-dashboard** (Vue 3 + Vite SPA)
+- 7 pages: WorkflowList, RunHistory, RunDetail, WorkerList, ScheduleList, Settings, AuditLog
+- vue-router with lazy-loaded routes, Pinia-ready store structure
+- DashboardAutoConfiguration: @ConditionalOnClass, optional serve via WebMvcConfigurer
+- DashboardSettingsController: /tramai-settings.js dynamic config injection
+- node-gradle plugin (Node.js 22.12), Vite 5 build with source maps disabled in prod
+
+**Backend endpoints (tramai-server)**
+- GET /workers, GET /workers/events (SSE) — InMemoryWorkerRegistry with Jackson JSON
+- GET /schedules, GET /schedules/events (SSE) — wired to WorkflowSchedulerStore
+- GET /audit — paginated with filters, typed AuditPage response
+- SSE emitters with 5-minute timeout, dispatch outside synchronized blocks
+- Auth toggle via tramai.dashboard.auth.required property
+
+**Tests:** 25 new tests (WorkerControllerTest, ScheduleControllerTest, AuditControllerTest, WorkerRegistryTest, AuditLogStoreTest)
