@@ -184,6 +184,7 @@ fun projectDescription(projectName: String): String = when (projectName) {
     "tramai-ollama" -> "Ollama provider integration for Tramai."
     "tramai-observability" -> "OpenTelemetry-based observability hooks for Tramai."
     "tramai-orchestration" -> "Typed workflow orchestration and coordination layer for Tramai."
+    "tramai-platform" -> "Platform services for plugins, tenancy, API keys, rate limiting, and audit logging."
     "tramai-standalone" -> "Minimal standalone runtime bundle for Tramai."
     "tramai-spring" -> "Spring Boot auto-configuration and integration support for Tramai."
     "tramai-testing" -> "Testing utilities and deterministic assertion support for Tramai."

@@ -9,6 +9,7 @@ import java.time.ZoneId
 import java.net.http.HttpClient
 import java.util.concurrent.TimeUnit
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 /**
@@ -18,6 +19,41 @@ data class WorkflowContext(
     val workflowId: String = UUID.randomUUID().toString(),
     val attributes: Map<String, Any?> = emptyMap(),
 )
+
+interface ExternalStepExecutorFactory {
+    val typeId: String
+    fun create(): ExternalStepExecutor
+}
+
+fun interface ExternalStepExecutor {
+    suspend fun execute(spec: Map<String, Any?>): Map<String, Any?>
+}
+
+class ExternalStepExecutorNotRegisteredException(
+    typeId: String,
+) : RuntimeException("No external step executor is registered for plugin step type '$typeId'")
+
+object ExternalStepExecutorRegistry {
+    private val factories = ConcurrentHashMap<String, ExternalStepExecutorFactory>()
+
+    fun register(factory: ExternalStepExecutorFactory) {
+        require(factory.typeId.isNotBlank()) { "External step executor typeId must not be blank" }
+        factories[factory.typeId] = factory
+    }
+
+    fun unregister(typeId: String) {
+        factories.remove(typeId)
+    }
+
+    fun clear() {
+        factories.clear()
+    }
+
+    fun typeIds(): Set<String> = factories.keys.toSortedSet()
+
+    fun create(typeId: String): ExternalStepExecutor =
+        factories[typeId]?.create() ?: throw ExternalStepExecutorNotRegisteredException(typeId)
+}
 /**
  * Explicit execution bounds for one workflow run.
  */
@@ -402,6 +438,11 @@ class Workflow<S, R> internal constructor(
                     context = context,
                     observer = observer,
                 )
+                is PluginWorkflowStep<S> -> step.execute(
+                    workflowName = name,
+                    state = state,
+                    context = context,
+                )
                 is GateWorkflowStep -> step.execute(state, context)
                 is DelayWorkflowStep -> {
                     val result = step.execute(
@@ -604,6 +645,33 @@ abstract class AbstractWorkflowBuilder<S> {
         ))
     }
 
+    fun pluginStep(
+        name: String,
+        type: String,
+        config: Map<String, Any?> = emptyMap(),
+    ) = apply {
+        appendStep(PluginWorkflowStep(
+            name = name,
+            type = type,
+            config = config.toMap(),
+            merge = ::mergePluginStepResult,
+        ))
+    }
+
+    fun pluginStep(
+        name: String,
+        type: String,
+        config: Map<String, Any?> = emptyMap(),
+        merge: suspend (S, Map<String, Any?>, WorkflowContext) -> S,
+    ) = apply {
+        appendStep(PluginWorkflowStep(
+            name = name,
+            type = type,
+            config = config.toMap(),
+            merge = merge,
+        ))
+    }
+
     fun gateStep(
         name: String,
         decide: suspend (S, WorkflowContext) -> GateDecision,
@@ -718,6 +786,24 @@ private data class GateWorkflowStep<S>(
             )
         }
         return state
+    }
+}
+private data class PluginWorkflowStep<S>(
+    override val name: String,
+    val type: String,
+    val config: Map<String, Any?>,
+    val merge: suspend (S, Map<String, Any?>, WorkflowContext) -> S,
+) : InternalWorkflowStep<S> {
+    suspend fun execute(
+        workflowName: String,
+        state: S,
+        context: WorkflowContext,
+    ): S {
+        require(type.isNotBlank()) {
+            "Workflow '$workflowName' plugin step '$name' type must not be blank"
+        }
+        val result = ExternalStepExecutorRegistry.create(type).execute(config)
+        return merge(state, result, context)
     }
 }
 private data class DelayWorkflowStep<S>(
@@ -1038,6 +1124,15 @@ private fun <S> renderStepsCanonical(
                 append(step.definition.toolName)
                 append(':')
                 append(step.definition.argumentKeys.sorted().joinToString(","))
+                append('\n')
+            }
+            is PluginWorkflowStep<*> -> {
+                append("plugin:")
+                append(step.name)
+                append(':')
+                append(step.type)
+                append(':')
+                append(renderPluginValueCanonical(step.config))
                 append('\n')
             }
             is GateWorkflowStep -> {
@@ -1385,3 +1480,37 @@ private fun sha256Hex(value: String): String = MessageDigest
     .joinToString(separator = "") { byte ->
         byte.toInt().and(0xff).toString(16).padStart(2, '0')
     }
+
+@Suppress("UNCHECKED_CAST")
+private fun <S> mergePluginStepResult(
+    state: S,
+    result: Map<String, Any?>,
+    @Suppress("UNUSED_PARAMETER") context: WorkflowContext,
+): S = when (state) {
+    is Map<*, *> -> LinkedHashMap<String, Any?>().apply {
+        putAll(state as Map<String, Any?>)
+        putAll(result)
+    } as S
+    else -> throw IllegalStateException(
+        "Workflow plugin steps without an explicit merge function require a Map state. " +
+            "State type '${state?.let { it::class.qualifiedName } ?: "null"}' is not supported.",
+    )
+}
+
+private fun renderPluginValueCanonical(value: Any?): String = when (value) {
+    null -> "null"
+    is String -> "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+    is Number, is Boolean -> value.toString()
+    is Map<*, *> -> value.entries
+        .sortedBy { it.key?.toString() ?: "" }
+        .joinToString(prefix = "{", postfix = "}") { entry ->
+            "${renderPluginValueCanonical(entry.key?.toString())}:${renderPluginValueCanonical(entry.value)}"
+        }
+    is Iterable<*> -> value.joinToString(prefix = "[", postfix = "]") { element ->
+        renderPluginValueCanonical(element)
+    }
+    is Array<*> -> value.joinToString(prefix = "[", postfix = "]") { element ->
+        renderPluginValueCanonical(element)
+    }
+    else -> renderPluginValueCanonical(value.toString())
+}

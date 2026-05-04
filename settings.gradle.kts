@@ -10,6 +10,7 @@ include(
     "tramai-orchestration",
     "tramai-openai",
     "tramai-ollama",
+    "tramai-platform",
     "tramai-spring",
     "tramai-scheduler",
     "tramai-server",

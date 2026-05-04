@@ -7,6 +7,7 @@ jackson = "2.18.3"
 opentelemetry = "1.49.0"
 spring-boot = "3.4.5"
 aws-sdk = "2.31.67"
+flyway = "11.8.0"
 
 [libraries]
 assertj-core = { module = "org.assertj:assertj-core", version.ref = "assertj" }
@@ -24,8 +25,10 @@ opentelemetry-sdk-trace = { module = "io.opentelemetry:opentelemetry-sdk-trace",
 spring-boot-autoconfigure = { module = "org.springframework.boot:spring-boot-autoconfigure", version.ref = "spring-boot" }
 spring-boot-configuration-processor = { module = "org.springframework.boot:spring-boot-configuration-processor", version.ref = "spring-boot" }
 spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web", version.ref = "spring-boot" }
+spring-boot-starter-jdbc = { module = "org.springframework.boot:spring-boot-starter-jdbc", version.ref = "spring-boot" }
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test", version.ref = "spring-boot" }
 spring-context = { module = "org.springframework:spring-context", version = "6.2.6" }
+flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 aws-sdk-auth = { module = "software.amazon.awssdk:auth", version.ref = "aws-sdk" }
 aws-sdk-regions = { module = "software.amazon.awssdk:regions", version.ref = "aws-sdk" }
 aws-sdk-secretsmanager = { module = "software.amazon.awssdk:secretsmanager", version.ref = "aws-sdk" }
