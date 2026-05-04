@@ -6,8 +6,9 @@
 - Related ADRs:
 - Last updated: 2026-05-04
 - Architecture: Spring Boot Admin packaging pattern (Vue 3 + Vite → JAR → optional serve)
-- Implemented by: delegate_task (deepseek-v4-pro backend), delegate_task (deepseek-v4-pro frontend), Copilot (gpt-5.4 fixes)
-- Commits: e27b261 (backend), 121ee82 (dashboard module), dda70df (review fixes)
+- Implemented by: delegate_task (deepseek-v4-pro backend), delegate_task (deepseek-v4-pro frontend), Copilot (gpt-5.4 fixes), Copilot (gpt-5.4 integration fixes)
+- Commits: e27b261 (backend), 121ee82 (dashboard module), dda70df (review fixes), 52cddf2 (integration fixes)
+- Review: Codex (deepseek-v4-pro) found 12 issues fixed by Copilot; Copilot (gpt-5.4) re-review found 6 frontend/backend JSON mismatches (fixed)
 
 ## Purpose
 
@@ -204,7 +205,7 @@ Styled with Tailwind CSS 4 (utility-first, consistent with SBA).
 
 ## Implementation Summary
 
-3 commits, 47 files, +3686/-145 lines across 2 modules (tramai-dashboard, tramai-server).
+4 commits, 47 files, +3833/-184 lines across 2 modules (tramai-dashboard, tramai-server).
 
 **New module: tramai-dashboard** (Vue 3 + Vite SPA)
 - 7 pages: WorkflowList, RunHistory, RunDetail, WorkerList, ScheduleList, Settings, AuditLog
@@ -214,10 +215,19 @@ Styled with Tailwind CSS 4 (utility-first, consistent with SBA).
 - node-gradle plugin (Node.js 22.12), Vite 5 build with source maps disabled in prod
 
 **Backend endpoints (tramai-server)**
+- GET /workflows — list registered workflow names
 - GET /workers, GET /workers/events (SSE) — InMemoryWorkerRegistry with Jackson JSON
 - GET /schedules, GET /schedules/events (SSE) — wired to WorkflowSchedulerStore
 - GET /audit — paginated with filters, typed AuditPage response
 - SSE emitters with 5-minute timeout, dispatch outside synchronized blocks
 - Auth toggle via tramai.dashboard.auth.required property
+
+**Integration fixes (commit 52cddf2):**
+- Added `GET /workflows` endpoint (was missing, WorkflowListView crashed)
+- Added `scheduleId` + `enabled` fields to `ScheduleSummary` (frontend needed them)
+- Fixed all 7 Vue views to match actual backend response shapes (fields, wrappers)
+- Updated `useSSE` composable to handle named SSE events (workerOnline, workerOffline)
+- Wired SSE into WorkerListView for live updates
+- Fixed `index.html` to use relative path for `tramai-settings.js`
 
 **Tests:** 25 new tests (WorkerControllerTest, ScheduleControllerTest, AuditControllerTest, WorkerRegistryTest, AuditLogStoreTest)
