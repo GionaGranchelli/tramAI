@@ -384,6 +384,18 @@ class Workflow<S, R> internal constructor(
                     context = context,
                     observer = observer,
                 )
+                is HermesWorkflowStep<S> -> step.execute(
+                    workflowName = name,
+                    state = state,
+                    context = context,
+                    observer = observer,
+                )
+                is CodexWorkflowStep<S> -> step.execute(
+                    workflowName = name,
+                    state = state,
+                    context = context,
+                    observer = observer,
+                )
                 is McpWorkflowStep<S> -> step.execute(
                     workflowName = name,
                     state = state,
@@ -546,6 +558,32 @@ abstract class AbstractWorkflowBuilder<S> {
             name = name,
             definition = definition,
             commandBuilder = command,
+            merge = merge,
+            config = config,
+        ))
+    }
+    fun hermesStep(
+        name: String,
+        config: HermesStepConfig = HermesStepConfig(),
+        prompt: suspend (S, WorkflowContext) -> String,
+        merge: suspend (S, String, WorkflowContext) -> S,
+    ) = apply {
+        appendStep(HermesWorkflowStep(
+            name = name,
+            promptBuilder = prompt,
+            merge = merge,
+            config = config,
+        ))
+    }
+    fun codexStep(
+        name: String,
+        config: CodexStepConfig = CodexStepConfig(),
+        prompt: suspend (S, WorkflowContext) -> String,
+        merge: suspend (S, String, WorkflowContext) -> S,
+    ) = apply {
+        appendStep(CodexWorkflowStep(
+            name = name,
+            promptBuilder = prompt,
             merge = merge,
             config = config,
         ))
@@ -949,6 +987,32 @@ private fun <S> renderStepsCanonical(
                 append(step.definition.hasWorkdir)
                 append(':')
                 append(step.definition.envKeys.sorted().joinToString(","))
+                append('\n')
+            }
+            is HermesWorkflowStep<*> -> {
+                append("hermes:")
+                append(step.name)
+                append(':')
+                append(step.config.timeoutSeconds)
+                append(':')
+                append(step.config.maxOutputBytes)
+                append(':')
+                append(step.config.cliPath)
+                append(':')
+                append(step.config.model)
+                append('\n')
+            }
+            is CodexWorkflowStep<*> -> {
+                append("codex:")
+                append(step.name)
+                append(':')
+                append(step.config.timeoutSeconds)
+                append(':')
+                append(step.config.maxOutputBytes)
+                append(':')
+                append(step.config.cliPath)
+                append(':')
+                append(step.config.workdir ?: "*")
                 append('\n')
             }
             is McpWorkflowStep<*> -> {
