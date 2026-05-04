@@ -9,6 +9,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.io.Source
@@ -18,8 +20,8 @@ import kotlinx.io.asSource
 import kotlinx.io.buffered
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
-import java.io.InputStream
-import java.io.OutputStream
+import kotlinx.serialization.json.JsonPrimitive
+import java.io.ByteArrayOutputStream
 import kotlin.time.Duration.Companion.seconds
 
 data class McpToolCall(
@@ -35,6 +37,25 @@ data class McpToolCall(
     }
 }
 
+/**
+ * Canonical metadata mirroring what a workflow declares at build time.
+ * Prevents state-influenced command changes after the DSL is parsed.
+ */
+data class McpToolCallDefinition(
+    val serverCommand: List<String>,
+    val envKeys: Set<String> = emptySet(),
+    val toolName: String,
+    val argumentKeys: Set<String> = emptySet(),
+) {
+    init {
+        require(serverCommand.isNotEmpty()) { "McpToolCallDefinition.serverCommand must not be empty" }
+        require(serverCommand.none { it.isBlank() }) { "McpToolCallDefinition.serverCommand must not contain blank arguments" }
+        require(toolName.isNotBlank()) { "McpToolCallDefinition.toolName must not be blank" }
+        require(envKeys.none { it.isBlank() }) { "McpToolCallDefinition.envKeys must not contain blank values" }
+        require(argumentKeys.none { it.isBlank() }) { "McpToolCallDefinition.argumentKeys must not contain blank values" }
+    }
+}
+
 data class McpToolResult(
     val content: String?,
     val structuredContent: String?,
@@ -46,6 +67,8 @@ data class McpStepConfig(
     val maxOutputBytes: Long = 1_048_576,
     val reconnect: Boolean = true,
     val toolAllowlist: Set<String>? = null,
+    val allowedCommands: Set<String>? = null,
+    val deniedCommands: Set<String> = emptySet(),
 ) {
     init {
         require(timeoutSeconds > 0) { "McpStepConfig.timeoutSeconds must be greater than zero" }
@@ -55,6 +78,12 @@ data class McpStepConfig(
         }
         require(toolAllowlist?.none { it.isBlank() } != false) {
             "McpStepConfig.toolAllowlist must not contain blank values"
+        }
+        require(allowedCommands?.none { it.isBlank() } != false) {
+            "McpStepConfig.allowedCommands must not contain blank values"
+        }
+        require(deniedCommands.none { it.isBlank() }) {
+            "McpStepConfig.deniedCommands must not contain blank values"
         }
     }
 }
@@ -82,6 +111,7 @@ data class McpTransportConnection(
 
 /**
  * Default transport provider that starts the MCP server as a subprocess.
+ * Concurrently drains stderr to prevent pipe-buffer deadlock.
  */
 internal class SubprocessMcpTransportProvider : McpTransportProvider {
     override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
@@ -100,10 +130,18 @@ internal class SubprocessMcpTransportProvider : McpTransportProvider {
             )
         }
 
+        // Drain stderr concurrently so OS pipe buffer never blocks the subprocess.
+        val stderrDrainJob = coroutineScope {
+            async(Dispatchers.IO) {
+                drainStream(process.errorStream)
+            }
+        }
+
         return McpTransportConnection(
             input = process.inputStream.asSource().buffered(),
             output = process.outputStream.asSink().buffered(),
             cleanup = {
+                stderrDrainJob.cancel()
                 withContext(NonCancellable + Dispatchers.IO) {
                     if (process.isAlive) {
                         process.destroyForcibly()
@@ -112,6 +150,17 @@ internal class SubprocessMcpTransportProvider : McpTransportProvider {
                 }
             },
         )
+    }
+
+    private fun drainStream(inputStream: java.io.InputStream) {
+        try {
+            val buffer = ByteArray(8192)
+            while (inputStream.read(buffer) >= 0) {
+                // discard stderr bytes; only needed to prevent pipe blockage
+            }
+        } catch (_: Exception) {
+            // stream closed or interrupted — expected during shutdown
+        }
     }
 
     private fun waitForUninterruptibly(process: Process) {
@@ -132,6 +181,7 @@ internal class SubprocessMcpTransportProvider : McpTransportProvider {
 
 internal data class McpWorkflowStep<S>(
     override val name: String,
+    val definition: McpToolCallDefinition,
     val toolCallBuilder: suspend (S, WorkflowContext) -> McpToolCall,
     val merge: suspend (S, McpToolResult, WorkflowContext) -> S,
     val config: McpStepConfig = McpStepConfig(),
@@ -151,7 +201,9 @@ internal data class McpWorkflowStep<S>(
         }
 
         try {
+            validateDefinition(toolCall)
             validateToolAllowlist(toolCall.toolName)
+            validateCommandPolicy(toolCall)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             throw wrapMcpError(error)
@@ -229,34 +281,36 @@ internal data class McpWorkflowStep<S>(
     }
 
     private suspend fun executeMcpCall(toolCall: McpToolCall): McpToolResult {
-        val connection = transportProvider.connect(toolCall)
-
         return try {
             withTimeout(config.timeoutSeconds.seconds) {
-                val client = Client(
-                    clientInfo = Implementation(
-                        name = "tramai-mcp-step",
-                        version = "1.0.0",
-                    ),
-                )
+                val connection = transportProvider.connect(toolCall)
+
                 try {
-                    client.connect(
-                        StdioClientTransport(
-                            input = connection.input,
-                            output = connection.output,
+                    val client = Client(
+                        clientInfo = Implementation(
+                            name = "tramai-mcp-step",
+                            version = "1.0.0",
                         ),
                     )
+                    try {
+                        client.connect(
+                            StdioClientTransport(
+                                input = connection.input,
+                                output = connection.output,
+                            ),
+                        )
 
-                    val json = Json { ignoreUnknownKeys = true }
-                    val argumentsJson: Map<String, JsonElement> = toolCall.arguments.mapValues { (_, value) ->
-                        runCatching { json.parseToJsonElement(value) }
-                            .getOrElse { json.parseToJsonElement("\"$value\"") }
+                        val argumentsJson: Map<String, JsonElement> = toolCall.arguments.mapValues { (_, value) ->
+                            JsonPrimitive(value)
+                        }
+
+                        val callResult: CallToolResult = client.callTool(toolCall.toolName, argumentsJson)
+                        toMcpToolResult(callResult)
+                    } finally {
+                        client.close()
                     }
-
-                    val callResult: CallToolResult = client.callTool(toolCall.toolName, argumentsJson)
-                    toMcpToolResult(callResult)
                 } finally {
-                    client.close()
+                    runCatching { connection.cleanup?.invoke() }
                 }
             }
         } catch (error: TimeoutCancellationException) {
@@ -264,8 +318,6 @@ internal data class McpWorkflowStep<S>(
                 stepName = name,
                 message = "timed out after ${config.timeoutSeconds}s",
             )
-        } finally {
-            runCatching { connection.cleanup?.invoke() }
         }
     }
 
@@ -299,10 +351,39 @@ internal data class McpWorkflowStep<S>(
         )
     }
 
+    private fun validateDefinition(toolCall: McpToolCall) {
+        require(toolCall.serverCommand == definition.serverCommand) {
+            "Workflow MCP step '$name' runtime server command does not match the canonical definition"
+        }
+        require(toolCall.serverEnv.keys == definition.envKeys) {
+            "Workflow MCP step '$name' runtime env keys do not match the canonical definition"
+        }
+        require(toolCall.toolName == definition.toolName) {
+            "Workflow MCP step '$name' runtime tool name does not match the canonical definition"
+        }
+        require(toolCall.arguments.keys == definition.argumentKeys) {
+            "Workflow MCP step '$name' runtime argument keys do not match the canonical definition"
+        }
+    }
+
     private fun validateToolAllowlist(toolName: String) {
         val allowlist = config.toolAllowlist ?: return
         require(toolName in allowlist) {
             "Workflow MCP step '$name' tool '$toolName' is not in the allowlist"
+        }
+    }
+
+    private fun validateCommandPolicy(toolCall: McpToolCall) {
+        val commandIdentifiers = toolCall.serverCommand.commandIdentifiers()
+        val deniedCommands = config.deniedCommands
+        require(deniedCommands.none(commandIdentifiers::contains)) {
+            "Workflow MCP step '$name' command is blocked by the denylist"
+        }
+        val allowedCommands = config.allowedCommands
+        if (allowedCommands != null) {
+            require(allowedCommands.any(commandIdentifiers::contains)) {
+                "Workflow MCP step '$name' command is not permitted by the allowlist"
+            }
         }
     }
 
@@ -315,6 +396,15 @@ internal data class McpWorkflowStep<S>(
             message = "failed: ${error.message ?: error::class.java.simpleName}",
             cause = error,
         )
+    }
+}
+
+private fun List<String>.commandIdentifiers(): Set<String> {
+    val executable = first()
+    val fileName = java.io.File(executable).name
+    return buildSet {
+        add(executable)
+        add(fileName)
     }
 }
 

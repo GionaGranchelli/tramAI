@@ -553,11 +553,13 @@ abstract class AbstractWorkflowBuilder<S> {
     fun mcpStep(
         name: String,
         config: McpStepConfig = McpStepConfig(),
+        definition: McpToolCallDefinition,
         toolCall: suspend (S, WorkflowContext) -> McpToolCall,
         merge: suspend (S, McpToolResult, WorkflowContext) -> S,
     ) = apply {
         appendStep(McpWorkflowStep(
             name = name,
+            definition = definition,
             toolCallBuilder = toolCall,
             merge = merge,
             config = config,
@@ -960,6 +962,18 @@ private fun <S> renderStepsCanonical(
                 append(step.config.reconnect)
                 append(':')
                 append(step.config.toolAllowlist?.sorted()?.joinToString(",") ?: "*")
+                append(':')
+                append(step.config.allowedCommands?.sorted()?.joinToString(",") ?: "*")
+                append(':')
+                append(step.config.deniedCommands.sorted().joinToString(","))
+                append(':')
+                append(step.definition.serverCommand.joinToString(","))
+                append(':')
+                append(step.definition.toolName)
+                append(':')
+                append(step.definition.envKeys.sorted().joinToString(","))
+                append(':')
+                append(step.definition.argumentKeys.sorted().joinToString(","))
                 append('\n')
             }
             is GateWorkflowStep -> {

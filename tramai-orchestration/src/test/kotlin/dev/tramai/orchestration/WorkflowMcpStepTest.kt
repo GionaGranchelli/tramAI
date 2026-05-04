@@ -47,6 +47,11 @@ class WorkflowMcpStepTest {
 
         val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
             name = "echo",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("unused"),
+                toolName = "echo",
+                argumentKeys = setOf("message"),
+            ),
             toolCallBuilder = { _, _ ->
                 McpToolCall(
                     serverCommand = listOf("unused"),
@@ -71,6 +76,10 @@ class WorkflowMcpStepTest {
 
         val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
             name = "missing",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("unused"),
+                toolName = "nonexistent_tool",
+            ),
             config = McpStepConfig(reconnect = false),
             toolCallBuilder = { _, _ ->
                 McpToolCall(serverCommand = listOf("unused"), toolName = "nonexistent_tool")
@@ -91,6 +100,10 @@ class WorkflowMcpStepTest {
 
         val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
             name = "slow",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("unused"),
+                toolName = "delay",
+            ),
             config = McpStepConfig(timeoutSeconds = 1, reconnect = false),
             toolCallBuilder = { _, _ ->
                 McpToolCall(serverCommand = listOf("unused"), toolName = "delay")
@@ -114,6 +127,11 @@ class WorkflowMcpStepTest {
 
         val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
             name = "echo",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("unused"),
+                toolName = "echo",
+                argumentKeys = setOf("message"),
+            ),
             toolCallBuilder = { _, _ ->
                 McpToolCall(
                     serverCommand = listOf("unused"),
@@ -143,6 +161,10 @@ class WorkflowMcpStepTest {
 
         val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
             name = "echo",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("unused"),
+                toolName = "echo",
+            ),
             config = McpStepConfig(toolAllowlist = setOf("approved_tool"), reconnect = false),
             toolCallBuilder = { _, _ ->
                 McpToolCall(serverCommand = listOf("unused"), toolName = "echo")
@@ -165,6 +187,10 @@ class WorkflowMcpStepTest {
 
         val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
             name = "json",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("unused"),
+                toolName = "get_data",
+            ),
             toolCallBuilder = { _, _ ->
                 McpToolCall(serverCommand = listOf("unused"), toolName = "get_data")
             },
@@ -178,6 +204,58 @@ class WorkflowMcpStepTest {
         assertThat(result.result?.structuredContent).isNotNull()
         assertThat(result.result?.structuredContent).contains("key")
         assertThat(result.result?.structuredContent).contains("value")
+    }
+
+    @Test
+    fun `mcp step rejects state-influenced command changes`() {
+        val (transportProvider, _) = createEchoServer()
+
+        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
+            name = "echo",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("node", "server.js"),
+                toolName = "echo",
+            ),
+            config = McpStepConfig(reconnect = false),
+            toolCallBuilder = { _, _ ->
+                McpToolCall(serverCommand = listOf("evil", "command"), toolName = "echo")
+            },
+            merge = { state, result, _ -> state.copy(result = result) },
+            transportProvider = transportProvider,
+        )
+
+        val workflow = buildWorkflow(listOf(step))
+
+        assertThatThrownBy {
+            runBlocking { workflow.run(McpState()) }
+        }.isInstanceOf(WorkflowMcpException::class.java)
+            .hasMessageContaining("does not match the canonical definition")
+    }
+
+    @Test
+    fun `mcp step enforces command denylist`() {
+        val (transportProvider, _) = createEchoServer()
+
+        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
+            name = "echo",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("dangerous-cmd"),
+                toolName = "echo",
+            ),
+            config = McpStepConfig(deniedCommands = setOf("dangerous-cmd"), reconnect = false),
+            toolCallBuilder = { _, _ ->
+                McpToolCall(serverCommand = listOf("dangerous-cmd"), toolName = "echo")
+            },
+            merge = { state, result, _ -> state.copy(result = result) },
+            transportProvider = transportProvider,
+        )
+
+        val workflow = buildWorkflow(listOf(step))
+
+        assertThatThrownBy {
+            runBlocking { workflow.run(McpState()) }
+        }.isInstanceOf(WorkflowMcpException::class.java)
+            .hasMessageContaining("blocked by the denylist")
     }
 
     // ─── test infrastructure ────────────────────────────────────────────
