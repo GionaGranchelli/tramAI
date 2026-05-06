@@ -36,7 +36,7 @@ Run:
 ./gradlew -p examples/kotlin-springboot-example test
 ```
 
-The project targets Java 25 and Kotlin 2.3.0.
+The project targets Java 21 and Kotlin 2.3.0.
 
 Use the example smoke test when a change could affect published-artifact consumption, Spring integration, or documentation-backed setup flows.
 
