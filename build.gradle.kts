@@ -13,6 +13,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 plugins {
     base
     alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.sonarqube)
 }
 
 val tramaiGroup = providers.gradleProperty("tramaiGroup").orElse("dev.tramai")

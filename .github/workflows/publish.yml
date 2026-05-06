@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish or validate. Leave empty for 0.1.0-SNAPSHOT, or set a release like 0.1.0."
+        description: "Version to publish or validate. Leave empty for 0.2.0-SNAPSHOT, or set a release like 0.2.0."
         required: false
         type: string
   push:
@@ -27,6 +27,9 @@ jobs:
       TRAMAI_PUBLISH_PASSWORD: ${{ secrets.TRAMAI_PUBLISH_PASSWORD }}
       TRAMAI_SIGNING_KEY: ${{ secrets.TRAMAI_SIGNING_KEY }}
       TRAMAI_SIGNING_PASSWORD: ${{ secrets.TRAMAI_SIGNING_PASSWORD }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
 
     steps:
       - name: Checkout
@@ -48,7 +51,7 @@ jobs:
           elif [[ -n "${{ github.event.inputs.version }}" ]]; then
             echo "TRAMAI_VERSION=${{ github.event.inputs.version }}" >> "$GITHUB_ENV"
           else
-            echo "TRAMAI_VERSION=0.1.0-SNAPSHOT" >> "$GITHUB_ENV"
+            echo "TRAMAI_VERSION=0.2.0-SNAPSHOT" >> "$GITHUB_ENV"
           fi
 
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
@@ -63,6 +66,25 @@ jobs:
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
         run: ./gradlew verifyReleaseReadiness --no-configuration-cache
+
+      - name: Require SonarQube secrets for release publish
+        if: ${{ env.TRAMAI_IS_RELEASE_VERSION == 'true' && (env.SONAR_HOST_URL == '' || env.SONAR_TOKEN == '') }}
+        run: |
+          echo "::error::Release publishing now requires SONAR_HOST_URL and SONAR_TOKEN GitHub Actions secrets. GitHub runners cannot read your local ~/.zshrc."
+          exit 1
+
+      - name: Run SonarQube analysis
+        if: ${{ env.SONAR_HOST_URL != '' && env.SONAR_TOKEN != '' }}
+        env:
+          ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
+        run: |
+          PROJECT_KEY="${SONAR_PROJECT_KEY:-dev.tramai:tramai}"
+          ./gradlew sonar --no-configuration-cache \
+            -Dsonar.host.url="$SONAR_HOST_URL" \
+            -Dsonar.token="$SONAR_TOKEN" \
+            -Dsonar.projectKey="$PROJECT_KEY" \
+            -Dsonar.projectName="Tramai" \
+            -Dsonar.projectVersion="$TRAMAI_VERSION"
 
       - name: Verify remote publish inputs
         if: ${{ env.TRAMAI_IS_RELEASE_VERSION == 'true' && env.TRAMAI_PUBLISH_RELEASE_URL != '' && env.TRAMAI_PUBLISH_USERNAME != '' && env.TRAMAI_PUBLISH_PASSWORD != '' && env.TRAMAI_SIGNING_KEY != '' && env.TRAMAI_SIGNING_PASSWORD != '' }}

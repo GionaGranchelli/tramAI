@@ -18,4 +18,5 @@ include(
     "tramai-structured",
     "tramai-testing",
     "tramai-dashboard",
+    "examples:support-agent",
 )

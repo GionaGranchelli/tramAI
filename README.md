@@ -8,11 +8,22 @@
 ## Customer Support Agent in 20 Lines
 
 ```kotlin
+import dev.tramai.core.annotations.AiService
+import dev.tramai.core.annotations.AiDescription
+import dev.tramai.core.annotations.Operation
+import dev.tramai.core.annotations.System as SystemMessage
+import dev.tramai.core.annotations.User as UserMessage
+import dev.tramai.core.model.ToolExecutionContext
+import dev.tramai.core.model.TramaiTool
+import dev.tramai.ollama.OllamaProvider
+import dev.tramai.standalone.Tramai
+import dev.tramai.standalone.create
+
 @AiService
 interface SupportAgent {
-    @System("You are a Tier-1 support agent. Be concise.")
-    @User("Customer issue: {message}")
-    @Operation(model = "gemma3:4b", tools = ["lookupOrder"])
+    @SystemMessage("You are a Tier-1 support agent. Be concise.")
+    @UserMessage("Customer issue: {message}")
+    @Operation(model = "gemma4:e2b", tools = ["lookupOrder"])
     suspend fun handle(message: String): Response
 }
 
@@ -21,24 +32,28 @@ data class Response(
     @AiDescription("Action taken, if any") val action: String? = null
 )
 
-@Service
-class OrderTool {
-    @AiTool(description = "Look up an order by ID")
-    fun lookupOrder(@AiDescription("Order UUID") id: String): String =
-        "Order $id: shipped on 2026-04-15"
+val lookupOrderTool = object : TramaiTool<String, String> {
+    override val name = "lookupOrder"
+    override val description = "Look up an order by ID"
+    override val inputType = String::class
+    override suspend fun execute(input: String, ctx: ToolExecutionContext): String =
+        "Order $input: shipped on 2026-04-15"
 }
 
-@SpringBootApplication @EnableTramai class App
+suspend fun main() {
+    val agent = Tramai.builder()
+        .provider(OllamaProvider("http://localhost:11434"), default = true)
+        .model("gemma3:4b", "ollama")
+        .tools(lookupOrderTool)
+        .build()
+        .create<SupportAgent>()
 
-fun main() {
-    val ctx = runApplication<App>()
-    val agent = ctx.getBean(SupportAgent::class.java)
-    println(agent.handle("Where is my order #ORD-42?").answer)
-    // "Your order ORD-42 was shipped on April 15."
+    val result = agent.handle("Where is my order #ORD-42?")
+    println(result.answer) // "Your order ORD-42 was shipped on April 15."
 }
 ```
 
-**Prerequisites:** `ollama pull gemma3:4b` (no API key needed).
+**Prerequisites:** `ollama pull gemma4:e2b` (no API key needed).
 
 This example demonstrates everything TramAI is built for — annotations, tool calling, structured output, and local AI — in a single file you can copy, paste, and run.
 
@@ -72,15 +87,19 @@ dependencies {
 ```
 
 ```kotlin
-import dev.tramai.core.annotations.*
+import dev.tramai.core.annotations.AiService
+import dev.tramai.core.annotations.Operation
+import dev.tramai.core.annotations.System as SystemMessage
+import dev.tramai.core.annotations.User as UserMessage
 import dev.tramai.ollama.OllamaProvider
 import dev.tramai.standalone.Tramai
+import dev.tramai.standalone.create
 
 @AiService
 interface ChatService {
-    @System("You are a helpful assistant.")
-    @User("What is the capital of France?")
-    @Operation(model = "gemma3:4b")
+    @SystemMessage("You are a helpful assistant.")
+    @UserMessage("What is the capital of France?")
+    @Operation(model = "gemma4:e2b")
     suspend fun ask(): String
 }
 

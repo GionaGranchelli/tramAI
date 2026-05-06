@@ -27,8 +27,8 @@ The repository contains:
 
 For `workflow_dispatch`, you can optionally provide a `version` input:
 
-- leave it empty to run the snapshot path as `0.1.0-SNAPSHOT`
-- set it to a release like `0.1.0` when you want to preflight the real release publish path before pushing the tag
+- leave it empty to run the snapshot path as `0.2.0-SNAPSHOT`
+- set it to a release like `0.2.0` when you want to preflight the real release publish path before pushing the tag
 
 ## Required Secrets
 
@@ -40,8 +40,14 @@ Remote publishing requires these GitHub Actions secrets:
 - `TRAMAI_PUBLISH_PASSWORD`
 - `TRAMAI_SIGNING_KEY`
 - `TRAMAI_SIGNING_PASSWORD`
+- `SONAR_HOST_URL`
+- `SONAR_TOKEN`
 
 Without those secrets, the publish workflow falls back to `publishToMavenLocal`.
+
+If you want a stable non-default SonarQube key, also set:
+
+- `SONAR_PROJECT_KEY`
 
 For Sonatype Central Portal with the current Gradle `maven-publish` flow, set:
 
@@ -50,7 +56,7 @@ For Sonatype Central Portal with the current Gradle `maven-publish` flow, set:
 - `TRAMAI_PUBLISH_USERNAME=<central-portal-token-username>`
 - `TRAMAI_PUBLISH_PASSWORD=<central-portal-token-password>`
 
-The publish workflow now performs the required post-upload handoff to the Central Portal for tagged releases by calling the OSSRH Staging API manual upload endpoint for the `dev.tramai` namespace with `publishing_type=user_managed`.
+The publish workflow now runs SonarQube analysis before the remote publish path, then performs the required post-upload handoff to the Central Portal for tagged releases by calling the OSSRH Staging API manual upload endpoint for the `dev.tramai` namespace with `publishing_type=user_managed`.
 
 The `0.1.0` release has already exercised this path successfully. This runbook remains the operational reference for subsequent releases.
 
@@ -127,7 +133,7 @@ gpg --keyserver keyserver.ubuntu.com --recv-keys <your-signing-key-fingerprint>
 
 If this step fails, do not tag the release yet. Central will reject the deployment with an invalid-signature error because it cannot resolve the public key for the uploaded signatures.
 
-In GitHub Actions, that means running `Publish` with `workflow_dispatch` and setting the `version` input to the intended release version, for example `0.1.0`.
+In GitHub Actions, that means running `Publish` with `workflow_dispatch` and setting the `version` input to the intended release version, for example `0.2.0`.
 
 ## Guarded Real-Provider Checks
 
