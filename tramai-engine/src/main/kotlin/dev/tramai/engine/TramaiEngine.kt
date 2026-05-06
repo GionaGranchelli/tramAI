@@ -2,7 +2,9 @@ package dev.tramai.engine
 
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
+import dev.tramai.core.annotations.System as SystemMessage
 import dev.tramai.core.annotations.SystemPrompt
+import dev.tramai.core.annotations.User as UserMessage
 import dev.tramai.core.exception.CircuitBreakerOpenException
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.ProviderCapabilityException
@@ -1015,7 +1017,17 @@ private data class ServiceDefinition(
                         ToolDefinition(tool.name, tool.description, tool.inputSchemaJson)
                     }
 
-                    OperationDefinition.create(method, operation, systemPrompt, toolDefinitions)
+                    val systemAnnotations = method.getAnnotationsByType(SystemMessage::class.java).map { it.value }
+                    val userAnnotations = method.getAnnotationsByType(UserMessage::class.java).map { it.value }
+
+                    OperationDefinition.create(
+                        method = method,
+                        operation = operation,
+                        classLevelSystemPrompt = systemPrompt,
+                        systemAnnotations = systemAnnotations,
+                        userAnnotations = userAnnotations,
+                        toolDefinitions = toolDefinitions,
+                    )
                 }
 
             return ServiceDefinition(
@@ -1030,7 +1042,9 @@ private data class ServiceDefinition(
 private data class OperationDefinition(
     val method: Method,
     val operation: Operation,
-    val systemPrompt: String?,
+    val classLevelSystemPrompt: String?,
+    val systemAnnotations: List<String>,
+    val userAnnotations: List<String>,
     val isSuspend: Boolean,
     val parameterNames: List<String>,
     val returnKind: ReturnKind,
@@ -1040,6 +1054,26 @@ private data class OperationDefinition(
 ) {
     val isCacheEligible: Boolean
         get() = operation.cacheable && returnKind != ReturnKind.STREAMING && toolDefinitions.isEmpty()
+
+    /**
+     * The effective system message, resolved by precedence:
+     * 1. Method-level @System annotations (concatenated)
+     * 2. Class-level @SystemPrompt
+     * 3. null (engine will construct a default)
+     */
+    val effectiveSystemMessage: String? get() {
+        if (systemAnnotations.isNotEmpty()) {
+            return systemAnnotations.joinToString("\n")
+        }
+        return classLevelSystemPrompt?.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * Whether multi-message annotations (@System / @User) are present.
+     * When true, [initialMessages] builds messages from annotations instead of [Operation.prompt].
+     */
+    val hasMultiMessageAnnotations: Boolean get() =
+        systemAnnotations.isNotEmpty() || userAnnotations.isNotEmpty()
 
     fun toRequest(
         arguments: List<Any?>,
@@ -1059,16 +1093,77 @@ private data class OperationDefinition(
         arguments: List<Any?>,
         schemaJson: String? = null,
     ): List<Message> {
+        return if (hasMultiMessageAnnotations) {
+            buildMessagesFromAnnotations(arguments, schemaJson)
+        } else {
+            buildMessagesFromPrompt(arguments, schemaJson)
+        }
+    }
+
+    private fun buildMessagesFromAnnotations(
+        arguments: List<Any?>,
+        schemaJson: String?,
+    ): List<Message> {
+        val messages = mutableListOf<Message>()
+
+        // 1. System messages (method-level @System or class-level @SystemPrompt)
+        val system = effectiveSystemMessage
+        if (!system.isNullOrBlank()) {
+            messages.add(Message(role = MessageRole.SYSTEM, content = interpolate(system, arguments)))
+        } else {
+            // Default system message
+            messages.add(Message(
+                role = MessageRole.SYSTEM,
+                content = defaultSystemMessage(),
+            ))
+        }
+
+        // 2. User messages from @User annotations
+        if (userAnnotations.isNotEmpty()) {
+            for (template in userAnnotations) {
+                val content = interpolate(template, arguments)
+                messages.add(Message(role = MessageRole.USER, content = content))
+            }
+        } else if (operation.prompt.isNotBlank()) {
+            // @User absent but @Operation.prompt present → use prompt as single user message
+            val content = interpolate(operation.prompt, arguments)
+            messages.add(Message(role = MessageRole.USER, content = content))
+        } else {
+            // Neither @User nor prompt → construct default user message
+            messages.add(Message(
+                role = MessageRole.USER,
+                content = "Execute the operation ${method.name} with the provided parameters.",
+            ))
+        }
+
+        // Append schema constraint to the last user message
+        if (!schemaJson.isNullOrBlank()) {
+            val lastUserIndex = messages.indexOfLast { it.role == MessageRole.USER }
+            if (lastUserIndex >= 0) {
+                val last = messages[lastUserIndex]
+                messages[lastUserIndex] = last.copy(
+                    content = last.content + "\n\nRespond only with valid JSON matching this schema:\n$schemaJson",
+                )
+            }
+        }
+
+        return messages
+    }
+
+    private fun buildMessagesFromPrompt(
+        arguments: List<Any?>,
+        schemaJson: String?,
+    ): List<Message> {
         val messages = buildList {
-            if (!systemPrompt.isNullOrBlank()) {
-                add(Message(role = MessageRole.SYSTEM, content = systemPrompt))
+            // Class-level @SystemPrompt still applies for backward compat
+            if (!classLevelSystemPrompt.isNullOrBlank()) {
+                add(Message(role = MessageRole.SYSTEM, content = classLevelSystemPrompt))
             }
 
             val userMessage = buildString {
                 append(operation.prompt)
                 if (!schemaJson.isNullOrBlank()) {
-                    append("\n\nRespond only with valid JSON matching this schema:")
-                    append("\n")
+                    append("\n\nRespond only with valid JSON matching this schema:\n")
                     append(schemaJson)
                 }
                 if (arguments.isNotEmpty()) {
@@ -1085,6 +1180,26 @@ private data class OperationDefinition(
         }
 
         return messages
+    }
+
+    private fun interpolate(template: String, arguments: List<Any?>): String {
+        var result = template
+        arguments.forEachIndexed { index, value ->
+            val name = parameterNames.getOrElse(index) { "arg$index" }
+            result = result.replace("{$name}", value?.toString() ?: "")
+        }
+        return result
+    }
+
+    private fun defaultSystemMessage(): String = buildString {
+        append("You are an AI assistant implementing the \"")
+        append(method.declaringClass.simpleName)
+        append("\" service.\nMethod: ")
+        append(method.name)
+        append("(")
+        append(parameterNames.joinToString(", "))
+        append(")\nReturn type: ")
+        append(returnTypeDescription)
     }
 
     fun cacheKey(
@@ -1113,7 +1228,9 @@ private data class OperationDefinition(
         fun create(
             method: Method,
             operation: Operation,
-            systemPrompt: String?,
+            classLevelSystemPrompt: String?,
+            systemAnnotations: List<String> = emptyList(),
+            userAnnotations: List<String> = emptyList(),
             toolDefinitions: List<ToolDefinition> = emptyList(),
         ): OperationDefinition {
             require(operation.maxRetries >= 0) {
@@ -1129,6 +1246,13 @@ private data class OperationDefinition(
                 "@Operation(cacheTtlMillis) must be greater than zero when caching is enabled for ${method.declaringClass.name}.${method.name}"
             }
 
+            // Warn if both @System (method) and @SystemPrompt (class) are present
+            if (systemAnnotations.isNotEmpty() && !classLevelSystemPrompt.isNullOrBlank()) {
+                val logger = System.getLogger("dev.tramai.engine.OperationDefinition")
+                logger.log(System.Logger.Level.WARNING,
+                    "@System on ${method.declaringClass.name}.${method.name} takes precedence over @SystemPrompt on the class")
+            }
+
             val kotlinFunction = runCatching { method.kotlinFunction }.getOrNull()
             val isSuspend = kotlinFunction?.isSuspend ?: method.isSuspendSignature()
             val parameterNames = resolveParameterNames(method, kotlinFunction)
@@ -1139,7 +1263,9 @@ private data class OperationDefinition(
             return OperationDefinition(
                 method = method,
                 operation = operation,
-                systemPrompt = systemPrompt,
+                classLevelSystemPrompt = classLevelSystemPrompt,
+                systemAnnotations = systemAnnotations,
+                userAnnotations = userAnnotations,
                 isSuspend = isSuspend,
                 parameterNames = parameterNames,
                 returnKind = returnKind,

@@ -8,7 +8,7 @@ package dev.tramai.core.annotations
 @Target(AnnotationTarget.FUNCTION)
 annotation class Operation(
     /** Prompt template sent as the base user instruction for the invocation. */
-    val prompt: String,
+    val prompt: String = "",
     /** Logical model name requested by the operation. */
     val model: String,
     /** Optional explicit provider id that bypasses registry model resolution. */
