@@ -1,29 +1,41 @@
 package dev.tramai.examples.supportagent
 
-import dev.tramai.core.model.ToolExecutionContext
-import dev.tramai.core.model.TramaiTool
 import dev.tramai.ollama.OllamaProvider
 import dev.tramai.standalone.Tramai
 import dev.tramai.standalone.create
 import kotlinx.coroutines.runBlocking
 
-val lookupOrderTool = object : TramaiTool<String, String> {
-    override val name = "lookupOrder"
-    override val description = "Look up an order by ID"
-    override val inputType = String::class
-    override suspend fun execute(input: String, ctx: ToolExecutionContext): String =
-        "Order $input: shipped on 2026-04-15"
-}
-
+/**
+ * TramAI Support Agent — standalone example.
+ *
+ * Demonstrates:
+ * - @AiService with @System/@User annotations
+ * - Structured output via a typed data class
+ * - Tool calling (lookupOrder, getCurrentTime)
+ * - Deterministic testing with tramai-testing
+ *
+ * Prerequisites:
+ * - Ollama running on localhost:11434
+ * - Model "gemma4:e2b" pulled
+ *
+ * Run: ./gradlew run
+ * Test: ./gradlew test
+ */
 fun main() = runBlocking {
     val agent = Tramai.builder()
         .provider(OllamaProvider("http://localhost:11434"), default = true)
         .model("gemma4:e2b", "ollama")
-        .tools(lookupOrderTool)
+        .tools(lookupOrderTool, getCurrentTimeTool)
         .build()
         .create<SupportAgent>()
 
+    println("═══ Support Agent Demo ═══")
+    println()
+
     val result = agent.handle("Where is my order #ORD-42?")
+
     println("Answer: ${result.answer}")
     result.action?.let { println("Action: $it") }
+    result.eta?.let { println("ETA: $it") }
+    println("Resolved: ${if (result.resolved) "✅" else "❌"}")
 }

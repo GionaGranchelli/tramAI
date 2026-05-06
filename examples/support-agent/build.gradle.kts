@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "dev.tramai.examples"
-version = "0.1.0-SNAPSHOT"
+version = "0.3.0"
 
 java {
     toolchain {
@@ -17,14 +17,22 @@ kotlin {
 }
 
 repositories {
+    mavenLocal()
     mavenCentral()
 }
 
 dependencies {
-    implementation(project(":tramai-standalone"))
-    implementation(project(":tramai-ollama"))
+    implementation("dev.tramai:tramai-standalone:0.3.0")
+    implementation("dev.tramai:tramai-ollama:0.3.0")
+
+    testImplementation(kotlin("test"))
+    testImplementation("dev.tramai:tramai-testing:0.3.0")
 }
 
 application {
     mainClass.set("dev.tramai.examples.supportagent.MainKt")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }

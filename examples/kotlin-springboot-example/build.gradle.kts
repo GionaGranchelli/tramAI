@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "dev.tramai.examples"
-version = "0.1.0-SNAPSHOT"
+version = "0.3.0"
 
 java {
     toolchain {
@@ -31,14 +31,14 @@ repositories {
 }
 
 dependencies {
-    implementation("dev.tramai:tramai-spring:0.1.0-SNAPSHOT")
-    implementation("dev.tramai:tramai-orchestration:0.1.0-SNAPSHOT")
+    implementation("dev.tramai:tramai-spring:0.3.0")
+    implementation("dev.tramai:tramai-orchestration:0.3.0")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor:1.10.2")
 
-    testImplementation("dev.tramai:tramai-testing:0.1.0-SNAPSHOT")
+    testImplementation("dev.tramai:tramai-testing:0.3.0")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 }
 

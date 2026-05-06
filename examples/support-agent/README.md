@@ -1,6 +1,7 @@
 # Support Agent Example
 
-A minimal TramAI application demonstrating annotations, tool calling, structured output, and local AI — all in one file.
+A minimal TramAI standalone application demonstrating the core library features:
+annotations, structured output, tool calling, and deterministic testing.
 
 ## Prerequisites
 
@@ -9,7 +10,7 @@ A minimal TramAI application demonstrating annotations, tool calling, structured
 curl -fsSL https://ollama.com/install.sh | sh
 
 # Pull the model
-ollama pull gemma3:4b
+ollama pull gemma4:e2b
 ```
 
 ## Run
@@ -19,20 +20,24 @@ cd examples/support-agent
 ./gradlew run
 ```
 
+## Test
+
+```bash
+cd examples/support-agent
+./gradlew test
+```
+
+Tests use `tramai-testing` with `MockAiProvider` — no Ollama needed.
+3 tests verify: happy path parsing, retry recovery, and exhausted-retry failure.
+
 ## What It Demonstrates
 
 | Feature | How |
-|---------|-----|
-| `@System` + `@User` annotations | System role + user message with `{param}` interpolation |
+|---------|------|
+| `@System` + `@User` annotations | System role prompt + user message with `{message}` interpolation |
 | `@Operation(tools = [...])` | Tool registration and model-driven tool selection |
-| Structured output | `Response` data class with `@AiDescription` fields |
-| `TramaiTool<I, O>` | Tool implementation via the user-facing contract |
-| `Tramai.builder()` | Standalone framework-free setup |
-| `tramai-ollama` | Local AI — no API key needed |
-
-## Expected Output
-
-```
-Answer: Your order ORD-42 was shipped on April 15, 2026.
-Action: informed_customer
-```
+| Structured output | `Response` data class with `@AiDescription` fields, auto-parsed from JSON |
+| Multiple tools | `lookupOrder` (parametrized) + `getCurrentTime` (no-input) |
+| Failure/retry | `maxRetries = 2` with structured parse retry |
+| Deterministic testing | `MockAiProvider` + `RecordingOperationObserver` + `TramaiAssertions` |
+| Standalone | Consumes `tramai-standalone:0.3.0` from Maven — no composite build needed |

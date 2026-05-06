@@ -27,7 +27,7 @@ The repository contains:
 
 For `workflow_dispatch`, you can optionally provide a `version` input:
 
-- leave it empty to run the snapshot path as `0.2.0-SNAPSHOT`
+- leave it empty to run the snapshot path as `0.3.0-SNAPSHOT`
 - set it to a release like `0.2.0` when you want to preflight the real release publish path before pushing the tag
 
 ## Required Secrets
