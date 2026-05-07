@@ -1,7 +1,6 @@
 package dev.tramai.examples.springboot
 
 import dev.tramai.examples.springboot.ai.InvoiceAnalyzer
-import dev.tramai.testing.TramaiAssertions
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -36,9 +35,6 @@ class ExampleSmokeTest {
     @Autowired
     private lateinit var testProvider: ExampleTestProvider
 
-    @Autowired
-    private lateinit var observer: dev.tramai.testing.RecordingOperationObserver
-
     @BeforeEach
     fun resetProvider() {
         testProvider.reset()
@@ -59,9 +55,7 @@ class ExampleSmokeTest {
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.summary").value("Northwind Power invoice INV-1042 needs review."))
 
-        TramaiAssertions.assertThat(testProvider, observer)
-            .whenCalled("summarize")
-            .wasCalledTimes(1)
+        assertThat(testProvider.requests.count { it.operationMethod == "summarize" }).isEqualTo(1)
     }
 
     @Test
@@ -89,9 +83,7 @@ class ExampleSmokeTest {
             .andExpect(jsonPath("$.facts.dueDate").value("2026-04-30"))
             .andExpect(jsonPath("$.nextStep").value("ESCALATE"))
 
-        TramaiAssertions.assertThat(testProvider, observer)
-            .whenCalled("triage")
-            .wasCalledTimes(1)
+        assertThat(testProvider.requests.count { it.operationMethod == "triage" }).isEqualTo(1)
     }
 
     private fun asyncJson(requestBuilder: org.springframework.test.web.servlet.RequestBuilder): ResultActions {

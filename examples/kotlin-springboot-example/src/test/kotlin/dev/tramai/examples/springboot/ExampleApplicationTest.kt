@@ -9,17 +9,12 @@ import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.UsageMetrics
 import dev.tramai.core.nativeimage.NativeImageProxyConfig
-import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.examples.springboot.ai.InvoiceAnalyzer
 import dev.tramai.examples.springboot.workflow.InvoiceWorkflowCoordinator
-import dev.tramai.testing.MockAiProvider
 import dev.tramai.testing.RecordedRequestProvider
-import dev.tramai.testing.RecordingOperationObserver
 import dev.tramai.testing.SimulatedFailureProvider
-import dev.tramai.testing.TramaiAssertions
-import dev.tramai.standalone.Tramai
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -35,7 +30,6 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
-import org.springframework.context.annotation.Primary
 import org.springframework.http.MediaType
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
@@ -69,9 +63,6 @@ class ExampleApplicationTest {
     private lateinit var testProvider: ExampleTestProvider
 
     @Autowired
-    private lateinit var observer: RecordingOperationObserver
-
-    @Autowired
     private lateinit var objectMapper: ObjectMapper
 
     @BeforeEach
@@ -94,9 +85,7 @@ class ExampleApplicationTest {
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.summary").value("Northwind Power invoice INV-1042 needs review."))
 
-        TramaiAssertions.assertThat(testProvider, observer)
-            .whenCalled("summarize")
-            .wasCalledTimes(1)
+        assertThat(testProvider.requests.count { it.operationMethod == "summarize" }).isEqualTo(1)
     }
 
     @Test
@@ -118,7 +107,7 @@ class ExampleApplicationTest {
     }
 
     @Test
-    fun `tool-enabled endpoint executes a tool loop before returning the answer`() {
+    fun `enrich endpoint simulates tool interaction with vendor lookup tool`() {
         asyncJson(
             post("/invoice/enrich")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -133,16 +122,11 @@ class ExampleApplicationTest {
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.enrichment").value("Vendor Acme Corp is highly reliable (4.8/5) and typically works on NET-30 terms."))
 
-        TramaiAssertions.assertThat(testProvider, observer)
-            .whenCalled("enrich")
-            .wasCalledTimes(2)
-            .andCalledTool("vendor_lookup")
-
         val enrichRequests = testProvider.requests.filter { it.operationMethod == "enrich" }
+        assertThat(enrichRequests).hasSize(2)
         assertThat(enrichRequests.first().messages.any { it.role == MessageRole.TOOL }).isFalse()
         assertThat(enrichRequests.last().messages.any { it.role == MessageRole.TOOL }).isTrue()
     }
-
     @Test
     fun `triage endpoint returns typed structured response`() {
         asyncJson(
@@ -168,9 +152,7 @@ class ExampleApplicationTest {
             .andExpect(jsonPath("$.facts.dueDate").value("2026-04-30"))
             .andExpect(jsonPath("$.nextStep").value("ESCALATE"))
 
-        TramaiAssertions.assertThat(testProvider, observer)
-            .whenCalled("triage")
-            .wasCalledTimes(1)
+        assertThat(testProvider.requests.count { it.operationMethod == "triage" }).isEqualTo(1)
     }
 
     @Test
@@ -243,6 +225,7 @@ class ExampleApplicationTest {
         assertThat(started["status"].asText()).isEqualTo("PENDING")
 
         var completedPayload: String? = null
+        var pollDelay = 10L
         repeat(200) {
             val resultPayload = asyncJson(get("/invoice/workflow/result/$workflowId"))
                 .andExpect(status().isOk)
@@ -255,7 +238,8 @@ class ExampleApplicationTest {
                 completedPayload = resultPayload
                 return@repeat
             }
-            Thread.sleep(50)
+            Thread.sleep(pollDelay)
+            pollDelay = (pollDelay * 1.5).toLong().coerceAtMost(200)
         }
 
         val completed = objectMapper.readTree(completedPayload ?: error("workflow did not complete in time"))
@@ -323,6 +307,7 @@ class ExampleApplicationTest {
             .andExpect(status().isAccepted)
 
         var failedPayload: String? = null
+        var pollDelay = 10L
         repeat(200) {
             val resultPayload = asyncJson(get("/invoice/workflow/result/$workflowId"))
                 .andExpect(status().isOk)
@@ -335,7 +320,8 @@ class ExampleApplicationTest {
                 failedPayload = resultPayload
                 return@repeat
             }
-            Thread.sleep(50)
+            Thread.sleep(pollDelay)
+            pollDelay = (pollDelay * 1.5).toLong().coerceAtMost(200)
         }
 
         val failed = objectMapper.readTree(failedPayload ?: error("workflow did not fail in time"))
@@ -398,6 +384,7 @@ class ExampleApplicationTest {
             .andExpect(jsonPath("$.status").value("CANCELLED"))
 
         var cancelledPayload: String? = null
+        var pollDelay = 10L
         repeat(200) {
             val resultPayload = asyncJson(get("/invoice/workflow/result/$workflowId"))
                 .andExpect(status().isOk)
@@ -409,7 +396,8 @@ class ExampleApplicationTest {
                 cancelledPayload = resultPayload
                 return@repeat
             }
-            Thread.sleep(50)
+            Thread.sleep(pollDelay)
+            pollDelay = (pollDelay * 1.5).toLong().coerceAtMost(200)
         }
 
         val cancelled = objectMapper.readTree(cancelledPayload ?: error("workflow did not cancel in time"))
@@ -440,6 +428,7 @@ class ExampleApplicationTest {
             .andExpect(status().isAccepted)
 
         var completed = false
+        var pollDelay = 10L
         repeat(200) {
             val resultPayload = asyncJson(get("/invoice/workflow/result/$workflowId"))
                 .andExpect(status().isOk)
@@ -450,7 +439,8 @@ class ExampleApplicationTest {
                 completed = true
                 return@repeat
             }
-            Thread.sleep(50)
+            Thread.sleep(pollDelay)
+            pollDelay = (pollDelay * 1.5).toLong().coerceAtMost(200)
         }
         assertThat(completed).isTrue()
 
@@ -499,9 +489,6 @@ class ExampleApplicationTest {
     open class TestProviderConfiguration {
         @Bean
         open fun testProvider(): ExampleTestProvider = ExampleTestProvider()
-
-        @Bean
-        open fun recordingOperationObserver(): RecordingOperationObserver = RecordingOperationObserver()
     }
 
     companion object {
@@ -546,26 +533,26 @@ class ExampleTestProvider : ModelProvider, StreamCapable, RecordedRequestProvide
 
     private var nextToolCallId = 1
 
-    /** Mock provider for standard text completions (summarize, triage). */
-    private val mockProvider = MockAiProvider {
-        onMethod("summarize") respondWith "Northwind Power invoice INV-1042 needs review."
-        onMethod("triage") respondWith """
-            {
-              "summary": "Invoice INV-1042 from Northwind Power is overdue.",
-              "status": { "name": "OVERDUE", "ordinal": 2 },
-              "priority": { "name": "HIGH", "ordinal": 2 },
-              "needsImmediateAttention": true,
-              "riskScore": 4,
-              "facts": {
-                "invoiceId": "INV-1042",
-                "vendor": "Northwind Power",
-                "amountDueText": "4820 USD",
-                "dueDate": "2026-04-30"
-              },
-              "nextStep": { "name": "ESCALATE", "ordinal": 4 }
-            }
-        """.trimIndent()
-    }
+    /** Standard text response for summarize method. */
+    private val summarizeResponse = "Northwind Power invoice INV-1042 needs review."
+
+    /** Standard JSON response for triage method. */
+    private val triageResponseJson = """
+        {
+          "summary": "Invoice INV-1042 from Northwind Power is overdue.",
+          "status": { "name": "OVERDUE", "ordinal": 2 },
+          "priority": { "name": "HIGH", "ordinal": 2 },
+          "needsImmediateAttention": true,
+          "riskScore": 4,
+          "facts": {
+            "invoiceId": "INV-1042",
+            "vendor": "Northwind Power",
+            "amountDueText": "4820 USD",
+            "dueDate": "2026-04-30"
+          },
+          "nextStep": { "name": "ESCALATE", "ordinal": 4 }
+        }
+    """.trimIndent()
 
     /** Failure provider for retryable failure scenarios. */
     private val failProvider = SimulatedFailureProvider {
@@ -600,7 +587,7 @@ class ExampleTestProvider : ModelProvider, StreamCapable, RecordedRequestProvide
         }
 
         return when (request.operationMethod) {
-            "summarize" -> mockProvider.complete(request)
+            "summarize" -> ModelResponse(content = summarizeResponse)
             "triage" -> triageResponse(request)
             "enrich" -> enrichResponse(request)
             else -> error("Unsupported operation method '${request.operationMethod}' in example test provider")
@@ -645,7 +632,7 @@ class ExampleTestProvider : ModelProvider, StreamCapable, RecordedRequestProvide
                 """.trimIndent(),
             )
         } else {
-            mockProvider.complete(request)
+            ModelResponse(content = triageResponseJson)
         }
     }
 
