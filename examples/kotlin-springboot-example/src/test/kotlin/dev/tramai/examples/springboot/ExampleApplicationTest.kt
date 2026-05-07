@@ -1,7 +1,6 @@
 package dev.tramai.examples.springboot
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
@@ -126,6 +125,9 @@ class ExampleApplicationTest {
         assertThat(enrichRequests).hasSize(2)
         assertThat(enrichRequests.first().messages.any { it.role == MessageRole.TOOL }).isFalse()
         assertThat(enrichRequests.last().messages.any { it.role == MessageRole.TOOL }).isTrue()
+        val allToolCalls = enrichRequests.flatMap { req -> req.messages.flatMap { it.toolCalls.orEmpty() } }
+        assertThat(allToolCalls).isNotEmpty
+        assertThat(allToolCalls.first().name).isEqualTo("vendor_lookup")
     }
     @Test
     fun `triage endpoint returns typed structured response`() {
@@ -520,8 +522,8 @@ class ExampleApplicationTest {
 }
 
 /**
- * Composite test provider that uses [MockAiProvider] and [SimulatedFailureProvider]
- * internally for standard completions, with custom streaming, tool loop, and
+ * Composite test provider that uses [SimulatedFailureProvider]
+ * for retryable failure scenarios, with custom streaming, tool loop, and
  * special marker support for workflow tests.
  */
 class ExampleTestProvider : ModelProvider, StreamCapable, RecordedRequestProvider {
