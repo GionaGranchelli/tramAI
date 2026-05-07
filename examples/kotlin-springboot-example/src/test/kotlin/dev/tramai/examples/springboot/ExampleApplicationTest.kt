@@ -1,20 +1,27 @@
 package dev.tramai.examples.springboot
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.UsageMetrics
-import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.nativeimage.NativeImageProxyConfig
+import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.examples.springboot.ai.InvoiceAnalyzer
 import dev.tramai.examples.springboot.workflow.InvoiceWorkflowCoordinator
-import kotlinx.coroutines.flow.Flow
+import dev.tramai.testing.MockAiProvider
+import dev.tramai.testing.RecordedRequestProvider
+import dev.tramai.testing.RecordingOperationObserver
+import dev.tramai.testing.SimulatedFailureProvider
+import dev.tramai.testing.TramaiAssertions
+import dev.tramai.standalone.Tramai
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -28,6 +35,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
+import org.springframework.context.annotation.Primary
 import org.springframework.http.MediaType
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
@@ -61,6 +69,9 @@ class ExampleApplicationTest {
     private lateinit var testProvider: ExampleTestProvider
 
     @Autowired
+    private lateinit var observer: RecordingOperationObserver
+
+    @Autowired
     private lateinit var objectMapper: ObjectMapper
 
     @BeforeEach
@@ -82,6 +93,10 @@ class ExampleApplicationTest {
         )
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.summary").value("Northwind Power invoice INV-1042 needs review."))
+
+        TramaiAssertions.assertThat(testProvider, observer)
+            .whenCalled("summarize")
+            .wasCalledTimes(1)
     }
 
     @Test
@@ -118,8 +133,12 @@ class ExampleApplicationTest {
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.enrichment").value("Vendor Acme Corp is highly reliable (4.8/5) and typically works on NET-30 terms."))
 
-        val enrichRequests = testProvider.completeRequests.filter { it.operationMethod == "enrich" }
-        assertThat(enrichRequests).hasSize(2)
+        TramaiAssertions.assertThat(testProvider, observer)
+            .whenCalled("enrich")
+            .wasCalledTimes(2)
+            .andCalledTool("vendor_lookup")
+
+        val enrichRequests = testProvider.requests.filter { it.operationMethod == "enrich" }
         assertThat(enrichRequests.first().messages.any { it.role == MessageRole.TOOL }).isFalse()
         assertThat(enrichRequests.last().messages.any { it.role == MessageRole.TOOL }).isTrue()
     }
@@ -148,6 +167,10 @@ class ExampleApplicationTest {
             .andExpect(jsonPath("$.facts.amountDueText").value("4820 USD"))
             .andExpect(jsonPath("$.facts.dueDate").value("2026-04-30"))
             .andExpect(jsonPath("$.nextStep").value("ESCALATE"))
+
+        TramaiAssertions.assertThat(testProvider, observer)
+            .whenCalled("triage")
+            .wasCalledTimes(1)
     }
 
     @Test
@@ -472,10 +495,13 @@ class ExampleApplicationTest {
             .isEqualTo(NativeImageProxyConfig.json(InvoiceAnalyzer::class).trim())
     }
 
-    @TestConfiguration
+    @TestConfiguration(proxyBeanMethods = false)
     open class TestProviderConfiguration {
         @Bean
-        open fun ollamaProvider(): ExampleTestProvider = ExampleTestProvider()
+        open fun testProvider(): ExampleTestProvider = ExampleTestProvider()
+
+        @Bean
+        open fun recordingOperationObserver(): RecordingOperationObserver = RecordingOperationObserver()
     }
 
     companion object {
@@ -506,37 +532,75 @@ class ExampleApplicationTest {
     }
 }
 
-class ExampleTestProvider : ModelProvider, StreamCapable {
-    val completeRequests = mutableListOf<ModelRequest>()
+/**
+ * Composite test provider that uses [MockAiProvider] and [SimulatedFailureProvider]
+ * internally for standard completions, with custom streaming, tool loop, and
+ * special marker support for workflow tests.
+ */
+class ExampleTestProvider : ModelProvider, StreamCapable, RecordedRequestProvider {
+    /** All [ModelRequest] objects received via [complete], in invocation order. */
+    override val requests = mutableListOf<ModelRequest>()
+
+    /** All [ModelRequest] objects received via [stream], in invocation order. */
     val streamRequests = mutableListOf<ModelRequest>()
-    private var nextToolCallId: Int = 1
+
+    private var nextToolCallId = 1
+
+    /** Mock provider for standard text completions (summarize, triage). */
+    private val mockProvider = MockAiProvider {
+        onMethod("summarize") respondWith "Northwind Power invoice INV-1042 needs review."
+        onMethod("triage") respondWith """
+            {
+              "summary": "Invoice INV-1042 from Northwind Power is overdue.",
+              "status": { "name": "OVERDUE", "ordinal": 2 },
+              "priority": { "name": "HIGH", "ordinal": 2 },
+              "needsImmediateAttention": true,
+              "riskScore": 4,
+              "facts": {
+                "invoiceId": "INV-1042",
+                "vendor": "Northwind Power",
+                "amountDueText": "4820 USD",
+                "dueDate": "2026-04-30"
+              },
+              "nextStep": { "name": "ESCALATE", "ordinal": 4 }
+            }
+        """.trimIndent()
+    }
+
+    /** Failure provider for retryable failure scenarios. */
+    private val failProvider = SimulatedFailureProvider {
+        onMethod("summarize").retryableFailure("simulated timeout while summarizing", statusCode = 504)
+    }
 
     fun reset() {
-        completeRequests.clear()
+        requests.clear()
         streamRequests.clear()
         nextToolCallId = 1
     }
 
+    override fun providerId(): String = "ollama"
+
     override suspend fun complete(request: ModelRequest): ModelResponse {
-        completeRequests += request
+        requests += request
 
         val promptInput = request.messages.last().content
-        if (request.operationMethod == "summarize" && promptInput.contains("[[FAIL_TIMEOUT]]")) {
-            throw ProviderException(
-                message = "simulated timeout while summarizing",
-                statusCode = 504,
-                retryable = true,
-            )
-        }
-        if (request.operationMethod == "summarize" && promptInput.contains("[[SLOW_SUMMARY]]")) {
-            delay(500)
-        }
-        if (request.operationMethod == "summarize" && promptInput.contains("[[CANCEL_ME]]")) {
-            delay(15_000)
+
+        // Special markers for workflow tests
+        if (request.operationMethod == "summarize") {
+            if (promptInput.contains("[[FAIL_TIMEOUT]]")) {
+                // Delegate to SimulatedFailureProvider which throws ProviderException
+                return failProvider.complete(request)
+            }
+            if (promptInput.contains("[[SLOW_SUMMARY]]")) {
+                delay(500)
+            }
+            if (promptInput.contains("[[CANCEL_ME]]")) {
+                delay(15_000)
+            }
         }
 
         return when (request.operationMethod) {
-            "summarize" -> ModelResponse(content = "Northwind Power invoice INV-1042 needs review.")
+            "summarize" -> mockProvider.complete(request)
             "triage" -> triageResponse(request)
             "enrich" -> enrichResponse(request)
             else -> error("Unsupported operation method '${request.operationMethod}' in example test provider")
@@ -557,9 +621,7 @@ class ExampleTestProvider : ModelProvider, StreamCapable {
         }
     }
 
-    override fun providerId(): String = "ollama"
-
-    private fun triageResponse(request: ModelRequest): ModelResponse {
+    private suspend fun triageResponse(request: ModelRequest): ModelResponse {
         val promptInput = request.messages.last().content
         val disputed = promptInput.contains("Blue Harbor Logistics")
 
@@ -583,24 +645,7 @@ class ExampleTestProvider : ModelProvider, StreamCapable {
                 """.trimIndent(),
             )
         } else {
-            ModelResponse(
-                content = """
-                    {
-                      "summary": "Invoice INV-1042 from Northwind Power is overdue.",
-                      "status": { "name": "OVERDUE", "ordinal": 2 },
-                      "priority": { "name": "HIGH", "ordinal": 2 },
-                      "needsImmediateAttention": true,
-                      "riskScore": 4,
-                      "facts": {
-                        "invoiceId": "INV-1042",
-                        "vendor": "Northwind Power",
-                        "amountDueText": "4820 USD",
-                        "dueDate": "2026-04-30"
-                      },
-                      "nextStep": { "name": "ESCALATE", "ordinal": 4 }
-                    }
-                """.trimIndent(),
-            )
+            mockProvider.complete(request)
         }
     }
 

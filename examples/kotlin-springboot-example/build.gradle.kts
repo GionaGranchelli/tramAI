@@ -9,6 +9,10 @@ plugins {
     kotlin("plugin.spring") version "2.3.0"
 }
 
+springBoot {
+    mainClass.set("dev.tramai.examples.springboot.ExampleApplicationKt")
+}
+
 group = "dev.tramai.examples"
 version = "0.3.0"
 
