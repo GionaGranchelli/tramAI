@@ -189,7 +189,9 @@ internal data class ShellWorkflowStep<S>(
                         ),
                         context = context,
                     )
-                    process.destroyForcibly()
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        terminateProcessTree(process)
+                    }
                     throw WorkflowShellException(
                         stepName = name,
                         message = "timed out after ${config.timeoutSeconds}s",
@@ -223,10 +225,11 @@ internal data class ShellWorkflowStep<S>(
             }
         } finally {
             withContext(NonCancellable + Dispatchers.IO) {
-                if (process.isAlive) {
-                    process.destroyForcibly()
+                if (process.toHandle().isAlive) {
+                    terminateProcessTree(process)
+                } else {
+                    process.waitForUninterruptibly()
                 }
-                process.waitForUninterruptibly()
             }
         }
     }
@@ -375,21 +378,6 @@ private fun ShellCommand.commandIdentifiers(): Set<String> {
     return buildSet {
         add(executable)
         add(fileName)
-    }
-}
-
-private fun Process.waitForUninterruptibly() {
-    var interrupted = false
-    while (true) {
-        try {
-            waitFor()
-            break
-        } catch (_: InterruptedException) {
-            interrupted = true
-        }
-    }
-    if (interrupted) {
-        Thread.currentThread().interrupt()
     }
 }
 

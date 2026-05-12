@@ -11,10 +11,13 @@ import io.modelcontextprotocol.kotlin.sdk.types.Tool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CancellationException
 import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
@@ -26,7 +29,11 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermission
 import java.time.Clock
+import java.util.concurrent.TimeUnit
 import kotlin.reflect.typeOf
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -121,6 +128,143 @@ class WorkflowMcpStepTest {
     }
 
     @Test
+    fun `mcp step propagates CancellationException on mid-call coroutine cancellation`() {
+        val (transportProvider, _) = createSlowServer()
+
+        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
+            name = "slow",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("unused"),
+                toolName = "delay",
+            ),
+            config = McpStepConfig(timeoutSeconds = 10, reconnect = false),
+            toolCallBuilder = { _, _ ->
+                McpToolCall(serverCommand = listOf("unused"), toolName = "delay")
+            },
+            merge = { state, result, _ -> state.copy(result = result) },
+            transportProvider = transportProvider,
+        )
+
+        val workflow = buildWorkflow(listOf(step))
+
+        runBlocking {
+            val deferred = async {
+                workflow.run(McpState())
+            }
+            delay(500)
+            deferred.cancel()
+            val result = runCatching { deferred.await() }
+            assertThat(result.exceptionOrNull()).isInstanceOf(CancellationException::class.java)
+        }
+    }
+
+    @Test
+    fun `mcp subprocess cleanup terminates descendant processes on mid-call coroutine cancellation`() {
+        val parentPidFile = Files.createTempFile("workflow-mcp-cancel-parent", ".pid")
+        val childPidFile = Files.createTempFile("workflow-mcp-cancel-child", ".pid")
+        try {
+            withExecutableScript(
+                name = "slow-mcp-descendants",
+                content = """
+                    |#!/bin/sh
+                    |echo $$ > '${parentPidFile.toAbsolutePath()}'
+                    |sleep 30 &
+                    |child=$!
+                    |echo ${'$'}child > '${childPidFile.toAbsolutePath()}'
+                    |wait ${'$'}child
+                """.trimMargin(),
+            ) { serverScript ->
+                val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
+                    name = "slow-subprocess",
+                    definition = McpToolCallDefinition(
+                        serverCommand = listOf(serverScript.toString()),
+                        toolName = "delay",
+                    ),
+                    config = McpStepConfig(timeoutSeconds = 30, reconnect = false),
+                    toolCallBuilder = { _, _ ->
+                        McpToolCall(serverCommand = listOf(serverScript.toString()), toolName = "delay")
+                    },
+                    merge = { state, result, _ -> state.copy(result = result) },
+                    transportProvider = SubprocessMcpTransportProvider(),
+                )
+
+                val workflow = buildWorkflow(listOf(step))
+
+                runBlocking {
+                    val deferred = async {
+                        workflow.run(McpState())
+                    }
+                    delay(1500)
+                    deferred.cancel()
+                    runCatching { deferred.await() }
+
+                    val parentPid = awaitMcpPid(parentPidFile)
+                    val childPid = awaitMcpPid(childPidFile)
+                    awaitMcpProcessExit(parentPid)
+                    awaitMcpProcessExit(childPid)
+                    assertThat(ProcessHandle.of(parentPid).map { it.isAlive }.orElse(false)).isFalse()
+                    assertThat(ProcessHandle.of(childPid).map { it.isAlive }.orElse(false)).isFalse()
+                }
+            }
+        } finally {
+            Files.deleteIfExists(parentPidFile)
+            Files.deleteIfExists(childPidFile)
+        }
+    }
+
+    @Test
+    fun `mcp subprocess cleanup terminates descendant processes on timeout`() {
+        val parentPidFile = Files.createTempFile("workflow-mcp-timeout-parent", ".pid")
+        val childPidFile = Files.createTempFile("workflow-mcp-timeout-child", ".pid")
+        try {
+            withExecutableScript(
+                name = "slow-mcp-descendants",
+                content = """
+                    |#!/bin/sh
+                    |echo $$ > '${parentPidFile.toAbsolutePath()}'
+                    |sleep 30 &
+                    |child=$!
+                    |echo ${'$'}child > '${childPidFile.toAbsolutePath()}'
+                    |wait ${'$'}child
+                """.trimMargin(),
+            ) { serverScript ->
+                val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
+                    name = "slow-subprocess",
+                    definition = McpToolCallDefinition(
+                        serverCommand = listOf(serverScript.toString()),
+                        toolName = "delay",
+                    ),
+                    config = McpStepConfig(timeoutSeconds = 1, reconnect = false),
+                    toolCallBuilder = { _, _ ->
+                        McpToolCall(serverCommand = listOf(serverScript.toString()), toolName = "delay")
+                    },
+                    merge = { state, result, _ -> state.copy(result = result) },
+                    transportProvider = SubprocessMcpTransportProvider(),
+                )
+
+                val workflow = buildWorkflow(listOf(step))
+
+                assertThatThrownBy {
+                    runBlocking { workflow.run(McpState()) }
+                }.isInstanceOf(WorkflowMcpException::class.java)
+                    .hasMessageContaining("timed out")
+
+                runBlocking {
+                    val parentPid = awaitMcpPid(parentPidFile)
+                    val childPid = awaitMcpPid(childPidFile)
+                    awaitMcpProcessExit(parentPid)
+                    awaitMcpProcessExit(childPid)
+                    assertThat(ProcessHandle.of(parentPid).map { it.isAlive }.orElse(false)).isFalse()
+                    assertThat(ProcessHandle.of(childPid).map { it.isAlive }.orElse(false)).isFalse()
+                }
+            }
+        } finally {
+            Files.deleteIfExists(parentPidFile)
+            Files.deleteIfExists(childPidFile)
+        }
+    }
+
+    @Test
     fun `mcp step emits observer events`() {
         val (transportProvider, _) = createEchoServer()
         val observer = RecordingMcpObserver()
@@ -207,6 +351,65 @@ class WorkflowMcpStepTest {
     }
 
     @Test
+    fun `mcp typed overload decodes the tool result before merge`() {
+        val (transportProvider, _) = createEchoServer()
+
+        val workflow = workflow<McpState>("typed-mcp-success") {
+            mcpStep(
+                name = "echo",
+                definition = McpToolCallDefinition(
+                    serverCommand = listOf("unused"),
+                    toolName = "echo",
+                    argumentKeys = setOf("message"),
+                ),
+                toolCall = { _, _ ->
+                    McpToolCall(
+                        serverCommand = listOf("unused"),
+                        toolName = "echo",
+                        arguments = mapOf("message" to "typed"),
+                    )
+                },
+                decode = { result -> result.content ?: error("missing content") },
+                merge = { state, result, _ -> state.copy(decoded = result) },
+            )
+        }.build { it }.withFirstMcpTransport(transportProvider)
+
+        val result = runBlocking { workflow.run(McpState(), observer = RecordingMcpObserver()) }
+
+        assertThat(result.decoded).isEqualTo("echo: typed")
+    }
+
+    @Test
+    fun `mcp typed overload wraps decode failures as workflow mcp exceptions`() {
+        val (transportProvider, _) = createEchoServer()
+
+        val workflow = workflow<McpState>("typed-mcp-failure") {
+            mcpStep(
+                name = "echo",
+                definition = McpToolCallDefinition(
+                    serverCommand = listOf("unused"),
+                    toolName = "echo",
+                    argumentKeys = setOf("message"),
+                ),
+                toolCall = { _, _ ->
+                    McpToolCall(
+                        serverCommand = listOf("unused"),
+                        toolName = "echo",
+                        arguments = mapOf("message" to "typed"),
+                    )
+                },
+                decode = { result -> error("decode failed for '${result.content}'") },
+                merge = { state, result, _ -> state.copy(decoded = result) },
+            )
+        }.build { it }.withFirstMcpTransport(transportProvider)
+
+        assertThatThrownBy {
+            runBlocking { workflow.run(McpState()) }
+        }.isInstanceOf(WorkflowMcpException::class.java)
+            .hasMessageContaining("decode failed for 'echo: typed'")
+    }
+
+    @Test
     fun `mcp step rejects state-influenced command changes`() {
         val (transportProvider, _) = createEchoServer()
 
@@ -262,6 +465,7 @@ class WorkflowMcpStepTest {
 
     private data class McpState(
         val result: McpToolResult? = null,
+        val decoded: String? = null,
     )
 
     private fun buildWorkflow(
@@ -278,6 +482,36 @@ class WorkflowMcpStepTest {
         clock = Clock.systemUTC(),
         externalStepExecutorResolver = NoOpExternalStepExecutorResolver,
     )
+
+    @Suppress("UNCHECKED_CAST")
+    private fun Workflow<McpState, McpState>.withFirstMcpTransport(
+        transportProvider: McpTransportProvider,
+    ): Workflow<McpState, McpState> {
+        val steps = readPrivate<List<InternalWorkflowStep<McpState>>>("steps").toMutableList()
+        val existing = steps.first() as McpWorkflowStep<McpState>
+        steps[0] = existing.copy(transportProvider = transportProvider)
+
+        return Workflow(
+            name = name,
+            definitionVersion = definitionVersion,
+            stateType = stateType,
+            resultType = resultType,
+            schedule = schedule,
+            steps = steps,
+            resultSelector = readPrivate("resultSelector"),
+            stopPolicy = readPrivate("stopPolicy"),
+            clock = readPrivate("clock"),
+            externalStepExecutorResolver = readPrivate("externalStepExecutorResolver"),
+            httpClient = readPrivate("httpClient"),
+        )
+    }
+
+    private fun <T> Workflow<McpState, McpState>.readPrivate(name: String): T {
+        val field = Workflow::class.java.getDeclaredField(name)
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        return field.get(this) as T
+    }
 
     private class RecordingMcpObserver : WorkflowObserver {
         val eventNames = mutableListOf<String>()
@@ -491,4 +725,52 @@ class WorkflowMcpStepTest {
         val serverInput: PipedInputStream,
         val closeable: AutoCloseable,
     )
+}
+
+private fun withExecutableScript(
+    name: String,
+    content: String,
+    block: (Path) -> Unit,
+) {
+    val script = Files.createTempFile(name, ".sh")
+    try {
+        Files.writeString(script, content + "\n")
+        Files.setPosixFilePermissions(
+            script,
+            setOf(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OWNER_EXECUTE,
+            ),
+        )
+        block(script)
+    } finally {
+        Files.deleteIfExists(script)
+    }
+}
+
+private suspend fun awaitMcpPid(pidFile: Path): Long {
+    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+    while (System.nanoTime() < deadlineNanos) {
+        if (Files.exists(pidFile)) {
+            val rawPid = Files.readString(pidFile).trim()
+            if (rawPid.isNotEmpty()) {
+                return rawPid.toLong()
+            }
+        }
+        delay(25)
+    }
+    error("Timed out waiting for MCP PID at $pidFile")
+}
+
+private suspend fun awaitMcpProcessExit(pid: Long) {
+    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+    while (System.nanoTime() < deadlineNanos) {
+        val handle = ProcessHandle.of(pid)
+        if (handle.isEmpty || !handle.get().isAlive) {
+            return
+        }
+        delay(25)
+    }
+    error("Timed out waiting for process $pid to exit")
 }

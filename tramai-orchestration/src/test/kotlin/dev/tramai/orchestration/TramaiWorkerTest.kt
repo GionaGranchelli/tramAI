@@ -249,6 +249,236 @@ class TramaiWorkerTest {
     }
 
     @Test
+    fun `worker takeover re executes legacy ai step overload after crash`() = runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        var now = 4_500L
+        val leaseStore = InMemoryWorkflowLeaseStore(clockMillis = { now })
+        val executions = AtomicInteger()
+        val workflow = workflow<WorkerState>("legacy-ai-idempotent-default") {
+            aiStep(
+                name = "plan",
+                input = { it.value },
+                invoke = { value ->
+                    executions.incrementAndGet()
+                    delay(200)
+                    "$value:planned"
+                },
+                merge = { state, result -> state.copy(value = result) },
+            )
+        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        val runId = "run-legacy-ai-idempotent-default"
+        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+
+        val workerA = worker("worker-a", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        workerA.start()
+        waitUntil {
+            executions.get() == 1 && checkpointStore.latestStepAttempt(runId, "plan")?.status == StepAttemptStatus.STARTED
+        }
+        workerA.crash()
+
+        now += 250
+        val workerB = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        workerB.start()
+        try {
+            waitUntil {
+                executions.get() == 2 && checkpointStore.load(workflow.name, runId) == null
+            }
+
+            val attempts = checkpointStore.listStepAttempts(runId)
+            assertThat(attempts).hasSize(2)
+            assertThat(attempts.map { it.status }).containsExactly(StepAttemptStatus.UNKNOWN, StepAttemptStatus.COMPLETED)
+            assertThat(attempts.first().replayPolicy).isEqualTo(ReplayPolicy.IDEMPOTENT)
+        } finally {
+            workerB.shutdown()
+        }
+    }
+
+    @Test
+    fun `worker crash leaves context aware ai step in unknown state and takeover fails`() = runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        var now = 4_625L
+        val leaseStore = InMemoryWorkflowLeaseStore(clockMillis = { now })
+        val executions = AtomicInteger()
+        val workflow = workflow<WorkerState>("context-ai-non-replayable-default") {
+            aiStep(
+                name = "plan",
+                input = { state, _ -> state.value },
+                invoke = { value, _ ->
+                    executions.incrementAndGet()
+                    delay(200)
+                    "$value:planned"
+                },
+                merge = { state, result, _ -> state.copy(value = result) },
+            )
+        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        val runId = "run-context-ai-non-replayable-default"
+        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+
+        val workerA = worker("worker-a", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        workerA.start()
+        waitUntil {
+            executions.get() == 1 && checkpointStore.latestStepAttempt(runId, "plan")?.status == StepAttemptStatus.STARTED
+        }
+        workerA.crash()
+
+        now += 250
+        val workerB = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        workerB.start()
+        try {
+            waitUntil {
+                workerB.latestFailure(runId) is NonReplayableStepStateUnknownException
+            }
+
+            assertThat(executions.get()).isEqualTo(1)
+            val latestAttempt = checkpointStore.latestStepAttempt(runId, "plan")!!
+            assertThat(latestAttempt.status).isEqualTo(StepAttemptStatus.UNKNOWN)
+            assertThat(latestAttempt.replayPolicy).isEqualTo(ReplayPolicy.NON_REPLAYABLE)
+        } finally {
+            workerB.shutdown()
+        }
+    }
+
+    @Test
+    fun `worker takeover re executes ai step when marked idempotent`() = runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        var now = 4_750L
+        val leaseStore = InMemoryWorkflowLeaseStore(clockMillis = { now })
+        val executions = AtomicInteger()
+        val workflow = workflow<WorkerState>("idempotent-ai-step") {
+            aiStep(
+                name = "plan",
+                replayPolicy = ReplayPolicy.IDEMPOTENT,
+                input = { it.value },
+                invoke = { value ->
+                    executions.incrementAndGet()
+                    delay(200)
+                    "$value:planned"
+                },
+                merge = { state, result -> state.copy(value = result) },
+            )
+        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        val runId = "run-idempotent-ai-step"
+        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+
+        val workerA = worker("worker-a", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        workerA.start()
+        waitUntil {
+            executions.get() == 1 && checkpointStore.latestStepAttempt(runId, "plan")?.status == StepAttemptStatus.STARTED
+        }
+        workerA.crash()
+
+        now += 250
+        val workerB = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        workerB.start()
+        try {
+            waitUntil {
+                executions.get() == 2 && checkpointStore.load(workflow.name, runId) == null
+            }
+
+            val attempts = checkpointStore.listStepAttempts(runId)
+            assertThat(attempts).hasSize(2)
+            assertThat(attempts.map { it.status }).containsExactly(StepAttemptStatus.UNKNOWN, StepAttemptStatus.COMPLETED)
+            assertThat(attempts.first().replayPolicy).isEqualTo(ReplayPolicy.IDEMPOTENT)
+        } finally {
+            workerB.shutdown()
+        }
+    }
+
+    @Test
+    fun `worker takeover re executes externally idempotent ai step with stable key`() = runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        var now = 4_900L
+        val leaseStore = InMemoryWorkflowLeaseStore(clockMillis = { now })
+        val keys = CopyOnWriteArrayList<String>()
+        val workflow = workflow<WorkerState>("external-idempotent-ai-step") {
+            aiStep(
+                name = "plan",
+                replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                idempotencyKey = { _, context -> "ai-key:${context.workflowId}" },
+                input = { state, context -> "${state.value}:${context.workflowId}" },
+                invoke = { value, context ->
+                    val key = "ai-key:${context.workflowId}"
+                    keys += key
+                    delay(200)
+                    "$value:$key"
+                },
+                merge = { state, result, _ -> state.copy(value = result) },
+            )
+        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        val runId = "run-external-idempotent-ai-step"
+        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+
+        val workerA = worker("worker-a", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        workerA.start()
+        waitUntil {
+            keys.size == 1 && checkpointStore.latestStepAttempt(runId, "plan")?.status == StepAttemptStatus.STARTED
+        }
+        workerA.crash()
+
+        now += 250
+        val workerB = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        workerB.start()
+        try {
+            waitUntil {
+                keys.size >= 2 && checkpointStore.load(workflow.name, runId) == null
+            }
+
+            val attempts = checkpointStore.listStepAttempts(runId)
+            assertThat(attempts).hasSize(2)
+            assertThat(attempts.map { it.status }).containsExactly(StepAttemptStatus.UNKNOWN, StepAttemptStatus.COMPLETED)
+            assertThat(attempts.first().replayPolicy).isEqualTo(ReplayPolicy.EXTERNALLY_IDEMPOTENT)
+            assertThat(attempts.map { it.idempotencyKey }.distinct()).containsExactly("ai-key:$runId")
+        } finally {
+            workerB.shutdown()
+        }
+    }
+
+    @Test
+    fun `externally idempotent ai step without a recorded key is blocked`() = runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val workflow = workflow<WorkerState>("missing-ai-key") {
+            aiStep(
+                name = "plan",
+                replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                idempotencyKey = { _, context -> "ai-key:${context.workflowId}" },
+                input = { it.value },
+                invoke = { "$it:planned" },
+                merge = { state, result -> state.copy(value = result) },
+            )
+        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        val runId = "run-missing-ai-key"
+        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+        checkpointStore.recordStepAttempt(
+            StepAttemptRecord(
+                runId = runId,
+                stepName = "plan",
+                attemptId = "attempt-1",
+                workerId = "worker-a",
+                leaseToken = "lease-a",
+                status = StepAttemptStatus.STARTED,
+                startedAt = 10L,
+                replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                idempotencyKey = null,
+            ),
+        )
+
+        val worker = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        worker.start()
+        try {
+            waitUntil {
+                worker.latestFailure(runId) is NonReplayableStepStateUnknownException
+            }
+
+            val failure = worker.latestFailure(runId) as NonReplayableStepStateUnknownException
+            assertThat(failure.recoveryInstructions).contains("stable idempotency key")
+            assertThat(checkpointStore.latestStepAttempt(runId, "plan")?.status).isEqualTo(StepAttemptStatus.UNKNOWN)
+        } finally {
+            worker.shutdown()
+        }
+    }
+
+    @Test
     fun `graceful shutdown drains in progress work and releases leases`() = runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         val leaseStore = InMemoryWorkflowLeaseStore()

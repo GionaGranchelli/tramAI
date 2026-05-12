@@ -108,6 +108,58 @@ class WorkflowAgentStepTest {
     }
 
     @Test
+    fun `hermes typed overload decodes the cli response before merge`() {
+        withExecutableScript(
+            name = "fake-hermes-typed",
+            content = """
+                |#!/bin/sh
+                |printf '42'
+            """.trimMargin(),
+        ) { hermesCli ->
+            val workflow = agentWorkflow("hermes-typed") {
+                hermesStep(
+                    name = "review-ui",
+                    config = HermesStepConfig(cliPath = hermesCli.toString()),
+                    prompt = { _, _ -> "decode this" },
+                    decode = { response -> response.toInt() },
+                    merge = { state, response, _ -> state.copy(hermesDecoded = response) },
+                )
+            }
+
+            val result = runBlocking { workflow.run(AgentState()) }
+
+            assertThat(result.hermesDecoded).isEqualTo(42)
+        }
+    }
+
+    @Test
+    fun `codex typed overload decodes the cli response before merge`() {
+        withExecutableScript(
+            name = "fake-codex-typed",
+            content = """
+                |#!/bin/sh
+                |[ "$1" = "exec" ] || exit 21
+                |[ "$2" = "--" ] || exit 22
+                |printf '7'
+            """.trimMargin(),
+        ) { codexCli ->
+            val workflow = agentWorkflow("codex-typed") {
+                codexStep(
+                    name = "review-ui",
+                    config = CodexStepConfig(cliPath = codexCli.toString()),
+                    prompt = { _, _ -> "decode this" },
+                    decode = { response -> response.toInt() },
+                    merge = { state, response, _ -> state.copy(codexDecoded = response) },
+                )
+            }
+
+            val result = runBlocking { workflow.run(AgentState()) }
+
+            assertThat(result.codexDecoded).isEqualTo(7)
+        }
+    }
+
+    @Test
     fun `codex step treats prompts starting with a dash as prompt text`() {
         withExecutableScript(
             name = "fake-codex-dash-prompt",
@@ -130,6 +182,64 @@ class WorkflowAgentStepTest {
             val result = runBlocking { workflow.run(AgentState()) }
 
             assertThat(result.codexResponse).isEqualTo("prompt=-review frontend")
+        }
+    }
+
+    @Test
+    fun `hermes typed overload wraps decode failures as workflow hermes exceptions`() {
+        withExecutableScript(
+            name = "fake-hermes-decode-failure",
+            content = """
+                |#!/bin/sh
+                |printf 'not-a-number'
+            """.trimMargin(),
+        ) { hermesCli ->
+            val workflow = agentWorkflow("hermes-decode-failure") {
+                hermesStep(
+                    name = "review-ui",
+                    config = HermesStepConfig(cliPath = hermesCli.toString()),
+                    prompt = { _, _ -> "decode this" },
+                    decode = { response ->
+                        response.toIntOrNull() ?: error("decode failed for '$response'")
+                    },
+                    merge = { state, response, _ -> state.copy(hermesDecoded = response) },
+                )
+            }
+
+            assertThatThrownBy {
+                runBlocking { workflow.run(AgentState()) }
+            }.isInstanceOf(WorkflowHermesException::class.java)
+                .hasMessageContaining("decode failed for 'not-a-number'")
+        }
+    }
+
+    @Test
+    fun `codex typed overload wraps decode failures as workflow codex exceptions`() {
+        withExecutableScript(
+            name = "fake-codex-decode-failure",
+            content = """
+                |#!/bin/sh
+                |[ "$1" = "exec" ] || exit 21
+                |[ "$2" = "--" ] || exit 22
+                |printf 'not-a-number'
+            """.trimMargin(),
+        ) { codexCli ->
+            val workflow = agentWorkflow("codex-decode-failure") {
+                codexStep(
+                    name = "review-ui",
+                    config = CodexStepConfig(cliPath = codexCli.toString()),
+                    prompt = { _, _ -> "decode this" },
+                    decode = { response ->
+                        response.toIntOrNull() ?: error("decode failed for '$response'")
+                    },
+                    merge = { state, response, _ -> state.copy(codexDecoded = response) },
+                )
+            }
+
+            assertThatThrownBy {
+                runBlocking { workflow.run(AgentState()) }
+            }.isInstanceOf(WorkflowCodexException::class.java)
+                .hasMessageContaining("decode failed for 'not-a-number'")
         }
     }
 
@@ -385,6 +495,8 @@ private data class AgentState(
     val target: String = "",
     val hermesResponse: String? = null,
     val codexResponse: String? = null,
+    val hermesDecoded: Int? = null,
+    val codexDecoded: Int? = null,
 )
 
 private fun agentWorkflow(

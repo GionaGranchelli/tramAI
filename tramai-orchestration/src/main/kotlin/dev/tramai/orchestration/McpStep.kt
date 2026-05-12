@@ -144,10 +144,11 @@ internal class SubprocessMcpTransportProvider : McpTransportProvider {
             cleanup = {
                 drainScope.cancel()
                 withContext(NonCancellable + Dispatchers.IO) {
-                    if (process.isAlive) {
-                        process.destroyForcibly()
+                    if (process.toHandle().isAlive) {
+                        terminateProcessTree(process)
+                    } else {
+                        process.waitForUninterruptibly()
                     }
-                    waitForUninterruptibly(process)
                 }
             },
         )
@@ -161,21 +162,6 @@ internal class SubprocessMcpTransportProvider : McpTransportProvider {
             }
         } catch (_: Exception) {
             // stream closed or interrupted — expected during shutdown
-        }
-    }
-
-    private fun waitForUninterruptibly(process: Process) {
-        var interrupted = false
-        while (true) {
-            try {
-                process.waitFor()
-                break
-            } catch (_: InterruptedException) {
-                interrupted = true
-            }
-        }
-        if (interrupted) {
-            Thread.currentThread().interrupt()
         }
     }
 }

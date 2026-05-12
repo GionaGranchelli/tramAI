@@ -618,14 +618,89 @@ abstract class AbstractWorkflowBuilder<S> {
     ) = apply {
         appendStep(LocalWorkflowStep(name = name, transform = transform))
     }
+    /**
+     * Legacy aiStep overload — defaults to [ReplayPolicy.IDEMPOTENT] for backward
+     * compatibility. Prefer the [WorkflowContext]-based overload below for new code.
+     *
+     * **Replay policy note:** The legacy overload defaults to `IDEMPOTENT` while the
+     * [WorkflowContext]-based overload (which accepts `(S, WorkflowContext) -> I`)
+     * defaults to `NON_REPLAYABLE`. This semantic split is intentional:
+     * - Legacy: no access to [WorkflowContext], cannot compute idempotency keys.
+     * - New: explicit replay policy with optional [WorkflowContext]-aware idempotency key.
+     */
     fun <I, O> aiStep(
         name: String,
         input: (S) -> I,
         invoke: suspend (I) -> O,
         merge: (S, O) -> S,
     ) = apply {
+        validateAiReplayPolicy(name, ReplayPolicy.IDEMPOTENT, idempotencyKeyConfigured = false)
         appendStep(AiWorkflowStep(
             name = name,
+            replayDescriptor = fixedAiReplayDescriptor(ReplayPolicy.IDEMPOTENT),
+            input = { state, _ -> input(state) },
+            invoke = { value, _ -> invoke(value) },
+            merge = { state, output, _ -> merge(state, output) },
+        ))
+    }
+
+    fun <I, O> aiStep(
+        name: String,
+        replayPolicy: ReplayPolicy,
+        input: (S) -> I,
+        invoke: suspend (I) -> O,
+        merge: (S, O) -> S,
+    ) = apply {
+        validateAiReplayPolicy(name, replayPolicy, idempotencyKeyConfigured = false)
+        appendStep(AiWorkflowStep(
+            name = name,
+            replayDescriptor = fixedAiReplayDescriptor(replayPolicy),
+            input = { state, _ -> input(state) },
+            invoke = { value, _ -> invoke(value) },
+            merge = { state, output, _ -> merge(state, output) },
+        ))
+    }
+
+    fun <I, O> aiStep(
+        name: String,
+        replayPolicy: ReplayPolicy,
+        idempotencyKey: (S, WorkflowContext) -> String?,
+        input: (S) -> I,
+        invoke: suspend (I) -> O,
+        merge: (S, O) -> S,
+    ) = apply {
+        validateAiReplayPolicy(name, replayPolicy, idempotencyKeyConfigured = true)
+        appendStep(AiWorkflowStep(
+            name = name,
+            replayDescriptor = aiReplayDescriptor(replayPolicy, idempotencyKey),
+            input = { state, _ -> input(state) },
+            invoke = { value, _ -> invoke(value) },
+            merge = { state, output, _ -> merge(state, output) },
+        ))
+    }
+
+    /**
+     * aiStep overload with full [WorkflowContext] access — defaults to
+     * [ReplayPolicy.NON_REPLAYABLE] for new code. This is the preferred overload
+     * for all new workflow definitions.
+     *
+     * **Replay policy:** Unlike the legacy overload (which defaults to `IDEMPOTENT`),
+     * this overload defaults to `NON_REPLAYABLE` because [WorkflowContext] access
+     * enables explicit idempotency-key computation. Pass a custom [replayPolicy] and
+     * [idempotencyKey] lambda when the step must be safely replayed by a worker.
+     */
+    fun <I, O> aiStep(
+        name: String,
+        replayPolicy: ReplayPolicy = ReplayPolicy.NON_REPLAYABLE,
+        idempotencyKey: ((S, WorkflowContext) -> String?)? = null,
+        input: (S, WorkflowContext) -> I,
+        invoke: suspend (I, WorkflowContext) -> O,
+        merge: (S, O, WorkflowContext) -> S,
+    ) = apply {
+        validateAiReplayPolicy(name, replayPolicy, idempotencyKeyConfigured = idempotencyKey != null)
+        appendStep(AiWorkflowStep(
+            name = name,
+            replayDescriptor = aiReplayDescriptor(replayPolicy, idempotencyKey),
             input = input,
             invoke = invoke,
             merge = merge,
@@ -672,6 +747,20 @@ abstract class AbstractWorkflowBuilder<S> {
             config = config,
         ))
     }
+    fun <T> hermesStep(
+        name: String,
+        config: HermesStepConfig = HermesStepConfig(),
+        prompt: suspend (S, WorkflowContext) -> String,
+        decode: suspend (String) -> T,
+        merge: suspend (S, T, WorkflowContext) -> S,
+    ) = hermesStep(
+        name = name,
+        config = config,
+        prompt = prompt,
+        merge = { state, response, context ->
+            merge(state, decode(response), context)
+        },
+    )
     fun codexStep(
         name: String,
         config: CodexStepConfig = CodexStepConfig(),
@@ -685,6 +774,20 @@ abstract class AbstractWorkflowBuilder<S> {
             config = config,
         ))
     }
+    fun <T> codexStep(
+        name: String,
+        config: CodexStepConfig = CodexStepConfig(),
+        prompt: suspend (S, WorkflowContext) -> String,
+        decode: suspend (String) -> T,
+        merge: suspend (S, T, WorkflowContext) -> S,
+    ) = codexStep(
+        name = name,
+        config = config,
+        prompt = prompt,
+        merge = { state, response, context ->
+            merge(state, decode(response), context)
+        },
+    )
     fun mcpStep(
         name: String,
         config: McpStepConfig = McpStepConfig(),
@@ -700,6 +803,22 @@ abstract class AbstractWorkflowBuilder<S> {
             config = config,
         ))
     }
+    fun <T> mcpStep(
+        name: String,
+        config: McpStepConfig = McpStepConfig(),
+        definition: McpToolCallDefinition,
+        toolCall: suspend (S, WorkflowContext) -> McpToolCall,
+        decode: suspend (McpToolResult) -> T,
+        merge: suspend (S, T, WorkflowContext) -> S,
+    ) = mcpStep(
+        name = name,
+        config = config,
+        definition = definition,
+        toolCall = toolCall,
+        merge = { state, result, context ->
+            merge(state, decode(result), context)
+        },
+    )
 
     fun pluginStep(
         name: String,
@@ -818,14 +937,56 @@ private data class LocalWorkflowStep<S>(
 ) : InternalWorkflowStep<S>
 private data class AiWorkflowStep<S, I, O>(
     override val name: String,
-    val input: (S) -> I,
-    val invoke: suspend (I) -> O,
-    val merge: (S, O) -> S,
+    val replayDescriptor: (S, WorkflowContext) -> WorkflowStepReplayDescriptor,
+    val input: (S, WorkflowContext) -> I,
+    val invoke: suspend (I, WorkflowContext) -> O,
+    val merge: (S, O, WorkflowContext) -> S,
 ) : InternalWorkflowStep<S> {
     suspend fun execute(
         state: S,
-        @Suppress("UNUSED_PARAMETER") context: WorkflowContext,
-    ): S = merge(state, invoke(input(state)))
+        context: WorkflowContext,
+    ): S = merge(state, invoke(input(state, context), context), context)
+}
+
+private fun validateAiReplayPolicy(
+    stepName: String,
+    replayPolicy: ReplayPolicy,
+    idempotencyKeyConfigured: Boolean,
+) {
+    require(replayPolicy != ReplayPolicy.PURE) {
+        "Workflow ai step '$stepName' does not support ReplayPolicy.PURE"
+    }
+    require(replayPolicy != ReplayPolicy.EXTERNALLY_IDEMPOTENT || idempotencyKeyConfigured) {
+        "Workflow ai step '$stepName' requires an idempotencyKey when ReplayPolicy.EXTERNALLY_IDEMPOTENT is used"
+    }
+}
+
+private fun <S> fixedAiReplayDescriptor(
+    replayPolicy: ReplayPolicy,
+): (S, WorkflowContext) -> WorkflowStepReplayDescriptor = { _, _ ->
+    WorkflowStepReplayDescriptor(replayPolicy)
+}
+
+private fun <S> aiReplayDescriptor(
+    replayPolicy: ReplayPolicy,
+    idempotencyKey: ((S, WorkflowContext) -> String?)? = null,
+): (S, WorkflowContext) -> WorkflowStepReplayDescriptor = { state, context ->
+    val resolvedIdempotencyKey = if (replayPolicy == ReplayPolicy.EXTERNALLY_IDEMPOTENT) {
+        requireNotNull(idempotencyKey) {
+            "Workflow ai step replay descriptor requires an idempotencyKey when ReplayPolicy.EXTERNALLY_IDEMPOTENT is used"
+        }
+            .invoke(state, context)
+            ?.takeUnless { it.isBlank() }
+            ?: throw IllegalArgumentException(
+                "Workflow ai step replay descriptor requires a non-blank idempotencyKey when ReplayPolicy.EXTERNALLY_IDEMPOTENT is used",
+            )
+    } else {
+        null
+    }
+    WorkflowStepReplayDescriptor(
+        replayPolicy = replayPolicy,
+        idempotencyKey = resolvedIdempotencyKey,
+    )
 }
 private data class GateWorkflowStep<S>(
     override val name: String,
@@ -935,7 +1096,7 @@ private suspend fun <S> InternalWorkflowStep<S>.replayDescriptor(
     context: WorkflowContext,
 ): WorkflowStepReplayDescriptor = when (this) {
     is LocalWorkflowStep -> WorkflowStepReplayDescriptor(ReplayPolicy.PURE)
-    is AiWorkflowStep<*, *, *> -> WorkflowStepReplayDescriptor(ReplayPolicy.IDEMPOTENT)
+    is AiWorkflowStep<S, *, *> -> replayDescriptor(state, context)
     is HttpWorkflowStep<S> -> replayDescriptor(state, context)
     is ShellWorkflowStep<S> -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)
     is HermesWorkflowStep<S> -> WorkflowStepReplayDescriptor(ReplayPolicy.NON_REPLAYABLE)

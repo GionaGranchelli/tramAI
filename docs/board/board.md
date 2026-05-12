@@ -79,6 +79,9 @@ This board is the execution view for specs-driven development in Tramai.
 - The **Orchestrator Platform** (Phases 6-10) is tracked on a separate
   [Orchestrator Board](./orchestrator-board.md) with 5 specs (SPEC-013 through
   SPEC-017) and 15 tasks (TASK-025 through TASK-039).
+- **Security Hardening** (Phase 11) is tracked on a separate
+  [Security Board](./security-board.md) with SPEC-018 and 15 tasks
+  (TASK-040 through TASK-054).
 
 ## Traceability
 

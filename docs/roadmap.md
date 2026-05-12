@@ -72,6 +72,14 @@ Timeline: 3-4 weeks. [Board](./board/orchestrator-board.md#phase-9-distributed-e
 
 Timeline: 4-6 weeks. [Board](./board/orchestrator-board.md#phase-10-platform-spec-017)
 
+## Phase 11: Security Hardening (SPEC-018)
+
+- M30: secure defaults for ShellStep and McpStep (allowlists enforced at build time)
+- M31: prompt injection defense framework (sanitizer, instruction defense, output validator)
+- M32: security event observability (security-specific WorkflowObserver events)
+
+Timeline: 1-2 weeks. [Board](./board/security-board.md)
+
 ## Current Delivery Snapshot
 
 - Phase 1: implemented
@@ -84,6 +92,7 @@ Timeline: 4-6 weeks. [Board](./board/orchestrator-board.md#phase-10-platform-spe
 - Phase 8: in design (SPEC-015, TASK-033 — TASK-036)
 - Phase 9: in design (SPEC-016, TASK-037)
 - Phase 10: in design (SPEC-017, TASK-038 — TASK-039)
+- Phase 11: in design (SPEC-018)
 
 ## Documentation Implication
 

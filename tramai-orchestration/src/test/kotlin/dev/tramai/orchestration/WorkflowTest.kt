@@ -446,6 +446,66 @@ class WorkflowTest {
     }
 
     @Test
+    fun `ai step rejects externally idempotent replay without an idempotency key`() {
+        assertThatThrownBy {
+            workflow<ResumeState>("ai-step-missing-idempotency-key") {
+                aiStep(
+                    name = "plan",
+                    replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                    input = { it.request },
+                    invoke = { "draft:$it" },
+                    merge = { state, draft -> state.copy(draft = draft) },
+                )
+            }.build { it.draft ?: error("draft must exist") }
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("requires an idempotencyKey")
+    }
+
+    @Test
+    fun `ai step rejects pure replay policy`() {
+        assertThatThrownBy {
+            workflow<ResumeState>("ai-step-pure-replay") {
+                aiStep(
+                    name = "plan",
+                    replayPolicy = ReplayPolicy.PURE,
+                    input = { it.request },
+                    invoke = { "draft:$it" },
+                    merge = { state, draft -> state.copy(draft = draft) },
+                )
+            }.build { it.draft ?: error("draft must exist") }
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("does not support ReplayPolicy.PURE")
+    }
+
+    @Test
+    fun `ai step rejects blank externally idempotent key when replay metadata is resolved`() {
+        val workflow = workflow<ResumeState>("ai-step-blank-idempotency-key") {
+            aiStep(
+                name = "plan",
+                replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                idempotencyKey = { _, _ -> " " },
+                input = { state, _ -> state.request },
+                invoke = { value, _ -> "draft:$value" },
+                merge = { state, draft, _ -> state.copy(draft = draft) },
+            )
+        }.build { it.draft ?: error("draft must exist") }
+
+        assertThatThrownBy {
+            runBlocking {
+                workflow.replayDescriptorAt(
+                    stepIndex = 0,
+                    state = ResumeState(request = "invoice-123"),
+                    context = WorkflowContext(workflowId = "run-blank-key"),
+                )
+            }
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("requires a non-blank idempotencyKey")
+    }
+
+    @Test
     fun `plugin step uses the workflow injected executor registry`() {
         val firstRegistry = ExternalStepExecutorRegistry().apply {
             register(
@@ -944,6 +1004,96 @@ class WorkflowTest {
         assertThat(second).isEqualTo("cached-1")
         assertThat(provider.requests).hasSize(1)
     }
+
+    @Test
+    fun `ai step WorkflowContext overload passes workflow metadata through input invoke and merge`() {
+        val seenStages = mutableListOf<String>()
+        val context = WorkflowContext(
+            workflowId = "wf-context-ai-step",
+            attributes = mapOf("tenant" to "acme"),
+        )
+        val workflow = workflow<ResumeState>("ai-context-overload") {
+            aiStep(
+                name = "contextual-plan",
+                input = { state, stepContext ->
+                    seenStages += "input:${stepContext.workflowId}:${stepContext.attributes["tenant"]}"
+                    "${state.request}:${stepContext.workflowId}:${stepContext.attributes["tenant"]}"
+                },
+                invoke = { payload, stepContext ->
+                    seenStages += "invoke:${stepContext.workflowId}:${stepContext.attributes["tenant"]}"
+                    "$payload:invoked"
+                },
+                merge = { state, result, stepContext ->
+                    seenStages += "merge:${stepContext.workflowId}:${stepContext.attributes["tenant"]}"
+                    state.copy(draft = result)
+                },
+            )
+        }.build { it.draft ?: error("draft must exist") }
+
+        val result = runBlocking {
+            workflow.run(
+                initialState = ResumeState(request = "invoice-123"),
+                context = context,
+            )
+        }
+
+        assertThat(result).isEqualTo("invoice-123:wf-context-ai-step:acme:invoked")
+        assertThat(seenStages).containsExactly(
+            "input:wf-context-ai-step:acme",
+            "invoke:wf-context-ai-step:acme",
+            "merge:wf-context-ai-step:acme",
+        )
+    }
+
+    @Test
+    fun `legacy ai step overload keeps the same workflow definition digest`() {
+        val store = InMemoryWorkflowCheckpointStore()
+        val persistence = WorkflowPersistence(
+            checkpointStore = store,
+            stateCodec = ResumeStateCodec,
+            deleteCheckpointOnCompletion = false,
+        )
+        val workflowId = "legacy-ai-digest-1"
+        val original = workflow<ResumeState>(
+            name = "legacy-ai-digest",
+            definitionVersion = "resume-v1",
+        ) {
+            aiStep(
+                name = "plan",
+                input = { it.request },
+                invoke = { "draft:$it" },
+                merge = { state, draft -> state.copy(draft = draft) },
+            )
+        }.build { it.draft ?: error("draft must exist") }
+        runBlocking {
+            original.run(
+                initialState = ResumeState(request = "invoice-123"),
+                context = WorkflowContext(workflowId = workflowId),
+                persistence = persistence,
+            )
+        }
+        val changed = workflow<ResumeState>(
+            name = "legacy-ai-digest",
+            definitionVersion = "resume-v1",
+        ) {
+            aiStep(
+                name = "plan",
+                input = { state, _ -> state.request },
+                invoke = { value, _ -> "draft:$value" },
+                merge = { state, draft, _ -> state.copy(draft = draft) },
+            )
+        }.build { it.draft ?: error("draft must exist") }
+
+        val resumed = runBlocking {
+            changed.resume(
+                context = WorkflowContext(workflowId = workflowId),
+                persistence = persistence,
+            )
+        }
+
+        assertThat(resumed).isEqualTo("draft:invoice-123")
+    }
+
     @Test
     fun `resume continues from the last completed top level step`() {
         val store = InMemoryWorkflowCheckpointStore()

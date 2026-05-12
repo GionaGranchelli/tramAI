@@ -15,7 +15,6 @@ import java.nio.charset.Charset
 import java.util.concurrent.TimeUnit
 import kotlin.math.min
 import kotlin.time.Duration.Companion.seconds
-import kotlin.streams.toList
 
 internal data class AgentCliExecution(
     val exitCode: Int,
@@ -170,76 +169,13 @@ private fun InputStream.captureAgentOutput(
     )
 }
 
-private fun Process.waitForAgentExitUninterruptibly() {
-    var interrupted = false
-    while (true) {
-        try {
-            waitFor()
-            break
-        } catch (_: InterruptedException) {
-            interrupted = true
-        }
-    }
-    if (interrupted) {
-        Thread.currentThread().interrupt()
-    }
-}
-
 private suspend fun terminateAgentProcessTree(process: Process) {
     withContext(NonCancellable + Dispatchers.IO) {
-        val handles = process.processTreeHandles()
-        if (handles.isEmpty()) {
-            process.waitForAgentExitUninterruptibly()
-            return@withContext
-        }
-
-        handles.forEach { handle ->
-            if (handle.isAlive) {
-                handle.destroy()
-            }
-        }
-        waitForHandlesToExitUninterruptibly(handles, agentCliTerminationGracePeriodMillis)
-
-        handles.forEach { handle ->
-            if (handle.isAlive) {
-                handle.destroyForcibly()
-            }
-        }
-        waitForHandlesToExitUninterruptibly(handles, agentCliTerminationKillWaitMillis)
-        process.waitForAgentExitUninterruptibly()
-    }
-}
-
-private fun Process.processTreeHandles(): List<ProcessHandle> {
-    val handle = toHandle()
-    val descendants = handle.descendants().use { stream -> stream.toList() }
-    return descendants + handle
-}
-
-private fun waitForHandlesToExitUninterruptibly(
-    handles: List<ProcessHandle>,
-    timeoutMillis: Long,
-) {
-    var interrupted = false
-    try {
-        if (handles.none(ProcessHandle::isAlive)) {
-            return
-        }
-        val deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
-        while (System.nanoTime() < deadlineNanos) {
-            if (handles.none(ProcessHandle::isAlive)) {
-                return
-            }
-            try {
-                TimeUnit.MILLISECONDS.sleep(agentCliTerminationPollIntervalMillis)
-            } catch (_: InterruptedException) {
-                interrupted = true
-            }
-        }
-    } finally {
-        if (interrupted) {
-            Thread.currentThread().interrupt()
-        }
+        terminateProcessTree(
+            process = process,
+            gracePeriodMillis = agentCliTerminationGracePeriodMillis,
+            forceKillWaitMillis = agentCliTerminationKillWaitMillis,
+        )
     }
 }
 
@@ -272,4 +208,3 @@ private const val agentCliMinimumBufferSize = 16
 private const val agentCliFailureMessageMaxChars = 4_096
 private const val agentCliTerminationGracePeriodMillis = 1_000L
 private const val agentCliTerminationKillWaitMillis = 1_000L
-private const val agentCliTerminationPollIntervalMillis = 25L

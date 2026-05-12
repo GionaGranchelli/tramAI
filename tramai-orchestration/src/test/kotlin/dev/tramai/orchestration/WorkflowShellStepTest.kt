@@ -110,8 +110,50 @@ class WorkflowShellStepTest {
     }
 
     @Test
+    fun `shell step timeout cleans up descendant processes`() {
+        val parentPidFile = Files.createTempFile("workflow-shell-timeout-parent", ".pid")
+        val childPidFile = Files.createTempFile("workflow-shell-timeout-child", ".pid")
+        try {
+            val workflow = shellWorkflow("shell-timeout-descendants") {
+                shellStep(
+                    name = "sleep",
+                    config = ShellStepConfig(timeoutSeconds = 1),
+                    command = { _, _ ->
+                        ShellCommand(
+                            command = listOf(
+                                "sh",
+                                "-c",
+                                "echo $$ > '${parentPidFile.toAbsolutePath()}'; sleep 30 & child=$!; echo \$child > '${childPidFile.toAbsolutePath()}'; wait \$child",
+                            ),
+                        )
+                    },
+                    merge = { state, result, _ -> state.copy(result = result) },
+                )
+            }
+
+            assertThatThrownBy {
+                runBlocking { workflow.run(ShellState()) }
+            }.isInstanceOf(WorkflowShellException::class.java)
+                .hasMessageContaining("timed out")
+
+            runBlocking {
+                val parentPid = awaitPid(parentPidFile)
+                val childPid = awaitPid(childPidFile)
+                awaitProcessExit(parentPid)
+                awaitProcessExit(childPid)
+                assertThat(ProcessHandle.of(parentPid).map { it.isAlive }.orElse(false)).isFalse()
+                assertThat(ProcessHandle.of(childPid).map { it.isAlive }.orElse(false)).isFalse()
+            }
+        } finally {
+            Files.deleteIfExists(parentPidFile)
+            Files.deleteIfExists(childPidFile)
+        }
+    }
+
+    @Test
     fun `shell step destroys the process when the workflow coroutine is cancelled`() {
-        val pidFile = Files.createTempFile("workflow-shell-step", ".pid")
+        val parentPidFile = Files.createTempFile("workflow-shell-cancel-parent", ".pid")
+        val childPidFile = Files.createTempFile("workflow-shell-cancel-child", ".pid")
         try {
             val workflow = shellWorkflow("shell-cancel") {
                 shellStep(
@@ -121,7 +163,7 @@ class WorkflowShellStepTest {
                             command = listOf(
                                 "sh",
                                 "-c",
-                                "echo $$ > '${pidFile.toAbsolutePath()}'; exec sleep 30",
+                                "echo $$ > '${parentPidFile.toAbsolutePath()}'; sleep 30 & child=$!; echo \$child > '${childPidFile.toAbsolutePath()}'; wait \$child",
                             ),
                         )
                     },
@@ -133,14 +175,18 @@ class WorkflowShellStepTest {
                     workflow.run(ShellState())
                 }
 
-                val pid = awaitPid(pidFile)
+                val parentPid = awaitPid(parentPidFile)
+                val childPid = awaitPid(childPidFile)
                 job.cancelAndJoin()
 
-                awaitProcessExit(pid)
-                assertThat(ProcessHandle.of(pid).map { it.isAlive }.orElse(false)).isFalse()
+                awaitProcessExit(parentPid)
+                awaitProcessExit(childPid)
+                assertThat(ProcessHandle.of(parentPid).map { it.isAlive }.orElse(false)).isFalse()
+                assertThat(ProcessHandle.of(childPid).map { it.isAlive }.orElse(false)).isFalse()
             }
         } finally {
-            Files.deleteIfExists(pidFile)
+            Files.deleteIfExists(parentPidFile)
+            Files.deleteIfExists(childPidFile)
         }
     }
 

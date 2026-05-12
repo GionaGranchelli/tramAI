@@ -2,7 +2,7 @@
 
 - Status: proposed
 - Owner: maintainer
-- Last updated: 2026-05-03
+- Last updated: 2026-05-12
 - Related roadmap milestone: Phase 8 — Agent Steps
 - Related ADRs:
 - Related docs: [Orchestrator Vision](../architecture/orchestrator-vision.md)
@@ -17,9 +17,9 @@ in the workflow DSL, with timeout, retry, observability, and checkpointing.
 
 - HTTP step: method, URL, headers, body, timeout, retry, response handling
 - Shell step: argv mode (default), shell mode (explicit opt-in)
-- MCP step: typed decode, lambda-based arguments, tool allowlist
-- Hermes step: prompt as lambda, model selection, output capture
-- Codex step: prompt as lambda, workdir, output capture
+- MCP step: lambda-based arguments, raw `McpToolResult`, tool allowlist
+- Hermes step: prompt as lambda, model selection, raw string output capture
+- Codex step: prompt as lambda, workdir, raw string output capture
 - All steps share: timeout, retry policy, output limits, redaction, observer events
 - Every step type declares a replay policy for distributed safety
 
@@ -97,25 +97,31 @@ shellStep("deploy") {
 ### MCP Step
 
 ```kotlin
-mcpStep<A11yReport>("run-audit") {
-    server = McpServerRef.named("a11y")
-    tool = "audit_url"
-    argument("url") { state -> state.deployedUrl }
-    timeout = 2.minutes
-    retry = RetryPolicy.none()
-    decodeWith(A11yReport.serializer())          // typed decode at build time
-    onResult { state, report -> state.copy(a11yReport = report) }
-}
+mcpStep(
+    name = "run-audit",
+    definition = McpToolCallDefinition(
+        serverCommand = listOf("a11y-server"),
+        toolName = "audit_url",
+        argumentKeys = setOf("url"),
+    ),
+    toolCall = { state, _ ->
+        McpToolCall(
+            serverCommand = listOf("a11y-server"),
+            toolName = "audit_url",
+            arguments = mapOf("url" to state.deployedUrl),
+        )
+    },
+    merge = { state, result, _ -> state.copy(rawAuditResult = result) },
+)
 ```
 
-- Server reference: named MCP server from configuration
-- Tool: must be in the MCP server's tool allowlist
-- Arguments as lambdas for runtime state
-- `decodeWith(serializer)` establishes result type at build time
-- Supports Kotlin Serialization, Jackson, and caller-provided decoder
+- Server command, environment, tool name, and argument keys are declared explicitly via `McpToolCallDefinition`
+- Runtime tool arguments are provided by the `toolCall` lambda
+- Result is currently delivered to workflow state as raw `McpToolResult`
+- `McpToolResult` exposes `content`, `structuredContent`, and `isError` as strings/flags only
 - Timeout: propagated to the MCP client transport
 - Transport failure: reconnect once, then fail
-- Cancellation: send MCP cancellation notification for active request
+- Cancellation: sends transport shutdown by closing the active session/subprocess
 - Replay policy default: NON_REPLAYABLE
 
 ### Hermes Step
@@ -132,9 +138,8 @@ hermesStep("review-ui") {
 
 - Prompt is a lambda — evaluated at execution time, not build time
 - Model: forwarded to Hermes CLI
-- Output: captured as string in workflow state
+- Output: captured as raw string in workflow state
 - Token/output capped at configurable limit
-- Structured output contract: if Hermes returns JSON, parse via decoder
 - Redaction: prompt content redacted in logs/dashboard by default
 - Transcript retention policy: configurable (default: not retained)
 - Replay policy default: NON_REPLAYABLE
@@ -142,7 +147,41 @@ hermesStep("review-ui") {
 
 ### Codex Step
 
-Same pattern as Hermes step, targeting `codex` CLI.
+Same pattern as Hermes step, targeting `codex` CLI. Output is currently exposed as a raw string.
+
+## Phase 3 — Typed Overloads
+
+Phase 3 adds additive typed overloads without changing the existing raw-result APIs:
+
+```kotlin
+hermesStep(
+    name = "review-ui",
+    prompt = { state, _ -> "Audit ${state.deployedUrl}" },
+    decode = { raw -> json.decodeFromString<UiReview>(raw) },
+    merge = { state, review, _ -> state.copy(review = review) },
+)
+
+codexStep(
+    name = "summarize",
+    prompt = { state, _ -> state.prompt },
+    decode = { raw -> raw.trim().toInt() },
+    merge = { state, count, _ -> state.copy(issueCount = count) },
+)
+
+mcpStep(
+    name = "run-audit",
+    definition = definition,
+    toolCall = { state, _ -> buildAuditCall(state) },
+    decode = { result -> decodeAudit(result) },
+    merge = { state, audit, _ -> state.copy(audit = audit) },
+)
+```
+
+- Existing overloads remain unchanged and continue to expose raw `String`/`McpToolResult`
+- Typed overloads are implemented in `tramai-orchestration` as thin wrappers around the existing steps
+- The decoder boundary is caller-provided: orchestration does not choose or depend on a JSON library
+- Decode failures surface through the existing step-specific exceptions (`WorkflowHermesException`, `WorkflowCodexException`, `WorkflowMcpException`)
+- This preserves the module boundary: orchestration owns step execution, callers own structured decoding policy
 
 ### Cross-Cutting: Replay Policies
 
@@ -179,8 +218,9 @@ Every step type must declare a replay policy:
 - [ ] Shell step in argv mode runs without invoking a shell
 - [ ] Shell step in shell mode requires explicit opt-in and emits warning event
 - [ ] Shell step timeout kills the process group
-- [ ] MCP step calls a tool, decodes the result with the provided serializer
-- [ ] Hermes step sends a prompt lambda (not string) and captures output
+- [ ] MCP step calls a tool and returns raw `McpToolResult`
+- [ ] Hermes step sends a prompt lambda (not string) and captures raw string output
+- [ ] Typed Hermes/Codex/MCP overloads apply caller-provided decoders and surface decode failures through step-specific exceptions
 - [ ] Output > 1MB is truncated with a footer recording the truncation
 - [ ] Secrets are redacted in observer events and logs
 - [ ] Every step type emits observer events without OTel on classpath
