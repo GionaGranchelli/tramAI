@@ -68,6 +68,7 @@ class TramaiWorkerTest {
         val workflow = workflow<WorkerState>("non-replayable") {
             shellStep(
                 name = "deploy",
+                config = ShellStepConfig(allowedCommands = setOf("sh")),
                 command = { _, _ -> ShellCommand(command = listOf("sh", "-c", "sleep 2")) },
                 merge = { state, _, _ -> state.copy(value = "${state.value}:deployed") },
             )

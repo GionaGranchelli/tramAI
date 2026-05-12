@@ -17,6 +17,7 @@ class WorkflowShellStepTest {
         val workflow = shellWorkflow("shell-echo") {
             shellStep(
                 name = "echo",
+                config = ShellStepConfig(allowedCommands = setOf("echo")),
                 command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -39,6 +40,7 @@ class WorkflowShellStepTest {
         val workflow = shellWorkflow("shell-stderr") {
             shellStep(
                 name = "capture",
+                config = ShellStepConfig(allowedCommands = setOf("sh")),
                 command = { _, _ -> ShellCommand(command = listOf("sh", "-c", "echo ok; echo err >&2")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -56,6 +58,7 @@ class WorkflowShellStepTest {
         val workflow = shellWorkflow("shell-non-zero") {
             shellStep(
                 name = "fail",
+                config = ShellStepConfig(allowedCommands = setOf("sh")),
                 command = { _, _ -> ShellCommand(command = listOf("sh", "-c", "exit 3")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -72,7 +75,10 @@ class WorkflowShellStepTest {
         val workflow = shellWorkflow("shell-non-zero-allowed") {
             shellStep(
                 name = "allow",
-                config = ShellStepConfig(failOnNonZeroExit = false),
+                config = ShellStepConfig(
+                    failOnNonZeroExit = false,
+                    allowedCommands = setOf("sh"),
+                ),
                 command = { _, _ -> ShellCommand(command = listOf("sh", "-c", "echo warn >&2; exit 3")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -90,7 +96,7 @@ class WorkflowShellStepTest {
         val workflow = shellWorkflow("shell-timeout") {
             shellStep(
                 name = "sleep",
-                config = ShellStepConfig(timeoutSeconds = 1),
+                config = ShellStepConfig(timeoutSeconds = 1, allowedCommands = setOf("sleep")),
                 command = { _, _ -> ShellCommand(command = listOf("sleep", "10")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -117,7 +123,7 @@ class WorkflowShellStepTest {
             val workflow = shellWorkflow("shell-timeout-descendants") {
                 shellStep(
                     name = "sleep",
-                    config = ShellStepConfig(timeoutSeconds = 1),
+                    config = ShellStepConfig(timeoutSeconds = 1, allowedCommands = setOf("sh")),
                     command = { _, _ ->
                         ShellCommand(
                             command = listOf(
@@ -158,6 +164,7 @@ class WorkflowShellStepTest {
             val workflow = shellWorkflow("shell-cancel") {
                 shellStep(
                     name = "sleep",
+                    config = ShellStepConfig(allowedCommands = setOf("sh")),
                     command = { _, _ ->
                         ShellCommand(
                             command = listOf(
@@ -196,7 +203,7 @@ class WorkflowShellStepTest {
         val workflow = shellWorkflow("shell-truncate") {
             shellStep(
                 name = "large-output",
-                config = ShellStepConfig(maxOutputBytes = 1_024),
+                config = ShellStepConfig(maxOutputBytes = 1_024, allowedCommands = setOf("sh")),
                 command = { _, _ ->
                     ShellCommand(
                         command = listOf("sh", "-c", "head -c 102400 /dev/zero | tr '\\000' 'a'"),
@@ -226,6 +233,7 @@ class WorkflowShellStepTest {
             val workflow = shellWorkflow("shell-workdir") {
                 shellStep(
                     name = "pwd",
+                    config = ShellStepConfig(allowedCommands = setOf("pwd")),
                     definition = ShellCommandDefinition(hasWorkdir = true),
                     command = { _, _ ->
                         ShellCommand(
@@ -250,6 +258,7 @@ class WorkflowShellStepTest {
         val workflow = shellWorkflow("shell-env") {
             shellStep(
                 name = "env",
+                config = ShellStepConfig(allowedCommands = setOf("sh")),
                 definition = ShellCommandDefinition(envKeys = setOf("MY_VAR")),
                 command = { _, _ ->
                     ShellCommand(
@@ -273,6 +282,7 @@ class WorkflowShellStepTest {
         val workflow = shellWorkflow("shell-redaction-failure") {
             shellStep(
                 name = "missing-command",
+                config = ShellStepConfig(allowedCommands = setOf(secretCommand)),
                 command = { _, _ -> ShellCommand(command = listOf(secretCommand)) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -304,16 +314,22 @@ class WorkflowShellStepTest {
         val workflow = shellWorkflow("shell-denied") {
             shellStep(
                 name = "echo",
-                config = ShellStepConfig(deniedCommands = setOf("echo")),
+                config = ShellStepConfig(
+                    allowedCommands = setOf("echo"),
+                    deniedCommands = setOf("echo"),
+                ),
                 command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
         }
 
-        assertThatThrownBy {
+        val error = runCatching {
             runBlocking { workflow.run(ShellState()) }
-        }.isInstanceOf(WorkflowShellException::class.java)
-            .hasMessageContaining("denylist")
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(WorkflowShellException::class.java)
+        assertThat(error).hasMessageContaining("denylist")
+        assertThat(error?.cause).isNull()
     }
 
     @Test
@@ -339,6 +355,7 @@ class WorkflowShellStepTest {
         val workflow = shellWorkflow("shell-redaction") {
             shellStep(
                 name = "redacted",
+                config = ShellStepConfig(allowedCommands = setOf("sh")),
                 definition = ShellCommandDefinition(envKeys = setOf("MY_SECRET")),
                 command = { _, _ ->
                     ShellCommand(
@@ -381,6 +398,7 @@ class WorkflowShellStepTest {
         val workflow = shellWorkflow("shell-event-step-name") {
             shellStep(
                 name = "echo",
+                config = ShellStepConfig(allowedCommands = setOf("echo")),
                 command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -409,6 +427,7 @@ class WorkflowShellStepTest {
         val workflow = shellWorkflow("shell-multi-arg") {
             shellStep(
                 name = "echo-many",
+                config = ShellStepConfig(allowedCommands = setOf("echo")),
                 command = { _, _ -> ShellCommand(command = listOf("echo", "arg1", "arg2", "arg3")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -417,6 +436,56 @@ class WorkflowShellStepTest {
         val result = runBlocking { workflow.run(ShellState()) }
 
         assertThat(result.result?.stdout).isEqualTo("arg1 arg2 arg3\n")
+    }
+
+    @Test
+    fun `shell step config default constructor denies all commands`() {
+        val workflow = shellWorkflow("shell-default-deny-all") {
+            shellStep(
+                name = "echo",
+                command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
+                merge = { state, result, _ -> state.copy(result = result) },
+            )
+        }
+
+        assertThatThrownBy {
+            runBlocking { workflow.run(ShellState()) }
+        }.isInstanceOf(WorkflowShellException::class.java)
+            .hasMessageContaining("not in allowlist")
+    }
+
+    @Test
+    fun `shell step config allows only git commands when explicitly allowlisted`() {
+        val workflow = shellWorkflow("shell-git-allowlist") {
+            shellStep(
+                name = "git-version",
+                config = ShellStepConfig(allowedCommands = setOf("git")),
+                command = { _, _ -> ShellCommand(command = listOf("git", "--version")) },
+                merge = { state, result, _ -> state.copy(result = result) },
+            )
+        }
+
+        val result = runBlocking { workflow.run(ShellState()) }
+
+        assertThat(result.result?.exitCode).isEqualTo(0)
+        assertThat(result.result?.stdout).contains("git version")
+    }
+
+    @Test
+    fun `shell step execute throws when allowed commands is empty`() {
+        val workflow = shellWorkflow("shell-explicit-empty-allowlist") {
+            shellStep(
+                name = "echo",
+                config = ShellStepConfig(allowedCommands = emptySet()),
+                command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
+                merge = { state, result, _ -> state.copy(result = result) },
+            )
+        }
+
+        assertThatThrownBy {
+            runBlocking { workflow.run(ShellState()) }
+        }.isInstanceOf(WorkflowShellException::class.java)
+            .hasMessageContaining("not in allowlist")
     }
 }
 

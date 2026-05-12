@@ -60,6 +60,48 @@ Current boundary:
 
 ---
 
+## Workflow Command Policies
+
+`ShellStepConfig` and `McpStepConfig` now default to secure deny-all command policies.
+
+Migration impact:
+
+- `ShellStepConfig()` now sets `allowedCommands = emptySet()`, which blocks every shell command until you explicitly allow the executables you intend to run.
+- `McpStepConfig()` now sets `allowedCommands = emptySet()`, which blocks every MCP server subprocess command until you explicitly allow it.
+- Existing workflows that depended on the old unrestricted MCP default must either set `allowedCommands = setOf(...)` or opt in explicitly with `McpStepConfig.unrestricted()`.
+
+Examples:
+
+```kotlin
+shellStep(
+    name = "git-status",
+    config = ShellStepConfig(allowedCommands = setOf("git")),
+    command = { _, _ -> ShellCommand(command = listOf("git", "status")) },
+    merge = { state, result, _ -> state.copy(output = result.stdout) },
+)
+
+mcpStep(
+    name = "echo",
+    config = McpStepConfig(allowedCommands = setOf("node")),
+    definition = McpToolCallDefinition(
+        serverCommand = listOf("node", "server.js"),
+        toolName = "echo",
+    ),
+    toolCall = { _, _ -> McpToolCall(serverCommand = listOf("node", "server.js"), toolName = "echo") },
+    merge = { state, result, _ -> state.copy(output = result.content) },
+)
+```
+
+Explicit unrestricted MCP escape hatch:
+
+```kotlin
+val config = McpStepConfig.unrestricted()
+```
+
+Use `unrestricted()` only when you intentionally want the pre-hardening behavior and have compensating controls elsewhere.
+
+---
+
 ## Secret Management
 
 Provider credentials should not be hard-coded in application code. TramAI supports the `SecretValueResolver` SPI for resolving secret references.

@@ -22,6 +22,7 @@ import kotlinx.io.buffered
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import java.io.File
 import kotlin.time.Duration.Companion.seconds
 
 data class McpToolCall(
@@ -68,8 +69,9 @@ data class McpStepConfig(
     val maxOutputBytes: Long = 1_048_576,
     val reconnect: Boolean = true,
     val toolAllowlist: Set<String>? = null,
-    val allowedCommands: Set<String>? = null,
+    val allowedCommands: Set<String> = emptySet(),
     val deniedCommands: Set<String> = emptySet(),
+    internal val enforceCommandAllowlist: Boolean = true,
 ) {
     init {
         require(timeoutSeconds > 0) { "McpStepConfig.timeoutSeconds must be greater than zero" }
@@ -80,12 +82,20 @@ data class McpStepConfig(
         require(toolAllowlist?.none { it.isBlank() } != false) {
             "McpStepConfig.toolAllowlist must not contain blank values"
         }
-        require(allowedCommands?.none { it.isBlank() } != false) {
+        require(allowedCommands.none { it.isBlank() }) {
             "McpStepConfig.allowedCommands must not contain blank values"
         }
         require(deniedCommands.none { it.isBlank() }) {
             "McpStepConfig.deniedCommands must not contain blank values"
         }
+    }
+
+    companion object {
+        /**
+         * Disables command allowlist enforcement for compatibility with older workflows.
+         * The denylist still applies when configured.
+         */
+        fun unrestricted(): McpStepConfig = McpStepConfig(enforceCommandAllowlist = false)
     }
 }
 
@@ -174,6 +184,17 @@ internal data class McpWorkflowStep<S>(
     val config: McpStepConfig = McpStepConfig(),
     val transportProvider: McpTransportProvider = SubprocessMcpTransportProvider(),
 ) : InternalWorkflowStep<S> {
+    internal fun validateStaticCommandPolicy(workflowName: String) {
+        val commandIdentifiers = definition.serverCommand.commandIdentifiers()
+        val allowedCommands = config.allowedCommands
+        require(
+            !config.enforceCommandAllowlist ||
+                (allowedCommands.isNotEmpty() && allowedCommands.any(commandIdentifiers::contains)),
+        ) {
+            "Workflow '$workflowName' MCP step '$name' command is not in allowlist"
+        }
+    }
+
     suspend fun execute(
         workflowName: String,
         state: S,
@@ -193,7 +214,7 @@ internal data class McpWorkflowStep<S>(
             validateCommandPolicy(toolCall)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw wrapMcpError(error)
+            throw wrapMcpError(error, toolCall)
         }
 
         observer.onWorkflowEvent(
@@ -229,7 +250,7 @@ internal data class McpWorkflowStep<S>(
             merge(state, result, context)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw wrapMcpError(error)
+            throw wrapMcpError(error, toolCall)
         }
     }
 
@@ -261,12 +282,12 @@ internal data class McpWorkflowStep<S>(
                         context = context,
                     )
                 } else {
-                    throw wrapMcpError(error)
+                    throw wrapMcpError(error, toolCall)
                 }
             }
         }
 
-        throw wrapMcpError(lastError!!)
+        throw wrapMcpError(lastError!!, toolCall)
     }
 
     private suspend fun executeMcpCall(toolCall: McpToolCall): McpToolResult {
@@ -350,50 +371,104 @@ internal data class McpWorkflowStep<S>(
     }
 
     private fun validateDefinition(toolCall: McpToolCall) {
-        require(toolCall.serverCommand == definition.serverCommand) {
-            "Workflow MCP step '$name' runtime server command does not match the canonical definition"
+        if (toolCall.serverCommand != definition.serverCommand) {
+            throw WorkflowMcpException(
+                stepName = name,
+                message = "runtime server command does not match the canonical definition",
+            )
         }
-        require(toolCall.serverEnv == definition.serverEnv) {
-            "Workflow MCP step '$name' runtime env does not match the canonical definition"
+        if (toolCall.serverEnv != definition.serverEnv) {
+            throw WorkflowMcpException(
+                stepName = name,
+                message = "runtime env does not match the canonical definition",
+            )
         }
-        require(toolCall.toolName == definition.toolName) {
-            "Workflow MCP step '$name' runtime tool name does not match the canonical definition"
+        if (toolCall.toolName != definition.toolName) {
+            throw WorkflowMcpException(
+                stepName = name,
+                message = "runtime tool name does not match the canonical definition",
+            )
         }
-        require(toolCall.arguments.keys == definition.argumentKeys) {
-            "Workflow MCP step '$name' runtime argument keys do not match the canonical definition"
+        if (toolCall.arguments.keys != definition.argumentKeys) {
+            throw WorkflowMcpException(
+                stepName = name,
+                message = "runtime argument keys do not match the canonical definition",
+            )
         }
     }
 
     private fun validateToolAllowlist(toolName: String) {
         val allowlist = config.toolAllowlist ?: return
-        require(toolName in allowlist) {
-            "Workflow MCP step '$name' tool '$toolName' is not in the allowlist"
+        if (toolName !in allowlist) {
+            throw WorkflowMcpException(
+                stepName = name,
+                message = "tool '$toolName' is not in the allowlist",
+            )
         }
     }
 
     private fun validateCommandPolicy(toolCall: McpToolCall) {
         val commandIdentifiers = toolCall.serverCommand.commandIdentifiers()
-        val deniedCommands = config.deniedCommands
-        require(deniedCommands.none(commandIdentifiers::contains)) {
-            "Workflow MCP step '$name' command is blocked by the denylist"
-        }
         val allowedCommands = config.allowedCommands
-        if (allowedCommands != null) {
-            require(allowedCommands.any(commandIdentifiers::contains)) {
-                "Workflow MCP step '$name' command is not permitted by the allowlist"
-            }
+        if (config.enforceCommandAllowlist &&
+            (allowedCommands.isEmpty() || allowedCommands.none(commandIdentifiers::contains))
+        ) {
+            throw WorkflowMcpException(
+                stepName = name,
+                message = "command is not in allowlist",
+            )
+        }
+        val deniedCommands = config.deniedCommands
+        if (deniedCommands.any(commandIdentifiers::contains)) {
+            throw WorkflowMcpException(
+                stepName = name,
+                message = "command is blocked by the denylist",
+            )
         }
     }
 
     private fun wrapMcpError(
         error: Throwable,
+        toolCall: McpToolCall? = null,
     ): WorkflowMcpException = when (error) {
-        is WorkflowMcpException -> error
+        is WorkflowMcpException -> {
+            if (toolCall == null) {
+                error
+            } else {
+                WorkflowMcpException(
+                    stepName = name,
+                    message = sanitizeMcpErrorMessage(error.detailMessage(), toolCall),
+                    cause = error.cause,
+                )
+            }
+        }
         else -> WorkflowMcpException(
             stepName = name,
-            message = "failed: ${error.message ?: error::class.java.simpleName}",
+            message = "failed: ${sanitizeMcpErrorMessage(error.message ?: error::class.java.simpleName, toolCall)}",
             cause = error,
         )
+    }
+
+    private fun sanitizeMcpErrorMessage(
+        message: String,
+        toolCall: McpToolCall?,
+    ): String {
+        if (toolCall == null) {
+            return message
+        }
+        var sanitized = message
+        toolCall.serverCommand.forEach { part ->
+            val identifier = File(part).name
+            if (identifier.isNotEmpty() && identifier.length > 2) {
+                sanitized = sanitized.replace(identifier, "[command]")
+            }
+        }
+        return sanitized
+    }
+
+    private fun WorkflowMcpException.detailMessage(): String {
+        val prefix = "Workflow MCP step '$stepName' "
+        return message?.removePrefix(prefix) ?: this::class.java.simpleName
     }
 }
 

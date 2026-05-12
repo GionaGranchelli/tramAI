@@ -59,6 +59,7 @@ class WorkflowMcpStepTest {
                 toolName = "echo",
                 argumentKeys = setOf("message"),
             ),
+            config = McpStepConfig.unrestricted(),
             toolCallBuilder = { _, _ ->
                 McpToolCall(
                     serverCommand = listOf("unused"),
@@ -87,7 +88,7 @@ class WorkflowMcpStepTest {
                 serverCommand = listOf("unused"),
                 toolName = "nonexistent_tool",
             ),
-            config = McpStepConfig(reconnect = false),
+            config = McpStepConfig.unrestricted().copy(reconnect = false),
             toolCallBuilder = { _, _ ->
                 McpToolCall(serverCommand = listOf("unused"), toolName = "nonexistent_tool")
             },
@@ -111,7 +112,7 @@ class WorkflowMcpStepTest {
                 serverCommand = listOf("unused"),
                 toolName = "delay",
             ),
-            config = McpStepConfig(timeoutSeconds = 1, reconnect = false),
+            config = McpStepConfig.unrestricted().copy(timeoutSeconds = 1, reconnect = false),
             toolCallBuilder = { _, _ ->
                 McpToolCall(serverCommand = listOf("unused"), toolName = "delay")
             },
@@ -137,7 +138,7 @@ class WorkflowMcpStepTest {
                 serverCommand = listOf("unused"),
                 toolName = "delay",
             ),
-            config = McpStepConfig(timeoutSeconds = 10, reconnect = false),
+            config = McpStepConfig.unrestricted().copy(timeoutSeconds = 10, reconnect = false),
             toolCallBuilder = { _, _ ->
                 McpToolCall(serverCommand = listOf("unused"), toolName = "delay")
             },
@@ -180,7 +181,7 @@ class WorkflowMcpStepTest {
                         serverCommand = listOf(serverScript.toString()),
                         toolName = "delay",
                     ),
-                    config = McpStepConfig(timeoutSeconds = 30, reconnect = false),
+                    config = McpStepConfig.unrestricted().copy(timeoutSeconds = 30, reconnect = false),
                     toolCallBuilder = { _, _ ->
                         McpToolCall(serverCommand = listOf(serverScript.toString()), toolName = "delay")
                     },
@@ -234,7 +235,7 @@ class WorkflowMcpStepTest {
                         serverCommand = listOf(serverScript.toString()),
                         toolName = "delay",
                     ),
-                    config = McpStepConfig(timeoutSeconds = 1, reconnect = false),
+                    config = McpStepConfig.unrestricted().copy(timeoutSeconds = 1, reconnect = false),
                     toolCallBuilder = { _, _ ->
                         McpToolCall(serverCommand = listOf(serverScript.toString()), toolName = "delay")
                     },
@@ -276,6 +277,7 @@ class WorkflowMcpStepTest {
                 toolName = "echo",
                 argumentKeys = setOf("message"),
             ),
+            config = McpStepConfig.unrestricted(),
             toolCallBuilder = { _, _ ->
                 McpToolCall(
                     serverCommand = listOf("unused"),
@@ -309,7 +311,10 @@ class WorkflowMcpStepTest {
                 serverCommand = listOf("unused"),
                 toolName = "echo",
             ),
-            config = McpStepConfig(toolAllowlist = setOf("approved_tool"), reconnect = false),
+            config = McpStepConfig.unrestricted().copy(
+                toolAllowlist = setOf("approved_tool"),
+                reconnect = false,
+            ),
             toolCallBuilder = { _, _ ->
                 McpToolCall(serverCommand = listOf("unused"), toolName = "echo")
             },
@@ -319,10 +324,13 @@ class WorkflowMcpStepTest {
 
         val workflow = buildWorkflow(listOf(step))
 
-        assertThatThrownBy {
+        val error = runCatching {
             runBlocking { workflow.run(McpState()) }
-        }.isInstanceOf(WorkflowMcpException::class.java)
-            .hasMessageContaining("not in the allowlist")
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(WorkflowMcpException::class.java)
+        assertThat(error).hasMessageContaining("not in the allowlist")
+        assertThat(error?.cause).isNull()
     }
 
     @Test
@@ -335,6 +343,7 @@ class WorkflowMcpStepTest {
                 serverCommand = listOf("unused"),
                 toolName = "get_data",
             ),
+            config = McpStepConfig.unrestricted(),
             toolCallBuilder = { _, _ ->
                 McpToolCall(serverCommand = listOf("unused"), toolName = "get_data")
             },
@@ -357,6 +366,7 @@ class WorkflowMcpStepTest {
         val workflow = workflow<McpState>("typed-mcp-success") {
             mcpStep(
                 name = "echo",
+                config = McpStepConfig.unrestricted(),
                 definition = McpToolCallDefinition(
                     serverCommand = listOf("unused"),
                     toolName = "echo",
@@ -386,6 +396,7 @@ class WorkflowMcpStepTest {
         val workflow = workflow<McpState>("typed-mcp-failure") {
             mcpStep(
                 name = "echo",
+                config = McpStepConfig.unrestricted(),
                 definition = McpToolCallDefinition(
                     serverCommand = listOf("unused"),
                     toolName = "echo",
@@ -419,7 +430,7 @@ class WorkflowMcpStepTest {
                 serverCommand = listOf("node", "server.js"),
                 toolName = "echo",
             ),
-            config = McpStepConfig(reconnect = false),
+            config = McpStepConfig.unrestricted().copy(reconnect = false),
             toolCallBuilder = { _, _ ->
                 McpToolCall(serverCommand = listOf("evil", "command"), toolName = "echo")
             },
@@ -429,10 +440,13 @@ class WorkflowMcpStepTest {
 
         val workflow = buildWorkflow(listOf(step))
 
-        assertThatThrownBy {
+        val error = runCatching {
             runBlocking { workflow.run(McpState()) }
-        }.isInstanceOf(WorkflowMcpException::class.java)
-            .hasMessageContaining("does not match the canonical definition")
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(WorkflowMcpException::class.java)
+        assertThat(error).hasMessageContaining("does not match the canonical definition")
+        assertThat(error?.cause).isNull()
     }
 
     @Test
@@ -445,9 +459,116 @@ class WorkflowMcpStepTest {
                 serverCommand = listOf("dangerous-cmd"),
                 toolName = "echo",
             ),
-            config = McpStepConfig(deniedCommands = setOf("dangerous-cmd"), reconnect = false),
+            config = McpStepConfig(
+                reconnect = false,
+                allowedCommands = setOf("dangerous-cmd"),
+                deniedCommands = setOf("dangerous-cmd"),
+            ),
             toolCallBuilder = { _, _ ->
                 McpToolCall(serverCommand = listOf("dangerous-cmd"), toolName = "echo")
+            },
+            merge = { state, result, _ -> state.copy(result = result) },
+            transportProvider = transportProvider,
+        )
+
+        val workflow = buildWorkflow(listOf(step))
+
+        val error = runCatching {
+            runBlocking { workflow.run(McpState()) }
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(WorkflowMcpException::class.java)
+        assertThat(error).hasMessageContaining("blocked by the denylist")
+        assertThat(error?.cause).isNull()
+    }
+
+    @Test
+    fun `mcp step config allows only node commands`() {
+        val (transportProvider, _) = createEchoServer()
+
+        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
+            name = "echo",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("node", "server.js"),
+                toolName = "echo",
+                argumentKeys = setOf("message"),
+            ),
+            config = McpStepConfig(allowedCommands = setOf("node")),
+            toolCallBuilder = { _, _ ->
+                McpToolCall(
+                    serverCommand = listOf("node", "server.js"),
+                    toolName = "echo",
+                    arguments = mapOf("message" to "hello-node"),
+                )
+            },
+            merge = { state, result, _ -> state.copy(result = result) },
+            transportProvider = transportProvider,
+        )
+
+        val workflow = buildWorkflow(listOf(step))
+        val result = runBlocking { workflow.run(McpState()) }
+
+        assertThat(result.result?.content).contains("hello-node")
+    }
+
+    @Test
+    fun `mcp step unrestricted factory preserves old behavior`() {
+        val (transportProvider, _) = createEchoServer()
+
+        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
+            name = "echo",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("unused"),
+                toolName = "echo",
+            ),
+            config = McpStepConfig.unrestricted(),
+            toolCallBuilder = { _, _ ->
+                McpToolCall(serverCommand = listOf("unused"), toolName = "echo")
+            },
+            merge = { state, result, _ -> state.copy(result = result) },
+            transportProvider = transportProvider,
+        )
+
+        val workflow = buildWorkflow(listOf(step))
+        val result = runBlocking { workflow.run(McpState()) }
+
+        assertThat(result.result?.content).contains("echo:")
+    }
+
+    @Test
+    fun `static mcp commands violating allowlist fail at workflow build time`() {
+        assertThatThrownBy {
+            workflow<McpState>("static-mcp-allowlist-failure") {
+                mcpStep(
+                    name = "echo",
+                    config = McpStepConfig(allowedCommands = setOf("node")),
+                    definition = McpToolCallDefinition(
+                        serverCommand = listOf("python", "server.py"),
+                        toolName = "echo",
+                    ),
+                    toolCall = { _, _ ->
+                        McpToolCall(serverCommand = listOf("python", "server.py"), toolName = "echo")
+                    },
+                    merge = { state, result, _ -> state.copy(result = result) },
+                )
+            }.build { it }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("not in allowlist")
+    }
+
+    @Test
+    fun `dynamic mcp commands violating allowlist fail at execution time`() {
+        val (transportProvider, _) = createEchoServer()
+
+        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
+            name = "echo",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("python", "server.py"),
+                toolName = "echo",
+            ),
+            config = McpStepConfig(allowedCommands = setOf("node"), reconnect = false),
+            toolCallBuilder = { _, _ ->
+                McpToolCall(serverCommand = listOf("python", "server.py"), toolName = "echo")
             },
             merge = { state, result, _ -> state.copy(result = result) },
             transportProvider = transportProvider,
@@ -458,7 +579,33 @@ class WorkflowMcpStepTest {
         assertThatThrownBy {
             runBlocking { workflow.run(McpState()) }
         }.isInstanceOf(WorkflowMcpException::class.java)
-            .hasMessageContaining("blocked by the denylist")
+            .hasMessageContaining("not in allowlist")
+    }
+
+    @Test
+    fun `mcp step redacts server command identifiers in failure errors`() {
+        val secretExecutable = "my-secret-mcp-server"
+        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
+            name = "secret-server",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf(secretExecutable),
+                toolName = "echo",
+            ),
+            config = McpStepConfig.unrestricted().copy(reconnect = false),
+            toolCallBuilder = { _, _ ->
+                McpToolCall(serverCommand = listOf(secretExecutable), toolName = "echo")
+            },
+            merge = { state, result, _ -> state.copy(result = result) },
+            transportProvider = SubprocessMcpTransportProvider(),
+        )
+
+        val workflow = buildWorkflow(listOf(step))
+
+        assertThatThrownBy {
+            runBlocking { workflow.run(McpState()) }
+        }.isInstanceOf(WorkflowMcpException::class.java)
+            .hasMessageContaining("[command]")
+            .hasMessageNotContaining(secretExecutable)
     }
 
     // ─── test infrastructure ────────────────────────────────────────────

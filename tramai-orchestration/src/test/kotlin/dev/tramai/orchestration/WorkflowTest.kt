@@ -831,6 +831,7 @@ class WorkflowTest {
         ) {
             shellStep(
                 name = "deploy",
+                config = ShellStepConfig(allowedCommands = setOf("sh")),
                 definition = ShellCommandDefinition(
                     hasWorkdir = false,
                     envKeys = setOf("API_TOKEN"),
@@ -859,6 +860,7 @@ class WorkflowTest {
             ) {
                 shellStep(
                     name = "deploy",
+                    config = ShellStepConfig(allowedCommands = setOf("sh")),
                     definition = ShellCommandDefinition(
                         hasWorkdir = true,
                         envKeys = setOf("OTHER_TOKEN"),

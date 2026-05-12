@@ -52,7 +52,7 @@ data class ShellStepConfig(
     val maxOutputBytes: Long = 1_048_576,
     val failOnNonZeroExit: Boolean = true,
     val failOnStderr: Boolean = false,
-    val allowedCommands: Set<String>? = null,
+    val allowedCommands: Set<String> = emptySet(),
     val deniedCommands: Set<String> = emptySet(),
     val charset: Charset = Charsets.UTF_8,
 ) {
@@ -62,7 +62,7 @@ data class ShellStepConfig(
         require(maxOutputBytes <= Int.MAX_VALUE.toLong()) {
             "ShellStepConfig.maxOutputBytes must be less than or equal to ${Int.MAX_VALUE}"
         }
-        require(allowedCommands?.none { it.isBlank() } != false) {
+        require(allowedCommands.none { it.isBlank() }) {
             "ShellStepConfig.allowedCommands must not contain blank values"
         }
         require(deniedCommands.none { it.isBlank() }) {
@@ -84,6 +84,12 @@ internal data class ShellWorkflowStep<S>(
     val merge: suspend (S, ShellResult, WorkflowContext) -> S,
     val config: ShellStepConfig = ShellStepConfig(),
 ) : InternalWorkflowStep<S> {
+    internal fun validateStaticCommandPolicy(workflowName: String) {
+        // Shell command policy cannot be validated at workflow build time.
+        // The executable comes from the runtime command lambda and
+        // ShellCommandDefinition intentionally does not carry a canonical command string.
+    }
+
     suspend fun execute(
         workflowName: String,
         state: S,
@@ -245,15 +251,19 @@ internal data class ShellWorkflowStep<S>(
 
     private fun validateCommandPolicy(shellCommand: ShellCommand) {
         val commandIdentifiers = shellCommand.commandIdentifiers()
-        val deniedCommands = config.deniedCommands
-        require(deniedCommands.none(commandIdentifiers::contains)) {
-            "Workflow shell step '$name' command is blocked by the denylist"
-        }
         val allowedCommands = config.allowedCommands
-        if (allowedCommands != null) {
-            require(allowedCommands.any(commandIdentifiers::contains)) {
-                "Workflow shell step '$name' command is not permitted by the allowlist"
-            }
+        if (allowedCommands.isEmpty() || allowedCommands.none(commandIdentifiers::contains)) {
+            throw WorkflowShellException(
+                stepName = name,
+                message = "command is not in allowlist",
+            )
+        }
+        val deniedCommands = config.deniedCommands
+        if (deniedCommands.any(commandIdentifiers::contains)) {
+            throw WorkflowShellException(
+                stepName = name,
+                message = "command is blocked by the denylist",
+            )
         }
     }
 

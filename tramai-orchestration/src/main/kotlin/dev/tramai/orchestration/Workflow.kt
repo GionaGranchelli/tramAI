@@ -1249,6 +1249,24 @@ private fun <S> validateWorkflowDefinition(
             "Workflow '$workflowName' has duplicate step name '$duplicate'. Step names must be unique across the full workflow definition.",
         )
     }
+    validateStaticCommandPolicies(workflowName, steps)
+}
+
+private fun <S> validateStaticCommandPolicies(
+    workflowName: String,
+    steps: List<InternalWorkflowStep<S>>,
+) {
+    for (step in steps) {
+        when (step) {
+            is ShellWorkflowStep<*> -> step.validateStaticCommandPolicy(workflowName)
+            is McpWorkflowStep<*> -> step.validateStaticCommandPolicy(workflowName)
+            is BranchWorkflowStep -> {
+                step.branches.values.forEach { validateStaticCommandPolicies(workflowName, it) }
+                step.defaultSteps?.let { validateStaticCommandPolicies(workflowName, it) }
+            }
+            else -> Unit
+        }
+    }
 }
 private fun <S> collectStepNames(
     steps: List<InternalWorkflowStep<S>>,
@@ -1338,7 +1356,7 @@ private fun <S> renderStepsCanonical(
                 append(':')
                 append(step.config.failOnStderr)
                 append(':')
-                append(step.config.allowedCommands?.sorted()?.joinToString(",") ?: "*")
+                append(step.config.allowedCommands.sorted().joinToString(","))
                 append(':')
                 append(step.config.deniedCommands.sorted().joinToString(","))
                 append(':')
@@ -1385,7 +1403,13 @@ private fun <S> renderStepsCanonical(
                 append(':')
                 append(step.config.toolAllowlist?.sorted()?.joinToString(",") ?: "*")
                 append(':')
-                append(step.config.allowedCommands?.sorted()?.joinToString(",") ?: "*")
+                append(
+                    if (step.config.enforceCommandAllowlist) {
+                        step.config.allowedCommands.sorted().joinToString(",")
+                    } else {
+                        "*"
+                    },
+                )
                 append(':')
                 append(step.config.deniedCommands.sorted().joinToString(","))
                 append(':')
