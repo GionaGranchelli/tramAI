@@ -1,5 +1,7 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.security.StepSecurityConfig
+import dev.tramai.core.security.ValidationResult
 import java.io.File
 
 data class CodexStepConfig(
@@ -7,6 +9,7 @@ data class CodexStepConfig(
     val maxOutputBytes: Long = 1_048_576,
     val cliPath: String = "codex",
     val workdir: String? = null,
+    val security: StepSecurityConfig = StepSecurityConfig.Default,
 ) {
     init {
         require(timeoutSeconds > 0) { "CodexStepConfig.timeoutSeconds must be greater than zero" }
@@ -43,6 +46,7 @@ internal data class CodexWorkflowStep<S>(
             error.rethrowAgentCancellation()
             throw wrapCodexError(error)
         }
+        val resolvedSecurity = resolveStepSecurity(prompt, config.security)
 
         val result = try {
             executeAgentCli(
@@ -51,13 +55,13 @@ internal data class CodexWorkflowStep<S>(
                 eventPrefix = "tramai.workflow.codex",
                 agentType = "codex",
                 processBuilder = ProcessBuilder(
-                    listOf(config.cliPath, "exec", "--", prompt),
+                    listOf(config.cliPath, "exec", "--", resolvedSecurity.defendedPrompt),
                 ).apply {
                     config.workdir?.let { directory(File(it)) }
                 },
                 timeoutSeconds = config.timeoutSeconds,
                 maxOutputBytes = config.maxOutputBytes,
-                promptLength = prompt.length,
+                promptLength = resolvedSecurity.defendedPrompt.length,
                 context = context,
                 observer = observer,
             )
@@ -71,6 +75,16 @@ internal data class CodexWorkflowStep<S>(
                 stepName = name,
                 message = result.describeNonZeroExit(),
             )
+        }
+
+        if (resolvedSecurity.defenseActive) {
+            when (val validation = validateStepOutput(result.output, resolvedSecurity.validator)) {
+                is ValidationResult.Rejected -> throw WorkflowCodexException(
+                    stepName = name,
+                    message = "output validation rejected: ${validation.reason} (rule: ${validation.ruleId ?: "unknown"})",
+                )
+                is ValidationResult.Valid -> Unit
+            }
         }
 
         return try {

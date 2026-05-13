@@ -1,10 +1,14 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.security.StepSecurityConfig
+import dev.tramai.core.security.ValidationResult
+
 data class HermesStepConfig(
     val timeoutSeconds: Long = 180,
     val maxOutputBytes: Long = 1_048_576,
     val cliPath: String = "hermes",
     val model: String = "claude-sonnet-4",
+    val security: StepSecurityConfig = StepSecurityConfig.Default,
 ) {
     init {
         require(timeoutSeconds > 0) { "HermesStepConfig.timeoutSeconds must be greater than zero" }
@@ -41,6 +45,7 @@ internal data class HermesWorkflowStep<S>(
             error.rethrowAgentCancellation()
             throw wrapHermesError(error)
         }
+        val resolvedSecurity = resolveStepSecurity(prompt, config.security)
 
         val result = try {
             executeAgentCli(
@@ -49,11 +54,11 @@ internal data class HermesWorkflowStep<S>(
                 eventPrefix = "tramai.workflow.hermes",
                 agentType = "hermes",
                 processBuilder = ProcessBuilder(
-                    listOf(config.cliPath, "chat", "-q", prompt, "--model", config.model),
+                    listOf(config.cliPath, "chat", "-q", resolvedSecurity.defendedPrompt, "--model", config.model),
                 ),
                 timeoutSeconds = config.timeoutSeconds,
                 maxOutputBytes = config.maxOutputBytes,
-                promptLength = prompt.length,
+                promptLength = resolvedSecurity.defendedPrompt.length,
                 context = context,
                 observer = observer,
             )
@@ -67,6 +72,16 @@ internal data class HermesWorkflowStep<S>(
                 stepName = name,
                 message = result.describeNonZeroExit(),
             )
+        }
+
+        if (resolvedSecurity.defenseActive) {
+            when (val validation = validateStepOutput(result.output, resolvedSecurity.validator)) {
+                is ValidationResult.Rejected -> throw WorkflowHermesException(
+                    stepName = name,
+                    message = "output validation rejected: ${validation.reason} (rule: ${validation.ruleId ?: "unknown"})",
+                )
+                is ValidationResult.Valid -> Unit
+            }
         }
 
         return try {

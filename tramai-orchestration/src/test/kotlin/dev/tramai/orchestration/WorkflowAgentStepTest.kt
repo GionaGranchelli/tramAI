@@ -31,6 +31,7 @@ class WorkflowAgentStepTest {
                     config = HermesStepConfig(
                         cliPath = hermesCli.toString(),
                         model = "claude-sonnet-4",
+                        security = dev.tramai.core.security.StepSecurityConfig.Disabled,
                     ),
                     prompt = { state, _ -> "Audit ${state.target}" },
                     merge = { state, response, _ -> state.copy(hermesResponse = response) },
@@ -89,6 +90,7 @@ class WorkflowAgentStepTest {
                         config = CodexStepConfig(
                             cliPath = codexCli.toString(),
                             workdir = workdir.toString(),
+                            security = dev.tramai.core.security.StepSecurityConfig.Disabled,
                         ),
                         prompt = { state, _ -> "Inspect ${state.target}" },
                         merge = { state, response, _ -> state.copy(codexResponse = response) },
@@ -173,7 +175,10 @@ class WorkflowAgentStepTest {
             val workflow = agentWorkflow("codex-dash-prompt") {
                 codexStep(
                     name = "review-ui",
-                    config = CodexStepConfig(cliPath = codexCli.toString()),
+                    config = CodexStepConfig(
+                        cliPath = codexCli.toString(),
+                        security = dev.tramai.core.security.StepSecurityConfig.Disabled,
+                    ),
                     prompt = { _, _ -> "-review frontend" },
                     merge = { state, response, _ -> state.copy(codexResponse = response) },
                 )
@@ -351,7 +356,10 @@ class WorkflowAgentStepTest {
             val workflow = agentWorkflow("codex-custom-path") {
                 codexStep(
                     name = "review-ui",
-                    config = CodexStepConfig(cliPath = codexCli.toString()),
+                    config = CodexStepConfig(
+                        cliPath = codexCli.toString(),
+                        security = dev.tramai.core.security.StepSecurityConfig.Disabled,
+                    ),
                     prompt = { _, _ -> "hello codex" },
                     merge = { state, response, _ -> state.copy(codexResponse = response) },
                 )

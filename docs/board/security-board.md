@@ -47,14 +47,14 @@ Estimated effort: 4-5 days
 
 | ID | Task | Spec § | Deps | Effort | Status |
 |----|------|--------|------|--------|--------|
-| TASK-044 | Define `PromptSanitizer`, `OutputValidator`, `InstructionDefense`, `ValidationResult`, and sealed `StepSecurityConfig` in `tramai-core`, with `InstructionDefense.wrap(...): String` returning a flat prompt string | §Phase 2 | — | 0.75d | ⬜ |
-| TASK-045 | Implement `DefaultPromptSanitizer` in `tramai-orchestration` with stable rule IDs and edge-case handling | §Phase 2 | TASK-044 | 0.5d | ⬜ |
-| TASK-046 | Implement `DefaultOutputValidator` in `tramai-orchestration`, including raw-text validation before structured parsing and truncation-focused false-positive coverage | §Phase 2 | TASK-044 | 0.75d | ⬜ |
-| TASK-047 | Implement `DefaultInstructionDefense` in `tramai-orchestration` using the flat-string delimiter template and custom-system-instruction extension points | §Phase 2 | TASK-044 | 0.5d | ⬜ |
-| TASK-048 | Wire the defense layer into `hermesStep` execution only | §Phase 2 | TASK-045, TASK-046, TASK-047 | 0.5d | ⬜ |
-| TASK-049 | Wire the defense layer into `codexStep` execution only | §Phase 2 | TASK-045, TASK-046, TASK-047 | 0.5d | ⬜ |
-| TASK-050 | Document `aiStep` as out of scope for framework-owned prompt defenses and clarify user responsibility inside `invoke` | §Phase 2 | TASK-044 | 0.25d | ⬜ |
-| TASK-051 | Add defense tests for jailbreaks, extraction attempts, partial opt-out, false positives, Unicode confusables, null bytes, multiline delimiter tricks, very large prompts, and truncated-output fragments | §Phase 2 | TASK-045, TASK-046, TASK-047, TASK-048, TASK-049 | 1.0d | ⬜ |
+| TASK-044 | Define `PromptSanitizer`, `OutputValidator`, `InstructionDefense`, `ValidationResult`, and sealed `StepSecurityConfig` in `tramai-core`, with `InstructionDefense.wrap(...): String` returning a flat prompt string | §Phase 2 | — | 0.75d | ✅ |
+| TASK-045 | Implement `DefaultPromptSanitizer` in `tramai-orchestration` with stable rule IDs and edge-case handling | §Phase 2 | TASK-044 | 0.5d | ✅ |
+| TASK-046 | Implement `DefaultOutputValidator` in `tramai-orchestration`, including raw-text validation before structured parsing and truncation-focused false-positive coverage | §Phase 2 | TASK-044 | 0.75d | ✅ |
+| TASK-047 | Implement `DefaultInstructionDefense` in `tramai-orchestration` using the flat-string delimiter template and custom-system-instruction extension points | §Phase 2 | TASK-044 | 0.5d | ✅ |
+| TASK-048 | Wire the defense layer into `hermesStep` execution only | §Phase 2 | TASK-045, TASK-046, TASK-047 | 0.5d | ✅ |
+| TASK-049 | Wire the defense layer into `codexStep` execution only | §Phase 2 | TASK-045, TASK-046, TASK-047 | 0.5d | ✅ |
+| TASK-050 | Document `aiStep` as out of scope for framework-owned prompt defenses and clarify user responsibility inside `invoke` | §Phase 2 | TASK-044 | 0.25d | ✅ |
+| TASK-051 | Add defense tests for jailbreaks, extraction attempts, partial opt-out, false positives, Unicode confusables, null bytes, multiline delimiter tricks, very large prompts, and truncated-output fragments | §Phase 2 | TASK-045, TASK-046, TASK-047, TASK-048, TASK-049 | 1.0d | ✅ |
 
 ## Phase 3 — Security Event Observability
 
@@ -74,6 +74,6 @@ Estimated effort: 1-1.5 days
 | Phase | Status | Tasks |
 |-------|--------|-------|
 | Phase 1 — Secure Defaults | ⬜ Not started | 4 |
-| Phase 2 — Prompt Injection Defense | ⬜ Not started | 8 |
+| Phase 2 — Prompt Injection Defense | ✅ Done | 8 |
 | Phase 3 — Security Event Observability | ⬜ Not started | 4 |
 | **Total** | | **16** |

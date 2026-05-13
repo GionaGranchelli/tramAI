@@ -627,6 +627,10 @@ abstract class AbstractWorkflowBuilder<S> {
      * defaults to `NON_REPLAYABLE`. This semantic split is intentional:
      * - Legacy: no access to [WorkflowContext], cannot compute idempotency keys.
      * - New: explicit replay policy with optional [WorkflowContext]-aware idempotency key.
+     *
+     * **Security note:** `aiStep` has no framework-owned prompt defense layer. If
+     * `invoke` calls an LLM, that application code remains responsible for prompt
+     * injection handling inside the invoked logic.
      */
     fun <I, O> aiStep(
         name: String,
@@ -688,6 +692,10 @@ abstract class AbstractWorkflowBuilder<S> {
      * this overload defaults to `NON_REPLAYABLE` because [WorkflowContext] access
      * enables explicit idempotency-key computation. Pass a custom [replayPolicy] and
      * [idempotencyKey] lambda when the step must be safely replayed by a worker.
+     *
+     * **Security note:** `aiStep` does not apply the framework-owned prompt defenses
+     * used by `hermesStep` and `codexStep`. If `invoke` calls an LLM, prompt
+     * injection handling belongs inside that application-owned invocation path.
      */
     fun <I, O> aiStep(
         name: String,
