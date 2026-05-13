@@ -211,7 +211,23 @@ internal data class McpWorkflowStep<S>(
         try {
             validateDefinition(toolCall)
             validateToolAllowlist(toolCall.toolName)
-            validateCommandPolicy(toolCall)
+            try {
+                validateCommandPolicy(toolCall)
+            } catch (error: WorkflowMcpException) {
+                val policyType = if (error.message?.contains("allowlist") == true) "allowlist" else "deny-list"
+                observer.onWorkflowEvent(
+                    workflowName = workflowName,
+                    name = SecurityEvents.COMMAND_DENIED,
+                    attributes = mapOf(
+                        "step_name" to name,
+                        "command" to toolCall.serverCommand.first(),
+                        "policy_type" to policyType,
+                        "step_family" to "mcp",
+                    ),
+                    context = context,
+                )
+                throw error
+            }
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             throw wrapMcpError(error, toolCall)

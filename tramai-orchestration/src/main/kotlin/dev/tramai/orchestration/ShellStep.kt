@@ -164,7 +164,23 @@ internal data class ShellWorkflowStep<S>(
         observer: WorkflowObserver,
     ): ExecutedShellResult {
         validateShellCommandDefinition(shellCommand)
-        validateCommandPolicy(shellCommand)
+        try {
+            validateCommandPolicy(shellCommand)
+        } catch (error: WorkflowShellException) {
+            val policyType = if (error.message?.contains("allowlist") == true) "allowlist" else "deny-list"
+            observer.onWorkflowEvent(
+                workflowName = workflowName,
+                name = SecurityEvents.COMMAND_DENIED,
+                attributes = mapOf(
+                    "step_name" to name,
+                    "command" to File(shellCommand.command.first()).name,
+                    "policy_type" to policyType,
+                    "step_family" to "shell",
+                ),
+                context = context,
+            )
+            throw error
+        }
         val process = ProcessBuilder(shellCommand.command)
             .apply {
                 shellCommand.workdir?.let { directory(File(it)) }

@@ -5,6 +5,7 @@ import dev.tramai.core.security.StepSecurityConfig
 import dev.tramai.core.security.ValidationResult
 
 internal data class ResolvedStepSecurity(
+    val sanitizedPrompt: String,
     val defendedPrompt: String,
     val defenseActive: Boolean,
     val validator: OutputValidator?,
@@ -15,6 +16,7 @@ internal fun resolveStepSecurity(
     security: StepSecurityConfig,
 ): ResolvedStepSecurity = when (security) {
     is StepSecurityConfig.Disabled -> ResolvedStepSecurity(
+        sanitizedPrompt = prompt,
         defendedPrompt = prompt,
         defenseActive = false,
         validator = null,
@@ -22,6 +24,7 @@ internal fun resolveStepSecurity(
     is StepSecurityConfig.Default -> {
         val sanitized = DefaultPromptSanitizer.sanitize(prompt)
         ResolvedStepSecurity(
+            sanitizedPrompt = sanitized,
             defendedPrompt = DefaultInstructionDefense().wrap(sanitized, ""),
             defenseActive = true,
             validator = DefaultOutputValidator(),
@@ -44,6 +47,7 @@ internal fun resolveStepSecurity(
             DefaultOutputValidator(patterns = customPatterns)
         } ?: DefaultOutputValidator()
         ResolvedStepSecurity(
+            sanitizedPrompt = sanitized,
             defendedPrompt = instructionDefense.wrap(sanitized, wrapSystemInstructions),
             defenseActive = true,
             validator = validator,

@@ -1,6 +1,6 @@
 # SPEC-018: Security Hardening
 
-- Status: implemented (Phase 2)
+- Status: implemented (Phase 2, Phase 3)
 - Owner: maintainer
 - Last updated: 2026-05-13
 - Related roadmap milestone: Phase 11

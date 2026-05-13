@@ -62,10 +62,10 @@ Estimated effort: 1-1.5 days
 
 | ID | Task | Spec § | Deps | Effort | Status |
 |----|------|--------|------|--------|--------|
-| TASK-052 | Add security event constants and expanded attribute schema to `WorkflowObserver` | §Phase 3 | TASK-045, TASK-046, TASK-047 | 0.25d | ⬜ |
-| TASK-053 | Emit `step_executed`, `sanitizer_triggered`, `command_denied`, and `output_rejected` from Hermes/Codex defense hooks and Shell/MCP command-policy denials | §Phase 3 | TASK-052, TASK-048, TASK-049 | 0.75d | ⬜ |
-| TASK-054 | Emit `output_rejected` when the typed `decode(String): T` lambda throws after validation passes, recording `reason = "parse_failure"` as best-effort decode-failure observability | §Phase 3 | TASK-046, TASK-052 | 0.25d | ⬜ |
-| TASK-055 | Add observer tests for expanded event attributes, decode-failure events, disabled/custom defense modes, and truncation-related validation behavior | §Phase 3 | TASK-053, TASK-054 | 0.5d | ⬜ |
+| TASK-052 | Add security event constants and expanded attribute schema to `WorkflowObserver` | §Phase 3 | TASK-045, TASK-046, TASK-047 | 0.25d | ✅ |
+| TASK-053 | Emit `step_executed`, `sanitizer_triggered`, `command_denied`, and `output_rejected` from Hermes/Codex defense hooks and Shell/MCP command-policy denials | §Phase 3 | TASK-052, TASK-048, TASK-049 | 0.75d | ✅ |
+| TASK-054 | Emit `output_rejected` when the typed `decode(String): T` lambda throws after validation passes, recording `reason = "parse_failure"` as best-effort decode-failure observability | §Phase 3 | TASK-046, TASK-052 | 0.25d | ✅ |
+| TASK-055 | Add observer tests for expanded event attributes, decode-failure events, disabled/custom defense modes, and truncation-related validation behavior | §Phase 3 | TASK-053, TASK-054 | 0.5d | ✅ |
 
 ---
 
@@ -75,5 +75,5 @@ Estimated effort: 1-1.5 days
 |-------|--------|-------|
 | Phase 1 — Secure Defaults | ⬜ Not started | 4 |
 | Phase 2 — Prompt Injection Defense | ✅ Done | 8 |
-| Phase 3 — Security Event Observability | ⬜ Not started | 4 |
+| Phase 3 — Security Event Observability | ✅ Done | 4 |
 | **Total** | | **16** |

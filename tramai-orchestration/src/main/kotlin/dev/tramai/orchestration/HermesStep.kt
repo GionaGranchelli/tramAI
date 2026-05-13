@@ -46,6 +46,42 @@ internal data class HermesWorkflowStep<S>(
             throw wrapHermesError(error)
         }
         val resolvedSecurity = resolveStepSecurity(prompt, config.security)
+        observer.onWorkflowEvent(
+            workflowName = workflowName,
+            name = SecurityEvents.STEP_EXECUTED,
+            attributes = mapOf(
+                "step_name" to name,
+                "step_type" to "hermes",
+                "sanitizer_active" to resolvedSecurity.defenseActive,
+                "validator_active" to (resolvedSecurity.validator != null),
+                "instruction_defense_active" to resolvedSecurity.defenseActive,
+                "defense_mode" to config.security.defenseMode(),
+            ),
+            context = context,
+        )
+        if (resolvedSecurity.defenseActive) {
+            val sanitizedPrompt = resolvedSecurity.sanitizedPrompt
+            if (prompt.length != sanitizedPrompt.length || prompt != sanitizedPrompt) {
+                val customConfig = config.security as? StepSecurityConfig.Custom
+                val hasCustomSanitizer = customConfig?.sanitizer != null
+                val sanitizerRuleId = if (hasCustomSanitizer) {
+                    null
+                } else {
+                    DefaultPromptSanitizer.getTriggeredRules(prompt).joinToString(",")
+                }
+                observer.onWorkflowEvent(
+                    workflowName = workflowName,
+                    name = SecurityEvents.SANITIZER_TRIGGERED,
+                    attributes = mapOf(
+                        "step_name" to name,
+                        "original_size_bytes" to prompt.length,
+                        "modified_size_bytes" to sanitizedPrompt.length,
+                        "rule_id" to sanitizerRuleId,
+                    ),
+                    context = context,
+                )
+            }
+        }
 
         val result = try {
             executeAgentCli(
@@ -76,10 +112,22 @@ internal data class HermesWorkflowStep<S>(
 
         if (resolvedSecurity.defenseActive) {
             when (val validation = validateStepOutput(result.output, resolvedSecurity.validator)) {
-                is ValidationResult.Rejected -> throw WorkflowHermesException(
-                    stepName = name,
-                    message = "output validation rejected: ${validation.reason} (rule: ${validation.ruleId ?: "unknown"})",
-                )
+                is ValidationResult.Rejected -> {
+                    observer.onWorkflowEvent(
+                        workflowName = workflowName,
+                        name = SecurityEvents.OUTPUT_REJECTED,
+                        attributes = mapOf(
+                            "step_name" to name,
+                            "reason" to validation.reason,
+                            "rule_id" to validation.ruleId,
+                        ),
+                        context = context,
+                    )
+                    throw WorkflowHermesException(
+                        stepName = name,
+                        message = "output validation rejected: ${validation.reason} (rule: ${validation.ruleId ?: "unknown"})",
+                    )
+                }
                 is ValidationResult.Valid -> Unit
             }
         }
@@ -88,6 +136,17 @@ internal data class HermesWorkflowStep<S>(
             merge(state, result.output, context)
         } catch (error: Throwable) {
             error.rethrowAgentCancellation()
+            if (resolvedSecurity.defenseActive) {
+                observer.onWorkflowEvent(
+                    workflowName = workflowName,
+                    name = SecurityEvents.OUTPUT_REJECTED,
+                    attributes = mapOf(
+                        "step_name" to name,
+                        "reason" to "parse_failure",
+                    ),
+                    context = context,
+                )
+            }
             throw wrapHermesError(error)
         }
     }
