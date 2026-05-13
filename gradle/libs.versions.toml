@@ -36,6 +36,8 @@ aws-sdk-regions = { module = "software.amazon.awssdk:regions", version.ref = "aw
 aws-sdk-secretsmanager = { module = "software.amazon.awssdk:secretsmanager", version.ref = "aws-sdk" }
 hikaricp = { module = "com.zaxxer:HikariCP", version = "6.3.0" }
 h2database = { module = "com.h2database:h2", version = "2.3.232" }
+postgresql = { module = "org.postgresql:postgresql", version = "42.7.5" }
+pgvector = { module = "com.pgvector:pgvector", version = "0.1.6" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

@@ -4,6 +4,7 @@ include(
     "tramai-anthropic",
     "tramai-bom",
     "tramai-core",
+    "tramai-embedding",
     "tramai-engine",
     "tramai-observability",
     "tramai-mcp",
@@ -17,6 +18,9 @@ include(
     "tramai-standalone",
     "tramai-structured",
     "tramai-testing",
+    "tramai-vectorstore-spi",
+    "tramai-vectorstore-chroma",
+    "tramai-vectorstore-pgvector",
     "tramai-dashboard",
     "examples:support-agent",
 )

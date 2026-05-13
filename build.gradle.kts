@@ -31,6 +31,7 @@ val publishableProjectNames = listOf(
     "tramai-anthropic",
     "tramai-bom",
     "tramai-core",
+    "tramai-embedding",
     "tramai-engine",
     "tramai-observability",
     "tramai-ollama",
@@ -40,6 +41,9 @@ val publishableProjectNames = listOf(
     "tramai-standalone",
     "tramai-structured",
     "tramai-testing",
+    "tramai-vectorstore-spi",
+    "tramai-vectorstore-chroma",
+    "tramai-vectorstore-pgvector",
 )
 val jarPublishingProjectNames = publishableProjectNames - "tramai-bom"
 
@@ -178,6 +182,7 @@ fun Project.configureTramaiPublishing(
 
 fun projectDescription(projectName: String): String = when (projectName) {
     "tramai-core" -> "Core annotations, request models, provider registry, and exception types for Tramai."
+    "tramai-embedding" -> "Embedding model SPI with OpenAI and Ollama implementations for Tramai."
     "tramai-engine" -> "Runtime engine that turns annotated Tramai service interfaces into executable proxies."
     "tramai-structured" -> "Structured output schema generation, parsing, and validation support for Tramai."
     "tramai-anthropic" -> "Anthropic provider integration for Tramai."
@@ -190,6 +195,9 @@ fun projectDescription(projectName: String): String = when (projectName) {
     "tramai-spring" -> "Spring Boot auto-configuration and integration support for Tramai."
     "tramai-testing" -> "Testing utilities and deterministic assertion support for Tramai."
     "tramai-bom" -> "Bill of materials for aligning Tramai module versions."
+    "tramai-vectorstore-spi" -> "Vector store SPI with data models and in-memory implementation for Tramai."
+    "tramai-vectorstore-chroma" -> "ChromaDB vector store adapter for Tramai."
+    "tramai-vectorstore-pgvector" -> "PostgreSQL pgvector vector store adapter for Tramai."
     else -> "Tramai module ${projectName.removePrefix("tramai-")}."
 }
 
