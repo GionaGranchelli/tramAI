@@ -608,6 +608,56 @@ class WorkflowMcpStepTest {
             .hasMessageNotContaining(secretExecutable)
     }
 
+    @Test
+    fun `mcp step with default config denies all dynamic commands at execution time`() {
+        val (transportProvider, _) = createEchoServer()
+
+        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
+            name = "echo",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("python", "server.py"),
+                toolName = "echo",
+            ),
+            config = McpStepConfig(reconnect = false),
+            toolCallBuilder = { _, _ ->
+                McpToolCall(serverCommand = listOf("python", "server.py"), toolName = "echo")
+            },
+            merge = { state, result, _ -> state.copy(result = result) },
+            transportProvider = transportProvider,
+        )
+
+        val workflow = buildWorkflow(listOf(step))
+
+        assertThatThrownBy {
+            runBlocking { workflow.run(McpState()) }
+        }.isInstanceOf(WorkflowMcpException::class.java)
+            .hasMessageContaining("not in allowlist")
+    }
+
+    @Test
+    fun `mcp step unrestricted factory still allows commands`() {
+        val (transportProvider, _) = createEchoServer()
+
+        val step: InternalWorkflowStep<McpState> = McpWorkflowStep(
+            name = "echo",
+            definition = McpToolCallDefinition(
+                serverCommand = listOf("unused"),
+                toolName = "echo",
+            ),
+            config = McpStepConfig.unrestricted(),
+            toolCallBuilder = { _, _ ->
+                McpToolCall(serverCommand = listOf("unused"), toolName = "echo")
+            },
+            merge = { state, result, _ -> state.copy(result = result) },
+            transportProvider = transportProvider,
+        )
+
+        val workflow = buildWorkflow(listOf(step))
+        val result = runBlocking { workflow.run(McpState()) }
+
+        assertThat(result.result?.content).contains("echo:")
+    }
+
     // ─── test infrastructure ────────────────────────────────────────────
 
     private data class McpState(

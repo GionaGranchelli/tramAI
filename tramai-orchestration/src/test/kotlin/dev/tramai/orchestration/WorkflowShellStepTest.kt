@@ -487,6 +487,38 @@ class WorkflowShellStepTest {
         }.isInstanceOf(WorkflowShellException::class.java)
             .hasMessageContaining("not in allowlist")
     }
+    @Test
+    fun `shell step with default config denies all commands`() {
+        val workflow = shellWorkflow("shell-default-deny-all") {
+            shellStep(
+                name = "echo",
+                config = ShellStepConfig(),
+                command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
+                merge = { state, result, _ -> state.copy(result = result) },
+            )
+        }
+
+        assertThatThrownBy {
+            runBlocking { workflow.run(ShellState()) }
+        }.isInstanceOf(WorkflowShellException::class.java)
+            .hasMessageContaining("not in allowlist")
+    }
+
+    @Test
+    fun `shell step with explicit allowlist continues to work unchanged`() {
+        val workflow = shellWorkflow("shell-allowlist-continues") {
+            shellStep(
+                name = "echo",
+                config = ShellStepConfig(allowedCommands = setOf("echo")),
+                command = { _, _ -> ShellCommand(command = listOf("echo", "migration-ok")) },
+                merge = { state, result, _ -> state.copy(result = result) },
+            )
+        }
+
+        val result = runBlocking { workflow.run(ShellState()) }
+
+        assertThat(result.result?.stdout).contains("migration-ok")
+    }
 }
 
 private data class ShellState(

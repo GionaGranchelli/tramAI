@@ -36,10 +36,10 @@ Estimated effort: 1.5-2 days
 
 | ID | Task | Spec § | Deps | Effort | Status |
 |----|------|--------|------|--------|--------|
-| TASK-040 | Flip `ShellStepConfig.allowedCommands` default to `emptySet()` and preserve explicit allowlist behavior | §Phase 1 | — | 0.5d | ⬜ |
-| TASK-041 | Flip `McpStepConfig.allowedCommands` default to `emptySet()`, keep `deniedCommands`, and add `McpStepConfig.unrestricted()` | §Phase 1 | — | 0.5d | ⬜ |
-| TASK-042 | Add runtime shell validation, build-time validation for static MCP commands only, and clear command-policy errors | §Phase 1 | TASK-040, TASK-041 | 0.5d | ⬜ |
-| TASK-043 | Add/update migration tests and migration guide entries for secure-default changes, including direct `McpStepConfig()` users | §Phase 1 | TASK-040, TASK-041 | 0.5d | ⬜ |
+| TASK-040 | Flip `ShellStepConfig.allowedCommands` default to `emptySet()` and preserve explicit allowlist behavior | §Phase 1 | — | 0.5d | ✅ |
+| TASK-041 | Flip `McpStepConfig.allowedCommands` default to `emptySet()`, keep `deniedCommands`, and add `McpStepConfig.unrestricted()` | §Phase 1 | — | 0.5d | ✅ |
+| TASK-042 | Add runtime shell validation, build-time validation for static MCP commands only, and clear command-policy errors | §Phase 1 | TASK-040, TASK-041 | 0.5d | ✅ |
+| TASK-043 | Add/update migration tests and migration guide entries for secure-default changes, including direct `McpStepConfig()` users | §Phase 1 | TASK-040, TASK-041 | 0.5d | ✅ |
 
 ## Phase 2 — Prompt Injection Defense Framework
 
@@ -73,7 +73,7 @@ Estimated effort: 1-1.5 days
 
 | Phase | Status | Tasks |
 |-------|--------|-------|
-| Phase 1 — Secure Defaults | ⬜ Not started | 4 |
+| Phase 1 — Secure Defaults | ✅ Done | 4 |
 | Phase 2 — Prompt Injection Defense | ✅ Done | 8 |
 | Phase 3 — Security Event Observability | ✅ Done | 4 |
 | **Total** | | **16** |
