@@ -60,13 +60,13 @@ Estimated effort: 2-3 days
 
 | ID | Task | Spec § | Deps | Effort | Status |
 |----|------|--------|------|--------|--------|
-| TASK-072 | Extend `tramai-core` `Message` model with `ContentPart` sealed interface (`TextPart`, `ImagePart`) — backward-compatible | §Vision Content | — | 0.5d | ⬜ |
-| TASK-073 | Update OpenAI provider to handle `ImagePart` → content-array with data URIs | §Vision Content | TASK-072 | 0.5d | ⬜ |
-| TASK-074 | Update Anthropic provider to handle `ImagePart` → content-block with base64 media | §Vision Content | TASK-072 | 0.5d | ⬜ |
-| TASK-075 | Implement `GeminiProvider` with text completions, streaming, structured output, tool calling | §Gemini Provider | — | 1.5d | ⬜ |
-| TASK-076 | Implement Gemini API error mapping (429, 400, 403 → Tramai exceptions) and finish reason mapping | §Gemini Provider | TASK-075 | 0.5d | ⬜ |
-| TASK-077 | Implement Gemini vision support (`ImagePart` → `inlineData` parts) | §Vision/Gemini | TASK-072, TASK-075 | 0.5d | ⬜ |
-| TASK-078 | Add Gemini provider tests: completion, streaming, structured output, tool calling, error mapping, vision | §Gemini AC 14-24 | TASK-075-077 | 1.0d | ⬜ |
+| TASK-072 | Extend `tramai-core` `Message` model with `ContentPart` sealed interface (`TextPart`, `ImagePart`) — backward-compatible | §Vision Content | — | 0.5d | ✅ |
+| TASK-073 | Update OpenAI provider to handle `ImagePart` → content-array with data URIs | §Vision Content | TASK-072 | 0.5d | ✅ |
+| TASK-074 | Update Anthropic provider to handle `ImagePart` → content-block with base64 media | §Vision Content | TASK-072 | 0.5d | ✅ |
+| TASK-075 | Implement `GeminiProvider` with text completions, streaming, structured output, tool calling | §Gemini Provider | — | 1.5d | ✅ |
+| TASK-076 | Implement Gemini API error mapping (429, 400, 403 → Tramai exceptions) and finish reason mapping | §Gemini Provider | TASK-075 | 0.5d | ✅ |
+| TASK-077 | Implement Gemini vision support (`ImagePart` → `inlineData` parts) | §Vision/Gemini | TASK-072, TASK-075 | 0.5d | ✅ |
+| TASK-078 | Add Gemini provider tests: completion, streaming, structured output, tool calling, error mapping, vision | §Gemini AC 14-24 | TASK-075-077 | 1.0d | ✅ |
 
 ---
 
@@ -76,5 +76,5 @@ Estimated effort: 2-3 days
 |-------|--------|-------|
 | Phase 1 — Foundation SPIs | ✅ Done | 10 |
 | Phase 2 — RAG Pipeline | ✅ Done | 6 |
-| Phase 3 — Gemini + Vision | ⬜ Not started | 7 |
+| Phase 3 — Gemini + Vision | ✅ Done | 7 |
 | **Total** | | **23** |

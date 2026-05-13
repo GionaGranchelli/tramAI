@@ -4,15 +4,22 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.FinishReason
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.model.StreamChunk
+import dev.tramai.core.model.ToolCall
+import dev.tramai.core.model.UsageMetrics
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.provider.applyTramaiTimeout
 import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
 import dev.tramai.core.provider.providerTransportFailure
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import java.net.URI
 import java.net.http.HttpClient
@@ -21,6 +28,7 @@ import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.Base64
 
 /**
  * Source for bearer tokens used by OpenAI-compatible providers.
@@ -90,33 +98,14 @@ open class OpenAiCompatibleProvider(
     private val objectMapper: ObjectMapper = ObjectMapper(),
     private val organization: String? = null,
     private val project: String? = null,
-) : dev.tramai.core.provider.ModelProvider, dev.tramai.core.provider.StreamCapable {
+) : ModelProvider, StreamCapable {
 
     override suspend fun complete(request: ModelRequest): ModelResponse = withContext(Dispatchers.IO) {
         try {
             val payload = linkedMapOf<String, Any?>(
                 "model" to request.model,
                 "stream" to false,
-                "messages" to request.messages.map { message ->
-                    val msgMap = mutableMapOf<String, Any?>(
-                        "role" to message.role.name.lowercase(),
-                        "content" to message.content,
-                    )
-                    message.toolCallId?.let { msgMap["tool_call_id"] = it }
-                    message.toolCalls?.let { toolCalls ->
-                        msgMap["tool_calls"] = toolCalls.map { tc ->
-                            mapOf(
-                                "id" to tc.id,
-                                "type" to "function",
-                                "function" to mapOf(
-                                    "name" to tc.name,
-                                    "arguments" to tc.argumentsJson
-                                )
-                            )
-                        }
-                    }
-                    msgMap
-                },
+                "messages" to request.messages.map { message -> messageToMap(message) },
             )
 
             request.tools?.let { tools ->
@@ -169,7 +158,7 @@ open class OpenAiCompatibleProvider(
             val message = firstChoice.path("message")
 
             val toolCalls = message.path("tool_calls").takeIf { it.isArray }?.map { tc ->
-                dev.tramai.core.model.ToolCall(
+                ToolCall(
                     id = tc.path("id").asText(),
                     name = tc.path("function").path("name").asText(),
                     argumentsJson = tc.path("function").path("arguments").asText(),
@@ -197,18 +186,11 @@ open class OpenAiCompatibleProvider(
 
     override fun providerId(): String = providerName
 
-    override suspend fun stream(request: ModelRequest): kotlinx.coroutines.flow.Flow<dev.tramai.core.model.StreamChunk> = kotlinx.coroutines.flow.flow {
+    override suspend fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
         val payload = linkedMapOf<String, Any?>(
             "model" to request.model,
             "stream" to true,
-            "messages" to request.messages.map { message ->
-                val msgMap = mutableMapOf<String, Any?>(
-                    "role" to message.role.name.lowercase(),
-                    "content" to message.content,
-                )
-                message.toolCallId?.let { msgMap["tool_call_id"] = it }
-                msgMap
-            },
+            "messages" to request.messages.map { message -> messageToMap(message) },
         )
 
         request.maxTokens?.let { payload["max_tokens"] = it }
@@ -239,7 +221,7 @@ open class OpenAiCompatibleProvider(
                 body = errorBody,
             )
             emit(
-                dev.tramai.core.model.StreamChunk.Error(
+                StreamChunk.Error(
                     providerHttpFailure(
                         providerName = providerName,
                         statusCode = response.statusCode(),
@@ -252,7 +234,7 @@ open class OpenAiCompatibleProvider(
         }
 
         val fullText = StringBuilder()
-        var lastUsage: dev.tramai.core.model.UsageMetrics? = null
+        var lastUsage: UsageMetrics? = null
 
         try {
             response.body().use { lines ->
@@ -266,12 +248,12 @@ open class OpenAiCompatibleProvider(
                         val content = delta?.path("content")?.asText("") ?: ""
                         if (content.isNotEmpty()) {
                             fullText.append(content)
-                            emit(dev.tramai.core.model.StreamChunk.Token(content))
+                            emit(StreamChunk.Token(content))
                         }
 
                         val usage = chunk.path("usage")
                         if (!usage.isMissingNode) {
-                            lastUsage = dev.tramai.core.model.UsageMetrics(
+                            lastUsage = UsageMetrics(
                                 inputTokens = usage.path("prompt_tokens").asInt(),
                                 outputTokens = usage.path("completion_tokens").asInt(),
                             )
@@ -279,9 +261,9 @@ open class OpenAiCompatibleProvider(
                     }
                 }
             }
-            emit(dev.tramai.core.model.StreamChunk.Complete(fullText.toString(), lastUsage ?: dev.tramai.core.model.UsageMetrics()))
+            emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
         } catch (e: Exception) {
-            emit(dev.tramai.core.model.StreamChunk.Error(providerTransportFailure(providerName, e)))
+            emit(StreamChunk.Error(providerTransportFailure(providerName, e)))
         }
     }
 
@@ -303,8 +285,62 @@ open class OpenAiCompatibleProvider(
         return contentNode.path("text").asText("")
     }
 
+    /**
+     * Converts a Tramai [Message] to an OpenAI-compatible request map.
+     *
+     * When the message carries [ContentPart.ImagePart] items, the content is
+     * serialised as a JSON content-array; otherwise a plain string is used.
+     */
+    private fun messageToMap(message: dev.tramai.core.model.Message): Map<String, Any?> {
+        val msgMap = mutableMapOf<String, Any?>(
+            "role" to message.role.name.lowercase(),
+        )
+
+        val msgParts = message.contentParts
+        if (msgParts != null && msgParts.isNotEmpty()) {
+            msgMap["content"] = msgParts.map { part ->
+                when (part) {
+                    is ContentPart.TextPart -> mapOf(
+                        "type" to "text",
+                        "text" to part.text,
+                    )
+                    is ContentPart.ImagePart -> {
+                        require(part.mimeType in SUPPORTED_IMAGE_TYPES) {
+                            "Unsupported image mimeType '${part.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
+                        }
+                        mapOf(
+                            "type" to "image_url",
+                            "image_url" to mapOf(
+                                "url" to "data:${part.mimeType};base64,${Base64.getEncoder().encodeToString(part.data)}",
+                            ),
+                        )
+                    }
+                }
+            }
+        } else {
+            msgMap["content"] = message.content
+        }
+
+        message.toolCallId?.let { msgMap["tool_call_id"] = it }
+        message.toolCalls?.let { toolCalls ->
+            msgMap["tool_calls"] = toolCalls.map { tc ->
+                mapOf(
+                    "id" to tc.id,
+                    "type" to "function",
+                    "function" to mapOf(
+                        "name" to tc.name,
+                        "arguments" to tc.argumentsJson,
+                    ),
+                )
+            }
+        }
+        return msgMap
+    }
+
     companion object {
         private val providerLogger: System.Logger = System.getLogger(OpenAiCompatibleProvider::class.java.name)
+
+        val SUPPORTED_IMAGE_TYPES: Set<String> = setOf("image/png", "image/jpeg", "image/gif", "image/webp")
 
         /**
          * Creates an OpenAI-compatible provider backed by a static bearer token.

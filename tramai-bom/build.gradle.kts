@@ -13,6 +13,7 @@ dependencies {
         api(project(":tramai-engine"))
         api(project(":tramai-structured"))
         api(project(":tramai-anthropic"))
+        api(project(":tramai-gemini"))
         api(project(":tramai-openai"))
         api(project(":tramai-ollama"))
         api(project(":tramai-observability"))

@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
@@ -12,6 +13,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import java.net.InetSocketAddress
 import java.nio.file.Files
+import java.util.Base64
 import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -234,6 +236,63 @@ class OpenAiProviderTest {
         assertThatThrownBy { CodexAuthFileTokenSource(authFile).accessToken() }
             .isInstanceOf(ConfigurationException::class.java)
             .hasMessageContaining("ChatGPT authentication")
+    }
+
+    @Test
+    fun `converts image parts to openai content array format`() {
+        val imageData = byteArrayOf(0x89.toByte(), 0x50.toByte(), 0x4E.toByte(), 0x47.toByte(), 0x0D.toByte(), 0x0A.toByte(), 0x1A.toByte(), 0x0A.toByte())
+        val provider = OpenAiProvider(
+            apiKey = "test-key",
+            baseUrl = "http://localhost:${server.address.port}/v1",
+        )
+
+        runBlocking {
+            provider.complete(
+                ModelRequest(
+                    model = "gpt-4o",
+                    messages = listOf(
+                        Message(
+                            role = MessageRole.USER,
+                            content = "",
+                            contentParts = listOf(
+                                ContentPart.TextPart("What's in this image?"),
+                                ContentPart.ImagePart(
+                                    mimeType = "image/png",
+                                    data = imageData,
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        assertThat(capturedBody).contains("\"type\":\"image_url\"")
+        assertThat(capturedBody).contains("\"type\":\"text\"")
+        assertThat(capturedBody).contains("data:image/png;base64,")
+        assertThat(capturedBody).contains(Base64.getEncoder().encodeToString(imageData))
+    }
+
+    @Test
+    fun `keeps plain string content when no parts are present`() {
+        val provider = OpenAiProvider(
+            apiKey = "test-key",
+            baseUrl = "http://localhost:${server.address.port}/v1",
+        )
+
+        runBlocking {
+            provider.complete(
+                ModelRequest(
+                    model = "gpt-4o",
+                    messages = listOf(
+                        Message(MessageRole.USER, "say hello"),
+                    ),
+                ),
+            )
+        }
+
+        assertThat(capturedBody).contains("\"content\":\"say hello\"")
+        assertThat(capturedBody).doesNotContain("\"content\":[")
     }
 
     private fun respond(

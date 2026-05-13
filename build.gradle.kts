@@ -33,6 +33,7 @@ val publishableProjectNames = listOf(
     "tramai-core",
     "tramai-embedding",
     "tramai-engine",
+    "tramai-gemini",
     "tramai-observability",
     "tramai-ollama",
     "tramai-openai",
@@ -187,6 +188,7 @@ fun projectDescription(projectName: String): String = when (projectName) {
     "tramai-engine" -> "Runtime engine that turns annotated Tramai service interfaces into executable proxies."
     "tramai-structured" -> "Structured output schema generation, parsing, and validation support for Tramai."
     "tramai-anthropic" -> "Anthropic provider integration for Tramai."
+    "tramai-gemini" -> "Google Gemini provider integration for Tramai."
     "tramai-openai" -> "OpenAI and OpenAI-compatible provider integrations for Tramai."
     "tramai-ollama" -> "Ollama provider integration for Tramai."
     "tramai-observability" -> "OpenTelemetry-based observability hooks for Tramai."

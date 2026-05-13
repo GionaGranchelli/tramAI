@@ -1,0 +1,351 @@
+package dev.tramai.gemini
+
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.ObjectMapper
+import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.model.ContentPart
+import dev.tramai.core.model.FinishReason
+import dev.tramai.core.model.MessageRole
+import dev.tramai.core.model.ModelRequest
+import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.model.StreamChunk
+import dev.tramai.core.model.ToolCall
+import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.provider.StreamCapable
+import dev.tramai.core.provider.applyTramaiTimeout
+import dev.tramai.core.provider.logProviderHttpFailureDebug
+import dev.tramai.core.provider.providerHttpFailure
+import dev.tramai.core.provider.providerTransportFailure
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withContext
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.util.Base64
+
+/**
+ * [ModelProvider] implementation for Google Gemini API.
+ *
+ * Maps Tramai concepts to the Gemini `generateContent` / `streamGenerateContent` endpoints.
+ *
+ * | Tramai Concept         | Gemini API Equivalent                                      |
+ * |------------------------|------------------------------------------------------------|
+ * | ModelRequest.model     | models/{model}:generateContent                             |
+ * | SYSTEM message         | system_instruction field                                   |
+ * | USER message           | contents[{role: "user"}]                                   |
+ * | ASSISTANT message      | contents[{role: "model"}]                                  |
+ * | TOOL message           | contents[{role: "function"}]                               |
+ * | ToolDefinition         | tools[{function_declarations[...]}]                        |
+ * | Structured output      | generationConfig.responseMimeType + responseSchema         |
+ * | Streaming              | streamGenerateContent                                      |
+ * | ImagePart              | inlineData { mimeType, data } within content parts         |
+ */
+class GeminiProvider(
+    private val apiKey: String,
+    private val baseUrl: String = DEFAULT_BASE_URL,
+    private val httpClient: HttpClient = HttpClient.newHttpClient(),
+    private val objectMapper: ObjectMapper = ObjectMapper(),
+    /** Optional JSON schema string for structured output (responseSchema). */
+    private val responseSchema: String? = null,
+    /** Gemini API version to use, e.g. "v1" or "v1beta". */
+    private val apiVersion: String = DEFAULT_API_VERSION,
+) : ModelProvider, StreamCapable {
+
+    override fun providerId(): String = "gemini"
+
+    override suspend fun complete(request: ModelRequest): ModelResponse = withContext(Dispatchers.IO) {
+        try {
+            val modelName = request.model.takeIf { it.isNotBlank() } ?: DEFAULT_MODEL
+            val url = "${baseUrl.trimEnd('/')}/$apiVersion/models/$modelName:generateContent"
+            val payload = buildPayload(request)
+            val httpRequest = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Content-Type", "application/json")
+                .header("X-Goog-Api-Key", apiKey)
+                .applyTramaiTimeout(request)
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                .build()
+
+            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+            if (response.statusCode() !in 200..299) {
+                logProviderHttpFailureDebug(
+                    logger = providerLogger,
+                    providerName = "Gemini",
+                    statusCode = response.statusCode(),
+                    body = response.body(),
+                )
+                throw providerHttpFailure(
+                    providerName = "Gemini",
+                    statusCode = response.statusCode(),
+                    body = response.body(),
+                    retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                )
+            }
+
+            val body = objectMapper.readTree(response.body())
+            mapResponse(body)
+        } catch (error: Throwable) {
+            throw providerTransportFailure("Gemini", error)
+        }
+    }
+
+    override suspend fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
+        val modelName = request.model.takeIf { it.isNotBlank() } ?: DEFAULT_MODEL
+        val url = "${baseUrl.trimEnd('/')}/$apiVersion/models/$modelName:streamGenerateContent?alt=sse"
+        val payload = buildPayload(request)
+
+        val httpRequest = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .header("Content-Type", "application/json")
+            .header("X-Goog-Api-Key", apiKey)
+            .applyTramaiTimeout(request)
+            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+            .build()
+
+        val response = withContext(Dispatchers.IO) {
+            httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines())
+        }
+
+        if (response.statusCode() !in 200..299) {
+            val errorBody = response.body().toArray().joinToString("\n")
+            logProviderHttpFailureDebug(
+                logger = providerLogger,
+                providerName = "Gemini",
+                statusCode = response.statusCode(),
+                body = errorBody,
+            )
+            emit(
+                StreamChunk.Error(
+                    providerHttpFailure(
+                        providerName = "Gemini",
+                        statusCode = response.statusCode(),
+                        body = errorBody,
+                        retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    ),
+                ),
+            )
+            return@flow
+        }
+
+        val fullText = StringBuilder()
+        var lastUsage: dev.tramai.core.model.UsageMetrics? = null
+
+        try {
+            response.body().use { lines ->
+                for (line in lines) {
+                    // Gemini SSE format: "data: {...}"
+                    if (line.startsWith("data: ")) {
+                        val data = line.substring(6).trim()
+                        if (data.isEmpty() || data == "[DONE]") continue
+
+                        val chunk = objectMapper.readTree(data)
+                        val candidates = chunk.path("candidates")
+                        if (candidates.isArray && candidates.size() > 0) {
+                            val content = candidates[0].path("content")
+                            val parts = content.path("parts")
+                            if (parts.isArray) {
+                                for (part in parts) {
+                                    val text = part.path("text").asText("")
+                                    if (text.isNotEmpty()) {
+                                        fullText.append(text)
+                                        emit(StreamChunk.Token(text))
+                                    }
+                                }
+                            }
+                        }
+
+                        val usageMetadata = chunk.path("usageMetadata")
+                        if (!usageMetadata.isMissingNode) {
+                            lastUsage = dev.tramai.core.model.UsageMetrics(
+                                inputTokens = usageMetadata.path("promptTokenCount").takeIf { !it.isMissingNode }?.asInt(),
+                                outputTokens = usageMetadata.path("candidatesTokenCount").takeIf { !it.isMissingNode }?.asInt(),
+                            )
+                        }
+                    }
+                }
+            }
+            emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: dev.tramai.core.model.UsageMetrics()))
+        } catch (e: Exception) {
+            emit(StreamChunk.Error(providerTransportFailure("Gemini", e)))
+        }
+    }
+
+    // ---- Payload construction ----
+
+    private fun buildPayload(request: ModelRequest): Map<String, Any?> {
+        val payload = linkedMapOf<String, Any?>()
+
+        // Map messages to Gemini contents array
+        val contents = request.messages
+            .filter { it.role.name.lowercase() != "system" }
+            .map { message ->
+                val role = when (message.role.name.lowercase()) {
+                    "assistant" -> "model"
+                    "tool" -> "function"
+                    else -> "user"
+                }
+                mapOf(
+                    "role" to role,
+                    "parts" to buildContentParts(message),
+                )
+            }
+
+        if (contents.isNotEmpty()) {
+            payload["contents"] = contents
+        }
+
+        // System instruction
+        val systemMessage = request.messages.firstOrNull { it.role.name.lowercase() == "system" }?.content
+        if (!systemMessage.isNullOrBlank()) {
+            payload["system_instruction"] = mapOf(
+                "parts" to listOf(mapOf("text" to systemMessage)),
+            )
+        }
+
+        // Tool definitions — wrap all in a single function_declarations array
+        request.tools?.let { tools ->
+            payload["tools"] = listOf(
+                mapOf(
+                    "function_declarations" to tools.map { tool ->
+                        mapOf(
+                            "name" to tool.name,
+                            "description" to tool.description,
+                            "parameters" to objectMapper.readTree(tool.inputSchemaJson),
+                        )
+                    },
+                ),
+            )
+        }
+
+        // Generation configuration
+        val generationConfig = linkedMapOf<String, Any?>()
+        request.maxTokens?.let { generationConfig["maxOutputTokens"] = it }
+        request.temperature?.let { generationConfig["temperature"] = it }
+        val schema = responseSchema
+        if (schema != null) {
+            generationConfig["responseMimeType"] = "application/json"
+            generationConfig["responseSchema"] = objectMapper.readTree(schema)
+        }
+
+        if (generationConfig.isNotEmpty()) {
+            payload["generationConfig"] = generationConfig
+        }
+
+        return payload
+    }
+
+    private fun buildContentParts(message: dev.tramai.core.model.Message): List<Any> {
+        // Tool (function) responses use Gemini's functionResponse format
+        if (message.role == MessageRole.TOOL) {
+            val name = message.toolCallId ?: "unknown_function"
+            return listOf(
+                mapOf(
+                    "functionResponse" to mapOf(
+                        "name" to name,
+                        "response" to mapOf(
+                            "content" to message.content,
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        val msgParts = message.contentParts
+        if (msgParts.isNullOrEmpty()) {
+            // Fall back to plain text content
+            return listOf(mapOf("text" to message.content))
+        }
+
+        return msgParts.map { part ->
+            when (part) {
+                is ContentPart.TextPart -> mapOf("text" to part.text)
+                is ContentPart.ImagePart -> mapOf(
+                    "inlineData" to mapOf(
+                        "mimeType" to part.mimeType,
+                        "data" to Base64.getEncoder().encodeToString(part.data),
+                    ),
+                )
+            }
+        }
+    }
+
+    // ---- Response mapping ----
+
+    private fun mapResponse(body: JsonNode): ModelResponse {
+        val candidate = body.path("candidates").firstOrNull()
+            ?: throw ProviderException("Gemini response did not contain any candidates")
+
+        val content = candidate.path("content")
+        val parts = content.path("parts")
+
+        val text = if (parts.isArray) {
+            parts.mapNotNull { it.path("text").asText("").takeIf { t -> t.isNotEmpty() } }
+                .joinToString("")
+        } else {
+            ""
+        }
+
+        // Extract function calls if present
+        val toolCalls = if (parts.isArray) {
+            val calls = mutableListOf<ToolCall>()
+            var index = 0
+            for (part in parts) {
+                val fc = part.path("functionCall")
+                if (!fc.isMissingNode) {
+                    val name = fc.path("name").asText("")
+                    calls.add(
+                        ToolCall(
+                            id = "fc_${name}_$index",
+                            name = name,
+                            argumentsJson = objectMapper.writeValueAsString(fc.path("args")),
+                        ),
+                    )
+                    index++
+                } else {
+                    // Log warning for non-text, non-function-call response parts
+                    val partText = part.path("text").asText("")
+                    if (partText.isEmpty()) {
+                        providerLogger.log(
+                            System.Logger.Level.WARNING,
+                            "Gemini response contained a part that is neither text nor functionCall: ${part.toPrettyString()}"
+                        )
+                    }
+                }
+            }
+            calls.ifEmpty { null }
+        } else {
+            null
+        }
+
+        val finishReason = candidate.path("finishReason").asText("")
+        val usageMetadata = body.path("usageMetadata")
+
+        return ModelResponse(
+            content = text,
+            toolCalls = toolCalls,
+            inputTokens = usageMetadata.path("promptTokenCount").takeIf { !it.isMissingNode }?.asInt(),
+            outputTokens = usageMetadata.path("candidatesTokenCount").takeIf { !it.isMissingNode }?.asInt(),
+            modelUsed = body.path("model").takeIf { !it.isMissingNode }?.asText(),
+            finishReason = mapFinishReason(finishReason),
+        )
+    }
+
+    private fun mapFinishReason(reason: String): FinishReason = when (reason) {
+        "STOP" -> FinishReason.STOP
+        "MAX_TOKENS" -> FinishReason.LENGTH
+        "SAFETY" -> FinishReason.CONTENT_FILTER
+        "RECITATION" -> FinishReason.CONTENT_FILTER
+        else -> FinishReason.OTHER
+    }
+
+    companion object {
+        private val providerLogger: System.Logger = System.getLogger(GeminiProvider::class.java.name)
+
+        const val DEFAULT_BASE_URL: String = "https://generativelanguage.googleapis.com"
+        const val DEFAULT_MODEL: String = "gemini-2.0-flash"
+        const val DEFAULT_API_VERSION: String = "v1beta"
+    }
+}

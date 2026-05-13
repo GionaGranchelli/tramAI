@@ -2,6 +2,7 @@ package dev.tramai.anthropic
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.FinishReason
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
@@ -16,6 +17,7 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.util.Base64
 
 /**
  * [ModelProvider] implementation for Anthropic's Messages API.
@@ -36,12 +38,7 @@ class AnthropicProvider(
                 "messages" to request.messages
                     // Anthropic accepts the system prompt separately from the conversational message list.
                     .filter { it.role.name.lowercase() != "system" }
-                    .map { message ->
-                        mapOf(
-                            "role" to message.role.name.lowercase(),
-                            "content" to message.content,
-                        )
-                    },
+                    .map { message -> messageToMap(message) },
             )
 
             val systemMessage = request.messages.firstOrNull { it.role.name.lowercase() == "system" }?.content
@@ -107,12 +104,7 @@ class AnthropicProvider(
             "max_tokens" to (request.maxTokens ?: 1024),
             "messages" to request.messages
                 .filter { it.role.name.lowercase() != "system" }
-                .map { message ->
-                    mapOf(
-                        "role" to message.role.name.lowercase(),
-                        "content" to message.content,
-                    )
-                },
+                .map { message -> messageToMap(message) },
         )
 
         val systemMessage = request.messages.firstOrNull { it.role.name.lowercase() == "system" }?.content
@@ -203,7 +195,49 @@ class AnthropicProvider(
         }
     }
 
+    /**
+     * Converts a Tramai [Message] to an Anthropic-compatible request map.
+     *
+     * When the message carries [ContentPart.ImagePart] items, the content is
+     * serialised as Anthropic content blocks; otherwise a plain string is used.
+     */
+    private fun messageToMap(message: dev.tramai.core.model.Message): Map<String, Any?> {
+        val msgParts = message.contentParts
+        val content: Any = if (msgParts != null && msgParts.isNotEmpty()) {
+            msgParts.map { part ->
+                when (part) {
+                    is ContentPart.TextPart -> mapOf(
+                        "type" to "text",
+                        "text" to part.text,
+                    )
+                    is ContentPart.ImagePart -> {
+                        require(part.mimeType in SUPPORTED_IMAGE_TYPES) {
+                            "Unsupported image mimeType '${part.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
+                        }
+                        mapOf(
+                            "type" to "image",
+                            "source" to mapOf(
+                                "type" to "base64",
+                                "media_type" to part.mimeType,
+                                "data" to Base64.getEncoder().encodeToString(part.data),
+                            ),
+                        )
+                    }
+                }
+            }
+        } else {
+            message.content
+        }
+
+        return mapOf(
+            "role" to message.role.name.lowercase(),
+            "content" to content,
+        )
+    }
+
     private companion object {
         private val providerLogger: System.Logger = System.getLogger(AnthropicProvider::class.java.name)
+
+        val SUPPORTED_IMAGE_TYPES: Set<String> = setOf("image/png", "image/jpeg", "image/gif", "image/webp")
     }
 }

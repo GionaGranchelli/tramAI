@@ -2,6 +2,7 @@ package dev.tramai.ollama
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.FinishReason
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
@@ -19,6 +20,7 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.util.Base64
 
 /**
  * [ModelProvider] implementation for Ollama's chat API.
@@ -34,12 +36,7 @@ class OllamaProvider(
             val payload = mapOf(
                 "model" to request.model,
                 "stream" to false,
-                "messages" to request.messages.map { message ->
-                    mapOf(
-                        "role" to message.role.name.lowercase(),
-                        "content" to message.content,
-                    )
-                },
+                "messages" to request.messages.map { message -> messageToMap(message) },
             )
 
             val httpRequest = HttpRequest.newBuilder()
@@ -97,12 +94,7 @@ class OllamaProvider(
         val payload = mapOf(
             "model" to request.model,
             "stream" to true,
-            "messages" to request.messages.map { message ->
-                mapOf(
-                    "role" to message.role.name.lowercase(),
-                    "content" to message.content,
-                )
-            },
+            "messages" to request.messages.map { message -> messageToMap(message) },
         )
 
         val httpRequest = HttpRequest.newBuilder()
@@ -144,7 +136,7 @@ class OllamaProvider(
             response.body().use { lines ->
                 for (line in lines) {
                     if (line.isBlank()) continue
-                    
+
                     val node = objectMapper.readTree(line)
                     val content = node.path("message").path("content").asText("")
                     if (content.isNotEmpty()) {
@@ -165,6 +157,42 @@ class OllamaProvider(
         } catch (e: Exception) {
             emit(dev.tramai.core.model.StreamChunk.Error(providerTransportFailure("Ollama", e)))
         }
+    }
+
+    /**
+     * Converts a Tramai [Message] to an Ollama-compatible request map.
+     *
+     * When the message carries [ContentPart.ImagePart] items, the image data is
+     * included as base64-encoded strings in the `images` field.
+     * Otherwise, the plain text [content] is used directly.
+     */
+    private fun messageToMap(message: dev.tramai.core.model.Message): Map<String, Any?> {
+        val msgMap = mutableMapOf<String, Any?>(
+            "role" to message.role.name.lowercase(),
+        )
+
+        val msgParts = message.contentParts
+        if (msgParts != null && msgParts.isNotEmpty()) {
+            // Extract text from parts for the content field
+            val textParts = msgParts.filterIsInstance<ContentPart.TextPart>()
+            msgMap["content"] = if (textParts.isNotEmpty()) {
+                textParts.joinToString("\n") { it.text }
+            } else {
+                ""
+            }
+
+            // Extract images as base64 strings for Ollama's images field
+            val imageParts = msgParts.filterIsInstance<ContentPart.ImagePart>()
+            if (imageParts.isNotEmpty()) {
+                msgMap["images"] = imageParts.map { part ->
+                    Base64.getEncoder().encodeToString(part.data)
+                }
+            }
+        } else {
+            msgMap["content"] = message.content
+        }
+
+        return msgMap
     }
 
     private companion object {

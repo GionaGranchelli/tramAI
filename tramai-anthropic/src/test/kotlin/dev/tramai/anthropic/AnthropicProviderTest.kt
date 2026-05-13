@@ -3,6 +3,7 @@ package dev.tramai.anthropic
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
@@ -10,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import java.net.InetSocketAddress
+import java.util.Base64
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -129,6 +131,62 @@ class AnthropicProviderTest {
         }
             .isInstanceOf(ProviderException::class.java)
             .hasMessageContaining("text content block")
+    }
+
+    @Test
+    fun `converts image parts to anthropic content block format`() {
+        val imageData = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte())
+        val provider = AnthropicProvider(
+            apiKey = "test-key",
+            baseUrl = "http://localhost:${server.address.port}",
+        )
+
+        runBlocking {
+            provider.complete(
+                ModelRequest(
+                    model = "claude-sonnet-4-20250514",
+                    messages = listOf(
+                        Message(
+                            role = MessageRole.USER,
+                            content = "",
+                            contentParts = listOf(
+                                ContentPart.TextPart("Describe this image"),
+                                ContentPart.ImagePart(
+                                    mimeType = "image/jpeg",
+                                    data = imageData,
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        assertThat(capturedBody).contains("\"type\":\"image\"")
+        assertThat(capturedBody).contains("\"type\":\"base64\"")
+        assertThat(capturedBody).contains("\"media_type\":\"image/jpeg\"")
+        assertThat(capturedBody).contains(Base64.getEncoder().encodeToString(imageData))
+    }
+
+    @Test
+    fun `keeps plain string content when no image parts are present`() {
+        val provider = AnthropicProvider(
+            apiKey = "test-key",
+            baseUrl = "http://localhost:${server.address.port}",
+        )
+
+        runBlocking {
+            provider.complete(
+                ModelRequest(
+                    model = "claude-sonnet-4-20250514",
+                    messages = listOf(
+                        Message(MessageRole.USER, "say hello"),
+                    ),
+                ),
+            )
+        }
+
+        assertThat(capturedBody).contains("\"content\":\"say hello\"")
     }
 
     private fun respond(
