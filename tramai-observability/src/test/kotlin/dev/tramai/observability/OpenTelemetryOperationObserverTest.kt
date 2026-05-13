@@ -115,7 +115,7 @@ class OpenTelemetryOperationObserverTest {
         val firstAttempt = spans.first()
         assertThat(firstAttempt.events).anySatisfy { event ->
             assertThat(event.name).isEqualTo("tramai.parse.failure")
-            assertThat(event.attributes.asMap().keys.map { it.key }).contains("tramai.raw_response", "tramai.validation_error")
+            assertThat(event.attributes.asMap().keys.map { it.key }).contains("tramai.raw_response_length", "tramai.validation_error")
         }
         assertThat(firstAttempt.attributes.asMap())
             .containsEntry(AttributeKey.booleanKey("tramai.structured.parse_success"), false)

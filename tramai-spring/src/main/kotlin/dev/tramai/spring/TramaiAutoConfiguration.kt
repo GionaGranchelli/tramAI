@@ -51,10 +51,16 @@ class TramaiAutoConfiguration {
         val builder = Tramai.builder()
         val interceptorChain = operationInterceptors.orderedStream().toList()
         val userSecretResolvers = secretResolvers.orderedStream().toList()
+        val fileSecretResolver = FileSecretValueResolver(
+            allowedDirectory = properties.secrets.file.allowedDirectory
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.let(Path::of),
+        )
         val bootstrapSecretResolver = CompositeSecretValueResolver(
             userSecretResolvers + listOf(
                 EnvironmentSecretValueResolver,
-                FileSecretValueResolver,
+                fileSecretResolver,
             ),
         )
         val builtInSecretResolvers = listOfNotNull(
@@ -64,7 +70,7 @@ class TramaiAutoConfiguration {
         val secretResolver = CompositeSecretValueResolver(
             userSecretResolvers + builtInSecretResolvers + listOf(
                 EnvironmentSecretValueResolver,
-                FileSecretValueResolver,
+                fileSecretResolver,
             ),
         )
 

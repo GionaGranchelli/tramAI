@@ -424,4 +424,15 @@ data class JdbcWorkflowLeaseTable(
     val checkpointRevisionColumn: String = "checkpoint_revision",
     val acquiredAtEpochMillisColumn: String = "acquired_at_epoch_millis",
     val expiresAtEpochMillisColumn: String = "expires_at_epoch_millis",
-)
+) {
+    init {
+        requireValidSqlIdentifier(tableName, "JdbcWorkflowLeaseTable.tableName")
+        requireValidSqlIdentifier(workflowNameColumn, "JdbcWorkflowLeaseTable.workflowNameColumn")
+        requireValidSqlIdentifier(workflowIdColumn, "JdbcWorkflowLeaseTable.workflowIdColumn")
+        requireValidSqlIdentifier(leaseIdColumn, "JdbcWorkflowLeaseTable.leaseIdColumn")
+        requireValidSqlIdentifier(ownerIdColumn, "JdbcWorkflowLeaseTable.ownerIdColumn")
+        requireValidSqlIdentifier(checkpointRevisionColumn, "JdbcWorkflowLeaseTable.checkpointRevisionColumn")
+        requireValidSqlIdentifier(acquiredAtEpochMillisColumn, "JdbcWorkflowLeaseTable.acquiredAtEpochMillisColumn")
+        requireValidSqlIdentifier(expiresAtEpochMillisColumn, "JdbcWorkflowLeaseTable.expiresAtEpochMillisColumn")
+    }
+}

@@ -7,6 +7,7 @@ import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.applyTramaiTimeout
+import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
 import dev.tramai.core.provider.providerTransportFailure
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +60,12 @@ class AnthropicProvider(
 
             val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
             if (response.statusCode() !in 200..299) {
+                logProviderHttpFailureDebug(
+                    logger = providerLogger,
+                    providerName = "Anthropic",
+                    statusCode = response.statusCode(),
+                    body = response.body(),
+                )
                 throw providerHttpFailure(
                     providerName = "Anthropic",
                     statusCode = response.statusCode(),
@@ -128,6 +135,12 @@ class AnthropicProvider(
 
         if (response.statusCode() !in 200..299) {
             val errorBody = response.body().toArray().joinToString("\n")
+            logProviderHttpFailureDebug(
+                logger = providerLogger,
+                providerName = "Anthropic",
+                statusCode = response.statusCode(),
+                body = errorBody,
+            )
             emit(
                 dev.tramai.core.model.StreamChunk.Error(
                     providerHttpFailure(
@@ -188,5 +201,9 @@ class AnthropicProvider(
         } catch (e: Exception) {
             emit(dev.tramai.core.model.StreamChunk.Error(providerTransportFailure("Anthropic", e)))
         }
+    }
+
+    private companion object {
+        private val providerLogger: System.Logger = System.getLogger(AnthropicProvider::class.java.name)
     }
 }

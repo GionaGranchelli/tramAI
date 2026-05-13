@@ -27,11 +27,23 @@ fun providerHttpFailure(
     body: String,
     retryAfterHeader: String? = null,
 ): ProviderException = ProviderException(
-    message = "$providerName returned HTTP $statusCode: $body",
+    message = "$providerName returned HTTP $statusCode: ${truncateProviderHttpBody(body)}",
     statusCode = statusCode,
     retryable = isRetryableStatus(statusCode),
     retryAfterMillis = parseRetryAfterMillis(retryAfterHeader),
 )
+
+fun logProviderHttpFailureDebug(
+    logger: System.Logger?,
+    providerName: String,
+    statusCode: Int,
+    body: String,
+) {
+    if (logger?.isLoggable(System.Logger.Level.DEBUG) != true) {
+        return
+    }
+    logger.log(System.Logger.Level.DEBUG, "$providerName returned HTTP $statusCode with body:\n$body")
+}
 
 /**
  * Creates a normalized provider failure for transport-layer errors.
@@ -64,6 +76,12 @@ fun providerTransportFailure(
 
 private fun isRetryableStatus(statusCode: Int): Boolean = statusCode in setOf(408, 425, 429, 500, 502, 503, 504)
 
+private fun truncateProviderHttpBody(body: String): String = if (body.length <= providerHttpBodyLimitChars) {
+    body
+} else {
+    body.take(providerHttpBodyLimitChars - 3) + "..."
+}
+
 private fun parseRetryAfterMillis(value: String?): Long? {
     val trimmed = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
     trimmed.toLongOrNull()?.let { seconds ->
@@ -76,3 +94,5 @@ private fun parseRetryAfterMillis(value: String?): Long? {
 
     return (retryAt.toEpochMilli() - System.currentTimeMillis()).coerceAtLeast(0L)
 }
+
+private const val providerHttpBodyLimitChars = 500

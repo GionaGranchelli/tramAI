@@ -267,16 +267,24 @@ internal data class HttpWorkflowStep<S>(
         val host = uri.host?.trim()?.takeIf { it.isNotEmpty() }
             ?: throw IllegalArgumentException("Workflow HTTP step '$name' requires a URL with a non-empty hostname")
         val normalizedHost = host.lowercase()
+        val resolvedAddresses = resolveHostAddresses(host)
         val allowedHosts = config.allowedHosts?.map { it.lowercase() }?.toSet()
-        when {
-            allowedHosts != null -> require(normalizedHost in allowedHosts) {
-                "Workflow HTTP step '$name' host '$host' is not in the allowlist"
-            }
+        val isExplicitlyAllowed = allowedHosts != null && normalizedHost in allowedHosts
 
-            normalizedHost == localhostHostName || isPrivateOrLinkLocalIpLiteral(normalizedHost) -> {
-                throw IllegalArgumentException(
-                    "Workflow HTTP step '$name' host '$host' is not a public address; configure allowedHosts to permit it",
-                )
+        // Reject hosts that resolve to loopback, private, link-local, or other
+        // restricted addresses regardless of the allowlist, to prevent SSRF
+        // attacks via DNS rebinding or attacker-controlled domains.
+        // Skip this check if the host is explicitly in the allowlist.
+        if (!isExplicitlyAllowed &&
+            (normalizedHost == localhostHostName || resolvedAddresses.any(::isPrivateOrRestrictedAddress))
+        ) {
+            throw IllegalArgumentException(
+                "Workflow HTTP step '$name' host '$host' is not a public address",
+            )
+        }
+        if (allowedHosts != null) {
+            require(normalizedHost in allowedHosts) {
+                "Workflow HTTP step '$name' host '$host' is not in the allowlist"
             }
         }
         return uri
@@ -331,38 +339,69 @@ private fun String.stripQueryParameters(): String {
     }.ifEmpty { substringBefore('?') }
 }
 
-private fun isPrivateOrLinkLocalIpLiteral(host: String): Boolean {
-    val address = host.toInetAddressLiteralOrNull() ?: return false
-    return address.isAnyLocalAddress ||
-        address.isLoopbackAddress ||
-        address.isLinkLocalAddress ||
-        address.isSiteLocalAddress ||
-        address.isCarrierGradeNatIpv4() ||
-        address.isUniqueLocalIpv6()
+private fun resolveHostAddresses(host: String): List<InetAddress> {
+    parseAlternativeIpv4Literal(host)?.let { return listOf(it) }
+    return InetAddress.getAllByName(host).distinctBy { it.hostAddress }
 }
-
-private fun String.toInetAddressLiteralOrNull(): InetAddress? = when {
-    isIpv4Literal() || isIpv6Literal() -> InetAddress.getByName(this)
-    else -> null
-}
-
-private fun String.isIpv4Literal(): Boolean {
-    val parts = split('.')
-    if (parts.size != 4) {
-        return false
-    }
-    return parts.all { part ->
-        part.isNotEmpty() &&
-            part.length <= 3 &&
-            part.all(Char::isDigit) &&
-            part.toIntOrNull()?.let { value -> value in 0..255 } == true
-    }
-}
-
-private fun String.isIpv6Literal(): Boolean = contains(':') && all { it.isDigit() || it.lowercaseChar() in 'a'..'f' || it == ':' || it == '%' }
 
 private fun jitteredDelayMillis(attempt: Int): Long =
     ((1_000L shl attempt) * (0.5 + ThreadLocalRandom.current().nextDouble() * 0.5)).toLong()
+
+private fun isPrivateOrRestrictedAddress(address: InetAddress): Boolean = address.isAnyLocalAddress ||
+    address.isLoopbackAddress ||
+    address.isLinkLocalAddress ||
+    address.isSiteLocalAddress ||
+    address.isCarrierGradeNatIpv4() ||
+    address.isUniqueLocalIpv6()
+
+private fun parseAlternativeIpv4Literal(host: String): InetAddress? {
+    if (host.contains(':')) {
+        return null
+    }
+    val components = host.split('.')
+    if (components.isEmpty() || components.size > 4) {
+        return null
+    }
+    val values = components.map { component -> parseIpv4Component(component) ?: return null }
+    val rawAddress = when (values.size) {
+        1 -> values.single().takeIf { it in 0L..0xffff_ffff }
+        2 -> values[0].takeIf { it in 0L..0xffL }?.let { first ->
+            values[1].takeIf { it in 0L..0x00ff_ffffL }?.let { second ->
+                (first shl 24) or second
+            }
+        }
+        3 -> values[0].takeIf { it in 0L..0xffL }?.let { first ->
+            values[1].takeIf { it in 0L..0xffL }?.let { second ->
+                values[2].takeIf { it in 0L..0xffffL }?.let { third ->
+                    (first shl 24) or (second shl 16) or third
+                }
+            }
+        }
+        4 -> values.takeIf { parts -> parts.all { it in 0L..0xffL } }?.let { parts ->
+            (parts[0] shl 24) or (parts[1] shl 16) or (parts[2] shl 8) or parts[3]
+        }
+        else -> null
+    } ?: return null
+    return InetAddress.getByAddress(
+        byteArrayOf(
+            ((rawAddress ushr 24) and 0xff).toByte(),
+            ((rawAddress ushr 16) and 0xff).toByte(),
+            ((rawAddress ushr 8) and 0xff).toByte(),
+            (rawAddress and 0xff).toByte(),
+        ),
+    )
+}
+
+private fun parseIpv4Component(component: String): Long? {
+    if (component.isEmpty()) {
+        return null
+    }
+    return when {
+        component.startsWith("0x", ignoreCase = true) -> component.substring(2).takeIf(String::isNotEmpty)?.toLongOrNull(16)
+        component.length > 1 && component.startsWith('0') -> component.toLongOrNull(8)
+        else -> component.toLongOrNull()
+    }
+}
 
 private fun InetAddress.isCarrierGradeNatIpv4(): Boolean {
     if (this !is Inet4Address) {

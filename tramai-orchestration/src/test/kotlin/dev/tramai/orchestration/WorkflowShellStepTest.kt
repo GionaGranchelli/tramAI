@@ -18,6 +18,7 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "echo",
                 config = ShellStepConfig(allowedCommands = setOf("echo")),
+                definition = ShellCommandDefinition(executable = "echo"),
                 command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -41,6 +42,7 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "capture",
                 config = ShellStepConfig(allowedCommands = setOf("sh")),
+                definition = ShellCommandDefinition(executable = "sh"),
                 command = { _, _ -> ShellCommand(command = listOf("sh", "-c", "echo ok; echo err >&2")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -59,6 +61,7 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "fail",
                 config = ShellStepConfig(allowedCommands = setOf("sh")),
+                definition = ShellCommandDefinition(executable = "sh"),
                 command = { _, _ -> ShellCommand(command = listOf("sh", "-c", "exit 3")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -79,6 +82,7 @@ class WorkflowShellStepTest {
                     failOnNonZeroExit = false,
                     allowedCommands = setOf("sh"),
                 ),
+                definition = ShellCommandDefinition(executable = "sh"),
                 command = { _, _ -> ShellCommand(command = listOf("sh", "-c", "echo warn >&2; exit 3")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -97,6 +101,7 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "sleep",
                 config = ShellStepConfig(timeoutSeconds = 1, allowedCommands = setOf("sleep")),
+                definition = ShellCommandDefinition(executable = "sleep"),
                 command = { _, _ -> ShellCommand(command = listOf("sleep", "10")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -124,6 +129,7 @@ class WorkflowShellStepTest {
                 shellStep(
                     name = "sleep",
                     config = ShellStepConfig(timeoutSeconds = 1, allowedCommands = setOf("sh")),
+                    definition = ShellCommandDefinition(executable = "sh"),
                     command = { _, _ ->
                         ShellCommand(
                             command = listOf(
@@ -165,6 +171,7 @@ class WorkflowShellStepTest {
                 shellStep(
                     name = "sleep",
                     config = ShellStepConfig(allowedCommands = setOf("sh")),
+                    definition = ShellCommandDefinition(executable = "sh"),
                     command = { _, _ ->
                         ShellCommand(
                             command = listOf(
@@ -204,6 +211,7 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "large-output",
                 config = ShellStepConfig(maxOutputBytes = 1_024, allowedCommands = setOf("sh")),
+                definition = ShellCommandDefinition(executable = "sh"),
                 command = { _, _ ->
                     ShellCommand(
                         command = listOf("sh", "-c", "head -c 102400 /dev/zero | tr '\\000' 'a'"),
@@ -234,7 +242,10 @@ class WorkflowShellStepTest {
                 shellStep(
                     name = "pwd",
                     config = ShellStepConfig(allowedCommands = setOf("pwd")),
-                    definition = ShellCommandDefinition(hasWorkdir = true),
+                    definition = ShellCommandDefinition(
+                        hasWorkdir = true,
+                        executable = "pwd",
+                    ),
                     command = { _, _ ->
                         ShellCommand(
                             command = listOf("pwd"),
@@ -259,7 +270,10 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "env",
                 config = ShellStepConfig(allowedCommands = setOf("sh")),
-                definition = ShellCommandDefinition(envKeys = setOf("MY_VAR")),
+                definition = ShellCommandDefinition(
+                    envKeys = setOf("MY_VAR"),
+                    executable = "sh",
+                ),
                 command = { _, _ ->
                     ShellCommand(
                         command = listOf("sh", "-c", "echo \$MY_VAR"),
@@ -283,6 +297,7 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "missing-command",
                 config = ShellStepConfig(allowedCommands = setOf(secretCommand)),
+                definition = ShellCommandDefinition(executable = secretCommand),
                 command = { _, _ -> ShellCommand(command = listOf(secretCommand)) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -318,6 +333,7 @@ class WorkflowShellStepTest {
                     allowedCommands = setOf("echo"),
                     deniedCommands = setOf("echo"),
                 ),
+                definition = ShellCommandDefinition(executable = "echo"),
                 command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -338,6 +354,7 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "echo",
                 config = ShellStepConfig(allowedCommands = setOf("pwd")),
+                definition = ShellCommandDefinition(executable = "echo"),
                 command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -356,7 +373,10 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "redacted",
                 config = ShellStepConfig(allowedCommands = setOf("sh")),
-                definition = ShellCommandDefinition(envKeys = setOf("MY_SECRET")),
+                definition = ShellCommandDefinition(
+                    envKeys = setOf("MY_SECRET"),
+                    executable = "sh",
+                ),
                 command = { _, _ ->
                     ShellCommand(
                         command = listOf(
@@ -399,6 +419,7 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "echo",
                 config = ShellStepConfig(allowedCommands = setOf("echo")),
+                definition = ShellCommandDefinition(executable = "echo"),
                 command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -428,6 +449,7 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "echo-many",
                 config = ShellStepConfig(allowedCommands = setOf("echo")),
+                definition = ShellCommandDefinition(executable = "echo"),
                 command = { _, _ -> ShellCommand(command = listOf("echo", "arg1", "arg2", "arg3")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -443,6 +465,8 @@ class WorkflowShellStepTest {
         val workflow = shellWorkflow("shell-default-deny-all") {
             shellStep(
                 name = "echo",
+                config = ShellStepConfig(),
+                definition = ShellCommandDefinition(executable = "echo"),
                 command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -460,6 +484,7 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "git-version",
                 config = ShellStepConfig(allowedCommands = setOf("git")),
+                definition = ShellCommandDefinition(executable = "git"),
                 command = { _, _ -> ShellCommand(command = listOf("git", "--version")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -477,6 +502,7 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "echo",
                 config = ShellStepConfig(allowedCommands = emptySet()),
+                definition = ShellCommandDefinition(executable = "echo"),
                 command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -493,6 +519,7 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "echo",
                 config = ShellStepConfig(),
+                definition = ShellCommandDefinition(executable = "echo"),
                 command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )
@@ -510,6 +537,7 @@ class WorkflowShellStepTest {
             shellStep(
                 name = "echo",
                 config = ShellStepConfig(allowedCommands = setOf("echo")),
+                definition = ShellCommandDefinition(executable = "echo"),
                 command = { _, _ -> ShellCommand(command = listOf("echo", "migration-ok")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )

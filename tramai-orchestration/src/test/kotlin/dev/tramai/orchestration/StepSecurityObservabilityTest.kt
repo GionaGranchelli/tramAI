@@ -145,6 +145,7 @@ class StepSecurityObservabilityTest {
             shellStep(
                 name = "echo",
                 config = ShellStepConfig(allowedCommands = setOf("pwd")),
+                definition = ShellCommandDefinition(executable = "echo"),
                 command = { _, _ -> ShellCommand(command = listOf("echo", "hello")) },
                 merge = { state, result, _ -> state.copy(result = result) },
             )

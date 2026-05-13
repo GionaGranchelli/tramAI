@@ -1,6 +1,7 @@
 package dev.tramai.core.secret
 
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 
 /**
@@ -27,11 +28,26 @@ object EnvironmentSecretValueResolver : SecretValueResolver {
 /**
  * Resolves secrets from local files using the "file:" prefix.
  */
-object FileSecretValueResolver : SecretValueResolver {
+class FileSecretValueResolver(
+    private val allowedDirectory: Path? = null,
+) : SecretValueResolver {
     override fun resolve(secretRef: String): String? {
         val pathText = secretRef.removePrefix("file:").takeIf { secretRef.startsWith("file:") && it.isNotBlank() } ?: return null
-        val path = Path.of(pathText)
-        return if (Files.exists(path)) Files.readString(path).trim() else null
+        val allowedBase = allowedDirectory?.normalizedRealPath()
+            ?: throw IllegalStateException(
+                "file: secret resolution is disabled; configure an allowed directory or use env: prefix",
+            )
+        val requestedPath = Path.of(pathText)
+        val candidatePath = if (requestedPath.isAbsolute) {
+            requestedPath.toAbsolutePath().normalize()
+        } else {
+            allowedBase.resolve(requestedPath).normalize()
+        }
+        val resolvedPath = candidatePath.normalizedRealPath()
+        require(resolvedPath.startsWith(allowedBase)) {
+            "file: secret path '$resolvedPath' is outside the allowed directory '$allowedBase'"
+        }
+        return if (Files.exists(resolvedPath)) Files.readString(resolvedPath).trim() else null
     }
 }
 
@@ -44,4 +60,10 @@ class CompositeSecretValueResolver(
     override fun resolve(secretRef: String): String? = resolvers.firstNotNullOfOrNull { resolver ->
         resolver.resolve(secretRef)?.takeIf { it.isNotBlank() }
     }
+}
+
+private fun Path.normalizedRealPath(): Path = if (Files.exists(this, LinkOption.NOFOLLOW_LINKS)) {
+    toRealPath()
+} else {
+    toAbsolutePath().normalize()
 }

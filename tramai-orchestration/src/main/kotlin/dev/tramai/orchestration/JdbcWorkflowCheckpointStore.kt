@@ -275,7 +275,20 @@ data class JdbcWorkflowCheckpointTable(
     val revisionColumn: String = "revision",
     val metadataColumn: String = "metadata_payload",
     val savedAtEpochMillisColumn: String = "saved_at_epoch_millis",
-)
+) {
+    init {
+        requireValidSqlIdentifier(tableName, "JdbcWorkflowCheckpointTable.tableName")
+        requireValidSqlIdentifier(workflowNameColumn, "JdbcWorkflowCheckpointTable.workflowNameColumn")
+        requireValidSqlIdentifier(workflowIdColumn, "JdbcWorkflowCheckpointTable.workflowIdColumn")
+        requireValidSqlIdentifier(nextStepIndexColumn, "JdbcWorkflowCheckpointTable.nextStepIndexColumn")
+        requireValidSqlIdentifier(stepExecutionsColumn, "JdbcWorkflowCheckpointTable.stepExecutionsColumn")
+        requireValidSqlIdentifier(lastCompletedStepNameColumn, "JdbcWorkflowCheckpointTable.lastCompletedStepNameColumn")
+        requireValidSqlIdentifier(statePayloadColumn, "JdbcWorkflowCheckpointTable.statePayloadColumn")
+        requireValidSqlIdentifier(revisionColumn, "JdbcWorkflowCheckpointTable.revisionColumn")
+        requireValidSqlIdentifier(metadataColumn, "JdbcWorkflowCheckpointTable.metadataColumn")
+        requireValidSqlIdentifier(savedAtEpochMillisColumn, "JdbcWorkflowCheckpointTable.savedAtEpochMillisColumn")
+    }
+}
 internal fun encodeMetadata(metadata: Map<String, String>): String {
     val properties = Properties()
     metadata.forEach { (key, value) ->
@@ -296,3 +309,14 @@ internal fun decodeMetadata(payload: String?): Map<String, String> {
         base64Decode(encodedKey) to base64Decode(properties.getProperty(encodedKey))
     }
 }
+
+internal fun requireValidSqlIdentifier(
+    identifier: String,
+    label: String,
+) {
+    require(sqlIdentifierPattern.matches(identifier)) {
+        "$label must match ^[A-Za-z][A-Za-z0-9_]*$"
+    }
+}
+
+private val sqlIdentifierPattern = Regex("^[A-Za-z][A-Za-z0-9_]*$")

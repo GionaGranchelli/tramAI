@@ -33,6 +33,7 @@ import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.ResolvedProviderRoute
 import dev.tramai.core.provider.StreamCapable
+import dev.tramai.core.security.PromptSanitizer
 import dev.tramai.core.structured.StructuredOutputHandler
 import dev.tramai.core.structured.StructuredOutputResult
 import kotlinx.coroutines.CancellationException
@@ -71,6 +72,7 @@ class TramaiEngine(
     private val circuitBreakerSettings: CircuitBreakerSettings = CircuitBreakerSettings(),
     private val retryPolicySettings: RetryPolicySettings = RetryPolicySettings(),
     private val tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings(),
+    private val promptSanitizer: PromptSanitizer? = null,
     private val job: Job = SupervisorJob(),
     private val scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
 ) : AutoCloseable {
@@ -90,6 +92,7 @@ class TramaiEngine(
         circuitBreakerSettings: CircuitBreakerSettings = CircuitBreakerSettings(),
         retryPolicySettings: RetryPolicySettings = RetryPolicySettings(),
         tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings(),
+        promptSanitizer: PromptSanitizer? = null,
         job: Job = SupervisorJob(),
         scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
     ) : this(
@@ -102,6 +105,7 @@ class TramaiEngine(
         circuitBreakerSettings = circuitBreakerSettings,
         retryPolicySettings = retryPolicySettings,
         tokenBudgetSettings = tokenBudgetSettings,
+        promptSanitizer = promptSanitizer,
         job = job,
         scope = scope,
     )
@@ -110,7 +114,11 @@ class TramaiEngine(
      * Creates a proxy implementation for the given Tramai service interface.
      */
     fun <T : Any> create(serviceType: KClass<T>): T {
-        val definition = ServiceDefinition.create(serviceType, toolRegistry)
+        val definition = ServiceDefinition.create(
+            serviceType = serviceType,
+            toolRegistry = toolRegistry,
+            promptSanitizer = promptSanitizer,
+        )
         val handler = TramaiInvocationHandler(
             providerRegistry = providerRegistry,
             structuredOutputHandler = structuredOutputHandler,
@@ -121,6 +129,7 @@ class TramaiEngine(
             circuitBreaker = circuitBreaker,
             retryDelayPolicy = retryDelayPolicy,
             tokenBudgetSettings = tokenBudgetSettings,
+            promptSanitizer = promptSanitizer,
             scope = scope,
             serviceDefinition = definition,
         )
@@ -156,6 +165,7 @@ private class TramaiInvocationHandler(
     private val circuitBreaker: ProviderCircuitBreaker,
     private val retryDelayPolicy: ProviderRetryDelayPolicy,
     private val tokenBudgetSettings: TokenBudgetSettings,
+    private val promptSanitizer: PromptSanitizer?,
     private val scope: CoroutineScope,
     private val serviceDefinition: ServiceDefinition,
 ) : InvocationHandler {
@@ -995,7 +1005,11 @@ private data class ServiceDefinition(
     val operations: Map<Method, OperationDefinition>,
 ) {
     companion object {
-        fun create(serviceType: KClass<*>, toolRegistry: ToolRegistry): ServiceDefinition {
+        fun create(
+            serviceType: KClass<*>,
+            toolRegistry: ToolRegistry,
+            promptSanitizer: PromptSanitizer?,
+        ): ServiceDefinition {
             val javaType = serviceType.java
             if (!javaType.isInterface) {
                 throw ConfigurationException("${javaType.name} must be an interface")
@@ -1027,6 +1041,7 @@ private data class ServiceDefinition(
                         systemAnnotations = systemAnnotations,
                         userAnnotations = userAnnotations,
                         toolDefinitions = toolDefinitions,
+                        promptSanitizer = promptSanitizer,
                     )
                 }
 
@@ -1051,6 +1066,7 @@ private data class OperationDefinition(
     val returnType: kotlin.reflect.KType?,
     val returnTypeDescription: String,
     val toolDefinitions: List<ToolDefinition>,
+    val promptSanitizer: PromptSanitizer?,
 ) {
     val isCacheEligible: Boolean
         get() = operation.cacheable && returnKind != ReturnKind.STREAMING && toolDefinitions.isEmpty()
@@ -1075,6 +1091,11 @@ private data class OperationDefinition(
     val hasMultiMessageAnnotations: Boolean get() =
         systemAnnotations.isNotEmpty() || userAnnotations.isNotEmpty()
 
+    private fun sanitizedArgumentValues(arguments: List<Any?>): List<String> = arguments.map { argument ->
+        val rendered = argument?.toString() ?: ""
+        promptSanitizer?.sanitize(rendered) ?: rendered
+    }
+
     fun toRequest(
         arguments: List<Any?>,
         modelName: String = operation.model,
@@ -1093,15 +1114,16 @@ private data class OperationDefinition(
         arguments: List<Any?>,
         schemaJson: String? = null,
     ): List<Message> {
+        val sanitizedArguments = sanitizedArgumentValues(arguments)
         return if (hasMultiMessageAnnotations) {
-            buildMessagesFromAnnotations(arguments, schemaJson)
+            buildMessagesFromAnnotations(sanitizedArguments, schemaJson)
         } else {
-            buildMessagesFromPrompt(arguments, schemaJson)
+            buildMessagesFromPrompt(sanitizedArguments, schemaJson)
         }
     }
 
     private fun buildMessagesFromAnnotations(
-        arguments: List<Any?>,
+        arguments: List<String>,
         schemaJson: String?,
     ): List<Message> {
         val messages = mutableListOf<Message>()
@@ -1151,7 +1173,7 @@ private data class OperationDefinition(
     }
 
     private fun buildMessagesFromPrompt(
-        arguments: List<Any?>,
+        arguments: List<String>,
         schemaJson: String?,
     ): List<Message> {
         val messages = buildList {
@@ -1182,11 +1204,11 @@ private data class OperationDefinition(
         return messages
     }
 
-    private fun interpolate(template: String, arguments: List<Any?>): String {
+    private fun interpolate(template: String, arguments: List<String>): String {
         var result = template
         arguments.forEachIndexed { index, value ->
             val name = parameterNames.getOrElse(index) { "arg$index" }
-            result = result.replace("{$name}", value?.toString() ?: "")
+            result = result.replace("{$name}", value)
         }
         return result
     }
@@ -1232,6 +1254,7 @@ private data class OperationDefinition(
             systemAnnotations: List<String> = emptyList(),
             userAnnotations: List<String> = emptyList(),
             toolDefinitions: List<ToolDefinition> = emptyList(),
+            promptSanitizer: PromptSanitizer? = null,
         ): OperationDefinition {
             require(operation.maxRetries >= 0) {
                 "@Operation(maxRetries) must be zero or greater for ${method.declaringClass.name}.${method.name}"
@@ -1272,6 +1295,7 @@ private data class OperationDefinition(
                 returnType = returnType,
                 returnTypeDescription = returnTypeDescription,
                 toolDefinitions = toolDefinitions,
+                promptSanitizer = promptSanitizer,
             )
         }
 

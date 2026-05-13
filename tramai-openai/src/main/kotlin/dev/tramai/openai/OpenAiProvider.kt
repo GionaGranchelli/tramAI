@@ -9,6 +9,7 @@ import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.applyTramaiTimeout
+import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
 import dev.tramai.core.provider.providerTransportFailure
 import kotlinx.coroutines.Dispatchers
@@ -148,6 +149,12 @@ open class OpenAiCompatibleProvider(
 
             val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
             if (response.statusCode() !in 200..299) {
+                logProviderHttpFailureDebug(
+                    logger = providerLogger,
+                    providerName = providerName,
+                    statusCode = response.statusCode(),
+                    body = response.body(),
+                )
                 throw providerHttpFailure(
                     providerName = providerName,
                     statusCode = response.statusCode(),
@@ -225,6 +232,12 @@ open class OpenAiCompatibleProvider(
 
         if (response.statusCode() !in 200..299) {
             val errorBody = response.body().toArray().joinToString("\n")
+            logProviderHttpFailureDebug(
+                logger = providerLogger,
+                providerName = providerName,
+                statusCode = response.statusCode(),
+                body = errorBody,
+            )
             emit(
                 dev.tramai.core.model.StreamChunk.Error(
                     providerHttpFailure(
@@ -291,6 +304,8 @@ open class OpenAiCompatibleProvider(
     }
 
     companion object {
+        private val providerLogger: System.Logger = System.getLogger(OpenAiCompatibleProvider::class.java.name)
+
         /**
          * Creates an OpenAI-compatible provider backed by a static bearer token.
          */

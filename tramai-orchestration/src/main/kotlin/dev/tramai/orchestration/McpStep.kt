@@ -220,7 +220,7 @@ internal data class McpWorkflowStep<S>(
                     name = SecurityEvents.COMMAND_DENIED,
                     attributes = mapOf(
                         "step_name" to name,
-                        "command" to toolCall.serverCommand.first(),
+                        "command" to File(toolCall.serverCommand.first()).name,
                         "policy_type" to policyType,
                         "step_family" to "mcp",
                     ),

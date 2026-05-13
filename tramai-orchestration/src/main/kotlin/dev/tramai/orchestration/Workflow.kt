@@ -730,7 +730,7 @@ abstract class AbstractWorkflowBuilder<S> {
     fun shellStep(
         name: String,
         config: ShellStepConfig = ShellStepConfig(),
-        definition: ShellCommandDefinition = ShellCommandDefinition(),
+        definition: ShellCommandDefinition,
         command: suspend (S, WorkflowContext) -> ShellCommand,
         merge: suspend (S, ShellResult, WorkflowContext) -> S,
     ) = apply {
@@ -1367,6 +1367,8 @@ private fun <S> renderStepsCanonical(
                 append(step.config.allowedCommands.sorted().joinToString(","))
                 append(':')
                 append(step.config.deniedCommands.sorted().joinToString(","))
+                append(':')
+                append(step.definition.executable)
                 append(':')
                 append(step.definition.hasWorkdir)
                 append(':')

@@ -44,6 +44,7 @@ class PluginManager(
     private val pluginStateRepository: PluginStateRepository,
     private val stepExecutorRegistry: ExternalStepExecutorRegistry,
     private val webhookAdapterRegistry: WebhookAdapterRegistry,
+    private val allowedPluginsDir: Path? = null,
 ) {
     private val logger = LoggerFactory.getLogger(PluginManager::class.java)
     private val views = linkedMapOf<String, PluginView>()
@@ -57,11 +58,21 @@ class PluginManager(
 
     @Synchronized
     fun install(jarPath: String): List<PluginView> {
-        val source = Path.of(jarPath)
-        require(Files.isRegularFile(source)) { "Plugin JAR '$jarPath' does not exist" }
-        require(source.extension == "jar") { "Plugin path '$jarPath' must reference a .jar file" }
-        val target = pluginDirectory.resolve(source.name)
-        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING)
+        logger.warn("Plugin installation attempt for jarPath='{}'", jarPath)
+        val allowedDirectory = allowedPluginsDir
+            ?: throw IllegalArgumentException("Plugin installation is disabled; configure tramai.platform.plugins.directory")
+        Files.createDirectories(allowedDirectory)
+        val canonicalAllowedDirectory = allowedDirectory.toRealPath()
+        val source = canonicalAllowedDirectory.resolve(jarPath).normalize()
+        require(Files.exists(source)) { "Plugin JAR '$jarPath' does not exist" }
+        val canonicalSource = source.toRealPath()
+        require(canonicalSource.startsWith(canonicalAllowedDirectory)) {
+            "Plugin JAR '$jarPath' must resolve within '${canonicalAllowedDirectory.pathString}'"
+        }
+        require(Files.isRegularFile(canonicalSource)) { "Plugin JAR '$jarPath' does not exist" }
+        require(canonicalSource.extension == "jar") { "Plugin path '$jarPath' must reference a .jar file" }
+        val target = pluginDirectory.resolve(canonicalSource.name)
+        Files.copy(canonicalSource, target, StandardCopyOption.REPLACE_EXISTING)
         refresh()
         return list().filter { it.jarPath == target.pathString }
     }

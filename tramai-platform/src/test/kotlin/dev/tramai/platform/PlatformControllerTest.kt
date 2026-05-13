@@ -25,6 +25,8 @@ import java.nio.file.Path
 import java.util.UUID
 import java.util.jar.JarEntry
 import java.util.jar.JarOutputStream
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import javax.sql.DataSource
 
 @SpringBootTest(
@@ -43,11 +45,16 @@ class PlatformControllerTest @Autowired constructor(
     private val pluginManager: PluginManager,
 ) {
     private val pluginDirectory = TEST_PLUGIN_DIRECTORY
+    private val allowedPluginDirectory = TEST_ALLOWED_PLUGIN_DIRECTORY
 
     @BeforeEach
     fun resetPluginDirectory() {
         Files.createDirectories(pluginDirectory)
         Files.list(pluginDirectory).use { entries ->
+            entries.forEach { Files.deleteIfExists(it) }
+        }
+        Files.createDirectories(allowedPluginDirectory)
+        Files.list(allowedPluginDirectory).use { entries ->
             entries.forEach { Files.deleteIfExists(it) }
         }
         pluginManager.refresh()
@@ -90,12 +97,27 @@ class PlatformControllerTest @Autowired constructor(
         assertThat(pluginResult["executed"]).isEqualTo(true)
         assertThat(pluginResult["existing"]).isEqualTo("state")
 
+        // Register webhook config before posting
+        mockMvc.post("/webhooks") {
+            contentType = MediaType.APPLICATION_JSON
+            header("X-API-Key", tenant.adminKey)
+            content = objectMapper.writeValueAsString(
+                RegisterWebhookConfigRequest(
+                    name = "webhook-ingest",
+                    teamId = tenant.team.id,
+                    projectId = tenant.project.id,
+                    source = "demo.webhook",
+                ),
+            )
+        }
+            .andExpect { status { isOk() } }
+
+        val body = """{"message":"from-webhook"}"""
+        val signature = computeHmacSha256(body)
         val webhookRunId = mockMvc.post("/webhooks/webhook-ingest") {
             contentType = MediaType.APPLICATION_JSON
-            param("teamId", tenant.team.id)
-            param("projectId", tenant.project.id)
-            param("source", "demo.webhook")
-            content = """{"message":"from-webhook"}"""
+            header("X-Hub-Signature-256", signature)
+            content = body
         }
             .andExpect {
                 status { isAccepted() }
@@ -108,14 +130,13 @@ class PlatformControllerTest @Autowired constructor(
 
         val webhookResult = waitForTypedResult<WebhookState>("webhook-ingest", webhookRunId, tenant.adminKey)
         assertThat(webhookResult.message).isEqualTo("from-webhook")
-        assertThat(webhookResult.source).isEqualTo("demo.webhook")
         assertThat(webhookResult.processed).isTrue()
     }
 
     @Test
     fun `plugin lifecycle endpoints install disable and enable`() {
         val tenant = bootstrapTenant("lifecycle")
-        val sourceJar = Files.createTempDirectory("tramai-plugin-source").resolve("demo-plugin.jar")
+        val sourceJar = allowedPluginDirectory.resolve("demo-plugin.jar")
         createPluginJar(sourceJar)
 
         mockMvc.post("/plugins/install") {
@@ -143,6 +164,23 @@ class PlatformControllerTest @Autowired constructor(
             .andExpect {
                 status { isOk() }
                 jsonPath("$.status") { value("enabled") }
+            }
+    }
+
+    @Test
+    fun `plugin install rejects jar outside allowed directory`() {
+        val tenant = bootstrapTenant("plugin-paths")
+        val outsideJar = Files.createTempDirectory("tramai-plugin-outside").resolve("demo-plugin.jar")
+        createPluginJar(outsideJar)
+
+        mockMvc.post("/plugins/install") {
+            contentType = MediaType.APPLICATION_JSON
+            header("X-API-Key", tenant.adminKey)
+            content = objectMapper.writeValueAsString(PluginInstallRequest(outsideJar.toString()))
+        }
+            .andExpect {
+                status { isBadRequest() }
+                jsonPath("$.detail") { value(org.hamcrest.Matchers.containsString("must resolve within")) }
             }
     }
 
@@ -250,6 +288,15 @@ class PlatformControllerTest @Autowired constructor(
             }
     }
 
+    // ─── test infrastructure ────────────────────────────────────────────
+
+    private fun computeHmacSha256(payload: String): String {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(WEBHOOK_SECRET.toByteArray(), "HmacSHA256"))
+        val digest = mac.doFinal(payload.toByteArray())
+        return "sha256=" + digest.joinToString("") { "%02x".format(it) }
+    }
+
     private fun bootstrapTenant(name: String): TenantFixture {
         val suffix = UUID.randomUUID().toString().take(8)
         val team = teamRepository.create(Team(id = "team-$name-$suffix", name = "Team $name"))
@@ -317,8 +364,11 @@ class PlatformControllerTest @Autowired constructor(
     }
 
     companion object {
+        private val WEBHOOK_SECRET = "test-webhook-secret"
         private val TEST_PLUGIN_DIRECTORY: Path =
             Path.of(System.getProperty("java.io.tmpdir"), "tramai-platform-test-plugins")
+        private val TEST_ALLOWED_PLUGIN_DIRECTORY: Path =
+            Path.of(System.getProperty("java.io.tmpdir"), "tramai-platform-test-allowed-plugins")
 
         @JvmStatic
         @DynamicPropertySource
@@ -327,8 +377,14 @@ class PlatformControllerTest @Autowired constructor(
             Files.list(TEST_PLUGIN_DIRECTORY).use { entries ->
                 entries.forEach { Files.deleteIfExists(it) }
             }
+            Files.createDirectories(TEST_ALLOWED_PLUGIN_DIRECTORY)
+            Files.list(TEST_ALLOWED_PLUGIN_DIRECTORY).use { entries ->
+                entries.forEach { Files.deleteIfExists(it) }
+            }
             createPluginJar(TEST_PLUGIN_DIRECTORY.resolve("startup-demo-plugin.jar"))
             registry.add("tramai.platform.plugins.dir") { TEST_PLUGIN_DIRECTORY.toString() }
+            registry.add("tramai.platform.plugins.directory") { TEST_ALLOWED_PLUGIN_DIRECTORY.toString() }
+            registry.add("tramai.server.webhooks.secret") { WEBHOOK_SECRET }
         }
 
         private fun createPluginJar(target: Path) {

@@ -8,6 +8,7 @@ import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.applyTramaiTimeout
+import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
 import dev.tramai.core.provider.providerTransportFailure
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +51,12 @@ class OllamaProvider(
 
             val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
             if (response.statusCode() !in 200..299) {
+                logProviderHttpFailureDebug(
+                    logger = providerLogger,
+                    providerName = "Ollama",
+                    statusCode = response.statusCode(),
+                    body = response.body(),
+                )
                 throw providerHttpFailure(
                     providerName = "Ollama",
                     statusCode = response.statusCode(),
@@ -111,6 +118,12 @@ class OllamaProvider(
 
         if (response.statusCode() !in 200..299) {
             val errorBody = response.body().toArray().joinToString("\n")
+            logProviderHttpFailureDebug(
+                logger = providerLogger,
+                providerName = "Ollama",
+                statusCode = response.statusCode(),
+                body = errorBody,
+            )
             emit(
                 dev.tramai.core.model.StreamChunk.Error(
                     providerHttpFailure(
@@ -152,5 +165,9 @@ class OllamaProvider(
         } catch (e: Exception) {
             emit(dev.tramai.core.model.StreamChunk.Error(providerTransportFailure("Ollama", e)))
         }
+    }
+
+    private companion object {
+        private val providerLogger: System.Logger = System.getLogger(OllamaProvider::class.java.name)
     }
 }

@@ -92,7 +92,7 @@ Timeline: 1-2 weeks. [Board](./board/security-board.md)
 - Phase 8: in design (SPEC-015, TASK-033 — TASK-036)
 - Phase 9: in design (SPEC-016, TASK-037)
 - Phase 10: in design (SPEC-017, TASK-038 — TASK-039)
-- Phase 11: in design (SPEC-018)
+- Phase 11: implemented (SPEC-018)
 
 ## Documentation Implication
 

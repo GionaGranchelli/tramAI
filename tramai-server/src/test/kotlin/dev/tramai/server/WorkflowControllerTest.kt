@@ -19,6 +19,10 @@ import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import java.nio.charset.StandardCharsets.UTF_8
+import java.time.Duration
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -138,30 +142,28 @@ class WorkflowControllerTest @Autowired constructor(
     }
 
     @Test
-    fun `webhook with duplicate X-GitHub-Delivery returns same run`() {
+    fun `webhook replay with same signature is rejected`() {
         val body = """{"invoiceId":"inv-dup-delivery","amount":125}"""
         val deliveryId = "abc-123-delivery-001"
 
-        val first = mockMvc.post("/webhooks/invoice") {
+        mockMvc.post("/webhooks/invoice") {
             contentType = MediaType.APPLICATION_JSON
             header("X-Hub-Signature-256", webhookSignature(body))
             header("X-GitHub-Delivery", deliveryId)
             content = body
         }
             .andExpect { status { isAccepted() } }
-            .andReturn().response.contentAsString
 
-        val second = mockMvc.post("/webhooks/invoice") {
+        mockMvc.post("/webhooks/invoice") {
             contentType = MediaType.APPLICATION_JSON
             header("X-Hub-Signature-256", webhookSignature(body))
             header("X-GitHub-Delivery", deliveryId)
             content = body
         }
-            .andExpect { status { isAccepted() } }
-            .andReturn().response.contentAsString
-
-        assertThat(objectMapper.readTree(second).get("workflowId").asText())
-            .isEqualTo(objectMapper.readTree(first).get("workflowId").asText())
+            .andExpect {
+                status { isUnauthorized() }
+                jsonPath("$.detail") { value("Webhook signature is invalid") }
+            }
     }
 
     @Test
@@ -181,6 +183,26 @@ class WorkflowControllerTest @Autowired constructor(
             .let { objectMapper.readTree(it).get("workflowId").asText() }
 
         waitForStatus("invoice", workflowId, "completed")
+    }
+
+    @Test
+    fun `replay cache expires entries after max age`() {
+        val now = java.util.concurrent.atomic.AtomicReference(Instant.parse("2026-05-13T10:15:30Z"))
+        val clock = object : java.time.Clock() {
+            override fun getZone(): ZoneId = ZoneOffset.UTC
+
+            override fun withZone(zone: ZoneId): java.time.Clock = this
+
+            override fun instant(): Instant = now.get()
+        }
+        val cache = ReplayCache(maxAge = Duration.ofMinutes(5), clock = clock)
+        val signature = "sha256=test-signature"
+
+        assertThat(cache.recordIfNotReplayed(signature)).isTrue()
+        assertThat(cache.recordIfNotReplayed(signature)).isFalse()
+
+        now.set(Instant.parse("2026-05-13T10:20:31Z"))
+        assertThat(cache.recordIfNotReplayed(signature)).isTrue()
     }
 
     @Test

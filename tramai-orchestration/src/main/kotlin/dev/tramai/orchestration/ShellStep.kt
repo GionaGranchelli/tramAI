@@ -29,10 +29,12 @@ data class ShellCommand(
 }
 
 data class ShellCommandDefinition(
+    val executable: String,
     val hasWorkdir: Boolean = false,
     val envKeys: Set<String> = emptySet(),
 ) {
     init {
+        require(executable.isNotBlank()) { "ShellCommandDefinition.executable must not be blank" }
         require(envKeys.none { it.isBlank() }) { "ShellCommandDefinition.envKeys must not contain blank values" }
     }
 }
@@ -79,15 +81,18 @@ class WorkflowShellException(
 
 internal data class ShellWorkflowStep<S>(
     override val name: String,
-    val definition: ShellCommandDefinition = ShellCommandDefinition(),
+    val definition: ShellCommandDefinition,
     val commandBuilder: suspend (S, WorkflowContext) -> ShellCommand,
     val merge: suspend (S, ShellResult, WorkflowContext) -> S,
     val config: ShellStepConfig = ShellStepConfig(),
 ) : InternalWorkflowStep<S> {
     internal fun validateStaticCommandPolicy(workflowName: String) {
-        // Shell command policy cannot be validated at workflow build time.
-        // The executable comes from the runtime command lambda and
-        // ShellCommandDefinition intentionally does not carry a canonical command string.
+        validateCommandPolicy(
+            executable = definition.executable,
+            onViolation = { message ->
+                throw IllegalArgumentException("Workflow '$workflowName' shell step '$name' $message")
+            },
+        )
     }
 
     suspend fun execute(
@@ -257,6 +262,9 @@ internal data class ShellWorkflowStep<S>(
     }
 
     private fun validateShellCommandDefinition(shellCommand: ShellCommand) {
+        require(shellCommand.command.first() == definition.executable) {
+            "Workflow shell step '$name' canonical executable does not match the runtime command"
+        }
         require((shellCommand.workdir != null) == definition.hasWorkdir) {
             "Workflow shell step '$name' canonical workdir metadata does not match the runtime command"
         }
@@ -267,8 +275,11 @@ internal data class ShellWorkflowStep<S>(
 
     private fun validateCommandPolicy(shellCommand: ShellCommand) {
         val commandIdentifiers = shellCommand.commandIdentifiers()
+        val fullCommand = shellCommand.command.first()
         val allowedCommands = config.allowedCommands
-        if (allowedCommands.isEmpty() || allowedCommands.none(commandIdentifiers::contains)) {
+        if (allowedCommands.isEmpty() ||
+            (allowedCommands.none(commandIdentifiers::contains) && fullCommand !in allowedCommands)
+        ) {
             throw WorkflowShellException(
                 stepName = name,
                 message = "command is not in allowlist",
@@ -330,6 +341,21 @@ internal data class ShellWorkflowStep<S>(
             .fold(message) { current, identifier ->
                 current.replace(identifier, "[command]")
             }
+    }
+
+    private fun validateCommandPolicy(
+        executable: String,
+        onViolation: (String) -> Nothing,
+    ) {
+        val policyIdentifier = executable.policyCommandIdentifier()
+        val allowedCommands = config.allowedCommands
+        if (allowedCommands.isEmpty() || policyIdentifier !in allowedCommands) {
+            onViolation("command is not in allowlist")
+        }
+        val deniedCommands = config.deniedCommands
+        if (policyIdentifier in deniedCommands) {
+            onViolation("command is blocked by the denylist")
+        }
     }
 }
 
@@ -406,6 +432,10 @@ private fun ShellCommand.commandIdentifiers(): Set<String> {
         add(fileName)
     }
 }
+
+private fun String.policyCommandIdentifier(): String = if (containsPathSeparator()) this else File(this).name
+
+private fun String.containsPathSeparator(): Boolean = contains('/') || contains('\\')
 
 private fun Throwable.rethrowIfCancellation() {
     if (this is CancellationException) {

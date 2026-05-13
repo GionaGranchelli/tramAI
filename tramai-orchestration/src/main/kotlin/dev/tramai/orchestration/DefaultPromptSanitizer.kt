@@ -8,17 +8,23 @@ data object DefaultPromptSanitizer : PromptSanitizer {
     const val RULE_JAILBREAK_FRAGMENT = "sanitizer/jailbreak-fragment"
 
     private val delimiterPatterns = listOf(
-        Regex("""\[(?:/)?SYSTEM_INSTRUCTIONS]""", RegexOption.IGNORE_CASE),
-        Regex("""\[(?:/)?USER_PROMPT]""", RegexOption.IGNORE_CASE),
+        Regex("""\[\s*(?:/)?\s*${splitWordPattern("system")}(?:[\s-]+)${splitWordPattern("instructions")}\s*]""", RegexOption.IGNORE_CASE),
+        Regex("""\[(?:/)?${splitWordPattern("system")}_${splitWordPattern("instructions")}\s*]""", RegexOption.IGNORE_CASE),
+        Regex("""\[\s*(?:/)?\s*${splitWordPattern("user")}(?:[\s-]+)${splitWordPattern("prompt")}\s*]""", RegexOption.IGNORE_CASE),
+        Regex("""\[(?:/)?${splitWordPattern("user")}_${splitWordPattern("prompt")}\s*]""", RegexOption.IGNORE_CASE),
+        Regex("""\b${splitPhrasePattern("start", "of", "input")}\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b${splitPhrasePattern("end", "of", "input")}\b""", RegexOption.IGNORE_CASE),
+        Regex("""={4,}"""),
     )
 
     private val jailbreakPatterns = listOf(
-        Regex("""\bignore\s+previous\s+instructions\b""", RegexOption.IGNORE_CASE),
-        Regex("""\bignore\s+all\s+instructions\b""", RegexOption.IGNORE_CASE),
-        Regex("""\byou\s+are\s+now\b""", RegexOption.IGNORE_CASE),
-        Regex("""\bDAN\b""", RegexOption.IGNORE_CASE),
-        Regex("""\bdo\s+not\s+follow\b""", RegexOption.IGNORE_CASE),
-        Regex("""\bdisregard\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b${splitPhrasePattern("ignore", "previous", "instructions")}\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b${splitPhrasePattern("ignore", "all", "instructions")}\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b${splitPhrasePattern("you", "are", "now")}\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b${splitWordPattern("dan")}\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b${splitPhrasePattern("do", "not", "follow")}\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b${splitWordPattern("disregard")}\b""", RegexOption.IGNORE_CASE),
+        Regex("""(?<![A-Za-z0-9+/=])(?=[A-Za-z]*[0-9+/])[A-Za-z0-9+/]{32,}={0,2}(?![A-Za-z0-9+/=])"""),
     )
 
     override fun sanitize(input: String): String {
@@ -26,7 +32,8 @@ data object DefaultPromptSanitizer : PromptSanitizer {
             return input
         }
 
-        val withoutControlChars = input.filter(::isAllowedCharacter)
+        val normalizedInput = normalizePromptSecurityText(input)
+        val withoutControlChars = normalizedInput.filter(::isAllowedCharacter)
         val delimiterEscaped = delimiterPatterns.fold(withoutControlChars) { current, pattern ->
             current.replace(pattern) { match -> "`" + match.value + "`" }
         }
@@ -44,14 +51,15 @@ data object DefaultPromptSanitizer : PromptSanitizer {
     }
 
     fun getTriggeredRules(input: String): List<String> {
+        val normalizedInput = normalizePromptSecurityText(input)
         val rules = linkedSetOf<String>()
         if (input.any { !isAllowedCharacter(it) }) {
             rules += RULE_CONTROL_CHAR
         }
-        if (delimiterPatterns.any { it.containsMatchIn(input) }) {
+        if (delimiterPatterns.any { it.containsMatchIn(normalizedInput) }) {
             rules += RULE_DELIMITER_TRICK
         }
-        if (jailbreakPatterns.any { it.containsMatchIn(input) }) {
+        if (jailbreakPatterns.any { it.containsMatchIn(normalizedInput) }) {
             rules += RULE_JAILBREAK_FRAGMENT
         }
         return rules.toList()

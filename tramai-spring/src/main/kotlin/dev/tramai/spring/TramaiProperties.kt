@@ -84,8 +84,16 @@ data class TramaiProperties(
      * Built-in secret resolver settings.
      */
     data class Secrets(
+        var file: File = File(),
         var vault: Vault = Vault(),
         var awsSecretsManager: AwsSecretsManager = AwsSecretsManager(),
+    )
+
+    /**
+     * Local file secret resolution settings.
+     */
+    data class File(
+        var allowedDirectory: String? = null,
     )
 
     /**

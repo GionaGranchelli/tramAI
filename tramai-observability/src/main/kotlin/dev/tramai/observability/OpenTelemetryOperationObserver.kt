@@ -144,7 +144,7 @@ private class SpanBackedObservation(
         span.addEvent(
             "tramai.parse.failure",
             io.opentelemetry.api.common.Attributes.of(
-                AttributeKey.stringKey("tramai.raw_response"), rawResponse,
+                AttributeKey.stringKey("tramai.raw_response_length"), rawResponse.length.toString(),
                 AttributeKey.stringKey("tramai.validation_error"), errorSummary,
             ),
         )

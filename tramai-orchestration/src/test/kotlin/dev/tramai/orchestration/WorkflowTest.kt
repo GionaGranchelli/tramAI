@@ -835,6 +835,7 @@ class WorkflowTest {
                 definition = ShellCommandDefinition(
                     hasWorkdir = false,
                     envKeys = setOf("API_TOKEN"),
+                    executable = "sh",
                 ),
                 command = { state, _ ->
                     ShellCommand(
@@ -864,6 +865,7 @@ class WorkflowTest {
                     definition = ShellCommandDefinition(
                         hasWorkdir = true,
                         envKeys = setOf("OTHER_TOKEN"),
+                        executable = "sh",
                     ),
                     command = { state, _ ->
                         ShellCommand(

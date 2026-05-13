@@ -123,11 +123,13 @@ class PlatformConfiguration {
         externalStepExecutorRegistry: dev.tramai.orchestration.ExternalStepExecutorRegistry,
         webhookAdapterRegistry: WebhookAdapterRegistry,
         @Value("\${tramai.platform.plugins.dir:\${java.io.tmpdir}/tramai-platform-plugins}") pluginDirectory: String,
+        @Value("\${tramai.platform.plugins.directory:}") allowedPluginsDirectory: String,
     ): PluginManager = PluginManager(
         pluginDirectory = Path.of(pluginDirectory),
         pluginStateRepository = pluginStateRepository,
         stepExecutorRegistry = externalStepExecutorRegistry,
         webhookAdapterRegistry = webhookAdapterRegistry,
+        allowedPluginsDir = allowedPluginsDirectory.takeIf(String::isNotBlank)?.let(Path::of),
     )
 
     @Bean
@@ -157,4 +159,9 @@ class PlatformConfiguration {
         teamProjectRegistry = teamProjectRegistry,
         webhookAdapterRegistry = webhookAdapterRegistry,
     )
+
+    @Bean
+    fun webhookConfigService(
+        teamProjectRegistry: TeamProjectRegistry,
+    ): WebhookConfigService = WebhookConfigService(teamProjectRegistry)
 }

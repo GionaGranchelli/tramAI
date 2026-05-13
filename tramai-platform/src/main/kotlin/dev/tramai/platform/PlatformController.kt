@@ -32,6 +32,7 @@ class PlatformController(
     private val rateLimiter: ApiKeyRateLimiter,
     private val pluginManager: PluginManager,
     private val auditLogService: AuditLogService,
+    private val webhookConfigService: WebhookConfigService,
 ) {
     @PostMapping("/workflows/{name}/run")
     fun runWorkflow(
@@ -98,22 +99,38 @@ class PlatformController(
     @PostMapping("/webhooks/{name}")
     fun receiveWebhook(
         @PathVariable name: String,
-        @RequestParam teamId: String,
-        @RequestParam projectId: String,
-        @RequestParam source: String,
         @RequestBody body: String,
         @RequestHeader headers: Map<String, String>,
-    ): ResponseEntity<WorkflowRunResponse> = ResponseEntity.accepted().body(
-        workflowService.runWebhook(
-            teamId = teamId,
-            projectId = projectId,
-            workflowName = name,
-            sourceId = source,
-            payload = body,
-            headers = headers,
-            idempotencyKey = headers["X-GitHub-Delivery"] ?: headers["X-Delivery-ID"],
-        ),
-    )
+    ): ResponseEntity<WorkflowRunResponse> {
+        val config = webhookConfigService.get(name)
+        return ResponseEntity.accepted().body(
+            workflowService.runWebhook(
+                teamId = config.teamId,
+                projectId = config.projectId,
+                workflowName = name,
+                sourceId = config.source,
+                payload = body,
+                headers = headers,
+                idempotencyKey = headers["X-GitHub-Delivery"] ?: headers["X-Delivery-ID"],
+            ),
+        )
+    }
+
+    @PostMapping("/webhooks")
+    fun registerWebhook(
+        @RequestBody request: RegisterWebhookConfigRequest,
+        @RequestHeader("X-API-Key", required = false) apiKey: String?,
+    ): WebhookConfig {
+        val principal = apiKeyAuthenticator.authenticate(apiKey)
+        apiKeyAuthenticator.requireScope(principal, ApiKeyScope.ADMIN)
+        require(principal.teamId == request.teamId) {
+            "Webhooks can only be registered inside the authenticated team"
+        }
+        require(principal.projectId == request.projectId) {
+            "Webhooks can only be registered inside the authenticated project"
+        }
+        return webhookConfigService.register(request)
+    }
 
     @PostMapping("/api-keys")
     fun createApiKey(
@@ -124,6 +141,9 @@ class PlatformController(
         apiKeyAuthenticator.requireScope(principal, ApiKeyScope.ADMIN)
         require(principal.teamId == request.teamId) {
             "API keys can only be created inside the authenticated team"
+        }
+        require(principal.projectId == request.projectId) {
+            "API keys can only be created inside the authenticated project"
         }
         val created = apiKeyService.create(request, actorId = principal.actorId)
         return created.record.toResponse(rawKey = created.key)
@@ -148,6 +168,9 @@ class PlatformController(
         val existing = apiKeyService.get(id) ?: throw IllegalArgumentException("API key '$id' was not found")
         require(existing.teamId == principal.teamId) {
             "API keys can only be revoked inside the authenticated team"
+        }
+        require(existing.projectId == principal.projectId) {
+            "API keys can only be revoked inside the authenticated project"
         }
         val revoked = apiKeyService.revoke(id, actorId = principal.actorId)
         return revoked.toResponse()
@@ -243,6 +266,10 @@ class PlatformErrorHandler {
     @ExceptionHandler(PluginNotFoundException::class)
     fun pluginNotFound(error: PluginNotFoundException): ResponseEntity<ProblemDetail> =
         problem(HttpStatus.NOT_FOUND, "Plugin not found", error.message ?: "Plugin was not found")
+
+    @ExceptionHandler(WebhookConfigurationNotFoundException::class)
+    fun webhookNotFound(error: WebhookConfigurationNotFoundException): ResponseEntity<ProblemDetail> =
+        problem(HttpStatus.NOT_FOUND, "Webhook not found", error.message ?: "Webhook was not found")
 
     @ExceptionHandler(Throwable::class)
     fun unexpected(error: Throwable): ResponseEntity<ProblemDetail> {

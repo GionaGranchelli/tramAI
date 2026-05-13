@@ -9,6 +9,7 @@ import java.nio.file.Path
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.PosixFilePermission
 import java.util.Base64
 import java.util.Properties
 import java.io.StringWriter
@@ -172,7 +173,8 @@ internal inline fun <T> withFileLock(
     block: () -> T,
 ): T {
     val lockPath = checkpointPath.resolveSibling("${checkpointPath.fileName}.lock")
-    Files.createDirectories(lockPath.parent)
+    ensureOwnerOnlyDirectory(lockPath.parent)
+    ensureOwnerOnlyFile(lockPath)
     FileChannel.open(
         lockPath,
         StandardOpenOption.CREATE,
@@ -189,7 +191,8 @@ internal suspend inline fun <T> withFileLockSuspending(
     crossinline block: suspend () -> T,
 ): T = withContext(Dispatchers.IO) {
     val lockPath = checkpointPath.resolveSibling("${checkpointPath.fileName}.lock")
-    Files.createDirectories(lockPath.parent)
+    ensureOwnerOnlyDirectory(lockPath.parent)
+    ensureOwnerOnlyFile(lockPath)
     FileChannel.open(
         lockPath,
         StandardOpenOption.CREATE,
@@ -204,8 +207,9 @@ internal fun writeStringAtomically(
     path: Path,
     content: String,
 ) {
-    Files.createDirectories(path.parent)
+    ensureOwnerOnlyDirectory(path.parent)
     val tempFile = Files.createTempFile(path.parent, path.fileName.toString(), ".tmp")
+    applyOwnerOnlyFilePermissions(tempFile)
     Files.writeString(
         tempFile,
         content,
@@ -226,6 +230,7 @@ internal fun writeStringAtomically(
             StandardCopyOption.REPLACE_EXISTING,
         )
     }
+    applyOwnerOnlyFilePermissions(path)
 }
 internal fun validateExpectedRevision(
     workflowName: String,
@@ -277,6 +282,43 @@ internal fun base64Encode(value: String): String = Base64.getEncoder()
 internal fun base64Decode(value: String): String = String(
     Base64.getDecoder().decode(value),
     StandardCharsets.UTF_8,
+)
+
+internal fun ensureOwnerOnlyDirectory(path: Path) {
+    Files.createDirectories(path)
+    applyOwnerOnlyDirectoryPermissions(path)
+}
+
+internal fun ensureOwnerOnlyFile(path: Path) {
+    if (!Files.exists(path)) {
+        Files.createFile(path)
+    }
+    applyOwnerOnlyFilePermissions(path)
+}
+
+private fun applyOwnerOnlyDirectoryPermissions(path: Path) {
+    try {
+        Files.setPosixFilePermissions(path, ownerOnlyDirectoryPermissions)
+    } catch (_: UnsupportedOperationException) {
+    }
+}
+
+private fun applyOwnerOnlyFilePermissions(path: Path) {
+    try {
+        Files.setPosixFilePermissions(path, ownerOnlyFilePermissions)
+    } catch (_: UnsupportedOperationException) {
+    }
+}
+
+private val ownerOnlyDirectoryPermissions = setOf(
+    PosixFilePermission.OWNER_READ,
+    PosixFilePermission.OWNER_WRITE,
+    PosixFilePermission.OWNER_EXECUTE,
+)
+
+private val ownerOnlyFilePermissions = setOf(
+    PosixFilePermission.OWNER_READ,
+    PosixFilePermission.OWNER_WRITE,
 )
 internal fun Properties.requireProperty(name: String): String = getProperty(name)
     ?: error("Missing checkpoint property '$name'")

@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.orchestration.NoOpWorkflowObserver
 import dev.tramai.scheduler.JdbcWorkflowSchedulerStore
 import dev.tramai.scheduler.WorkflowSchedulerStore
+import java.time.Duration
 
 fun interface WorkflowRegistration {
     fun register(registry: WorkflowRegistry)
@@ -69,7 +70,11 @@ class ServerConfiguration {
     @ConditionalOnMissingBean
     fun webhookSignatureVerifier(
         webhookConfiguration: WebhookConfiguration,
-    ): WebhookSignatureVerifier = GitHubWebhookSignatureVerifier(secret = webhookConfiguration.secret)
+        @Value("\${tramai.server.webhooks.replay-max-age:PT5M}") replayMaxAge: Duration,
+    ): WebhookSignatureVerifier = GitHubWebhookSignatureVerifier(
+        secret = webhookConfiguration.secret,
+        replayCache = ReplayCache(maxAge = replayMaxAge),
+    )
 
     @Bean
     @ConditionalOnMissingBean

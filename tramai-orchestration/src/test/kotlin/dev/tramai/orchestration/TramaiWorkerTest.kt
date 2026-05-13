@@ -69,6 +69,7 @@ class TramaiWorkerTest {
             shellStep(
                 name = "deploy",
                 config = ShellStepConfig(allowedCommands = setOf("sh")),
+                definition = ShellCommandDefinition(executable = "sh"),
                 command = { _, _ -> ShellCommand(command = listOf("sh", "-c", "sleep 2")) },
                 merge = { state, _, _ -> state.copy(value = "${state.value}:deployed") },
             )
