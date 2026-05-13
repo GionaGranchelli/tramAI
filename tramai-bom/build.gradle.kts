@@ -11,6 +11,7 @@ dependencies {
         api(project(":tramai-core"))
         api(project(":tramai-embedding"))
         api(project(":tramai-engine"))
+        api(project(":tramai-memory"))
         api(project(":tramai-structured"))
         api(project(":tramai-anthropic"))
         api(project(":tramai-azure-openai"))

@@ -12,6 +12,7 @@ include(
     "tramai-gemini",
     "tramai-observability",
     "tramai-mcp",
+    "tramai-memory",
     "tramai-orchestration",
     "tramai-openai",
     "tramai-ollama",
