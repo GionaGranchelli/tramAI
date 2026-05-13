@@ -34,8 +34,8 @@ Estimated effort: 1-2 days
 | TASK-079 | Define `ChatMemory` SPI in `tramai-core` — get/add/clear methods | §ChatMemory SPI | — | 0.25d | ✅ |
 | TASK-080 | Define `@ConversationId` annotation and `ConversationIdProvider` in `tramai-core` | §Conversation ID | — | 0.25d | ✅ |
 | TASK-086 | Register `tramai-memory` in settings.gradle.kts + bom + create build.gradle.kts | §Build Config | — | 0.25d | ✅ |
-| TASK-081 | Implement `MessageWindowChatMemory` in `tramai-memory` with concurrent deque, message eviction, conversation eviction, system message dedup | §MessageWindowChatMemory | TASK-079 | 0.5d | 🔄 |
-| TASK-082 | Implement `MemoryInterceptor` — interceptRequest (prepend history, dedup system) + interceptResponse (save user + assistant) | §MemoryInterceptor | TASK-079 | 0.25d | ⬜ |
+| TASK-081 | Implement `MessageWindowChatMemory` in `tramai-memory` with concurrent deque, message eviction, conversation eviction, system message dedup | §MessageWindowChatMemory | TASK-079 | 0.5d | ✅ |
+| TASK-082 | Implement `MemoryInterceptor` — interceptRequest (prepend history, dedup system) + interceptResponse (save user + assistant) | §MemoryInterceptor | TASK-079 | 0.25d | 🔄 |
 | TASK-083 | Integrate into `TramaiInvocationHandler` — conversation ID resolution from @ConversationId, memory delegation in execute() | §Handler Changes | TASK-080, TASK-082 | 0.5d | ⬜ |
 | TASK-084 | Add `Tramai.Builder.memory()` builder method | §Builder Integration | TASK-081, TASK-083 | 0.25d | ⬜ |
 | TASK-085 | Add tests: window eviction, system message handling, conversation eviction, thread safety, @ConversationId resolution | §Acceptance Criteria | TASK-081, TASK-083 | 1.0d | ⬜ |
