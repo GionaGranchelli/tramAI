@@ -47,12 +47,12 @@ Estimated effort: 2-3 days
 
 | ID | Task | Spec § | Deps | Effort | Status |
 |----|------|--------|------|--------|--------|
-| TASK-066 | Define `Document` model and `DocumentLoader` interface with file and URL loaders | §RAG Pipeline | — | 0.5d | ⬜ |
-| TASK-067 | Implement `RecursiveCharacterChunker`, `TokenAwareChunker`, and `FixedSizeChunker` with configurable chunk size and overlap | §RAG Pipeline | TASK-066 | 0.75d | ⬜ |
-| TASK-068 | Implement `RagRetriever` (embeds query, searches vector store, returns top-K results) | §RAG Pipeline | TASK-056, TASK-060 | 0.5d | ⬜ |
-| TASK-069 | Implement `ContextInjector` as open class that prepends context into system message or user message of `ModelRequest` | §RAG Pipeline | TASK-068 | 0.5d | ⬜ |
-| TASK-070 | Implement `RagPipeline` with separate `index()` and `query()` phases, bundling loader → splitter → embedder → store | §RAG Pipeline | TASK-066–069 | 0.75d | ⬜ |
-| TASK-071 | Add RAG pipeline tests: index roundtrip, query with context injection, empty collection, chunker edge cases | §RAG Pipeline AC 10-13 | TASK-070 | 1.0d | ⬜ |
+| TASK-066 | Define `Document` model and `DocumentLoader` interface with file and URL loaders | §RAG Pipeline | — | 0.5d | ✅ |
+| TASK-067 | Implement `RecursiveCharacterChunker`, `TokenAwareChunker`, and `FixedSizeChunker` with configurable chunk size and overlap | §RAG Pipeline | TASK-066 | 0.75d | ✅ |
+| TASK-068 | Implement `RagRetriever` (embeds query, searches vector store, returns top-K results) | §RAG Pipeline | TASK-056, TASK-060 | 0.5d | ✅ |
+| TASK-069 | Implement `ContextInjector` as open class that prepends context into system message or user message of `ModelRequest` | §RAG Pipeline | TASK-068 | 0.5d | ✅ |
+| TASK-070 | Implement `RagPipeline` with separate `index()` and `query()` phases, bundling loader → splitter → embedder → store | §RAG Pipeline | TASK-066–069 | 0.75d | ✅ |
+| TASK-071 | Add RAG pipeline tests: index roundtrip, query with context injection, empty collection, chunker edge cases | §RAG Pipeline AC 10-13 | TASK-070 | 1.0d | ✅ |
 
 ## Phase 3 — Gemini Provider + Vision Content
 
@@ -75,6 +75,6 @@ Estimated effort: 2-3 days
 | Phase | Status | Tasks |
 |-------|--------|-------|
 | Phase 1 — Foundation SPIs | ✅ Done | 10 |
-| Phase 2 — RAG Pipeline | ⬜ Not started | 6 |
+| Phase 2 — RAG Pipeline | ✅ Done | 6 |
 | Phase 3 — Gemini + Vision | ⬜ Not started | 7 |
 | **Total** | | **23** |

@@ -22,5 +22,6 @@ include(
     "tramai-vectorstore-chroma",
     "tramai-vectorstore-pgvector",
     "tramai-dashboard",
+    "tramai-rag",
     "examples:support-agent",
 )

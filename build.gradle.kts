@@ -44,6 +44,7 @@ val publishableProjectNames = listOf(
     "tramai-vectorstore-spi",
     "tramai-vectorstore-chroma",
     "tramai-vectorstore-pgvector",
+    "tramai-rag",
 )
 val jarPublishingProjectNames = publishableProjectNames - "tramai-bom"
 
@@ -198,6 +199,7 @@ fun projectDescription(projectName: String): String = when (projectName) {
     "tramai-vectorstore-spi" -> "Vector store SPI with data models and in-memory implementation for Tramai."
     "tramai-vectorstore-chroma" -> "ChromaDB vector store adapter for Tramai."
     "tramai-vectorstore-pgvector" -> "PostgreSQL pgvector vector store adapter for Tramai."
+    "tramai-rag" -> "RAG pipeline: document loading, chunking, retrieval, and context injection for Tramai."
     else -> "Tramai module ${projectName.removePrefix("tramai-")}."
 }
 

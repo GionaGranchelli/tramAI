@@ -23,5 +23,6 @@ dependencies {
         api(project(":tramai-vectorstore-spi"))
         api(project(":tramai-vectorstore-chroma"))
         api(project(":tramai-vectorstore-pgvector"))
+        api(project(":tramai-rag"))
     }
 }
