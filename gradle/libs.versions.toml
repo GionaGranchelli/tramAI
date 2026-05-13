@@ -38,6 +38,7 @@ hikaricp = { module = "com.zaxxer:HikariCP", version = "6.3.0" }
 h2database = { module = "com.h2database:h2", version = "2.3.232" }
 postgresql = { module = "org.postgresql:postgresql", version = "42.7.5" }
 pgvector = { module = "com.pgvector:pgvector", version = "0.1.6" }
+aws-sdk-bedrockruntime = { module = "software.amazon.awssdk:bedrockruntime", version.ref = "aws-sdk" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

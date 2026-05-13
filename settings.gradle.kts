@@ -2,8 +2,11 @@ rootProject.name = "tramai"
 
 include(
     "tramai-anthropic",
+    "tramai-azure-openai",
+    "tramai-bedrock",
     "tramai-bom",
     "tramai-core",
+    "tramai-deepseek",
     "tramai-embedding",
     "tramai-engine",
     "tramai-gemini",
