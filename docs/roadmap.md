@@ -78,7 +78,16 @@ Timeline: 4-6 weeks. [Board](./board/orchestrator-board.md#phase-10-platform-spe
 - M31: prompt injection defense framework (sanitizer, instruction defense, output validator)
 - M32: security event observability (security-specific WorkflowObserver events)
 
-Timeline: 1-2 weeks. [Board](./board/security-board.md)
+- Timeline: 1-2 weeks. [Board](./board/security-board.md)
+
+## Phase 12: Chat Memory (SPEC-020)
+
+- M33: ChatMemory SPI, @ConversationId annotation, tramai-memory module (Batch 1)
+- M34: MessageWindowChatMemory — in-memory sliding window with LRU eviction (Batch 2)
+- M35: MemoryInterceptor — history injection and response persistence (Batch 3)
+- M36: Handler integration — memory delegation in TramaiInvocationHandler + builder method (Batch 4)
+
+Timeline: 1-2 days. [Board](./board/memory-board.md)
 
 ## Current Delivery Snapshot
 
@@ -93,6 +102,7 @@ Timeline: 1-2 weeks. [Board](./board/security-board.md)
 - Phase 9: in design (SPEC-016, TASK-037)
 - Phase 10: in design (SPEC-017, TASK-038 — TASK-039)
 - Phase 11: implemented (SPEC-018)
+- Phase 12: implemented (SPEC-020 Chat Memory v1.0 — 8 tasks, 5 batches)
 
 ## Documentation Implication
 
@@ -111,3 +121,5 @@ The docs in this repository should grow with the roadmap:
 - Phase 4: committed specs and tasks exist
 - Phase 5: implemented under `SPEC-011` and `TASK-016`
 - Phase 6-10: documented under `SPEC-013` through `SPEC-017` and the [Orchestrator Board](../board/orchestrator-board.md)
+- Phase 11: documented under `SPEC-018` and the [Security Board](../board/security-board.md)
+- Phase 12: documented under `SPEC-020` and the [Memory Board](../board/memory-board.md)

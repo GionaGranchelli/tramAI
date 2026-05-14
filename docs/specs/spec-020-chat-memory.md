@@ -2,8 +2,8 @@
 
 - Status: implemented (v1.0 foundation: all 8 tasks complete, 78 tests across memory + engine)
 - Owner: maintainer
-- Last updated: 2026-05-13
-- Related roadmap milestone: M13 — Memory
+- Last updated: 2026-05-14
+- Related roadmap milestone: M33–M36 — Memory (Phase 12)
 - Related ADRs: ADR-008 (Provider SPI)
 - Related docs: [Roadmap Summary](../roadmap.md)
 

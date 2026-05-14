@@ -424,6 +424,54 @@ class MetricCollectingObserver : OperationObserver {
 
 `TramaiEngine` uses `java.lang.reflect.Proxy`, which requires proxy class pre-registration in GraalVM Native Image. The `NativeImageSmokeTest` provides a reference for setting this up. Use `@TypeHint` or a GraalVM reflection configuration file to register proxy interfaces.
 
+#### Conversational memory
+
+Inject conversation history into AI calls and persist responses automatically.
+
+Requires adding `tramai-memory` to your dependencies:
+
+```kotlin
+dependencies {
+    implementation("dev.tramai:tramai-memory:0.2.0")
+}
+```
+
+Then configure a `WindowChatMemory` and pass it to the engine:
+
+```kotlin
+val memory = MessageWindowChatMemory(
+    maxMessages = 20,        // non-system messages per conversation
+    maxConversations = 1000, // active conversations before LRU eviction
+)
+
+val engine = TramaiEngine(
+    provider = provider,
+    chatMemory = memory,     // enables history injection + persistence
+)
+```
+
+The `@ConversationId` annotation on a method parameter marks which argument identifies the conversation:
+
+```kotlin
+@AiService
+interface ChatService {
+    @Operation(prompt = "Answer the user's question", model = "claude-sonnet-4-20250514")
+    suspend fun chat(
+        @ConversationId sessionId: String,
+        message: String,
+    ): String
+}
+```
+
+When `chatMemory` is configured, the handler:
+1. Resolves the conversation ID from the `@ConversationId` parameter
+2. Loads history from the memory store and prepends it to the request
+3. After a successful response, persists the user's messages and assistant's reply
+
+Memory is injected for all return kinds (raw string, structured, streaming).
+Persistence is skipped for streaming responses (deferred to v1.1).
+System messages are deduplicated across turns (history takes precedence).
+
 ### Configuration reference
 
 | Property | Type | Default | Description |
@@ -434,9 +482,11 @@ class MetricCollectingObserver : OperationObserver {
 | `CircuitBreakerSettings.failureThreshold` | `Int` | `3` | Consecutive failures before circuit opens |
 | `CircuitBreakerSettings.openDurationMillis` | `Long` | `30_000` | Duration circuit stays open (ms) |
 | `TokenBudgetSettings.hardMaxTokensPerAttempt` | `Long?` | `null` | Hard cap per single provider response |
-| `TokenBudgetSettings.hardMaxTokensPerOperation` | `Long?` | `null` | Hard cap for cumulative operation tokens |
-| `TokenBudgetSettings.softMaxTokensPerOperation` | `Long?` | `null` | Soft cap — emits event, does not fail |
-| `InMemoryOperationResponseCache.maxEntries` | `Int` | `1_000` | Max cache entries (LRU eviction) |
+|| `TokenBudgetSettings.hardMaxTokensPerOperation` | `Long?` | `null` | Hard cap for cumulative operation tokens |
+|| `TokenBudgetSettings.softMaxTokensPerOperation` | `Long?` | `null` | Soft cap — emits event, does not fail |
+|| `InMemoryOperationResponseCache.maxEntries` | `Int` | `1_000` | Max cache entries (LRU eviction) |
+|| `chatMemory` | `ChatMemory?` | `null` | Enables conversational memory injection and persistence |
+|| `conversationIdProvider` | `ConversationIdProvider` | `UuidConversationIdProvider` | Fallback ID generator when no `@ConversationId` annotation |
 
 **`@Operation` annotation settings relevant to the engine:**
 
@@ -475,15 +525,16 @@ The engine is **stateless** with respect to business logic: all state is either 
 `tramai-engine` depends on `tramai-core` (api scope) and uses `tramai-structured` only in tests. It defines no new annotations — it interprets `@AiService`, `@Operation`, and `@SystemPrompt` from `tramai-core`.
 
 **Owns:**
-- `TramaiEngine` — the public entry point
+- `TramaiEngine` — the public entry point, now accepts optional `chatMemory` and `conversationIdProvider`
 - `RetryPolicySettings` — retry delay computation
 - `CircuitBreakerSettings` — per-provider circuit state
 - `TokenBudgetSettings` — per-operation and per-attempt budgets
 - `OperationResponseCache` / `InMemoryOperationResponseCache` — caching contract and default impl
 - `ToolRegistry` — tool resolution
-- Proxy generation and invocation (`TramaiInvocationHandler`)
+- Proxy generation and invocation (`TramaiInvocationHandler`) — includes `@ConversationId` resolution and memory delegation
 - Route selection logic (via `ProviderRegistry.resolveCandidates`)
 - Structured output retry loop
+- Conversational memory injection and persistence (via `ChatMemory` SPI)
 
 **Does not own:**
 - Annotations (`@AiService`, `@Operation`, etc.) — owned by `tramai-core`
@@ -491,6 +542,7 @@ The engine is **stateless** with respect to business logic: all state is either 
 - Structured output schema/parsing — owned by `tramai-structured`
 - Multi-step workflows — owned by `tramai-orchestration`
 - Framework integration — owned by adapters (`tramai-spring`, `tramai-standalone`)
+- Memory implementations — owned by `tramai-memory` (e.g., `MessageWindowChatMemory`, `MemoryInterceptor`)
 
 ### Dependency graph
 
@@ -524,13 +576,15 @@ No transitive dependency on any specific AI provider. No dependency on Spring, M
 │   │       └─ Store as OperationDefinition in method→op map          │
 │   │                                                                 │
 │   └─ TramaiInvocationHandler(providerRegistry, cache, circuit,      │
-│       retry, tokenBudget, observer, interceptor, definition)        │
+│       retry, tokenBudget, observer, interceptor, definition,        │
+│       chatMemory, conversationIdProvider)                           │
 │         │                                                           │
 │         └─ Proxy.newProxyInstance(loader, [ServiceType], handler)   │
 │                                                                     │
 │ On method invocation:                                               │
 │   handler.invoke(proxy, method, args)                               │
 │     ├─ Object method? → delegate to toString/hashCode/equals        │
+│     ├─ Resolve conversationId from @ConversationId or provider      │
 │     ├─ Suspend? → launch in engine scope, return COROUTINE_SUSPENDED│
 │     └─ Blocking? → runBlocking { execute(op, args) }                │
 │                                                                     │
