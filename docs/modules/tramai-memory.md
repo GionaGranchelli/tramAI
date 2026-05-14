@@ -1,171 +1,71 @@
-# Module: `tramai-memory`
+# tramai-memory
 
-> **One-liner:** In-memory conversational memory — message windows, history injection, and response persistence for multi-turn AI interactions.
-> **Module type:** `optional`
+**Version:** 0.3.0  
+**Status:** Stable  
+**Role:** In-memory context and token-aware multi-turn conversational chat persistence.
 
----
+## Purpose
 
-## L1: Quick Start (30-second read)
+The `tramai-memory` module provides production-ready implementations of the `ChatMemory` interface. While `tramai-core` offers the SPI, this module brings the actual memory implementations needed to retain conversational state across multiple requests (multi-turn chat) while staying within LLM context windows.
 
-### What
+## Core Concepts
 
-`tramai-memory` provides the production implementation of Tramai's `ChatMemory` SPI. It ships two classes:
+TramAI models conversation history around bounded scopes. Rather than infinitely accumulating messages until the LLM crashes from token limits, this module provides bounded memory tracking out of the box.
 
-- **`MessageWindowChatMemory`** — thread-safe, bounded, in-memory store keyed by conversation ID. Configurable `maxMessages` (sliding window) and `maxConversations` (LRU eviction). System messages are retained and deduplicated.
-- **`MemoryInterceptor`** — standalone helper that prepends stored history to outgoing requests (with system message dedup) and persists user+assistant responses after each turn.
+### `TokenAwareChatMemory`
 
-### Why
+An in-memory sliding window that retains conversation history strictly based on an estimated token count.
 
-Without `tramai-memory`, every `@AiService` call is stateless — the model has no memory of previous turns. Adding conversational memory enables chat UIs, session-based agents, and multi-turn interactions.
+- **System Deduplication**: System messages (`MessageRole.SYSTEM`) are never evicted and are deduplicated.
+- **LRU Eviction**: Unbounded memory growth is prevented by evicting older entire conversations based on a Least Recently Used policy.
+- **Token Estimation**: Uses a `Tokenizer` interface. By default, it applies a `roughTokenizer` (~3 characters per token) to prevent token exhaustion. 
+- **Thread Safety**: Backed by `ConcurrentHashMap` with single-lock protection across conversation state.
 
-### When to use
+### `PersistentChatMemory`
 
-When you need the engine to inject conversation history into requests and save responses automatically. Wire it through `TramaiEngine.chatMemory` or `Tramai.Builder.memory()`.
+Connects a `ChatMemoryStore` (database) with an optional in-memory cache (`MessageWindowChatMemory` or similar). Use this when your conversation context needs to survive server restarts or distributed worker pools.
 
-### How to add
-
-**Gradle:**
+## Dependencies
 
 ```kotlin
+// build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-memory:0.2.0")
+    implementation("dev.tramai:tramai-memory:0.3.0")
+    // If you need durable storage (Postgres, Redis, File):
+    implementation("dev.tramai:tramai-memory-store:0.3.0")
 }
 ```
 
-**Bill of Materials:**
+## Quick Start: TokenAwareChatMemory
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.2.0"))
-implementation("dev.tramai:tramai-memory")
-```
+import dev.tramai.memory.TokenAwareChatMemory
+import dev.tramai.core.model.Message
+import dev.tramai.core.model.MessageRole
 
-### Where to go next
-
-- [SPEC-020 Chat Memory](../specs/spec-020-chat-memory.md) — full spec with design decisions and integration flow
-- [Memory Board](../board/memory-board.md) — implementation progress and backlog
-- [tramai-engine module](./tramai-engine.md) — how to wire memory into the engine
-
----
-
-## L2: Usage Guide (5-minute read)
-
-### Basic setup
-
-```kotlin
-val memory = MessageWindowChatMemory(
-    maxMessages = 20,        // non-system messages per conversation
-    maxConversations = 1_000, // active conversations before LRU eviction
+val memory = TokenAwareChatMemory(
+    maxTokens = 4096,           // Evict oldest non-system messages once 4k tokens breached
+    maxConversations = 1000     // Purge entire chats after 1000 active sessions
 )
 
-Tramai.builder()
-    .provider(openAiProvider)
-    .model("gpt-4o", "openai")
-    .memory(memory)
-    .build()
+// Add messages
+memory.add("chat-123", Message(MessageRole.USER, "Hello, can you remember things?"))
+memory.add("chat-123", Message(MessageRole.ASSISTANT, "Yes, I am maintaining context."))
+
+// Retrieve context
+val history = memory.get("chat-123")
+
+// Clear context
+memory.clear("chat-123")
 ```
 
-### Annotate conversation IDs
+## When to use this module
 
-Mark the parameter that identifies the conversation:
+* You are building conversational agents, chatbots, or customer support AI.
+* You need context retention across sequential invocations.
+* You need protection against context-window exhaustion via token counting.
 
-```kotlin
-@AiService
-interface SupportChat {
-    @Operation(prompt = "Answer the user's question", model = "gpt-4o")
-    suspend fun chat(
-        @ConversationId ticketId: String,
-        message: String,
-    ): String
-}
-```
+## When NOT to use this module
 
-### Window configuration
-
-```kotlin
-// Small window — keeps only the last 5 user/assistant exchanges
-val tightWindow = MessageWindowChatMemory(maxMessages = 5)
-
-// Large deployment — up to 10K conversations, 50 messages each
-val largeDeployment = MessageWindowChatMemory(
-    maxMessages = 50,
-    maxConversations = 10_000,
-)
-```
-
-### Using MemoryInterceptor directly
-
-For custom integration outside `TramaiEngine`:
-
-```kotlin
-val interceptor = MemoryInterceptor(chatMemory)
-
-// Before calling the provider:
-val enhancedMessages = interceptor.interceptRequest("conv-1", messages)
-
-// After receiving the response:
-interceptor.interceptResponse("conv-1", originalMessages, response)
-```
-
----
-
-## L3: Architecture & Mechanics (15-minute read)
-
-### Design philosophy
-
-`tramai-memory` is deliberately minimal. It provides:
-
-1. A thread-safe, bounded in-memory store (`MessageWindowChatMemory`)
-2. A stateless interceptor that transforms message lists (`MemoryInterceptor`)
-
-The engine does not import `tramai-memory` directly — it uses the `ChatMemory` SPI from `tramai-core`. Users add `tramai-memory` to their dependency graph explicitly.
-
-### Thread safety
-
-`MessageWindowChatMemory` uses a single global lock protecting all mutable operations (conversation map mutations, deque mutations, LRU tracker updates, eviction). This avoids deadlocks from two-phase locking (per-entry + global lock). All operations are `synchronized(lock)`.
-
-### Eviction semantics
-
-| Trigger | What happens |
-|---------|-------------|
-| `maxMessages` exceeded | Oldest non-system messages removed within the conversation |
-| New system message arrives | Old system message replaced (dedup, one per conversation) |
-| `maxConversations` exceeded | Entire least-recently-written conversation evicted |
-
-`ConversationIdProvider` is `UuidConversationIdProvider` by default in the engine — every call without `@ConversationId` creates a new UUID, effectively single-turn.
-
-### Known limitations (v1)
-
-- Tool-call intermediate messages are not persisted (v1.1)
-- Token-count window not yet available (message-count only; v1.1)
-- No persistent backends (in-memory only; v1.1)
-
----
-
-## L4: API Reference
-
-### `MessageWindowChatMemory`
-
-```kotlin
-class MessageWindowChatMemory(
-    maxMessages: Int = 20,
-    maxConversations: Int = 1_000,
-) : ChatMemory
-```
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `get(conversationId)` | `List<Message>` | Snapshot of conversation history, empty if none |
-| `add(conversationId, message)` | `Unit` | Append one message, triggers eviction + LRU update |
-| `add(conversationId, messages)` | `Unit` | Append multiple messages |
-| `clear(conversationId)` | `Unit` | Remove all history for a conversation |
-
-### `MemoryInterceptor`
-
-```kotlin
-class MemoryInterceptor(chatMemory: ChatMemory)
-```
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `interceptRequest(conversationId, messages)` | `List<Message>` | Prepends history, deduplicates system messages |
-| `interceptResponse(conversationId, requestMessages, response)` | `Unit` | Persists user messages + assistant response |
+* You are building single-turn extraction tools (e.g. summarizing a block of text).
+* Your use case is stateless.
