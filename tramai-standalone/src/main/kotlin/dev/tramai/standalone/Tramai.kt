@@ -1,5 +1,6 @@
 package dev.tramai.standalone
 
+import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.observation.NoOpOperationInterceptor
 import dev.tramai.core.observation.NoOpOperationObserver
 import dev.tramai.core.observation.OperationInterceptor
@@ -31,6 +32,7 @@ class Tramai private constructor(
     private val retryPolicySettings: RetryPolicySettings,
     private val tokenBudgetSettings: TokenBudgetSettings,
     private val promptSanitizer: PromptSanitizer?,
+    private val chatMemory: ChatMemory?,
 ) {
     /**
      * Creates a service proxy using the built-in Jackson structured output handler.
@@ -46,6 +48,7 @@ class Tramai private constructor(
         retryPolicySettings = retryPolicySettings,
         tokenBudgetSettings = tokenBudgetSettings,
         promptSanitizer = promptSanitizer,
+        chatMemory = chatMemory,
     ).create(serviceType)
 
     companion object {
@@ -70,6 +73,7 @@ class Tramai private constructor(
         private var tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings()
         private var promptSanitizer: PromptSanitizer? = null
         private val handler = JacksonStructuredOutputHandler()
+        private var chatMemory: ChatMemory? = null
 
         /**
          * Registers a provider with an optional explicit [name].
@@ -224,6 +228,18 @@ class Tramai private constructor(
         }
 
         /**
+         * Configures conversational memory for multi-turn interactions.
+         *
+         * When set, the handler will inject conversation history into each request
+         * and persist responses after each invocation.
+         *
+         * @param chatMemory the memory store (e.g., [dev.tramai.memory.MessageWindowChatMemory])
+         */
+        fun memory(chatMemory: ChatMemory): Builder = apply {
+            this.chatMemory = chatMemory
+        }
+
+        /**
          * Builds an immutable standalone Tramai instance.
          */
         fun build(): Tramai = Tramai(
@@ -236,6 +252,7 @@ class Tramai private constructor(
             retryPolicySettings = retryPolicySettings,
             tokenBudgetSettings = tokenBudgetSettings,
             promptSanitizer = promptSanitizer,
+            chatMemory = chatMemory,
         )
     }
 }

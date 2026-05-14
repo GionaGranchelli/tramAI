@@ -1,10 +1,14 @@
 package dev.tramai.engine
 
 import dev.tramai.core.annotations.AiService
+import dev.tramai.core.annotations.ConversationId
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.annotations.System as SystemMessage
 import dev.tramai.core.annotations.SystemPrompt
 import dev.tramai.core.annotations.User as UserMessage
+import dev.tramai.core.memory.ChatMemory
+import dev.tramai.core.memory.ConversationIdProvider
+import dev.tramai.core.memory.UuidConversationIdProvider
 import dev.tramai.core.exception.CircuitBreakerOpenException
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.ProviderCapabilityException
@@ -73,6 +77,8 @@ class TramaiEngine(
     private val retryPolicySettings: RetryPolicySettings = RetryPolicySettings(),
     private val tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings(),
     private val promptSanitizer: PromptSanitizer? = null,
+    private val chatMemory: ChatMemory? = null,
+    private val conversationIdProvider: ConversationIdProvider = UuidConversationIdProvider(),
     private val job: Job = SupervisorJob(),
     private val scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
 ) : AutoCloseable {
@@ -93,6 +99,8 @@ class TramaiEngine(
         retryPolicySettings: RetryPolicySettings = RetryPolicySettings(),
         tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings(),
         promptSanitizer: PromptSanitizer? = null,
+        chatMemory: ChatMemory? = null,
+        conversationIdProvider: ConversationIdProvider = UuidConversationIdProvider(),
         job: Job = SupervisorJob(),
         scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
     ) : this(
@@ -106,6 +114,8 @@ class TramaiEngine(
         retryPolicySettings = retryPolicySettings,
         tokenBudgetSettings = tokenBudgetSettings,
         promptSanitizer = promptSanitizer,
+        chatMemory = chatMemory,
+        conversationIdProvider = conversationIdProvider,
         job = job,
         scope = scope,
     )
@@ -130,6 +140,8 @@ class TramaiEngine(
             retryDelayPolicy = retryDelayPolicy,
             tokenBudgetSettings = tokenBudgetSettings,
             promptSanitizer = promptSanitizer,
+            chatMemory = chatMemory,
+            conversationIdProvider = conversationIdProvider,
             scope = scope,
             serviceDefinition = definition,
         )
@@ -166,6 +178,8 @@ private class TramaiInvocationHandler(
     private val retryDelayPolicy: ProviderRetryDelayPolicy,
     private val tokenBudgetSettings: TokenBudgetSettings,
     private val promptSanitizer: PromptSanitizer?,
+    private val chatMemory: ChatMemory?,
+    private val conversationIdProvider: ConversationIdProvider,
     private val scope: CoroutineScope,
     private val serviceDefinition: ServiceDefinition,
 ) : InvocationHandler {
@@ -178,11 +192,12 @@ private class TramaiInvocationHandler(
         val operation = serviceDefinition.operations[method]
             ?: throw ConfigurationException("No operation metadata registered for ${method.name}")
 
+        val conversationId = if (chatMemory != null) resolveConversationId(method, args.orEmpty()) else null
         return if (operation.isSuspend) {
-            invokeSuspend(operation, args.orEmpty())
+            invokeSuspend(operation, args.orEmpty(), conversationId)
         } else {
             runBlocking {
-                execute(operation, args.orEmpty().toList())
+                execute(operation, args.orEmpty().toList(), conversationId)
             }
         }
     }
@@ -190,6 +205,7 @@ private class TramaiInvocationHandler(
     private fun invokeSuspend(
         operation: OperationDefinition,
         args: Array<out Any?>,
+        conversationId: String?,
     ): Any {
         // Kotlin suspend proxies receive the continuation as the last JVM argument.
         @Suppress("UNCHECKED_CAST")
@@ -198,7 +214,7 @@ private class TramaiInvocationHandler(
 
         val callArguments = args.dropLast(1)
         scope.launch(continuation.context) {
-            runCatching { execute(operation, callArguments) }
+            runCatching { execute(operation, callArguments, conversationId) }
                 .onSuccess { continuation.resumeWith(Result.success(it)) }
                 .onFailure { continuation.resumeWith(Result.failure(it)) }
         }
@@ -208,16 +224,17 @@ private class TramaiInvocationHandler(
     private suspend fun execute(
         operation: OperationDefinition,
         arguments: List<Any?>,
+        conversationId: String?,
     ): Any? {
         val tokenBudgetTracker = TokenBudgetTracker(tokenBudgetSettings)
         return when (operation.returnKind) {
-            ReturnKind.STRING -> executeRaw(operation, arguments, tokenBudgetTracker)
+            ReturnKind.STRING -> executeRaw(operation, arguments, tokenBudgetTracker, conversationId)
             ReturnKind.UNIT -> {
-                executeRaw(operation, arguments, tokenBudgetTracker)
+                executeRaw(operation, arguments, tokenBudgetTracker, conversationId)
                 Unit
             }
-            ReturnKind.STRUCTURED -> executeStructured(operation, arguments, tokenBudgetTracker)
-            ReturnKind.STREAMING -> executeStreaming(operation, arguments, tokenBudgetTracker)
+            ReturnKind.STRUCTURED -> executeStructured(operation, arguments, tokenBudgetTracker, conversationId)
+            ReturnKind.STREAMING -> executeStreaming(operation, arguments, tokenBudgetTracker, conversationId)
         }
     }
 
@@ -225,7 +242,27 @@ private class TramaiInvocationHandler(
         operation: OperationDefinition,
         arguments: List<Any?>,
         tokenBudgetTracker: TokenBudgetTracker,
+        conversationId: String?,
     ): Flow<StreamChunk> {
+        // Memory: capture original messages for streaming request injection
+        val memoryMessages: List<Message>? = if (chatMemory != null && conversationId != null) {
+            val initialMessages = operation.initialMessages(arguments)
+            val history = chatMemory.get(conversationId)
+            if (history.isNotEmpty()) {
+                val currentSystem = initialMessages.firstOrNull { it.role == MessageRole.SYSTEM }
+                val deduped = if (currentSystem != null && history.any { it.role == MessageRole.SYSTEM }) {
+                    initialMessages.filter { it.role != MessageRole.SYSTEM }
+                } else {
+                    initialMessages
+                }
+                history + deduped
+            } else {
+                null // no history, use the request as-is
+            }
+        } else {
+            null
+        }
+
         return flow {
             var lastFailure: Throwable? = null
             var lastCircuitOpen: CircuitBreakerOpenException? = null
@@ -241,11 +278,16 @@ private class TramaiInvocationHandler(
                 val streamCapable = route.provider as? StreamCapable
                     ?: throw ProviderCapabilityException(route.providerName, "streaming")
                 val request = operation.toRequest(arguments, modelName = route.effectiveModelName)
+                val memoryInjectedRequest = if (memoryMessages != null) {
+                    request.copy(messages = memoryMessages)
+                } else {
+                    request
+                }
 
                 when (
                     val result = collectStreamingRoute(
                         streamCapable = streamCapable,
-                        request = request,
+                        request = memoryInjectedRequest,
                         operation = operation,
                         route = route,
                         attempt = attemptCounter.next(),
@@ -513,10 +555,43 @@ private class TramaiInvocationHandler(
         operation: OperationDefinition,
         arguments: List<Any?>,
         tokenBudgetTracker: TokenBudgetTracker,
+        conversationId: String?,
     ): String {
         operation.cachedValue(arguments)?.let { return it as String }
         val messages = operation.initialMessages(arguments).toMutableList()
-        val result = executeWithTools(operation, messages, tokenBudgetTracker)
+
+        // Memory: inject history if chatMemory is configured
+        val (originalMessages, effectiveMessages) = if (chatMemory != null && conversationId != null) {
+            val original = messages.toList()
+            val history = chatMemory.get(conversationId)
+            val enhanced = if (history.isNotEmpty()) {
+                val currentSystem = messages.firstOrNull { it.role == MessageRole.SYSTEM }
+                if (currentSystem != null && history.any { it.role == MessageRole.SYSTEM }) {
+                    messages.filter { it.role != MessageRole.SYSTEM }
+                } else {
+                    messages
+                }
+            } else {
+                messages
+            }
+            original to (history + enhanced).toMutableList()
+        } else {
+            messages.toList() to messages
+        }
+
+        val result = executeWithTools(operation, effectiveMessages, tokenBudgetTracker)
+
+        // Memory: persist response if chatMemory is configured
+        if (chatMemory != null && conversationId != null) {
+            val userMessages = originalMessages.filter { it.role == MessageRole.USER }
+            val assistantMessage = Message(
+                role = MessageRole.ASSISTANT,
+                content = result.response.content,
+                toolCalls = result.response.toolCalls,
+            )
+            chatMemory.add(conversationId, userMessages + assistantMessage)
+        }
+
         result.observation.onCallCompleted(parseSuccess = null)
         return result.response.content.also { operation.cacheValue(arguments, it) }
     }
@@ -525,6 +600,7 @@ private class TramaiInvocationHandler(
         operation: OperationDefinition,
         arguments: List<Any?>,
         tokenBudgetTracker: TokenBudgetTracker,
+        conversationId: String?,
     ): Any {
         val handler = structuredOutputHandler ?: throw ConfigurationException(
             "Structured return type ${operation.returnTypeDescription} requires a StructuredOutputHandler implementation from tramai-structured",
@@ -532,6 +608,30 @@ private class TramaiInvocationHandler(
         val contract = operation.structuredContract(handler)
         operation.cachedValue(arguments, contract.schemaJson)?.let { return it }
         val messages = operation.initialMessages(arguments, contract.schemaJson).toMutableList()
+
+        // Memory: inject history if chatMemory is configured
+        val (originalMessages, effectiveMessages) = if (chatMemory != null && conversationId != null) {
+            val original = messages.toList()
+            val history = chatMemory.get(conversationId)
+            val enhanced = if (history.isNotEmpty()) {
+                val currentSystem = messages.firstOrNull { it.role == MessageRole.SYSTEM }
+                if (currentSystem != null && history.any { it.role == MessageRole.SYSTEM }) {
+                    messages.filter { it.role != MessageRole.SYSTEM }
+                } else {
+                    messages
+                }
+            } else {
+                messages
+            }
+            original to (history + enhanced)
+        } else {
+            messages.toList() to messages.toList()
+        }
+
+        // Re-initialize messages list with history-injected content
+        messages.clear()
+        messages.addAll(effectiveMessages)
+
         val maxAttempts = operation.operation.maxRetries + 1
 
         repeat(maxAttempts) { attemptIndex ->
@@ -546,6 +646,16 @@ private class TramaiInvocationHandler(
             ) {
                 is StructuredOutputResult.Success -> {
                     result.observation.onCallCompleted(parseSuccess = true)
+                    // Memory: persist response if chatMemory is configured (only on success)
+                    if (chatMemory != null && conversationId != null) {
+                        val userMessages = originalMessages.filter { it.role == MessageRole.USER }
+                        val assistantMessage = Message(
+                            role = MessageRole.ASSISTANT,
+                            content = result.response.content,
+                            toolCalls = result.response.toolCalls,
+                        )
+                        chatMemory.add(conversationId, userMessages + assistantMessage)
+                    }
                     operation.cacheValue(arguments, analysis.value, contract.schemaJson)
                     return analysis.value
                 }
@@ -972,6 +1082,18 @@ private class TramaiInvocationHandler(
         "hashCode" -> System.identityHashCode(proxy)
         "equals" -> proxy === args.firstOrNull()
         else -> throw UnsupportedOperationException("Unsupported Object method: ${method.name}")
+    }
+
+    private fun resolveConversationId(method: Method, args: Array<out Any?>): String {
+        val parameters = method.parameters
+        for (i in parameters.indices) {
+            if (parameters[i].isAnnotationPresent(ConversationId::class.java)) {
+                return args[i]?.toString() ?: throw IllegalArgumentException(
+                    "@ConversationId parameter '${parameters[i].name}' at index $i is null"
+                )
+            }
+        }
+        return conversationIdProvider.resolve()
     }
 
     private fun OperationDefinition.cachedValue(

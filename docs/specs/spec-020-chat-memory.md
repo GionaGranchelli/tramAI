@@ -1,6 +1,6 @@
 # SPEC-020: Chat Memory
 
-- Status: proposed
+- Status: implemented (v1.0 foundation: Batches 1-4 done, Batch 5 tests pending)
 - Owner: maintainer
 - Last updated: 2026-05-13
 - Related roadmap milestone: M13 — Memory
