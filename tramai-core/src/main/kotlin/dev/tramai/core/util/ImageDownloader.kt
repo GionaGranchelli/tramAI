@@ -45,11 +45,14 @@ object ImageDownloader {
     /**
      * Detects a likely MIME type from a URL's file extension.
      */
-    private fun detectMimeType(url: String): String = when {
-        url.endsWith(".jpg") || url.endsWith(".jpeg") -> "image/jpeg"
-        url.endsWith(".png") -> "image/png"
-        url.endsWith(".webp") -> "image/webp"
-        url.endsWith(".gif") -> "image/gif"
-        else -> "image/png" // safe default
+    internal fun detectMimeType(url: String): String {
+        val cleaned = url.split('?', '#').first().lowercase()
+        return when {
+            cleaned.endsWith(".jpg") || cleaned.endsWith(".jpeg") -> "image/jpeg"
+            cleaned.endsWith(".png") -> "image/png"
+            cleaned.endsWith(".webp") -> "image/webp"
+            cleaned.endsWith(".gif") -> "image/gif"
+            else -> "image/png" // safe default
+        }
     }
 }

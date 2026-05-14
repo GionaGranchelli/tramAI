@@ -3,6 +3,7 @@ package dev.tramai.ollama
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
@@ -10,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import java.net.InetSocketAddress
+import java.util.Base64
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -110,6 +112,56 @@ class OllamaProviderTest {
         }
             .isInstanceOf(ProviderException::class.java)
             .hasMessageContaining("Unexpected Ollama response role")
+    }
+
+    @Test
+    fun `converts image parts to ollama images array format`() {
+        val imageData = byteArrayOf(0x89.toByte(), 0x50.toByte(), 0x4E.toByte(), 0x47.toByte())
+        val provider = OllamaProvider(baseUrl = "http://localhost:${server.address.port}")
+
+        runBlocking {
+            provider.complete(
+                ModelRequest(
+                    model = "llava",
+                    messages = listOf(
+                        Message(
+                            role = MessageRole.USER,
+                            content = "",
+                            contentParts = listOf(
+                                ContentPart.TextPart("describe this"),
+                                ContentPart.ImagePart(
+                                    mimeType = "image/png",
+                                    data = imageData,
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        assertThat(capturedBody).contains("\"images\":")
+        assertThat(capturedBody).contains(Base64.getEncoder().encodeToString(imageData))
+        assertThat(capturedBody).contains("describe this")
+    }
+
+    @Test
+    fun `keeps plain string content when no image parts are present`() {
+        val provider = OllamaProvider(baseUrl = "http://localhost:${server.address.port}")
+
+        runBlocking {
+            provider.complete(
+                ModelRequest(
+                    model = "llama3.2",
+                    messages = listOf(
+                        Message(MessageRole.USER, "say hello"),
+                    ),
+                ),
+            )
+        }
+
+        assertThat(capturedBody).contains("\"content\":\"say hello\"")
+        assertThat(capturedBody).doesNotContain("\"images\":")
     }
 
     private fun respond(

@@ -146,7 +146,7 @@ class BedrockProvider @JvmOverloads constructor(
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun buildClaudeMessage(message: dev.tramai.core.model.Message): Map<String, Any?> {
+    internal fun buildClaudeMessage(message: dev.tramai.core.model.Message): Map<String, Any?> {
         val role = when (message.role) {
             MessageRole.USER -> "user"
             MessageRole.ASSISTANT -> "assistant"

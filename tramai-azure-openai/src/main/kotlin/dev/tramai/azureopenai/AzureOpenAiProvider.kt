@@ -278,7 +278,7 @@ class AzureOpenAiProvider @JvmOverloads constructor(
 
     // ---- Message conversion ----
 
-    private fun messageToMap(message: dev.tramai.core.model.Message): Map<String, Any?> {
+    internal fun messageToMap(message: dev.tramai.core.model.Message): Map<String, Any?> {
         val msgMap = mutableMapOf<String, Any?>("role" to message.role.name.lowercase())
 
         val msgParts = message.contentParts
