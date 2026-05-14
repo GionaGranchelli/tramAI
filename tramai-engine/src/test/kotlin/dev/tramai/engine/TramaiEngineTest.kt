@@ -1,8 +1,12 @@
 package dev.tramai.engine
 
 import dev.tramai.core.annotations.AiService
+import dev.tramai.core.annotations.ConversationId
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.annotations.SystemPrompt
+import dev.tramai.core.memory.ChatMemory
+import dev.tramai.core.memory.ConversationIdProvider
+import dev.tramai.core.memory.UuidConversationIdProvider
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.ProviderCapabilityException
 import dev.tramai.core.exception.ProviderException
@@ -813,6 +817,218 @@ class TramaiEngineTest {
         assertThat(observer.records.flatMap { it.engineEvents }.count { it.name == "tramai.retry.scheduled" })
             .isGreaterThan(0)
     }
+
+    // ── Chat Memory Integration Tests ──────────────────────────────
+
+    @Test
+    fun `injects conversation history into the request messages when chatMemory is provided`() {
+        val memory = TestChatMemory()
+        memory.add("session-1", listOf(
+            Message(MessageRole.USER, "previous question"),
+            Message(MessageRole.ASSISTANT, "previous answer"),
+        ))
+        val provider = RecordingProvider { ModelResponse(content = "new answer") }
+        val engine = TramaiEngine(provider = provider, chatMemory = memory)
+        val service = engine.create<MemoryChatService>()
+
+        val result = runBlocking { service.chat(sessionId = "session-1", message = "new question") }
+
+        assertThat(result).isEqualTo("new answer")
+        // Messages should include history + new user message
+        val messages = provider.requests.single().messages
+        assertThat(messages.any { it.content.contains("previous question") }).isTrue
+        assertThat(messages.any { it.content.contains("previous answer") }).isTrue
+        assertThat(messages.any { it.content.contains("new question") }).isTrue
+    }
+
+    @Test
+    fun `persists conversation turn to chatMemory after successful call`() {
+        val memory = TestChatMemory()
+        val provider = RecordingProvider { ModelResponse(content = "assistant response") }
+        val engine = TramaiEngine(provider = provider, chatMemory = memory)
+        val service = engine.create<MemoryChatService>()
+
+        val result = runBlocking { service.chat(sessionId = "session-1", message = "my question") }
+
+        assertThat(result).isEqualTo("assistant response")
+        val history = memory.get("session-1")
+        // User message is the full rendered prompt + arguments
+        assertThat(history).hasSize(2)
+        assertThat(history.first().role).isEqualTo(MessageRole.USER)
+        assertThat(history.first().content).contains("my question")
+        assertThat(history.last().role).isEqualTo(MessageRole.ASSISTANT)
+        assertThat(history.last().content).isEqualTo("assistant response")
+    }
+
+    @Test
+    fun `accumulates turns across multiple calls with chatMemory`() {
+        val memory = TestChatMemory()
+        val provider = SequencedProvider(
+            ModelResponse(content = "first answer"),
+            ModelResponse(content = "second answer"),
+        )
+        val engine = TramaiEngine(provider = provider, chatMemory = memory)
+        val service = engine.create<MemoryChatService>()
+
+        runBlocking { service.chat(sessionId = "session-1", message = "first question") }
+        runBlocking { service.chat(sessionId = "session-1", message = "second question") }
+
+        val history = memory.get("session-1")
+        assertThat(history).hasSize(4)
+        assertThat(history[0].role).isEqualTo(MessageRole.USER)
+        assertThat(history[0].content).contains("first question")
+        assertThat(history[1].role).isEqualTo(MessageRole.ASSISTANT)
+        assertThat(history[1].content).isEqualTo("first answer")
+        assertThat(history[2].role).isEqualTo(MessageRole.USER)
+        assertThat(history[2].content).contains("second question")
+        assertThat(history[3].role).isEqualTo(MessageRole.ASSISTANT)
+        assertThat(history[3].content).isEqualTo("second answer")
+    }
+
+    @Test
+    fun `injects accumulated history on subsequent calls`() {
+        val memory = TestChatMemory()
+        val provider = SequencedProvider(
+            ModelResponse(content = "first answer"),
+            ModelResponse(content = "second answer"),
+        )
+        val engine = TramaiEngine(provider = provider, chatMemory = memory)
+        val service = engine.create<MemoryChatService>()
+
+        runBlocking { service.chat(sessionId = "session-1", message = "first question") }
+        runBlocking { service.chat(sessionId = "session-1", message = "second question") }
+
+        // Second request should include the first turn's history injected before user messages
+        val secondMessages = provider.requests[1].messages
+        // The first turn's user message appeared in the second request's injected history
+        assertThat(secondMessages.any { it.content.contains("first question") }).isTrue
+        assertThat(secondMessages.any { it.content.contains("first answer") }).isTrue
+        assertThat(secondMessages.any { it.content.contains("second question") }).isTrue
+    }
+
+    @Test
+    fun `separate conversations are isolated with chatMemory`() {
+        val memory = TestChatMemory()
+        val provider = SequencedProvider(
+            ModelResponse(content = "A answer"),
+            ModelResponse(content = "B answer"),
+        )
+        val engine = TramaiEngine(provider = provider, chatMemory = memory)
+        val service = engine.create<MemoryChatService>()
+
+        runBlocking { service.chat(sessionId = "session-a", message = "question for A") }
+        runBlocking { service.chat(sessionId = "session-b", message = "question for B") }
+
+        val historyA = memory.get("session-a")
+        val historyB = memory.get("session-b")
+        assertThat(historyA).hasSize(2)
+        assertThat(historyB).hasSize(2)
+        // Both user messages should contain their respective question content
+        assertThat(historyA.first().content).contains("question for A")
+        assertThat(historyA.last().content).isEqualTo("A answer")
+        assertThat(historyB.first().content).contains("question for B")
+        assertThat(historyB.last().content).isEqualTo("B answer")
+    }
+
+    @Test
+    fun `chatMemory is inactive when not configured`() {
+        val provider = RecordingProvider { ModelResponse(content = "answer") }
+        val engine = TramaiEngine(provider = provider)
+        val service = engine.create<MemoryChatService>()
+
+        val result = runBlocking { service.chat(sessionId = "session-1", message = "question") }
+
+        assertThat(result).isEqualTo("answer")
+        assertThat(provider.requests.single().messages.map { it.role })
+            .containsExactly(MessageRole.SYSTEM, MessageRole.USER)
+    }
+
+    @Test
+    fun `resolves @ConversationId annotation from method parameter`() {
+        val memory = TestChatMemory()
+        val provider = RecordingProvider { ModelResponse(content = "answer") }
+        val engine = TramaiEngine(provider = provider, chatMemory = memory)
+        val service = engine.create<MemoryChatService>()
+
+        runBlocking { service.chat(sessionId = "my-session", message = "hello") }
+
+        val history = memory.get("my-session")
+        assertThat(history).isNotEmpty
+    }
+
+    @Test
+    fun `returns empty history on first turn when no history exists`() {
+        val memory = TestChatMemory()
+        val provider = RecordingProvider { ModelResponse(content = "first answer") }
+        val engine = TramaiEngine(provider = provider, chatMemory = memory)
+        val service = engine.create<MemoryChatService>()
+
+        runBlocking { service.chat(sessionId = "new-session", message = "first ever") }
+
+        // Only the user's message and assistant response are persisted
+        val history = memory.get("new-session")
+        assertThat(history).hasSize(2)
+    }
+
+    @Test
+    fun `chatMemory deduplicates system messages across turns`() {
+        val memory = TestChatMemory()
+        val provider = SequencedProvider(
+            ModelResponse(content = "first"),
+            ModelResponse(content = "second"),
+        )
+        val engine = TramaiEngine(provider = provider, chatMemory = memory)
+        val service = engine.create<MemoryChatService>()
+
+        runBlocking { service.chat(sessionId = "session-1", message = "first") }
+        runBlocking { service.chat(sessionId = "session-1", message = "second") }
+
+        // Second request should have exactly one system message
+        val systemMessages = provider.requests[1].messages.filter { it.role == MessageRole.SYSTEM }
+        assertThat(systemMessages).hasSize(1)
+    }
+
+    @Test
+    fun `chatMemory with structured output persists on success`() {
+        val memory = TestChatMemory()
+        val provider = SequencedProvider(
+            ModelResponse(content = """{"status":"ok"}"""),
+            ModelResponse(content = """{"status":"done"}"""),
+        )
+        val engine = TramaiEngine(
+            provider = provider,
+            structuredOutputHandler = JacksonStructuredOutputHandler(),
+            chatMemory = memory,
+        )
+        val service = engine.create<MemoryStructuredService>()
+
+        runBlocking { service.process(sessionId = "s1", input = "first") }
+        runBlocking { service.process(sessionId = "s1", input = "second") }
+
+        val history = memory.get("s1")
+        assertThat(history).hasSize(4)
+    }
+
+    @Test
+    fun `chatMemory does not persist on structured parse failure`() {
+        val memory = TestChatMemory()
+        val provider = RecordingProvider {
+            ModelResponse(content = "not json")
+        }
+        val engine = TramaiEngine(
+            provider = provider,
+            structuredOutputHandler = JacksonStructuredOutputHandler(),
+            chatMemory = memory,
+        )
+        val service = engine.create<MemoryStructuredService>()
+
+        assertThatThrownBy {
+            runBlocking { service.process(sessionId = "s1", input = "data") }
+        }.isInstanceOf(StructuredOutputException::class.java)
+
+        // Nothing persisted after all retries failed
+        assertThat(memory.get("s1")).isEmpty()
+    }
 }
 
 @AiService
@@ -966,6 +1182,56 @@ private interface NotAnAiService {
 @AiService
 private interface MissingOperationAnnotation {
     suspend fun broken(value: String): String
+}
+
+@AiService
+@SystemPrompt("You are a helpful assistant.")
+private interface MemoryChatService {
+    @Operation(
+        prompt = "Respond to the user's message",
+        model = "claude-sonnet-4-20250514",
+    )
+    suspend fun chat(
+        @ConversationId sessionId: String,
+        message: String,
+    ): String
+}
+
+@AiService
+@SystemPrompt("You are a structured processor.")
+private interface MemoryStructuredService {
+    @Operation(
+        prompt = "Process the input and return a structured result",
+        model = "claude-sonnet-4-20250514",
+    )
+    suspend fun process(
+        @ConversationId sessionId: String,
+        input: String,
+    ): StatusResult
+}
+
+private class TestChatMemory : ChatMemory {
+    private val store = mutableMapOf<String, MutableList<Message>>()
+
+    override fun get(conversationId: String): List<Message> {
+        require(conversationId.isNotBlank())
+        return store[conversationId]?.toList() ?: emptyList()
+    }
+
+    override fun add(conversationId: String, messages: List<Message>) {
+        require(conversationId.isNotBlank())
+        store.getOrPut(conversationId) { mutableListOf() }.addAll(messages)
+    }
+
+    override fun add(conversationId: String, message: Message) {
+        require(conversationId.isNotBlank())
+        store.getOrPut(conversationId) { mutableListOf() }.add(message)
+    }
+
+    override fun clear(conversationId: String) {
+        require(conversationId.isNotBlank())
+        store.remove(conversationId)
+    }
 }
 
 private data class StatusResult(
