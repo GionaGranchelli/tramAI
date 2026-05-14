@@ -86,14 +86,6 @@ internal data class ShellWorkflowStep<S>(
     val merge: suspend (S, ShellResult, WorkflowContext) -> S,
     val config: ShellStepConfig = ShellStepConfig(),
 ) : InternalWorkflowStep<S> {
-    internal fun validateStaticCommandPolicy(workflowName: String) {
-        validateCommandPolicy(
-            executable = definition.executable,
-            onViolation = { message ->
-                throw IllegalArgumentException("Workflow '$workflowName' shell step '$name' $message")
-            },
-        )
-    }
 
     suspend fun execute(
         workflowName: String,
@@ -343,20 +335,6 @@ internal data class ShellWorkflowStep<S>(
             }
     }
 
-    private fun validateCommandPolicy(
-        executable: String,
-        onViolation: (String) -> Nothing,
-    ) {
-        val policyIdentifier = executable.policyCommandIdentifier()
-        val allowedCommands = config.allowedCommands
-        if (allowedCommands.isEmpty() || policyIdentifier !in allowedCommands) {
-            onViolation("command is not in allowlist")
-        }
-        val deniedCommands = config.deniedCommands
-        if (policyIdentifier in deniedCommands) {
-            onViolation("command is blocked by the denylist")
-        }
-    }
 }
 
 private data class ExecutedShellResult(
@@ -433,9 +411,6 @@ private fun ShellCommand.commandIdentifiers(): Set<String> {
     }
 }
 
-private fun String.policyCommandIdentifier(): String = if (containsPathSeparator()) this else File(this).name
-
-private fun String.containsPathSeparator(): Boolean = contains('/') || contains('\\')
 
 private fun Throwable.rethrowIfCancellation() {
     if (this is CancellationException) {

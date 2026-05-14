@@ -1266,7 +1266,6 @@ private fun <S> validateStaticCommandPolicies(
 ) {
     for (step in steps) {
         when (step) {
-            is ShellWorkflowStep<*> -> step.validateStaticCommandPolicy(workflowName)
             is McpWorkflowStep<*> -> step.validateStaticCommandPolicy(workflowName)
             is BranchWorkflowStep -> {
                 step.branches.values.forEach { validateStaticCommandPolicies(workflowName, it) }
