@@ -13,6 +13,7 @@ include(
     "tramai-observability",
     "tramai-mcp",
     "tramai-memory",
+    "tramai-memory-store",
     "tramai-orchestration",
     "tramai-openai",
     "tramai-ollama",
