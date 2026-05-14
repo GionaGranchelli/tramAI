@@ -5,7 +5,11 @@ package dev.tramai.core.model
  */
 sealed class ToolResult {
     /** Successful execution with a serialized JSON result. */
-    data class Success(val value: Any) : ToolResult()
+    data class Success(
+        val value: Any,
+        /** Optional multi-part content (text, images, etc.) to feed back to the provider. */
+        val contentParts: List<ContentPart>? = null,
+    ) : ToolResult()
 
     /** Input was rejected as invalid; engine feeds back to the model. */
     data class InvalidInput(val message: String) : ToolResult()

@@ -22,6 +22,7 @@ import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
+import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ToolDefinition
 import dev.tramai.core.model.ToolExecutionContext
@@ -749,11 +750,28 @@ private class TramaiInvocationHandler(
                 }
 
                 messages += when (toolResult) {
-                    is ToolResult.Success -> Message(
-                        role = MessageRole.TOOL,
-                        content = toolResult.value.toString(),
-                        toolCallId = toolCall.id,
-                    )
+                    is ToolResult.Success -> {
+                        val textContent = toolResult.value.toString()
+                        val contentParts = toolResult.contentParts
+                        if (contentParts != null && contentParts.isNotEmpty()) {
+                            val parts = buildList<ContentPart> {
+                                add(ContentPart.TextPart(textContent))
+                                addAll(contentParts)
+                            }
+                            Message(
+                                role = MessageRole.TOOL,
+                                content = "",
+                                contentParts = parts,
+                                toolCallId = toolCall.id,
+                            )
+                        } else {
+                            Message(
+                                role = MessageRole.TOOL,
+                                content = textContent,
+                                toolCallId = toolCall.id,
+                            )
+                        }
+                    }
                     is ToolResult.InvalidInput -> Message(
                         role = MessageRole.TOOL,
                         content = "Error: ${toolResult.message}",
