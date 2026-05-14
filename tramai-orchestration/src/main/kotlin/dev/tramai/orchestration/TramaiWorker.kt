@@ -17,7 +17,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.InetAddress
-import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -92,6 +91,14 @@ interface TramaiWorkerObserver {
     fun onDrainProgress(workerId: String, done: Int, pending: Int) = Unit
 
     fun onShutdownComplete(workerId: String) = Unit
+
+    fun onWorkerHeartbeat(workerId: String, uptimeMillis: Long, claimedCount: Int) = Unit
+
+    fun onLeaseRenewed(workflowId: String, workerId: String, newExpiry: Long) = Unit
+
+    fun onLeaseContested(workflowId: String, claimantWorkerId: String, currentWorkerId: String) = Unit
+
+    fun onWorkflowAbandoned(workflowId: String, workerId: String, lastStep: String?, timeoutMillis: Long) = Unit
 }
 
 object NoOpTramaiWorkerObserver : TramaiWorkerObserver
@@ -171,6 +178,7 @@ class TramaiWorker(
     private val stepAttemptStore: StepAttemptRecordStore,
     private val workflowRegistry: Map<String, Workflow<*, *>>,
     private val observability: TramaiWorkerObserver = NoOpTramaiWorkerObserver,
+    private val partitionStrategy: PartitionAssignmentStrategy = ModHashPartitionStrategy(),
 ) : AutoCloseable {
     private val workerRegistryStore = leaseStore as? WorkerRegistryStore
     private val activeExecutions = ConcurrentHashMap<String, ActiveExecution>()
@@ -189,12 +197,15 @@ class TramaiWorker(
     @Volatile
     private var shuttingDownGracefully: Boolean = false
 
+    private var startedAt: Long = 0L
+
     constructor(
         config: WorkerConfig,
         leaseStore: WorkflowLeaseStore,
         checkpointStore: WorkflowCheckpointStore,
         workflowRegistry: Map<String, Workflow<*, *>>,
         observability: TramaiWorkerObserver = NoOpTramaiWorkerObserver,
+        partitionStrategy: PartitionAssignmentStrategy = ModHashPartitionStrategy(),
     ) : this(
         config = config,
         leaseStore = leaseStore,
@@ -209,6 +220,7 @@ class TramaiWorker(
             ),
         workflowRegistry = workflowRegistry,
         observability = observability,
+        partitionStrategy = partitionStrategy,
     )
 
     suspend fun start() {
@@ -221,6 +233,7 @@ class TramaiWorker(
         val scope = CoroutineScope(supervisor + Dispatchers.Default)
         workerScope = scope
         workerJob = supervisor
+        startedAt = System.currentTimeMillis()
         registerWorker()
         observability.onWorkerStarted(config.workerId)
         val hook = Thread {
@@ -313,7 +326,9 @@ class TramaiWorker(
     private suspend fun heartbeatLoop() {
         val interval = maxOf(1L, config.pollIntervalMillis / 2)
         while (currentCoroutineContext().isActive) {
+            val uptime = System.currentTimeMillis() - startedAt
             workerRegistryStore?.updateHeartbeat(config.workerId)
+            observability.onWorkerHeartbeat(config.workerId, uptime, activeExecutions.size)
             delay(interval)
         }
     }
@@ -342,6 +357,10 @@ class TramaiWorker(
                             leaseDurationMillis = config.leaseDurationMillis,
                         )
                     } catch (_: WorkflowLeaseConflictException) {
+                        val currentLease = leaseStore.currentLease(checkpoint.workflowName, checkpoint.workflowId)
+                        if (currentLease != null) {
+                            observability.onLeaseContested(checkpoint.workflowId, config.workerId, currentLease.ownerId)
+                        }
                         null
                     }
                     if (lease != null) {
@@ -487,6 +506,12 @@ class TramaiWorker(
         } catch (error: CancellationException) {
             if (shuttingDownGracefully) {
                 tracker.cancelActiveAttempt("Worker shutdown cancelled the running step")
+                observability.onWorkflowAbandoned(
+                    workflowId = checkpoint.workflowId,
+                    workerId = config.workerId,
+                    lastStep = checkpoint.lastCompletedStepName,
+                    timeoutMillis = config.drainTimeoutMillis,
+                )
                 releaseLease(handle)
                 executionFailures.remove(checkpoint.workflowId)
             }
@@ -524,6 +549,7 @@ class TramaiWorker(
                 continue
             }
             handle.lease.set(renewed)
+            observability.onLeaseRenewed(handle.workflowId, config.workerId, renewed.expiresAtEpochMillis)
             nextDelayMillis = interval
         }
     }
@@ -542,25 +568,12 @@ class TramaiWorker(
         if (!config.partitionEnabled) {
             return true
         }
-        val workerIndex = workerPartitionIndex()
-        val partition = (stableHash(workflowId) % config.workerCount.toLong()).toInt()
-        return partition == workerIndex
-    }
-
-    private suspend fun workerPartitionIndex(): Int {
-        config.workerId.substringAfterLast('-').toIntOrNull()?.let { numericSuffix ->
-            return numericSuffix.mod(config.workerCount)
-        }
         val activeWorkers = workerRegistryStore?.listActiveWorkers()
             ?.filter { it.poolName == config.poolName }
             ?.sortedBy { it.workerId }
+            ?.map { it.workerId }
             .orEmpty()
-        val index = activeWorkers.indexOfFirst { it.workerId == config.workerId }
-        return if (index >= 0) {
-            index.mod(config.workerCount)
-        } else {
-            0
-        }
+        return partitionStrategy.ownsPartition(workflowId, config.workerId, activeWorkers)
     }
 
     private fun workerHost(): String = runCatching {
@@ -568,17 +581,6 @@ class TramaiWorker(
     }.getOrDefault("unknown")
 
     private fun workerVersion(): String = TramaiWorker::class.java.`package`?.implementationVersion ?: "dev"
-
-    /**
-     * Uses the high 64 bits of SHA-256 to keep partition routing deterministic without carrying the full digest.
-     *
-     * This truncation still has the usual birthday-bound collision risk, so operators with very large worker counts
-     * should expect extremely rare but possible hash collisions.
-     */
-    private fun stableHash(workflowId: String): Long {
-        val bytes = MessageDigest.getInstance("SHA-256").digest(workflowId.toByteArray(Charsets.UTF_8))
-        return ByteBuffer.wrap(bytes.copyOfRange(0, Long.SIZE_BYTES)).long and Long.MAX_VALUE
-    }
 }
 
 private data class ActiveExecution(
