@@ -315,6 +315,12 @@ open class OpenAiCompatibleProvider(
                             ),
                         )
                     }
+                    is ContentPart.ImageUrlContent -> mapOf(
+                        "type" to "image_url",
+                        "image_url" to mapOf(
+                            "url" to part.url,
+                        ),
+                    )
                 }
             }
         } else {

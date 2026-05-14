@@ -205,6 +205,22 @@ class BedrockProvider @JvmOverloads constructor(
                             )
                         )
                     }
+                    is ContentPart.ImageUrlContent -> {
+                        val resolved = dev.tramai.core.util.ImageDownloader.resolveToImagePart(part) as ContentPart.ImagePart
+                        require(resolved.mimeType in SUPPORTED_IMAGE_TYPES) {
+                            "Unsupported image mimeType '${resolved.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
+                        }
+                        contentBlocks.add(
+                            mapOf(
+                                "type" to "image",
+                                "source" to mapOf(
+                                    "type" to "base64",
+                                    "media_type" to resolved.mimeType,
+                                    "data" to Base64.getEncoder().encodeToString(resolved.data),
+                                ),
+                            )
+                        )
+                    }
                 }
             }
         } else if (message.content.isNotBlank() && contentBlocks.isEmpty()) {

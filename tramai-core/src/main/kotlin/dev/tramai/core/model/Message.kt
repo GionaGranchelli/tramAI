@@ -46,5 +46,5 @@ data class Message(
     /**
      * Returns true when at least one part is an [ContentPart.ImagePart].
      */
-    fun hasImage(): Boolean = contentParts?.any { it is ContentPart.ImagePart } == true
+    fun hasImage(): Boolean = contentParts?.any { it is ContentPart.ImagePart || it is ContentPart.ImageUrlContent } == true
 }

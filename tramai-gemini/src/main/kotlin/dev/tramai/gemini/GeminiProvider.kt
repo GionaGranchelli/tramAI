@@ -16,6 +16,7 @@ import dev.tramai.core.provider.applyTramaiTimeout
 import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
 import dev.tramai.core.provider.providerTransportFailure
+import dev.tramai.core.util.ImageDownloader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -268,6 +269,15 @@ class GeminiProvider(
                         "data" to Base64.getEncoder().encodeToString(part.data),
                     ),
                 )
+                is ContentPart.ImageUrlContent -> {
+                    val resolved = ImageDownloader.resolveToImagePart(part) as ContentPart.ImagePart
+                    mapOf(
+                        "inlineData" to mapOf(
+                            "mimeType" to resolved.mimeType,
+                            "data" to Base64.getEncoder().encodeToString(resolved.data),
+                        ),
+                    )
+                }
             }
         }
     }

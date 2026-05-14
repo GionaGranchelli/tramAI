@@ -40,4 +40,28 @@ sealed interface ContentPart {
         override fun toString(): String =
             "ImagePart(mimeType='$mimeType', data=${data.size} bytes)"
     }
+
+    /**
+     * Image referenced by URL rather than inline data.
+     *
+     * Providers that accept URLs directly (OpenAI, Gemini) will pass this
+     * through as-is. Providers that require base64 (Anthropic, Bedrock, Ollama)
+     * will download the image and convert it to an [ImagePart] before serialisation.
+     *
+     * @property url the HTTP(S) URL of the image
+     * @property mimeType optional media type hint, e.g. "image/png". If absent, the
+     *   downloader tries to detect it from the URL extension.
+     */
+    data class ImageUrlContent(
+        val url: String,
+        val mimeType: String? = null,
+    ) : ContentPart
+
+    companion object {
+        /**
+         * Returns true when [part] is any kind of image content
+         * ([ImagePart] or [ImageUrlContent]).
+         */
+        fun isImage(part: ContentPart): Boolean = part is ImagePart || part is ImageUrlContent
+    }
 }

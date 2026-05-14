@@ -182,7 +182,16 @@ class OllamaProvider(
             }
 
             // Extract images as base64 strings for Ollama's images field
-            val imageParts = msgParts.filterIsInstance<ContentPart.ImagePart>()
+            val imageParts = msgParts.mapNotNull { part ->
+                when (part) {
+                    is ContentPart.ImagePart -> part
+                    is ContentPart.ImageUrlContent -> {
+                        val resolved = dev.tramai.core.util.ImageDownloader.resolveToImagePart(part) as ContentPart.ImagePart
+                        resolved
+                    }
+                    else -> null
+                }
+            }
             if (imageParts.isNotEmpty()) {
                 msgMap["images"] = imageParts.map { part ->
                     Base64.getEncoder().encodeToString(part.data)
