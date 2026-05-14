@@ -81,8 +81,8 @@ Most AI frameworks ask you to reorganize your application around the framework. 
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-standalone:0.2.0")
-    implementation("dev.tramai:tramai-ollama:0.2.0")
+    implementation("dev.tramai:tramai-standalone:0.3.0")
+    implementation("dev.tramai:tramai-ollama:0.3.0")
 }
 ```
 
@@ -120,16 +120,27 @@ TramAI is modular by design. Pick what you need, ignore the rest.
 
 | Module | What it does | When to add |
 |--------|-------------|-------------|
-| `tramai-core` | Annotations + contracts + SPIs | Always (transitive) |
+| `tramai-core` | Annotations + contracts + SPIs + Capability API | Always (transitive) |
 | `tramai-engine` | Proxy dispatch + execution + retry | Always (transitive) |
 | `tramai-standalone` | Framework-free entry point | Non-Spring projects |
 | `tramai-spring` | Spring Boot auto-configuration | Spring Boot projects |
 | `tramai-ollama` | Local AI (Ollama) | Development / privacy |
 | `tramai-openai` | OpenAI + compatible APIs | Cloud deployment |
+| `tramai-azure-openai`| Azure OpenAI API | Enterprise deployment |
 | `tramai-anthropic` | Claude via Anthropic API | Anthropic shop |
+| `tramai-bedrock` | AWS Bedrock | AWS Ecosystem |
+| `tramai-gemini` | Google Gemini API | GCP Ecosystem |
+| `tramai-deepseek` | DeepSeek AI API | DeepSeek users |
 | `tramai-structured` | JSON Schema generation + validation | Non-`String` return types |
-| `tramai-orchestration` | Multi-step workflows | Complex pipelines |
-| `tramai-observability` | OpenTelemetry spans | Need tracing |
+| `tramai-memory` | Chat memory implementations (`PersistentChatMemory`, etc.) | When conversation context is required |
+| `tramai-memory-store` | Persistent memory stores SPI | For durable conversation context |
+| `tramai-orchestration`| Multi-step workflows & Worker Pool | Complex pipelines |
+| `tramai-rag` | Retrieval-Augmented Generation pipeline | For document knowledge integration |
+| `tramai-embedding` | Embedding models | Core element of RAG flows |
+| `tramai-vectorstore-spi`| Vector store abstractions | When storing embeddings |
+| `tramai-vectorstore-chroma`| ChromaDB vector store adapter | Fast local/network vector store |
+| `tramai-vectorstore-pgvector`| PostgreSQL pgvector vector store adapter | Relational DB vector integration |
+| `tramai-observability`| OpenTelemetry spans, Worker Events | Distributed tracing |
 | `tramai-testing` | Mock providers + assertions | Test scope only |
 | `tramai-bom` | Version alignment | Multi-module projects |
 | `tramai-server` | HTTP API + webhooks | Platform deployment |
@@ -149,27 +160,32 @@ TramAI is modular by design. Pick what you need, ignore the rest.
 
 ### Core library
 - `@AiService` + `@System` + `@User` + `@Operation` annotation model
-- Structured output with schema generation, validation, and retry feedback
-- Providers for OpenAI, Anthropic, Ollama, and OpenAI-compatible APIs
-- Streaming responses, tool calling, retry, circuit breaker, caching
-- OpenTelemetry operation and workflow observers
+- **Structured output** with schema generation, validation, and retry feedback
+- **Multimodal / Vision Support** (`ContentPart` modeling with `ImageUrlContent` and `ImagePart`)
+- Comprehensive model support (OpenAI, Azure, Anthropic, Ollama, Bedrock, Gemini, DeepSeek)
+- Configurable capability validation (`ProviderCapability.VISION`) directly evaluated before execution
+- Detailed token awareness & image usage counting
+- Streaming responses (`Flow<StreamChunk>`), tool calling, retry, circuit breaker, caching
+- OpenTelemetry operation, distributed workflow, and worker pool observers (SIGTERM hooks, leases, fencing)
 - Deterministic testing with `tramai-testing`
 
 ### Runtime and operations
+- **Memory Management:** Ready-to-use memory layers (`TokenAwareChatMemory`, `PersistentChatMemory`) solving token limit exhaustion across multi-turn exchanges.
+- **RAG & Vector Stores:** Extensible ingestion, chunking, embedding, and retrieval pipeline with Chroma and PGVector implementations.
 - Typed workflow orchestration with checkpoint/resume
-- Worker pool with lease-based work stealing
+- Worker pool with lease-based work stealing and graceful shutdown bounds
 - Cron scheduling with durable stores
 - HTTP API for workflows, webhooks, SSE streams
 - MCP adapter, multi-tenancy, API keys, plugins, audit, dashboard
 
 ## Installation
 
-TramAI `0.2.0` targets JVM 21+.
+TramAI `0.3.0` targets **JVM 25+**.
 
 ```kotlin
 // Gradle — use BOM for version alignment
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.2.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.3.0"))
     implementation("dev.tramai:tramai-standalone")
     implementation("dev.tramai:tramai-ollama")
 }
@@ -182,7 +198,7 @@ dependencies {
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.2.0</version>
+      <version>0.3.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -196,7 +212,7 @@ dependencies {
 - [Getting Started](docs/guides/getting-started.md)
 - [Module Guide](docs/module-guide.md)
 - [Architecture](docs/architecture/overview.md)
-- [Changelog](docs/releases/CHANGELOG-0.2.0.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 

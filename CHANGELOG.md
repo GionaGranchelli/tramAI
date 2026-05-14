@@ -4,6 +4,36 @@
 
 - No unreleased changes yet.
 
+## 0.3.0
+
+Release entry for the current repository milestone.
+
+### Added
+
+- `tramai-memory` module, replacing early state mechanics with production-ready `ChatMemory` implementations (`TokenAwareChatMemory`, `PersistentChatMemory`, `MessageWindowChatMemory`).
+- Multimodal / Vision Support across core and providers.
+- `ContentPart` sealed interface with `TextPart`, `ImagePart`, and `ImageUrlContent`.
+- Built-in `ImageDownloader` (20MB limit, 10s/30s timeouts, MIME detection from URL extension).
+- Capability routing via `ProviderCapability.VISION` and execution-time validation in `TramaiEngine`.
+- Configurable image fidelity via `ImageDetail` enum (LOW, HIGH, AUTO).
+- `UsageMetrics` expansions for tracking `imageCount` and `imageTokensEstimate`.
+- Provider serialization updates for OpenAI, Azure OpenAI, Anthropic, Bedrock, Gemini, Ollama, and DeepSeek image inputs.
+- `tramai-rag` pipeline module for document loading, chunking, retrieval, and context injection.
+- `tramai-vectorstore-spi` with concrete adapters for ChromaDB (`tramai-vectorstore-chroma`) and PostgreSQL (`tramai-vectorstore-pgvector`).
+- Comprehensive distributed worker observability and shutdown events (e.g. `onShutdownStarted`, `onDrainProgress`, `onLeaseRenewed`, `onWorkerHeartbeat`).
+- Built-in provider modules for `tramai-azure-openai`, `tramai-bedrock`, `tramai-gemini`, and `tramai-deepseek`.
+
+### Changed
+
+- Transitioned content modeling to support additive parallel `ContentPart` sequences within messages, accommodating tool results that generate both text and images seamlessly.
+- Project version bumped to `0.3.0` across POM and BOM specifications.
+
+### Notes
+
+- TramAI `0.3.x` targets Java `25+`.
+- All memory extensions have been heavily tested for edge cases, token eviction strategies, system deduplication, and concurrent thread safety.
+- Engine execution defends its capability invariants (e.g., throwing explicit exceptions when images are sent to non-vision models).
+
 ## 0.2.0
 
 Release entry for the current repository milestone.
