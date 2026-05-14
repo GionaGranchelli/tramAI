@@ -561,9 +561,10 @@ private class TramaiInvocationHandler(
         val messages = operation.initialMessages(arguments).toMutableList()
 
         // Memory: inject history if chatMemory is configured
-        val (originalMessages, effectiveMessages) = if (chatMemory != null && conversationId != null) {
-            val original = messages.toList()
-            val history = chatMemory.get(conversationId)
+        val history: List<Message>
+        val effectiveMessages: MutableList<Message>
+        if (chatMemory != null && conversationId != null) {
+            history = chatMemory.get(conversationId)
             val enhanced = if (history.isNotEmpty()) {
                 val currentSystem = messages.firstOrNull { it.role == MessageRole.SYSTEM }
                 if (currentSystem != null && history.any { it.role == MessageRole.SYSTEM }) {
@@ -574,22 +575,24 @@ private class TramaiInvocationHandler(
             } else {
                 messages
             }
-            original to (history + enhanced).toMutableList()
+            effectiveMessages = (history + enhanced).toMutableList()
         } else {
-            messages.toList() to messages
+            history = emptyList()
+            effectiveMessages = messages
         }
 
         val result = executeWithTools(operation, effectiveMessages, tokenBudgetTracker)
 
         // Memory: persist response if chatMemory is configured
         if (chatMemory != null && conversationId != null) {
-            val userMessages = originalMessages.filter { it.role == MessageRole.USER }
             val assistantMessage = Message(
                 role = MessageRole.ASSISTANT,
                 content = result.response.content,
                 toolCalls = result.response.toolCalls,
             )
-            chatMemory.add(conversationId, userMessages + assistantMessage)
+            // Persist non-system messages from this turn (tool rounds + final assistant)
+            val turnMessages = effectiveMessages.drop(history.size).filter { it.role != MessageRole.SYSTEM }
+            chatMemory.add(conversationId, turnMessages + assistantMessage)
         }
 
         result.observation.onCallCompleted(parseSuccess = null)
@@ -610,9 +613,10 @@ private class TramaiInvocationHandler(
         val messages = operation.initialMessages(arguments, contract.schemaJson).toMutableList()
 
         // Memory: inject history if chatMemory is configured
-        val (originalMessages, effectiveMessages) = if (chatMemory != null && conversationId != null) {
-            val original = messages.toList()
-            val history = chatMemory.get(conversationId)
+        val history: List<Message>
+        val effectiveMessages: List<Message>
+        if (chatMemory != null && conversationId != null) {
+            history = chatMemory.get(conversationId)
             val enhanced = if (history.isNotEmpty()) {
                 val currentSystem = messages.firstOrNull { it.role == MessageRole.SYSTEM }
                 if (currentSystem != null && history.any { it.role == MessageRole.SYSTEM }) {
@@ -623,18 +627,21 @@ private class TramaiInvocationHandler(
             } else {
                 messages
             }
-            original to (history + enhanced)
+            effectiveMessages = history + enhanced
         } else {
-            messages.toList() to messages.toList()
+            history = emptyList()
+            effectiveMessages = messages.toList()
         }
 
         // Re-initialize messages list with history-injected content
+        val initialTurnCount = history.size
         messages.clear()
         messages.addAll(effectiveMessages)
 
         val maxAttempts = operation.operation.maxRetries + 1
 
         repeat(maxAttempts) { attemptIndex ->
+            val messagesBeforeCall = messages.size
             val result = executeWithTools(operation, messages, tokenBudgetTracker)
             when (
                 val analysis = handler.analyze(
@@ -648,13 +655,19 @@ private class TramaiInvocationHandler(
                     result.observation.onCallCompleted(parseSuccess = true)
                     // Memory: persist response if chatMemory is configured (only on success)
                     if (chatMemory != null && conversationId != null) {
-                        val userMessages = originalMessages.filter { it.role == MessageRole.USER }
                         val assistantMessage = Message(
                             role = MessageRole.ASSISTANT,
                             content = result.response.content,
                             toolCalls = result.response.toolCalls,
                         )
-                        chatMemory.add(conversationId, userMessages + assistantMessage)
+                        // Persist messages from this successful attempt:
+                        // - user prompt (messages[initialTurnCount..messagesBeforeCall[)
+                        // - tool rounds from this attempt (messages.drop(messagesBeforeCall))
+                        // - final assistant response
+                        val userPrompt = messages.subList(initialTurnCount, messagesBeforeCall)
+                            .filter { it.role != MessageRole.SYSTEM }
+                        val toolMessages = messages.drop(messagesBeforeCall)
+                        chatMemory.add(conversationId, userPrompt + toolMessages + assistantMessage)
                     }
                     operation.cacheValue(arguments, analysis.value, contract.schemaJson)
                     return analysis.value
