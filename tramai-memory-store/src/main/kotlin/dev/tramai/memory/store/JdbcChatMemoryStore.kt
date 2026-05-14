@@ -3,12 +3,8 @@ package dev.tramai.memory.store
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.tramai.core.memory.ChatMemoryStore
-import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
-import dev.tramai.core.model.ToolCall
-import java.sql.Types
-import java.util.Base64
 import javax.sql.DataSource
 
 /**
@@ -174,42 +170,6 @@ class JdbcChatMemoryStore(
         )
     }
 
-    private fun toStoredContentPart(part: ContentPart): StoredContentPart = when (part) {
-        is ContentPart.TextPart -> StoredContentPart(
-            type = "text",
-            text = part.text,
-        )
-        is ContentPart.ImagePart -> StoredContentPart(
-            type = "image",
-            mimeType = part.mimeType,
-            data = Base64.getEncoder().encodeToString(part.data),
-        )
-    }
-
-    private fun toContentPart(part: StoredContentPart): ContentPart = when (part.type) {
-        "text" -> ContentPart.TextPart(part.text ?: "")
-        "image" -> {
-            val mimeType = requireNotNull(part.mimeType) { "Stored image content is missing mimeType" }
-            val data = requireNotNull(part.data) { "Stored image content is missing data" }
-            ContentPart.ImagePart(
-                mimeType = mimeType,
-                data = Base64.getDecoder().decode(data),
-            )
-        }
-        else -> throw IllegalArgumentException("Unsupported stored content part type '${part.type}'")
-    }
-
-    private fun toStoredToolCall(toolCall: ToolCall): StoredToolCall = StoredToolCall(
-        id = toolCall.id,
-        name = toolCall.name,
-        argumentsJson = toolCall.argumentsJson,
-    )
-
-    private fun toToolCall(toolCall: StoredToolCall): ToolCall = ToolCall(
-        id = toolCall.id,
-        name = toolCall.name,
-        argumentsJson = toolCall.argumentsJson,
-    )
 }
 
 data class JdbcChatMemoryTable(
@@ -220,23 +180,4 @@ data class JdbcChatMemoryTable(
     val createdAtColumn: String = "created_at",
 )
 
-private data class StoredMessage(
-    val role: String = MessageRole.USER.name,
-    val content: String = "",
-    val contentParts: List<StoredContentPart>? = null,
-    val toolCallId: String? = null,
-    val toolCalls: List<StoredToolCall>? = null,
-)
 
-private data class StoredContentPart(
-    val type: String = "text",
-    val text: String? = null,
-    val mimeType: String? = null,
-    val data: String? = null,
-)
-
-private data class StoredToolCall(
-    val id: String = "",
-    val name: String = "",
-    val argumentsJson: String = "",
-)

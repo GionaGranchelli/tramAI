@@ -4,6 +4,7 @@ coroutines = "1.10.2"
 junit = "5.12.2"
 assertj = "3.27.7"
 jackson = "2.18.3"
+jedis = "6.0.0"
 opentelemetry = "1.49.0"
 spring-boot = "3.4.5"
 aws-sdk = "2.31.67"
@@ -35,6 +36,7 @@ aws-sdk-auth = { module = "software.amazon.awssdk:auth", version.ref = "aws-sdk"
 aws-sdk-regions = { module = "software.amazon.awssdk:regions", version.ref = "aws-sdk" }
 aws-sdk-secretsmanager = { module = "software.amazon.awssdk:secretsmanager", version.ref = "aws-sdk" }
 hikaricp = { module = "com.zaxxer:HikariCP", version = "6.3.0" }
+jedis = { module = "redis.clients:jedis", version.ref = "jedis" }
 h2database = { module = "com.h2database:h2", version = "2.3.232" }
 postgresql = { module = "org.postgresql:postgresql", version = "42.7.5" }
 pgvector = { module = "com.pgvector:pgvector", version = "0.1.6" }

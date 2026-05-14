@@ -24,6 +24,7 @@ dependencies {
 
     implementation(libs.jackson.databind)
     implementation(libs.jackson.module.kotlin)
+    implementation(libs.jedis)
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.assertj.core)
