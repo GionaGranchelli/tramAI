@@ -1,5 +1,13 @@
 package dev.tramai.orchestration
 
+/**
+ * Configuration for a [TramaiWorker] instance.
+ *
+ * When [start] is called, the worker registers a JVM shutdown hook that triggers
+ * a graceful drain of active workflow executions before the process terminates.
+ * On clean [shutdown] or [close], the shutdown hook is removed to avoid redundant
+ * execution during JVM teardown.
+ */
 data class WorkerConfig(
     val workerId: String,
     val poolName: String,

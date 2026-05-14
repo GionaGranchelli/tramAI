@@ -86,6 +86,12 @@ interface TramaiWorkerObserver {
         workerId: String,
         error: Throwable,
     ) = Unit
+
+    fun onShutdownStarted(workerId: String) = Unit
+
+    fun onDrainProgress(workerId: String, done: Int, pending: Int) = Unit
+
+    fun onShutdownComplete(workerId: String) = Unit
 }
 
 object NoOpTramaiWorkerObserver : TramaiWorkerObserver
@@ -174,6 +180,8 @@ class TramaiWorker(
     private var workerJob: Job? = null
     private var pollJob: Job? = null
     private var heartbeatJob: Job? = null
+    @Volatile
+    private var shutdownHook: Thread? = null
 
     @Volatile
     private var acceptingWork: Boolean = false
@@ -215,6 +223,13 @@ class TramaiWorker(
         workerJob = supervisor
         registerWorker()
         observability.onWorkerStarted(config.workerId)
+        val hook = Thread {
+            runBlocking(Dispatchers.IO) {
+                shutdown()
+            }
+        }
+        Runtime.getRuntime().addShutdownHook(hook)
+        shutdownHook = hook
         acceptingWork = true
         heartbeatJob = scope.launch {
             heartbeatLoop()
@@ -235,6 +250,7 @@ class TramaiWorker(
         }
         shuttingDownGracefully = true
         acceptingWork = false
+        observability.onShutdownStarted(config.workerId)
         pollJob?.cancelAndJoin()
         val executions = activeExecutions.values.toList()
         val drainStartedAt = System.currentTimeMillis()
@@ -252,8 +268,22 @@ class TramaiWorker(
                 executions.mapNotNull { it.executionJob }.joinAll()
             }
         }
+        val executionCount = executions.size - activeExecutions.size
+        val executionsLeft = activeExecutions.size
+        observability.onDrainProgress(config.workerId, done = executionCount, pending = executionsLeft)
+        shutdownHook?.let { hook ->
+            try {
+                Runtime.getRuntime().removeShutdownHook(hook)
+            } catch (_: IllegalStateException) {
+                // JVM is already shutting down - removal is not allowed during shutdown
+            }
+            shutdownHook = null
+        }
         heartbeatJob?.cancelAndJoin()
-        workerRegistryStore?.unregisterWorker(config.workerId)
+        withTimeoutOrNull(config.drainTimeoutMillis) {
+            runCatching { workerRegistryStore?.unregisterWorker(config.workerId) }
+        }
+        observability.onShutdownComplete(config.workerId)
         observability.onWorkerStopped(config.workerId)
         supervisor.cancel()
         workerJob = null

@@ -22,7 +22,7 @@ Board for the two concurrent workstreams.
 | TASK-095 | ChatMemoryStore SPI + PersistentChatMemory wrapper | &sect;3, &sect;4.3 | ChatMemory SPI | 0.5d | ✅ |
 | TASK-096 | JdbcChatMemoryStore | &sect;4.4 | TASK-095 | 0.5d | ✅ |
 | TASK-097 | RedisChatMemoryStore | &sect;4.5 | TASK-095 | 0.5d | ✅ |
-| TASK-098 | Tests: token eviction, persistence round-trip, tool-call integration, regressions | &sect;6 | TASK-093-097 | 1.0d | ⬜ |
+| TASK-098 | Tests: token eviction, persistence round-trip, tool-call integration, regressions | &sect;6 | TASK-093-097 | 1.0d | ✅ |
 
 ## Workstream B: Distributed Execution Remaining (SPEC-016a)
 
@@ -39,6 +39,6 @@ Board for the two concurrent workstreams.
 
 | Workstream | Status | Tasks |
 |------------|--------|-------|
-| A: Chat Memory v1.1 | 🔄 5/6 done | 6 |
+| A: Chat Memory v1.1 | ✅ 6/6 done | 6 |
 | B: Distributed Execution Remaining | ⬜ Not started | 4 |
 | **Total** | | **10** |
