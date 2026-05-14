@@ -28,10 +28,10 @@ Board for the two concurrent workstreams.
 
 | ID | Task | Spec &sect; | Deps | Effort | Status |
 |----|------|--------|------|--------|--------|
-| TASK-099 | SIGTERM shutdown hook + shutdown observer events | &sect;3 TASK-037F | TASK-037 | 0.25d | ⬜ |
-| TASK-100 | PartitionAssignmentStrategy interface + ModHashPartitionStrategy | &sect;3 TASK-037G | TASK-037 | 0.25d | ⬜ |
-| TASK-101 | LoggingTramaiWorkerObserver + missing events + OpenTelemetryTramaiWorkerObserver | &sect;3 TASK-037H | TASK-037 | 0.5d | ⬜ |
-| TASK-102 | Tests: shutdown hook, partitioning, OTel bridge, all events | &sect;5 | TASK-099-101 | 0.5d | ⬜ |
+| TASK-099 | SIGTERM shutdown hook + shutdown observer events | &sect;3 TASK-037F | TASK-037 | 0.25d | ✅ |
+| TASK-100 | PartitionAssignmentStrategy interface + ModHashPartitionStrategy | &sect;3 TASK-037G | TASK-037 | 0.25d | ✅ |
+| TASK-101 | LoggingTramaiWorkerObserver + missing events + OpenTelemetryTramaiWorkerObserver | &sect;3 TASK-037H | TASK-037 | 0.5d | ✅ |
+| TASK-102 | Tests: shutdown hook, partitioning, OTel bridge, all events | &sect;5 | TASK-099-101 | 0.5d | ✅ |
 
 ---
 
@@ -40,5 +40,5 @@ Board for the two concurrent workstreams.
 | Workstream | Status | Tasks |
 |------------|--------|-------|
 | A: Chat Memory v1.1 | ✅ 6/6 done | 6 |
-| B: Distributed Execution Remaining | ⬜ Not started | 4 |
-| **Total** | | **10** |
+| B: Distributed Execution Remaining | ✅ 4/4 done | 4 |
+| **Total** | ✅ **10/10 done** | **10** |
