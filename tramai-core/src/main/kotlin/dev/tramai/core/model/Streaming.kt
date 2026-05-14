@@ -8,6 +8,8 @@ import dev.tramai.core.exception.TramaiException
 data class UsageMetrics(
     val inputTokens: Int? = null,
     val outputTokens: Int? = null,
+    val imageCount: Int = 0,
+    val imageTokensEstimate: Int = 0,
 )
 
 /**

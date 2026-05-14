@@ -12,6 +12,7 @@ import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.UsageMetrics
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.provider.applyTramaiTimeout
 import dev.tramai.core.provider.logProviderHttpFailureDebug
@@ -64,6 +65,13 @@ class AzureOpenAiProvider @JvmOverloads constructor(
     }
 
     override fun providerId(): String = PROVIDER_ID
+
+    override fun supportsCapability(capability: ProviderCapability): Boolean = when (capability) {
+        ProviderCapability.VISION -> true
+        ProviderCapability.TOOL_CALLING -> true
+        ProviderCapability.STRUCTURED_OUTPUT -> true
+        ProviderCapability.STREAMING -> true
+    }
 
     private fun buildUrl(): String {
         return "https://$resourceName.openai.azure.com/openai/deployments/$deploymentId" +

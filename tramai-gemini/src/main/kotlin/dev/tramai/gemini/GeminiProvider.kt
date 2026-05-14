@@ -11,6 +11,7 @@ import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.provider.applyTramaiTimeout
 import dev.tramai.core.provider.logProviderHttpFailureDebug
@@ -56,6 +57,13 @@ class GeminiProvider(
 ) : ModelProvider, StreamCapable {
 
     override fun providerId(): String = "gemini"
+
+    override fun supportsCapability(capability: ProviderCapability): Boolean = when (capability) {
+        ProviderCapability.VISION -> true
+        ProviderCapability.TOOL_CALLING -> true
+        ProviderCapability.STRUCTURED_OUTPUT -> true
+        ProviderCapability.STREAMING -> true
+    }
 
     override suspend fun complete(request: ModelRequest): ModelResponse = withContext(Dispatchers.IO) {
         try {

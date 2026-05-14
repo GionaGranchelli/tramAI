@@ -35,6 +35,7 @@ import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.ResolvedProviderRoute
 import dev.tramai.core.provider.StreamCapable
@@ -966,6 +967,13 @@ private class TramaiInvocationHandler(
         operation: OperationDefinition,
     ): ModelResponse = try {
         val timeoutMillis = request.timeoutMillis ?: operation.operation.timeoutMillis
+        // Check capability: does the provider support images?
+        if (request.messages.any { it.hasImage() } && !provider.supportsCapability(ProviderCapability.VISION)) {
+            throw ProviderCapabilityException(
+                providerId = provider.providerId(),
+                capability = "VISION",
+            )
+        }
         withTimeout(timeoutMillis) {
             provider.complete(request)
         }

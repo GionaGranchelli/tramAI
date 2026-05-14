@@ -1,6 +1,15 @@
 package dev.tramai.core.model
 
 /**
+ * Controls the detail level for image inputs sent to vision-capable providers.
+ */
+enum class ImageDetail {
+    LOW,
+    HIGH,
+    AUTO,
+}
+
+/**
  * Definition of an external tool presented to the model.
  */
 data class ToolDefinition(
@@ -29,4 +38,6 @@ data class ModelRequest(
     val operationInterface: String? = null,
     /** Service method name, when known. */
     val operationMethod: String? = null,
+    /** Detail level for image inputs sent to vision-capable providers. */
+    val imageDetail: ImageDetail = ImageDetail.AUTO,
 )

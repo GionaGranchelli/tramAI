@@ -2,6 +2,7 @@ package dev.tramai.deepseek
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.openai.OpenAiCompatibleProvider
 import dev.tramai.openai.StaticOpenAiAccessTokenSource
@@ -37,6 +38,13 @@ class DeepSeekProvider @JvmOverloads constructor(
     )
 
     override fun providerId(): String = PROVIDER_ID
+
+    override fun supportsCapability(capability: ProviderCapability): Boolean = when (capability) {
+        ProviderCapability.VISION -> true
+        ProviderCapability.TOOL_CALLING -> true
+        ProviderCapability.STRUCTURED_OUTPUT -> true
+        ProviderCapability.STREAMING -> true
+    }
 
     override suspend fun complete(request: dev.tramai.core.model.ModelRequest): dev.tramai.core.model.ModelResponse =
         delegate.complete(request)

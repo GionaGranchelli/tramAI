@@ -8,6 +8,7 @@ import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.applyTramaiTimeout
 import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
@@ -89,6 +90,11 @@ class OllamaProvider(
      * Returns the stable provider id used by the registry.
      */
     override fun providerId(): String = "ollama"
+
+    override fun supportsCapability(capability: ProviderCapability): Boolean = when (capability) {
+        ProviderCapability.VISION -> true
+        else -> false
+    }
 
     override suspend fun stream(request: ModelRequest): Flow<dev.tramai.core.model.StreamChunk> = flow {
         val payload = mapOf(

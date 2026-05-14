@@ -47,4 +47,21 @@ data class Message(
      * Returns true when at least one part is an [ContentPart.ImagePart].
      */
     fun hasImage(): Boolean = contentParts?.any { it is ContentPart.ImagePart || it is ContentPart.ImageUrlContent } == true
+
+    /**
+     * Estimates the number of tokens consumed by images in this message.
+     * Uses the OpenAI formula: 170 tokens per 224x224 tile.
+     * Without image dimensions, estimates 1 tile (170 tokens).
+     */
+    fun estimateImageTokens(imageDetail: ImageDetail = ImageDetail.AUTO): Int {
+        val imageParts = contentParts?.filterIsInstance<ContentPart.ImagePart>() ?: emptyList()
+        val urlParts = contentParts?.filterIsInstance<ContentPart.ImageUrlContent>() ?: emptyList()
+        val totalImages = imageParts.size + urlParts.size
+        if (totalImages == 0) return 0
+        return when (imageDetail) {
+            ImageDetail.LOW -> totalImages * 85  // fixed low-res cost
+            ImageDetail.HIGH -> totalImages * 170  // 1 tile estimate
+            ImageDetail.AUTO -> totalImages * 170  // default to 1 tile
+        }
+    }
 }

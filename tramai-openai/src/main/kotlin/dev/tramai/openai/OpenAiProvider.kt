@@ -12,6 +12,7 @@ import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.UsageMetrics
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.provider.applyTramaiTimeout
 import dev.tramai.core.provider.logProviderHttpFailureDebug
@@ -105,7 +106,7 @@ open class OpenAiCompatibleProvider(
             val payload = linkedMapOf<String, Any?>(
                 "model" to request.model,
                 "stream" to false,
-                "messages" to request.messages.map { message -> messageToMap(message) },
+                "messages" to request.messages.map { message -> messageToMap(message, request.imageDetail) },
             )
 
             request.tools?.let { tools ->
@@ -186,11 +187,18 @@ open class OpenAiCompatibleProvider(
 
     override fun providerId(): String = providerName
 
+    override fun supportsCapability(capability: ProviderCapability): Boolean = when (capability) {
+        ProviderCapability.VISION -> true
+        ProviderCapability.TOOL_CALLING -> true
+        ProviderCapability.STRUCTURED_OUTPUT -> true
+        ProviderCapability.STREAMING -> true
+    }
+
     override suspend fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
         val payload = linkedMapOf<String, Any?>(
             "model" to request.model,
             "stream" to true,
-            "messages" to request.messages.map { message -> messageToMap(message) },
+            "messages" to request.messages.map { message -> messageToMap(message, request.imageDetail) },
         )
 
         request.maxTokens?.let { payload["max_tokens"] = it }
@@ -291,7 +299,10 @@ open class OpenAiCompatibleProvider(
      * When the message carries [ContentPart.ImagePart] items, the content is
      * serialised as a JSON content-array; otherwise a plain string is used.
      */
-    private fun messageToMap(message: dev.tramai.core.model.Message): Map<String, Any?> {
+    private fun messageToMap(
+        message: dev.tramai.core.model.Message,
+        imageDetail: dev.tramai.core.model.ImageDetail = dev.tramai.core.model.ImageDetail.AUTO,
+    ): Map<String, Any?> {
         val msgMap = mutableMapOf<String, Any?>(
             "role" to message.role.name.lowercase(),
         )
@@ -308,19 +319,29 @@ open class OpenAiCompatibleProvider(
                         require(part.mimeType in SUPPORTED_IMAGE_TYPES) {
                             "Unsupported image mimeType '${part.mimeType}'. Supported types: $SUPPORTED_IMAGE_TYPES"
                         }
+                        val imageUrl = mutableMapOf<String, Any?>(
+                            "url" to "data:${part.mimeType};base64,${Base64.getEncoder().encodeToString(part.data)}",
+                        )
+                        if (imageDetail != dev.tramai.core.model.ImageDetail.AUTO) {
+                            imageUrl["detail"] = imageDetail.name.lowercase()
+                        }
                         mapOf(
                             "type" to "image_url",
-                            "image_url" to mapOf(
-                                "url" to "data:${part.mimeType};base64,${Base64.getEncoder().encodeToString(part.data)}",
-                            ),
+                            "image_url" to imageUrl,
                         )
                     }
-                    is ContentPart.ImageUrlContent -> mapOf(
-                        "type" to "image_url",
-                        "image_url" to mapOf(
+                    is ContentPart.ImageUrlContent -> {
+                        val imageUrl = mutableMapOf<String, Any?>(
                             "url" to part.url,
-                        ),
-                    )
+                        )
+                        if (imageDetail != dev.tramai.core.model.ImageDetail.AUTO) {
+                            imageUrl["detail"] = imageDetail.name.lowercase()
+                        }
+                        mapOf(
+                            "type" to "image_url",
+                            "image_url" to imageUrl,
+                        )
+                    }
                 }
             }
         } else {

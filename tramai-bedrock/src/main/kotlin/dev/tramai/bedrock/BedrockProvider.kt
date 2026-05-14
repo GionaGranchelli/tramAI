@@ -13,6 +13,7 @@ import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.UsageMetrics
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.provider.providerTransportFailure
 import kotlinx.coroutines.Dispatchers
@@ -54,6 +55,13 @@ class BedrockProvider @JvmOverloads constructor(
 ) : ModelProvider, StreamCapable {
 
     override fun providerId(): String = PROVIDER_ID
+
+    override fun supportsCapability(capability: ProviderCapability): Boolean = when (capability) {
+        ProviderCapability.VISION -> true
+        ProviderCapability.TOOL_CALLING -> true
+        ProviderCapability.STRUCTURED_OUTPUT -> true
+        ProviderCapability.STREAMING -> true
+    }
 
     override suspend fun complete(request: ModelRequest): ModelResponse = withContext(Dispatchers.IO) {
         try {
