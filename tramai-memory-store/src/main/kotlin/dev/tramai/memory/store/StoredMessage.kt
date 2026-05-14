@@ -44,6 +44,10 @@ internal fun toStoredContentPart(part: ContentPart): StoredContentPart = when (p
         mimeType = part.mimeType,
         data = Base64.getEncoder().encodeToString(part.data),
     )
+    is ContentPart.ImageUrlContent -> StoredContentPart(
+        type = "image_url",
+        text = part.url,
+    )
 }
 
 internal fun toContentPart(part: StoredContentPart): ContentPart = when (part.type) {
@@ -56,6 +60,7 @@ internal fun toContentPart(part: StoredContentPart): ContentPart = when (part.ty
             data = Base64.getDecoder().decode(data),
         )
     }
+    "image_url" -> ContentPart.ImageUrlContent(part.text ?: "")
     else -> throw IllegalArgumentException("Unsupported stored content part type '${part.type}'")
 }
 
