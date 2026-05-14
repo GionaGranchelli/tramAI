@@ -17,6 +17,7 @@ dependencies {
         api(project(":tramai-azure-openai"))
         api(project(":tramai-bedrock"))
         api(project(":tramai-deepseek"))
+        api(project(":tramai-platform"))
         api(project(":tramai-gemini"))
         api(project(":tramai-openai"))
         api(project(":tramai-ollama"))

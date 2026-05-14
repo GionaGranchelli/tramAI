@@ -29,15 +29,20 @@ val tramaiDeveloperName = providers.gradleProperty("tramaiDeveloperName").orElse
 val tramaiDeveloperEmail = providers.gradleProperty("tramaiDeveloperEmail").orElse("opensource@giona.dev")
 val publishableProjectNames = listOf(
     "tramai-anthropic",
+    "tramai-azure-openai",
+    "tramai-bedrock",
     "tramai-bom",
     "tramai-core",
+    "tramai-deepseek",
     "tramai-embedding",
     "tramai-engine",
     "tramai-gemini",
+    "tramai-memory",
     "tramai-observability",
     "tramai-ollama",
     "tramai-openai",
     "tramai-orchestration",
+    "tramai-platform",
     "tramai-spring",
     "tramai-standalone",
     "tramai-structured",
@@ -189,6 +194,10 @@ fun projectDescription(projectName: String): String = when (projectName) {
     "tramai-structured" -> "Structured output schema generation, parsing, and validation support for Tramai."
     "tramai-anthropic" -> "Anthropic provider integration for Tramai."
     "tramai-gemini" -> "Google Gemini provider integration for Tramai."
+    "tramai-azure-openai" -> "Azure OpenAI provider integration for Tramai."
+    "tramai-bedrock" -> "AWS Bedrock provider integration for Tramai."
+    "tramai-deepseek" -> "Deepseek provider integration for Tramai."
+    "tramai-memory" -> "In-memory memory and state helpers for Tramai (memory primitives and adapters)."
     "tramai-openai" -> "OpenAI and OpenAI-compatible provider integrations for Tramai."
     "tramai-ollama" -> "Ollama provider integration for Tramai."
     "tramai-observability" -> "OpenTelemetry-based observability hooks for Tramai."
