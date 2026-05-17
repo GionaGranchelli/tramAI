@@ -20,6 +20,7 @@ sonar {
     properties {
         property("sonar.projectKey", "tramai")
         property("sonar.projectName", "TramAI")
+        property("sonar.organization", "gionagranchelli")
         property("sonar.host.url", "http://localhost:9000")
         property("sonar.token", providers.environmentVariable("SONAR_TOKEN").orElse(""))
         property("sonar.sourceEncoding", "UTF-8")
