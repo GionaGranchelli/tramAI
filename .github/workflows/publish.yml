@@ -79,7 +79,9 @@ jobs:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
         run: |
           PROJECT_KEY="${SONAR_PROJECT_KEY:-dev.tramai:tramai}"
-          ./gradlew sonar --no-configuration-cache \
+          # SonarScanner 6.2 resolves subproject classpaths during task execution.
+          # Gradle 9 requires this step to run without parallel project execution.
+          ./gradlew sonar --no-configuration-cache --no-parallel \
             -Dsonar.host.url="$SONAR_HOST_URL" \
             -Dsonar.token="$SONAR_TOKEN" \
             -Dsonar.projectKey="$PROJECT_KEY" \
