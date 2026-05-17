@@ -126,6 +126,18 @@ class TokenAwareChatMemoryTest {
         assertThat(totalTokens).isLessThanOrEqualTo(10)
     }
 
+    @Test
+    fun `token counting uses the configured tokenizer for realistic messages`() {
+        val wordTokenizer = Tokenizer { text ->
+            text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.size
+        }
+        val memory = TokenAwareChatMemory(maxTokens = 7, tokenizer = wordTokenizer)
+        memory.add("conv-1", Message(MessageRole.USER, "Please summarize this invoice today"))
+        memory.add("conv-1", Message(MessageRole.ASSISTANT, "Sure I can help"))
+
+        assertThat(memory.get("conv-1").map { it.content }).containsExactly("Sure I can help")
+    }
+
     // ── Constructor Validation ──────────────────────────────────
 
     @Test

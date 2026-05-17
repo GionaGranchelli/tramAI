@@ -15,6 +15,15 @@ import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.api.trace.Tracer
 
+private const val ATTR_GEN_AI_SYSTEM = "gen_ai.system"
+private const val ATTR_GEN_AI_REQUEST_MODEL = "gen_ai.request.model"
+private const val ATTR_GEN_AI_RESPONSE_MODEL = "gen_ai.response.model"
+private const val ATTR_TRAMAI_OP_INTERFACE = "tramai.operation.interface"
+private const val ATTR_TRAMAI_OP_METHOD = "tramai.operation.method"
+private const val ATTR_TRAMAI_RETRY_ATTEMPT = "tramai.retry.attempt"
+private const val ATTR_TRAMAI_OUTCOME = "tramai.outcome"
+private const val ATTR_TRAMAI_EVENT_NAME = "tramai.event.name"
+
 /**
  * OpenTelemetry-backed [OperationObserver] implementation.
  */
@@ -37,21 +46,21 @@ class OpenTelemetryOperationObserver(
 
     override fun onCallStarted(context: OperationCallContext): OperationObservation {
         val span = tracer.spanBuilder("ai.${context.methodName}").startSpan()
-        span.setAttribute("gen_ai.system", context.providerId)
-        span.setAttribute("gen_ai.request.model", context.requestedModel)
-        span.setAttribute("tramai.operation.interface", context.serviceInterface)
-        span.setAttribute("tramai.operation.method", context.methodName)
-        span.setAttribute("tramai.retry.attempt", context.attempt.toLong())
+        span.setAttribute(ATTR_GEN_AI_SYSTEM, context.providerId)
+        span.setAttribute(ATTR_GEN_AI_REQUEST_MODEL, context.requestedModel)
+        span.setAttribute(ATTR_TRAMAI_OP_INTERFACE, context.serviceInterface)
+        span.setAttribute(ATTR_TRAMAI_OP_METHOD, context.methodName)
+        span.setAttribute(ATTR_TRAMAI_RETRY_ATTEMPT, context.attempt.toLong())
 
         return SpanBackedObservation(
             span = span,
             metrics = metrics,
             baseAttributes = mapOf(
-                "gen_ai.system" to context.providerId,
-                "gen_ai.request.model" to context.requestedModel,
-                "tramai.operation.interface" to context.serviceInterface,
-                "tramai.operation.method" to context.methodName,
-                "tramai.retry.attempt" to context.attempt.toLong(),
+                ATTR_GEN_AI_SYSTEM to context.providerId,
+                ATTR_GEN_AI_REQUEST_MODEL to context.requestedModel,
+                ATTR_TRAMAI_OP_INTERFACE to context.serviceInterface,
+                ATTR_TRAMAI_OP_METHOD to context.methodName,
+                ATTR_TRAMAI_RETRY_ATTEMPT to context.attempt.toLong(),
             ),
         )
     }
@@ -115,7 +124,7 @@ private class SpanBackedObservation(
 
     override fun onProviderResponse(response: ModelResponse) {
         latestResponse = response
-        response.modelUsed?.let { span.setAttribute("gen_ai.response.model", it) }
+        response.modelUsed?.let { span.setAttribute(ATTR_GEN_AI_RESPONSE_MODEL, it) }
         response.inputTokens?.let { span.setAttribute("gen_ai.usage.input_tokens", it.toLong()) }
         response.outputTokens?.let { span.setAttribute("gen_ai.usage.output_tokens", it.toLong()) }
 
@@ -158,7 +167,7 @@ private class SpanBackedObservation(
         span.addEvent(name, attributes.toOpenTelemetryAttributes())
         metrics.engineEvents.add(
             1,
-            (baseAttributes + mapOf("tramai.event.name" to name) + attributes).toOpenTelemetryAttributes(),
+            (baseAttributes + mapOf(ATTR_TRAMAI_EVENT_NAME to name) + attributes).toOpenTelemetryAttributes(),
         )
     }
 
@@ -176,16 +185,16 @@ private class SpanBackedObservation(
     private fun responseAttributes(response: ModelResponse): Attributes {
         val attributes = mutableMapOf<String, Any?>()
         attributes.putAll(baseAttributes)
-        attributes["tramai.outcome"] = currentOutcome()
-        response.modelUsed?.let { attributes["gen_ai.response.model"] = it }
+        attributes[ATTR_TRAMAI_OUTCOME] = currentOutcome()
+        response.modelUsed?.let { attributes[ATTR_GEN_AI_RESPONSE_MODEL] = it }
         return attributes.toOpenTelemetryAttributes()
     }
 
     private fun completionAttributes(parseSuccess: Boolean?): Attributes {
         val attributes = mutableMapOf<String, Any?>()
         attributes.putAll(baseAttributes)
-        attributes["tramai.outcome"] = currentOutcome()
-        latestResponse?.modelUsed?.let { attributes["gen_ai.response.model"] = it }
+        attributes[ATTR_TRAMAI_OUTCOME] = currentOutcome()
+        latestResponse?.modelUsed?.let { attributes[ATTR_GEN_AI_RESPONSE_MODEL] = it }
         parseSuccess?.let { attributes["tramai.structured.parse_success"] = it }
         failure?.let { attributes["tramai.error.type"] = it::class.simpleName ?: "Throwable" }
         return attributes.toOpenTelemetryAttributes()

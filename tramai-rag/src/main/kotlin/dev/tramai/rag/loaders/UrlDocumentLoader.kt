@@ -7,8 +7,8 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 
 /**
  * A [DocumentLoader] that fetches text content from HTTP(S) URLs.
@@ -28,6 +28,7 @@ import kotlinx.coroutines.withContext
  */
 class UrlDocumentLoader(
     private val maxBytes: Long = 10_000_000,
+    private val ioDispatcher: CoroutineContext = kotlinx.coroutines.Dispatchers.IO,
 ) : DocumentLoader {
 
     private val client: HttpClient = HttpClient.newBuilder()
@@ -55,7 +56,7 @@ class UrlDocumentLoader(
             .build()
 
         val response = try {
-            withContext(Dispatchers.IO) {
+            withContext(ioDispatcher) {
                 client.send(request, HttpResponse.BodyHandlers.ofString())
             }
         } catch (e: Exception) {

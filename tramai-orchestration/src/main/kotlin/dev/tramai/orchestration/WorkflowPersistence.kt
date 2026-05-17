@@ -44,14 +44,14 @@ interface WorkflowCheckpointStore {
     )
 }
 
-interface WorkflowCheckpointCatalog {
+fun interface WorkflowCheckpointCatalog {
     suspend fun listCheckpoints(): List<WorkflowCheckpoint>
 }
 /**
  * Optional scheduler bridge used by delay workflow steps to persist wakeups
  * without making the orchestration module depend on a scheduler backend.
  */
-interface WorkflowDelayWakeupScheduler {
+fun interface WorkflowDelayWakeupScheduler {
     suspend fun scheduleDelayWakeup(
         runId: String,
         stepId: String,

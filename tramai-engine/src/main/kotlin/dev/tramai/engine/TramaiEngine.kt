@@ -246,24 +246,9 @@ private class TramaiInvocationHandler(
         tokenBudgetTracker: TokenBudgetTracker,
         conversationId: String?,
     ): Flow<StreamChunk> {
-        // Memory: capture original messages for streaming request injection
-        val memoryMessages: List<Message>? = if (chatMemory != null && conversationId != null) {
-            val initialMessages = operation.initialMessages(arguments)
-            val history = chatMemory.get(conversationId)
-            if (history.isNotEmpty()) {
-                val currentSystem = initialMessages.firstOrNull { it.role == MessageRole.SYSTEM }
-                val deduped = if (currentSystem != null && history.any { it.role == MessageRole.SYSTEM }) {
-                    initialMessages.filter { it.role != MessageRole.SYSTEM }
-                } else {
-                    initialMessages
-                }
-                history + deduped
-            } else {
-                null // no history, use the request as-is
-            }
-        } else {
-            null
-        }
+        val memoryInjection = injectMemoryMessages(operation, arguments, conversationId)
+        val historySize = memoryInjection?.first?.size ?: 0
+        val memoryMessages = memoryInjection?.second
 
         return flow {
             var lastFailure: Throwable? = null
@@ -298,7 +283,19 @@ private class TramaiInvocationHandler(
                         emitChunk = { emit(it) },
                     )
                 ) {
-                    is StreamingRouteResult.Completed -> return@flow
+                    is StreamingRouteResult.Completed -> {
+                        if (chatMemory != null && conversationId != null) {
+                            val assistantMessage = Message(
+                                role = MessageRole.ASSISTANT,
+                                content = result.fullText,
+                            )
+                            val turnMessages = memoryInjectedRequest.messages
+                                .drop(historySize)
+                                .filter { it.role != MessageRole.SYSTEM }
+                            chatMemory.add(conversationId, turnMessages + assistantMessage)
+                        }
+                        return@flow
+                    }
                     is StreamingRouteResult.StartupFailure -> lastFailure = result.error
                     is StreamingRouteResult.TerminalError -> {
                         emit(result.errorChunk)
@@ -329,143 +326,31 @@ private class TramaiInvocationHandler(
         emitChunk: suspend (StreamChunk) -> Unit,
     ): StreamingRouteResult {
         var emittedAnyTokens = false
-
-        val callContext = OperationCallContext(
-            serviceInterface = serviceDefinition.serviceType.qualifiedName ?: serviceDefinition.serviceType.simpleName.orEmpty(),
-            methodName = operation.method.name,
-            providerId = route.providerName,
-            requestedModel = operation.operation.model,
-            attempt = attempt,
+        val callContext = streamingCallContext(operation, route.providerName, attempt)
+        val interceptedRequest = request.copy(
+            messages = operationInterceptor.interceptRequest(callContext, request.messages),
         )
-
-        val interceptedMessages = operationInterceptor.interceptRequest(callContext, request.messages)
-        val interceptedRequest = request.copy(messages = interceptedMessages)
-
-        val observation = startObservation(
-            providerId = route.providerName,
-            operation = operation,
-            attempt = attempt,
-        )
-
-        observation.onEngineEvent(
-            name = "tramai.route.selected",
-            attributes = routeSelectedAttributes(route, routeIndex),
-        )
+        val observation = startStreamingObservation(route, operation, attempt, routeIndex)
 
         return try {
-            withTimeout(request.timeoutMillis ?: operation.operation.timeoutMillis) {
-                streamCapable.stream(interceptedRequest).collect { chunk ->
-                    when (chunk) {
-                        is StreamChunk.Token -> {
-                            emittedAnyTokens = true
-                            emitChunk(chunk)
-                        }
-                        is StreamChunk.Complete -> {
-                            val response = ModelResponse(
-                                content = chunk.fullText,
-                                inputTokens = chunk.usage.inputTokens,
-                                outputTokens = chunk.usage.outputTokens,
-                                modelUsed = route.effectiveModelName,
-                                finishReason = FinishReason.STOP,
-                            )
-
-                            val interceptedResponse = operationInterceptor.interceptResponse(callContext, response)
-                            observation.onProviderResponse(interceptedResponse)
-
-                            try {
-                                enforceTokenBudget(
-                                    tracker = tokenBudgetTracker,
-                                    response = interceptedResponse,
-                                    observation = observation,
-                                    providerId = route.providerName,
-                                    modelName = route.effectiveModelName,
-                                )
-                            } catch (error: TokenBudgetExceededException) {
-                                observation.onCallCompleted(parseSuccess = null)
-                                throw StreamingRouteFinished(
-                                    StreamingRouteResult.TerminalError(StreamChunk.Error(error)),
-                                )
-                            }
-                            observation.onCallCompleted(parseSuccess = null)
-                            circuitBreaker.onSuccess(route.providerName)
-
-                            // Emit potentially modified terminal chunk
-                            emitChunk(
-                                if (interceptedResponse.content != chunk.fullText) {
-                                    chunk.copy(fullText = interceptedResponse.content)
-                                } else {
-                                    chunk
-                                }
-                            )
-                            throw StreamingRouteFinished(StreamingRouteResult.Completed)
-                        }
-                        is StreamChunk.Error -> {
-                            observation.onProviderFailure(chunk.cause)
-                            if (!emittedAnyTokens && shouldFallbackFrom(chunk.cause)) {
-                                observation.onEngineEvent(
-                                    name = "tramai.streaming.startup_retry",
-                                    attributes = mapOf(
-                                        "provider_id" to route.providerName,
-                                        "failure_type" to (chunk.cause::class.simpleName ?: "unknown"),
-                                    ),
-                                )
-                                val opened = circuitBreaker.onFailure(route.providerName, chunk.cause)
-                                if (opened) {
-                                    observation.onEngineEvent(
-                                        name = "tramai.circuit.opened",
-                                        attributes = mapOf("provider_id" to route.providerName),
-                                    )
-                                }
-                                observation.onCallCompleted(parseSuccess = null)
-                                throw StreamingRouteFinished(StreamingRouteResult.StartupFailure(chunk.cause))
-                            }
-
-                            val opened = circuitBreaker.onFailure(route.providerName, chunk.cause)
-                            if (opened) {
-                                observation.onEngineEvent(
-                                    name = "tramai.circuit.opened",
-                                    attributes = mapOf("provider_id" to route.providerName),
-                                )
-                            }
-                            observation.onCallCompleted(parseSuccess = null)
-                            throw StreamingRouteFinished(StreamingRouteResult.TerminalError(chunk))
-                        }
-                    }
-                }
-
-                val error = ProviderException(
-                    message = "Provider ${route.providerName} ended streaming without a terminal chunk while invoking ${serviceDefinition.serviceType.qualifiedName}.${operation.method.name}",
-                )
-                observation.onProviderFailure(error)
-                if (!emittedAnyTokens && shouldFallbackFrom(error)) {
-                    observation.onEngineEvent(
-                        name = "tramai.streaming.startup_retry",
-                        attributes = mapOf(
-                            "provider_id" to route.providerName,
-                            "failure_type" to "ProviderException",
-                        ),
-                    )
-                    val opened = circuitBreaker.onFailure(route.providerName, error)
-                    if (opened) {
-                        observation.onEngineEvent(
-                            name = "tramai.circuit.opened",
-                            attributes = mapOf("provider_id" to route.providerName),
-                        )
-                    }
-                    observation.onCallCompleted(parseSuccess = null)
-                    throw StreamingRouteFinished(StreamingRouteResult.StartupFailure(error))
-                }
-
-                val opened = circuitBreaker.onFailure(route.providerName, error)
-                if (opened) {
-                    observation.onEngineEvent(
-                        name = "tramai.circuit.opened",
-                        attributes = mapOf("provider_id" to route.providerName),
-                    )
-                }
-                observation.onCallCompleted(parseSuccess = null)
-                throw StreamingRouteFinished(StreamingRouteResult.TerminalError(StreamChunk.Error(error)))
-            }
+            collectStreamingRouteChunks(
+                streamCapable = streamCapable,
+                request = interceptedRequest,
+                timeoutMillis = request.timeoutMillis ?: operation.operation.timeoutMillis,
+                ctx = StreamingRouteContext(
+                    route = route,
+                    operation = operation,
+                    tokenBudgetTracker = tokenBudgetTracker,
+                    callContext = callContext,
+                    observation = observation,
+                    emitChunk = emitChunk,
+                ),
+                hasEmittedTokens = { emittedAnyTokens },
+                onToken = { chunk ->
+                    emittedAnyTokens = true
+                    emitChunk(chunk)
+                },
+            )
             error("Streaming route completed without a terminal result")
         } catch (finished: StreamingRouteFinished) {
             finished.result
@@ -479,34 +364,7 @@ private class TramaiInvocationHandler(
                 cause = error,
             )
             observation.onProviderFailure(timeout)
-            if (!emittedAnyTokens && shouldFallbackFrom(timeout)) {
-                observation.onEngineEvent(
-                    name = "tramai.streaming.startup_retry",
-                    attributes = mapOf(
-                        "provider_id" to route.providerName,
-                        "failure_type" to "TimeoutException",
-                    ),
-                )
-                val opened = circuitBreaker.onFailure(route.providerName, timeout)
-                if (opened) {
-                    observation.onEngineEvent(
-                        name = "tramai.circuit.opened",
-                        attributes = mapOf("provider_id" to route.providerName),
-                    )
-                }
-                observation.onCallCompleted(parseSuccess = null)
-                StreamingRouteResult.StartupFailure(timeout)
-            } else {
-                val opened = circuitBreaker.onFailure(route.providerName, timeout)
-                if (opened) {
-                    observation.onEngineEvent(
-                        name = "tramai.circuit.opened",
-                        attributes = mapOf("provider_id" to route.providerName),
-                    )
-                }
-                observation.onCallCompleted(parseSuccess = null)
-                StreamingRouteResult.TerminalError(StreamChunk.Error(timeout))
-            }
+            handleFallbackResult(timeout, emittedAnyTokens, route.providerName, observation)
         } catch (error: CancellationException) {
             val cancellation = CancellationException("Streaming operation was cancelled by the consumer")
             cancellation.initCause(error)
@@ -514,43 +372,267 @@ private class TramaiInvocationHandler(
             observation.onCallCompleted(parseSuccess = null)
             throw error
         } catch (error: Throwable) {
-            val normalized = when (error) {
-                is TramaiException -> error
-                else -> ProviderException(
-                    message = "Provider ${route.providerName} failed while streaming ${serviceDefinition.serviceType.qualifiedName}.${operation.method.name}",
-                    cause = error,
+            val normalized = normalizeStreamingError(error, route.providerName, operation)
+            observation.onProviderFailure(normalized)
+            handleFallbackResult(normalized, emittedAnyTokens, route.providerName, observation)
+        }
+    }
+
+    private fun streamingCallContext(
+        operation: OperationDefinition,
+        providerId: String,
+        attempt: Int,
+    ) = OperationCallContext(
+        serviceInterface = serviceDefinition.serviceType.qualifiedName ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+        methodName = operation.method.name,
+        providerId = providerId,
+        requestedModel = operation.operation.model,
+        attempt = attempt,
+    )
+
+    private fun startStreamingObservation(
+        route: ResolvedProviderRoute,
+        operation: OperationDefinition,
+        attempt: Int,
+        routeIndex: Int,
+    ): OperationObservation = startObservation(
+        providerId = route.providerName,
+        operation = operation,
+        attempt = attempt,
+    ).also { observation ->
+        observation.onEngineEvent(
+            name = EVENT_ROUTE_SELECTED,
+            attributes = routeSelectedAttributes(route, routeIndex),
+        )
+    }
+
+    private data class StreamingRouteContext(
+        val route: ResolvedProviderRoute,
+        val operation: OperationDefinition,
+        val tokenBudgetTracker: TokenBudgetTracker,
+        val callContext: OperationCallContext,
+        val observation: OperationObservation,
+        val emitChunk: suspend (StreamChunk) -> Unit,
+    )
+
+    private data class StructuredAttemptContext(
+        val operation: OperationDefinition,
+        val arguments: List<Any?>,
+        val schemaJson: String,
+        val handler: StructuredOutputHandler,
+        val messages: MutableList<Message>,
+        val historySize: Int,
+        val tokenBudgetTracker: TokenBudgetTracker,
+        val conversationId: String?,
+    )
+
+    private suspend fun collectStreamingRouteChunks(
+        streamCapable: StreamCapable,
+        request: ModelRequest,
+        timeoutMillis: Long,
+        ctx: StreamingRouteContext,
+        hasEmittedTokens: () -> Boolean,
+        onToken: suspend (StreamChunk.Token) -> Unit,
+    ) {
+        withTimeout(timeoutMillis) {
+            streamCapable.stream(request).collect { chunk ->
+                handleStreamingChunk(
+                    chunk = chunk,
+                    ctx = ctx,
+                    emittedAnyTokens = hasEmittedTokens(),
+                    onToken = onToken,
                 )
             }
-            observation.onProviderFailure(normalized)
-            if (!emittedAnyTokens && shouldFallbackFrom(normalized)) {
-                observation.onEngineEvent(
-                    name = "tramai.streaming.startup_retry",
-                    attributes = mapOf(
-                        "provider_id" to route.providerName,
-                        "failure_type" to (normalized::class.simpleName ?: "unknown"),
+            handleStreamingTerminationWithoutTerminalChunk(
+                route = ctx.route,
+                operation = ctx.operation,
+                observation = ctx.observation,
+                emittedAnyTokens = hasEmittedTokens(),
+            )
+        }
+    }
+
+    private suspend fun handleStreamingChunk(
+        chunk: StreamChunk,
+        ctx: StreamingRouteContext,
+        emittedAnyTokens: Boolean,
+        onToken: suspend (StreamChunk.Token) -> Unit,
+    ) {
+        when (chunk) {
+            is StreamChunk.Token -> onToken(chunk)
+            is StreamChunk.Complete -> handleStreamingComplete(
+                chunk = chunk,
+                route = ctx.route,
+                tokenBudgetTracker = ctx.tokenBudgetTracker,
+                callContext = ctx.callContext,
+                observation = ctx.observation,
+                emitChunk = ctx.emitChunk,
+            )
+            is StreamChunk.Error -> {
+                ctx.observation.onProviderFailure(chunk.cause)
+                finishStreamingRoute(
+                    handleFallbackResult(
+                        error = chunk.cause,
+                        emittedAnyTokens = emittedAnyTokens,
+                        providerName = ctx.route.providerName,
+                        observation = ctx.observation,
+                        terminalChunk = chunk,
                     ),
                 )
-                val opened = circuitBreaker.onFailure(route.providerName, normalized)
-                if (opened) {
-                    observation.onEngineEvent(
-                        name = "tramai.circuit.opened",
-                        attributes = mapOf("provider_id" to route.providerName),
-                    )
-                }
-                observation.onCallCompleted(parseSuccess = null)
-                StreamingRouteResult.StartupFailure(normalized)
-            } else {
-                val opened = circuitBreaker.onFailure(route.providerName, normalized)
-                if (opened) {
-                    observation.onEngineEvent(
-                        name = "tramai.circuit.opened",
-                        attributes = mapOf("provider_id" to route.providerName),
-                    )
-                }
-                observation.onCallCompleted(parseSuccess = null)
-                StreamingRouteResult.TerminalError(StreamChunk.Error(normalized))
             }
         }
+    }
+
+    private suspend fun handleStreamingComplete(
+        chunk: StreamChunk.Complete,
+        route: ResolvedProviderRoute,
+        tokenBudgetTracker: TokenBudgetTracker,
+        callContext: OperationCallContext,
+        observation: OperationObservation,
+        emitChunk: suspend (StreamChunk) -> Unit,
+    ) {
+        val response = ModelResponse(
+            content = chunk.fullText,
+            inputTokens = chunk.usage.inputTokens,
+            outputTokens = chunk.usage.outputTokens,
+            modelUsed = route.effectiveModelName,
+            finishReason = FinishReason.STOP,
+        )
+
+        val interceptedResponse = operationInterceptor.interceptResponse(callContext, response)
+        observation.onProviderResponse(interceptedResponse)
+
+        try {
+            enforceTokenBudget(
+                tracker = tokenBudgetTracker,
+                response = interceptedResponse,
+                observation = observation,
+                providerId = route.providerName,
+                modelName = route.effectiveModelName,
+            )
+        } catch (error: TokenBudgetExceededException) {
+            observation.onCallCompleted(parseSuccess = null)
+            throw StreamingRouteFinished(
+                StreamingRouteResult.TerminalError(StreamChunk.Error(error)),
+            )
+        }
+        observation.onCallCompleted(parseSuccess = null)
+        circuitBreaker.onSuccess(route.providerName)
+        emitChunk(
+            if (interceptedResponse.content != chunk.fullText) {
+                chunk.copy(fullText = interceptedResponse.content)
+            } else {
+                chunk
+            }
+        )
+        throw StreamingRouteFinished(StreamingRouteResult.Completed(interceptedResponse.content))
+    }
+
+    private fun handleStreamingTerminationWithoutTerminalChunk(
+        route: ResolvedProviderRoute,
+        operation: OperationDefinition,
+        observation: OperationObservation,
+        emittedAnyTokens: Boolean,
+    ): Nothing {
+        val error = ProviderException(
+            message = "Provider ${route.providerName} ended streaming without a terminal chunk while invoking ${serviceDefinition.serviceType.qualifiedName}.${operation.method.name}",
+        )
+        observation.onProviderFailure(error)
+        finishStreamingRoute(
+            handleFallbackResult(
+                error = error,
+                emittedAnyTokens = emittedAnyTokens,
+                providerName = route.providerName,
+                observation = observation,
+            ),
+        )
+    }
+
+    private fun normalizeStreamingError(
+        error: Throwable,
+        providerName: String,
+        operation: OperationDefinition,
+    ): TramaiException = when (error) {
+        is TramaiException -> error
+        else -> ProviderException(
+            message = "Provider $providerName failed while streaming ${serviceDefinition.serviceType.qualifiedName}.${operation.method.name}",
+            cause = error,
+        )
+    }
+
+    private fun recordCircuitBreakerFailure(
+        providerName: String,
+        error: Throwable,
+        observation: OperationObservation,
+    ) {
+        val opened = circuitBreaker.onFailure(providerName, error)
+        if (opened) {
+            observation.onEngineEvent(
+                name = EVENT_CIRCUIT_OPENED,
+                attributes = mapOf(ATTR_PROVIDER_ID to providerName),
+            )
+        }
+    }
+
+    private fun recordStartupRetryEvent(
+        providerName: String,
+        failureType: String,
+        observation: OperationObservation,
+    ) {
+        observation.onEngineEvent(
+            name = EVENT_STARTUP_RETRY,
+            attributes = mapOf(
+                ATTR_PROVIDER_ID to providerName,
+                ATTR_FAILURE_TYPE to failureType,
+            ),
+        )
+    }
+
+    private fun handleFallbackResult(
+        error: TramaiException,
+        emittedAnyTokens: Boolean,
+        providerName: String,
+        observation: OperationObservation,
+        terminalChunk: StreamChunk.Error = StreamChunk.Error(error),
+    ): StreamingRouteResult {
+        val result = if (!emittedAnyTokens && shouldFallbackFrom(error)) {
+            recordStartupRetryEvent(providerName, error::class.simpleName ?: "unknown", observation)
+            StreamingRouteResult.StartupFailure(error)
+        } else {
+            StreamingRouteResult.TerminalError(terminalChunk)
+        }
+        recordCircuitBreakerFailure(providerName, error, observation)
+        observation.onCallCompleted(parseSuccess = null)
+        return result
+    }
+
+    private fun finishStreamingRoute(result: StreamingRouteResult): Nothing {
+        throw StreamingRouteFinished(result)
+    }
+
+    private fun injectMemoryMessages(
+        operation: OperationDefinition,
+        arguments: List<Any?>,
+        conversationId: String?,
+    ): Pair<List<Message>, List<Message>>? = injectMemoryMessages(
+        initialMessages = operation.initialMessages(arguments),
+        conversationId = conversationId,
+    )
+
+    private fun injectMemoryMessages(
+        initialMessages: List<Message>,
+        conversationId: String?,
+    ): Pair<List<Message>, List<Message>>? {
+        if (chatMemory == null || conversationId == null) return null
+        val history = chatMemory.get(conversationId)
+        if (history.isEmpty()) return null
+        val currentSystem = initialMessages.firstOrNull { it.role == MessageRole.SYSTEM }
+        val deduped = if (currentSystem != null && history.any { it.role == MessageRole.SYSTEM }) {
+            initialMessages.filter { it.role != MessageRole.SYSTEM }
+        } else {
+            initialMessages
+        }
+        return history to (history + deduped)
     }
 
     private suspend fun executeRaw(
@@ -561,29 +643,11 @@ private class TramaiInvocationHandler(
     ): String {
         operation.cachedValue(arguments)?.let { return it as String }
         val messages = operation.initialMessages(arguments).toMutableList()
+        val (history, effectiveMessages) = injectMemoryMessages(messages, conversationId)
+            ?: (emptyList<Message>() to messages.toList())
+        val effectiveMutableMessages = effectiveMessages.toMutableList()
 
-        // Memory: inject history if chatMemory is configured
-        val history: List<Message>
-        val effectiveMessages: MutableList<Message>
-        if (chatMemory != null && conversationId != null) {
-            history = chatMemory.get(conversationId)
-            val enhanced = if (history.isNotEmpty()) {
-                val currentSystem = messages.firstOrNull { it.role == MessageRole.SYSTEM }
-                if (currentSystem != null && history.any { it.role == MessageRole.SYSTEM }) {
-                    messages.filter { it.role != MessageRole.SYSTEM }
-                } else {
-                    messages
-                }
-            } else {
-                messages
-            }
-            effectiveMessages = (history + enhanced).toMutableList()
-        } else {
-            history = emptyList()
-            effectiveMessages = messages
-        }
-
-        val result = executeWithTools(operation, effectiveMessages, tokenBudgetTracker)
+        val result = executeWithTools(operation, effectiveMutableMessages, tokenBudgetTracker)
 
         // Memory: persist response if chatMemory is configured
         if (chatMemory != null && conversationId != null) {
@@ -593,7 +657,7 @@ private class TramaiInvocationHandler(
                 toolCalls = result.response.toolCalls,
             )
             // Persist non-system messages from this turn (tool rounds + final assistant)
-            val turnMessages = effectiveMessages.drop(history.size).filter { it.role != MessageRole.SYSTEM }
+            val turnMessages = effectiveMutableMessages.drop(history.size).filter { it.role != MessageRole.SYSTEM }
             chatMemory.add(conversationId, turnMessages + assistantMessage)
         }
 
@@ -613,91 +677,155 @@ private class TramaiInvocationHandler(
         val contract = operation.structuredContract(handler)
         operation.cachedValue(arguments, contract.schemaJson)?.let { return it }
         val messages = operation.initialMessages(arguments, contract.schemaJson).toMutableList()
-
-        // Memory: inject history if chatMemory is configured
-        val history: List<Message>
-        val effectiveMessages: List<Message>
-        if (chatMemory != null && conversationId != null) {
-            history = chatMemory.get(conversationId)
-            val enhanced = if (history.isNotEmpty()) {
-                val currentSystem = messages.firstOrNull { it.role == MessageRole.SYSTEM }
-                if (currentSystem != null && history.any { it.role == MessageRole.SYSTEM }) {
-                    messages.filter { it.role != MessageRole.SYSTEM }
-                } else {
-                    messages
-                }
-            } else {
-                messages
-            }
-            effectiveMessages = history + enhanced
-        } else {
-            history = emptyList()
-            effectiveMessages = messages.toList()
-        }
+        val (history, effectiveMessages) = injectMemoryMessages(messages, conversationId)
+            ?: (emptyList<Message>() to messages.toList())
 
         // Re-initialize messages list with history-injected content
         val initialTurnCount = history.size
         messages.clear()
         messages.addAll(effectiveMessages)
 
+        return executeStructuredRetryLoop(
+            operation = operation,
+            arguments = arguments,
+            schemaJson = contract.schemaJson,
+            handler = handler,
+            messages = messages,
+            historySize = initialTurnCount,
+            tokenBudgetTracker = tokenBudgetTracker,
+            conversationId = conversationId,
+        )
+    }
+
+    private suspend fun executeStructuredRetryLoop(
+        operation: OperationDefinition,
+        arguments: List<Any?>,
+        schemaJson: String,
+        handler: StructuredOutputHandler,
+        messages: MutableList<Message>,
+        historySize: Int,
+        tokenBudgetTracker: TokenBudgetTracker,
+        conversationId: String?,
+    ): Any {
         val maxAttempts = operation.operation.maxRetries + 1
+        val targetType = requireNotNull(operation.returnType) {
+            "Structured return type ${operation.returnTypeDescription} could not be inspected without Kotlin reflection metadata"
+        }
 
         repeat(maxAttempts) { attemptIndex ->
-            val messagesBeforeCall = messages.size
-            val result = executeWithTools(operation, messages, tokenBudgetTracker)
-            when (
-                val analysis = handler.analyze(
-                    rawResponse = result.response.content,
-                    targetType = requireNotNull(operation.returnType) {
-                        "Structured return type ${operation.returnTypeDescription} could not be inspected without Kotlin reflection metadata"
-                    },
-                )
-            ) {
-                is StructuredOutputResult.Success -> {
-                    result.observation.onCallCompleted(parseSuccess = true)
-                    // Memory: persist response if chatMemory is configured (only on success)
-                    if (chatMemory != null && conversationId != null) {
-                        val assistantMessage = Message(
-                            role = MessageRole.ASSISTANT,
-                            content = result.response.content,
-                            toolCalls = result.response.toolCalls,
-                        )
-                        // Persist messages from this successful attempt:
-                        // - user prompt (messages[initialTurnCount..messagesBeforeCall[)
-                        // - tool rounds from this attempt (messages.drop(messagesBeforeCall))
-                        // - final assistant response
-                        val userPrompt = messages.subList(initialTurnCount, messagesBeforeCall)
-                            .filter { it.role != MessageRole.SYSTEM }
-                        val toolMessages = messages.drop(messagesBeforeCall)
-                        chatMemory.add(conversationId, userPrompt + toolMessages + assistantMessage)
-                    }
-                    operation.cacheValue(arguments, analysis.value, contract.schemaJson)
-                    return analysis.value
-                }
-                is StructuredOutputResult.Failure -> {
-                    result.observation.onStructuredParseFailure(
-                        rawResponse = analysis.rawResponse,
-                        errorSummary = analysis.errorSummary,
-                    )
-                    if (attemptIndex == maxAttempts - 1) {
-                        result.observation.onCallCompleted(parseSuccess = false)
-                        throw dev.tramai.core.exception.StructuredOutputException(
-                            message = "Structured output parsing failed after $maxAttempts attempt(s)",
-                            originalPrompt = operation.operation.prompt,
-                            lastRawResponse = analysis.rawResponse,
-                            validationError = analysis.errorSummary,
-                            attemptCount = maxAttempts,
-                        )
-                    }
-
-                    result.observation.onCallCompleted(parseSuccess = false)
-                    messages += Message(MessageRole.ASSISTANT, analysis.rawResponse)
-                    messages += Message(MessageRole.USER, analysis.feedbackMessage)
-                }
+            val value = executeStructuredAttempt(
+                operation = operation,
+                arguments = arguments,
+                schemaJson = schemaJson,
+                handler = handler,
+                messages = messages,
+                historySize = historySize,
+                tokenBudgetTracker = tokenBudgetTracker,
+                conversationId = conversationId,
+                targetType = targetType,
+                attemptIndex = attemptIndex,
+                maxAttempts = maxAttempts,
+            )
+            if (value != null) {
+                return value
             }
         }
 
         error("Structured retry loop exited without returning or throwing")
+    }
+
+    private suspend fun executeStructuredAttempt(
+        operation: OperationDefinition,
+        arguments: List<Any?>,
+        schemaJson: String,
+        handler: StructuredOutputHandler,
+        messages: MutableList<Message>,
+        historySize: Int,
+        tokenBudgetTracker: TokenBudgetTracker,
+        conversationId: String?,
+        targetType: kotlin.reflect.KType,
+        attemptIndex: Int,
+        maxAttempts: Int,
+    ): Any? {
+        val messagesBeforeCall = messages.size
+        val result = executeWithTools(operation, messages, tokenBudgetTracker)
+        return when (
+            val analysis = handler.analyze(
+                rawResponse = result.response.content,
+                targetType = targetType,
+            )
+        ) {
+            is StructuredOutputResult.Success -> {
+                result.observation.onCallCompleted(parseSuccess = true)
+                persistStructuredSuccess(
+                    result = result,
+                    messages = messages,
+                    historySize = historySize,
+                    conversationId = conversationId,
+                    messagesBeforeCall = messagesBeforeCall,
+                )
+                operation.cacheValue(arguments, analysis.value, schemaJson)
+                analysis.value
+            }
+            is StructuredOutputResult.Failure -> {
+                handleStructuredFailure(
+                    operation = operation,
+                    analysis = analysis,
+                    result = result,
+                    messages = messages,
+                    attemptIndex = attemptIndex,
+                    maxAttempts = maxAttempts,
+                )
+                null
+            }
+        }
+    }
+
+    private fun persistStructuredSuccess(
+        result: ProviderCallResult,
+        messages: MutableList<Message>,
+        historySize: Int,
+        conversationId: String?,
+        messagesBeforeCall: Int,
+    ) {
+        if (chatMemory == null || conversationId == null) return
+        val assistantMessage = Message(
+            role = MessageRole.ASSISTANT,
+            content = result.response.content,
+            toolCalls = result.response.toolCalls,
+        )
+        val userPrompt = messages.subList(historySize, messagesBeforeCall)
+            .filter { it.role != MessageRole.SYSTEM }
+        val toolMessages = messages.drop(messagesBeforeCall)
+        chatMemory.add(conversationId, userPrompt + toolMessages + assistantMessage)
+    }
+
+    private fun handleStructuredFailure(
+        operation: OperationDefinition,
+        analysis: StructuredOutputResult.Failure,
+        result: ProviderCallResult,
+        messages: MutableList<Message>,
+        attemptIndex: Int,
+        maxAttempts: Int,
+    ) {
+        result.observation.onStructuredParseFailure(
+            rawResponse = analysis.rawResponse,
+            errorSummary = analysis.errorSummary,
+        )
+        if (attemptIndex == maxAttempts - 1) {
+            result.observation.onCallCompleted(parseSuccess = false)
+            throw dev.tramai.core.exception.StructuredOutputException(
+                message = "Structured output parsing failed after $maxAttempts attempt(s)",
+                originalPrompt = operation.operation.prompt,
+                lastRawResponse = analysis.rawResponse,
+                validationError = analysis.errorSummary,
+                attemptCount = maxAttempts,
+            )
+        }
+
+        result.observation.onCallCompleted(parseSuccess = false)
+        messages += Message(MessageRole.ASSISTANT, analysis.rawResponse)
+        messages += Message(MessageRole.USER, analysis.feedbackMessage)
     }
 
     private suspend fun executeWithTools(
@@ -740,54 +868,64 @@ private class TramaiInvocationHandler(
                 content = result.response.content,
                 toolCalls = toolCalls,
             )
-
-            // Execute each tool and append results
-            for (toolCall in toolCalls) {
-                val tool = toolRegistry.resolve(toolCall.name)
-                val toolResult = if (tool == null) {
-                    ToolResult.PermanentFailure("Tool '${toolCall.name}' not found")
-                } else {
-                    executeTool(tool, toolCall, operation)
-                }
-
-                messages += when (toolResult) {
-                    is ToolResult.Success -> {
-                        val textContent = toolResult.value.toString()
-                        val contentParts = toolResult.contentParts
-                        if (contentParts != null && contentParts.isNotEmpty()) {
-                            val parts = buildList<ContentPart> {
-                                add(ContentPart.TextPart(textContent))
-                                addAll(contentParts)
-                            }
-                            Message(
-                                role = MessageRole.TOOL,
-                                content = "",
-                                contentParts = parts,
-                                toolCallId = toolCall.id,
-                            )
-                        } else {
-                            Message(
-                                role = MessageRole.TOOL,
-                                content = textContent,
-                                toolCallId = toolCall.id,
-                            )
-                        }
-                    }
-                    is ToolResult.InvalidInput -> Message(
-                        role = MessageRole.TOOL,
-                        content = "Error: ${toolResult.message}",
-                        toolCallId = toolCall.id,
-                    )
-                    is ToolResult.PermanentFailure -> Message(
-                        role = MessageRole.TOOL,
-                        content = "Permanent error: ${toolResult.message}",
-                        toolCallId = toolCall.id,
-                    )
-                    is ToolResult.TransientFailure -> error("TransientFailure should be resolved inside executeTool")
-                }
-            }
+            processToolCalls(operation, toolCalls, messages)
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
+    }
+
+    private suspend fun processToolCalls(
+        operation: OperationDefinition,
+        toolCalls: List<ToolCall>,
+        messages: MutableList<Message>,
+    ) {
+        for (toolCall in toolCalls) {
+            val tool = toolRegistry.resolve(toolCall.name)
+            val toolResult = if (tool == null) {
+                ToolResult.PermanentFailure("Tool '${toolCall.name}' not found")
+            } else {
+                executeTool(tool, toolCall, operation)
+            }
+
+            messages += formatToolResult(toolResult, toolCall.id)
+        }
+    }
+
+    private fun formatToolResult(toolResult: ToolResult, toolCallId: String): Message = when (toolResult) {
+        is ToolResult.Success -> createToolSuccessMessage(toolResult, toolCallId)
+        is ToolResult.InvalidInput -> Message(
+            role = MessageRole.TOOL,
+            content = "Error: ${toolResult.message}",
+            toolCallId = toolCallId,
+        )
+        is ToolResult.PermanentFailure -> Message(
+            role = MessageRole.TOOL,
+            content = "Permanent error: ${toolResult.message}",
+            toolCallId = toolCallId,
+        )
+        is ToolResult.TransientFailure -> error("TransientFailure should be resolved inside executeTool")
+    }
+
+    private fun createToolSuccessMessage(toolResult: ToolResult.Success, toolCallId: String): Message {
+        val textContent = toolResult.value.toString()
+        val contentParts = toolResult.contentParts
+        return if (contentParts != null && contentParts.isNotEmpty()) {
+            val parts = buildList<ContentPart> {
+                add(ContentPart.TextPart(textContent))
+                addAll(contentParts)
+            }
+            Message(
+                role = MessageRole.TOOL,
+                content = "",
+                contentParts = parts,
+                toolCallId = toolCallId,
+            )
+        } else {
+            Message(
+                role = MessageRole.TOOL,
+                content = textContent,
+                toolCallId = toolCallId,
+            )
+        }
     }
 
     private suspend fun callProviderWithFallbacks(
@@ -861,7 +999,7 @@ private class TramaiInvocationHandler(
 
             val observation = operationObserver.onCallStarted(callContext)
             observation.onEngineEvent(
-                name = "tramai.route.selected",
+                name = EVENT_ROUTE_SELECTED,
                 attributes = routeSelectedAttributes(
                     ResolvedProviderRoute(
                         providerName = providerId,
@@ -892,8 +1030,8 @@ private class TramaiInvocationHandler(
                     val opened = circuitBreaker.onFailure(providerId, error)
                     if (opened) {
                         observation.onEngineEvent(
-                            name = "tramai.circuit.opened",
-                            attributes = mapOf("provider_id" to providerId),
+                            name = EVENT_CIRCUIT_OPENED,
+                            attributes = mapOf(ATTR_PROVIDER_ID to providerId),
                         )
                     }
                     throw error
@@ -903,10 +1041,10 @@ private class TramaiInvocationHandler(
                 observation.onEngineEvent(
                     name = "tramai.retry.scheduled",
                     attributes = mapOf(
-                        "provider_id" to providerId,
-                        "retry_index" to retryIndex,
-                        "delay_millis" to delayMillis,
-                        "delay_source" to retryDelaySource(error),
+                        ATTR_PROVIDER_ID to providerId,
+                        ATTR_RETRY_INDEX to retryIndex,
+                        ATTR_DELAY_MILLIS to delayMillis,
+                        ATTR_DELAY_SOURCE to retryDelaySource(error),
                     ),
                 )
                 delay(delayMillis)
@@ -1066,29 +1204,29 @@ private class TramaiInvocationHandler(
             is TokenBudgetCheckResult.UsageUnavailable -> observation.onEngineEvent(
                 name = "tramai.token_budget.usage_unavailable",
                 attributes = mapOf(
-                    "provider_id" to providerId,
-                    "effective_model" to modelName,
+                    ATTR_PROVIDER_ID to providerId,
+                    ATTR_EFFECTIVE_MODEL to modelName,
                 ),
             )
             is TokenBudgetCheckResult.SoftLimitExceeded -> observation.onEngineEvent(
                 name = "tramai.token_budget.soft_limit_exceeded",
                 attributes = mapOf(
-                    "provider_id" to providerId,
-                    "effective_model" to modelName,
-                    "limit_tokens" to result.limitTokens,
-                    "observed_tokens" to result.observedTokens,
-                    "scope" to "operation",
+                    ATTR_PROVIDER_ID to providerId,
+                    ATTR_EFFECTIVE_MODEL to modelName,
+                    ATTR_LIMIT_TOKENS to result.limitTokens,
+                    ATTR_OBSERVED_TOKENS to result.observedTokens,
+                    ATTR_SCOPE to "operation",
                 ),
             )
             is TokenBudgetCheckResult.HardLimitExceeded -> {
                 observation.onEngineEvent(
                     name = "tramai.token_budget.hard_limit_exceeded",
                     attributes = mapOf(
-                        "provider_id" to providerId,
-                        "effective_model" to modelName,
-                        "limit_tokens" to result.limitTokens,
-                        "observed_tokens" to result.observedTokens,
-                        "scope" to result.scope,
+                        ATTR_PROVIDER_ID to providerId,
+                        ATTR_EFFECTIVE_MODEL to modelName,
+                        ATTR_LIMIT_TOKENS to result.limitTokens,
+                        ATTR_OBSERVED_TOKENS to result.observedTokens,
+                        ATTR_SCOPE to result.scope,
                     ),
                 )
                 throw TokenBudgetExceededException(
@@ -1106,10 +1244,10 @@ private class TramaiInvocationHandler(
         route: ResolvedProviderRoute,
         routeIndex: Int,
     ): Map<String, Any?> = mapOf(
-        "provider_id" to route.providerName,
-        "effective_model" to route.effectiveModelName,
-        "route_index" to routeIndex,
-        "is_fallback" to (routeIndex > 0),
+        ATTR_PROVIDER_ID to route.providerName,
+        ATTR_EFFECTIVE_MODEL to route.effectiveModelName,
+        ATTR_ROUTE_INDEX to routeIndex,
+        ATTR_IS_FALLBACK to (routeIndex > 0),
     )
 
     private fun handleObjectMethod(
@@ -1521,7 +1659,9 @@ private data class ProviderCallResult(
 )
 
 private sealed class StreamingRouteResult {
-    data object Completed : StreamingRouteResult()
+    data class Completed(
+        val fullText: String,
+    ) : StreamingRouteResult()
 
     data class StartupFailure(
         val error: TramaiException,
@@ -1722,3 +1862,18 @@ private enum class ReturnKind {
 private const val INITIAL_PROVIDER_RETRY_DELAY_MILLIS = 50L
 private const val MAX_PROVIDER_RETRY_DELAY_MILLIS = 1_000L
 private const val IDEMPOTENT_TOOL_MAX_ATTEMPTS = 2
+
+private const val ATTR_PROVIDER_ID = "provider_id"
+private const val ATTR_EFFECTIVE_MODEL = "effective_model"
+private const val ATTR_ROUTE_INDEX = "route_index"
+private const val ATTR_IS_FALLBACK = "is_fallback"
+private const val ATTR_RETRY_INDEX = "retry_index"
+private const val ATTR_DELAY_MILLIS = "delay_millis"
+private const val ATTR_DELAY_SOURCE = "delay_source"
+private const val ATTR_LIMIT_TOKENS = "limit_tokens"
+private const val ATTR_OBSERVED_TOKENS = "observed_tokens"
+private const val ATTR_SCOPE = "scope"
+private const val ATTR_FAILURE_TYPE = "failure_type"
+private const val EVENT_CIRCUIT_OPENED = "tramai.circuit.opened"
+private const val EVENT_STARTUP_RETRY = "tramai.streaming.startup_retry"
+private const val EVENT_ROUTE_SELECTED = "tramai.route.selected"

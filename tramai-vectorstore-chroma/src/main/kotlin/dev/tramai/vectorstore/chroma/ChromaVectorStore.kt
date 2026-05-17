@@ -1,11 +1,12 @@
 package dev.tramai.vectorstore.chroma
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.JsonNode
 import dev.tramai.vectorstore.SearchResult
 import dev.tramai.vectorstore.VectorEntry
 import dev.tramai.vectorstore.VectorStore
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 import java.net.URI
 import java.net.URLEncoder
 import java.net.http.HttpClient
@@ -26,6 +27,7 @@ class ChromaVectorStore(
     private val baseUrl: String = "http://localhost:8000",
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
+    private val ioDispatcher: CoroutineContext = kotlinx.coroutines.Dispatchers.IO,
 ) : VectorStore {
 
     private val collectionExistsCache = ConcurrentHashMap<String, Boolean>()
@@ -41,7 +43,7 @@ class ChromaVectorStore(
         collectionExistsCache.clear()
     }
 
-    override suspend fun upsert(collection: String, vectors: List<VectorEntry>) = withContext(Dispatchers.IO) {
+    override suspend fun upsert(collection: String, vectors: List<VectorEntry>) = withContext(ioDispatcher) {
         try {
             ensureCollectionExists(collection)
 
@@ -79,7 +81,7 @@ class ChromaVectorStore(
         query: FloatArray,
         topK: Int,
         filter: Map<String, String>?,
-    ): List<SearchResult> = withContext(Dispatchers.IO) {
+    ): List<SearchResult> = withContext(ioDispatcher) {
         try {
             val payload = mutableMapOf<String, Any?>(
                 "query_embeddings" to listOf(query.toList()),
@@ -104,49 +106,7 @@ class ChromaVectorStore(
                 )
             }
 
-            val body = objectMapper.readTree(response.body())
-            val ids = body.path("ids").get(0)
-            val documents = body.path("documents").get(0)
-            val metadatas = body.path("metadatas").get(0)
-            val distances = body.path("distances").get(0)
-
-            if (documents.isMissingNode || !documents.isArray) {
-                throw ChromaException(
-                    "Chroma response missing 'documents' array: ${response.body().take(500)}"
-                )
-            }
-
-            documents.mapIndexedNotNull { index, doc ->
-                if (doc.isNull) return@mapIndexedNotNull null
-                val entryId = if (!ids.isMissingNode && ids.isArray && ids.size() > index) {
-                    ids.get(index).asText("")
-                } else ""
-                val metadata = if (!metadatas.isMissingNode && metadatas.isArray && metadatas.size() > index) {
-                    val metaNode = metadatas.get(index)
-                    if (metaNode.isObject) {
-                        metaNode.fieldNames().asSequence().map { name ->
-                            name to metaNode.get(name).asText("")
-                        }.toMap()
-                    } else emptyMap()
-                } else emptyMap()
-
-                val distance = if (!distances.isMissingNode && distances.isArray && distances.size() > index) {
-                    distances.get(index).asDouble()
-                } else 0.0
-
-                // Chroma returns L2 distance by default.
-                // This is an approximate conversion from L2 distance to a similarity score in [0, 1].
-                // For a true cosine similarity metric, configure Chroma with "cosine" distance
-                // and use `1.0 - distance` directly.
-                val similarity = 1.0 / (1.0 + distance)
-
-                SearchResult(
-                    id = entryId,
-                    content = doc.asText(""),
-                    metadata = metadata,
-                    score = similarity,
-                )
-            }
+            parseChromaSearchResponse(objectMapper, response.body())
         } catch (e: ChromaException) {
             throw e
         } catch (e: Exception) {
@@ -154,7 +114,80 @@ class ChromaVectorStore(
         }
     }
 
-    override suspend fun delete(collection: String, ids: List<String>) = withContext(Dispatchers.IO) {
+    /**
+     * Extracts a single [SearchResult] from the Chroma response arrays at the given [index].
+     *
+     * @param ids        the "ids" array from the response (may be missing/non-array).
+     * @param documents  the "documents" array from the response.
+     * @param metadatas  the "metadatas" array from the response (may be missing/non-array).
+     * @param distances  the "distances" array from the response (may be missing/non-array).
+     * @param index      the zero-based index of the entry to extract.
+     * @return a [SearchResult] for the entry at [index].
+     */
+    private fun extractEntry(
+        ids: JsonNode,
+        documents: JsonNode,
+        metadatas: JsonNode,
+        distances: JsonNode,
+        index: Int,
+    ): SearchResult {
+        val entryId = if (!ids.isMissingNode && ids.isArray && ids.size() > index) {
+            ids.get(index).asText("")
+        } else ""
+
+        val metadata = if (!metadatas.isMissingNode && metadatas.isArray && metadatas.size() > index) {
+            val metaNode = metadatas.get(index)
+            if (metaNode.isObject) {
+                metaNode.fieldNames().asSequence().map { name ->
+                    name to metaNode.get(name).asText("")
+                }.toMap()
+            } else emptyMap()
+        } else emptyMap()
+
+        val distance = if (!distances.isMissingNode && distances.isArray && distances.size() > index) {
+            distances.get(index).asDouble()
+        } else 0.0
+
+        // Chroma returns L2 distance by default.
+        // This is an approximate conversion from L2 distance to a similarity score in [0, 1].
+        // For a true cosine similarity metric, configure Chroma with "cosine" distance
+        // and use `1.0 - distance` directly.
+        val similarity = 1.0 / (1.0 + distance)
+
+        return SearchResult(
+            id = entryId,
+            content = documents.get(index).asText(""),
+            metadata = metadata,
+            score = similarity,
+        )
+    }
+
+    /**
+     * Parses the JSON response body from a Chroma search query into a list of [SearchResult] objects.
+     */
+    private fun parseChromaSearchResponse(
+        mapper: ObjectMapper,
+        rawBody: String,
+    ): List<SearchResult> {
+        val body = mapper.readTree(rawBody)
+        val ids = body.path("ids").get(0)
+        val documents = body.path("documents").get(0)
+        val metadatas = body.path("metadatas").get(0)
+        val distances = body.path("distances").get(0)
+
+        if (documents.isMissingNode || !documents.isArray) {
+            throw ChromaException(
+                "Chroma response missing 'documents' array: ${rawBody.take(500)}"
+            )
+        }
+
+        return documents.mapIndexedNotNull { index, doc ->
+            if (doc.isNull) return@mapIndexedNotNull null
+            extractEntry(ids, documents, metadatas, distances, index)
+        }
+    }
+
+    override suspend fun delete(collection: String, ids: List<String>) = withContext(ioDispatcher) {
         try {
             val payload = mapOf("ids" to ids)
 
@@ -178,7 +211,7 @@ class ChromaVectorStore(
         }
     }
 
-    override suspend fun listCollections(): List<String> = withContext(Dispatchers.IO) {
+    override suspend fun listCollections(): List<String> = withContext(ioDispatcher) {
         try {
             val httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections"))

@@ -110,7 +110,7 @@ class FileWorkflowCheckpointStore(
 /**
  * Strategy used by file-based checkpoint stores to choose one file path per checkpoint.
  */
-interface WorkflowCheckpointPathStrategy {
+fun interface WorkflowCheckpointPathStrategy {
     fun resolve(
         rootDirectory: Path,
         workflowName: String,

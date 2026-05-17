@@ -110,7 +110,7 @@ class WorkflowMcpException(
  * Default implementation uses subprocess-based stdio transport.
  * Tests can inject piped-stream transports without spawning subprocesses.
  */
-interface McpTransportProvider {
+fun interface McpTransportProvider {
     suspend fun connect(toolCall: McpToolCall): McpTransportConnection
 }
 
@@ -315,7 +315,7 @@ internal data class McpWorkflowStep<S>(
                     val client = Client(
                         clientInfo = Implementation(
                             name = "tramai-mcp-step",
-                            version = "1.0.0",
+                            version = MCP_STEP_VERSION,
                         ),
                     )
                     try {
@@ -512,3 +512,6 @@ private fun Throwable.rethrowIfCancellation() {
         throw this
     }
 }
+
+/** Version for MCP client identification within steps. */
+private const val MCP_STEP_VERSION = "1.0.0"

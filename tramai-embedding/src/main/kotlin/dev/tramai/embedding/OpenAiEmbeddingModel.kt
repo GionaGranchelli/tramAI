@@ -2,8 +2,8 @@ package dev.tramai.embedding
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -43,6 +43,7 @@ class OpenAiEmbeddingModel(
     private val baseUrl: String = DEFAULT_BASE_URL,
     private val timeoutMs: Long = 60_000L,
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
+    private val ioDispatcher: CoroutineContext = kotlinx.coroutines.Dispatchers.IO,
 ) : EmbeddingModel {
 
     override fun providerId(): String = "openai"
@@ -68,7 +69,7 @@ class OpenAiEmbeddingModel(
         val jsonPayload = MAPPER.writeValueAsString(payload)
 
         // Only the HTTP send is dispatched to IO.
-        return withContext(Dispatchers.IO) {
+        return withContext(ioDispatcher) {
             try {
                 val httpRequest = HttpRequest.newBuilder()
                     .uri(URI.create("${baseUrl.trimEnd('/')}/embeddings"))

@@ -20,13 +20,16 @@ import dev.tramai.core.provider.providerHttpFailure
 import dev.tramai.core.provider.providerTransportFailure
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.util.Base64
+import java.util.stream.Stream
 
 /**
  * [ModelProvider] implementation for Azure OpenAI.
@@ -54,6 +57,7 @@ class AzureOpenAiProvider @JvmOverloads constructor(
     private val objectMapper: ObjectMapper = ObjectMapper(),
     /** Source for Entra ID (Azure AD) bearer tokens. Called on every request. */
     private val entraAccessTokenSource: AzureEntraAccessTokenSource? = null,
+    private val ioDispatcher: CoroutineContext = Dispatchers.IO,
 ) : ModelProvider, StreamCapable {
 
     init {
@@ -86,7 +90,7 @@ class AzureOpenAiProvider @JvmOverloads constructor(
             )
     }
 
-    override suspend fun complete(request: ModelRequest): ModelResponse = withContext(Dispatchers.IO) {
+    override suspend fun complete(request: ModelRequest): ModelResponse = withContext(ioDispatcher) {
         try {
             val payload = linkedMapOf<String, Any?>(
                 "model" to request.model,
@@ -149,7 +153,7 @@ class AzureOpenAiProvider @JvmOverloads constructor(
         }
     }
 
-    override suspend fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
+    override fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
         val payload = linkedMapOf<String, Any?>(
             "model" to request.model,
             "stream" to true,
@@ -175,31 +179,52 @@ class AzureOpenAiProvider @JvmOverloads constructor(
             .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
             .build()
 
-        val response = withContext(Dispatchers.IO) {
+        val response = withContext(ioDispatcher) {
             httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines())
         }
 
-        if (response.statusCode() !in 200..299) {
-            val errorBody = response.body().toArray().joinToString("\n")
-            logProviderHttpFailureDebug(
-                logger = providerLogger,
-                providerName = PROVIDER_ID,
-                statusCode = response.statusCode(),
-                body = errorBody,
-            )
-            emit(
-                StreamChunk.Error(
-                    providerHttpFailure(
-                        providerName = PROVIDER_ID,
-                        statusCode = response.statusCode(),
-                        body = errorBody,
-                        retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
-                    ),
-                ),
-            )
+        val errorChunk = handleHttpError(response, PROVIDER_ID)
+        if (errorChunk != null) {
+            emit(errorChunk)
             return@flow
         }
 
+        parseAzureSseResponse(response)
+    }
+
+    /**
+     * Handles non-2xx HTTP responses for streaming requests.
+     * Returns a [StreamChunk.Error] for failed responses, or `null` for 2xx.
+     */
+    private fun handleHttpError(
+        response: HttpResponse<Stream<String>>,
+        providerName: String,
+    ): StreamChunk.Error? {
+        if (response.statusCode() in 200..299) return null
+        val errorBody = response.body().toArray().joinToString("\n")
+        logProviderHttpFailureDebug(
+            logger = providerLogger,
+            providerName = providerName,
+            statusCode = response.statusCode(),
+            body = errorBody,
+        )
+        return StreamChunk.Error(
+            providerHttpFailure(
+                providerName = providerName,
+                statusCode = response.statusCode(),
+                body = errorBody,
+                retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+            ),
+        )
+    }
+
+    /**
+     * Parses an Azure OpenAI SSE stream response, handling `data: ` prefix,
+     * `[DONE]` delimiter, delta/content extraction, and usage metrics tracking.
+     */
+    private suspend fun FlowCollector<StreamChunk>.parseAzureSseResponse(
+        response: HttpResponse<Stream<String>>,
+    ) {
         val fullText = StringBuilder()
         var lastUsage: UsageMetrics? = null
 
@@ -209,22 +234,7 @@ class AzureOpenAiProvider @JvmOverloads constructor(
                     if (line.startsWith("data: ")) {
                         val data = line.substring(6).trim()
                         if (data == "[DONE]") break
-
-                        val chunk = objectMapper.readTree(data)
-                        val delta = chunk.path("choices").firstOrNull()?.path("delta")
-                        val content = delta?.path("content")?.asText("") ?: ""
-                        if (content.isNotEmpty()) {
-                            fullText.append(content)
-                            emit(StreamChunk.Token(content))
-                        }
-
-                        val usage = chunk.path("usage")
-                        if (!usage.isMissingNode) {
-                            lastUsage = UsageMetrics(
-                                inputTokens = usage.path("prompt_tokens").asInt(),
-                                outputTokens = usage.path("completion_tokens").asInt(),
-                            )
-                        }
+                        lastUsage = handleAzureDataLine(data, fullText, lastUsage)
                     }
                 }
             }
@@ -232,6 +242,31 @@ class AzureOpenAiProvider @JvmOverloads constructor(
         } catch (e: Exception) {
             emit(StreamChunk.Error(providerTransportFailure(PROVIDER_ID, e)))
         }
+    }
+
+    /**
+     * Handles a single Azure SSE data line, extracting content delta and usage metrics.
+     */
+    private suspend fun FlowCollector<StreamChunk>.handleAzureDataLine(
+        data: String,
+        fullText: StringBuilder,
+        lastUsage: UsageMetrics?,
+    ): UsageMetrics? {
+        val chunk = objectMapper.readTree(data)
+        val delta = chunk.path("choices").firstOrNull()?.path("delta")
+        val content = delta?.path("content")?.asText("") ?: ""
+        if (content.isNotEmpty()) {
+            fullText.append(content)
+            emit(StreamChunk.Token(content))
+        }
+
+        val usage = chunk.path("usage")
+        return if (!usage.isMissingNode) {
+            UsageMetrics(
+                inputTokens = usage.path("prompt_tokens").asInt(),
+                outputTokens = usage.path("completion_tokens").asInt(),
+            )
+        } else lastUsage
     }
 
     // ---- Response mapping ----

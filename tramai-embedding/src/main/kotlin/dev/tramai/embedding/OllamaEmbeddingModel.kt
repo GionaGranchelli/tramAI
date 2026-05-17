@@ -1,8 +1,8 @@
 package dev.tramai.embedding
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -26,6 +26,7 @@ class OllamaEmbeddingModel(
     private val token: String? = null,
     private val timeoutMs: Long = 60_000L,
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
+    private val ioDispatcher: CoroutineContext = kotlinx.coroutines.Dispatchers.IO,
 ) : EmbeddingModel {
 
     override fun providerId(): String = "ollama"
@@ -48,7 +49,7 @@ class OllamaEmbeddingModel(
         )
         val jsonPayload = MAPPER.writeValueAsString(payload)
 
-        return withContext(Dispatchers.IO) {
+        return withContext(ioDispatcher) {
             try {
                 val requestBuilder = HttpRequest.newBuilder()
                     .uri(URI.create("${baseUrl.trimEnd('/')}/api/embed"))

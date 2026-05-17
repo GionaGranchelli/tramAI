@@ -42,7 +42,7 @@ class TramaiMcpServer(
     private val mcpServer: Server = Server(
         serverInfo = Implementation(
             name = "tramai-mcp",
-            version = "0.2.0",
+            version = VERSION,
         ),
         options = ServerOptions(
             capabilities = ServerCapabilities(
@@ -290,3 +290,6 @@ class TramaiMcpServer(
         )
     }
 }
+
+/** @see TramaiMcpServer */
+private const val VERSION = "0.2.0"

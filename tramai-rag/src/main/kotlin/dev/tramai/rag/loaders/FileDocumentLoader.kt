@@ -7,8 +7,8 @@ import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 
 /**
  * A [DocumentLoader] that reads text content from local file paths.
@@ -28,6 +28,7 @@ import kotlinx.coroutines.withContext
 class FileDocumentLoader(
     private val charset: Charset = StandardCharsets.UTF_8,
     private val maxBytes: Long = 10_000_000,
+    private val ioDispatcher: CoroutineContext = kotlinx.coroutines.Dispatchers.IO,
 ) : DocumentLoader {
 
     override suspend fun load(source: String): Document {
@@ -41,7 +42,7 @@ class FileDocumentLoader(
         }
 
         val content = try {
-            withContext(Dispatchers.IO) {
+            withContext(ioDispatcher) {
                 Files.readString(path, charset)
             }
         } catch (e: IOException) {

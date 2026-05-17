@@ -28,9 +28,9 @@ dependencies {
     implementation(libs.jackson.module.kotlin)
     implementation(libs.spring.boot.autoconfigure)
     implementation(libs.spring.context)
-    implementation("com.squareup.okio:okio:3.10.2")
-    implementation("io.ktor:ktor-server-cio-jvm:3.3.3")
-    implementation("io.modelcontextprotocol:kotlin-sdk-server:0.11.1")
+    implementation(libs.okio)
+    implementation(libs.ktor.server.cio)
+    implementation(libs.mcp.sdk.server)
 
     annotationProcessor(libs.spring.boot.configuration.processor)
 
@@ -39,7 +39,7 @@ dependencies {
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.boot.starter.web)
-    testImplementation("io.modelcontextprotocol:kotlin-sdk-client:0.11.1")
+    testImplementation(libs.mcp.sdk.client)
 }
 
 tasks.test {

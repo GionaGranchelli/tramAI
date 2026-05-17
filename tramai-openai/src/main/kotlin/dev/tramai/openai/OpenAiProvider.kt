@@ -18,10 +18,11 @@ import dev.tramai.core.provider.applyTramaiTimeout
 import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
 import dev.tramai.core.provider.providerTransportFailure
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -30,6 +31,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.Base64
+import java.util.stream.Stream
 
 /**
  * Source for bearer tokens used by OpenAI-compatible providers.
@@ -99,9 +101,10 @@ open class OpenAiCompatibleProvider(
     private val objectMapper: ObjectMapper = ObjectMapper(),
     private val organization: String? = null,
     private val project: String? = null,
+    private val ioDispatcher: CoroutineContext = kotlinx.coroutines.Dispatchers.IO,
 ) : ModelProvider, StreamCapable {
 
-    override suspend fun complete(request: ModelRequest): ModelResponse = withContext(Dispatchers.IO) {
+    override suspend fun complete(request: ModelRequest): ModelResponse = withContext(ioDispatcher) {
         try {
             val payload = linkedMapOf<String, Any?>(
                 "model" to request.model,
@@ -194,7 +197,7 @@ open class OpenAiCompatibleProvider(
         ProviderCapability.STREAMING -> true
     }
 
-    override suspend fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
+    override fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
         val payload = linkedMapOf<String, Any?>(
             "model" to request.model,
             "stream" to true,
@@ -216,63 +219,116 @@ open class OpenAiCompatibleProvider(
             .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
             .build()
 
-        val response = withContext(Dispatchers.IO) {
+        val response = withContext(ioDispatcher) {
             httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines())
         }
 
-        if (response.statusCode() !in 200..299) {
-            val errorBody = response.body().toArray().joinToString("\n")
-            logProviderHttpFailureDebug(
-                logger = providerLogger,
-                providerName = providerName,
-                statusCode = response.statusCode(),
-                body = errorBody,
-            )
-            emit(
-                StreamChunk.Error(
-                    providerHttpFailure(
-                        providerName = providerName,
-                        statusCode = response.statusCode(),
-                        body = errorBody,
-                        retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
-                    ),
-                ),
-            )
-            return@flow
-        }
-
-        val fullText = StringBuilder()
-        var lastUsage: UsageMetrics? = null
+        if (handleHttpResponseError(response)) return@flow
 
         try {
-            response.body().use { lines ->
-                for (line in lines) {
-                    if (line.startsWith("data: ")) {
-                        val data = line.substring(6).trim()
-                        if (data == "[DONE]") break
-
-                        val chunk = objectMapper.readTree(data)
-                        val delta = chunk.path("choices").firstOrNull()?.path("delta")
-                        val content = delta?.path("content")?.asText("") ?: ""
-                        if (content.isNotEmpty()) {
-                            fullText.append(content)
-                            emit(StreamChunk.Token(content))
-                        }
-
-                        val usage = chunk.path("usage")
-                        if (!usage.isMissingNode) {
-                            lastUsage = UsageMetrics(
-                                inputTokens = usage.path("prompt_tokens").asInt(),
-                                outputTokens = usage.path("completion_tokens").asInt(),
-                            )
-                        }
-                    }
-                }
-            }
-            emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
+            val (text, usage) = parseSseLines(response.body())
+            emit(StreamChunk.Complete(text, usage))
         } catch (e: Exception) {
             emit(StreamChunk.Error(providerTransportFailure(providerName, e)))
         }
+    }
+
+    /**
+     * Handles HTTP error responses (non-2xx status codes) from the OpenAI-compatible API.
+     * Reads the error body, logs it, and emits a [StreamChunk.Error].
+     *
+     * @return `true` if the response was an error (non-2xx), `false` if the response is OK.
+     */
+    private suspend fun FlowCollector<StreamChunk>.handleHttpResponseError(
+        response: HttpResponse<Stream<String>>,
+    ): Boolean {
+        if (response.statusCode() in 200..299) return false
+
+        val errorBody = response.body().toArray().joinToString("\n")
+        logProviderHttpFailureDebug(
+            logger = providerLogger,
+            providerName = providerName,
+            statusCode = response.statusCode(),
+            body = errorBody,
+        )
+        emit(
+            StreamChunk.Error(
+                providerHttpFailure(
+                    providerName = providerName,
+                    statusCode = response.statusCode(),
+                    body = errorBody,
+                    retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                ),
+            ),
+        )
+        return true
+    }
+
+    /**
+     * Parsed result of a single SSE data line.
+     */
+    private data class SseData(
+        val isDone: Boolean = false,
+        val tokenText: String = "",
+        val usage: UsageMetrics? = null,
+    )
+
+    /**
+     * Parses a single SSE `data: ` line body from an OpenAI-compatible stream.
+     *
+     * @param dataLine the raw JSON payload after stripping the `data: ` prefix (already trimmed).
+     * @return [SseData] describing whether the stream is done, the delta token, and any usage metrics.
+     */
+    private fun parseSseData(dataLine: String): SseData {
+        if (dataLine == "[DONE]") return SseData(isDone = true)
+
+        val chunk = objectMapper.readTree(dataLine)
+
+        val delta = chunk.path("choices").firstOrNull()?.path("delta")
+        val content = delta?.path("content")?.asText("") ?: ""
+
+        val usageNode = chunk.path("usage")
+        val usage = if (!usageNode.isMissingNode) {
+            UsageMetrics(
+                inputTokens = usageNode.path("prompt_tokens").asInt(),
+                outputTokens = usageNode.path("completion_tokens").asInt(),
+            )
+        } else null
+
+        return SseData(tokenText = content, usage = usage)
+    }
+
+    /**
+     * Parses an OpenAI-compatible SSE (Server-Sent Events) stream response.
+     * Handles `data: ` prefix stripping, `[DONE]` delimiter detection,
+     * delta/content extraction, and usage metrics tracking.
+     *
+     * @return A [Pair] of the accumulated full response text and final [UsageMetrics].
+     */
+    private suspend fun FlowCollector<StreamChunk>.parseSseLines(
+        lines: Stream<String>,
+    ): Pair<String, UsageMetrics> {
+        val fullText = StringBuilder()
+        var lastUsage: UsageMetrics? = null
+
+        lines.use { lineStream ->
+            for (line in lineStream) {
+                if (!line.startsWith("data: ")) continue
+
+                val data = line.substring(6).trim()
+                val result = parseSseData(data)
+                if (result.isDone) break
+                if (result.tokenText.isNotEmpty()) {
+                    fullText.append(result.tokenText)
+                    emit(StreamChunk.Token(result.tokenText))
+                }
+                if (result.usage != null) {
+                    lastUsage = result.usage
+                }
+            }
+        }
+
+        return Pair(fullText.toString(), lastUsage ?: UsageMetrics())
     }
 
     private fun extractContent(contentNode: JsonNode): String {

@@ -42,6 +42,7 @@ class MessageWindowChatMemory(
     private val lock = Any()
 
     override fun get(conversationId: String): List<Message> {
+        requireNotNull(conversationId) { "conversationId must not be null" }
         require(conversationId.isNotBlank())
         val deque = conversations[conversationId] ?: return emptyList()
         synchronized(lock) {
@@ -50,11 +51,13 @@ class MessageWindowChatMemory(
     }
 
     override fun add(conversationId: String, message: Message) {
+        requireNotNull(conversationId) { "conversationId must not be null" }
         require(conversationId.isNotBlank())
         add(conversationId, listOf(message))
     }
 
     override fun add(conversationId: String, messages: List<Message>) {
+        requireNotNull(conversationId) { "conversationId must not be null" }
         require(conversationId.isNotBlank())
 
         synchronized(lock) {
@@ -63,50 +66,62 @@ class MessageWindowChatMemory(
             }
 
             for (message in messages) {
-                if (message.role == MessageRole.SYSTEM) {
-                    // System message dedup: remove existing system message before adding new one
-                    val iterator = deque.iterator()
-                    while (iterator.hasNext()) {
-                        if (iterator.next().role == MessageRole.SYSTEM) {
-                            iterator.remove()
-                            break
-                        }
-                    }
-                }
+                replaceSystemMessage(deque, message)
                 deque.addLast(message)
             }
 
             // Message eviction: count non-system messages and evict oldest until within limit
-            var nonSystemCount = deque.count { it.role != MessageRole.SYSTEM }
-            while (nonSystemCount > maxMessages) {
-                val iterator = deque.iterator()
-                while (iterator.hasNext() && nonSystemCount > maxMessages) {
-                    val msg = iterator.next()
-                    if (msg.role != MessageRole.SYSTEM) {
-                        iterator.remove()
-                        nonSystemCount--
-                    }
-                }
-            }
+            evictMessages(deque)
 
             // Update LRU: mark this conversation as most recently used
-            lruTracker.remove(conversationId)
-            lruTracker.addLast(conversationId)
+            updateLru(conversationId)
+        }
+    }
 
-            // Conversation eviction: remove least recently used conversations
-            while (conversations.size > maxConversations) {
-                val lru = lruTracker.pollFirst() ?: break
-                if (lru == conversationId) {
-                    // Don't evict the conversation we just added to
-                    lruTracker.addFirst(lru)
+    private fun replaceSystemMessage(deque: ConcurrentLinkedDeque<Message>, message: Message) {
+        if (message.role == MessageRole.SYSTEM) {
+            val iterator = deque.iterator()
+            while (iterator.hasNext()) {
+                if (iterator.next().role == MessageRole.SYSTEM) {
+                    iterator.remove()
                     break
                 }
-                conversations.remove(lru)
             }
         }
     }
 
+    private fun evictMessages(deque: ConcurrentLinkedDeque<Message>) {
+        var nonSystemCount = deque.count { it.role != MessageRole.SYSTEM }
+        while (nonSystemCount > maxMessages) {
+            val iterator = deque.iterator()
+            while (iterator.hasNext() && nonSystemCount > maxMessages) {
+                val msg = iterator.next()
+                if (msg.role != MessageRole.SYSTEM) {
+                    iterator.remove()
+                    nonSystemCount--
+                }
+            }
+        }
+    }
+
+    private fun updateLru(conversationId: String) {
+        lruTracker.remove(conversationId)
+        lruTracker.addLast(conversationId)
+
+        // Conversation eviction: remove least recently used conversations
+        while (conversations.size > maxConversations) {
+            val lru = lruTracker.pollFirst() ?: break
+            if (lru == conversationId) {
+                // Don't evict the conversation we just added to
+                lruTracker.addFirst(lru)
+                break
+            }
+            conversations.remove(lru)
+        }
+    }
+
     override fun clear(conversationId: String) {
+        requireNotNull(conversationId) { "conversationId must not be null" }
         require(conversationId.isNotBlank())
         synchronized(lock) {
             conversations.remove(conversationId)

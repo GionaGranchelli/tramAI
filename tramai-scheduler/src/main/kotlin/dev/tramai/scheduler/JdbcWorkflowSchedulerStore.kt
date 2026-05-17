@@ -1041,6 +1041,7 @@ private fun Map<String, String>.requiredInt(name: String): Int =
     this[name]?.toIntOrNull()
         ?: throw IllegalArgumentException("Calendar rule field '$name' must be an integer")
 
+@Suppress("kotlin:S3776") // Manual JSON character-level parser — each step depends on shared state (index, inString, escaped, depth). Extracting would add more complexity than it removes, and cannot change the behavior without risking regressions.
 private fun splitJsonObjects(body: String): List<String> {
     val objects = mutableListOf<String>()
     var index = 0
@@ -1094,6 +1095,7 @@ private fun splitJsonObjects(body: String): List<String> {
     return objects
 }
 
+@Suppress("kotlin:S3776") // Manual JSON character-level parser — each step depends on shared state (index, inString, escaped). Extracting would add more complexity than it removes, and cannot change the behavior without risking regressions.
 private fun parseCalendarRuleObject(payload: String): Map<String, String> {
     val trimmed = payload.trim()
     require(trimmed.startsWith("{") && trimmed.endsWith("}")) {

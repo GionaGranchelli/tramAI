@@ -11,6 +11,16 @@ import io.opentelemetry.api.trace.Tracer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 
+/** @see OpenTelemetryTramaiWorkerObserver */
+private const val ATTR_WORKER_ID = "tramai.worker.id"
+private const val ATTR_WORKER_WORKFLOW_ID = "tramai.worker.workflow_id"
+private const val ATTR_WORKER_UPTIME_MS = "tramai.worker.uptime_ms"
+private const val ATTR_WORKER_RUN_ID = "tramai.worker.run_id"
+private const val ATTR_WORKER_STEP_NAME = "tramai.worker.step_name"
+private const val ATTR_WORKER_ATTEMPT_ID = "tramai.worker.attempt_id"
+private const val ATTR_LEASE_OPERATION = "tramai.lease.operation"
+private const val ATTR_ERROR_TYPE = "error_type"
+
 class OpenTelemetryTramaiWorkerObserver(
     private val tracer: Tracer,
     private val meter: Meter = OpenTelemetry.noop().getMeter("dev.tramai.observability"),
@@ -29,7 +39,7 @@ class OpenTelemetryTramaiWorkerObserver(
 
     override fun onWorkerStarted(workerId: String) {
         val span = tracer.spanBuilder("worker.$workerId").startSpan()
-        span.setAttribute("tramai.worker.id", workerId)
+        span.setAttribute(ATTR_WORKER_ID, workerId)
         activeWorkerSpan.set(span)
     }
 
@@ -42,69 +52,69 @@ class OpenTelemetryTramaiWorkerObserver(
 
     override fun onWorkerHeartbeat(workerId: String, uptimeMillis: Long, claimedCount: Int) {
         recordEvent("tramai.worker.heartbeat", mapOf(
-            "tramai.worker.id" to workerId,
-            "tramai.worker.uptime_ms" to uptimeMillis,
+            ATTR_WORKER_ID to workerId,
+            ATTR_WORKER_UPTIME_MS to uptimeMillis,
             "tramai.worker.claimed_count" to claimedCount,
         ))
         metrics.heartbeats.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            "tramai.worker.uptime_ms" to uptimeMillis,
+            ATTR_WORKER_UPTIME_MS to uptimeMillis,
         )))
     }
 
     override fun onLeaseAcquired(workflowId: String, workerId: String) {
         recordEvent("tramai.worker.lease.acquired", mapOf(
-            "tramai.worker.workflow_id" to workflowId,
-            "tramai.worker.id" to workerId,
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
+            ATTR_WORKER_ID to workerId,
         ))
         metrics.leases.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            "tramai.lease.operation" to "acquired",
-            "tramai.worker.workflow_id" to workflowId,
+            ATTR_LEASE_OPERATION to "acquired",
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
         )))
     }
 
     override fun onLeaseReleased(workflowId: String, workerId: String) {
         recordEvent("tramai.worker.lease.released", mapOf(
-            "tramai.worker.workflow_id" to workflowId,
-            "tramai.worker.id" to workerId,
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
+            ATTR_WORKER_ID to workerId,
         ))
         metrics.leases.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            "tramai.lease.operation" to "released",
-            "tramai.worker.workflow_id" to workflowId,
+            ATTR_LEASE_OPERATION to "released",
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
         )))
     }
 
     override fun onLeaseExpired(workflowId: String, workerId: String) {
         recordEvent("tramai.worker.lease.expired", mapOf(
-            "tramai.worker.workflow_id" to workflowId,
-            "tramai.worker.id" to workerId,
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
+            ATTR_WORKER_ID to workerId,
         ))
         metrics.leases.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            "tramai.lease.operation" to "expired",
-            "tramai.worker.workflow_id" to workflowId,
+            ATTR_LEASE_OPERATION to "expired",
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
         )))
     }
 
     override fun onLeaseRenewed(workflowId: String, workerId: String, newExpiry: Long) {
         recordEvent("tramai.worker.lease.renewed", mapOf(
-            "tramai.worker.workflow_id" to workflowId,
-            "tramai.worker.id" to workerId,
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
+            ATTR_WORKER_ID to workerId,
             "tramai.lease.expiry" to newExpiry,
         ))
         metrics.leases.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            "tramai.lease.operation" to "renewed",
-            "tramai.worker.workflow_id" to workflowId,
+            ATTR_LEASE_OPERATION to "renewed",
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
         )))
     }
 
     override fun onLeaseContested(workflowId: String, claimantWorkerId: String, currentWorkerId: String) {
         recordEvent("tramai.worker.lease.contested", mapOf(
-            "tramai.worker.workflow_id" to workflowId,
-            "tramai.worker.id" to claimantWorkerId,
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
+            ATTR_WORKER_ID to claimantWorkerId,
             "tramai.worker.current_owner" to currentWorkerId,
         ))
         metrics.leases.add(1, workerAttributes(claimantWorkerId, extraAttributes = mapOf(
-            "tramai.lease.operation" to "contested",
-            "tramai.worker.workflow_id" to workflowId,
+            ATTR_LEASE_OPERATION to "contested",
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
             "tramai.worker.current_owner" to currentWorkerId,
         )))
     }
@@ -112,49 +122,49 @@ class OpenTelemetryTramaiWorkerObserver(
     override fun onLeaseRenewalFailed(workflowId: String, workerId: String, error: Throwable) {
         activeWorkerSpan.get()?.recordException(error)
         recordEvent("tramai.worker.lease.renewal_failed", mapOf(
-            "tramai.worker.workflow_id" to workflowId,
-            "tramai.worker.id" to workerId,
-            "error_type" to (error::class.simpleName ?: "Throwable"),
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
+            ATTR_WORKER_ID to workerId,
+            ATTR_ERROR_TYPE to (error::class.simpleName ?: "Throwable"),
         ))
         metrics.leases.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            "tramai.lease.operation" to "renewal_failed",
-            "tramai.worker.workflow_id" to workflowId,
+            ATTR_LEASE_OPERATION to "renewal_failed",
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
         )))
     }
 
     override fun onLeaseReleaseFailed(workflowId: String, workerId: String, error: Throwable) {
         activeWorkerSpan.get()?.recordException(error)
         recordEvent("tramai.worker.lease.release_failed", mapOf(
-            "tramai.worker.workflow_id" to workflowId,
-            "tramai.worker.id" to workerId,
-            "error_type" to (error::class.simpleName ?: "Throwable"),
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
+            ATTR_WORKER_ID to workerId,
+            ATTR_ERROR_TYPE to (error::class.simpleName ?: "Throwable"),
         ))
         metrics.leases.add(1, workerAttributes(workerId, extraAttributes = mapOf(
-            "tramai.lease.operation" to "release_failed",
-            "tramai.worker.workflow_id" to workflowId,
+            ATTR_LEASE_OPERATION to "release_failed",
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
         )))
     }
 
     override fun onPollFailed(workerId: String, error: Throwable) {
         activeWorkerSpan.get()?.recordException(error)
         recordEvent("tramai.worker.poll.failed", mapOf(
-            "tramai.worker.id" to workerId,
-            "error_type" to (error::class.simpleName ?: "Throwable"),
+            ATTR_WORKER_ID to workerId,
+            ATTR_ERROR_TYPE to (error::class.simpleName ?: "Throwable"),
         ))
     }
 
     override fun onWorkTakenOver(workflowId: String, previousWorkerId: String, newWorkerId: String) {
         recordEvent("tramai.worker.work_taken_over", mapOf(
-            "tramai.worker.workflow_id" to workflowId,
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
             "tramai.worker.previous_owner" to previousWorkerId,
-            "tramai.worker.id" to newWorkerId,
+            ATTR_WORKER_ID to newWorkerId,
         ))
     }
 
     override fun onUnknownAttempt(runId: String, stepName: String, priorWorkerId: String, attemptTime: Long) {
         recordEvent("tramai.worker.unknown_attempt", mapOf(
-            "tramai.worker.run_id" to runId,
-            "tramai.worker.step_name" to stepName,
+            ATTR_WORKER_RUN_ID to runId,
+            ATTR_WORKER_STEP_NAME to stepName,
             "tramai.worker.prior_worker_id" to priorWorkerId,
             "tramai.worker.attempt_time" to attemptTime,
         ))
@@ -162,42 +172,42 @@ class OpenTelemetryTramaiWorkerObserver(
 
     override fun onStepAttemptStarted(runId: String, stepName: String, attemptId: String, workerId: String) {
         recordEvent("tramai.worker.step.started", mapOf(
-            "tramai.worker.run_id" to runId,
-            "tramai.worker.step_name" to stepName,
-            "tramai.worker.attempt_id" to attemptId,
-            "tramai.worker.id" to workerId,
+            ATTR_WORKER_RUN_ID to runId,
+            ATTR_WORKER_STEP_NAME to stepName,
+            ATTR_WORKER_ATTEMPT_ID to attemptId,
+            ATTR_WORKER_ID to workerId,
         ))
     }
 
     override fun onStepAttemptCompleted(runId: String, stepName: String, attemptId: String, workerId: String) {
         recordEvent("tramai.worker.step.completed", mapOf(
-            "tramai.worker.run_id" to runId,
-            "tramai.worker.step_name" to stepName,
-            "tramai.worker.attempt_id" to attemptId,
-            "tramai.worker.id" to workerId,
+            ATTR_WORKER_RUN_ID to runId,
+            ATTR_WORKER_STEP_NAME to stepName,
+            ATTR_WORKER_ATTEMPT_ID to attemptId,
+            ATTR_WORKER_ID to workerId,
         ))
     }
 
     override fun onStepAttemptFailed(runId: String, stepName: String, attemptId: String, workerId: String, error: Throwable) {
         activeWorkerSpan.get()?.recordException(error)
         recordEvent("tramai.worker.step.failed", mapOf(
-            "tramai.worker.run_id" to runId,
-            "tramai.worker.step_name" to stepName,
-            "tramai.worker.attempt_id" to attemptId,
-            "tramai.worker.id" to workerId,
-            "error_type" to (error::class.simpleName ?: "Throwable"),
+            ATTR_WORKER_RUN_ID to runId,
+            ATTR_WORKER_STEP_NAME to stepName,
+            ATTR_WORKER_ATTEMPT_ID to attemptId,
+            ATTR_WORKER_ID to workerId,
+            ATTR_ERROR_TYPE to (error::class.simpleName ?: "Throwable"),
         ))
     }
 
     override fun onShutdownStarted(workerId: String) {
         recordEvent("tramai.worker.shutdown.started", mapOf(
-            "tramai.worker.id" to workerId,
+            ATTR_WORKER_ID to workerId,
         ))
     }
 
     override fun onDrainProgress(workerId: String, done: Int, pending: Int) {
         recordEvent("tramai.worker.drain.progress", mapOf(
-            "tramai.worker.id" to workerId,
+            ATTR_WORKER_ID to workerId,
             "tramai.worker.drain_done" to done,
             "tramai.worker.drain_pending" to pending,
         ))
@@ -205,7 +215,7 @@ class OpenTelemetryTramaiWorkerObserver(
 
     override fun onShutdownComplete(workerId: String) {
         recordEvent("tramai.worker.shutdown.complete", mapOf(
-            "tramai.worker.id" to workerId,
+            ATTR_WORKER_ID to workerId,
         ))
         metrics.shutdowns.add(1, workerAttributes(workerId, extraAttributes = mapOf(
             "tramai.worker.shutdown.outcome" to "complete",
@@ -215,8 +225,8 @@ class OpenTelemetryTramaiWorkerObserver(
     override fun onWorkflowAbandoned(workflowId: String, workerId: String, lastStep: String?, timeoutMillis: Long) {
         activeWorkerSpan.get()?.setAttribute("tramai.worker.abandoned_workflow", workflowId)
         recordEvent("tramai.worker.workflow.abandoned", mapOf(
-            "tramai.worker.workflow_id" to workflowId,
-            "tramai.worker.id" to workerId,
+            ATTR_WORKER_WORKFLOW_ID to workflowId,
+            ATTR_WORKER_ID to workerId,
             "tramai.worker.last_step" to (lastStep ?: ""),
             "tramai.worker.timeout_ms" to timeoutMillis,
         ))
@@ -230,7 +240,7 @@ class OpenTelemetryTramaiWorkerObserver(
         workerId: String,
         extraAttributes: Map<String, Any?> = emptyMap(),
     ): Attributes = buildMap<String, Any?> {
-        put("tramai.worker.id", workerId)
+        put(ATTR_WORKER_ID, workerId)
         putAll(extraAttributes)
     }.toOpenTelemetryAttributes()
 }

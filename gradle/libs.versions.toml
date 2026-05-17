@@ -9,6 +9,13 @@ opentelemetry = "1.49.0"
 spring-boot = "3.4.5"
 aws-sdk = "2.31.67"
 flyway = "11.8.0"
+okio = "3.10.2"
+ktor = "3.3.3"
+mcp-sdk = "0.11.1"
+tramai = "0.3.0"
+spring-security-crypto = "6.4.5"
+spring-context = "6.2.6"
+hikaricp = "6.3.0"
 
 [libraries]
 assertj-core = { module = "org.assertj:assertj-core", version.ref = "assertj" }
@@ -29,18 +36,25 @@ spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-start
 spring-boot-starter-validation = { module = "org.springframework.boot:spring-boot-starter-validation", version.ref = "spring-boot" }
 spring-boot-starter-jdbc = { module = "org.springframework.boot:spring-boot-starter-jdbc", version.ref = "spring-boot" }
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test", version.ref = "spring-boot" }
-spring-security-crypto = { module = "org.springframework.security:spring-security-crypto", version = "6.4.5" }
-spring-context = { module = "org.springframework:spring-context", version = "6.2.6" }
+spring-security-crypto = { module = "org.springframework.security:spring-security-crypto", version.ref = "spring-security-crypto" }
+spring-context = { module = "org.springframework:spring-context", version.ref = "spring-context" }
 flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 aws-sdk-auth = { module = "software.amazon.awssdk:auth", version.ref = "aws-sdk" }
 aws-sdk-regions = { module = "software.amazon.awssdk:regions", version.ref = "aws-sdk" }
 aws-sdk-secretsmanager = { module = "software.amazon.awssdk:secretsmanager", version.ref = "aws-sdk" }
-hikaricp = { module = "com.zaxxer:HikariCP", version = "6.3.0" }
+hikaricp = { module = "com.zaxxer:HikariCP", version.ref = "hikaricp" }
 jedis = { module = "redis.clients:jedis", version.ref = "jedis" }
 h2database = { module = "com.h2database:h2", version = "2.3.232" }
 postgresql = { module = "org.postgresql:postgresql", version = "42.7.5" }
 pgvector = { module = "com.pgvector:pgvector", version = "0.1.6" }
 aws-sdk-bedrockruntime = { module = "software.amazon.awssdk:bedrockruntime", version.ref = "aws-sdk" }
+okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
+ktor-server-cio = { module = "io.ktor:ktor-server-cio-jvm", version.ref = "ktor" }
+mcp-sdk-server = { module = "io.modelcontextprotocol:kotlin-sdk-server", version.ref = "mcp-sdk" }
+mcp-sdk-client = { module = "io.modelcontextprotocol:kotlin-sdk-client", version.ref = "mcp-sdk" }
+tramai-standalone = { module = "dev.tramai:tramai-standalone", version.ref = "tramai" }
+tramai-ollama = { module = "dev.tramai:tramai-ollama", version.ref = "tramai" }
+tramai-testing = { module = "dev.tramai:tramai-testing", version.ref = "tramai" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

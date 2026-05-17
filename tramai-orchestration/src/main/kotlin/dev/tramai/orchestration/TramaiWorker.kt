@@ -338,36 +338,7 @@ class TramaiWorker(
             try {
                 val checkpoints = checkpointCatalog.listCheckpoints()
                     .sortedWith(compareBy<WorkflowCheckpoint>({ it.workflowName }, { it.workflowId }))
-                checkpoints.forEach { checkpoint ->
-                    if (!acceptingWork || activeExecutions.containsKey(checkpoint.workflowId)) {
-                        return@forEach
-                    }
-                    if (!ownsPartition(checkpoint.workflowId)) {
-                        return@forEach
-                    }
-                    if (leaseStore.currentLease(checkpoint.workflowName, checkpoint.workflowId) != null) {
-                        return@forEach
-                    }
-                    val lease = try {
-                        leaseStore.claim(
-                            workflowName = checkpoint.workflowName,
-                            workflowId = checkpoint.workflowId,
-                            ownerId = config.workerId,
-                            checkpointRevision = checkpoint.revision,
-                            leaseDurationMillis = config.leaseDurationMillis,
-                        )
-                    } catch (_: WorkflowLeaseConflictException) {
-                        val currentLease = leaseStore.currentLease(checkpoint.workflowName, checkpoint.workflowId)
-                        if (currentLease != null) {
-                            observability.onLeaseContested(checkpoint.workflowId, config.workerId, currentLease.ownerId)
-                        }
-                        null
-                    }
-                    if (lease != null) {
-                        observability.onLeaseAcquired(checkpoint.workflowId, config.workerId)
-                        launchExecution(checkpoint, lease)
-                    }
-                }
+                checkpoints.forEach { checkpoint -> processCheckpoint(checkpoint) }
                 delay(config.pollIntervalMillis)
             } catch (error: CancellationException) {
                 throw error
@@ -375,6 +346,32 @@ class TramaiWorker(
                 observability.onPollFailed(config.workerId, error)
                 delay(maxOf(100L, config.pollIntervalMillis))
             }
+        }
+    }
+
+    private suspend fun processCheckpoint(checkpoint: WorkflowCheckpoint) {
+        if (!acceptingWork || activeExecutions.containsKey(checkpoint.workflowId)) return
+        if (!ownsPartition(checkpoint.workflowId)) return
+        if (leaseStore.currentLease(checkpoint.workflowName, checkpoint.workflowId) != null) return
+
+        val lease = try {
+            leaseStore.claim(
+                workflowName = checkpoint.workflowName,
+                workflowId = checkpoint.workflowId,
+                ownerId = config.workerId,
+                checkpointRevision = checkpoint.revision,
+                leaseDurationMillis = config.leaseDurationMillis,
+            )
+        } catch (_: WorkflowLeaseConflictException) {
+            val currentLease = leaseStore.currentLease(checkpoint.workflowName, checkpoint.workflowId)
+            if (currentLease != null) {
+                observability.onLeaseContested(checkpoint.workflowId, config.workerId, currentLease.ownerId)
+            }
+            null
+        }
+        if (lease != null) {
+            observability.onLeaseAcquired(checkpoint.workflowId, config.workerId)
+            launchExecution(checkpoint, lease)
         }
     }
 

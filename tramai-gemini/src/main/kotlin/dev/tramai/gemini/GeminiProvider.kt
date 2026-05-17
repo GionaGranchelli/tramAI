@@ -10,6 +10,7 @@ import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
+import dev.tramai.core.model.UsageMetrics
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
@@ -20,13 +21,16 @@ import dev.tramai.core.provider.providerTransportFailure
 import dev.tramai.core.util.ImageDownloader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.util.Base64
+import java.util.stream.Stream
 
 /**
  * [ModelProvider] implementation for Google Gemini API.
@@ -54,6 +58,7 @@ class GeminiProvider(
     private val responseSchema: String? = null,
     /** Gemini API version to use, e.g. "v1" or "v1beta". */
     private val apiVersion: String = DEFAULT_API_VERSION,
+    private val ioDispatcher: CoroutineContext = Dispatchers.IO,
 ) : ModelProvider, StreamCapable {
 
     override fun providerId(): String = "gemini"
@@ -65,7 +70,7 @@ class GeminiProvider(
         ProviderCapability.STREAMING -> true
     }
 
-    override suspend fun complete(request: ModelRequest): ModelResponse = withContext(Dispatchers.IO) {
+    override suspend fun complete(request: ModelRequest): ModelResponse = withContext(ioDispatcher) {
         try {
             val modelName = request.model.takeIf { it.isNotBlank() } ?: DEFAULT_MODEL
             val url = "${baseUrl.trimEnd('/')}/$apiVersion/models/$modelName:generateContent"
@@ -101,7 +106,7 @@ class GeminiProvider(
         }
     }
 
-    override suspend fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
+    override fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
         val modelName = request.model.takeIf { it.isNotBlank() } ?: DEFAULT_MODEL
         val url = "${baseUrl.trimEnd('/')}/$apiVersion/models/$modelName:streamGenerateContent?alt=sse"
         val payload = buildPayload(request)
@@ -114,33 +119,55 @@ class GeminiProvider(
             .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
             .build()
 
-        val response = withContext(Dispatchers.IO) {
+        val response = withContext(ioDispatcher) {
             httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines())
         }
 
-        if (response.statusCode() !in 200..299) {
-            val errorBody = response.body().toArray().joinToString("\n")
-            logProviderHttpFailureDebug(
-                logger = providerLogger,
-                providerName = "Gemini",
-                statusCode = response.statusCode(),
-                body = errorBody,
-            )
-            emit(
-                StreamChunk.Error(
-                    providerHttpFailure(
-                        providerName = "Gemini",
-                        statusCode = response.statusCode(),
-                        body = errorBody,
-                        retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
-                    ),
-                ),
-            )
+        val errorChunk = handleHttpError(response, "Gemini")
+        if (errorChunk != null) {
+            emit(errorChunk)
             return@flow
         }
 
+        parseGeminiStreamResponse(response)
+    }
+
+    /**
+     * Handles non-2xx HTTP responses for streaming requests.
+     * Returns a [StreamChunk.Error] for failed responses, or `null` for 2xx.
+     */
+    private fun handleHttpError(
+        response: HttpResponse<Stream<String>>,
+        providerName: String,
+    ): StreamChunk.Error? {
+        if (response.statusCode() in 200..299) return null
+        val errorBody = response.body().toArray().joinToString("\n")
+        logProviderHttpFailureDebug(
+            logger = providerLogger,
+            providerName = providerName,
+            statusCode = response.statusCode(),
+            body = errorBody,
+        )
+        return StreamChunk.Error(
+            providerHttpFailure(
+                providerName = providerName,
+                statusCode = response.statusCode(),
+                body = errorBody,
+                retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+            ),
+        )
+    }
+
+    /**
+     * Parses the Gemini SSE stream response, handling Gemini-specific
+     * `data: ` format with nested `candidates[].content.parts[].text` structure
+     * and `usageMetadata` tracking.
+     */
+    private suspend fun FlowCollector<StreamChunk>.parseGeminiStreamResponse(
+        response: HttpResponse<Stream<String>>,
+    ) {
         val fullText = StringBuilder()
-        var lastUsage: dev.tramai.core.model.UsageMetrics? = null
+        var lastUsage: UsageMetrics? = null
 
         try {
             response.body().use { lines ->
@@ -149,37 +176,47 @@ class GeminiProvider(
                     if (line.startsWith("data: ")) {
                         val data = line.substring(6).trim()
                         if (data.isEmpty() || data == "[DONE]") continue
-
-                        val chunk = objectMapper.readTree(data)
-                        val candidates = chunk.path("candidates")
-                        if (candidates.isArray && candidates.size() > 0) {
-                            val content = candidates[0].path("content")
-                            val parts = content.path("parts")
-                            if (parts.isArray) {
-                                for (part in parts) {
-                                    val text = part.path("text").asText("")
-                                    if (text.isNotEmpty()) {
-                                        fullText.append(text)
-                                        emit(StreamChunk.Token(text))
-                                    }
-                                }
-                            }
-                        }
-
-                        val usageMetadata = chunk.path("usageMetadata")
-                        if (!usageMetadata.isMissingNode) {
-                            lastUsage = dev.tramai.core.model.UsageMetrics(
-                                inputTokens = usageMetadata.path("promptTokenCount").takeIf { !it.isMissingNode }?.asInt(),
-                                outputTokens = usageMetadata.path("candidatesTokenCount").takeIf { !it.isMissingNode }?.asInt(),
-                            )
-                        }
+                        lastUsage = handleGeminiDataLine(data, fullText, lastUsage)
                     }
                 }
             }
-            emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: dev.tramai.core.model.UsageMetrics()))
+            emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
         } catch (e: Exception) {
             emit(StreamChunk.Error(providerTransportFailure("Gemini", e)))
         }
+    }
+
+    /**
+     * Handles a single Gemini SSE data line, extracting candidate text parts and usage metadata.
+     */
+    private suspend fun FlowCollector<StreamChunk>.handleGeminiDataLine(
+        data: String,
+        fullText: StringBuilder,
+        lastUsage: UsageMetrics?,
+    ): UsageMetrics? {
+        val chunk = objectMapper.readTree(data)
+        val candidates = chunk.path("candidates")
+        if (candidates.isArray && candidates.size() > 0) {
+            val content = candidates[0].path("content")
+            val parts = content.path("parts")
+            if (parts.isArray) {
+                for (part in parts) {
+                    val text = part.path("text").asText("")
+                    if (text.isNotEmpty()) {
+                        fullText.append(text)
+                        emit(StreamChunk.Token(text))
+                    }
+                }
+            }
+        }
+
+        val usageMetadata = chunk.path("usageMetadata")
+        return if (!usageMetadata.isMissingNode) {
+            UsageMetrics(
+                inputTokens = usageMetadata.path("promptTokenCount").takeIf { !it.isMissingNode }?.asInt(),
+                outputTokens = usageMetadata.path("candidatesTokenCount").takeIf { !it.isMissingNode }?.asInt(),
+            )
+        } else lastUsage
     }
 
     // ---- Payload construction ----

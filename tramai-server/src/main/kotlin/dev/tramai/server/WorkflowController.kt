@@ -181,7 +181,7 @@ class WorkflowController(
             "openapi" to "3.1.0",
             "info" to mapOf(
                 "title" to "Tramai Workflow Server",
-                "version" to "0.2.0",
+                "version" to VERSION,
             ),
             "paths" to paths,
         )
@@ -496,3 +496,6 @@ private fun WorkflowRunRecord.toDetail(): WorkflowRunDetail = WorkflowRunDetail(
     result = result,
     error = error,
 )
+
+/** @see WorkflowController */
+private const val VERSION = "0.2.0"

@@ -6,6 +6,8 @@ import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.FinishReason
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.model.StreamChunk
+import dev.tramai.core.model.UsageMetrics
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.applyTramaiTimeout
@@ -13,12 +15,17 @@ import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
 import dev.tramai.core.provider.providerTransportFailure
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.util.Base64
+import java.util.stream.Stream
 
 /**
  * [ModelProvider] implementation for Anthropic's Messages API.
@@ -26,12 +33,13 @@ import java.util.Base64
 class AnthropicProvider(
     private val apiKey: String,
     private val baseUrl: String = "https://api.anthropic.com",
-    private val anthropicVersion: String = "2023-06-01",
+    private val anthropicVersion: String = ANTHROPIC_API_VERSION,
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
+    private val ioDispatcher: CoroutineContext = Dispatchers.IO,
 ) : dev.tramai.core.provider.ModelProvider, dev.tramai.core.provider.StreamCapable {
 
-    override suspend fun complete(request: ModelRequest): ModelResponse = withContext(Dispatchers.IO) {
+    override suspend fun complete(request: ModelRequest): ModelResponse = withContext(ioDispatcher) {
         try {
             val payload = linkedMapOf<String, Any?>(
                 "model" to request.model,
@@ -105,7 +113,7 @@ class AnthropicProvider(
         ProviderCapability.STREAMING -> true
     }
 
-    override suspend fun stream(request: ModelRequest): kotlinx.coroutines.flow.Flow<dev.tramai.core.model.StreamChunk> = kotlinx.coroutines.flow.flow {
+    override fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
         val payload = linkedMapOf<String, Any?>(
             "model" to request.model,
             "stream" to true,
@@ -129,33 +137,56 @@ class AnthropicProvider(
             .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
             .build()
 
-        val response = withContext(Dispatchers.IO) {
+        val response = withContext(ioDispatcher) {
             httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines())
         }
 
-        if (response.statusCode() !in 200..299) {
-            val errorBody = response.body().toArray().joinToString("\n")
-            logProviderHttpFailureDebug(
-                logger = providerLogger,
-                providerName = "Anthropic",
-                statusCode = response.statusCode(),
-                body = errorBody,
-            )
-            emit(
-                dev.tramai.core.model.StreamChunk.Error(
-                    providerHttpFailure(
-                        providerName = "Anthropic",
-                        statusCode = response.statusCode(),
-                        body = errorBody,
-                        retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
-                    ),
-                ),
-            )
+        val errorChunk = handleHttpError(response, "Anthropic")
+        if (errorChunk != null) {
+            emit(errorChunk)
             return@flow
         }
 
+        parseAnthropicStreamResponse(response)
+    }
+
+    /**
+     * Handles non-2xx HTTP responses for streaming requests.
+     * Returns a [StreamChunk.Error] for failed responses, or `null` for 2xx.
+     */
+    private fun handleHttpError(
+        response: HttpResponse<Stream<String>>,
+        providerName: String,
+    ): StreamChunk.Error? {
+        if (response.statusCode() in 200..299) return null
+        val errorBody = response.body().toArray().joinToString("\n")
+        logProviderHttpFailureDebug(
+            logger = providerLogger,
+            providerName = providerName,
+            statusCode = response.statusCode(),
+            body = errorBody,
+        )
+        return StreamChunk.Error(
+            providerHttpFailure(
+                providerName = providerName,
+                statusCode = response.statusCode(),
+                body = errorBody,
+                retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+            ),
+        )
+    }
+
+    /**
+     * Parses the Anthropic SSE stream response, handling Anthropic-specific events:
+     * - `content_block_delta` for text tokens
+     * - `message_start` for initial usage metrics
+     * - `message_delta` for output token updates
+     */
+    private suspend fun FlowCollector<StreamChunk>.parseAnthropicStreamResponse(
+        response: HttpResponse<Stream<String>>,
+    ) {
         val fullText = StringBuilder()
-        var lastUsage: dev.tramai.core.model.UsageMetrics? = null
+        var lastUsage: UsageMetrics? = null
 
         try {
             response.body().use { lines ->
@@ -166,41 +197,54 @@ class AnthropicProvider(
                     } else if (line.startsWith("data: ")) {
                         val data = line.substring(6).trim()
                         val node = objectMapper.readTree(data)
-                        
-                        when (currentEvent) {
-                            "content_block_delta" -> {
-                                val text = node.path("delta").path("text").asText("")
-                                if (text.isNotEmpty()) {
-                                    fullText.append(text)
-                                    emit(dev.tramai.core.model.StreamChunk.Token(text))
-                                }
-                            }
-                            "message_start" -> {
-                                val usage = node.path("message").path("usage")
-                                if (!usage.isMissingNode) {
-                                    lastUsage = dev.tramai.core.model.UsageMetrics(
-                                        inputTokens = usage.path("input_tokens").asInt(),
-                                        outputTokens = usage.path("output_tokens").asInt(),
-                                    )
-                                }
-                            }
-                            "message_delta" -> {
-                                val usage = node.path("usage")
-                                if (!usage.isMissingNode) {
-                                    lastUsage = dev.tramai.core.model.UsageMetrics(
-                                        inputTokens = lastUsage?.inputTokens,
-                                        outputTokens = usage.path("output_tokens").asInt(),
-                                    )
-                                }
-                            }
-                        }
+                        lastUsage = handleAnthropicEvent(currentEvent, node, fullText, lastUsage)
                     }
                 }
             }
-            emit(dev.tramai.core.model.StreamChunk.Complete(fullText.toString(), lastUsage ?: dev.tramai.core.model.UsageMetrics()))
+            emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
         } catch (e: Exception) {
-            emit(dev.tramai.core.model.StreamChunk.Error(providerTransportFailure("Anthropic", e)))
+            emit(StreamChunk.Error(providerTransportFailure("Anthropic", e)))
         }
+    }
+
+    /**
+     * Handles a single Anthropic SSE event (content_block_delta, message_start, message_delta)
+     * and returns the updated [UsageMetrics].
+     */
+    private suspend fun FlowCollector<StreamChunk>.handleAnthropicEvent(
+        currentEvent: String?,
+        node: com.fasterxml.jackson.databind.JsonNode,
+        fullText: StringBuilder,
+        lastUsage: UsageMetrics?,
+    ): UsageMetrics? {
+        when (currentEvent) {
+            "content_block_delta" -> {
+                val text = node.path("delta").path("text").asText("")
+                if (text.isNotEmpty()) {
+                    fullText.append(text)
+                    emit(StreamChunk.Token(text))
+                }
+            }
+            "message_start" -> {
+                val usage = node.path("message").path("usage")
+                if (!usage.isMissingNode) {
+                    return UsageMetrics(
+                        inputTokens = usage.path("input_tokens").asInt(),
+                        outputTokens = usage.path("output_tokens").asInt(),
+                    )
+                }
+            }
+            "message_delta" -> {
+                val usage = node.path("usage")
+                if (!usage.isMissingNode) {
+                    return UsageMetrics(
+                        inputTokens = lastUsage?.inputTokens,
+                        outputTokens = usage.path("output_tokens").asInt(),
+                    )
+                }
+            }
+        }
+        return lastUsage
     }
 
     /**
@@ -261,5 +305,7 @@ class AnthropicProvider(
         private val providerLogger: System.Logger = System.getLogger(AnthropicProvider::class.java.name)
 
         val SUPPORTED_IMAGE_TYPES: Set<String> = setOf("image/png", "image/jpeg", "image/gif", "image/webp")
+
+        const val ANTHROPIC_API_VERSION: String = "2023-06-01"
     }
 }

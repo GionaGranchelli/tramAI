@@ -10,6 +10,13 @@ import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.api.trace.Tracer
 import java.util.concurrent.ConcurrentHashMap
+
+private const val ATTR_WORKFLOW_NAME = "tramai.workflow.name"
+private const val ATTR_WORKFLOW_ID = "tramai.workflow.id"
+private const val ATTR_WORKFLOW_OUTCOME = "tramai.workflow.outcome"
+private const val ATTR_WORKFLOW_CONTEXT_PREFIX = "tramai.workflow.context."
+private const val ATTR_EVENT_NAME = "tramai.event.name"
+
 /**
  * OpenTelemetry-backed [WorkflowObserver] implementation.
  */
@@ -36,23 +43,23 @@ class OpenTelemetryWorkflowObserver(
         )
         val span = tracer.spanBuilder("workflow.$workflowName").startSpan()
         val baseAttributes = mutableMapOf<String, Any?>(
-            "tramai.workflow.name" to workflowName,
-            "tramai.workflow.id" to context.workflowId,
+            ATTR_WORKFLOW_NAME to workflowName,
+            ATTR_WORKFLOW_ID to context.workflowId,
         ).apply {
-            putAll(context.attributes.mapKeys { "tramai.workflow.context.${it.key}" })
+            putAll(context.attributes.mapKeys { "$ATTR_WORKFLOW_CONTEXT_PREFIX${it.key}" })
         }
-        span.setAttribute("tramai.workflow.name", workflowName)
-        span.setAttribute("tramai.workflow.id", context.workflowId)
+        span.setAttribute(ATTR_WORKFLOW_NAME, workflowName)
+        span.setAttribute(ATTR_WORKFLOW_ID, context.workflowId)
         context.attributes.forEach { (key, value) ->
             when (value) {
-                is String -> span.setAttribute("tramai.workflow.context.$key", value)
-                is Boolean -> span.setAttribute("tramai.workflow.context.$key", value)
-                is Int -> span.setAttribute("tramai.workflow.context.$key", value.toLong())
-                is Long -> span.setAttribute("tramai.workflow.context.$key", value)
-                is Double -> span.setAttribute("tramai.workflow.context.$key", value)
-                is Float -> span.setAttribute("tramai.workflow.context.$key", value.toDouble())
+                is String -> span.setAttribute("$ATTR_WORKFLOW_CONTEXT_PREFIX$key", value)
+                is Boolean -> span.setAttribute("$ATTR_WORKFLOW_CONTEXT_PREFIX$key", value)
+                is Int -> span.setAttribute("$ATTR_WORKFLOW_CONTEXT_PREFIX$key", value.toLong())
+                is Long -> span.setAttribute("$ATTR_WORKFLOW_CONTEXT_PREFIX$key", value)
+                is Double -> span.setAttribute("$ATTR_WORKFLOW_CONTEXT_PREFIX$key", value)
+                is Float -> span.setAttribute("$ATTR_WORKFLOW_CONTEXT_PREFIX$key", value.toDouble())
                 null -> Unit
-                else -> span.setAttribute("tramai.workflow.context.$key", value.toString())
+                else -> span.setAttribute("$ATTR_WORKFLOW_CONTEXT_PREFIX$key", value.toString())
             }
         }
         activeWorkflows[runKey] = ActiveWorkflowSpan(
@@ -74,7 +81,7 @@ class OpenTelemetryWorkflowObserver(
                 workflowName = workflowName,
                 workflowId = context.workflowId,
                 outcome = null,
-                extraAttributes = mapOf("tramai.event.name" to name) + attributes,
+                extraAttributes = mapOf(ATTR_EVENT_NAME to name) + attributes,
             ),
         )
     }
@@ -154,7 +161,7 @@ class OpenTelemetryWorkflowObserver(
             active.span.recordException(error)
             active.span.setStatus(StatusCode.ERROR, error.message ?: "Workflow failed")
         }
-        active.span.setAttribute("tramai.workflow.outcome", outcome)
+        active.span.setAttribute(ATTR_WORKFLOW_OUTCOME, outcome)
         val attributes = workflowAttributes(
             workflowName = workflowName,
             workflowId = context.workflowId,
@@ -176,9 +183,9 @@ class OpenTelemetryWorkflowObserver(
         outcome: String?,
         extraAttributes: Map<String, Any?>,
     ): Attributes = buildMap<String, Any?> {
-        put("tramai.workflow.name", workflowName)
-        put("tramai.workflow.id", workflowId)
-        outcome?.let { put("tramai.workflow.outcome", it) }
+        put(ATTR_WORKFLOW_NAME, workflowName)
+        put(ATTR_WORKFLOW_ID, workflowId)
+        outcome?.let { put(ATTR_WORKFLOW_OUTCOME, it) }
         putAll(extraAttributes)
     }.toOpenTelemetryAttributes()
 }

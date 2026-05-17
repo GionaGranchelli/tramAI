@@ -1,7 +1,7 @@
 package dev.tramai.core.util
 
 import dev.tramai.core.model.ContentPart
-import java.net.URL
+import java.net.URI
 
 /**
  * Utility for downloading images from URLs and resolving [ContentPart.ImageUrlContent]
@@ -16,7 +16,7 @@ object ImageDownloader {
      * @throws IllegalArgumentException if the downloaded content exceeds [MAX_DOWNLOAD_SIZE].
      */
     fun download(url: String): ByteArray {
-        val connection = URL(url).openConnection()
+        val connection = URI(url).toURL().openConnection()
         connection.connectTimeout = 10_000
         connection.readTimeout = 30_000
         val stream = connection.getInputStream()

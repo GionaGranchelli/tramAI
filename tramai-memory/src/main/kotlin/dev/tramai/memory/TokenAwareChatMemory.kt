@@ -61,6 +61,7 @@ class TokenAwareChatMemory(
     private val lock = Any()
 
     override fun get(conversationId: String): List<Message> {
+        requireNotNull(conversationId) { "conversationId must not be null" }
         require(conversationId.isNotBlank())
         val deque = conversations[conversationId] ?: return emptyList()
         synchronized(lock) {
@@ -69,24 +70,18 @@ class TokenAwareChatMemory(
     }
 
     override fun add(conversationId: String, message: Message) {
+        requireNotNull(conversationId) { "conversationId must not be null" }
         add(conversationId, listOf(message))
     }
 
     override fun add(conversationId: String, messages: List<Message>) {
+        requireNotNull(conversationId) { "conversationId must not be null" }
         require(conversationId.isNotBlank())
         synchronized(lock) {
             val deque = conversations.computeIfAbsent(conversationId) { ConcurrentLinkedDeque() }
 
             for (message in messages) {
-                if (message.role == MessageRole.SYSTEM) {
-                    val iterator = deque.iterator()
-                    while (iterator.hasNext()) {
-                        if (iterator.next().message.role == MessageRole.SYSTEM) {
-                            iterator.remove()
-                            break
-                        }
-                    }
-                }
+                replaceSystemMessage(deque, message)
                 val tokenCount = tokenizer.countTokens(message.content)
                 deque.addLast(TokenCountMessage(message, tokenCount))
             }
@@ -95,18 +90,34 @@ class TokenAwareChatMemory(
             evictTokens(deque)
 
             // Update LRU
-            lruTracker.remove(conversationId)
-            lruTracker.addLast(conversationId)
+            updateLru(conversationId)
+        }
+    }
 
-            // Conversation eviction
-            while (conversations.size > maxConversations) {
-                val lru = lruTracker.pollFirst() ?: break
-                if (lru == conversationId) {
-                    lruTracker.addFirst(lru)
+    private fun replaceSystemMessage(deque: ConcurrentLinkedDeque<TokenCountMessage>, message: Message) {
+        if (message.role == MessageRole.SYSTEM) {
+            val iterator = deque.iterator()
+            while (iterator.hasNext()) {
+                if (iterator.next().message.role == MessageRole.SYSTEM) {
+                    iterator.remove()
                     break
                 }
-                conversations.remove(lru)
             }
+        }
+    }
+
+    private fun updateLru(conversationId: String) {
+        lruTracker.remove(conversationId)
+        lruTracker.addLast(conversationId)
+
+        // Conversation eviction
+        while (conversations.size > maxConversations) {
+            val lru = lruTracker.pollFirst() ?: break
+            if (lru == conversationId) {
+                lruTracker.addFirst(lru)
+                break
+            }
+            conversations.remove(lru)
         }
     }
 
@@ -128,6 +139,7 @@ class TokenAwareChatMemory(
     }
 
     override fun clear(conversationId: String) {
+        requireNotNull(conversationId) { "conversationId must not be null" }
         require(conversationId.isNotBlank())
         synchronized(lock) {
             conversations.remove(conversationId)

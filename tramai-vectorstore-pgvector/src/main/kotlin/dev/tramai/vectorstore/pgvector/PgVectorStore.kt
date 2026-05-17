@@ -6,8 +6,8 @@ import com.zaxxer.hikari.HikariDataSource
 import dev.tramai.vectorstore.SearchResult
 import dev.tramai.vectorstore.VectorEntry
 import dev.tramai.vectorstore.VectorStore
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 import java.sql.Connection
 import java.util.concurrent.ConcurrentHashMap
 import java.util.regex.Pattern
@@ -43,6 +43,7 @@ class PgVectorStore(
     private val poolSize: Int = 5,
     private val dimensions: Int = DEFAULT_DIMENSIONS,
     private val objectMapper: ObjectMapper = ObjectMapper(),
+    private val ioDispatcher: CoroutineContext = kotlinx.coroutines.Dispatchers.IO,
 ) : VectorStore {
 
     private val logger: Logger = Logger.getLogger(PgVectorStore::class.java.name)
@@ -65,7 +66,7 @@ class PgVectorStore(
     /** Cache of table names that have been verified to exist. */
     private val tableExistsCache = ConcurrentHashMap<String, Boolean>()
 
-    override suspend fun upsert(collection: String, vectors: List<VectorEntry>) = withContext(Dispatchers.IO) {
+    override suspend fun upsert(collection: String, vectors: List<VectorEntry>) = withContext(ioDispatcher) {
         val tableName = tableNameFor(collection)
         try {
             dataSource.connection.use { conn ->
@@ -114,7 +115,7 @@ class PgVectorStore(
         query: FloatArray,
         topK: Int,
         filter: Map<String, String>?,
-    ): List<SearchResult> = withContext(Dispatchers.IO) {
+    ): List<SearchResult> = withContext(ioDispatcher) {
         val tableName = tableNameFor(collection)
         val vectorText = vectorToText(query)
 
@@ -122,34 +123,10 @@ class PgVectorStore(
             dataSource.connection.use { conn ->
                 ensureTable(conn, tableName)
 
-                val filterClause = if (filter != null && filter.isNotEmpty()) {
-                    val conditions = filter.entries.mapIndexed { i, _ ->
-                        "metadata->>? = ?"
-                    }
-                    "WHERE ${conditions.joinToString(" AND ")}"
-                } else ""
+                val query = buildSearchQuery(tableName, filter, topK)
 
-                val sql = """
-                SELECT id, content, metadata, 1 - (embedding <=> ?::vector) AS similarity
-                FROM $tableName
-                $filterClause
-                ORDER BY embedding <=> ?::vector
-                LIMIT ?
-            """.trimIndent()
-
-                conn.prepareStatement(sql).use { stmt ->
-                    stmt.setString(1, vectorText)
-                    var paramIdx = 2
-                    if (filter != null) {
-                        for ((k, v) in filter) {
-                            stmt.setString(paramIdx, k)
-                            paramIdx++
-                            stmt.setString(paramIdx, v)
-                            paramIdx++
-                        }
-                    }
-                    stmt.setString(paramIdx, vectorText)
-                    stmt.setInt(paramIdx + 1, topK)
+                conn.prepareStatement(query.sql).use { stmt ->
+                    bindSearchParameters(stmt, vectorText, topK, filter)
 
                     stmt.executeQuery().use { rs ->
                         val results = mutableListOf<SearchResult>()
@@ -174,7 +151,55 @@ class PgVectorStore(
         }
     }
 
-    override suspend fun delete(collection: String, ids: List<String>) = withContext(Dispatchers.IO) {
+    /**
+     * Builds the SQL query for a pgvector similarity search with optional metadata filters.
+     */
+    private data class SearchQuery(val sql: String)
+
+    /**
+     * Binds the search parameters to a prepared statement for vector similarity search.
+     */
+    private fun bindSearchParameters(
+        stmt: java.sql.PreparedStatement,
+        vectorText: String,
+        topK: Int,
+        filter: Map<String, String>?,
+    ) {
+        var paramIdx = 1
+        stmt.setString(paramIdx++, vectorText)
+        if (filter != null) {
+            for ((k, v) in filter) {
+                stmt.setString(paramIdx++, k)
+                stmt.setString(paramIdx++, v)
+            }
+        }
+        stmt.setString(paramIdx++, vectorText)
+        stmt.setInt(paramIdx, topK)
+    }
+
+    private fun buildSearchQuery(
+        tableName: String,
+        filter: Map<String, String>?,
+        topK: Int,
+    ): SearchQuery {
+        val filterClause = if (filter != null && filter.isNotEmpty()) {
+            val conditions = filter.entries.mapIndexed { i, _ ->
+                "metadata->>? = ?"
+            }
+            "WHERE ${conditions.joinToString(" AND ")}"
+        } else ""
+
+        val sql = """
+            SELECT id, content, metadata, 1 - (embedding <=> ?::vector) AS similarity
+            FROM $tableName
+            $filterClause
+            ORDER BY embedding <=> ?::vector
+            LIMIT ?
+        """.trimIndent()
+        return SearchQuery(sql)
+    }
+
+    override suspend fun delete(collection: String, ids: List<String>) = withContext(ioDispatcher) {
         val tableName = tableNameFor(collection)
         try {
             dataSource.connection.use { conn ->
@@ -197,7 +222,7 @@ class PgVectorStore(
         Unit
     }
 
-    override suspend fun listCollections(): List<String> = withContext(Dispatchers.IO) {
+    override suspend fun listCollections(): List<String> = withContext(ioDispatcher) {
         try {
             dataSource.connection.use { conn ->
                 val prefixPattern = "${tablePrefix}%"

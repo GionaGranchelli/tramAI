@@ -21,7 +21,7 @@ data class OperationCallContext(
 /**
  * Observer entry point used by the engine to create per-call observations.
  */
-interface OperationObserver {
+fun interface OperationObserver {
     /**
      * Starts observation for a single provider attempt.
      */

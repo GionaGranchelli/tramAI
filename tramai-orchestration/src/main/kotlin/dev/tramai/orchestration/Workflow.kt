@@ -1328,156 +1328,216 @@ private fun <S> renderStepsCanonical(
 ): String = buildString {
     for (step in steps) {
         when (step) {
-            is LocalWorkflowStep -> {
-                append("local:")
-                append(step.name)
-                append('\n')
-            }
-            is AiWorkflowStep<*, *, *> -> {
-                append("ai:")
-                append(step.name)
-                append('\n')
-            }
-            is HttpWorkflowStep<*> -> {
-                append("http:")
-                append(step.name)
-                append(':')
-                append(step.config.timeoutSeconds)
-                append(':')
-                append(step.config.maxResponseBytes)
-                append(':')
-                append(step.config.maxRetries)
-                append(':')
-                append(step.config.retryOnStatus.sorted().joinToString(","))
-                append('\n')
-            }
-            is ShellWorkflowStep<*> -> {
-                append("shell:")
-                append(step.name)
-                append(':')
-                append(step.config.timeoutSeconds)
-                append(':')
-                append(step.config.maxOutputBytes)
-                append(':')
-                append(step.config.failOnNonZeroExit)
-                append(':')
-                append(step.config.failOnStderr)
-                append(':')
-                append(step.config.allowedCommands.sorted().joinToString(","))
-                append(':')
-                append(step.config.deniedCommands.sorted().joinToString(","))
-                append(':')
-                append(step.definition.executable)
-                append(':')
-                append(step.definition.hasWorkdir)
-                append(':')
-                append(step.definition.envKeys.sorted().joinToString(","))
-                append('\n')
-            }
-            is HermesWorkflowStep<*> -> {
-                append("hermes:")
-                append(step.name)
-                append(':')
-                append(step.config.timeoutSeconds)
-                append(':')
-                append(step.config.maxOutputBytes)
-                append(':')
-                append(step.config.cliPath)
-                append(':')
-                append(step.config.model)
-                append('\n')
-            }
-            is CodexWorkflowStep<*> -> {
-                append("codex:")
-                append(step.name)
-                append(':')
-                append(step.config.timeoutSeconds)
-                append(':')
-                append(step.config.maxOutputBytes)
-                append(':')
-                append(step.config.cliPath)
-                append(':')
-                append(step.config.workdir ?: "*")
-                append('\n')
-            }
-            is McpWorkflowStep<*> -> {
-                append("mcp:")
-                append(step.name)
-                append(':')
-                append(step.config.timeoutSeconds)
-                append(':')
-                append(step.config.maxOutputBytes)
-                append(':')
-                append(step.config.reconnect)
-                append(':')
-                append(step.config.toolAllowlist?.sorted()?.joinToString(",") ?: "*")
-                append(':')
-                append(
-                    if (step.config.enforceCommandAllowlist) {
-                        step.config.allowedCommands.sorted().joinToString(",")
-                    } else {
-                        "*"
-                    },
-                )
-                append(':')
-                append(step.config.deniedCommands.sorted().joinToString(","))
-                append(':')
-                append(step.definition.serverCommand.joinToString(","))
-                append(':')
-                append(step.definition.serverEnv.map { (k, v) -> "$k=$v" }.sorted().joinToString(","))
-                append(':')
-                append(step.definition.toolName)
-                append(':')
-                append(step.definition.argumentKeys.sorted().joinToString(","))
-                append('\n')
-            }
-            is PluginWorkflowStep<*> -> {
-                append("plugin:")
-                append(step.name)
-                append(':')
-                append(step.type)
-                append(':')
-                append(renderPluginValueCanonical(step.config))
-                append('\n')
-            }
-            is GateWorkflowStep -> {
-                append("gate:")
-                append(step.name)
-                append('\n')
-            }
-            is DelayWorkflowStep -> {
-                append("delay:")
-                append(step.name)
-                append(':')
-                append(step.duration)
-                append(':')
-                append(step.unit.name)
-                append('\n')
-            }
-            is ParallelWorkflowStep<*, *, *> -> {
-                append("parallel:")
-                append(step.name)
-                append('\n')
-            }
-            is BranchWorkflowStep -> {
-                append("branch:")
-                append(step.name)
-                append('\n')
-                for ((key, branchSteps) in step.branches) {
-                    append("branch-key:")
-                    append(key)
-                    append('\n')
-                    append(renderStepsCanonical(branchSteps))
-                }
-                val defaultSteps = step.defaultSteps
-                if (defaultSteps != null) {
-                    append("branch-default:")
-                    append(step.name)
-                    append('\n')
-                    append(renderStepsCanonical(defaultSteps))
-                }
-            }
+            is LocalWorkflowStep -> renderLocalStepCanonical(this, step)
+            is AiWorkflowStep<*, *, *> -> renderAiStepCanonical(this, step)
+            is HttpWorkflowStep<*> -> renderHttpStepCanonical(this, step)
+            is ShellWorkflowStep<*> -> renderShellStepCanonical(this, step)
+            is HermesWorkflowStep<*> -> renderHermesStepCanonical(this, step)
+            is CodexWorkflowStep<*> -> renderCodexStepCanonical(this, step)
+            is McpWorkflowStep<*> -> renderMcpStepCanonical(this, step)
+            is PluginWorkflowStep<*> -> renderPluginStepCanonical(this, step)
+            is GateWorkflowStep -> renderGateStepCanonical(this, step)
+            is DelayWorkflowStep -> renderDelayStepCanonical(this, step)
+            is ParallelWorkflowStep<*, *, *> -> renderParallelStepCanonical(this, step)
+            is BranchWorkflowStep -> renderBranchStepCanonical(this, step)
         }
+    }
+}
+
+private fun <S> renderLocalStepCanonical(
+    sb: StringBuilder,
+    step: LocalWorkflowStep<S>,
+) {
+    sb.append("local:")
+    sb.append(step.name)
+    sb.append('\n')
+}
+
+private fun <S> renderAiStepCanonical(
+    sb: StringBuilder,
+    step: AiWorkflowStep<S, *, *>,
+) {
+    sb.append("ai:")
+    sb.append(step.name)
+    sb.append('\n')
+}
+
+private fun <S> renderHttpStepCanonical(
+    sb: StringBuilder,
+    step: HttpWorkflowStep<S>,
+) {
+    sb.append("http:")
+    sb.append(step.name)
+    sb.append(':')
+    sb.append(step.config.timeoutSeconds)
+    sb.append(':')
+    sb.append(step.config.maxResponseBytes)
+    sb.append(':')
+    sb.append(step.config.maxRetries)
+    sb.append(':')
+    sb.append(step.config.retryOnStatus.sorted().joinToString(","))
+    sb.append('\n')
+}
+
+private fun <S> renderShellStepCanonical(
+    sb: StringBuilder,
+    step: ShellWorkflowStep<S>,
+) {
+    sb.append("shell:")
+    sb.append(step.name)
+    sb.append(':')
+    sb.append(step.config.timeoutSeconds)
+    sb.append(':')
+    sb.append(step.config.maxOutputBytes)
+    sb.append(':')
+    sb.append(step.config.failOnNonZeroExit)
+    sb.append(':')
+    sb.append(step.config.failOnStderr)
+    sb.append(':')
+    sb.append(step.config.allowedCommands.sorted().joinToString(","))
+    sb.append(':')
+    sb.append(step.config.deniedCommands.sorted().joinToString(","))
+    sb.append(':')
+    sb.append(step.definition.executable)
+    sb.append(':')
+    sb.append(step.definition.hasWorkdir)
+    sb.append(':')
+    sb.append(step.definition.envKeys.sorted().joinToString(","))
+    sb.append('\n')
+}
+
+private fun <S> renderHermesStepCanonical(
+    sb: StringBuilder,
+    step: HermesWorkflowStep<S>,
+) {
+    sb.append("hermes:")
+    sb.append(step.name)
+    sb.append(':')
+    sb.append(step.config.timeoutSeconds)
+    sb.append(':')
+    sb.append(step.config.maxOutputBytes)
+    sb.append(':')
+    sb.append(step.config.cliPath)
+    sb.append(':')
+    sb.append(step.config.model)
+    sb.append('\n')
+}
+
+private fun <S> renderCodexStepCanonical(
+    sb: StringBuilder,
+    step: CodexWorkflowStep<S>,
+) {
+    sb.append("codex:")
+    sb.append(step.name)
+    sb.append(':')
+    sb.append(step.config.timeoutSeconds)
+    sb.append(':')
+    sb.append(step.config.maxOutputBytes)
+    sb.append(':')
+    sb.append(step.config.cliPath)
+    sb.append(':')
+    sb.append(step.config.workdir ?: "*")
+    sb.append('\n')
+}
+
+private fun <S> renderMcpStepCanonical(
+    sb: StringBuilder,
+    step: McpWorkflowStep<S>,
+) {
+    sb.append("mcp:")
+    sb.append(step.name)
+    sb.append(':')
+    sb.append(step.config.timeoutSeconds)
+    sb.append(':')
+    sb.append(step.config.maxOutputBytes)
+    sb.append(':')
+    sb.append(step.config.reconnect)
+    sb.append(':')
+    sb.append(step.config.toolAllowlist?.sorted()?.joinToString(",") ?: "*")
+    sb.append(':')
+    sb.append(
+        if (step.config.enforceCommandAllowlist) {
+            step.config.allowedCommands.sorted().joinToString(",")
+        } else {
+            "*"
+        },
+    )
+    sb.append(':')
+    sb.append(step.config.deniedCommands.sorted().joinToString(","))
+    sb.append(':')
+    sb.append(step.definition.serverCommand.joinToString(","))
+    sb.append(':')
+    sb.append(step.definition.serverEnv.map { (k, v) -> "$k=$v" }.sorted().joinToString(","))
+    sb.append(':')
+    sb.append(step.definition.toolName)
+    sb.append(':')
+    sb.append(step.definition.argumentKeys.sorted().joinToString(","))
+    sb.append('\n')
+}
+
+private fun <S> renderPluginStepCanonical(
+    sb: StringBuilder,
+    step: PluginWorkflowStep<S>,
+) {
+    sb.append("plugin:")
+    sb.append(step.name)
+    sb.append(':')
+    sb.append(step.type)
+    sb.append(':')
+    sb.append(renderPluginValueCanonical(step.config))
+    sb.append('\n')
+}
+
+private fun <S> renderGateStepCanonical(
+    sb: StringBuilder,
+    step: GateWorkflowStep<S>,
+) {
+    sb.append("gate:")
+    sb.append(step.name)
+    sb.append('\n')
+}
+
+private fun <S> renderDelayStepCanonical(
+    sb: StringBuilder,
+    step: DelayWorkflowStep<S>,
+) {
+    sb.append("delay:")
+    sb.append(step.name)
+    sb.append(':')
+    sb.append(step.duration)
+    sb.append(':')
+    sb.append(step.unit.name)
+    sb.append('\n')
+}
+
+private fun <S> renderParallelStepCanonical(
+    sb: StringBuilder,
+    step: ParallelWorkflowStep<S, *, *>,
+) {
+    sb.append("parallel:")
+    sb.append(step.name)
+    sb.append('\n')
+}
+
+private fun <S> renderBranchStepCanonical(
+    sb: StringBuilder,
+    step: BranchWorkflowStep<S>,
+) {
+    sb.append("branch:")
+    sb.append(step.name)
+    sb.append('\n')
+    for ((key, branchSteps) in step.branches) {
+        sb.append("branch-key:")
+        sb.append(key)
+        sb.append('\n')
+        sb.append(renderStepsCanonical(branchSteps))
+    }
+    val defaultSteps = step.defaultSteps
+    if (defaultSteps != null) {
+        sb.append("branch-default:")
+        sb.append(step.name)
+        sb.append('\n')
+        sb.append(renderStepsCanonical(defaultSteps))
     }
 }
 const val DEFAULT_WORKFLOW_DEFINITION_VERSION: String = "1"

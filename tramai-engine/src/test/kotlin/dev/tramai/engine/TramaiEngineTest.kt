@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.Nested
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
@@ -1029,6 +1030,151 @@ class TramaiEngineTest {
         // Nothing persisted after all retries failed
         assertThat(memory.get("s1")).isEmpty()
     }
+
+    @Nested
+    inner class StreamingMemoryPersistence {
+        @Test
+        fun `streaming success persists user and assistant message once`() {
+            val addCalls = AtomicInteger(0)
+            val storedMessages = mutableListOf<Message>()
+            val chatMemory = object : ChatMemory {
+                override fun get(conversationId: String): List<Message> = storedMessages.toList()
+
+                override fun add(conversationId: String, messages: List<Message>) {
+                    addCalls.incrementAndGet()
+                    storedMessages += messages
+                }
+
+                override fun add(conversationId: String, message: Message) {
+                    error("Unexpected single-message add in streaming success test")
+                }
+
+                override fun clear(conversationId: String) {
+                    storedMessages.clear()
+                }
+            }
+            val provider = StreamingProvider {
+                flow {
+                    emit(StreamChunk.Token("hel"))
+                    emit(StreamChunk.Token("lo"))
+                    emit(StreamChunk.Complete("hello", UsageMetrics(outputTokens = 2)))
+                }
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                chatMemory = chatMemory,
+                conversationIdProvider = ConversationIdProvider { "session-1" },
+            )
+            val service = engine.create<StreamingService>()
+
+            val chunks = runBlocking { service.stream("my question").toList() }
+
+            assertThat(chunks).containsExactly(
+                StreamChunk.Token("hel"),
+                StreamChunk.Token("lo"),
+                StreamChunk.Complete("hello", UsageMetrics(outputTokens = 2)),
+            )
+            assertThat(addCalls.get()).isEqualTo(1)
+            assertThat(storedMessages).hasSize(2)
+            assertThat(storedMessages.first().role).isEqualTo(MessageRole.USER)
+            assertThat(storedMessages.first().content).contains("my question")
+            assertThat(storedMessages.last().role).isEqualTo(MessageRole.ASSISTANT)
+            assertThat(storedMessages.last().content).isEqualTo("hello")
+        }
+
+        @Test
+        fun `streaming cancellation does not persist to chatMemory`() {
+            val addCalls = AtomicInteger(0)
+            val chatMemory = object : ChatMemory {
+                override fun get(conversationId: String): List<Message> = emptyList()
+
+                override fun add(conversationId: String, messages: List<Message>) {
+                    addCalls.incrementAndGet()
+                }
+
+                override fun add(conversationId: String, message: Message) {
+                    addCalls.incrementAndGet()
+                }
+
+                override fun clear(conversationId: String) = Unit
+            }
+            val provider = StreamingProvider {
+                flow {
+                    emit(StreamChunk.Token("first"))
+                    awaitCancellation()
+                }
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                chatMemory = chatMemory,
+                conversationIdProvider = ConversationIdProvider { "session-1" },
+            )
+            val service = engine.create<StreamingService>()
+
+            val chunks = runBlocking { service.stream("my question").take(1).toList() }
+
+            assertThat(chunks).containsExactly(StreamChunk.Token("first"))
+            assertThat(addCalls.get()).isZero()
+        }
+
+        @Test
+        fun `streaming terminal error does not persist to chatMemory`() {
+            val addCalls = AtomicInteger(0)
+            val chatMemory = object : ChatMemory {
+                override fun get(conversationId: String): List<Message> = emptyList()
+
+                override fun add(conversationId: String, messages: List<Message>) {
+                    addCalls.incrementAndGet()
+                }
+
+                override fun add(conversationId: String, message: Message) {
+                    addCalls.incrementAndGet()
+                }
+
+                override fun clear(conversationId: String) = Unit
+            }
+            val provider = StreamingProvider {
+                flow {
+                    emit(StreamChunk.Error(ProviderException("boom", retryable = false)))
+                }
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                chatMemory = chatMemory,
+                conversationIdProvider = ConversationIdProvider { "session-1" },
+            )
+            val service = engine.create<StreamingService>()
+
+            val chunks = runBlocking { service.stream("my question").toList() }
+
+            assertThat(chunks).hasSize(1)
+            assertThat(chunks.single()).isInstanceOf(StreamChunk.Error::class.java)
+            assertThat(addCalls.get()).isZero()
+        }
+
+        @Test
+        fun `streaming with null chatMemory does not crash`() {
+            val provider = StreamingProvider {
+                flow {
+                    emit(StreamChunk.Token("hel"))
+                    emit(StreamChunk.Complete("hello", UsageMetrics(outputTokens = 1)))
+                }
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                chatMemory = null,
+                conversationIdProvider = ConversationIdProvider { "session-1" },
+            )
+            val service = engine.create<StreamingService>()
+
+            val chunks = runBlocking { service.stream("my question").toList() }
+
+            assertThat(chunks).containsExactly(
+                StreamChunk.Token("hel"),
+                StreamChunk.Complete("hello", UsageMetrics(outputTokens = 1)),
+            )
+        }
+    }
 }
 
 @AiService
@@ -1302,7 +1448,7 @@ private class StreamingProvider(
         error("StreamingProvider.complete should not be used in this test")
     }
 
-    override suspend fun stream(request: ModelRequest): Flow<StreamChunk> = streamResponder(request)
+    override fun stream(request: ModelRequest): Flow<StreamChunk> = streamResponder(request)
 }
 
 private class ToolCallingRecordingProvider(
@@ -1327,7 +1473,7 @@ private class NamedStreamingProvider(
         error("NamedStreamingProvider.complete should not be used in this test")
     }
 
-    override suspend fun stream(request: ModelRequest): Flow<StreamChunk> {
+    override fun stream(request: ModelRequest): Flow<StreamChunk> {
         streamRequests += request
         return streamResponder(request)
     }

@@ -6,7 +6,7 @@ package dev.tramai.rag
  * Implementations are responsible for fetching text content from their
  * respective source types (e.g., files, URLs, databases).
  */
-interface DocumentLoader {
+fun interface DocumentLoader {
     /**
      * Loads text content from the specified [source] and returns a [Document].
      *

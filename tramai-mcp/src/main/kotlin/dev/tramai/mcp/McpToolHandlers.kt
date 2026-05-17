@@ -98,11 +98,15 @@ class McpToolHandlers(
         workflowName: String?,
     ): String {
         if (!workflowName.isNullOrBlank()) {
+            // S6518 false positive — WorkflowRegistry.get() lacks operator modifier
+            @Suppress("kotlin:S6518")
             registry.get(workflowName)
             return workflowName
         }
         return registry.list()
             .firstNotNullOfOrNull { entry ->
+                // S6518 false positive — WorkflowRunStore.get() lacks operator modifier
+                @Suppress("kotlin:S6518")
                 runCatching { runStore.get(entry.workflow.name, workflowId) }
                     .getOrNull()
                     ?.workflowName

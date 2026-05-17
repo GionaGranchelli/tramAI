@@ -120,6 +120,21 @@ class MessageWindowChatMemoryTest {
         )
     }
 
+    @Test
+    fun `adding more than the window in one batch keeps only the newest messages`() {
+        val memory = MessageWindowChatMemory(maxMessages = 2)
+        memory.add(
+            "conv-1",
+            listOf(
+                Message(MessageRole.USER, "user-1"),
+                Message(MessageRole.USER, "user-2"),
+                Message(MessageRole.USER, "user-3"),
+            ),
+        )
+
+        assertThat(memory.get("conv-1").map { it.content }).containsExactly("user-2", "user-3")
+    }
+
     // ── System Message Handling ─────────────────────────────────
 
     @Test

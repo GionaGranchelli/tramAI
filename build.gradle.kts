@@ -16,6 +16,23 @@ plugins {
     alias(libs.plugins.sonarqube)
 }
 
+sonar {
+    properties {
+        property("sonar.projectKey", "tramai")
+        property("sonar.projectName", "TramAI")
+        property("sonar.host.url", "http://localhost:9000")
+        property("sonar.token", providers.environmentVariable("SONAR_TOKEN").orElse(""))
+        property("sonar.sourceEncoding", "UTF-8")
+        property("sonar.exclusions", "**/*.xml,**/*.properties,**/*.yml,**/*.yaml")
+        // Kotlin analysis requires compiled classes
+        property("sonar.kotlin.binaries", "**/build/classes/kotlin/**")
+        // S6518 false positive — suggests obj[key] but target types lack operator modifier
+        property("sonar.issue.ignore.multicriteria", "e1")
+        property("sonar.issue.ignore.multicriteria.e1.ruleKey", "kotlin:S6518")
+        property("sonar.issue.ignore.multicriteria.e1.resourceKey", "**/*.kt")
+    }
+}
+
 val tramaiGroup = providers.gradleProperty("tramaiGroup").orElse("dev.tramai")
 val tramaiVersion = providers.gradleProperty("tramaiVersion").orElse("0.2.0")
 val tramaiProjectUrl = providers.gradleProperty("tramaiProjectUrl").orElse("https://github.com/GionaGranchelli/tramAI")

@@ -1,12 +1,16 @@
 package dev.tramai.deepseek
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.tramai.core.model.ModelRequest
+import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.openai.OpenAiCompatibleProvider
 import dev.tramai.openai.StaticOpenAiAccessTokenSource
 import java.net.http.HttpClient
+import kotlinx.coroutines.flow.Flow
 
 /**
  * Provider for DeepSeek's OpenAI-compatible chat completion API.
@@ -46,10 +50,10 @@ class DeepSeekProvider @JvmOverloads constructor(
         ProviderCapability.STREAMING -> true
     }
 
-    override suspend fun complete(request: dev.tramai.core.model.ModelRequest): dev.tramai.core.model.ModelResponse =
+    override suspend fun complete(request: ModelRequest): ModelResponse =
         delegate.complete(request)
 
-    override suspend fun stream(request: dev.tramai.core.model.ModelRequest): kotlinx.coroutines.flow.Flow<dev.tramai.core.model.StreamChunk> =
+    override fun stream(request: ModelRequest): Flow<StreamChunk> =
         delegate.stream(request)
 
     companion object {

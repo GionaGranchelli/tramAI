@@ -6,7 +6,7 @@ package dev.tramai.rag
  * Implementations control how text is divided — by characters, tokens,
  * sentence boundaries, semantic segments, etc.
  */
-interface Chunker {
+fun interface Chunker {
     /**
      * Chunks the given [document] into a list of sub-documents.
      *

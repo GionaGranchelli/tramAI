@@ -1,6 +1,13 @@
 package dev.tramai.standalone
 
+import dev.tramai.core.exception.ConfigurationException
+import dev.tramai.core.exception.ToolInvalidInputException
 import dev.tramai.core.memory.ChatMemory
+import dev.tramai.core.model.ResolvedTool
+import dev.tramai.core.model.SideEffectLevel
+import dev.tramai.core.model.ToolExecutionContext
+import dev.tramai.core.model.ToolResult
+import dev.tramai.core.model.TramaiTool
 import dev.tramai.core.observation.NoOpOperationInterceptor
 import dev.tramai.core.observation.NoOpOperationObserver
 import dev.tramai.core.observation.OperationInterceptor
@@ -13,8 +20,8 @@ import dev.tramai.engine.NoOpOperationResponseCache
 import dev.tramai.engine.OperationResponseCache
 import dev.tramai.engine.TokenBudgetSettings
 import dev.tramai.engine.RetryPolicySettings
-import dev.tramai.engine.TramaiEngine
 import dev.tramai.engine.ToolRegistry
+import dev.tramai.engine.TramaiEngine
 import dev.tramai.structured.JacksonStructuredOutputHandler
 import kotlin.reflect.KClass
 import kotlin.reflect.full.createType
@@ -64,7 +71,7 @@ class Tramai private constructor(
      */
     class Builder {
         private val registryBuilder = ProviderRegistry.builder()
-        private val tools = mutableMapOf<String, dev.tramai.core.model.ResolvedTool>()
+        private val tools = mutableMapOf<String, ResolvedTool>()
         private var operationObserver: OperationObserver = NoOpOperationObserver
         private var operationInterceptor: OperationInterceptor = NoOpOperationInterceptor
         private var responseCache: OperationResponseCache = NoOpOperationResponseCache
@@ -89,54 +96,16 @@ class Tramai private constructor(
         /**
          * Registers one or more tools with the engine.
          */
-        fun tools(vararg tools: dev.tramai.core.model.TramaiTool<*, *>): Builder = apply {
+        fun tools(vararg tools: TramaiTool<*, *>): Builder = apply {
             tools.forEach { tool ->
                 if (this.tools.containsKey(tool.name)) {
-                    throw dev.tramai.core.exception.ConfigurationException("Duplicate tool name registered: ${tool.name}")
+                    throw ConfigurationException("Duplicate tool name registered: ${tool.name}")
                 }
-                this.tools[tool.name] = object : dev.tramai.core.model.ResolvedTool {
-                    override val name: String = tool.name
-                    override val description: String = tool.description
-                    override val inputSchemaJson: String = handler.generateSchema(tool.inputType.createType())
-                    override val idempotent: Boolean = tool.idempotent
-                    override val sideEffectLevel: dev.tramai.core.model.SideEffectLevel = tool.sideEffectLevel
-
-                    override suspend fun execute(
-                        input: Any,
-                        context: dev.tramai.core.model.ToolExecutionContext
-                    ): dev.tramai.core.model.ToolResult {
-                        @Suppress("UNCHECKED_CAST")
-                        val typedTool = tool as dev.tramai.core.model.TramaiTool<Any, Any>
-                        val typedInput = try {
-                            handler.deserialize(input, tool.inputType.createType())
-                        } catch (e: dev.tramai.core.exception.ToolInvalidInputException) {
-                            return dev.tramai.core.model.ToolResult.InvalidInput(
-                                e.message ?: "Invalid tool input",
-                            )
-                        } catch (e: Exception) {
-                            return dev.tramai.core.model.ToolResult.InvalidInput(
-                                e.message ?: "Invalid tool input",
-                            )
-                        }
-
-                        return try {
-                            val result = typedTool.execute(typedInput, context)
-                            dev.tramai.core.model.ToolResult.Success(handler.serialize(result))
-                        } catch (e: dev.tramai.core.exception.ToolInvalidInputException) {
-                            dev.tramai.core.model.ToolResult.InvalidInput(e.message ?: "Invalid tool input")
-                        } catch (e: Exception) {
-                            if (tool.idempotent) {
-                                dev.tramai.core.model.ToolResult.TransientFailure(e)
-                            } else {
-                                dev.tramai.core.model.ToolResult.PermanentFailure(e.message ?: "Tool execution failed")
-                            }
-                        }
-                    }
-                }
+                this.tools[tool.name] = createResolvedTool(tool, handler)
             }
         }
-        
-        fun tools(tools: Iterable<dev.tramai.core.model.TramaiTool<*, *>>): Builder = apply {
+
+        fun tools(tools: Iterable<TramaiTool<*, *>>): Builder = apply {
             tools.forEach { tools(it) }
         }
 
@@ -244,7 +213,7 @@ class Tramai private constructor(
          */
         fun build(): Tramai = Tramai(
             providerRegistry = registryBuilder.build(),
-            toolRegistry = dev.tramai.engine.ToolRegistry(tools.toMap()),
+            toolRegistry = ToolRegistry(tools.toMap()),
             operationObserver = operationObserver,
             operationInterceptor = operationInterceptor,
             responseCache = responseCache,
@@ -268,3 +237,50 @@ inline fun <reified T : Any> Tramai.create(): T = create(T::class)
 fun Tramai(configure: Tramai.Builder.() -> Unit): Tramai = Tramai.builder()
     .apply(configure)
     .build()
+
+/**
+ * Creates a [ResolvedTool] that wraps a [TramaiTool] with schema generation and
+ * deserialization via a [JacksonStructuredOutputHandler].
+ */
+private fun createResolvedTool(
+    tool: TramaiTool<*, *>,
+    handler: JacksonStructuredOutputHandler,
+): ResolvedTool = object : ResolvedTool {
+    override val name: String = tool.name
+    override val description: String = tool.description
+    override val inputSchemaJson: String = handler.generateSchema(tool.inputType.createType())
+    override val idempotent: Boolean = tool.idempotent
+    override val sideEffectLevel: SideEffectLevel = tool.sideEffectLevel
+
+    override suspend fun execute(
+        input: Any,
+        context: ToolExecutionContext,
+    ): ToolResult {
+        @Suppress("UNCHECKED_CAST")
+        val typedTool = tool as TramaiTool<Any, Any>
+        val typedInput = try {
+            handler.deserialize(input, tool.inputType.createType())
+        } catch (e: ToolInvalidInputException) {
+            return ToolResult.InvalidInput(
+                e.message ?: "Invalid tool input",
+            )
+        } catch (e: Exception) {
+            return ToolResult.InvalidInput(
+                e.message ?: "Invalid tool input",
+            )
+        }
+
+        return try {
+            val result = typedTool.execute(typedInput, context)
+            ToolResult.Success(handler.serialize(result))
+        } catch (e: ToolInvalidInputException) {
+            ToolResult.InvalidInput(e.message ?: "Invalid tool input")
+        } catch (e: Exception) {
+            if (tool.idempotent) {
+                ToolResult.TransientFailure(e)
+            } else {
+                ToolResult.PermanentFailure(e.message ?: "Tool execution failed")
+            }
+        }
+    }
+}

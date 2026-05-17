@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider
 import software.amazon.awssdk.core.SdkBytes
@@ -52,6 +53,7 @@ class BedrockProvider @JvmOverloads constructor(
     private val modelId: String = DEFAULT_MODEL_ID,
     private val credentialsProvider: AwsCredentialsProvider = DefaultCredentialsProvider.create(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
+    private val ioDispatcher: CoroutineContext = Dispatchers.IO,
 ) : ModelProvider, StreamCapable {
 
     override fun providerId(): String = PROVIDER_ID
@@ -63,7 +65,7 @@ class BedrockProvider @JvmOverloads constructor(
         ProviderCapability.STREAMING -> true
     }
 
-    override suspend fun complete(request: ModelRequest): ModelResponse = withContext(Dispatchers.IO) {
+    override suspend fun complete(request: ModelRequest): ModelResponse = withContext(ioDispatcher) {
         try {
             val effectiveModel = request.model.takeIf { it.isNotBlank() } ?: modelId
             val client = buildClient()
@@ -83,11 +85,11 @@ class BedrockProvider @JvmOverloads constructor(
         }
     }
 
-    override suspend fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
+    override fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
         val effectiveModel = request.model.takeIf { it.isNotBlank() } ?: modelId
 
         try {
-            val client = withContext(Dispatchers.IO) { buildClient() }
+            val client = withContext(ioDispatcher) { buildClient() }
             val payload = buildClaudePayload(request)
 
             val invokeRequest = InvokeModelRequest.builder()
@@ -96,7 +98,7 @@ class BedrockProvider @JvmOverloads constructor(
                 .contentType("application/json")
                 .build()
 
-            val response = withContext(Dispatchers.IO) {
+            val response = withContext(ioDispatcher) {
                 client.invokeModel(invokeRequest)
             }
             val body = objectMapper.readTree(response.body().asUtf8String())
