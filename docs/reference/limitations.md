@@ -4,7 +4,7 @@ This page is intentionally blunt. It documents what TramAI does not do yet.
 
 ## Status Level
 
-Tramai is now in the `0.2.0` line: credible as a library surface, broader in runtime scope, and still pre-`1.0`.
+Tramai is now in the `0.3.x` line: credible as a library surface, broader in runtime scope, and still pre-`1.0`.
 
 It is usable for:
 
@@ -20,7 +20,6 @@ It is not yet a production-complete `1.0`.
 
 These features are not implemented in the current runtime:
 
-- conversation memory
 - generated proxy code or KSP support
 - provider-native structured output optimizations
 
@@ -34,6 +33,7 @@ These concepts exist in the API shape or planning docs but are not fully realize
 - streaming failover retries only before the first emitted token; TramAI does not attempt partial mid-stream recovery across providers
 - bundled Vault and AWS Secrets Manager resolvers ship in `tramai-spring`; standalone usage still resolves secrets explicitly before provider construction
 - `tramai-orchestration` is stable, but it remains intentionally bounded to explicit workflows, step-boundary checkpointing, and optional lease-aware coordination
+- runtime/platform modules above the core library surface are implemented, but they do not all carry the same maturity or compatibility guarantees
 
 ## Practical Consequences
 
@@ -72,4 +72,4 @@ TramAI is in its best shape for:
 - service-side extraction/classification workloads
 - early production pilots with clear guardrails
 
-If you need heavy agent capabilities, conversation memory, or highly autonomous multi-agent behavior, wait for future milestones or build those layers explicitly on top.
+If you need heavy autonomous agent capabilities or highly autonomous multi-agent behavior, wait for future milestones or build those layers explicitly on top.

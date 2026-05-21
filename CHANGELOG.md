@@ -30,13 +30,13 @@ Release entry for the current repository milestone.
 
 ### Notes
 
-- TramAI `0.3.x` targets Java `25+`.
+- TramAI `0.3.x` targets Java `21+`.
 - All memory extensions have been heavily tested for edge cases, token eviction strategies, system deduplication, and concurrent thread safety.
 - Engine execution defends its capability invariants (e.g., throwing explicit exceptions when images are sent to non-vision models).
 
 ## 0.2.0
 
-Release entry for the current repository milestone.
+Release entry for the orchestration and runtime/platform expansion milestone.
 
 ### Added
 
@@ -54,7 +54,7 @@ Release entry for the current repository milestone.
 
 ### Notes
 
-- Tramai `0.2.x` targets Java `25+`.
+- Tramai `0.2.x` targets Java `21+`.
 - See [docs/releases/CHANGELOG-0.2.0.md](docs/releases/CHANGELOG-0.2.0.md) for the detailed module-by-module release summary.
 
 ## 0.1.0
@@ -81,6 +81,6 @@ Release entry prepared for the first public release of TramAI.
 
 ### Notes
 
-- TramAI `0.1.x` targets Java `25+`.
+- TramAI `0.1.x` targets Java `21+`.
 - `tramai-orchestration` ships as an optional experimental module while its API settles.
 - Add the final release date when the `v0.1.0` tag and Maven Central publication complete.

@@ -10,7 +10,7 @@ It is now a stable Tramai capability with an intentionally narrow, explicit cont
 
 ## Stable Surface
 
-The current stable orchestration surface in `0.2.x` is:
+The current stable orchestration surface in `0.3.x` is:
 
 - `workflow(name, definitionVersion, configure)` and `WorkflowBuilder`
 - `WorkflowContext(workflowId, attributes)`

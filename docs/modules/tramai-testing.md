@@ -2,7 +2,7 @@
 
 > **One-liner:** Mock providers, recording observers, and fluent assertions for deterministic Tramai integration tests.
 > **Module type:** `tooling`
-> **Group:** `dev.tramai`, **Version:** `0.2.0`
+> **Group:** `dev.tramai`, **Version:** `0.3.0`
 > **Source files:** 6, **LOC:** 448
 > **Dependency:** `tramai-core` (api), AssertJ (implementation)
 
@@ -51,7 +51,7 @@ Use `tramai-testing` **whenever you write integration tests for Tramai `@AiServi
 
 ```kotlin
 dependencies {
-    testImplementation("dev.tramai:tramai-testing:0.2.0")
+    testImplementation("dev.tramai:tramai-testing:0.3.0")
 }
 ```
 
@@ -61,7 +61,7 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-testing</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
     <scope>test</scope>
 </dependency>
 ```

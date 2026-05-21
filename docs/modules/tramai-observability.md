@@ -2,7 +2,7 @@
 
 > **One-liner:** Optional, opt-in OpenTelemetry integration — traces, metrics, and events for operations and workflows.
 > **Module type:** `observability`
-> **Group:** `dev.tramai`, **Version:** `0.2.0`
+> **Group:** `dev.tramai`, **Version:** `0.3.0`
 > **Source files:** 3 (all in `dev.tramai.observability`), **LOC:** ~280
 
 ---
@@ -39,7 +39,7 @@ Without this module, Tramai runs with no-op observers — operations and workflo
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-observability:0.2.0")
+    implementation("dev.tramai:tramai-observability:0.3.0")
     // You also need an OpenTelemetry SDK + exporter runtime dependency:
     runtimeOnly("io.opentelemetry:opentelemetry-exporter-otlp:...")
     runtimeOnly("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:...")
@@ -52,7 +52,7 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-observability</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
 </dependency>
 ```
 

@@ -2,7 +2,7 @@
 
 > **One-liner:** Multi-tenant operational layer above the workflow server with API key authentication, token-bucket rate limiting, JDBC audit logging, and a runtime plugin system.
 > **Module type:** `application` (Spring Boot)
-> **Group:** `dev.tramai`, **Version:** `0.2.0`
+> **Group:** `dev.tramai`, **Version:** `0.3.0`
 > **Source files:** 9, **LOC:** 1,469
 > **Dependencies:** `tramai-orchestration`, `tramai-server`, `spring-boot-starter-web`, `spring-boot-starter-security`
 
@@ -45,14 +45,14 @@ Do **not** use it for library-embedded usage (a single process calling workflows
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-platform:0.2.0")
+    implementation("dev.tramai:tramai-platform:0.3.0")
 }
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.2.0"))
+implementation(platform("dev.tramai:tramai-bom:0.3.0"))
 implementation("dev.tramai:tramai-platform")
 ```
 

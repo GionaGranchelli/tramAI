@@ -2,7 +2,7 @@
 
 > **One-liner:** Annotations, data models, provider SPI, structured-output contracts, and exceptions for the Tramai AI library.
 > **Module type:** `core`
-> **Group:** `dev.tramai`, **Version:** `0.2.0`
+> **Group:** `dev.tramai`, **Version:** `0.3.0`
 > **Source files:** 26 (across 12 packages), **LOC:** 1,074
 
 ---
@@ -37,7 +37,7 @@ Without `tramai-core`, no two Tramai modules could communicate. It provides:
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-core:0.2.0")
+    implementation("dev.tramai:tramai-core:0.3.0")
 }
 ```
 
@@ -47,7 +47,7 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-core</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
 </dependency>
 ```
 

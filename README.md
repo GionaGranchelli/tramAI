@@ -116,7 +116,11 @@ suspend fun main() {
 
 ## Modules
 
-TramAI is modular by design. Pick what you need, ignore the rest.
+TramAI is modular by design, but not every repository module carries the same maturity or publication expectations.
+
+### Stable Consumer Modules
+
+These are the modules most application teams should start with.
 
 | Module | What it does | When to add |
 |--------|-------------|-------------|
@@ -128,26 +132,33 @@ TramAI is modular by design. Pick what you need, ignore the rest.
 | `tramai-openai` | OpenAI + compatible APIs | Cloud deployment |
 | `tramai-azure-openai`| Azure OpenAI API | Enterprise deployment |
 | `tramai-anthropic` | Claude via Anthropic API | Anthropic shop |
-| `tramai-bedrock` | AWS Bedrock | AWS Ecosystem |
-| `tramai-gemini` | Google Gemini API | GCP Ecosystem |
+| `tramai-bedrock` | AWS Bedrock | AWS ecosystem |
+| `tramai-gemini` | Google Gemini API | GCP ecosystem |
 | `tramai-deepseek` | DeepSeek AI API | DeepSeek users |
 | `tramai-structured` | JSON Schema generation + validation | Non-`String` return types |
 | `tramai-memory` | Chat memory implementations (`PersistentChatMemory`, etc.) | When conversation context is required |
-| `tramai-memory-store` | Persistent memory stores SPI | For durable conversation context |
-| `tramai-orchestration`| Multi-step workflows & Worker Pool | Complex pipelines |
-| `tramai-rag` | Retrieval-Augmented Generation pipeline | For document knowledge integration |
+| `tramai-orchestration`| Multi-step workflows & worker pool | Complex pipelines |
+| `tramai-rag` | Retrieval-Augmented Generation pipeline | Document knowledge integration |
 | `tramai-embedding` | Embedding models | Core element of RAG flows |
 | `tramai-vectorstore-spi`| Vector store abstractions | When storing embeddings |
 | `tramai-vectorstore-chroma`| ChromaDB vector store adapter | Fast local/network vector store |
 | `tramai-vectorstore-pgvector`| PostgreSQL pgvector vector store adapter | Relational DB vector integration |
-| `tramai-observability`| OpenTelemetry spans, Worker Events | Distributed tracing |
+| `tramai-observability`| OpenTelemetry spans and worker events | Distributed tracing |
 | `tramai-testing` | Mock providers + assertions | Test scope only |
 | `tramai-bom` | Version alignment | Multi-module projects |
-| `tramai-server` | HTTP API + webhooks | Platform deployment |
+
+### Runtime And Platform Modules
+
+The repository also contains higher-level operational modules. These are real modules, but they are newer surfaces and should be treated as fast-moving unless the versioned API docs say otherwise.
+
+| Module | What it does | Typical use |
+|--------|-------------|-------------|
+| `tramai-memory-store` | Durable chat memory store implementations and SPI support | Persisting memory beyond one JVM |
 | `tramai-scheduler` | Cron / delay triggers | Time-based workflows |
-| `tramai-mcp` | MCP server adapter | MCP ecosystem |
-| `tramai-platform` | Multi-tenancy + API keys + plugins | SaaS deployment |
-| `tramai-dashboard` | Vue 3 admin UI | Visual management |
+| `tramai-server` | HTTP API + webhooks + SSE | Remote workflow execution |
+| `tramai-mcp` | MCP server adapter | MCP ecosystem integration |
+| `tramai-platform` | Multi-tenancy + API keys + plugins | SaaS and governed deployments |
+| `tramai-dashboard` | Vue 3 admin UI | Visual operations |
 
 ## Choose Your Path
 
@@ -178,9 +189,11 @@ TramAI is modular by design. Pick what you need, ignore the rest.
 - HTTP API for workflows, webhooks, SSE streams
 - MCP adapter, multi-tenancy, API keys, plugins, audit, dashboard
 
+These runtime and platform capabilities are intentionally optional. The core TramAI story remains typed `@AiService` contracts, explicit provider routing, structured output, and opt-in observability.
+
 ## Installation
 
-TramAI `0.3.0` targets **JVM 25+**.
+TramAI `0.3.0` targets **JVM 21+**.
 
 ```kotlin
 // Gradle — use BOM for version alignment

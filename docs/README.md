@@ -4,6 +4,8 @@ Welcome to the **Tramai** documentation.
 
 Tramai is a structured-first, observability-native AI workflow library for the JVM, designed for backend engineers who need reliable, typed AI interactions and optional workflow runtime capabilities.
 
+The repository contains both the core consumer library surface and newer runtime/platform modules. If you are evaluating adoption, start with the guides, module overview, and API stability page so you can distinguish the stable application-facing path from faster-moving operational surfaces.
+
 ---
 
 ## 🧭 Documentation Map
@@ -46,7 +48,7 @@ Repository modules above the core library surface.
 *   [**Workflow Server**](./guides/server.md) — REST, webhooks, SSE, OpenAPI, and dashboard-adjacent runtime endpoints.
 *   [**MCP Integration**](./guides/mcp.md) — Exposing workflows as MCP tools over stdio or SSE.
 *   [**Platform Operations**](./guides/platform.md) — API keys, multi-tenancy, plugins, and operational boundaries.
-*   [**0.2.0 Changelog**](./releases/CHANGELOG-0.2.0.md) — The current runtime/platform additions in one place.
+*   [**0.2.0 Changelog**](./releases/CHANGELOG-0.2.0.md) — Historical summary of the first runtime/platform expansion milestone.
 *   [**Module Overview**](./architecture/modules.md) — Repository module boundaries, including scheduler, server, MCP, platform, and dashboard.
 *   [**Scheduler Spec**](./specs/spec-013-scheduler.md) — Scheduling scope and design constraints.
 *   [**Server Spec**](./specs/spec-014-server.md) — REST, webhook, and SSE runtime surface.
@@ -70,11 +72,11 @@ Learn more about our decisions in the [**ADR Index**](./adr/README.md).
 *   [**Annotation Reference**](./reference/annotations.md) — `@AiService`, `@Operation`, `@SystemPrompt`.
 *   [**Standalone Builder Reference**](./reference/standalone-builder.md) — Exact `Tramai` builder methods and current behavior.
 *   [**Configuration Reference**](./reference/configuration.md) — Spring Boot properties and Builder settings.
-*   [**API Stability**](./reference/api-stability.md) — Stable vs experimental public surface for `0.2.x`.
+*   [**API Stability**](./reference/api-stability.md) — Stable vs fast-moving public surface for `0.3.x`.
 *   [**Module Overview**](./architecture/modules.md) — The project's module structure.
 *   [**Limitations**](./reference/limitations.md) — What TramAI is (and isn't) built for.
-*   [**Release Validation**](./reference/release-validation.md) — Historical release-validation proof points for the published `0.1.0` path.
-*   [**0.2.0 Changelog**](./releases/CHANGELOG-0.2.0.md) — Release summary for the latest repository milestone.
+*   [**Release Validation**](./reference/release-validation.md) — Current release-validation evidence plus historical notes.
+*   [**0.2.0 Changelog**](./releases/CHANGELOG-0.2.0.md) — Historical release summary for the orchestration/platform expansion milestone.
 *   [**Roadmap**](./roadmap.md) — Our path to 1.0.
 
 ---

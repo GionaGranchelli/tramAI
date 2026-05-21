@@ -20,7 +20,7 @@ TramAI is a structured-first, observability-native AI workflow library for the J
 - Framework-agnostic core with optional adapters
 - Automatic observability with OpenTelemetry semantic conventions
 - Kotlin-first APIs with Java-compatible entry points
-- Narrow v1 scope with explicit exclusions for autonomous agent loops, RAG, and hidden orchestration
+- Explicit module boundaries so higher-level runtime features do not leak into the core library contract
 
 ## Major Layers
 
@@ -30,13 +30,16 @@ TramAI is a structured-first, observability-native AI workflow library for the J
 - Observability layer: OpenTelemetry spans, metrics, and semantic attributes
 - Provider layer: Anthropic, Ollama, OpenAI, and OpenAI-compatible providers
 - Optional orchestration layer: typed workflow coordination above `tramai-engine`
+- Optional retrieval and memory layer: RAG, embeddings, vector stores, and bounded chat memory
+- Optional runtime/platform layer: scheduling, HTTP APIs, MCP exposure, tenancy, and dashboard operations
 
-## v1 Boundaries
+## Core Library Boundaries
 
-TramAI v1 deliberately does not include:
+The core `@AiService` runtime deliberately does not turn application code into an autonomous agent framework. In particular:
 
-- RAG or vector stores
 - autonomous agent loops
-- conversation memory
-- prompt dashboards or registries
+- hidden cross-step orchestration
+- peer-to-peer agent chat
 - fine-tuning workflows
+
+Those concerns, where they exist in this repository, live in optional modules above the core library surface. The design goal is composability: application teams can use typed AI services alone, or add memory, RAG, orchestration, scheduling, server, MCP, or platform layers without changing the core execution model.

@@ -2,6 +2,11 @@
 
 These are the current repository modules and their intended boundaries.
 
+The important distinction is not just module name, but module tier:
+
+- stable consumer modules: normal application dependencies with the clearest compatibility expectations
+- runtime/platform modules: operational surfaces that exist in the repo but evolve faster
+
 ## Published Consumer Modules
 
 - `tramai-core`: annotations, shared contracts, request and response models, common exceptions
@@ -16,9 +21,16 @@ These are the current repository modules and their intended boundaries.
 - `tramai-spring`: Spring Boot autoconfiguration and bean registration
 - `tramai-testing`: mock providers, assertion helpers, and test support
 - `tramai-bom`: BOM for consumer dependency management
+- `tramai-memory`: bounded conversation memory implementations
+- `tramai-embedding`: embedding SPI and provider integrations
+- `tramai-rag`: RAG pipeline and retrieval helpers
+- `tramai-vectorstore-spi`: vector store abstractions
+- `tramai-vectorstore-chroma`: Chroma adapter
+- `tramai-vectorstore-pgvector`: pgvector adapter
 
 ## Runtime And Platform Modules
 
+- `tramai-memory-store`: durable memory-store implementations and supporting persistence SPI
 - `tramai-scheduler`: cron scheduling, delay-step timing, and durable schedule stores
 - `tramai-server`: HTTP API surface, webhooks, run persistence views, OpenAPI, and SSE endpoints
 - `tramai-mcp`: MCP server adapter that exposes workflows as tools

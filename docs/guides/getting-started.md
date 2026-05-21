@@ -23,7 +23,7 @@ The core pattern is:
 
 ## Prerequisites
 
-- Java `25+`
+- Java `21+`
 - Kotlin `2.3.0+` for Kotlin examples
 - Gradle `9.0+` for the Gradle snippets below
 
@@ -62,7 +62,7 @@ Standalone + OpenAI:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.2.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.3.0"))
     implementation("dev.tramai:tramai-standalone")
     implementation("dev.tramai:tramai-openai")
 }
@@ -72,7 +72,7 @@ Spring Boot + OpenAI:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.2.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.3.0"))
     implementation("dev.tramai:tramai-spring")
     implementation("dev.tramai:tramai-openai")
 }
@@ -82,7 +82,7 @@ Standalone + Ollama:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.2.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.3.0"))
     implementation("dev.tramai:tramai-standalone")
     implementation("dev.tramai:tramai-ollama")
 }
@@ -98,7 +98,7 @@ Import the BOM:
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.2.0</version>
+      <version>0.3.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>

@@ -4,6 +4,8 @@
 > **Reading time:** L1 (30s) → L2 (10min) → L3 (20min)
 > **Build coordinates:** `dev.tramai:<module>:0.3.0`
 
+This guide covers both published consumer modules and repository runtime/platform modules. Treat the latter as opt-in operational surfaces, not as the default starting point for every application.
+
 ---
 
 ## L1: Quick Start — Decision Flowchart
@@ -160,11 +162,11 @@ dependencies {
 | Module | Layer | Purpose | Depends on | Artifact | When to use | When NOT to use |
 |--------|-------|---------|-----------|----------|-------------|----------------|
 | `tramai-orchestration` | Orchestration | Multi-step workflows (`aiStep`, `parallelStep`, etc.). Distributed Worker Pool (leases, heartbeat, graceful shutdown). | core | `tramai-orchestration:0.3.0` | Chained AI calls, conditional branching, human-in-loop, distributed execution. | Simple request-response. |
-| `tramai-scheduler` | Platform | Cron/delay scheduling for workflows via `ScheduledWorkflowTimer`. | orchestration | `tramai-scheduler:0.3.0` | Time-based workflow triggers. | User-driven only workflows. |
-| `tramai-server` | Platform | HTTP API for workflows. Webhooks, SSE streams. | orchestration, scheduler | `tramai-server:0.3.0` | REST access to TramAI pipelines. | Embedded usage only. |
-| `tramai-mcp` | Platform | Model Context Protocol adapter. | server, structured | `tramai-mcp:0.3.0` | Exposing workflows as MCP tools. | No MCP ecosystem usage. |
-| `tramai-platform` | Platform | Multi-tenancy, rate limiting, API keys, audit logs, plugins. | orchestration, server | `tramai-platform:0.3.0` | SaaS product, heavy tenant isolation. | Single-tenant early dev. |
-| `tramai-dashboard` | Platform | Vue 3 admin UI. Visual workflow debugging. | none (UI only) | `tramai-dashboard:0.3.0` | Need a GUI for observability. | Headless deployments. |
+| `tramai-scheduler` | Platform | Cron/delay scheduling for workflows via `ScheduledWorkflowTimer`. | orchestration | repository module | Time-based workflow triggers. | User-driven only workflows. |
+| `tramai-server` | Platform | HTTP API for workflows. Webhooks, SSE streams. | orchestration, scheduler | repository module | REST access to TramAI pipelines. | Embedded usage only. |
+| `tramai-mcp` | Platform | Model Context Protocol adapter. | server, structured | repository module | Exposing workflows as MCP tools. | No MCP ecosystem usage. |
+| `tramai-platform` | Platform | Multi-tenancy, rate limiting, API keys, audit logs, plugins. | orchestration, server | repository module | SaaS product, heavy tenant isolation. | Single-tenant early dev. |
+| `tramai-dashboard` | Platform | Vue 3 admin UI. Visual workflow debugging. | none (UI only) | repository module | Need a GUI for observability. | Headless deployments. |
 
 ---
 

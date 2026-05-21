@@ -2,7 +2,7 @@
 
 This page records the concrete release-validation evidence currently available in the repository.
 
-It exists as the public credibility anchor for TramAI `0.1.0`.
+It is the public credibility summary for the current release line, with older release milestones treated as historical context rather than the active documentation baseline.
 
 ## Validation Snapshot
 
@@ -101,7 +101,7 @@ This validation note does not claim that the following are complete:
 
 - real-provider validation with live external credentials during the release cut
 
-The Maven Central publication path and release-key signing are now complete for `0.1.0`.
+The Maven Central publication path and release-key signing have been exercised successfully for the current published release line.
 
 Remaining operator-driven confidence work is still tracked in:
 

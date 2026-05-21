@@ -4,7 +4,7 @@
 > **Module type:** `provider`
 > **Source files:** 1 — `AnthropicProvider.kt` (192 LOC)
 > **Test files:** 1
-> **Group:** `dev.tramai`, **Version:** `0.2.0`
+> **Group:** `dev.tramai`, **Version:** `0.3.0`
 
 ---
 

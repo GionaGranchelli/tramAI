@@ -50,7 +50,7 @@ Do **not** use it for:
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-scheduler:0.2.0")
+    implementation("dev.tramai:tramai-scheduler:0.3.0")
 }
 ```
 
@@ -60,14 +60,14 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-scheduler</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
 </dependency>
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.2.0"))
+implementation(platform("dev.tramai:tramai-bom:0.3.0"))
 implementation("dev.tramai:tramai-scheduler")
 ```
 

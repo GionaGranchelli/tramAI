@@ -362,15 +362,15 @@ What are you building?
 ```kotlin
 // === Recipe 1: Spring Boot + Local AI (most common start) ===
 // build.gradle.kts
-implementation("dev.tramai:tramai-spring:0.2.0")
-implementation("dev.tramai:tramai-ollama:0.2.0")
+implementation("dev.tramai:tramai-spring:0.3.0")
+implementation("dev.tramai:tramai-ollama:0.3.0")
 
 // === Recipe 2: Kotlin CLI + OpenAI ===
-implementation("dev.tramai:tramai-standalone:0.2.0")
-implementation("dev.tramai:tramai-openai:0.2.0")
+implementation("dev.tramai:tramai-standalone:0.3.0")
+implementation("dev.tramai:tramai-openai:0.3.0")
 
 // === Recipe 3: Full stack (Spring + cloud + observability) ===
-implementation(platform("dev.tramai:tramai-bom:0.2.0"))
+implementation(platform("dev.tramai:tramai-bom:0.3.0"))
 implementation("dev.tramai:tramai-spring")
 implementation("dev.tramai:tramai-openai")
 implementation("dev.tramai:tramai-anthropic")

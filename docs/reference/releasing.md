@@ -1,8 +1,8 @@
 # Releasing Tramai
 
-This page is the maintainer runbook for cutting TramAI releases after `0.1.0`.
+This page is the maintainer runbook for cutting current Tramai releases.
 
-It complements the frozen scope in [Release 0.1.0 Scope and Checklist](./release-0.1.0.md).
+It complements the historical release notes and validation pages under `docs/reference/`.
 
 ## Preconditions
 
@@ -28,7 +28,7 @@ The repository contains:
 For `workflow_dispatch`, you can optionally provide a `version` input:
 
 - leave it empty to run the snapshot path as `0.3.0-SNAPSHOT`
-- set it to a release like `0.2.0` when you want to preflight the real release publish path before pushing the tag
+- set it to a release like `0.3.0` when you want to preflight the real release publish path before pushing the tag
 
 ## Required Secrets
 
@@ -58,7 +58,7 @@ For Sonatype Central Portal with the current Gradle `maven-publish` flow, set:
 
 The publish workflow now runs SonarQube analysis before the remote publish path, then performs the required post-upload handoff to the Central Portal for tagged releases by calling the OSSRH Staging API manual upload endpoint for the `dev.tramai` namespace with `publishing_type=user_managed`.
 
-The `0.1.0` release has already exercised this path successfully. This runbook remains the operational reference for subsequent releases.
+The publish path has already been exercised successfully. This runbook remains the operational reference for subsequent releases.
 
 Before a real release publish, the public half of the signing key must already be available from a Sonatype-supported public keyserver. Sonatype currently documents these supported servers:
 
@@ -133,7 +133,7 @@ gpg --keyserver keyserver.ubuntu.com --recv-keys <your-signing-key-fingerprint>
 
 If this step fails, do not tag the release yet. Central will reject the deployment with an invalid-signature error because it cannot resolve the public key for the uploaded signatures.
 
-In GitHub Actions, that means running `Publish` with `workflow_dispatch` and setting the `version` input to the intended release version, for example `0.2.0`.
+In GitHub Actions, that means running `Publish` with `workflow_dispatch` and setting the `version` input to the intended release version, for example `0.3.0`.
 
 ## Guarded Real-Provider Checks
 
@@ -183,7 +183,7 @@ These checks are intentionally light-touch. They verify that Tramai can make a r
 1. Freeze scope and confirm the checklist in `docs/reference/release-<version>.md`.
 2. Update `CHANGELOG.md` from snapshot wording to the release entry.
 3. Commit the release-ready state.
-4. Create and push a tag such as `v0.1.0`.
+4. Create and push a tag such as `v0.3.0`.
 5. Verify the `Publish` workflow result, including the Central Portal handoff step.
 6. Open the deployment in Central Portal and confirm validation succeeds.
 7. Publish from the Portal UI.

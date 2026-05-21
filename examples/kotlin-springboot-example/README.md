@@ -59,7 +59,7 @@ The example is organized by concern:
 - `dev.tramai:tramai-orchestration:0.3.0`
 - Spring Boot `3.4.5`
 - Kotlin `2.3.0`
-- Java `25`
+- Java `21+`
 - Ollama for local execution by default
 
 ## Run It

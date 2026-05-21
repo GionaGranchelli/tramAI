@@ -4,7 +4,7 @@
 > **Module type:** `adapter`
 > **Source files:** 3 — `TramaiMcpServer.kt`, `McpToolHandlers.kt`, `TramaiMcpAutoConfiguration.kt`
 > **Test files:** 1 — `TramaiMcpServerTest.kt`
-> **Build:** `dev.tramai:tramai-mcp:0.2.0`
+> **Build:** `dev.tramai:tramai-mcp:0.3.0`
 > **Depends on:** `tramai-server` (required), `tramai-structured` (required), `spring-boot-autoconfigure`, `spring-context`, MCP Kotlin SDK, Ktor CIO
 
 ---
@@ -53,7 +53,7 @@ Don't use this module when:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.2.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.3.0"))
     implementation("dev.tramai:tramai-server")  // required dependency
     implementation("dev.tramai:tramai-mcp")
 }
@@ -66,7 +66,7 @@ dependencies {
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.2.0</version>
+      <version>0.3.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -259,7 +259,7 @@ class TramaiMcpServer(
 ```
 
 **Server construction (init block):** Creates an MCP SDK `Server` with:
-- `serverInfo` — name `"tramai-mcp"`, version `"0.2.0"`
+- `serverInfo` — name `"tramai-mcp"`, version `"0.3.0"`
 - `capabilities` — tools support (`listChanged = false`)
 - Four `addTool(...)` registrations, each wiring a tool definition to its handler via `handleCall { ... }`
 
