@@ -77,7 +77,7 @@ suspend fun main() {
     val chat = Tramai
         .builder()
         .provider(OllamaProvider("http://localhost:11434"), default = true)
-        .model("gemma3:4b", "ollama")
+        .model("gemma4:e2b", "ollama")
         .build()
         .create<LocalChat>()
 
@@ -85,7 +85,7 @@ suspend fun main() {
 }
 ```
 
-**Prerequisites:** Ollama running on `localhost:11434` with the `gemma3:4b` model pulled.
+**Prerequisites:** Ollama running on `localhost:11434` with the `gemma4:e2b` model pulled.
 
 ### Advanced usage
 
@@ -110,7 +110,7 @@ interface StreamingChat {
 suspend fun main() {
     val provider = OllamaProvider()
     val streamCapable = provider as StreamCapable
-    val request = ModelRequest(model = "gemma3:4b", messages = listOf(
+    val request = ModelRequest(model = "gemma4:e2b", messages = listOf(
         Message(role = MessageRole.USER, content = "Count from 1 to 5")
     ))
 
@@ -129,7 +129,7 @@ suspend fun main() {
 val service = Tramai
     .builder()
     .provider(OllamaProvider("http://localhost:11434"), name = "local", default = true)
-    .model("gemma3:4b", "local")
+    .model("gemma4:e2b", "local")
     .model("qwen2.5:7b", "local")
     .build()
     .create<MultiModelService>()
@@ -211,7 +211,7 @@ tramai-ollama
 4. Engine calls OllamaProvider.complete(request) or .stream(request)
 5. Provider serializes payload:
    {
-     "model": "gemma3:4b",
+     "model": "gemma4:e2b",
      "stream": false,
      "messages": [
        {"role": "user", "content": "..."}

@@ -43,7 +43,7 @@ val lookupOrderTool = object : TramaiTool<String, String> {
 suspend fun main() {
     val agent = Tramai.builder()
         .provider(OllamaProvider("http://localhost:11434"), default = true)
-        .model("gemma3:4b", "ollama")
+        .model("gemma4:e2b", "ollama")
         .tools(lookupOrderTool)
         .build()
         .create<SupportAgent>()
@@ -68,13 +68,26 @@ Most AI frameworks ask you to reorganize your application around the framework. 
 - **Production code should be testable** — deterministic mocks without a live model
 - **Production infrastructure should be opt-in** — add observability, orchestration, and platform features only when you need them
 
-| Comparison | Spring AI / LangChain4j | TramAI |
-|------------|------------------------|--------|
-| Core abstraction | Chain / Agent | `@AiService` interface |
-| Structured output | Optional add-on | Default for non-`String` returns |
-| Provider routing | Heuristic model matching | Explicit `ProviderRegistry` |
-| Observability | Spring Boot Actuator | Optional `tramai-observability` module |
-| Workflows | Built into the framework | Explicit, typed, modular |
+> TramAI treats an AI call like an HTTP client call (like Retrofit or Spring WebClient). The proxy converts your interface arguments to messages, dispatches through the engine, maps the response, and records standard OTel spans. No background loops, no hidden state, no magic.
+
+| Dimension | Spring AI / LangChain4j | TramAI |
+|-----------|--------------------------|--------|
+| Structured output | Optional adapter | **Default** for non-`String` returns |
+| Provider routing | Heuristic model parsing | **Explicit** registry |
+| Tool validation | None | **Fail-loudly at proxy creation** |
+| Provider fallback | Manual | **Automatic** with circuit breaker |
+| Token budgets | None | **Hard + soft limits** per operation |
+| Response caching | None | **Per-operation** TTL-based |
+| Testability | Live model required | **Deterministic mocks** |
+| Observability | Micrometer (framework-bound) | **Optional** OTel module |
+
+### Tool Resolution
+
+Tool names declared in `@Operation(tools = [...])` are validated when the proxy is created, not when the call is first executed.
+
+If a referenced tool is missing, `Tramai.create()` throws `ConfigurationException` and includes the exact missing tool name.
+
+Because resolution fails before any model request is sent, no tokens are spent on a bad tool reference.
 
 ## Quick Start
 
@@ -106,7 +119,7 @@ interface ChatService {
 suspend fun main() {
     val chat = Tramai.builder()
         .provider(OllamaProvider("http://localhost:11434"), default = true)
-        .model("gemma3:4b", "ollama")
+        .model("gemma4:e2b", "ollama")
         .build()
         .create<ChatService>()
 
@@ -153,12 +166,12 @@ The repository also contains higher-level operational modules. These are real mo
 
 | Module | What it does | Typical use |
 |--------|-------------|-------------|
-| `tramai-memory-store` | Durable chat memory store implementations and SPI support | Persisting memory beyond one JVM |
-| `tramai-scheduler` | Cron / delay triggers | Time-based workflows |
-| `tramai-server` | HTTP API + webhooks + SSE | Remote workflow execution |
-| `tramai-mcp` | MCP server adapter | MCP ecosystem integration |
-| `tramai-platform` | Multi-tenancy + API keys + plugins | SaaS and governed deployments |
-| `tramai-dashboard` | Vue 3 admin UI | Visual operations |
+| `tramai-memory-store` **Experimental** | Durable chat memory store implementations and SPI support | Persisting memory beyond one JVM |
+| `tramai-scheduler` **Experimental** | Cron / delay triggers | Time-based workflows |
+| `tramai-server` **Experimental** | HTTP API + webhooks + SSE | Remote workflow execution |
+| `tramai-mcp` **Experimental** | MCP server adapter | MCP ecosystem integration |
+| `tramai-platform` **Experimental** | Multi-tenancy + API keys + plugins | SaaS and governed deployments |
+| `tramai-dashboard` **Experimental** | Vue 3 admin UI | Visual operations |
 
 ## Choose Your Path
 

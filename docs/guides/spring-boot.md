@@ -2,9 +2,9 @@
 
 Use `tramai-spring` when you want Tramai service interfaces injected as Spring beans.
 
-## Copy-Paste Setup
+## Quick Start
 
-Start here if you want the minimum Spring Boot path.
+Add the module to your app and configure at least one provider.
 
 ### Gradle
 
@@ -43,7 +43,7 @@ dependencies {
 </dependencies>
 ```
 
-### Minimal application code
+### Application code
 
 ```kotlin
 @AiService
@@ -63,7 +63,7 @@ class BillingService(
 }
 ```
 
-### Minimal configuration
+### Configuration
 
 ```yaml
 tramai:
@@ -74,39 +74,6 @@ tramai:
     openai:
       api-key: ${OPENAI_API_KEY}
       base-url: https://api.openai.com/v1
-```
-
-## What Spring Support Provides
-
-The Spring adapter currently does these things:
-
-- binds `tramai.*` configuration properties
-- creates an `Tramai` instance automatically
-- scans for `@AiService` interfaces
-- registers proxies for those interfaces as beans
-
-## Minimal Setup
-
-Add the module to your app and configure at least one provider.
-
-Example application code:
-
-```kotlin
-@AiService
-interface InvoiceAnalyzer {
-    @Operation(
-        prompt = "Analyze the invoice and return a raw status",
-        model = "gpt-4o",
-    )
-    suspend fun analyze(invoiceId: String): String
-}
-
-@Service
-class BillingService(
-    private val analyzer: InvoiceAnalyzer,
-) {
-    suspend fun process(invoiceId: String): String = analyzer.analyze(invoiceId)
-}
 ```
 
 That is the core Spring model:
@@ -314,7 +281,7 @@ tramai:
     openai:
       codex-auth:
         enabled: true
-        auth-file: /home/you/.codex/auth.json
+        auth-file: ${user.home}/.codex/auth.json
 ```
 
 This path is experimental and intended for:
@@ -335,6 +302,33 @@ The Spring adapter is intentionally thin. It does not currently provide:
 - custom proxy generation strategies
 
 For current property details, see [Configuration Reference](../reference/configuration.md).
+
+## Calling from Java / Blocking Contexts
+
+`@AiService` interfaces typically use `suspend` functions for Kotlin callers.
+
+The generated proxy supports both calling styles:
+
+- `suspend` methods dispatch through coroutines
+- non-`suspend` methods are wrapped in `runBlocking`
+
+For Java callers, a direct `runBlocking` bridge is often the simplest option:
+
+```kotlin
+@Service
+class JavaBillingService {
+    private final InvoiceAnalyzer analyzer;
+    
+    public String process(String invoiceText) {
+        return kotlinx.coroutines.RunBlockingKt.runBlocking(
+            kotlinx.coroutines.Dispatchers.getIO(),
+            (scope, continuation) -> analyzer.analyze(invoiceText, continuation)
+        );
+    }
+}
+```
+
+An alternative is to define a separate non-`suspend` Kotlin interface that delegates to the `suspend` service interface, then inject that adapter into Java-facing code.
 
 ## Typical Build-Up Path
 

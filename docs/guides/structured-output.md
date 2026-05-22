@@ -124,11 +124,23 @@ Use these annotations when the values are operationally important. If a field dr
 
 ## Retry Behavior
 
-The current retry behavior is:
+When structured output validation fails, `JacksonStructuredOutputHandler.analyze()` returns `StructuredOutputResult.Failure` with a `feedbackMessage`.
 
-- `maxRetries` on `@Operation` controls structured retry attempts
-- default is `2`, which means up to `3` total attempts
-- retries happen only for structured parsing and validation failures
+The feedback is chosen based on the failure mode:
+
+1. response is not valid JSON at all:
+   `Your previous response did not contain valid JSON. Return only valid JSON that matches the requested schema.`
+2. JSON is valid but the structure does not map to the requested type:
+   `Your previous response contained JSON that could not be parsed into the requested output type. Return corrected JSON only.`
+3. JSON exists and maps structurally, but validation fails:
+   `Your previous response failed validation: $validationError. Return corrected JSON only.`
+
+The engine then retries with full conversation history and appends:
+
+- an assistant message containing the broken response
+- a user message containing the `feedbackMessage`
+
+`maxRetries` on `@Operation` controls these structured retry attempts. The default is `2`, which means up to `3` total attempts including the initial call. Retries happen only for structured parsing and validation failures.
 
 Example:
 
@@ -138,6 +150,28 @@ Example:
     model = "gpt-4o",
     maxRetries = 4,
 )
+```
+
+### Failure State
+
+When `maxRetries` is exhausted, TramAI throws `StructuredOutputException`.
+
+The exception includes:
+
+- `originalPrompt`: the prompt that initiated the operation
+- `lastRawResponse`: the last raw provider output
+- `validationError`: a summary of the final parsing or validation failure
+- `attemptCount`: the total number of attempts made
+
+Example:
+
+```kotlin
+try {
+    val result = agent.analyze("Customer complaint #1234")
+} catch (e: StructuredOutputException) {
+    logger.warn("Failed after {} attempts: {}", e.attemptCount, e.validationError)
+    // Fall back: e.lastRawResponse contains what the model produced
+}
 ```
 
 ## First Good Production Pattern

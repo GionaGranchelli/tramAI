@@ -88,7 +88,7 @@ suspend fun main() {
     val translator = Tramai
         .builder()
         .provider(OllamaProvider("http://localhost:11434"), default = true)
-        .model("gemma3:4b", "ollama")
+        .model("gemma4:e2b", "ollama")
         .build()
         .create<Translator>()
 
@@ -101,7 +101,7 @@ suspend fun main() {
 ```kotlin
 val translator = Tramai {
     provider(OllamaProvider("http://localhost:11434"), default = true)
-    model("gemma3:4b", "ollama")
+    model("gemma4:e2b", "ollama")
 }.create<Translator>()
 ```
 
@@ -127,7 +127,7 @@ interface WeatherService {
 suspend fun main() {
     val service = Tramai {
         provider(OllamaProvider("http://localhost:11434"), default = true)
-        model("gemma3:4b", "ollama")
+        model("gemma4:e2b", "ollama")
     }.create<WeatherService>()
 
     val weather = service.getWeather("Tokyo")
@@ -161,7 +161,7 @@ val service = Tramai {
 val service = Tramai {
     provider(OllamaProvider("http://localhost:11434"), name = "local")
     provider(OpenAiProvider("sk-..."), name = "openai")
-    model("gemma3:4b", "local")
+    model("gemma4:e2b", "local")
     model("gpt-4o", "openai")
     defaultProvider("openai") // fallback when no explicit model mapping
 }.create<MultiModelService>()
@@ -172,7 +172,7 @@ val service = Tramai {
 ```kotlin
 val service = Tramai {
     provider(OllamaProvider("http://localhost:11434"), default = true)
-    model("gemma3:4b", "ollama")
+    model("gemma4:e2b", "ollama")
     retryPolicy(RetryPolicySettings(maxRetryAfterMillis = 30_000, jitterRatio = 0.2))
     circuitBreaker(CircuitBreakerSettings(failureThreshold = 5, openDurationMillis = 30_000))
     tokenBudget(TokenBudgetSettings(hardMaxTokensPerOperation = 50_000))

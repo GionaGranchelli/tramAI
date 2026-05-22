@@ -57,6 +57,37 @@ The `tramai.engine.events` counter is used for retry scheduling, fallback routin
 
 The export path also has smoke coverage over OTLP HTTP, so the metrics path is validated against a collector-facing protocol rather than only through in-memory SDK assertions.
 
+## GenAI Semantic Convention Compliance
+
+Tramai aligns operation-level traces with OpenTelemetry GenAI semantic conventions when the provider exposes the necessary metadata.
+
+The primary attributes are:
+
+- `gen_ai.system`
+- `gen_ai.request.model`
+- `gen_ai.response.model`
+- `gen_ai.usage.input_tokens`
+- `gen_ai.usage.output_tokens`
+
+Each provider attempt is represented as its own child span, which makes retries, fallback routing, and circuit-breaker behavior visible as separate timed units inside a single operation trace.
+
+Structured parse failures emit a `tramai.parse.failure` span event on the attempt span that produced the invalid payload.
+
+Textual span hierarchy example showing a retry:
+
+```text
+Method: SupportAgent.handle()
+ └── [Span] ai.handle (gen_ai.system=ollama, gen_ai.request.model=gemma4:e2b)
+      ├── [Span] Provider Call Attempt 1
+      │    └── Event: tramai.parse.failure (validation_error=Invalid JSON)
+      ├── [Span] Provider Call Attempt 2
+      │    └── Event: tramai.parse.failure (validation_error=Missing required field)
+      └── [Span] Provider Call Attempt 3
+           └── Success (returns Response data class)
+```
+
+This layout reflects the engine's retry model: the method-level span represents the typed TramAI operation, each child span represents one provider call attempt, and parse-failure events explain why the next attempt was scheduled.
+
 ## Workflow Observability
 
 When you use `tramai-orchestration`, `OpenTelemetryWorkflowObserver` adds a workflow-level trace layer above normal provider-attempt spans.
