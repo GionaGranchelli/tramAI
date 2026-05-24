@@ -1,6 +1,6 @@
 # Secure Defaults Migration Guide
 
-**Applies to:** TramAI 0.3.0+
+**Applies to:** TramAI 0.3.1+
 **Change:** `ShellStepConfig` and `McpStepConfig` now require explicit `allowedCommands` configuration.
 **Related spec:** SPEC-018 Phase 1 — Secure Defaults
 
@@ -10,7 +10,7 @@
 
 Prior to this version, `ShellStepConfig()` and `McpStepConfig()` had no default command allowlist, meaning any command was allowed by default. This was a security gap for production environments handling untrusted data.
 
-Starting with TramAI 0.3.0:
+Starting with TramAI 0.3.1:
 
 - `ShellStepConfig.allowedCommands` defaults to `emptySet()` — **deny-all**
 - `McpStepConfig.allowedCommands` defaults to `emptySet()` — **deny-all**

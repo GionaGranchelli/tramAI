@@ -31,6 +31,8 @@ data class ModelResponse(
     val inputTokens: Int? = null,
     /** Output token count when exposed by the provider. */
     val outputTokens: Int? = null,
+    /** Provider-specific thinking/reasoning token count when exposed separately. */
+    val thinkingTokens: Int? = null,
     /** Effective model name reported by the provider. */
     val modelUsed: String? = null,
     /** Normalized finish reason for the completion. */

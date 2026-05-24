@@ -27,8 +27,8 @@ The repository contains:
 
 For `workflow_dispatch`, you can optionally provide a `version` input:
 
-- leave it empty to run the snapshot path as `0.3.0-SNAPSHOT`
-- set it to a release like `0.3.0` when you want to preflight the real release publish path before pushing the tag
+- leave it empty to run the snapshot path as `0.3.1-SNAPSHOT`
+- set it to a release like `0.3.1` when you want to preflight the real release publish path before pushing the tag
 
 ## Required Secrets
 
@@ -133,7 +133,7 @@ gpg --keyserver keyserver.ubuntu.com --recv-keys <your-signing-key-fingerprint>
 
 If this step fails, do not tag the release yet. Central will reject the deployment with an invalid-signature error because it cannot resolve the public key for the uploaded signatures.
 
-In GitHub Actions, that means running `Publish` with `workflow_dispatch` and setting the `version` input to the intended release version, for example `0.3.0`.
+In GitHub Actions, that means running `Publish` with `workflow_dispatch` and setting the `version` input to the intended release version, for example `0.3.1`.
 
 ## Guarded Real-Provider Checks
 
@@ -183,7 +183,7 @@ These checks are intentionally light-touch. They verify that Tramai can make a r
 1. Freeze scope and confirm the checklist in `docs/reference/release-<version>.md`.
 2. Update `CHANGELOG.md` from snapshot wording to the release entry.
 3. Commit the release-ready state.
-4. Create and push a tag such as `v0.3.0`.
+4. Create and push a tag such as `v0.3.1`.
 5. Verify the `Publish` workflow result, including the Central Portal handoff step.
 6. Open the deployment in Central Portal and confirm validation succeeds.
 7. Publish from the Portal UI.

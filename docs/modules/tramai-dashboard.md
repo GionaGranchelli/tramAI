@@ -4,7 +4,7 @@
 > **Module type:** `platform`
 > **Source files:** 3 — `DashboardAutoConfiguration.kt`, `DashboardMarker.kt`, `DashboardSettingsController.kt` (124 LOC)
 > **Test files:** 0
-> **Build:** `dev.tramai:tramai-dashboard:0.3.0`
+> **Build:** `dev.tramai:tramai-dashboard:0.3.1`
 
 ---
 
@@ -34,7 +34,7 @@ Don't use this module when:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-dashboard:0.3.0")
+    implementation("dev.tramai:tramai-dashboard:0.3.1")
 }
 ```
 

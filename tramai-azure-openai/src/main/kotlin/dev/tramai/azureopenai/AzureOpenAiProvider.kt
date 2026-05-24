@@ -265,6 +265,7 @@ class AzureOpenAiProvider @JvmOverloads constructor(
             UsageMetrics(
                 inputTokens = usage.path("prompt_tokens").asInt(),
                 outputTokens = usage.path("completion_tokens").asInt(),
+                thinkingTokens = usage.path("completion_tokens_details").path("reasoning_tokens").takeIf { !it.isMissingNode }?.asInt(),
             )
         } else lastUsage
     }
@@ -297,6 +298,7 @@ class AzureOpenAiProvider @JvmOverloads constructor(
             toolCalls = toolCalls,
             inputTokens = body.path("usage").path("prompt_tokens").takeIf { !it.isMissingNode }?.asInt(),
             outputTokens = body.path("usage").path("completion_tokens").takeIf { !it.isMissingNode }?.asInt(),
+            thinkingTokens = body.path("usage").path("completion_tokens_details").path("reasoning_tokens").takeIf { !it.isMissingNode }?.asInt(),
             modelUsed = body.path("model").takeIf { !it.isMissingNode }?.asText(),
             finishReason = finishReason,
         )

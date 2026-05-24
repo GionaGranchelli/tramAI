@@ -1,6 +1,6 @@
 # tramai-vectorstore-pgvector
 
-**Version:** 0.3.0  
+**Version:** 0.3.1  
 **Status:** Stable  
 **Role:** PostgreSQL pgvector implementation of the vector store SPI.
 
@@ -13,7 +13,7 @@ This module provides a concrete implementation of `VectorStore` that connects to
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-vectorstore-pgvector:0.3.0")
+    implementation("dev.tramai:tramai-vectorstore-pgvector:0.3.1")
     // Depending on your stack, you'll need a JDBC driver (e.g. org.postgresql:postgresql)
 }
 ```

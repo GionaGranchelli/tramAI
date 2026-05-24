@@ -495,6 +495,7 @@ private class TramaiInvocationHandler(
             content = chunk.fullText,
             inputTokens = chunk.usage.inputTokens,
             outputTokens = chunk.usage.outputTokens,
+            thinkingTokens = chunk.usage.thinkingTokens,
             modelUsed = route.effectiveModelName,
             finishReason = FinishReason.STOP,
         )

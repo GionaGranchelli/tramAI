@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "dev.tramai.examples"
-version = "0.3.0"
+version = "0.3.1"
 
 java {
     toolchain {
@@ -31,7 +31,7 @@ repositories {
 
 dependencies {
     implementation(kotlin("reflect"))
-    implementation("dev.tramai:tramai-standalone:0.3.0")
+    implementation("dev.tramai:tramai-standalone:0.3.1")
 }
 
 application {

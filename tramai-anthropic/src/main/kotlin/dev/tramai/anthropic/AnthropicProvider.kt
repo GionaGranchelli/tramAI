@@ -89,6 +89,7 @@ class AnthropicProvider(
                 content = firstTextBlock.path("text").asText(""),
                 inputTokens = body.path("usage").path("input_tokens").takeIf { !it.isMissingNode }?.asInt(),
                 outputTokens = body.path("usage").path("output_tokens").takeIf { !it.isMissingNode }?.asInt(),
+                thinkingTokens = null,
                 modelUsed = body.path("model").takeIf { !it.isMissingNode }?.asText(),
                 finishReason = when (body.path("stop_reason").asText("")) {
                     "end_turn" -> FinishReason.STOP
@@ -231,6 +232,7 @@ class AnthropicProvider(
                     return UsageMetrics(
                         inputTokens = usage.path("input_tokens").asInt(),
                         outputTokens = usage.path("output_tokens").asInt(),
+                        thinkingTokens = null,
                     )
                 }
             }
@@ -240,6 +242,7 @@ class AnthropicProvider(
                     return UsageMetrics(
                         inputTokens = lastUsage?.inputTokens,
                         outputTokens = usage.path("output_tokens").asInt(),
+                        thinkingTokens = null,
                     )
                 }
             }

@@ -362,15 +362,15 @@ What are you building?
 ```kotlin
 // === Recipe 1: Spring Boot + Local AI (most common start) ===
 // build.gradle.kts
-implementation("dev.tramai:tramai-spring:0.3.0")
-implementation("dev.tramai:tramai-ollama:0.3.0")
+implementation("dev.tramai:tramai-spring:0.3.1")
+implementation("dev.tramai:tramai-ollama:0.3.1")
 
 // === Recipe 2: Kotlin CLI + OpenAI ===
-implementation("dev.tramai:tramai-standalone:0.3.0")
-implementation("dev.tramai:tramai-openai:0.3.0")
+implementation("dev.tramai:tramai-standalone:0.3.1")
+implementation("dev.tramai:tramai-openai:0.3.1")
 
 // === Recipe 3: Full stack (Spring + cloud + observability) ===
-implementation(platform("dev.tramai:tramai-bom:0.3.0"))
+implementation(platform("dev.tramai:tramai-bom:0.3.1"))
 implementation("dev.tramai:tramai-spring")
 implementation("dev.tramai:tramai-openai")
 implementation("dev.tramai:tramai-anthropic")
@@ -554,7 +554,7 @@ Every Phase 1 change must pass these gates before the release branch is created:
 - [ ] All three changes merged to `main`
 - [ ] `./gradlew check` passes on all modules
 - [ ] Example compiles and runs
-- [ ] Tag `v0.3.0` created
+- [ ] Tag `v0.3.1` created
 
 ---
 

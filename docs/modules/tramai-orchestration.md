@@ -2,7 +2,7 @@
 
 > **One-liner:** Multi-step workflow engine with checkpoint/resume, distributed worker support, and a declarative DSL for composing AI, local, gate, branch, parallel, and delay steps.
 > **Module type:** `optional`
-> **Group:** `dev.tramai`, **Version:** `0.3.0`
+> **Group:** `dev.tramai`, **Version:** `0.3.1`
 > **Source files:** 18, **LOC:** 6,143
 > **Dependencies:** `tramai-core`
 
@@ -44,7 +44,7 @@ Do **not** use it for single-turn AI calls — `tramai-engine` with an `@AiServi
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-orchestration:0.3.0")
+    implementation("dev.tramai:tramai-orchestration:0.3.1")
 }
 ```
 
@@ -54,14 +54,14 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-orchestration</artifactId>
-    <version>0.3.0</version>
+    <version>0.3.1</version>
 </dependency>
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.3.0"))
+implementation(platform("dev.tramai:tramai-bom:0.3.1"))
 implementation("dev.tramai:tramai-orchestration")
 ```
 

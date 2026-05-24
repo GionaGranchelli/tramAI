@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "dev.tramai.examples"
-version = "0.3.0"
+version = "0.3.1"
 
 java {
     toolchain {
@@ -22,11 +22,11 @@ repositories {
 }
 
 dependencies {
-    implementation("dev.tramai:tramai-standalone:0.3.0")
-    implementation("dev.tramai:tramai-ollama:0.3.0")
+    implementation("dev.tramai:tramai-standalone:0.3.1")
+    implementation("dev.tramai:tramai-ollama:0.3.1")
 
     testImplementation(kotlin("test"))
-    testImplementation("dev.tramai:tramai-testing:0.3.0")
+    testImplementation("dev.tramai:tramai-testing:0.3.1")
 }
 
 application {

@@ -1,6 +1,6 @@
 # tramai-embedding
 
-**Version:** 0.3.0  
+**Version:** 0.3.1  
 **Status:** Stable  
 **Role:** Text embedding generation.
 
@@ -23,7 +23,7 @@ This module bundles standard integrations natively:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-embedding:0.3.0")
+    implementation("dev.tramai:tramai-embedding:0.3.1")
 }
 ```
 

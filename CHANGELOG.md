@@ -1,8 +1,24 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-05-24
 
-- No unreleased changes yet.
+Patch release focused on streaming stability, memory persistence, and proxy-aware tool scanning.
+
+### Features
+
+- `thinkingTokens: Int?` added to `ModelResponse` and `UsageMetrics`, parsed from OpenAI's `completion_tokens_details.reasoning_tokens`, wired through engine and `AzureOpenAiProvider`.
+
+### Refactoring
+
+- `stream()` methods decomposed into `handleHttpError` + `parseXxxResponse` pattern in OpenAI, Anthropic, and Azure providers for improved maintainability.
+
+### Bug Fixes
+
+- Chat memory persistence fix: conversation turns are now correctly persisted on streaming completion and structured output success.
+
+### Tests
+
+- Proxy-aware tool scanning: MCP tool handlers, `TokenAwareChatMemory` improvements.
 
 ## 0.3.0
 

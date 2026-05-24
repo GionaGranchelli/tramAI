@@ -56,6 +56,31 @@ class OpenAiStreamingTest {
     }
 
     @Test
+    fun `streaming response includes thinking tokens from completion_tokens_details`() {
+        val provider = providerWithResponse(
+            statusCode = 200,
+            body = Stream.of(
+                """data: {"choices":[{"delta":{"content":"think"}}]}""",
+                """data: {"usage":{"prompt_tokens":5,"completion_tokens":10,"completion_tokens_details":{"reasoning_tokens":42}}}""",
+                "data: [DONE]",
+            ),
+        )
+
+        val chunks = runBlocking { provider.stream(request()).toList() }
+
+        assertEquals(
+            listOf(
+                StreamChunk.Token("think"),
+                StreamChunk.Complete(
+                    "think",
+                    UsageMetrics(inputTokens = 5, outputTokens = 10, thinkingTokens = 42),
+                ),
+            ),
+            chunks,
+        )
+    }
+
+    @Test
     fun `non 2xx responses produce an error chunk`() {
         val provider = providerWithResponse(
             statusCode = 429,

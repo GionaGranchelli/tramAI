@@ -1,6 +1,6 @@
 # tramai-memory-store
 
-**Version:** 0.3.0  
+**Version:** 0.3.1  
 **Status:** Stable  
 **Role:** Service Provider Interface (SPI) for persistent chat history.
 
@@ -29,7 +29,7 @@ Implementations of this interface can be bound to Postgres, Redis, MongoDB, or e
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-memory-store:0.3.0")
+    implementation("dev.tramai:tramai-memory-store:0.3.1")
 }
 ```
 

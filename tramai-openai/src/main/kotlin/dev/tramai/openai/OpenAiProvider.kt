@@ -174,6 +174,7 @@ open class OpenAiCompatibleProvider(
                 toolCalls = toolCalls,
                 inputTokens = body.path("usage").path("prompt_tokens").takeIf { !it.isMissingNode }?.asInt(),
                 outputTokens = body.path("usage").path("completion_tokens").takeIf { !it.isMissingNode }?.asInt(),
+                thinkingTokens = body.path("usage").path("completion_tokens_details").path("reasoning_tokens").takeIf { !it.isMissingNode }?.asInt(),
                 modelUsed = body.path("model").takeIf { !it.isMissingNode }?.asText(),
                 finishReason = when (firstChoice.path("finish_reason").asText("")) {
                     "stop" -> FinishReason.STOP
@@ -292,6 +293,7 @@ open class OpenAiCompatibleProvider(
             UsageMetrics(
                 inputTokens = usageNode.path("prompt_tokens").asInt(),
                 outputTokens = usageNode.path("completion_tokens").asInt(),
+                thinkingTokens = usageNode.path("completion_tokens_details").path("reasoning_tokens").takeIf { !it.isMissingNode }?.asInt(),
             )
         } else null
 

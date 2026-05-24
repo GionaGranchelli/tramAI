@@ -1,6 +1,6 @@
 # tramai-vectorstore-spi
 
-**Version:** 0.3.0  
+**Version:** 0.3.1  
 **Status:** Stable  
 **Role:** Contract layer for Vector Database operations.
 
@@ -19,7 +19,7 @@ This module provides the core `VectorStore` interfaces required by `tramai-rag`.
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-vectorstore-spi:0.3.0")
+    implementation("dev.tramai:tramai-vectorstore-spi:0.3.1")
 }
 ```
 

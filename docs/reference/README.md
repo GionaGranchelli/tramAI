@@ -11,7 +11,7 @@ Low-level reference documentation for the current Tramai implementation.
 - [Testing Reference](./testing.md)
 - [API Stability](./api-stability.md)
 - [Release Validation](./release-validation.md)
-- [0.3.0 Changelog](../releases/CHANGELOG-0.3.0.md)
+- [0.3.1 Changelog](../releases/CHANGELOG-0.3.1.md)
 - [Release 0.1.0 Scope and Checklist](./release-0.1.0.md)
 - [Release Runbook](./releasing.md)
 - [Current Limitations](./limitations.md)

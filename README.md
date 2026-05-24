@@ -94,8 +94,8 @@ Because resolution fails before any model request is sent, no tokens are spent o
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-standalone:0.3.0")
-    implementation("dev.tramai:tramai-ollama:0.3.0")
+    implementation("dev.tramai:tramai-standalone:0.3.1")
+    implementation("dev.tramai:tramai-ollama:0.3.1")
 }
 ```
 
@@ -206,12 +206,12 @@ These runtime and platform capabilities are intentionally optional. The core Tra
 
 ## Installation
 
-TramAI `0.3.0` targets **JVM 21+**.
+TramAI `0.3.1` targets **JVM 21+**.
 
 ```kotlin
 // Gradle — use BOM for version alignment
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.3.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.3.1"))
     implementation("dev.tramai:tramai-standalone")
     implementation("dev.tramai:tramai-ollama")
 }
@@ -224,7 +224,7 @@ dependencies {
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.3.0</version>
+      <version>0.3.1</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>

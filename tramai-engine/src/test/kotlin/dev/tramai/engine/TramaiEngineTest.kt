@@ -517,6 +517,33 @@ class TramaiEngineTest {
     }
 
     @Test
+    fun `streaming response propagates thinking tokens into the observation record`() {
+        val observer = RecordingObserver()
+        val provider = StreamingProvider {
+            flow {
+                emit(StreamChunk.Token("think"))
+                emit(StreamChunk.Complete(
+                    "think",
+                    UsageMetrics(inputTokens = 5, outputTokens = 10, thinkingTokens = 42),
+                ))
+            }
+        }
+        val engine = TramaiEngine(provider = provider, operationObserver = observer)
+        val service = engine.create<StreamingService>()
+
+        val chunks = runBlocking { service.stream("invoice-123").toList() }
+
+        assertThat(chunks).containsExactly(
+            StreamChunk.Token("think"),
+            StreamChunk.Complete("think", UsageMetrics(inputTokens = 5, outputTokens = 10, thinkingTokens = 42)),
+        )
+        val record = observer.records.single()
+        assertThat(record.response?.thinkingTokens).isEqualTo(42)
+        assertThat(record.response?.inputTokens).isEqualTo(5)
+        assertThat(record.response?.outputTokens).isEqualTo(10)
+    }
+
+    @Test
     fun `fails when a provider attempt exceeds the hard token budget`() {
         val provider = RecordingProvider {
             ModelResponse(content = "too expensive", inputTokens = 4, outputTokens = 3)

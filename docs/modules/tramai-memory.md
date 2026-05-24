@@ -1,6 +1,6 @@
 # tramai-memory
 
-**Version:** 0.3.0  
+**Version:** 0.3.1  
 **Status:** Stable  
 **Role:** In-memory context and token-aware multi-turn conversational chat persistence.
 
@@ -30,9 +30,9 @@ Connects a `ChatMemoryStore` (database) with an optional in-memory cache (`Messa
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-memory:0.3.0")
+    implementation("dev.tramai:tramai-memory:0.3.1")
     // If you need durable storage (Postgres, Redis, File):
-    implementation("dev.tramai:tramai-memory-store:0.3.0")
+    implementation("dev.tramai:tramai-memory-store:0.3.1")
 }
 ```
 
