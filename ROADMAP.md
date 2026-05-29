@@ -49,10 +49,4 @@ This roadmap defines the trajectory for TramAI's next major milestone — transf
 
 ---
 
-## Funding
-
-This roadmap is funded by the [NGI Zero Commons Fund](https://nlnet.nl/commons/) (application pending, May 2026). All deliverables will be published under the Apache 2.0 license.
-
----
-
 *Roadmap adopted May 2026. See [README.md](README.md) for current stable release.*
