@@ -79,6 +79,8 @@ Most AI frameworks ask you to reorganize your application around the framework. 
 | Token budgets | None | **Hard + soft limits** per operation |
 | Response caching | None | **Per-operation** TTL-based |
 | Testability | Live model required | **Deterministic mocks** |
+| Failure testing | Non-deterministic integration tests | **Zero-network** `SimulatedFailureProvider` |
+| Audit trail | External observability stack | **Built-in** SHA-256 workflow digests + OpenTelemetry events |
 | Observability | Micrometer (framework-bound) | **Optional** OTel module |
 
 ### Tool Resolution
@@ -88,6 +90,42 @@ Tool names declared in `@Operation(tools = [...])` are validated when the proxy 
 If a referenced tool is missing, `Tramai.create()` throws `ConfigurationException` and includes the exact missing tool name.
 
 Because resolution fails before any model request is sent, no tokens are spent on a bad tool reference.
+
+### Enterprise-Grade Validation
+
+TramAI's `tramai-testing` module provides deterministic, zero-network test infrastructure that proves failure behavior without a live model:
+
+```kotlin
+val provider = SimulatedFailureProvider {
+    onMethod("summarize").retryableFailure("rate limited", statusCode = 429)
+    onMethod("summarize") respondWith "recovered summary"
+}
+val observer = RecordingOperationObserver()
+val tramai = Tramai {
+    provider(provider, default = true)
+    model("claude-sonnet-4-20250514", "simulated-failure")
+    observer(observer)
+}
+val service = tramai.create<TestRawService>()
+
+val result = runBlocking { service.summarize("invoice-1") }
+
+assertEquals("recovered summary", result)
+TramaiAssertions.assertThat(provider, observer)
+    .whenCalled("summarize")
+    .wasCalledTimes(2)
+    .andRetried(1)
+    .andObservedFailure(ProviderException::class)
+    .emittedProvider("simulated-failure")
+```
+
+What this proves, deterministically and without a single network call:
+- **Exact retry count**: 1 retry after the initial 429
+- **Failure observation**: `ProviderException` was recorded by the observer
+- **Provider routing**: All calls went to `"simulated-failure"`
+- **Recovery**: The pipeline succeeded on the retry
+
+The same fluent assertion API covers structured parse failures, non-retryable errors (HTTP 401), exhausted retry loops, and tool call verification — all in milliseconds, with no API keys, no flaky CI.
 
 ## Quick Start
 
@@ -243,3 +281,7 @@ dependencies {
 ## License
 
 Apache License 2.0
+
+## Upcoming / Roadmap
+
+TramAI is evolving to support zero-friction swapping between external APIs and local, air-gapped models (Mistral, vLLM) via the upcoming `tramai-sovereign` module. See the full [6-Month Sovereign Roadmap](ROADMAP.md).
