@@ -312,23 +312,35 @@ The generated proxy supports both calling styles:
 - `suspend` methods dispatch through coroutines
 - non-`suspend` methods are wrapped in `runBlocking`
 
-For Java callers, a direct `runBlocking` bridge is often the simplest option:
+For Java callers, define an explicit blocking service interface and inject that interface:
 
-```kotlin
+```java
+@AiService
+public interface BlockingInvoiceAnalyzer {
+    @Operation(
+        prompt = "Analyze the invoice and return a short status.",
+        model = "gpt-4o"
+    )
+    String analyze(String invoiceText);
+}
+```
+
+```java
 @Service
-class JavaBillingService {
-    private final InvoiceAnalyzer analyzer;
-    
+public class JavaBillingService {
+    private final BlockingInvoiceAnalyzer analyzer;
+
+    public JavaBillingService(BlockingInvoiceAnalyzer analyzer) {
+        this.analyzer = analyzer;
+    }
+
     public String process(String invoiceText) {
-        return kotlinx.coroutines.RunBlockingKt.runBlocking(
-            kotlinx.coroutines.Dispatchers.getIO(),
-            (scope, continuation) -> analyzer.analyze(invoiceText, continuation)
-        );
+        return analyzer.analyze(invoiceText);
     }
 }
 ```
 
-An alternative is to define a separate non-`suspend` Kotlin interface that delegates to the `suspend` service interface, then inject that adapter into Java-facing code.
+Keep blocking Java contracts explicit. Do not rely on generated `*Blocking` companion methods; TramAI does not create those.
 
 ## Typical Build-Up Path
 

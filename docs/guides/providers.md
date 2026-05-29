@@ -24,9 +24,15 @@ val tramai = Tramai {
 ## Currently Implemented Providers
 
 - `AnthropicProvider`
+- `AzureOpenAiProvider`
+- `BedrockProvider`
+- `DeepSeekProvider`
+- `GeminiProvider`
 - `OpenAiProvider`
 - `OpenAiCompatibleProvider`
 - `OllamaProvider`
+
+`tramai-spring` has built-in property binding for Anthropic, OpenAI, OpenAI-compatible endpoints, and Ollama. Other provider modules can still be used in Spring applications by registering the provider as a `ModelProvider` bean.
 
 ## How Routing Works
 
@@ -261,9 +267,9 @@ Provider support does not yet include:
 - externalized provider-level retry-policy configuration
 - externalized provider-level timeout-policy configuration
 - provider-native structured-output optimizations
-- bundled cloud-specific secret-store resolvers
 
 Tramai does already support engine-owned retries for retryable provider failures and per-operation timeout control through `@Operation`.
+Spring applications also have built-in `env:`, `file:`, Vault, and AWS Secrets Manager secret reference resolvers for provider credentials.
 
 See [Current Limitations](../reference/limitations.md) for the current boundaries.
 
