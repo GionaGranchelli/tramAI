@@ -4,6 +4,8 @@
 
 Patch release focused on streaming stability, memory persistence, and proxy-aware tool scanning.
 
+See [docs/releases/CHANGELOG-0.3.1.md](docs/releases/CHANGELOG-0.3.1.md) for the detailed release notes.
+
 ### Features
 
 - `thinkingTokens: Int?` added to `ModelResponse` and `UsageMetrics`, parsed from OpenAI's `completion_tokens_details.reasoning_tokens`, wired through engine and `AzureOpenAiProvider`.
@@ -23,6 +25,8 @@ Patch release focused on streaming stability, memory persistence, and proxy-awar
 ## 0.3.0
 
 Release entry for the current repository milestone.
+
+See [docs/releases/CHANGELOG-0.3.0.md](docs/releases/CHANGELOG-0.3.0.md) for the detailed release notes.
 
 ### Added
 
