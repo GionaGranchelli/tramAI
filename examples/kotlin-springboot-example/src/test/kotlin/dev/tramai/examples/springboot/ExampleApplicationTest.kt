@@ -596,7 +596,7 @@ class ExampleTestProvider : ModelProvider, StreamCapable, RecordedRequestProvide
         }
     }
 
-    override suspend fun stream(request: ModelRequest): Flow<StreamChunk> {
+    override fun stream(request: ModelRequest): Flow<StreamChunk> {
         streamRequests += request
         return flow {
             emit(StreamChunk.Token("Northwind Power "))
