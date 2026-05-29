@@ -1,6 +1,8 @@
 # Release 0.1.0 Scope and Checklist
 
-This page freezes the MVP scope that shipped in TramAI `0.1.0` and records the criteria used to treat it as the first public release.
+> **Historical document.** This page freezes the MVP scope that shipped in TramAI `0.1.0`. Current release is `0.3.1`. See [CHANGELOG.md](../../CHANGELOG.md) for current version.
+
+This page records the criteria used to treat it as the first public release.
 
 ## Release Goal
 
