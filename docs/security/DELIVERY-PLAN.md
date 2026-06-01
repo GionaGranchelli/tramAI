@@ -46,15 +46,6 @@ Translates the Phase 1 roadmap into concrete epics, issues, and acceptance crite
 - Migration warning logged once per engine instance
 - `LegacyPermissivePolicyEngine` available for explicit opt-in
 
-**Known gap — classified request propagation and response provenance:**
-The current engine does not yet propagate classified request context through
-every provider invocation path. `BEFORE_PROVIDER_INVOCATION` still does not
-consistently receive request classification, so full data-sovereignty
-enforcement is not implemented yet. Additionally, response-return hooks
-(raw, structured, streaming, cached) build enforcement contexts without
-`providerId`, `modelName`, or `dataClassification`, so `evaluateResponseReturn`
-cannot enforce local-boundary rules consistently.
-
 **Implemented in feat/classified-request-egress (PR #5):**
 Topic 1.6 ✅ — classified request context (via `ClassifiedDocument<T>`)
 propagated through all provider invocation paths for raw, structured,
@@ -63,14 +54,15 @@ and streaming execution.
 Topic 1.7 ✅ — classification egress enforced at `BEFORE_PROVIDER_INVOCATION`
 and `BEFORE_RESPONSE_RETURN` via `evaluateClassificationEgress()`.
 
-Topic 1.8 remains open — response provenance and cache-entry provenance.
-Classified cache reuse is disabled until Topic 1.8 is complete.
+Topic 1.8 remains open — cache-entry provenance. Classified cache reuse
+is deliberately disabled until Topic 1.8 is complete.
 
 Implementation note:
 - classification derives from `ClassifiedDocument<T>` wrapper
 - no annotation-based classification exists
 - no automatic rule-based classification exists yet
-- cache provenance remains intentionally deferred
+- ranking is exhaustive over the current enums; new values require an explicit rank
+- among equal classifications, the least-authoritative source is retained for conservative audit metadata (authority order: DECLARED > RULE_BASED > LOCAL_MODEL_ASSISTED)
 
 Remaining follow-up:
 - `Topic 1.8`: Propagate selected-provider provenance into response-return checks (raw, structured, streaming, cached). For cached values, store or reconstruct `providerId`, `modelName`, `dataClassification`, and `classificationSource`.

@@ -73,23 +73,28 @@ class ExecutionSecurityContextTest {
     }
 
     @Test
-    fun `equal classification prefers declared source over less authoritative sources`() {
+    fun `equal classification preserves least authoritative source conservatively`() {
         val context = ExecutionSecurityContext.fromArguments(
             arrayOf(
-                ClassifiedDocument(
-                    payload = "internal-local",
-                    classification = DataClassification.INTERNAL,
-                    source = ClassificationSource.LOCAL_MODEL_ASSISTED,
-                ),
                 ClassifiedDocument(
                     payload = "internal-declared",
                     classification = DataClassification.INTERNAL,
                     source = ClassificationSource.DECLARED,
                 ),
+                ClassifiedDocument(
+                    payload = "internal-rule",
+                    classification = DataClassification.INTERNAL,
+                    source = ClassificationSource.RULE_BASED,
+                ),
+                ClassifiedDocument(
+                    payload = "internal-local",
+                    classification = DataClassification.INTERNAL,
+                    source = ClassificationSource.LOCAL_MODEL_ASSISTED,
+                ),
             ),
         )
 
         assertThat(context.dataClassification).isEqualTo(DataClassification.INTERNAL)
-        assertThat(context.classificationSource).isEqualTo(ClassificationSource.DECLARED)
+        assertThat(context.classificationSource).isEqualTo(ClassificationSource.LOCAL_MODEL_ASSISTED)
     }
 }
