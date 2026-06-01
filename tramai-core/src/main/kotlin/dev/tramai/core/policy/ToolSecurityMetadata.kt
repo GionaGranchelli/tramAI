@@ -5,22 +5,31 @@ package dev.tramai.core.policy
  *
  * Populated from the tool declaration (programmatic or annotation-driven).
  * The policy engine reads this metadata at [EnforcementPoint.BEFORE_TOOL_EXECUTION].
+ *
+ * [compatibilityMode] defaults to [CompatibilityMode.STRICT]. Tools carrying
+ * [CompatibilityMode.LEGACY_PERMISSIVE] metadata are rejected in secure profiles.
  */
 data class ToolSecurityMetadata(
     val permission: String,
     val risk: RiskLevel,
     val approval: ApprovalMode,
-    val networkEgress: NetworkEgress,
+    val managedNetworkEgress: ManagedNetworkEgress,
     val audit: AuditDetail,
+    val compatibilityMode: CompatibilityMode = CompatibilityMode.STRICT,
 ) {
     companion object {
-        /** Permissive default used for existing tools in 0.4.x preview. */
+        /**
+         * Permissive default for existing tools during 0.4.x preview.
+         * Rejected in secure profiles — works only when [PolicyMode.LEGACY_PERMISSIVE]
+         * is explicitly enabled.
+         */
         fun legacyPermissive() = ToolSecurityMetadata(
             permission = "legacy.unrestricted",
             risk = RiskLevel.LOW,
             approval = ApprovalMode.AUTO,
-            networkEgress = NetworkEgress.ALLOW,
+            managedNetworkEgress = ManagedNetworkEgress.ALLOW,
             audit = AuditDetail.MINIMAL,
+            compatibilityMode = CompatibilityMode.LEGACY_PERMISSIVE,
         )
     }
 }

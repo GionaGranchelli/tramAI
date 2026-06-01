@@ -132,7 +132,7 @@ interface InvoiceReviewAgent {
     permission = "invoice.payment.schedule",
     risk = RiskLevel.HIGH,
     approval = ApprovalMode.HUMAN_REQUIRED,
-    networkEgress = NetworkEgress.DENY,
+    managedNetworkEgress = ManagedNetworkEgress.DENY,
     audit = AuditDetail.FULL
 )
 suspend fun schedulePayment(command: PaymentCommand): PaymentResult

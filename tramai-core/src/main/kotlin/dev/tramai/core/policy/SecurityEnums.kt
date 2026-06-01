@@ -27,12 +27,19 @@ enum class ApprovalMode {
     HUMAN_REQUIRED_WITH_TIMEOUT,
 }
 
-enum class NetworkEgress {
-    /** Tool may open network connections to any destination. */
+/**
+ * Application-level egress policy for TramAI-managed destinations
+ * (providers, HTTP tools, declared endpoints).
+ *
+ * Infrastructure-level controls (firewall, NetworkPolicy, sandboxing)
+ * remain required for subprocesses, native code, and compromised dependencies.
+ */
+enum class ManagedNetworkEgress {
+    /** Managed HTTP connections may reach configured destinations. */
     ALLOW,
-    /** Tool must not open any network connection. */
+    /** TramAI-managed HTTP connections are denied. */
     DENY,
-    /** Tool may only connect to destinations on the configured allowlist. */
+    /** Managed HTTP connections may reach allowlisted destinations only. */
     ALLOWLIST_ONLY,
 }
 
@@ -46,9 +53,17 @@ enum class AuditDetail {
 }
 
 enum class ProviderPolicy {
-    /** Only local providers (Ollama, vLLM on localhost). */
+    /**
+     * Only organization-controlled inference endpoints inside the configured
+     * local or isolated trust boundary (same-host Ollama/vLLM, internal GPU
+     * nodes, private inference endpoints in isolated namespaces).
+     */
     LOCAL_ONLY,
-    /** Only providers hosted within EU jurisdiction. */
+    /**
+     * Only approved providers explicitly classified as EU-hosted by the
+     * organization-managed provider registry. TramAI does not independently
+     * certify legal jurisdiction.
+     */
     EU_ONLY,
     /** Only cloud providers on the approved list. */
     APPROVED_CLOUD,
@@ -69,5 +84,12 @@ enum class PolicyMode {
     /** Fail closed if policy module is absent. */
     SECURE,
     /** Allow all operations — explicit opt-in for backward compatibility. */
+    LEGACY_PERMISSIVE,
+}
+
+enum class CompatibilityMode {
+    /** Tool metadata has been explicitly configured for the current profile. */
+    STRICT,
+    /** Tool uses legacy-permissive defaults; rejected in secure profiles. */
     LEGACY_PERMISSIVE,
 }
