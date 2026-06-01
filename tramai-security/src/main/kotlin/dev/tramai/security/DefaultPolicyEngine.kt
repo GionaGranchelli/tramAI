@@ -34,7 +34,13 @@ class DefaultPolicyEngine(
 
     private fun evaluateProviderResolution(ctx: PolicyContext): PolicyDecision {
         val modelName = ctx.modelName
-        if (modelName != null && modelName !in config.allowedModels && "*" !in config.allowedModels) {
+        if (modelName == null) {
+            return PolicyDecision.Deny(
+                "Provider resolution requires a model name",
+                "model-name-missing",
+            )
+        }
+        if (modelName !in config.allowedModels && "*" !in config.allowedModels) {
             return PolicyDecision.Deny(
                 "Model '$modelName' is not in the allowed-models registry",
                 "unknown-model",
@@ -47,7 +53,13 @@ class DefaultPolicyEngine(
 
     private fun evaluateProviderInvocation(ctx: PolicyContext): PolicyDecision {
         val providerId = ctx.providerId
-        if (providerId != null && providerId !in config.allowedProviders && "*" !in config.allowedProviders) {
+        if (providerId == null) {
+            return PolicyDecision.Deny(
+                "Provider invocation requires a provider ID",
+                "provider-id-missing",
+            )
+        }
+        if (providerId !in config.allowedProviders && "*" !in config.allowedProviders) {
             return PolicyDecision.Deny(
                 "Provider '$providerId' is not in the allowed-providers registry",
                 "unknown-provider",
@@ -93,14 +105,22 @@ class DefaultPolicyEngine(
         }
 
         val metadata = ctx.toolSecurity
-        if (metadata != null) {
-            val risk = metadata.risk
-            if (risk in config.requireApprovalForRiskLevel) {
+        if (!config.allowLegacyToolsWithoutSecurityMetadata) {
+            if (metadata == null) {
                 return PolicyDecision.Deny(
-                    "Tool '$toolName' (risk=$risk) cannot be exposed — requires approval",
-                    "tool-exposure-risk-denied",
+                    "Tool '$toolName' has no security metadata",
+                    "tool-metadata-missing",
                 )
             }
+            if (metadata.compatibilityMode == CompatibilityMode.LEGACY_PERMISSIVE) {
+                return PolicyDecision.Deny(
+                    "Tool '$toolName' uses LEGACY_PERMISSIVE compatibility mode",
+                    "tool-metadata-legacy-permissive",
+                )
+            }
+        }
+
+        if (metadata != null) {
             if (metadata.permission !in config.allowedPermissions && "*" !in config.allowedPermissions) {
                 return PolicyDecision.Deny(
                     "Tool '$toolName' requires permission '${metadata.permission}' which is not granted for exposure",
@@ -130,8 +150,30 @@ class DefaultPolicyEngine(
         }
 
         val metadata = ctx.toolSecurity
+        if (!config.allowLegacyToolsWithoutSecurityMetadata) {
+            if (metadata == null) {
+                return PolicyDecision.Deny(
+                    "Tool '$toolName' has no security metadata",
+                    "tool-metadata-missing",
+                )
+            }
+            if (metadata.compatibilityMode == CompatibilityMode.LEGACY_PERMISSIVE) {
+                return PolicyDecision.Deny(
+                    "Tool '$toolName' uses LEGACY_PERMISSIVE compatibility mode",
+                    "tool-metadata-legacy-permissive",
+                )
+            }
+        }
+
         if (metadata != null) {
-            // Check risk-based approval requirement
+            // Check permission before risk-based approval requirements.
+            if (metadata.permission !in config.allowedPermissions && "*" !in config.allowedPermissions) {
+                return PolicyDecision.Deny(
+                    "Tool '$toolName' requires permission '${metadata.permission}' which is not granted",
+                    "tool-permission-denied",
+                )
+            }
+
             val risk = metadata.risk
             if (risk in config.requireApprovalForRiskLevel) {
                 return PolicyDecision.RequireApproval(
@@ -141,14 +183,6 @@ class DefaultPolicyEngine(
                         reason = "Tool '$toolName' (risk=$risk) requires human approval",
                         timeoutMillis = 30_000,
                     ),
-                )
-            }
-
-            // Check permission
-            if (metadata.permission !in config.allowedPermissions && "*" !in config.allowedPermissions) {
-                return PolicyDecision.Deny(
-                    "Tool '$toolName' requires permission '${metadata.permission}' which is not granted",
-                    "tool-permission-denied",
                 )
             }
         }
@@ -164,10 +198,10 @@ class DefaultPolicyEngine(
         if (classification == DataClassification.RESTRICTED) {
             val providerId = ctx.providerId
             // RESTRICTED data must not leave local trust boundary
-            if (providerId != null && providerId !in LOCAL_PROVIDER_IDS) {
+            if (providerId == null || providerId !in config.trustedLocalProviders) {
                 return PolicyDecision.Deny(
-                    "RESTRICTED data may not be sent to provider '$providerId'",
-                    "restricted-data-egress-blocked",
+                    "RESTRICTED data may not be sent to provider '${providerId ?: "<unknown>"}'",
+                    if (providerId == null) "classification-egress-blocked" else "restricted-data-egress-blocked",
                 )
             }
         }
@@ -176,20 +210,15 @@ class DefaultPolicyEngine(
             classification !in config.allowCloudForClassifications
         ) {
             val providerId = ctx.providerId
-            val isLocal = providerId == null || providerId in LOCAL_PROVIDER_IDS
+            val isLocal = providerId != null && providerId in config.trustedLocalProviders
             if (!isLocal) {
                 return PolicyDecision.Deny(
-                    "Data classification '$classification' is not allowed for provider '$providerId'",
+                    "Data classification '$classification' is not allowed for provider '${providerId ?: "<unknown>"}'",
                     "classification-egress-blocked",
                 )
             }
         }
 
         return PolicyDecision.Allow
-    }
-
-    companion object {
-        /** Provider IDs that are considered local/within trust boundary. */
-        private val LOCAL_PROVIDER_IDS = setOf("ollama", "vllm", "llama.cpp", "local")
     }
 }

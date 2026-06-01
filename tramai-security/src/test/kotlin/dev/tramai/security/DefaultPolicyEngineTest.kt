@@ -9,6 +9,9 @@ class DefaultPolicyEngineTest {
 
     private val secureEngine = DefaultPolicyEngine(PolicyConfiguration.secure())
     private val previewEngine = DefaultPolicyEngine(PolicyConfiguration.preview())
+    private val localSecureEngine = DefaultPolicyEngine(
+        PolicyConfiguration.secure().copy(trustedLocalProviders = setOf("ollama"))
+    )
 
     private fun ctx(
         enforcementPoint: EnforcementPoint,
@@ -236,7 +239,7 @@ class DefaultPolicyEngineTest {
     @Test
     fun `INTERNAL data is allowed for local provider`() {
         runBlocking {
-            val decision = secureEngine.evaluate(
+            val decision = localSecureEngine.evaluate(
                 ctx(
                     EnforcementPoint.BEFORE_RESPONSE_RETURN,
                     providerId = "ollama",
@@ -248,9 +251,12 @@ class DefaultPolicyEngineTest {
     }
 
     @Test
-    fun `HIGH risk tool exposure is denied`() {
+    fun `HIGH risk tool exposure is allowed when tool metadata and permission are valid`() {
         runBlocking {
-            val config = PolicyConfiguration.secure().copy(allowedTools = setOf("high-risk-tool"))
+            val config = PolicyConfiguration.secure().copy(
+                allowedTools = setOf("high-risk-tool"),
+                allowedPermissions = setOf("high-risk.execute"),
+            )
             val engine = DefaultPolicyEngine(config)
             val decision = engine.evaluate(
                 ctx(
@@ -265,8 +271,7 @@ class DefaultPolicyEngineTest {
                     ),
                 )
             )
-            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
-            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("tool-exposure-risk-denied")
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
         }
     }
 
@@ -293,6 +298,157 @@ class DefaultPolicyEngineTest {
             )
             assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
             assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("tool-permission-denied")
+        }
+    }
+
+    @Test
+    fun `secure mode denies null toolSecurity metadata`() {
+        runBlocking {
+            val engine = DefaultPolicyEngine(PolicyConfiguration.secure().copy(allowedTools = setOf("legacy-tool")))
+            val decision = engine.evaluate(
+                ctx(EnforcementPoint.BEFORE_TOOL_EXECUTION, toolName = "legacy-tool", toolSecurity = null)
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("tool-metadata-missing")
+        }
+    }
+
+    @Test
+    fun `secure mode denies LEGACY_PERMISSIVE compatibility mode`() {
+        runBlocking {
+            val engine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedTools = setOf("legacy-tool"),
+                    allowedPermissions = setOf("legacy.unrestricted"),
+                )
+            )
+            val decision = engine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                    toolName = "legacy-tool",
+                    toolSecurity = ToolSecurityMetadata.legacyPermissive(),
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("tool-metadata-legacy-permissive")
+        }
+    }
+
+    @Test
+    fun `preview mode allows null toolSecurity metadata`() {
+        runBlocking {
+            val decision = previewEngine.evaluate(
+                ctx(EnforcementPoint.BEFORE_TOOL_EXECUTION, toolName = "legacy-tool", toolSecurity = null)
+            )
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
+
+    @Test
+    fun `HIGH risk tool with missing permission is denied not approved`() {
+        runBlocking {
+            val engine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(allowedTools = setOf("payment-tool"))
+            )
+            val decision = engine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                    toolName = "payment-tool",
+                    toolSecurity = ToolSecurityMetadata(
+                        permission = "payment.execute",
+                        risk = RiskLevel.HIGH,
+                        approval = ApprovalMode.HUMAN_REQUIRED,
+                        managedNetworkEgress = ManagedNetworkEgress.DENY,
+                        audit = AuditDetail.FULL,
+                    ),
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("tool-permission-denied")
+        }
+    }
+
+    @Test
+    fun `RESTRICTED data with null provider is denied`() {
+        runBlocking {
+            val decision = secureEngine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    providerId = null,
+                    dataClassification = DataClassification.RESTRICTED,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-egress-blocked")
+        }
+    }
+
+    @Test
+    fun `INTERNAL data with null provider is denied`() {
+        runBlocking {
+            val decision = secureEngine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    providerId = null,
+                    dataClassification = DataClassification.INTERNAL,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-egress-blocked")
+        }
+    }
+
+    @Test
+    fun `RESTRICTED data with untrusted provider is denied`() {
+        runBlocking {
+            val engine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(trustedLocalProviders = setOf("local"))
+            )
+            val decision = engine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    providerId = "ollama",
+                    dataClassification = DataClassification.RESTRICTED,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("restricted-data-egress-blocked")
+        }
+    }
+
+    @Test
+    fun `RESTRICTED data with trusted local provider is allowed`() {
+        runBlocking {
+            val decision = localSecureEngine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    providerId = "ollama",
+                    dataClassification = DataClassification.RESTRICTED,
+                )
+            )
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
+
+    @Test
+    fun `provider invocation with null providerId is denied`() {
+        runBlocking {
+            val decision = secureEngine.evaluate(
+                ctx(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, providerId = null, modelName = "gpt-4")
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("provider-id-missing")
+        }
+    }
+
+    @Test
+    fun `provider resolution with null modelName is denied`() {
+        runBlocking {
+            val decision = secureEngine.evaluate(
+                ctx(EnforcementPoint.BEFORE_PROVIDER_RESOLUTION, modelName = null)
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("model-name-missing")
         }
     }
 }

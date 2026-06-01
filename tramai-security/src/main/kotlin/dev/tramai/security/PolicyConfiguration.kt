@@ -20,10 +20,14 @@ data class PolicyConfiguration(
     val allowedFallbackProviders: Set<String> = emptySet(),
     /** Tool permissions that are granted. Checked in addition to [allowedTools]. */
     val allowedPermissions: Set<String> = emptySet(),
+    /** Whether secure-mode metadata requirements are relaxed for legacy tools. */
+    val allowLegacyToolsWithoutSecurityMetadata: Boolean = false,
     /** Risk levels that require human approval before tool execution. */
     val requireApprovalForRiskLevel: Set<RiskLevel> = setOf(RiskLevel.HIGH, RiskLevel.CRITICAL),
     /** Data classifications permitted for non-local providers. */
     val allowCloudForClassifications: Set<DataClassification> = setOf(DataClassification.PUBLIC),
+    /** Providers treated as inside the local trust boundary. */
+    val trustedLocalProviders: Set<String> = emptySet(),
 ) {
     companion object {
         /** Fully permissive preset — only for 0.4.x preview / testing. */
@@ -33,8 +37,10 @@ data class PolicyConfiguration(
             allowedProviders = setOf("*"),
             allowedFallbackProviders = setOf("*"),
             allowedPermissions = setOf("*"),
+            allowLegacyToolsWithoutSecurityMetadata = true,
             requireApprovalForRiskLevel = setOf(RiskLevel.CRITICAL),
             allowCloudForClassifications = DataClassification.entries.toSet(),
+            trustedLocalProviders = setOf("ollama", "vllm", "llama.cpp", "local"),
         )
 
         /** Deny-by-default with no exclusions. */
