@@ -5,6 +5,8 @@ import dev.tramai.core.annotations.Operation
 import dev.tramai.core.exception.ApprovalRequiredException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.memory.ChatMemory
+import dev.tramai.core.model.Message
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
@@ -760,5 +762,241 @@ class PolicyEnforcementTest {
         val r2 = service2.cachedCall("hello")
         assertThat(r1).isEqualTo("legacy-ok")
         assertThat(r2).isEqualTo("legacy-ok")
+    }
+
+    // -- Structured enforcement ordering (ITEM 2) ------------------------------
+
+    @Test
+    fun `structured BEFORE_RESPONSE_RETURN deny prevents persist and cache side effects`() = runBlocking {
+        val handler = object : StructuredOutputHandler {
+            override fun analyze(rawResponse: String, targetType: kotlin.reflect.KType): StructuredOutputResult =
+                StructuredOutputResult.Success(TestPayload("parsed"), rawResponse)
+            override fun createContract(targetType: kotlin.reflect.KType) =
+                StructuredOutputContract(targetType, "{ }")
+            override fun generateSchema(type: kotlin.reflect.KType) = "{ }"
+            override fun deserialize(input: Any, targetType: kotlin.reflect.KType) = TestPayload("parsed")
+            override fun serialize(value: Any): Any = mapOf("answer" to "parsed")
+        }
+
+        var cachePutCalled = false
+        var memoryPersistCalled = false
+        val provider = CountingProvider()
+
+        val cache = object : OperationResponseCache {
+            override fun get(key: OperationCacheKey): Any? = null
+            override fun put(key: OperationCacheKey, value: Any, ttlMillis: Long) {
+                cachePutCalled = true
+            }
+        }
+        val memory = object : ChatMemory {
+            override fun get(conversationId: String): List<Message> = emptyList()
+            override fun add(conversationId: String, messages: List<Message>) {
+                memoryPersistCalled = true
+            }
+            override fun add(conversationId: String, message: Message) {
+                memoryPersistCalled = true
+            }
+            override fun clear(conversationId: String) {}
+        }
+
+        val engine = TramaiEngine(
+            provider = provider,
+            structuredOutputHandler = handler,
+            responseCache = cache,
+            chatMemory = memory,
+            conversationIdProvider = dev.tramai.core.memory.UuidConversationIdProvider(),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision =
+                    if (context.enforcementPoint == EnforcementPoint.BEFORE_RESPONSE_RETURN) {
+                        PolicyDecision.Deny("struct blocked", "STRUCT_DENY")
+                    } else PolicyDecision.Allow
+            },
+        )
+        val service = engine.create<CachedStructuredService>()
+
+        assertThatThrownBy { runBlocking { service.analyze("test") } }
+            .isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("struct blocked")
+
+        // Provider was called (onCallCompleted with parseSuccess=true fires before enforcement)
+        assertThat(provider.callCount.get()).isEqualTo(1)
+        // Cache was never populated (cacheValue not called because enforcement fires first)
+        assertThat(cachePutCalled).isFalse()
+        // Memory was never updated (persistStructuredSuccess not called)
+        assertThat(memoryPersistCalled).isFalse()
+    }
+
+    // -- Cold streaming Flow enforcement (ITEM 3) ------------------------------
+
+    @Test
+    fun `cold Flow — policy changed after Flow creation blocks collection`() = runBlocking {
+        var currentPolicy: PolicyDecision = PolicyDecision.Allow
+        val sProvider = streamingProvider()
+
+        val engine = TramaiEngine(
+            provider = sProvider,
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = currentPolicy
+            },
+        )
+        val service = engine.create<StreamingTestService>()
+
+        // Create Flow while policy ALLOWS
+        val flow = service.stream("test")
+
+        // Switch policy to DENY BEFORE_RESPONSE_RETURN before collecting
+        currentPolicy = PolicyDecision.Deny("late denial", "LATE_DENY")
+
+        // Collect — should be denied because enforcements run inside flow{} at collection time
+        assertThatThrownBy {
+            runBlocking { flow.toList() }
+        }.isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("late denial")
+
+        // Provider was never invoked because policy denied at flow collection
+        assertThat(sProvider.callCount.get()).isEqualTo(0)
+    }
+
+    @Test
+    fun `cold Flow — each collection evaluates policy independently`() = runBlocking {
+        val enforceCount = AtomicInteger(0)
+        val sProvider = streamingProvider()
+
+        val engine = TramaiEngine(
+            provider = sProvider,
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision {
+                    enforceCount.incrementAndGet()
+                    return PolicyDecision.Allow
+                }
+            },
+        )
+        val service = engine.create<StreamingTestService>()
+        val flow = service.stream("test")
+
+        // Collect Flow twice — policy should evaluate independently each time
+        runBlocking { flow.toList() }
+        val countAfterFirst = enforceCount.get()
+        assertThat(countAfterFirst).isGreaterThan(0)
+
+        runBlocking { flow.toList() }
+        val countAfterSecond = enforceCount.get()
+
+        // Second collection triggered additional evaluations (per-collection semantic)
+        assertThat(countAfterSecond).isGreaterThan(countAfterFirst)
+    }
+
+    // -- Fallback transition enforcement (ITEM 4) ------------------------------
+
+    @Test
+    fun `circuit breaker open — BEFORE_FALLBACK fires and deny blocks fallback`() = runBlocking {
+        val fallbackCallCount = AtomicInteger(0)
+        val primaryCallCount = AtomicInteger(0)
+        val failOnceProvider = object : ModelProvider {
+            override fun providerId() = "primary"
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                primaryCallCount.incrementAndGet()
+                throw ProviderException("primary fail", retryable = true)
+            }
+        }
+        val fallbackProvider = object : ModelProvider {
+            override fun providerId() = "fallback"
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                fallbackCallCount.incrementAndGet()
+                return ModelResponse(content = "fallback-ok", inputTokens = 10, outputTokens = 5, modelUsed = request.model)
+            }
+        }
+
+        val registry = ProviderRegistry.builder()
+            .provider("primary", failOnceProvider, default = true)
+            .model("test-model", "primary")
+            .fallbackProvider("test-model", "fallback")
+            .provider("fallback", fallbackProvider)
+            .build()
+
+        val settings = CircuitBreakerSettings(
+            failureThreshold = 1,
+            openDurationMillis = 3_600_000, // long recovery — stays open
+        )
+        var allowFallback = true
+
+        val engine = TramaiEngine(
+            providerRegistry = registry,
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
+            circuitBreakerSettings = settings,
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision =
+                    if (context.enforcementPoint == EnforcementPoint.BEFORE_FALLBACK && !allowFallback) {
+                        PolicyDecision.Deny("fallback denied", "FALLBACK_DENY")
+                    } else PolicyDecision.Allow
+            },
+        )
+
+        // Phase 1: primary fails, fallback allowed, circuit breaker trips
+        val service1 = engine.create<TestService>()
+        val result1 = service1.analyze("test")
+        assertThat(result1).isEqualTo("fallback-ok")
+        assertThat(primaryCallCount.get()).isEqualTo(1)
+        assertThat(fallbackCallCount.get()).isEqualTo(1)
+
+        // Phase 2: primary circuit breaker is now open. Deny fallback.
+        allowFallback = false
+        val service2 = engine.create<TestService>()
+
+        assertThatThrownBy { runBlocking { service2.analyze("test") } }
+            .isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("fallback denied")
+
+        // Secondary was never invoked in phase 2 (denied before reaching it)
+        assertThat(fallbackCallCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `provider failure — BEFORE_FALLBACK fires and allow proceeds to secondary`() = runBlocking {
+        val fallbackCalled = AtomicInteger(0)
+        var fallbackEnforced = false
+        val failOnceProvider = object : ModelProvider {
+            val callCount = AtomicInteger(0)
+            override fun providerId() = "primary"
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                callCount.incrementAndGet()
+                if (callCount.get() == 1) throw ProviderException("primary fail", retryable = true)
+                return ModelResponse(content = "primary-ok", inputTokens = 10, outputTokens = 5, modelUsed = request.model)
+            }
+        }
+        val fallbackProvider = object : ModelProvider {
+            override fun providerId() = "fallback"
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                fallbackCalled.incrementAndGet()
+                return ModelResponse(content = "fallback-ok", inputTokens = 10, outputTokens = 5, modelUsed = request.model)
+            }
+        }
+
+        val registry = ProviderRegistry.builder()
+            .provider("primary", failOnceProvider, default = true)
+            .model("test-model", "primary")
+            .fallbackProvider("test-model", "fallback")
+            .provider("fallback", fallbackProvider)
+            .build()
+
+        val engine = TramaiEngine(
+            providerRegistry = registry,
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision {
+                    if (context.enforcementPoint == EnforcementPoint.BEFORE_FALLBACK) {
+                        fallbackEnforced = true
+                    }
+                    return PolicyDecision.Allow
+                }
+            },
+        )
+        val service = engine.create<TestService>()
+        val result = service.analyze("test")
+        assertThat(result).isEqualTo("fallback-ok")
+        assertThat(fallbackEnforced).isTrue()
+        assertThat(fallbackCalled.get()).isEqualTo(1)
     }
 }

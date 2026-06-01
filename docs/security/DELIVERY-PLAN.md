@@ -7,19 +7,20 @@ Translates the Phase 1 roadmap into concrete epics, issues, and acceptance crite
 **Where:** `tramai-engine/src/main/kotlin/dev/tramai/engine/PolicyEnforcementHelper.kt`
 
 **How compatibility works in 0.4.x:**
-- `TramaiEngine` accepts optional `PolicyEngine?` (defaults to `null`)
-- When `null`, all operations proceed with one migration warning using `java.util.logging`
+- `TramaiEngine` accepts optional `PolicyEngine?` (defaults to `LegacyPermissivePolicyEngine`)
+- When no explicit `PolicyEngine` is configured, all operations proceed with one migration warning using `java.util.logging`
 - Migration guard is shared at engine scope (not per proxy)
-- `LegacyPermissivePolicyEngine` available as explicit opt-in
+- `LegacyPermissivePolicyEngine` is the default null fallback; `DefaultPolicyEngine` with `PolicyConfiguration.preview()` available as explicit opt-in
 
 **Covered paths:**
-- non-streaming raw execution (including cache hits)
-- structured provider invocation (including cache hits and parsed response enforcement)
+- non-streaming raw execution (including cache hits with BEFORE_RESPONSE_RETURN enforcement)
+- structured provider invocation (including cache hits and parsed response enforcement BEFORE persist/cache)
 - tool loops (exposure, execution, reinjection)
-- fallback (policy violation propagated with original error as suppressed)
-- streaming execution (resolution, invocation, fallback, tool exposure, response)
+- fallback (all 4 transition points: provider failure, streaming startup failure, circuit breaker open, route unavailable)
+- streaming execution (cold Flow: policy gates inside flow{} for per-collection evaluation; BEFORE_RESPONSE_RETURN with providerId/modelName)
 - raw response return
-- structured response return
+- structured response return (BEFORE_RESPONSE_RETURN before persistStructuredSuccess and cacheValue)
+- circuit breaker open → BEFORE_FALLBACK enforcement before skipping
 
 **Pending:**
 - `BEFORE_WORKFLOW_RESUME` — orchestration integration (separate PR)

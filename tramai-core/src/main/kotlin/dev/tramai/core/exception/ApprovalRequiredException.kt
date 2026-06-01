@@ -3,7 +3,7 @@ package dev.tramai.core.exception
 import dev.tramai.core.policy.ApprovalRequirement
 
 /**
- * Raised when [PolicyDecision.RequireApproval] is returned by the policy engine.
+ * Raised when [dev.tramai.core.policy.PolicyDecision.RequireApproval] is returned by the policy engine.
  *
  * This is a placeholder in the 0.4.x preview. Approval persistence, nonce generation,
  * suspension, and resume will be implemented in a later PR.

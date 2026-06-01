@@ -18,7 +18,7 @@ import java.util.logging.Logger
  * scattered decision-handling logic across the engine.
  *
  * When no explicit [PolicyEngine] is provided, the engine uses
- * [dev.tramai.security.DefaultPolicyEngine] with secure defaults.
+ * [dev.tramai.engine.LegacyPermissivePolicyEngine] for backward compatibility.
  * One migration warning is emitted per engine instance.
  */
 internal class PolicyEnforcementHelper(
