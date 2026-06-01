@@ -55,13 +55,16 @@ enforcement is not implemented yet. Additionally, response-return hooks
 `providerId`, `modelName`, or `dataClassification`, so `evaluateResponseReturn`
 cannot enforce local-boundary rules consistently.
 
-**Implemented in feat/classified-request-egress:**
+**Implemented in feat/classified-request-egress (PR #5):**
 Topic 1.6 ✅ — classified request context (via `ClassifiedDocument<T>`)
-propagated through all provider invocation paths.
-Topic 1.7 ✅ — classification egress enforced at `BEFORE_PROVIDER_INVOCATION`.
+propagated through all provider invocation paths for raw, structured,
+and streaming execution.
 
-Topic 1.8 remains open — response provenance and cache-entry provenance need
-a separate PR.
+Topic 1.7 ✅ — classification egress enforced at `BEFORE_PROVIDER_INVOCATION`
+and `BEFORE_RESPONSE_RETURN` via `evaluateClassificationEgress()`.
+
+Topic 1.8 remains open — response provenance and cache-entry provenance.
+Classified cache reuse is disabled until Topic 1.8 is complete.
 
 Implementation note:
 - classification derives from `ClassifiedDocument<T>` wrapper

@@ -13,6 +13,7 @@ import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.exception.StructuredOutputException
 import dev.tramai.core.exception.TokenBudgetExceededException
 import dev.tramai.core.exception.TimeoutException
+import dev.tramai.core.model.ClassifiedDocument
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
@@ -27,6 +28,8 @@ import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.observation.OperationInterceptor
+import dev.tramai.core.policy.ClassificationSource
+import dev.tramai.core.policy.DataClassification
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.StreamCapable
@@ -67,6 +70,29 @@ class TramaiEngineTest {
             .contains("Analyze the invoice")
             .contains("invoiceId")
             .contains("invoice-123")
+    }
+
+    @Test
+    fun `renders classified document payloads into prompts without wrapper metadata`() {
+        val provider = RecordingProvider { ModelResponse(content = "hardcoded response") }
+        val engine = TramaiEngine(provider)
+        val service = engine.create<ClassifiedPayloadAnalyzer>()
+
+        runBlocking {
+            service.analyze(
+                ClassifiedDocument(
+                    payload = "secret content",
+                    classification = DataClassification.RESTRICTED,
+                    source = ClassificationSource.DECLARED,
+                ),
+            )
+        }
+
+        assertThat(provider.requests).hasSize(1)
+        assertThat(provider.requests.single().messages.last().content)
+            .contains("secret content")
+            .doesNotContain("ClassifiedDocument(")
+            .doesNotContain("classification=")
     }
 
     @Test
@@ -1212,6 +1238,15 @@ private interface SuspendAnalyzer {
         model = "claude-sonnet-4-20250514",
     )
     suspend fun analyze(invoiceId: String): String
+}
+
+@AiService
+private interface ClassifiedPayloadAnalyzer {
+    @Operation(
+        prompt = "Analyze the classified payload",
+        model = "claude-sonnet-4-20250514",
+    )
+    suspend fun analyze(document: ClassifiedDocument<String>): String
 }
 
 @AiService

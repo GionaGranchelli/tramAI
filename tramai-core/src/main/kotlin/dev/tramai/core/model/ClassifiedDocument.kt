@@ -13,4 +13,6 @@ data class ClassifiedDocument<T>(
     val payload: T,
     val classification: DataClassification,
     val source: ClassificationSource,
-)
+) {
+    override fun toString(): String = "ClassifiedDocument(classification=$classification, source=$source)"
+}

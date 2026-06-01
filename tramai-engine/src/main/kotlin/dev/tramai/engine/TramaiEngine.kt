@@ -24,6 +24,7 @@ import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ContentPart
+import dev.tramai.core.model.ClassifiedDocument
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ToolDefinition
 import dev.tramai.core.model.ToolExecutionContext
@@ -774,15 +775,17 @@ private class TramaiInvocationHandler(
         val correlationId = java.util.UUID.randomUUID().toString()
 
         // Enforce BEFORE_RESPONSE_RETURN before returning cached value
-        operation.cachedValue(arguments)?.let { cached ->
-            policyHelper.enforce(
-                policyHelper.buildContext(
-                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
-                    correlationId = correlationId,
-                ).applySecurityContext(securityContext)
-                    .build()
-            )
-            return cached as String
+        if (securityContext.dataClassification == null) {
+            operation.cachedValue(arguments)?.let { cached ->
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                        correlationId = correlationId,
+                    ).applySecurityContext(securityContext)
+                        .build()
+                )
+                return cached as String
+            }
         }
 
         val messages = operation.initialMessages(arguments).toMutableList()
@@ -822,7 +825,11 @@ private class TramaiInvocationHandler(
         }
 
         result.observation.onCallCompleted(parseSuccess = null)
-        return result.response.content.also { operation.cacheValue(arguments, it) }
+        return result.response.content.also {
+            if (securityContext.dataClassification == null) {
+                operation.cacheValue(arguments, it)
+            }
+        }
     }
 
     private suspend fun executeStructured(
@@ -839,15 +846,17 @@ private class TramaiInvocationHandler(
         val correlationId = java.util.UUID.randomUUID().toString()
 
         // Enforce BEFORE_RESPONSE_RETURN before returning cached value
-        operation.cachedValue(arguments, contract.schemaJson)?.let { cached ->
-            policyHelper.enforce(
-                policyHelper.buildContext(
-                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
-                    correlationId = correlationId,
-                ).applySecurityContext(securityContext)
-                    .build()
-            )
-            return cached
+        if (securityContext.dataClassification == null) {
+            operation.cachedValue(arguments, contract.schemaJson)?.let { cached ->
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                        correlationId = correlationId,
+                    ).applySecurityContext(securityContext)
+                        .build()
+                )
+                return cached
+            }
         }
 
         val messages = operation.initialMessages(arguments, contract.schemaJson).toMutableList()
@@ -965,7 +974,9 @@ private class TramaiInvocationHandler(
                     conversationId = conversationId,
                     messagesBeforeCall = messagesBeforeCall,
                 )
-                operation.cacheValue(arguments, analysis.value, schemaJson)
+                if (securityContext.dataClassification == null) {
+                    operation.cacheValue(arguments, analysis.value, schemaJson)
+                }
 
                 analysis.value
             }
@@ -1700,7 +1711,10 @@ private data class OperationDefinition(
         systemAnnotations.isNotEmpty() || userAnnotations.isNotEmpty()
 
     private fun sanitizedArgumentValues(arguments: List<Any?>): List<String> = arguments.map { argument ->
-        val rendered = argument?.toString() ?: ""
+        val rendered = when (argument) {
+            is ClassifiedDocument<*> -> argument.payload?.toString() ?: ""
+            else -> argument?.toString() ?: ""
+        }
         promptSanitizer?.sanitize(rendered) ?: rendered
     }
 

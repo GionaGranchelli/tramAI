@@ -151,7 +151,7 @@ class PolicyEnforcementTest {
 
     @AiService
     interface TestService {
-        @Operation(prompt = "test", model = "test-model", tools = ["echo"])
+        @Operation(prompt = "test", model = "test-model", tools = ["echo"], providerRetries = 0)
         suspend fun analyze(input: String): String
     }
 
@@ -175,7 +175,7 @@ class PolicyEnforcementTest {
 
     @AiService
     interface ClassifiedTestService {
-        @Operation(prompt = "test", model = "test-model")
+        @Operation(prompt = "test", model = "test-model", providerRetries = 0)
         suspend fun analyze(input: ClassifiedDocument<String>): String
     }
 
@@ -195,6 +195,30 @@ class PolicyEnforcementTest {
     interface CachedStructuredService {
         @Operation(prompt = "test", model = "test-model", cacheable = true, cacheTtlMillis = 60_000, maxRetries = 0)
         suspend fun analyze(input: String): TestPayload
+    }
+
+    @AiService
+    interface CachedClassifiedTestService {
+        @Operation(
+            prompt = "test",
+            model = "test-model",
+            cacheable = true,
+            cacheTtlMillis = 60_000,
+            providerRetries = 0,
+        )
+        suspend fun analyze(input: ClassifiedDocument<String>): String
+    }
+
+    @AiService
+    interface CachedClassifiedStructuredService {
+        @Operation(
+            prompt = "test",
+            model = "test-model",
+            cacheable = true,
+            cacheTtlMillis = 60_000,
+            maxRetries = 0,
+        )
+        suspend fun analyze(input: ClassifiedDocument<String>): TestPayload
     }
 
     data class TestPayload(val answer: String)
@@ -927,6 +951,70 @@ class PolicyEnforcementTest {
         assertThatThrownBy { runBlocking { service2.analyze("test") } }
             .isInstanceOf(PolicyViolationException::class.java)
             .hasMessageContaining("cache struct blocked")
+    }
+
+    @Test
+    fun `classified raw cacheable calls bypass cache reuse`() = runBlocking {
+        val provider = CountingProvider()
+        val engine = TramaiEngine(
+            provider = provider,
+            responseCache = InMemoryOperationResponseCache(),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+        )
+        val service: CachedClassifiedTestService = engine.create()
+        val input = ClassifiedDocument(
+            payload = "secret",
+            classification = DataClassification.RESTRICTED,
+            source = ClassificationSource.DECLARED,
+        )
+
+        val first = service.analyze(input)
+        val second = service.analyze(input)
+
+        assertThat(first).isEqualTo("ok")
+        assertThat(second).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(2)
+    }
+
+    @Test
+    fun `classified structured cacheable calls bypass cache reuse`() = runBlocking {
+        val handler = object : StructuredOutputHandler {
+            override fun analyze(rawResponse: String, targetType: kotlin.reflect.KType): StructuredOutputResult =
+                StructuredOutputResult.Success(TestPayload("parsed"), rawResponse)
+
+            override fun createContract(targetType: kotlin.reflect.KType) =
+                StructuredOutputContract(targetType, "{ }")
+
+            override fun generateSchema(type: kotlin.reflect.KType) = "{ }"
+
+            override fun deserialize(input: Any, targetType: kotlin.reflect.KType) = TestPayload("parsed")
+
+            override fun serialize(value: Any): Any = mapOf("answer" to "parsed")
+        }
+        val provider = CountingProvider()
+        val engine = TramaiEngine(
+            provider = provider,
+            structuredOutputHandler = handler,
+            responseCache = InMemoryOperationResponseCache(),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+        )
+        val service: CachedClassifiedStructuredService = engine.create()
+        val input = ClassifiedDocument(
+            payload = "secret",
+            classification = DataClassification.RESTRICTED,
+            source = ClassificationSource.DECLARED,
+        )
+
+        val first = service.analyze(input)
+        val second = service.analyze(input)
+
+        assertThat(first.answer).isEqualTo("parsed")
+        assertThat(second.answer).isEqualTo("parsed")
+        assertThat(provider.callCount.get()).isEqualTo(2)
     }
 
     // -- Context semantics tests -----------------------------------------------

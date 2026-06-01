@@ -66,4 +66,18 @@ class ClassifiedDocumentTest {
 
         assertThat(document.payload).isNull()
     }
+
+    @Test
+    fun `toString redacts payload content`() {
+        val document = ClassifiedDocument(
+            payload = "sensitive",
+            classification = DataClassification.RESTRICTED,
+            source = ClassificationSource.DECLARED,
+        )
+
+        assertThat(document.toString()).doesNotContain("sensitive")
+        assertThat(document.toString())
+            .contains("classification=RESTRICTED")
+            .contains("source=DECLARED")
+    }
 }
