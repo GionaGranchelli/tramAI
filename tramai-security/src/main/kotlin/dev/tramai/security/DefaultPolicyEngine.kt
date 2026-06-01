@@ -7,10 +7,12 @@ import dev.tramai.core.policy.*
  *
  * Every enforcement point is evaluated against [PolicyConfiguration].
  * Unknown tools, models, and providers are denied. HIGH/CRITICAL-risk
- * tools require human approval. RESTRICTED data is blocked from cloud providers.
+ * tools and tools with non-AUTO approval modes require human approval.
  *
- * This engine is intended as the secure default for 1.0+. In 0.4.x preview,
- * pass an explicit [PolicyConfiguration] or use [PolicyConfiguration.preview].
+ * RESTRICTED-data enforcement is partially implemented: when a data
+ * classification is attached to the context, egress is controlled via
+ * trustedLocalProviders, but classified-input propagation through
+ * every provider invocation path remains follow-up work.
  */
 class DefaultPolicyEngine(
     private val config: PolicyConfiguration,
@@ -175,12 +177,12 @@ class DefaultPolicyEngine(
             }
 
             val risk = metadata.risk
-            if (risk in config.requireApprovalForRiskLevel) {
+            if (metadata.approval != ApprovalMode.AUTO || risk in config.requireApprovalForRiskLevel) {
                 return PolicyDecision.RequireApproval(
                     ApprovalRequirement(
                         toolName = toolName,
                         argumentsDigest = "", // TODO(phase-2): populate from actual tool arguments when approval subsystem lands
-                        reason = "Tool '$toolName' (risk=$risk) requires human approval",
+                        reason = "Tool '$toolName' (risk=$risk, approval=${metadata.approval}) requires human approval",
                         timeoutMillis = 30_000,
                     ),
                 )

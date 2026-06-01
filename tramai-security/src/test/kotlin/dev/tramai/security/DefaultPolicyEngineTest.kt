@@ -118,6 +118,110 @@ class DefaultPolicyEngineTest {
     }
 
     @Test
+    fun `LOW risk with HUMAN_REQUIRED approval requires approval`() {
+        runBlocking {
+            val config = PolicyConfiguration.secure().copy(
+                allowedTools = setOf("review-tool"),
+                allowedPermissions = setOf("review.execute"),
+                requireApprovalForRiskLevel = setOf(RiskLevel.HIGH, RiskLevel.CRITICAL),
+            )
+            val engine = DefaultPolicyEngine(config)
+            val decision = engine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                    toolName = "review-tool",
+                    toolSecurity = ToolSecurityMetadata(
+                        permission = "review.execute",
+                        risk = RiskLevel.LOW,
+                        approval = ApprovalMode.HUMAN_REQUIRED,
+                        managedNetworkEgress = ManagedNetworkEgress.DENY,
+                        audit = AuditDetail.FULL,
+                    ),
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.RequireApproval::class.java)
+        }
+    }
+
+    @Test
+    fun `MEDIUM risk with HUMAN_REQUIRED_WITH_TIMEOUT approval requires approval`() {
+        runBlocking {
+            val config = PolicyConfiguration.secure().copy(
+                allowedTools = setOf("staged-tool"),
+                allowedPermissions = setOf("staged.execute"),
+                requireApprovalForRiskLevel = setOf(RiskLevel.HIGH, RiskLevel.CRITICAL),
+            )
+            val engine = DefaultPolicyEngine(config)
+            val decision = engine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                    toolName = "staged-tool",
+                    toolSecurity = ToolSecurityMetadata(
+                        permission = "staged.execute",
+                        risk = RiskLevel.MEDIUM,
+                        approval = ApprovalMode.HUMAN_REQUIRED_WITH_TIMEOUT,
+                        managedNetworkEgress = ManagedNetworkEgress.DENY,
+                        audit = AuditDetail.FULL,
+                    ),
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.RequireApproval::class.java)
+        }
+    }
+
+    @Test
+    fun `LOW risk with AUTO approval is allowed`() {
+        runBlocking {
+            val config = PolicyConfiguration.secure().copy(
+                allowedTools = setOf("auto-tool"),
+                allowedPermissions = setOf("auto.execute"),
+                requireApprovalForRiskLevel = setOf(RiskLevel.HIGH, RiskLevel.CRITICAL),
+            )
+            val engine = DefaultPolicyEngine(config)
+            val decision = engine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                    toolName = "auto-tool",
+                    toolSecurity = ToolSecurityMetadata(
+                        permission = "auto.execute",
+                        risk = RiskLevel.LOW,
+                        approval = ApprovalMode.AUTO,
+                        managedNetworkEgress = ManagedNetworkEgress.ALLOW,
+                        audit = AuditDetail.MINIMAL,
+                    ),
+                )
+            )
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
+
+    @Test
+    fun `HIGH risk with AUTO approval but HIGH globally requires approval`() {
+        runBlocking {
+            val config = PolicyConfiguration.secure().copy(
+                allowedTools = setOf("high-auto-tool"),
+                allowedPermissions = setOf("high-auto.execute"),
+                requireApprovalForRiskLevel = setOf(RiskLevel.HIGH),
+            )
+            val engine = DefaultPolicyEngine(config)
+            val decision = engine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                    toolName = "high-auto-tool",
+                    toolSecurity = ToolSecurityMetadata(
+                        permission = "high-auto.execute",
+                        risk = RiskLevel.HIGH,
+                        approval = ApprovalMode.AUTO,
+                        managedNetworkEgress = ManagedNetworkEgress.DENY,
+                        audit = AuditDetail.FULL,
+                    ),
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.RequireApproval::class.java)
+        }
+    }
+
+    @Test
     fun `response return without classification is allowed`() {
         runBlocking {
             val decision = secureEngine.evaluate(

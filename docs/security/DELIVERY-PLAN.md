@@ -51,8 +51,8 @@ The current engine does not yet propagate classified request context through
 every provider invocation path. `BEFORE_PROVIDER_INVOCATION` still does not
 consistently receive request classification, so full data-sovereignty
 enforcement is not implemented yet. Closing that gap requires:
-- `Topic 1.6`: Propagate `@DataClassification` annotation through invocation.
-- `Topic 1.7`: Enforce egress policy at `BEFORE_PROVIDER_INVOCATION`.
+- `Topic 1.6`: Propagate classified request context (payload/metadata, not a new annotation) through provider invocation for all paths.
+- `Topic 1.7`: Enforce egress policy at `BEFORE_PROVIDER_INVOCATION` once classification context is available.
 
 ---
 

@@ -30,7 +30,11 @@ data class PolicyConfiguration(
     val trustedLocalProviders: Set<String> = emptySet(),
 ) {
     companion object {
-        /** Fully permissive preset — only for 0.4.x preview / testing. */
+        /**
+         * Permissive preset for 0.4.x preview / testing.
+         * Most checks are bypassed (wildcard allowlists), but CRITICAL-risk
+         * tools still require human approval.
+         */
         fun preview() = PolicyConfiguration(
             allowedTools = setOf("*"),
             allowedModels = setOf("*"),
