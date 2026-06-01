@@ -39,11 +39,11 @@ data class PolicyContext(
     val workflowId: String?,
     val workflowRunId: String?,
     val correlationId: String,
-    val actor: Actor,
+    val actorId: String,
     // Provider context
-    val targetProvider: String?,
-    val targetModel: String?,
-    val fallbackProvider: String?,
+    val providerId: String?,
+    val modelName: String?,
+    val fallbackProviderId: String?,
     // Data context
     val dataClassification: DataClassification?,
     val classificationSource: ClassificationSource?,
@@ -315,7 +315,7 @@ Every enforcement point is a mandatory call from `TramaiEngine` internals:
 val context = PolicyContext(
     enforcementPoint = EnforcementPoint.BEFORE_TOOL_EXECUTION,
     correlationId = currentCorrelationId(),
-    actor = currentActor(),
+    actorId = currentActorId(),
     toolName = tool.name,
     toolSecurity = tool.security,
     policyVersion = policyVersion,
@@ -327,7 +327,7 @@ when (val decision = policyEngine.evaluate(context)) {
     is PolicyDecision.Allow -> proceed()
     is PolicyDecision.Deny -> {
         auditEngine.emit(decision.toAuditEvent(context))
-        throw PolicyViolationException(decision.reason, decision.reasonCode)
+        throw PolicyViolationException(decision)
     }
     is PolicyDecision.RequireApproval -> {
         val request = approvalEngine.create(
@@ -335,7 +335,7 @@ when (val decision = policyEngine.evaluate(context)) {
             workflowRunId = context.workflowId,
             workflowDigest = context.workflowDigest,
             policyVersion = context.policyVersion,
-            actor = context.actor
+            actorId = context.actorId
         )
         auditEngine.emit(request.toAuditEvent(context))
         suspendForApproval(request)
