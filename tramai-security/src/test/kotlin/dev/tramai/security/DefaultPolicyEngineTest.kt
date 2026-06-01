@@ -314,6 +314,18 @@ class DefaultPolicyEngineTest {
     }
 
     @Test
+    fun `secure mode denies null toolSecurity metadata during exposure`() {
+        runBlocking {
+            val engine = DefaultPolicyEngine(PolicyConfiguration.secure().copy(allowedTools = setOf("legacy-tool")))
+            val decision = engine.evaluate(
+                ctx(EnforcementPoint.BEFORE_TOOL_EXPOSURE, toolName = "legacy-tool", toolSecurity = null)
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("tool-metadata-missing")
+        }
+    }
+
+    @Test
     fun `secure mode denies LEGACY_PERMISSIVE compatibility mode`() {
         runBlocking {
             val engine = DefaultPolicyEngine(
@@ -335,10 +347,41 @@ class DefaultPolicyEngineTest {
     }
 
     @Test
+    fun `secure mode denies LEGACY_PERMISSIVE compatibility mode during exposure`() {
+        runBlocking {
+            val engine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedTools = setOf("legacy-tool"),
+                    allowedPermissions = setOf("legacy.unrestricted"),
+                )
+            )
+            val decision = engine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_TOOL_EXPOSURE,
+                    toolName = "legacy-tool",
+                    toolSecurity = ToolSecurityMetadata.legacyPermissive(),
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("tool-metadata-legacy-permissive")
+        }
+    }
+
+    @Test
     fun `preview mode allows null toolSecurity metadata`() {
         runBlocking {
             val decision = previewEngine.evaluate(
                 ctx(EnforcementPoint.BEFORE_TOOL_EXECUTION, toolName = "legacy-tool", toolSecurity = null)
+            )
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
+
+    @Test
+    fun `preview mode allows null toolSecurity metadata during exposure`() {
+        runBlocking {
+            val decision = previewEngine.evaluate(
+                ctx(EnforcementPoint.BEFORE_TOOL_EXPOSURE, toolName = "legacy-tool", toolSecurity = null)
             )
             assertThat(decision).isEqualTo(PolicyDecision.Allow)
         }

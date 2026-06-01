@@ -47,9 +47,10 @@ Translates the Phase 1 roadmap into concrete epics, issues, and acceptance crite
 - `LegacyPermissivePolicyEngine` available for explicit opt-in
 
 **Known gap — classified request propagation:**
-The current engine does not propagate input classification through provider
-invocation for all paths. BEFORE_PROVIDER_INVOCATION does not yet receive
-data classification context. Full data-sovereignty enforcement requires:
+The current engine does not yet propagate classified request context through
+every provider invocation path. `BEFORE_PROVIDER_INVOCATION` still does not
+consistently receive request classification, so full data-sovereignty
+enforcement is not implemented yet. Closing that gap requires:
 - `Topic 1.6`: Propagate `@DataClassification` annotation through invocation.
 - `Topic 1.7`: Enforce egress policy at `BEFORE_PROVIDER_INVOCATION`.
 
