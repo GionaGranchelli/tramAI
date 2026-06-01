@@ -25,6 +25,8 @@ import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.structured.StructuredOutputHandler
 import dev.tramai.core.structured.StructuredOutputResult
 import dev.tramai.core.structured.StructuredOutputContract
+import dev.tramai.security.DefaultPolicyEngine
+import dev.tramai.security.PolicyConfiguration
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.toList
@@ -57,18 +59,26 @@ class PolicyEnforcementTest {
 
     private fun providerThatReturns(content: String) = CountingProvider(content = content)
 
-    private fun providerWithToolCall(toolName: String) = object : ModelProvider {
+    private fun providerWithToolCallThenReturn(toolName: String, finalContent: String = "done") = object : ModelProvider {
         val callCount = AtomicInteger(0)
         override fun providerId() = "test-provider"
         override suspend fun complete(request: ModelRequest): ModelResponse {
-            callCount.incrementAndGet()
-            return ModelResponse(
-                content = "",
-                inputTokens = 10,
-                outputTokens = 5,
-                modelUsed = request.model,
-                toolCalls = listOf(ToolCall("call-1", toolName, "{}")),
-            )
+            return if (callCount.incrementAndGet() == 1) {
+                ModelResponse(
+                    content = "",
+                    inputTokens = 10,
+                    outputTokens = 5,
+                    modelUsed = request.model,
+                    toolCalls = listOf(ToolCall("call-1", toolName, "{}")),
+                )
+            } else {
+                ModelResponse(
+                    content = finalContent,
+                    inputTokens = 10,
+                    outputTokens = 5,
+                    modelUsed = request.model,
+                )
+            }
         }
     }
 
@@ -111,6 +121,26 @@ class PolicyEnforcementTest {
         override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult {
             callCount.incrementAndGet()
             return ToolResult.Success(input.toString())
+        }
+    }
+
+    private val highRiskPaymentTool = object : ResolvedTool {
+        val callCount = AtomicInteger(0)
+        override val name = "payment-tool"
+        override val description = "Executes payments"
+        override val inputSchemaJson = "{}"
+        override val idempotent = false
+        override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.WRITE
+        override val security = dev.tramai.core.policy.ToolSecurityMetadata(
+            permission = "payment.execute",
+            risk = dev.tramai.core.policy.RiskLevel.HIGH,
+            approval = dev.tramai.core.policy.ApprovalMode.HUMAN_REQUIRED,
+            managedNetworkEgress = dev.tramai.core.policy.ManagedNetworkEgress.DENY,
+            audit = dev.tramai.core.policy.AuditDetail.FULL,
+        )
+        override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult {
+            callCount.incrementAndGet()
+            return ToolResult.Success("payment result")
         }
     }
 
@@ -303,7 +333,7 @@ class PolicyEnforcementTest {
 
     @Test
     fun `tool exposure denied per tool at correct hook`() = runBlocking {
-        val provider = providerWithToolCall("echo")
+        val provider = providerWithToolCallThenReturn("echo")
         val deniedTool = AtomicInteger()
         val denyTools = TramaiEngine(
             provider = provider,
@@ -328,7 +358,7 @@ class PolicyEnforcementTest {
     fun `tool execution denied at correct hook`() = runBlocking {
         val countingTool = countingEchoTool
         val denyExec = TramaiEngine(
-            provider = providerWithToolCall("echo"),
+            provider = providerWithToolCallThenReturn("echo"),
             toolRegistry = ToolRegistry(mapOf("echo" to countingTool)),
             policyEngine = object : PolicyEngine {
                 override suspend fun evaluate(context: PolicyContext): PolicyDecision =
@@ -348,7 +378,7 @@ class PolicyEnforcementTest {
     @Test
     fun `tool result reinjection denied at correct hook`() = runBlocking {
         val denyReinject = TramaiEngine(
-            provider = providerWithToolCall("echo"),
+            provider = providerWithToolCallThenReturn("echo"),
             toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
             policyEngine = object : PolicyEngine {
                 override suspend fun evaluate(context: PolicyContext): PolicyDecision =
@@ -396,13 +426,54 @@ class PolicyEnforcementTest {
                         )
                     } else PolicyDecision.Allow
             },
-            provider = providerWithToolCall("echo"),
+            provider = providerWithToolCallThenReturn("echo"),
         )
         val service = approvalEngine.create<TestService>()
 
         assertThatThrownBy { runBlocking { service.analyze("test") } }
             .isInstanceOf(ApprovalRequiredException::class.java)
             .hasMessageContaining("needs approval")
+    }
+
+    @Test
+    fun `HIGH risk tool exposure then execution requires approval`() = runBlocking {
+        highRiskPaymentTool.callCount.set(0)
+        val provider = object : ModelProvider {
+            var callCount = 0
+            override fun providerId() = "test-provider"
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                callCount++
+                return if (callCount == 1) {
+                    ModelResponse(
+                        content = "",
+                        inputTokens = 10,
+                        outputTokens = 5,
+                        modelUsed = request.model,
+                        toolCalls = listOf(ToolCall("call-1", "payment-tool", "{}")),
+                    )
+                } else {
+                    ModelResponse(content = "done", inputTokens = 10, outputTokens = 5, modelUsed = request.model)
+                }
+            }
+        }
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = ToolRegistry(mapOf("payment-tool" to highRiskPaymentTool)),
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedTools = setOf("payment-tool"),
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("test-provider"),
+                    allowedPermissions = setOf("payment.execute"),
+                )
+            ),
+        )
+        val service = engine.create<PaymentToolService>()
+
+        assertThatThrownBy { runBlocking { service.analyze("test") } }
+            .isInstanceOf(ApprovalRequiredException::class.java)
+            .hasMessageContaining("requires human approval")
+        assertThat(highRiskPaymentTool.callCount.get()).isEqualTo(0)
     }
 
     // -- Streaming tests -------------------------------------------------------
@@ -649,7 +720,7 @@ class PolicyEnforcementTest {
     fun `tool enforcement has toolName and correlationId`() = runBlocking {
         var capturedToolName: String? = null
         val engine = TramaiEngine(
-            provider = providerWithToolCall("echo"),
+            provider = providerWithToolCallThenReturn("echo"),
             toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
             policyEngine = object : PolicyEngine {
                 override suspend fun evaluate(context: PolicyContext): PolicyDecision {
@@ -688,11 +759,17 @@ class PolicyEnforcementTest {
         suspend fun analyze(input: String): String
     }
 
+    @AiService
+    interface PaymentToolService {
+        @Operation(prompt = "test", model = "test-model", tools = ["payment-tool"])
+        suspend fun analyze(input: String): String
+    }
+
     @Test
     fun `tool execution enforcement has toolSecurity`() = runBlocking {
         var capturedSecurity: dev.tramai.core.policy.ToolSecurityMetadata? = null
         val engine = TramaiEngine(
-            provider = providerWithToolCall("insecure"),
+            provider = providerWithToolCallThenReturn("insecure"),
             toolRegistry = ToolRegistry(mapOf("insecure" to insecureTool)),
             policyEngine = object : PolicyEngine {
                 override suspend fun evaluate(context: PolicyContext): PolicyDecision {
@@ -1090,5 +1167,58 @@ class PolicyEnforcementTest {
         assertThat(result).isEqualTo("fallback-ok")
         assertThat(fallbackEnforced).isTrue()
         assertThat(fallbackCalled.get()).isEqualTo(1)
+    }
+
+    // -- Null toolSecurity tests ------------------------------------------------
+
+    private val legacyTool = object : ResolvedTool {
+        override val name = "legacy"
+        override val description = "Legacy Tool"
+        override val inputSchemaJson = "{}"
+        override val idempotent = false
+        override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.WRITE
+        override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult =
+            ToolResult.Success("legacy result")
+    }
+
+    @AiService
+    interface LegacyToolService {
+        @Operation(prompt = "test", model = "test-model", tools = ["legacy"])
+        suspend fun analyze(input: String): String
+    }
+
+    @Test
+    fun `legacy tool without security metadata is rejected in secure mode`() = runBlocking {
+        val provider = providerWithToolCallThenReturn("legacy")
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = ToolRegistry(mapOf("legacy" to legacyTool)),
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedTools = setOf("legacy"),
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("test-provider"),
+                )
+            ),
+        )
+        val service = engine.create<LegacyToolService>()
+
+        assertThatThrownBy { runBlocking { service.analyze("test") } }
+            .isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("has no security metadata")
+    }
+
+    @Test
+    fun `legacy tool without security metadata is allowed in preview mode`() = runBlocking {
+        val provider = providerWithToolCallThenReturn("legacy")
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = ToolRegistry(mapOf("legacy" to legacyTool)),
+            policyEngine = DefaultPolicyEngine(PolicyConfiguration.preview()),
+        )
+        val service = engine.create<LegacyToolService>()
+
+        val result = service.analyze("test")
+        assertThat(result).isEqualTo("done")
     }
 }
