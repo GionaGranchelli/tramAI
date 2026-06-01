@@ -31,9 +31,11 @@ data class PolicyConfiguration(
 ) {
     companion object {
         /**
-         * Permissive preset for 0.4.x preview / testing.
-         * Most checks are bypassed (wildcard allowlists), but CRITICAL-risk
-         * tools still require human approval.
+         * Permissive preset for 0.4.x migration and testing.
+         * Wildcard allowlists bypass most registry checks.
+         * CRITICAL-risk tools still require approval.
+         * RESTRICTED data remains limited to trusted local providers when
+         * classification context is available.
          */
         fun preview() = PolicyConfiguration(
             allowedTools = setOf("*"),

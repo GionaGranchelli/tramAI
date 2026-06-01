@@ -46,13 +46,19 @@ Translates the Phase 1 roadmap into concrete epics, issues, and acceptance crite
 - Migration warning logged once per engine instance
 - `LegacyPermissivePolicyEngine` available for explicit opt-in
 
-**Known gap — classified request propagation:**
+**Known gap — classified request propagation and response provenance:**
 The current engine does not yet propagate classified request context through
 every provider invocation path. `BEFORE_PROVIDER_INVOCATION` still does not
 consistently receive request classification, so full data-sovereignty
-enforcement is not implemented yet. Closing that gap requires:
+enforcement is not implemented yet. Additionally, response-return hooks
+(raw, structured, streaming, cached) build enforcement contexts without
+`providerId`, `modelName`, or `dataClassification`, so `evaluateResponseReturn`
+cannot enforce local-boundary rules consistently.
+
+Closing these gaps requires:
 - `Topic 1.6`: Propagate classified request context (payload/metadata, not a new annotation) through provider invocation for all paths.
 - `Topic 1.7`: Enforce egress policy at `BEFORE_PROVIDER_INVOCATION` once classification context is available.
+- `Topic 1.8`: Propagate selected-provider provenance into response-return checks (raw, structured, streaming, cached). For cached values, store or reconstruct `providerId`, `modelName`, `dataClassification`, and `classificationSource`.
 
 ---
 
