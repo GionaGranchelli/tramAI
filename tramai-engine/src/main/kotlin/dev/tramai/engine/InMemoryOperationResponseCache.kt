@@ -18,30 +18,41 @@ class InMemoryOperationResponseCache(
     }
 
     @Synchronized
-    override fun get(key: OperationCacheKey): Any? {
+    override fun get(key: OperationCacheKey): CachedOperationResult? {
         val entry = entries[key] ?: return null
         if (clockMillis() >= entry.expiresAtMillis) {
             entries.remove(key)
             return null
         }
-        return entry.value
+        return CachedOperationResult(
+            value = entry.value,
+            provenance = entry.provenance,
+        )
     }
 
     @Synchronized
     override fun put(
         key: OperationCacheKey,
-        value: Any,
+        value: CachedOperationResult,
         ttlMillis: Long,
     ) {
         require(ttlMillis > 0) { "Cache TTL must be greater than zero" }
         entries[key] = CacheEntry(
-            value = value,
+            value = value.value,
             expiresAtMillis = clockMillis() + ttlMillis,
+            provenance = value.provenance,
         )
     }
+
+    @Synchronized
+    internal fun snapshotKeys(): Set<OperationCacheKey> = entries.keys.toSet()
+
+    @Synchronized
+    internal fun peek(key: OperationCacheKey): CachedOperationResult? = get(key)
 }
 
 private data class CacheEntry(
     val value: Any,
     val expiresAtMillis: Long,
+    val provenance: CachedResponseProvenance,
 )

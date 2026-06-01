@@ -61,6 +61,8 @@ import kotlinx.coroutines.withTimeout
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.reflect.KClass
@@ -775,17 +777,17 @@ private class TramaiInvocationHandler(
         val correlationId = java.util.UUID.randomUUID().toString()
 
         // Enforce BEFORE_RESPONSE_RETURN before returning cached value
-        if (securityContext.dataClassification == null) {
-            operation.cachedValue(arguments)?.let { cached ->
-                policyHelper.enforce(
-                    policyHelper.buildContext(
-                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
-                        correlationId = correlationId,
-                    ).applySecurityContext(securityContext)
-                        .build()
-                )
-                return cached as String
-            }
+        operation.cachedValue(arguments)?.let { cached ->
+            policyHelper.enforce(
+                policyHelper.buildContext(
+                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    correlationId = correlationId,
+                ).providerId(cached.provenance.providerId)
+                    .modelName(cached.provenance.modelName)
+                    .applySecurityContext(securityContext)
+                    .build()
+            )
+            return cached.value as String
         }
 
         val messages = operation.initialMessages(arguments).toMutableList()
@@ -826,9 +828,7 @@ private class TramaiInvocationHandler(
 
         result.observation.onCallCompleted(parseSuccess = null)
         return result.response.content.also {
-            if (securityContext.dataClassification == null) {
-                operation.cacheValue(arguments, it)
-            }
+            operation.cacheValue(arguments, it, result.providerId, result.modelName)
         }
     }
 
@@ -846,17 +846,17 @@ private class TramaiInvocationHandler(
         val correlationId = java.util.UUID.randomUUID().toString()
 
         // Enforce BEFORE_RESPONSE_RETURN before returning cached value
-        if (securityContext.dataClassification == null) {
-            operation.cachedValue(arguments, contract.schemaJson)?.let { cached ->
-                policyHelper.enforce(
-                    policyHelper.buildContext(
-                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
-                        correlationId = correlationId,
-                    ).applySecurityContext(securityContext)
-                        .build()
-                )
-                return cached
-            }
+        operation.cachedValue(arguments, contract.schemaJson)?.let { cached ->
+            policyHelper.enforce(
+                policyHelper.buildContext(
+                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    correlationId = correlationId,
+                ).providerId(cached.provenance.providerId)
+                    .modelName(cached.provenance.modelName)
+                    .applySecurityContext(securityContext)
+                    .build()
+            )
+            return cached.value
         }
 
         val messages = operation.initialMessages(arguments, contract.schemaJson).toMutableList()
@@ -974,9 +974,7 @@ private class TramaiInvocationHandler(
                     conversationId = conversationId,
                     messagesBeforeCall = messagesBeforeCall,
                 )
-                if (securityContext.dataClassification == null) {
-                    operation.cacheValue(arguments, analysis.value, schemaJson)
-                }
+                operation.cacheValue(arguments, analysis.value, result.providerId, result.modelName, schemaJson)
 
                 analysis.value
             }
@@ -1596,7 +1594,7 @@ private class TramaiInvocationHandler(
     private fun OperationDefinition.cachedValue(
         arguments: List<Any?>,
         schemaJson: String? = null,
-    ): Any? = if (isCacheEligible) {
+    ): CachedOperationResult? = if (isCacheEligible) {
         responseCache.get(cacheKey(arguments, schemaJson))
     } else {
         null
@@ -1605,14 +1603,25 @@ private class TramaiInvocationHandler(
     private fun OperationDefinition.cacheValue(
         arguments: List<Any?>,
         value: Any,
+        providerId: String,
+        modelName: String,
         schemaJson: String? = null,
     ) {
         if (!isCacheEligible) {
             return
         }
+        val securityContext = ExecutionSecurityContext.fromArguments(arguments.toTypedArray())
         responseCache.put(
             key = cacheKey(arguments, schemaJson),
-            value = value,
+            value = CachedOperationResult(
+                value = value,
+                provenance = CachedResponseProvenance(
+                    providerId = providerId,
+                    modelName = modelName,
+                    dataClassification = securityContext.dataClassification,
+                    classificationSource = securityContext.classificationSource,
+                ),
+            ),
             ttlMillis = operation.cacheTtlMillis,
         )
     }
@@ -1854,12 +1863,10 @@ private data class OperationDefinition(
         methodName = method.name,
         requestedModel = operation.model,
         explicitProvider = operation.provider.takeIf { it.isNotBlank() },
-        messages = initialMessages(arguments, schemaJson).map { message ->
-            CachedMessage(
-                role = message.role.name,
-                content = message.content,
-            )
-        },
+        // The cache key is intentionally derived from the request that reaches
+        // the model so redactions remain stable across repeated calls.
+        requestDigest = sha256Hex(canonicalizeMessages(initialMessages(arguments, schemaJson))),
+        securityPartition = ExecutionSecurityContext.fromArguments(arguments.toTypedArray()).toCacheSecurityPartition(),
     )
 
     fun structuredContract(handler: StructuredOutputHandler) = handler.createContract(
@@ -1972,6 +1979,25 @@ private data class OperationDefinition(
         private fun Method.isSuspendSignature(): Boolean =
             parameterTypes.lastOrNull()?.name == "kotlin.coroutines.Continuation"
     }
+}
+
+internal fun buildOperationCacheKeyForTesting(
+    serviceType: KClass<*>,
+    methodName: String,
+    arguments: List<Any?>,
+    schemaJson: String? = null,
+    promptSanitizer: PromptSanitizer? = null,
+): OperationCacheKey {
+    val definition = ServiceDefinition.create(
+        serviceType = serviceType,
+        toolRegistry = ToolRegistry(),
+        promptSanitizer = promptSanitizer,
+    )
+    val method = serviceType.java.methods.firstOrNull { it.name == methodName }
+        ?: throw IllegalArgumentException("No method named '$methodName' on ${serviceType.java.name}")
+    val operation = definition.operations[method]
+        ?: throw IllegalArgumentException("No operation metadata for ${serviceType.java.name}.$methodName")
+    return operation.cacheKey(arguments, schemaJson)
 }
 
 private data class ProviderCallResult(
@@ -2186,6 +2212,20 @@ private fun PolicyContextBuilder.applySecurityContext(
     securityContext: ExecutionSecurityContext,
 ): PolicyContextBuilder = dataClassification(securityContext.dataClassification)
     .classificationSource(securityContext.classificationSource)
+
+private fun ExecutionSecurityContext.toCacheSecurityPartition() = CacheSecurityPartition(
+    dataClassification = dataClassification,
+    classificationSource = classificationSource,
+)
+
+private fun canonicalizeMessages(messages: List<Message>): String = messages.joinToString("\u001E") { message ->
+    "${message.role.name}\u001F${message.content}"
+}
+
+private fun sha256Hex(input: String): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(StandardCharsets.UTF_8))
+    return digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
+}
 
 private const val INITIAL_PROVIDER_RETRY_DELAY_MILLIS = 50L
 private const val MAX_PROVIDER_RETRY_DELAY_MILLIS = 1_000L

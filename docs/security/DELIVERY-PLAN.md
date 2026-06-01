@@ -54,9 +54,6 @@ and streaming execution.
 Topic 1.7 ✅ — classification egress enforced at `BEFORE_PROVIDER_INVOCATION`
 and `BEFORE_RESPONSE_RETURN` via `evaluateClassificationEgress()`.
 
-Topic 1.8 remains open — cache-entry provenance. Classified cache reuse
-is deliberately disabled until Topic 1.8 is complete.
-
 Implementation note:
 - classification derives from `ClassifiedDocument<T>` wrapper
 - no annotation-based classification exists
@@ -65,7 +62,7 @@ Implementation note:
 - among equal classifications, the least-authoritative source is retained for conservative audit metadata (authority order: DECLARED > RULE_BASED > LOCAL_MODEL_ASSISTED)
 
 Remaining follow-up:
-- `Topic 1.8`: Propagate selected-provider provenance into response-return checks (raw, structured, streaming, cached). For cached values, store or reconstruct `providerId`, `modelName`, `dataClassification`, and `classificationSource`.
+Topic 1.8 ✅ — closed in feat/secure-cache-provenance (PR #6). See `CACHE-PROVENANCE.md` if present, otherwise see test names in `PolicyEnforcementTest.kt`.
 
 ---
 
@@ -367,5 +364,27 @@ Epics 1, 2, 2B, 3, and 4 can partially overlap. Epic 5 requires the relevant ver
 | 8 | Epic 5: Sovereign Invoice Analyzer demo, integration tests, evidence pack |
 
 ---
+
+## Implementation Notes — Secure Cache Provenance (PR 6) ✅
+
+**Where:** `tramai-engine/.../OperationResponseCache.kt`, `InMemoryOperationResponseCache.kt`, `TramaiEngine.kt`.
+
+**Cache data model:**
+- `OperationCacheKey` now carries `requestDigest: String` (SHA-256 hex of canonical rendered messages) and `securityPartition: CacheSecurityPartition` (dataClassification + classificationSource).
+- `CachedOperationResult` wraps the stored value with `CachedResponseProvenance(providerId, modelName, dataClassification, classificationSource)`.
+
+**Authorization on cache hit:**
+- Every cache hit re-evaluates `BEFORE_RESPONSE_RETURN` using the **cached** `providerId`/`modelName` and the **current** request's `ExecutionSecurityContext`.
+- Policy changes after a cache write take effect on the next hit.
+- Classified cache reuse is enabled; provenance + re-evaluation make it safe.
+
+**Limitations:**
+- `requestDigest` is SHA-256, not a keyed hash. A configurable HMAC strategy is intentionally deferred.
+- Streaming responses are not cached (no change).
+- A `RESTRICTED` request whose cached response came from a cloud provider is denied on re-use without re-invoking the provider.
+
+**Removed:**
+- The temporary `securityContext.dataClassification == null` bypass in raw + structured cache read/write paths.
+- The `classified raw cacheable calls bypass cache reuse` and `classified structured cacheable calls bypass cache reuse` tests (bypass closed).
 
 *Phase 0 delivery plan. Issues created in GitHub with labels: `phase-1`, `epic-{n}`. See ROADMAP.md for Phase 1 exit criteria.*
