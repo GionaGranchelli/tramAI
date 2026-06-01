@@ -8,4 +8,5 @@ gradle-app.setting
 *.log
 *.tmp
 .env
-graphify-out
+graphify-out.kotlin/
+graphify-out/

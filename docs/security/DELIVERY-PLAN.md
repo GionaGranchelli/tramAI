@@ -13,7 +13,7 @@ Translates the Phase 1 roadmap into concrete epics, issues, and acceptance crite
 #### 1.1 — PolicyEngine SPI, PolicyDecision, and enums
 - Create `PolicyEngine` interface, `PolicyContext`, `PolicyDecision` sealed interface in `tramai-core`
 - Add `EnforcementPoint` enum (8 values)
-- Add `DataClassification`, `RiskLevel`, `ApprovalMode`, `NetworkEgress`, `AuditDetail`, `ProviderPolicy` enums
+- Add `DataClassification`, `RiskLevel`, `ApprovalMode`, `ManagedNetworkEgress`, `AuditDetail`, `ProviderPolicy`, `CompatibilityMode` enums
 - **Acceptance:** Interfaces compile, all enums have documented values
 
 #### 1.2 — tramai-security module scaffold

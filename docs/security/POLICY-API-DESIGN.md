@@ -39,11 +39,11 @@ data class PolicyContext(
     val workflowId: String?,
     val workflowRunId: String?,
     val correlationId: String,
-    val actor: Actor,
+    val actorId: String,
     // Provider context
-    val targetProvider: String?,
-    val targetModel: String?,
-    val fallbackProvider: String?,
+    val providerId: String?,
+    val modelName: String?,
+    val fallbackProviderId: String?,
     // Data context
     val dataClassification: DataClassification?,
     val classificationSource: ClassificationSource?,
@@ -92,8 +92,9 @@ data class ToolSecurityMetadata(
     val permission: String,
     val risk: RiskLevel,
     val approval: ApprovalMode,
-    val networkEgress: NetworkEgress,
-    val audit: AuditDetail
+    val managedNetworkEgress: ManagedNetworkEgress,
+    val audit: AuditDetail,
+    val compatibilityMode: CompatibilityMode = CompatibilityMode.STRICT,
 )
 
 interface TramaiTool<I : Any, O : Any> {
@@ -113,7 +114,13 @@ val security: ToolSecurityMetadata
     get() = ToolSecurityMetadata.legacyPermissive()
 ```
 
-Existing tools get a legacy-permissive default in 0.4.x preview. The sovereign profile rejects legacy metadata unless explicitly overridden.
+Existing tools get a legacy-permissive default in 0.4.x preview:
+```kotlin
+val security: ToolSecurityMetadata
+    get() = ToolSecurityMetadata.legacyPermissive()
+```
+
+The sovereign profile rejects `CompatibilityMode.LEGACY_PERMISSIVE` metadata unless explicitly overridden. Secure mode requires `CompatibilityMode.STRICT`.
 ```
 
 ### @AiTool — Optional Convenience Layer
@@ -125,7 +132,7 @@ For Spring-managed methods, `@AiTool` auto-generates a `TramaiTool` with securit
     permission = "invoice.payment.schedule",
     risk = RiskLevel.HIGH,
     approval = ApprovalMode.HUMAN_REQUIRED,
-    networkEgress = NetworkEgress.DENY,
+    managedNetworkEgress = ManagedNetworkEgress.DENY,
     audit = AuditDetail.FULL
 )
 suspend fun schedulePayment(command: PaymentCommand): PaymentResult
@@ -268,7 +275,7 @@ Tampering with any field — actor, enforcement point, workflow digest, policy v
 enum class DataClassification { PUBLIC, INTERNAL, CONFIDENTIAL, RESTRICTED }
 enum class RiskLevel { LOW, MEDIUM, HIGH, CRITICAL }
 enum class ApprovalMode { AUTO, HUMAN_REQUIRED, HUMAN_REQUIRED_WITH_TIMEOUT }
-enum class NetworkEgress { ALLOW, DENY, ALLOWLIST_ONLY }
+enum class ManagedNetworkEgress { ALLOW, DENY, ALLOWLIST_ONLY }
 enum class ProviderPolicy { LOCAL_ONLY, EU_ONLY, APPROVED_CLOUD, ANY_APPROVED }
 
 enum class AuditDetail {
@@ -315,7 +322,7 @@ Every enforcement point is a mandatory call from `TramaiEngine` internals:
 val context = PolicyContext(
     enforcementPoint = EnforcementPoint.BEFORE_TOOL_EXECUTION,
     correlationId = currentCorrelationId(),
-    actor = currentActor(),
+    actorId = currentActorId(),
     toolName = tool.name,
     toolSecurity = tool.security,
     policyVersion = policyVersion,
@@ -327,15 +334,19 @@ when (val decision = policyEngine.evaluate(context)) {
     is PolicyDecision.Allow -> proceed()
     is PolicyDecision.Deny -> {
         auditEngine.emit(decision.toAuditEvent(context))
-        throw PolicyViolationException(decision.reason, decision.reasonCode)
+        throw PolicyViolationException(decision)
     }
     is PolicyDecision.RequireApproval -> {
         val request = approvalEngine.create(
             decision.requirement,
-            workflowRunId = context.workflowId,
-            workflowDigest = context.workflowDigest,
+            workflowRunId = requireNotNull(context.workflowRunId) {
+                "workflowRunId is required when creating an approval request"
+            },
+            workflowDigest = requireNotNull(context.workflowDigest) {
+                "workflowDigest is required when creating an approval request"
+            },
             policyVersion = context.policyVersion,
-            actor = context.actor
+            actorId = context.actorId
         )
         auditEngine.emit(request.toAuditEvent(context))
         suspendForApproval(request)
