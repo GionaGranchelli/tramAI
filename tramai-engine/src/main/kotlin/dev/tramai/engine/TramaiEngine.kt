@@ -9,10 +9,12 @@ import dev.tramai.core.annotations.User as UserMessage
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider
 import dev.tramai.core.memory.UuidConversationIdProvider
+import dev.tramai.core.exception.ApprovalRequiredException
 import dev.tramai.core.exception.CircuitBreakerOpenException
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.ProviderCapabilityException
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.TokenBudgetExceededException
 import dev.tramai.core.exception.TramaiException
 import dev.tramai.core.exception.TimeoutException
@@ -83,9 +85,11 @@ class TramaiEngine(
     private val conversationIdProvider: ConversationIdProvider = UuidConversationIdProvider(),
     private val job: Job = SupervisorJob(),
     private val scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
+    private val policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
 ) : AutoCloseable {
     private val circuitBreaker = ProviderCircuitBreaker(circuitBreakerSettings)
     private val retryDelayPolicy = ProviderRetryDelayPolicy(retryPolicySettings)
+    private val migrationWarningGuard = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /**
      * Creates an engine backed by a single provider.
@@ -105,6 +109,7 @@ class TramaiEngine(
         conversationIdProvider: ConversationIdProvider = UuidConversationIdProvider(),
         job: Job = SupervisorJob(),
         scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
+        policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
     ) : this(
         providerRegistry = ProviderRegistry.singleProvider(provider),
         structuredOutputHandler = structuredOutputHandler,
@@ -120,6 +125,7 @@ class TramaiEngine(
         conversationIdProvider = conversationIdProvider,
         job = job,
         scope = scope,
+        policyEngine = policyEngine,
     )
 
     /**
@@ -146,6 +152,8 @@ class TramaiEngine(
             conversationIdProvider = conversationIdProvider,
             scope = scope,
             serviceDefinition = definition,
+            policyEngine = policyEngine,
+            migrationWarningGuard = migrationWarningGuard,
         )
 
         @Suppress("UNCHECKED_CAST")
@@ -184,7 +192,11 @@ private class TramaiInvocationHandler(
     private val conversationIdProvider: ConversationIdProvider,
     private val scope: CoroutineScope,
     private val serviceDefinition: ServiceDefinition,
+    policyEngine: dev.tramai.core.policy.PolicyEngine?,
+    private val migrationWarningGuard: java.util.concurrent.atomic.AtomicBoolean,
 ) : InvocationHandler {
+
+    private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard)
 
     override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
         if (method.declaringClass == Any::class.java) {
@@ -249,18 +261,56 @@ private class TramaiInvocationHandler(
         val memoryInjection = injectMemoryMessages(operation, arguments, conversationId)
         val historySize = memoryInjection?.first?.size ?: 0
         val memoryMessages = memoryInjection?.second
+        val correlationId = java.util.UUID.randomUUID().toString()
+
+        // Enforce BEFORE_PROVIDER_RESOLUTION before resolving routes
+        policyHelper.enforce(
+            policyHelper.buildContext(
+                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_RESOLUTION,
+                correlationId = correlationId,
+            ).modelName(operation.operation.model).build()
+        )
+
+        // Enforce BEFORE_RESPONSE_RETURN before any token is emitted.
+        // Streaming tokens are externally visible immediately, so this is a preemptive check.
+        policyHelper.enforce(
+            policyHelper.buildContext(
+                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                correlationId = correlationId,
+            ).build()
+        )
+
+        val candidates = providerRegistry.resolveCandidates(operation.operation)
 
         return flow {
             var lastFailure: Throwable? = null
             var lastCircuitOpen: CircuitBreakerOpenException? = null
             val attemptCounter = AttemptCounter()
 
-            for ((routeIndex, route) in providerRegistry.resolveCandidates(operation.operation).withIndex()) {
+            for ((routeIndex, route) in candidates.withIndex()) {
                 val blockedUntil = circuitBreaker.beforeCall(route.providerName)
                 if (blockedUntil != null) {
                     lastCircuitOpen = CircuitBreakerOpenException(route.providerName, blockedUntil)
                     continue
                 }
+
+                // Enforce BEFORE_TOOL_EXPOSURE per tool definition
+                operation.toolDefinitions.forEach { toolDef ->
+                    policyHelper.enforce(
+                        policyHelper.buildContext(
+                            enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_EXPOSURE,
+                            correlationId = correlationId,
+                        ).toolName(toolDef.name).build()
+                    )
+                }
+
+                // Enforce BEFORE_PROVIDER_INVOCATION
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                        correlationId = correlationId,
+                    ).providerId(route.providerName).modelName(route.effectiveModelName).build()
+                )
 
                 val streamCapable = route.provider as? StreamCapable
                     ?: throw ProviderCapabilityException(route.providerName, "streaming")
@@ -296,7 +346,22 @@ private class TramaiInvocationHandler(
                         }
                         return@flow
                     }
-                    is StreamingRouteResult.StartupFailure -> lastFailure = result.error
+                    is StreamingRouteResult.StartupFailure -> {
+                        // Enforce BEFORE_FALLBACK before trying the next route
+                        val nextRoute = candidates.getOrNull(routeIndex + 1)
+                        if (nextRoute != null) {
+                            policyHelper.enforce(
+                                policyHelper.buildContext(
+                                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_FALLBACK,
+                                    correlationId = correlationId,
+                                ).providerId(route.providerName)
+                                    .modelName(route.effectiveModelName)
+                                    .fallbackProviderId(nextRoute.providerName)
+                                    .build()
+                            )
+                        }
+                        lastFailure = result.error
+                    }
                     is StreamingRouteResult.TerminalError -> {
                         emit(result.errorChunk)
                         return@flow
@@ -642,13 +707,33 @@ private class TramaiInvocationHandler(
         tokenBudgetTracker: TokenBudgetTracker,
         conversationId: String?,
     ): String {
-        operation.cachedValue(arguments)?.let { return it as String }
+        val correlationId = java.util.UUID.randomUUID().toString()
+
+        // Enforce BEFORE_RESPONSE_RETURN before returning cached value
+        operation.cachedValue(arguments)?.let { cached ->
+            policyHelper.enforce(
+                policyHelper.buildContext(
+                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    correlationId = correlationId,
+                ).build()
+            )
+            return cached as String
+        }
+
         val messages = operation.initialMessages(arguments).toMutableList()
         val (history, effectiveMessages) = injectMemoryMessages(messages, conversationId)
             ?: (emptyList<Message>() to messages.toList())
         val effectiveMutableMessages = effectiveMessages.toMutableList()
 
-        val result = executeWithTools(operation, effectiveMutableMessages, tokenBudgetTracker)
+        val result = executeWithTools(operation, effectiveMutableMessages, tokenBudgetTracker, correlationId)
+
+        // Enforce BEFORE_RESPONSE_RETURN
+        policyHelper.enforce(
+            policyHelper.buildContext(
+                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                correlationId = correlationId,
+            ).build()
+        )
 
         // Memory: persist response if chatMemory is configured
         if (chatMemory != null && conversationId != null) {
@@ -676,7 +761,19 @@ private class TramaiInvocationHandler(
             "Structured return type ${operation.returnTypeDescription} requires a StructuredOutputHandler implementation from tramai-structured",
         )
         val contract = operation.structuredContract(handler)
-        operation.cachedValue(arguments, contract.schemaJson)?.let { return it }
+        val correlationId = java.util.UUID.randomUUID().toString()
+
+        // Enforce BEFORE_RESPONSE_RETURN before returning cached value
+        operation.cachedValue(arguments, contract.schemaJson)?.let { cached ->
+            policyHelper.enforce(
+                policyHelper.buildContext(
+                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    correlationId = correlationId,
+                ).build()
+            )
+            return cached
+        }
+
         val messages = operation.initialMessages(arguments, contract.schemaJson).toMutableList()
         val (history, effectiveMessages) = injectMemoryMessages(messages, conversationId)
             ?: (emptyList<Message>() to messages.toList())
@@ -695,6 +792,7 @@ private class TramaiInvocationHandler(
             historySize = initialTurnCount,
             tokenBudgetTracker = tokenBudgetTracker,
             conversationId = conversationId,
+            correlationId = correlationId,
         )
     }
 
@@ -707,6 +805,7 @@ private class TramaiInvocationHandler(
         historySize: Int,
         tokenBudgetTracker: TokenBudgetTracker,
         conversationId: String?,
+        correlationId: String,
     ): Any {
         val maxAttempts = operation.operation.maxRetries + 1
         val targetType = requireNotNull(operation.returnType) {
@@ -726,6 +825,7 @@ private class TramaiInvocationHandler(
                 targetType = targetType,
                 attemptIndex = attemptIndex,
                 maxAttempts = maxAttempts,
+                correlationId = correlationId,
             )
             if (value != null) {
                 return value
@@ -747,9 +847,10 @@ private class TramaiInvocationHandler(
         targetType: kotlin.reflect.KType,
         attemptIndex: Int,
         maxAttempts: Int,
+        correlationId: String,
     ): Any? {
         val messagesBeforeCall = messages.size
-        val result = executeWithTools(operation, messages, tokenBudgetTracker)
+        val result = executeWithTools(operation, messages, tokenBudgetTracker, correlationId)
         return when (
             val analysis = handler.analyze(
                 rawResponse = result.response.content,
@@ -766,6 +867,15 @@ private class TramaiInvocationHandler(
                     messagesBeforeCall = messagesBeforeCall,
                 )
                 operation.cacheValue(arguments, analysis.value, schemaJson)
+
+                // Enforce BEFORE_RESPONSE_RETURN before returning parsed value
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                        correlationId = correlationId,
+                    ).build()
+                )
+
                 analysis.value
             }
             is StructuredOutputResult.Failure -> {
@@ -833,6 +943,7 @@ private class TramaiInvocationHandler(
         operation: OperationDefinition,
         messages: MutableList<Message>,
         tokenBudgetTracker: TokenBudgetTracker,
+        correlationId: String,
     ): ProviderCallResult {
         val maxToolLoops = 5 // Guard against infinite tool loops
         val attemptCounter = AttemptCounter()
@@ -841,6 +952,7 @@ private class TramaiInvocationHandler(
                 operation = operation,
                 messages = messages,
                 attemptCounter = attemptCounter,
+                correlationId = correlationId,
             )
             try {
                 enforceTokenBudget(
@@ -869,7 +981,7 @@ private class TramaiInvocationHandler(
                 content = result.response.content,
                 toolCalls = toolCalls,
             )
-            processToolCalls(operation, toolCalls, messages)
+            processToolCalls(operation, toolCalls, messages, correlationId)
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
     }
@@ -878,14 +990,23 @@ private class TramaiInvocationHandler(
         operation: OperationDefinition,
         toolCalls: List<ToolCall>,
         messages: MutableList<Message>,
+        correlationId: String,
     ) {
         for (toolCall in toolCalls) {
             val tool = toolRegistry.resolve(toolCall.name)
             val toolResult = if (tool == null) {
                 ToolResult.PermanentFailure("Tool '${toolCall.name}' not found")
             } else {
-                executeTool(tool, toolCall, operation)
+                executeTool(tool, toolCall, operation, correlationId)
             }
+
+            // Enforce BEFORE_TOOL_RESULT_REINJECTION
+            policyHelper.enforce(
+                policyHelper.buildContext(
+                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION,
+                    correlationId = correlationId,
+                ).toolName(toolCall.name).build()
+            )
 
             messages += formatToolResult(toolResult, toolCall.id)
         }
@@ -933,11 +1054,20 @@ private class TramaiInvocationHandler(
         operation: OperationDefinition,
         messages: List<Message>,
         attemptCounter: AttemptCounter,
+        correlationId: String,
     ): ProviderCallResult {
         var lastFallbackFailure: Throwable? = null
         var lastCircuitOpen: CircuitBreakerOpenException? = null
 
-        for ((routeIndex, route) in providerRegistry.resolveCandidates(operation.operation).withIndex()) {
+        val base = policyHelper.buildContext(
+            enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_RESOLUTION,
+            correlationId = correlationId,
+        ).providerId(null).modelName(operation.operation.model).build()
+        policyHelper.enforce(base)
+
+        val candidates = providerRegistry.resolveCandidates(operation.operation)
+
+        for ((routeIndex, route) in candidates.withIndex()) {
             val blockedUntil = circuitBreaker.beforeCall(route.providerName)
             if (blockedUntil != null) {
                 lastCircuitOpen = CircuitBreakerOpenException(route.providerName, blockedUntil)
@@ -945,6 +1075,16 @@ private class TramaiInvocationHandler(
             }
 
             try {
+                // Enforce BEFORE_TOOL_EXPOSURE per tool definition
+                operation.toolDefinitions.forEach { toolDef ->
+                    policyHelper.enforce(
+                        policyHelper.buildContext(
+                            enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_EXPOSURE,
+                            correlationId = correlationId,
+                        ).toolName(toolDef.name).build()
+                    )
+                }
+
                 return callProviderWithRetries(
                     providerId = route.providerName,
                     provider = route.provider,
@@ -959,10 +1099,30 @@ private class TramaiInvocationHandler(
                     operation = operation,
                     attemptCounter = attemptCounter,
                     routeIndex = routeIndex,
+                    correlationId = correlationId,
                 )
             } catch (error: Throwable) {
                 if (!shouldFallbackFrom(error)) {
                     throw error
+                }
+                // Only enforce BEFORE_FALLBACK when another candidate exists
+                val nextRoute = candidates.getOrNull(routeIndex + 1)
+                if (nextRoute != null) {
+                    try {
+                        policyHelper.enforce(
+                            policyHelper.buildContext(
+                                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_FALLBACK,
+                                correlationId = correlationId,
+                            ).providerId(route.providerName)
+                                .modelName(route.effectiveModelName)
+                                .fallbackProviderId(nextRoute.providerName)
+                                .build()
+                        )
+                    } catch (policyError: PolicyViolationException) {
+                        // Fallback denied — propagate policy violation with original error as suppressed
+                        policyError.addSuppressed(error)
+                        throw policyError
+                    }
                 }
                 lastFallbackFailure = error
             }
@@ -983,6 +1143,7 @@ private class TramaiInvocationHandler(
         operation: OperationDefinition,
         attemptCounter: AttemptCounter,
         routeIndex: Int,
+        correlationId: String,
     ): ProviderCallResult {
         val maxAttempts = operation.operation.providerRetries + 1
 
@@ -1013,6 +1174,14 @@ private class TramaiInvocationHandler(
             )
 
             try {
+                // Enforce BEFORE_PROVIDER_INVOCATION
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                        correlationId = correlationId,
+                    ).providerId(providerId).modelName(request.model).build()
+                )
+
                 val rawResponse = callProviderOnce(providerId, provider, interceptedRequest, operation)
                 val interceptedResponse = operationInterceptor.interceptResponse(callContext, rawResponse)
 
@@ -1059,6 +1228,7 @@ private class TramaiInvocationHandler(
         tool: ResolvedTool,
         toolCall: ToolCall,
         operation: OperationDefinition,
+        correlationId: String,
     ): ToolResult {
         val input = toolCall.argumentsJson
         val maxAttempts = if (tool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
@@ -1069,6 +1239,14 @@ private class TramaiInvocationHandler(
                 modelName = operation.operation.model,
                 attemptNumber = attemptIndex,
                 timeout = java.time.Duration.ofMillis(operation.operation.timeoutMillis),
+            )
+
+            // Enforce BEFORE_TOOL_EXECUTION
+            policyHelper.enforce(
+                policyHelper.buildContext(
+                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                    correlationId = correlationId,
+                ).toolName(tool.name).build()
             )
 
             val result = try {

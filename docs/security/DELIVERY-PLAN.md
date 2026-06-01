@@ -2,6 +2,28 @@
 
 Translates the Phase 1 roadmap into concrete epics, issues, and acceptance criteria.
 
+## Implementation Notes — Engine Policy Hooks (PR 3) 🚧
+
+**Where:** `tramai-engine/src/main/kotlin/dev/tramai/engine/PolicyEnforcementHelper.kt`
+
+**How compatibility works in 0.4.x:**
+- `TramaiEngine` accepts optional `PolicyEngine?` (defaults to `null`)
+- When `null`, all operations proceed with one migration warning using `java.util.logging`
+- Migration guard is shared at engine scope (not per proxy)
+- `LegacyPermissivePolicyEngine` available as explicit opt-in
+
+**Covered paths:**
+- non-streaming raw execution (including cache hits)
+- structured provider invocation (including cache hits and parsed response enforcement)
+- tool loops (exposure, execution, reinjection)
+- fallback (policy violation propagated with original error as suppressed)
+- streaming execution (resolution, invocation, fallback, tool exposure, response)
+- raw response return
+- structured response return
+
+**Pending:**
+- `BEFORE_WORKFLOW_RESUME` — orchestration integration (separate PR)
+
 ---
 
 ## Epic 1: Policy Engine Core
