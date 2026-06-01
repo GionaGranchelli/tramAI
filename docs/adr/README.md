@@ -21,6 +21,7 @@ This directory records the key architectural decisions currently implied by the 
 - [ADR-015: Limit Streaming Failover to Startup Before the First Emitted Token](./adr-015.md)
 - [ADR-016: Keep Runtime Proxies and Ship Explicit Native-Image Proxy Metadata Support](./adr-016.md)
 - [ADR-017: Keep Orchestration Typed, Workflow-Owned, and Optional Above `tramai-engine`](./adr-017.md)
+- [ADR-018: Separate Security Enforcement from SaaS Platform Concerns](./adr-018.md)
 
 ## ADR Conventions
 
