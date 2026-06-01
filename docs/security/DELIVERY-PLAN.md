@@ -26,6 +26,25 @@ Translates the Phase 1 roadmap into concrete epics, issues, and acceptance crite
 
 ---
 
+## PR 4: tramai-security Module + DefaultPolicyEngine ✅
+
+**Module:** `tramai-security` (depends on `tramai-core`, no runtime deps)
+
+**DefaultPolicyEngine:**
+- Deny-by-default for unknown tools, models, providers, fallbacks
+- HIGH/CRITICAL risk tools → RequireApproval
+- RESTRICTED data → Deny for non-local providers
+- BEFORE_WORKFLOW_RESUME → Explicit Deny (unimplemented)
+- `PolicyConfiguration.preview()` — permissive default for 0.4.x
+- `PolicyConfiguration.secure()` — deny-by-default for sovereign/1.0
+
+**Integration:**
+- `TramaiEngine` defaults to `DefaultPolicyEngine(PolicyConfiguration.preview())`
+- Migration warning logged once per engine instance
+- `LegacyPermissivePolicyEngine` available for explicit opt-in
+
+---
+
 ## Epic 1: Policy Engine Core
 
 **Goal:** Introduce `tramai-security` with deny-by-default policy enforcement at all 8 mandatory enforcement points.

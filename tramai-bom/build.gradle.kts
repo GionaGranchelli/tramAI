@@ -25,6 +25,7 @@ dependencies {
         api(project(":tramai-orchestration"))
         api(project(":tramai-standalone"))
         api(project(":tramai-spring"))
+        api(project(":tramai-security"))
         api(project(":tramai-testing"))
         api(project(":tramai-vectorstore-spi"))
         api(project(":tramai-vectorstore-chroma"))

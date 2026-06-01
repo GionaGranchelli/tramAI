@@ -17,27 +17,24 @@ import java.util.logging.Logger
  * Every enforcement point routes through a single [enforce] call to avoid
  * scattered decision-handling logic across the engine.
  *
- * When no [PolicyEngine] is configured, all operations proceed and one
- * migration warning is emitted at the engine level (not per proxy).
+ * When no explicit [PolicyEngine] is provided, the engine uses
+ * [dev.tramai.security.DefaultPolicyEngine] with secure defaults.
+ * One migration warning is emitted per engine instance.
  */
 internal class PolicyEnforcementHelper(
-    private val policyEngine: PolicyEngine?,
+    private val policyEngine: PolicyEngine,
     private val migrationWarningGuard: AtomicBoolean,
     private val policyVersion: String = DEFAULT_POLICY_VERSION,
 ) {
-    private val effectiveEngine: PolicyEngine = policyEngine ?: LegacyPermissivePolicyEngine
     private val logger = Logger.getLogger(PolicyEnforcementHelper::class.java.name)
 
     /**
      * Evaluates policy at the given [enforcementPoint].
      */
     suspend fun enforce(context: PolicyContext) {
-        if (policyEngine == null) {
-            logMigrationWarningOnce()
-            return
-        }
+        logMigrationWarningOnce()
 
-        when (val decision = effectiveEngine.evaluate(context)) {
+        when (val decision = policyEngine.evaluate(context)) {
             is PolicyDecision.Allow -> { /* continue */ }
             is PolicyDecision.Deny -> throw PolicyViolationException(decision)
             is PolicyDecision.RequireApproval -> throw ApprovalRequiredException(decision.requirement)
@@ -48,9 +45,9 @@ internal class PolicyEnforcementHelper(
         if (migrationWarningGuard.compareAndSet(false, true)) {
             logger.log(
                 Level.WARNING,
-                "TramAI Engine: No PolicyEngine configured — allowing all operations. " +
-                    "This is the 0.4.x preview behavior. " +
-                    "Set an explicit PolicyEngine or enable LEGACY_PERMISSIVE for production readiness.",
+                "TramAI Engine: Using default policy enforcement. " +
+                    "No tools, models, or providers are allowed until explicitly configured. " +
+                    "See PolicyConfiguration for setup or use LegacyPermissivePolicyEngine for preview.",
             )
         }
     }

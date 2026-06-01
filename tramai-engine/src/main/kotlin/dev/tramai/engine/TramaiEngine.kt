@@ -41,6 +41,9 @@ import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.ResolvedProviderRoute
 import dev.tramai.core.provider.StreamCapable
+import dev.tramai.core.policy.PolicyEngine
+import dev.tramai.security.DefaultPolicyEngine
+import dev.tramai.security.PolicyConfiguration
 import dev.tramai.core.security.PromptSanitizer
 import dev.tramai.core.structured.StructuredOutputHandler
 import dev.tramai.core.structured.StructuredOutputResult
@@ -90,6 +93,8 @@ class TramaiEngine(
     private val circuitBreaker = ProviderCircuitBreaker(circuitBreakerSettings)
     private val retryDelayPolicy = ProviderRetryDelayPolicy(retryPolicySettings)
     private val migrationWarningGuard = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val resolvedPolicyEngine: PolicyEngine = policyEngine
+        ?: DefaultPolicyEngine(PolicyConfiguration.preview())
 
     /**
      * Creates an engine backed by a single provider.
@@ -152,7 +157,7 @@ class TramaiEngine(
             conversationIdProvider = conversationIdProvider,
             scope = scope,
             serviceDefinition = definition,
-            policyEngine = policyEngine,
+            policyEngine = resolvedPolicyEngine,
             migrationWarningGuard = migrationWarningGuard,
         )
 
@@ -192,7 +197,7 @@ private class TramaiInvocationHandler(
     private val conversationIdProvider: ConversationIdProvider,
     private val scope: CoroutineScope,
     private val serviceDefinition: ServiceDefinition,
-    policyEngine: dev.tramai.core.policy.PolicyEngine?,
+    policyEngine: PolicyEngine,
     private val migrationWarningGuard: java.util.concurrent.atomic.AtomicBoolean,
 ) : InvocationHandler {
 

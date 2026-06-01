@@ -20,6 +20,7 @@ include(
     "tramai-platform",
     "tramai-spring",
     "tramai-scheduler",
+    "tramai-security",
     "tramai-server",
     "tramai-standalone",
     "tramai-structured",

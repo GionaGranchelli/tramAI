@@ -21,15 +21,13 @@ kotlin {
 
 dependencies {
     api(project(":tramai-core"))
-    implementation(project(":tramai-security"))
 
     implementation(libs.coroutines.core)
-    implementation(libs.kotlin.reflect)
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.assertj.core)
     testImplementation(libs.kotlin.test.junit5)
-    testImplementation(project(":tramai-structured"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
 }
 
 tasks.test {
