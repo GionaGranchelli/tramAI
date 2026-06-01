@@ -818,7 +818,7 @@ class PolicyEnforcementTest {
             .isInstanceOf(PolicyViolationException::class.java)
             .hasMessageContaining("struct blocked")
 
-        // Provider was called (onCallCompleted with parseSuccess=true fires before enforcement)
+        // Provider was called (enforcement at BEFORE_RESPONSE_RETURN, not BEFORE_PROVIDER_INVOCATION)
         assertThat(provider.callCount.get()).isEqualTo(1)
         // Cache was never populated (cacheValue not called because enforcement fires first)
         assertThat(cachePutCalled).isFalse()
@@ -886,6 +886,98 @@ class PolicyEnforcementTest {
 
         // Second collection triggered additional evaluations (per-collection semantic)
         assertThat(countAfterSecond).isGreaterThan(countAfterFirst)
+    }
+
+    @Test
+    fun `streaming fallback — BEFORE_RESPONSE_RETURN denies fallback route with providerId and modelName`() = runBlocking {
+        val primaryStreamProvider = object : ModelProvider, StreamCapable {
+            val callCount = AtomicInteger(0)
+            override fun providerId() = "primary-stream"
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                callCount.incrementAndGet()
+                throw ProviderException("primary fail", retryable = true)
+            }
+            override fun stream(request: ModelRequest): Flow<StreamChunk> {
+                callCount.incrementAndGet()
+                throw ProviderException("primary stream fail", retryable = true)
+            }
+        }
+        val fallbackStreamProvider = object : ModelProvider, StreamCapable {
+            val callCount = AtomicInteger(0)
+            override fun providerId() = "fallback-stream"
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                callCount.incrementAndGet()
+                return ModelResponse(content = "fallback-ok", inputTokens = 10, outputTokens = 5, modelUsed = request.model)
+            }
+            override fun stream(request: ModelRequest): Flow<StreamChunk> {
+                callCount.incrementAndGet()
+                return flow {
+                    emit(StreamChunk.Token("fallback"))
+                    emit(StreamChunk.Complete(fullText = "fallback-ok"))
+                }
+            }
+        }
+
+        val registry = ProviderRegistry.builder()
+            .provider("primary-stream", primaryStreamProvider, default = true)
+            .model("test-model", "primary-stream")
+            .fallbackProvider("test-model", "fallback-stream")
+            .provider("fallback-stream", fallbackStreamProvider)
+            .build()
+
+        val settings = CircuitBreakerSettings(
+            failureThreshold = 1,
+            openDurationMillis = 3_600_000, // long recovery — stays open
+        )
+
+        // Phase 1: trip the circuit breaker on primary
+        val allowAll = TramaiEngine(
+            providerRegistry = registry,
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
+            circuitBreakerSettings = settings,
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision =
+                    PolicyDecision.Allow
+            },
+        )
+        val service1 = allowAll.create<StreamingTestService>()
+        runBlocking { service1.stream("test").toList() }
+        // Circuit breaker is now open for primary, fallback was used in phase 1
+
+        // Phase 2: BEFORE_FALLBACK allows, but BEFORE_RESPONSE_RETURN denies for fallback route
+        var capturedFallbackProviderId: String? = null
+        var capturedFallbackModelName: String? = null
+        val fallbackStreamCallCountBefore = fallbackStreamProvider.callCount.get()
+
+        val engine = TramaiEngine(
+            providerRegistry = registry,
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
+            circuitBreakerSettings = CircuitBreakerSettings(
+                failureThreshold = 1,
+                openDurationMillis = 3_600_000, // still open
+            ),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision =
+                    if (context.enforcementPoint == EnforcementPoint.BEFORE_RESPONSE_RETURN) {
+                        capturedFallbackProviderId = context.providerId
+                        capturedFallbackModelName = context.modelName
+                        PolicyDecision.Deny("fallback stream response blocked", "FALLBACK_STREAM_DENY")
+                    } else PolicyDecision.Allow
+            },
+        )
+        val service2 = engine.create<StreamingTestService>()
+
+        assertThatThrownBy {
+            runBlocking { service2.stream("test").toList() }
+        }.isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("fallback stream response blocked")
+
+        // Fallback stream was evaluated with providerId and modelName populated
+        assertThat(capturedFallbackProviderId).isEqualTo("fallback-stream")
+        assertThat(capturedFallbackModelName).isEqualTo("test-model")
+
+        // Fallback stream was never invoked (denied at BEFORE_RESPONSE_RETURN)
+        assertThat(fallbackStreamProvider.callCount.get()).isEqualTo(fallbackStreamCallCountBefore)
     }
 
     // -- Fallback transition enforcement (ITEM 4) ------------------------------

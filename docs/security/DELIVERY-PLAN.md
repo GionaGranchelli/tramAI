@@ -10,7 +10,8 @@ Translates the Phase 1 roadmap into concrete epics, issues, and acceptance crite
 - `TramaiEngine` accepts optional `PolicyEngine?` (defaults to `LegacyPermissivePolicyEngine`)
 - When no explicit `PolicyEngine` is configured, all operations proceed with one migration warning using `java.util.logging`
 - Migration guard is shared at engine scope (not per proxy)
-- `LegacyPermissivePolicyEngine` is the default null fallback; `DefaultPolicyEngine` with `PolicyConfiguration.preview()` available as explicit opt-in
+- `LegacyPermissivePolicyEngine` is the 0.4.x compatibility fallback — allows all operations
+- Deny-by-default enforcement will be introduced by `tramai-security` (future PR #4)
 
 **Covered paths:**
 - non-streaming raw execution (including cache hits with BEFORE_RESPONSE_RETURN enforcement)

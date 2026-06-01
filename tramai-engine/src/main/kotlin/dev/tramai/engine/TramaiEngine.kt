@@ -92,6 +92,7 @@ class TramaiEngine(
     private val migrationWarningGuard = java.util.concurrent.atomic.AtomicBoolean(false)
     private val resolvedPolicyEngine: PolicyEngine = policyEngine
         ?: LegacyPermissivePolicyEngine
+    private val isLegacyFallback: Boolean = policyEngine == null
 
     /**
      * Creates an engine backed by a single provider.
@@ -156,6 +157,7 @@ class TramaiEngine(
             serviceDefinition = definition,
             policyEngine = resolvedPolicyEngine,
             migrationWarningGuard = migrationWarningGuard,
+            isLegacyFallback = isLegacyFallback,
         )
 
         @Suppress("UNCHECKED_CAST")
@@ -196,9 +198,10 @@ private class TramaiInvocationHandler(
     private val serviceDefinition: ServiceDefinition,
     policyEngine: PolicyEngine,
     private val migrationWarningGuard: java.util.concurrent.atomic.AtomicBoolean,
+    isLegacyFallback: Boolean,
 ) : InvocationHandler {
 
-    private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard)
+    private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard, isLegacyFallback = isLegacyFallback)
 
     override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
         if (method.declaringClass == Any::class.java) {
@@ -277,17 +280,6 @@ private class TramaiInvocationHandler(
 
             val candidates = providerRegistry.resolveCandidates(operation.operation)
 
-            // Enforce BEFORE_RESPONSE_RETURN after route selection (first candidate)
-            // and before any token is emitted, with providerId and modelName populated.
-            val firstCandidate = candidates.firstOrNull()
-            policyHelper.enforce(
-                policyHelper.buildContext(
-                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
-                    correlationId = correlationId,
-                ).providerId(firstCandidate?.providerName)
-                    .modelName(firstCandidate?.effectiveModelName)
-                    .build()
-            )
             var lastFailure: Throwable? = null
             var lastCircuitOpen: CircuitBreakerOpenException? = null
             val attemptCounter = AttemptCounter()
@@ -314,6 +306,16 @@ private class TramaiInvocationHandler(
                     }
                     continue
                 }
+
+                // Enforce BEFORE_RESPONSE_RETURN per-route before any token emission
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                        correlationId = correlationId,
+                    ).providerId(route.providerName)
+                        .modelName(route.effectiveModelName)
+                        .build()
+                )
 
                 // Enforce BEFORE_TOOL_EXPOSURE per tool definition
                 operation.toolDefinitions.forEach { toolDef ->
@@ -684,6 +686,7 @@ private class TramaiInvocationHandler(
         if (previousProviderId != null) ctx.providerId(previousProviderId)
         if (previousModelName != null) ctx.modelName(previousModelName)
         ctx.fallbackProviderId(nextProviderId)
+        ctx.attribute("fallbackReason", reason)
         policyHelper.enforce(ctx.build())
     }
 
@@ -905,15 +908,16 @@ private class TramaiInvocationHandler(
             )
         ) {
             is StructuredOutputResult.Success -> {
-                result.observation.onCallCompleted(parseSuccess = true)
-
                 // Enforce BEFORE_RESPONSE_RETURN before any side effects (persist, cache)
+                // and before onCallCompleted so external consumers don't assume availability
                 policyHelper.enforce(
                     policyHelper.buildContext(
                         enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
                         correlationId = correlationId,
                     ).build()
                 )
+
+                result.observation.onCallCompleted(parseSuccess = true)
 
                 persistStructuredSuccess(
                     result = result,
