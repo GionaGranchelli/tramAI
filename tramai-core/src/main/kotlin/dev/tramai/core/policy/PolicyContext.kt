@@ -17,9 +17,9 @@ data class PolicyContext(
     /** Identity of the caller or service account. */
     val actor: String,
     // Provider context
-    val targetProvider: String? = null,
-    val targetModel: String? = null,
-    val fallbackProvider: String? = null,
+    val providerId: String? = null,
+    val modelName: String? = null,
+    val fallbackProviderId: String? = null,
     // Data context
     val dataClassification: DataClassification? = null,
     val classificationSource: ClassificationSource? = null,

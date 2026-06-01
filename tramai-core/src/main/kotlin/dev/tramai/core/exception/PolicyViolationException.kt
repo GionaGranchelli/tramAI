@@ -1,7 +1,5 @@
 package dev.tramai.core.exception
 
-import dev.tramai.core.policy.PolicyDecision
-
 /**
  * Raised when the policy engine denies an operation.
  */

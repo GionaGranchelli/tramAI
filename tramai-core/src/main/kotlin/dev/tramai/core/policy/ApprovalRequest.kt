@@ -16,18 +16,18 @@ data class ApprovalRequest(
     val argumentsDigest: String,
     /** Identity that requested the approval. */
     val requestedBy: String,
-    /** Identity that granted or denied the approval (null until decided). */
-    val decidedBy: String? = null,
-    /** When the decision was made (null until decided). */
-    val decidedAt: Instant? = null,
-    /** Optional comment from the approver. */
-    val decisionComment: String? = null,
     val policyVersion: String,
     val workflowDigest: String,
     val requestedAt: Instant,
     val expiresAt: Instant,
     val nonce: String,
     val status: ApprovalStatus,
+    /** Identity that granted or denied the approval (null until decided). */
+    val decidedBy: String? = null,
+    /** When the decision was made (null until decided). */
+    val decidedAt: Instant? = null,
+    /** Optional comment from the approver. */
+    val decisionComment: String? = null,
 )
 
 enum class ApprovalStatus {
