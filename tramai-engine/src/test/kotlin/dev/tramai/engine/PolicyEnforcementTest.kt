@@ -6,6 +6,7 @@ import dev.tramai.core.exception.ApprovalRequiredException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.memory.ChatMemory
+import dev.tramai.core.model.ClassifiedDocument
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
@@ -15,6 +16,8 @@ import dev.tramai.core.model.ToolExecutionContext
 import dev.tramai.core.model.ResolvedTool
 import dev.tramai.core.model.ToolResult
 import dev.tramai.core.policy.ApprovalRequirement
+import dev.tramai.core.policy.ClassificationSource
+import dev.tramai.core.policy.DataClassification
 import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.core.policy.PolicyContext
 import dev.tramai.core.policy.PolicyDecision
@@ -168,6 +171,24 @@ class PolicyEnforcementTest {
     interface StructuredTestService {
         @Operation(prompt = "test", model = "test-model", maxRetries = 0)
         suspend fun analyze(input: String): TestPayload
+    }
+
+    @AiService
+    interface ClassifiedTestService {
+        @Operation(prompt = "test", model = "test-model")
+        suspend fun analyze(input: ClassifiedDocument<String>): String
+    }
+
+    @AiService
+    interface ClassifiedStreamingTestService {
+        @Operation(prompt = "test", model = "test-model")
+        suspend fun stream(input: ClassifiedDocument<String>): Flow<StreamChunk>
+    }
+
+    @AiService
+    interface ClassifiedStructuredTestService {
+        @Operation(prompt = "test", model = "test-model", maxRetries = 0)
+        suspend fun analyze(input: ClassifiedDocument<String>): TestPayload
     }
 
     @AiService
@@ -327,6 +348,189 @@ class PolicyEnforcementTest {
         val result = service.analyze("test")
         assertThat(result).isEqualTo("fallback-ok")
         assertThat(fallbackProvider.callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `RESTRICTED request to trusted local provider is allowed`() = runBlocking {
+        val provider = CountingProvider(id = "local-provider")
+        val engine = TramaiEngine(
+            provider = provider,
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("local-provider"),
+                    trustedLocalProviders = setOf("local-provider"),
+                ),
+            ),
+        )
+        val service = engine.create<ClassifiedTestService>()
+
+        val result = service.analyze(
+            ClassifiedDocument(
+                payload = "secret",
+                classification = DataClassification.RESTRICTED,
+                source = ClassificationSource.DECLARED,
+            ),
+        )
+
+        assertThat(result).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `RESTRICTED request to approved untrusted cloud provider is denied before invocation`() = runBlocking {
+        val provider = CountingProvider(id = "cloud-provider")
+        val engine = TramaiEngine(
+            provider = provider,
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("cloud-provider"),
+                ),
+            ),
+        )
+        val service = engine.create<ClassifiedTestService>()
+
+        assertThatThrownBy {
+            runBlocking {
+                service.analyze(
+                    ClassifiedDocument(
+                        payload = "secret",
+                        classification = DataClassification.RESTRICTED,
+                        source = ClassificationSource.DECLARED,
+                    ),
+                )
+            }
+        }.isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("RESTRICTED data may not be sent to provider 'cloud-provider'")
+        assertThat(provider.callCount.get()).isEqualTo(0)
+    }
+
+    @Test
+    fun `RESTRICTED request does not silently fall back from local provider to cloud`() = runBlocking {
+        val localProvider = object : ModelProvider {
+            val callCount = AtomicInteger(0)
+            override fun providerId() = "local-provider"
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                callCount.incrementAndGet()
+                throw ProviderException("local failed", retryable = true)
+            }
+        }
+        val cloudProvider = CountingProvider(id = "cloud-provider")
+        val engine = TramaiEngine(
+            providerRegistry = ProviderRegistry.builder()
+                .provider("local-provider", localProvider, default = true)
+                .model("test-model", "local-provider")
+                .fallbackProvider("test-model", "cloud-provider")
+                .provider("cloud-provider", cloudProvider)
+                .build(),
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("local-provider", "cloud-provider"),
+                    allowedFallbackProviders = setOf("cloud-provider"),
+                    trustedLocalProviders = setOf("local-provider"),
+                ),
+            ),
+        )
+        val service = engine.create<ClassifiedTestService>()
+
+        assertThatThrownBy {
+            runBlocking {
+                service.analyze(
+                    ClassifiedDocument(
+                        payload = "secret",
+                        classification = DataClassification.RESTRICTED,
+                        source = ClassificationSource.DECLARED,
+                    ),
+                )
+            }
+        }.isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("RESTRICTED data may not be sent to provider 'cloud-provider'")
+        assertThat(localProvider.callCount.get()).isEqualTo(1)
+        assertThat(cloudProvider.callCount.get()).isEqualTo(0)
+    }
+
+    @Test
+    fun `INTERNAL request to cloud provider without permission is denied`() = runBlocking {
+        val provider = CountingProvider(id = "cloud-provider")
+        val engine = TramaiEngine(
+            provider = provider,
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("cloud-provider"),
+                ),
+            ),
+        )
+        val service = engine.create<ClassifiedTestService>()
+
+        assertThatThrownBy {
+            runBlocking {
+                service.analyze(
+                    ClassifiedDocument(
+                        payload = "internal",
+                        classification = DataClassification.INTERNAL,
+                        source = ClassificationSource.DECLARED,
+                    ),
+                )
+            }
+        }.isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("Data classification 'INTERNAL' is not allowed for provider 'cloud-provider'")
+        assertThat(provider.callCount.get()).isEqualTo(0)
+    }
+
+    @Test
+    fun `INTERNAL request to cloud provider with permission is allowed`() = runBlocking {
+        val provider = CountingProvider(id = "cloud-provider")
+        val engine = TramaiEngine(
+            provider = provider,
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("cloud-provider"),
+                    allowCloudForClassifications = setOf(DataClassification.PUBLIC, DataClassification.INTERNAL),
+                ),
+            ),
+        )
+        val service = engine.create<ClassifiedTestService>()
+
+        val result = service.analyze(
+            ClassifiedDocument(
+                payload = "internal",
+                classification = DataClassification.INTERNAL,
+                source = ClassificationSource.DECLARED,
+            ),
+        )
+
+        assertThat(result).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `PUBLIC request to approved cloud provider is allowed`() = runBlocking {
+        val provider = CountingProvider(id = "cloud-provider")
+        val engine = TramaiEngine(
+            provider = provider,
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("cloud-provider"),
+                ),
+            ),
+        )
+        val service = engine.create<ClassifiedTestService>()
+
+        val result = service.analyze(
+            ClassifiedDocument(
+                payload = "public",
+                classification = DataClassification.PUBLIC,
+                source = ClassificationSource.DECLARED,
+            ),
+        )
+
+        assertThat(result).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(1)
     }
 
     // -- Tool tests ------------------------------------------------------------
@@ -542,6 +746,35 @@ class PolicyEnforcementTest {
             .hasMessageContaining("stream tools blocked")
     }
 
+    @Test
+    fun `streaming RESTRICTED request to untrusted provider is denied before stream starts`() = runBlocking {
+        val provider = streamingProvider(id = "cloud-provider")
+        val engine = TramaiEngine(
+            provider = provider,
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("cloud-provider"),
+                ),
+            ),
+        )
+        val service = engine.create<ClassifiedStreamingTestService>()
+
+        assertThatThrownBy {
+            runBlocking {
+                service.stream(
+                    ClassifiedDocument(
+                        payload = "secret",
+                        classification = DataClassification.RESTRICTED,
+                        source = ClassificationSource.DECLARED,
+                    ),
+                ).toList()
+            }
+        }.isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("RESTRICTED data may not be sent to provider 'cloud-provider'")
+        assertThat(provider.callCount.get()).isEqualTo(0)
+    }
+
     // -- Structured output tests -----------------------------------------------
 
     @Test
@@ -571,6 +804,46 @@ class PolicyEnforcementTest {
         assertThatThrownBy { runBlocking { service.analyze("test") } }
             .isInstanceOf(PolicyViolationException::class.java)
             .hasMessageContaining("struct response blocked")
+    }
+
+    @Test
+    fun `structured RESTRICTED request to untrusted provider is denied before invocation`() = runBlocking {
+        val handler = object : StructuredOutputHandler {
+            override fun analyze(rawResponse: String, targetType: kotlin.reflect.KType): StructuredOutputResult {
+                return StructuredOutputResult.Success(TestPayload("parsed"), rawResponse)
+            }
+            override fun createContract(targetType: kotlin.reflect.KType) =
+                StructuredOutputContract(targetType, "{ }")
+            override fun generateSchema(type: kotlin.reflect.KType) = "{ }"
+            override fun deserialize(input: Any, targetType: kotlin.reflect.KType) = TestPayload("parsed")
+            override fun serialize(value: Any): Any = mapOf("answer" to "parsed")
+        }
+        val provider = CountingProvider(id = "cloud-provider")
+        val engine = TramaiEngine(
+            provider = provider,
+            structuredOutputHandler = handler,
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("cloud-provider"),
+                ),
+            ),
+        )
+        val service = engine.create<ClassifiedStructuredTestService>()
+
+        assertThatThrownBy {
+            runBlocking {
+                service.analyze(
+                    ClassifiedDocument(
+                        payload = "secret",
+                        classification = DataClassification.RESTRICTED,
+                        source = ClassificationSource.DECLARED,
+                    ),
+                )
+            }
+        }.isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("RESTRICTED data may not be sent to provider 'cloud-provider'")
+        assertThat(provider.callCount.get()).isEqualTo(0)
     }
 
     // -- Cache tests -----------------------------------------------------------

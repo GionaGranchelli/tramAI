@@ -309,6 +309,54 @@ class DefaultPolicyEngineTest {
     }
 
     @Test
+    fun `classified provider invocation without provider id is denied`() {
+        runBlocking {
+            val decision = secureEngine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    dataClassification = DataClassification.INTERNAL,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-provider-missing")
+        }
+    }
+
+    @Test
+    fun `RESTRICTED provider invocation to non-local provider is denied before allowlist`() {
+        runBlocking {
+            val engine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedProviders = setOf("openai"),
+                )
+            )
+            val decision = engine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "openai",
+                    dataClassification = DataClassification.RESTRICTED,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("restricted-data-egress-blocked")
+        }
+    }
+
+    @Test
+    fun `response return for classified request without provider id is denied`() {
+        runBlocking {
+            val decision = secureEngine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    dataClassification = DataClassification.INTERNAL,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-provider-missing")
+        }
+    }
+
+    @Test
     fun `tool result reinjection is allowed`() {
         runBlocking {
             val decision = secureEngine.evaluate(
@@ -526,7 +574,7 @@ class DefaultPolicyEngineTest {
                 )
             )
             assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
-            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-egress-blocked")
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-provider-missing")
         }
     }
 
@@ -541,7 +589,7 @@ class DefaultPolicyEngineTest {
                 )
             )
             assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
-            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-egress-blocked")
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-provider-missing")
         }
     }
 

@@ -55,9 +55,21 @@ enforcement is not implemented yet. Additionally, response-return hooks
 `providerId`, `modelName`, or `dataClassification`, so `evaluateResponseReturn`
 cannot enforce local-boundary rules consistently.
 
-Closing these gaps requires:
-- `Topic 1.6`: Propagate classified request context (payload/metadata, not a new annotation) through provider invocation for all paths.
-- `Topic 1.7`: Enforce egress policy at `BEFORE_PROVIDER_INVOCATION` once classification context is available.
+**Implemented in feat/classified-request-egress:**
+Topic 1.6 ✅ — classified request context (via `ClassifiedDocument<T>`)
+propagated through all provider invocation paths.
+Topic 1.7 ✅ — classification egress enforced at `BEFORE_PROVIDER_INVOCATION`.
+
+Topic 1.8 remains open — response provenance and cache-entry provenance need
+a separate PR.
+
+Implementation note:
+- classification derives from `ClassifiedDocument<T>` wrapper
+- no annotation-based classification exists
+- no automatic rule-based classification exists yet
+- cache provenance remains intentionally deferred
+
+Remaining follow-up:
 - `Topic 1.8`: Propagate selected-provider provenance into response-return checks (raw, structured, streaming, cached). For cached values, store or reconstruct `providerId`, `modelName`, `dataClassification`, and `classificationSource`.
 
 ---
