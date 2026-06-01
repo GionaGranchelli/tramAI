@@ -25,15 +25,15 @@ internal data class ExecutionSecurityContext(
         fun fromArguments(args: Array<out Any?>): ExecutionSecurityContext {
             var highestClassification: DataClassification? = null
             var highestSource: ClassificationSource? = null
-            var highestSourceRank = Int.MAX_VALUE
+            var highestSourceRank = -1
 
             for (arg in args) {
                 if (arg is ClassifiedDocument<*>) {
                     val rank = classificationRank[arg.classification] ?: 0
                     val highestRank = highestClassification?.let { classificationRank[it] ?: 0 } ?: -1
-                    val sourceRank = sourcePrecedence[arg.source] ?: Int.MAX_VALUE
+                    val sourceRank = sourcePrecedence[arg.source] ?: -1
 
-                    if (rank > highestRank || (rank == highestRank && sourceRank < highestSourceRank)) {
+                    if (rank > highestRank || (rank == highestRank && sourceRank > highestSourceRank)) {
                         highestClassification = arg.classification
                         highestSource = arg.source
                         highestSourceRank = sourceRank
