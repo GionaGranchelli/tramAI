@@ -9,3 +9,4 @@ gradle-app.setting
 *.tmp
 .env
 graphify-out.kotlin/
+graphify-out/

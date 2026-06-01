@@ -339,7 +339,9 @@ when (val decision = policyEngine.evaluate(context)) {
     is PolicyDecision.RequireApproval -> {
         val request = approvalEngine.create(
             decision.requirement,
-            workflowRunId = context.workflowId,
+            workflowRunId = requireNotNull(context.workflowRunId) {
+                "workflowRunId is required when creating an approval request"
+            },
             workflowDigest = context.workflowDigest,
             policyVersion = context.policyVersion,
             actorId = context.actorId
