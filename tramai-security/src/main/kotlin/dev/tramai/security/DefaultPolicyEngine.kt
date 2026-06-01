@@ -9,10 +9,10 @@ import dev.tramai.core.policy.*
  * Unknown tools, models, and providers are denied. HIGH/CRITICAL-risk
  * tools and tools with non-AUTO approval modes require human approval.
  *
- * RESTRICTED-data enforcement is partially implemented: when a data
- * classification is attached to the context, egress is controlled via
- * trustedLocalProviders, but classified-input propagation through
- * every provider invocation path remains follow-up work.
+ * Classified-request egress is enforced when classification metadata is
+ * attached to the [PolicyContext]. RESTRICTED data is limited to trusted
+ * local providers, while other non-public classifications require explicit
+ * cloud permission for non-local providers.
  */
 class DefaultPolicyEngine(
     private val config: PolicyConfiguration,
@@ -55,6 +55,10 @@ class DefaultPolicyEngine(
 
     private fun evaluateProviderInvocation(ctx: PolicyContext): PolicyDecision {
         val providerId = ctx.providerId
+        evaluateClassificationEgress(
+            classification = ctx.dataClassification,
+            providerId = providerId,
+        )?.let { return it }
         if (providerId == null) {
             return PolicyDecision.Deny(
                 "Provider invocation requires a provider ID",
@@ -195,32 +199,44 @@ class DefaultPolicyEngine(
     // ─── Response return ────────────────────────────────────────────────────
 
     private fun evaluateResponseReturn(ctx: PolicyContext): PolicyDecision {
-        val classification = ctx.dataClassification ?: return PolicyDecision.Allow
+        return evaluateClassificationEgress(
+            classification = ctx.dataClassification,
+            providerId = ctx.providerId,
+        ) ?: PolicyDecision.Allow
+    }
+
+    private fun evaluateClassificationEgress(
+        classification: DataClassification?,
+        providerId: String?,
+    ): PolicyDecision? {
+        if (classification == null) return null
+
+        if (providerId == null) {
+            return PolicyDecision.Deny(
+                "Classified request ($classification) requires a provider ID for egress control",
+                "classification-provider-missing",
+            )
+        }
 
         if (classification == DataClassification.RESTRICTED) {
-            val providerId = ctx.providerId
-            // RESTRICTED data must not leave local trust boundary
-            if (providerId == null || providerId !in config.trustedLocalProviders) {
+            if (providerId !in config.trustedLocalProviders) {
                 return PolicyDecision.Deny(
-                    "RESTRICTED data may not be sent to provider '${providerId ?: "<unknown>"}'",
-                    if (providerId == null) "classification-egress-blocked" else "restricted-data-egress-blocked",
+                    "RESTRICTED data may not be sent to provider '$providerId'",
+                    "restricted-data-egress-blocked",
                 )
             }
+            return null
         }
 
-        if (classification != DataClassification.PUBLIC &&
-            classification !in config.allowCloudForClassifications
-        ) {
-            val providerId = ctx.providerId
-            val isLocal = providerId != null && providerId in config.trustedLocalProviders
-            if (!isLocal) {
-                return PolicyDecision.Deny(
-                    "Data classification '$classification' is not allowed for provider '${providerId ?: "<unknown>"}'",
-                    "classification-egress-blocked",
-                )
-            }
+        if (providerId in config.trustedLocalProviders) return null
+
+        if (classification !in config.allowCloudForClassifications) {
+            return PolicyDecision.Deny(
+                "Data classification '$classification' is not allowed for provider '$providerId'",
+                "classification-egress-blocked",
+            )
         }
 
-        return PolicyDecision.Allow
+        return null
     }
 }
