@@ -75,8 +75,8 @@ Translates the Phase 1 roadmap into concrete epics, issues, and acceptance crite
 - Version-scoped migration: 0.3.x unchanged, 0.4.x opt-in with warning, `tramai-sovereign` always secure, 1.0 secure-by-default
 - **Acceptance:** Cannot reach provider without policy evaluation; LEGACY_PERMISSIVE requires explicit config; sovereign profile enforces SECURE
 
-#### 1.5 — TramaiTool security metadata and @AiTool adapter
-- Add `ToolSecurityMetadata` to existing `TramaiTool<I, O>` interface (keep return type `O`, not `ToolResult<O>`)
+#### 1.5 — TramaiTool security metadata and @AiTool adapter ✅
+- Add `ToolSecurityMetadata` to `ResolvedTool` and wire into `TramaiEngine` enforcement hooks
 - Provide legacy-permissive default for backward compatibility
 - Implement `@AiTool` as optional convenience adapter that produces `TramaiTool` with security metadata
 - **Acceptance:** Existing tools compile; security metadata accessible; @AiTool generates equivalent TramaiTool

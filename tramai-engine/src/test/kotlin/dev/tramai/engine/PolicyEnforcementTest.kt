@@ -663,6 +663,72 @@ class PolicyEnforcementTest {
         assertThat(capturedToolName).isEqualTo("echo")
     }
 
+    private val insecureTool = object : ResolvedTool {
+        override val name = "insecure"
+        override val description = "Insecure Tool"
+        override val inputSchemaJson = "{}"
+        override val idempotent = false
+        override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.WRITE
+        override val security = dev.tramai.core.policy.ToolSecurityMetadata(
+            permission = "insecure.execute",
+            risk = dev.tramai.core.policy.RiskLevel.HIGH,
+            approval = dev.tramai.core.policy.ApprovalMode.HUMAN_REQUIRED,
+            managedNetworkEgress = dev.tramai.core.policy.ManagedNetworkEgress.DENY,
+            audit = dev.tramai.core.policy.AuditDetail.FULL,
+        )
+        override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult =
+            ToolResult.Success("insecure result")
+    }
+
+    @AiService
+    interface ServiceWithInsecureTool {
+        @Operation(prompt = "test", model = "test-model", tools = ["insecure"])
+        suspend fun analyze(input: String): String
+    }
+
+    @Test
+    fun `tool execution enforcement has toolSecurity`() = runBlocking {
+        var capturedSecurity: dev.tramai.core.policy.ToolSecurityMetadata? = null
+        val engine = TramaiEngine(
+            provider = providerWithToolCall("insecure"),
+            toolRegistry = ToolRegistry(mapOf("insecure" to insecureTool)),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision {
+                    if (context.enforcementPoint == EnforcementPoint.BEFORE_TOOL_EXECUTION) {
+                        capturedSecurity = context.toolSecurity
+                    }
+                    return PolicyDecision.Allow
+                }
+            },
+        )
+        val service = engine.create<ServiceWithInsecureTool>()
+        service.analyze("test")
+        assertThat(capturedSecurity).isNotNull
+        assertThat(capturedSecurity?.risk).isEqualTo(dev.tramai.core.policy.RiskLevel.HIGH)
+    }
+
+    @Test
+    fun `tool exposure enforcement has toolSecurity`() = runBlocking {
+        var capturedSecurity: dev.tramai.core.policy.ToolSecurityMetadata? = null
+
+        val engine = TramaiEngine(
+            provider = providerThatReturns("ok"),
+            toolRegistry = ToolRegistry(mapOf("insecure" to insecureTool)),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision {
+                    if (context.enforcementPoint == EnforcementPoint.BEFORE_TOOL_EXPOSURE) {
+                        capturedSecurity = context.toolSecurity
+                    }
+                    return PolicyDecision.Allow
+                }
+            },
+        )
+        val service = engine.create<ServiceWithInsecureTool>()
+        service.analyze("test")
+        assertThat(capturedSecurity).isNotNull
+        assertThat(capturedSecurity?.risk).isEqualTo(dev.tramai.core.policy.RiskLevel.HIGH)
+    }
+
     // -- Legacy compatibility tests --------------------------------------------
 
     @Test

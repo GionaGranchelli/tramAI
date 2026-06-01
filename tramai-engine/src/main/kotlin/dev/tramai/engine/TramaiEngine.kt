@@ -301,11 +301,12 @@ private class TramaiInvocationHandler(
 
                 // Enforce BEFORE_TOOL_EXPOSURE per tool definition
                 operation.toolDefinitions.forEach { toolDef ->
+                    val tool = toolRegistry.resolve(toolDef.name)
                     policyHelper.enforce(
                         policyHelper.buildContext(
                             enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_EXPOSURE,
                             correlationId = correlationId,
-                        ).toolName(toolDef.name).build()
+                        ).toolName(toolDef.name).toolSecurity(tool?.security).build()
                     )
                 }
 
@@ -1010,7 +1011,7 @@ private class TramaiInvocationHandler(
                 policyHelper.buildContext(
                     enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION,
                     correlationId = correlationId,
-                ).toolName(toolCall.name).build()
+                ).toolName(toolCall.name).toolSecurity(tool?.security).build()
             )
 
             messages += formatToolResult(toolResult, toolCall.id)
@@ -1082,11 +1083,12 @@ private class TramaiInvocationHandler(
             try {
                 // Enforce BEFORE_TOOL_EXPOSURE per tool definition
                 operation.toolDefinitions.forEach { toolDef ->
+                    val tool = toolRegistry.resolve(toolDef.name)
                     policyHelper.enforce(
                         policyHelper.buildContext(
                             enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_EXPOSURE,
                             correlationId = correlationId,
-                        ).toolName(toolDef.name).build()
+                        ).toolName(toolDef.name).toolSecurity(tool?.security).build()
                     )
                 }
 
@@ -1251,7 +1253,7 @@ private class TramaiInvocationHandler(
                 policyHelper.buildContext(
                     enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_EXECUTION,
                     correlationId = correlationId,
-                ).toolName(tool.name).build()
+                ).toolName(tool.name).toolSecurity(tool.security).build()
             )
 
             val result = try {

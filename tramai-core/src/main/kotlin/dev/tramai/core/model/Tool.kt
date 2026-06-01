@@ -1,5 +1,6 @@
 package dev.tramai.core.model
 
+import dev.tramai.core.policy.ToolSecurityMetadata
 import java.time.Duration
 import kotlin.reflect.KClass
 
@@ -48,6 +49,7 @@ interface ResolvedTool {
     val inputSchemaJson: String
     val idempotent: Boolean
     val sideEffectLevel: SideEffectLevel
+    val security: ToolSecurityMetadata? get() = null
 
     suspend fun execute(
         input: Any,
