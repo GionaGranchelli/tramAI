@@ -67,7 +67,10 @@ class DefaultPolicyEngineTest {
     @Test
     fun `HIGH risk tool requires approval`() {
         runBlocking {
-            val config = PolicyConfiguration.secure().copy(allowedTools = setOf("payment-tool"))
+            val config = PolicyConfiguration.secure().copy(
+                allowedTools = setOf("payment-tool"),
+                allowedPermissions = setOf("payment.execute"),
+            )
             val engine = DefaultPolicyEngine(config)
             val decision = engine.evaluate(
                 ctx(
@@ -89,7 +92,10 @@ class DefaultPolicyEngineTest {
     @Test
     fun `LOW risk tool with allowed config is allowed`() {
         runBlocking {
-            val config = PolicyConfiguration.secure().copy(allowedTools = setOf("safe-tool"))
+            val config = PolicyConfiguration.secure().copy(
+                allowedTools = setOf("safe-tool"),
+                allowedPermissions = setOf("safe-tool"),
+            )
             val engine = DefaultPolicyEngine(config)
             val decision = engine.evaluate(
                 ctx(
@@ -187,7 +193,8 @@ class DefaultPolicyEngineTest {
     @Test
     fun `provider invocation after resolution is allowed`() {
         runBlocking {
-            val decision = secureEngine.evaluate(
+            val engine = DefaultPolicyEngine(PolicyConfiguration.secure().copy(allowedProviders = setOf("openai")))
+            val decision = engine.evaluate(
                 ctx(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, providerId = "openai", modelName = "gpt-4")
             )
             assertThat(decision).isEqualTo(PolicyDecision.Allow)
@@ -212,6 +219,80 @@ class DefaultPolicyEngineTest {
             )
             assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
             assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("no-fallback-provider")
+        }
+    }
+
+    @Test
+    fun `unknown provider is denied at invocation`() {
+        runBlocking {
+            val decision = secureEngine.evaluate(
+                ctx(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, providerId = "unknown-provider")
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("unknown-provider")
+        }
+    }
+
+    @Test
+    fun `INTERNAL data is allowed for local provider`() {
+        runBlocking {
+            val decision = secureEngine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    providerId = "ollama",
+                    dataClassification = DataClassification.INTERNAL,
+                )
+            )
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
+
+    @Test
+    fun `HIGH risk tool exposure is denied`() {
+        runBlocking {
+            val config = PolicyConfiguration.secure().copy(allowedTools = setOf("high-risk-tool"))
+            val engine = DefaultPolicyEngine(config)
+            val decision = engine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_TOOL_EXPOSURE,
+                    toolName = "high-risk-tool",
+                    toolSecurity = ToolSecurityMetadata(
+                        permission = "high-risk.execute",
+                        risk = RiskLevel.HIGH,
+                        approval = ApprovalMode.HUMAN_REQUIRED,
+                        managedNetworkEgress = ManagedNetworkEgress.DENY,
+                        audit = AuditDetail.FULL,
+                    ),
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("tool-exposure-risk-denied")
+        }
+    }
+
+    @Test
+    fun `tool with unlisted permission is denied`() {
+        runBlocking {
+            val config = PolicyConfiguration.secure().copy(
+                allowedTools = setOf("payment-tool"),
+                // allowedPermissions is empty, so "execute.payments" is not allowed
+            )
+            val engine = DefaultPolicyEngine(config)
+            val decision = engine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_TOOL_EXECUTION,
+                    toolName = "payment-tool",
+                    toolSecurity = ToolSecurityMetadata(
+                        permission = "execute.payments",
+                        risk = RiskLevel.LOW,
+                        approval = ApprovalMode.AUTO,
+                        managedNetworkEgress = ManagedNetworkEgress.DENY,
+                        audit = AuditDetail.MINIMAL,
+                    ),
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("tool-permission-denied")
         }
     }
 }

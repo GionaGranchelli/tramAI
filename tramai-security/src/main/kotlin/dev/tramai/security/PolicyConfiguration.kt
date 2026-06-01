@@ -18,6 +18,8 @@ data class PolicyConfiguration(
     val allowedProviders: Set<String> = emptySet(),
     /** Providers that may be used as fallback destinations. */
     val allowedFallbackProviders: Set<String> = emptySet(),
+    /** Tool permissions that are granted. Checked in addition to [allowedTools]. */
+    val allowedPermissions: Set<String> = emptySet(),
     /** Risk levels that require human approval before tool execution. */
     val requireApprovalForRiskLevel: Set<RiskLevel> = setOf(RiskLevel.HIGH, RiskLevel.CRITICAL),
     /** Data classifications permitted for non-local providers. */
@@ -30,6 +32,7 @@ data class PolicyConfiguration(
             allowedModels = setOf("*"),
             allowedProviders = setOf("*"),
             allowedFallbackProviders = setOf("*"),
+            allowedPermissions = setOf("*"),
             requireApprovalForRiskLevel = setOf(RiskLevel.CRITICAL),
             allowCloudForClassifications = DataClassification.entries.toSet(),
         )

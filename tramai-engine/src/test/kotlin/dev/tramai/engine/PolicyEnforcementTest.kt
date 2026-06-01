@@ -1091,4 +1091,40 @@ class PolicyEnforcementTest {
         assertThat(fallbackEnforced).isTrue()
         assertThat(fallbackCalled.get()).isEqualTo(1)
     }
+
+    // -- Null toolSecurity tests ------------------------------------------------
+
+    private val legacyTool = object : ResolvedTool {
+        override val name = "legacy"
+        override val description = "Legacy Tool"
+        override val inputSchemaJson = "{}"
+        override val idempotent = false
+        override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.WRITE
+        override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult =
+            ToolResult.Success("legacy result")
+    }
+
+    @AiService
+    interface LegacyToolService {
+        @Operation(prompt = "test", model = "test-model", tools = ["legacy"])
+        suspend fun analyze(input: String): String
+    }
+
+    @Test
+    fun `legacy tool without security metadata works with secure engine`() = runBlocking {
+        val engine = TramaiEngine(
+            provider = providerWithToolCall("legacy"),
+            toolRegistry = ToolRegistry(mapOf("legacy" to legacyTool)),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision {
+                    if (context.enforcementPoint == EnforcementPoint.BEFORE_TOOL_EXECUTION) {
+                        assertThat(context.toolSecurity).isNull()
+                    }
+                    return PolicyDecision.Allow
+                }
+            },
+        )
+        val service = engine.create<LegacyToolService>()
+        service.analyze("test")
+    }
 }

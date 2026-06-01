@@ -18,7 +18,7 @@ class DefaultPolicyEngine(
 
     override suspend fun evaluate(context: PolicyContext): PolicyDecision = when (context.enforcementPoint) {
         EnforcementPoint.BEFORE_PROVIDER_RESOLUTION -> evaluateProviderResolution(context)
-        EnforcementPoint.BEFORE_PROVIDER_INVOCATION -> PolicyDecision.Allow
+        EnforcementPoint.BEFORE_PROVIDER_INVOCATION -> evaluateProviderInvocation(context)
         EnforcementPoint.BEFORE_FALLBACK -> evaluateFallback(context)
         EnforcementPoint.BEFORE_TOOL_EXPOSURE -> evaluateToolExposure(context)
         EnforcementPoint.BEFORE_TOOL_EXECUTION -> evaluateToolExecution(context)
@@ -38,6 +38,19 @@ class DefaultPolicyEngine(
             return PolicyDecision.Deny(
                 "Model '$modelName' is not in the allowed-models registry",
                 "unknown-model",
+            )
+        }
+        return PolicyDecision.Allow
+    }
+
+    // ─── Provider invocation ───────────────────────────────────────────────
+
+    private fun evaluateProviderInvocation(ctx: PolicyContext): PolicyDecision {
+        val providerId = ctx.providerId
+        if (providerId != null && providerId !in config.allowedProviders && "*" !in config.allowedProviders) {
+            return PolicyDecision.Deny(
+                "Provider '$providerId' is not in the allowed-providers registry",
+                "unknown-provider",
             )
         }
         return PolicyDecision.Allow
@@ -78,6 +91,24 @@ class DefaultPolicyEngine(
                 "unknown-tool",
             )
         }
+
+        val metadata = ctx.toolSecurity
+        if (metadata != null) {
+            val risk = metadata.risk
+            if (risk in config.requireApprovalForRiskLevel) {
+                return PolicyDecision.Deny(
+                    "Tool '$toolName' (risk=$risk) cannot be exposed — requires approval",
+                    "tool-exposure-risk-denied",
+                )
+            }
+            if (metadata.permission !in config.allowedPermissions && "*" !in config.allowedPermissions) {
+                return PolicyDecision.Deny(
+                    "Tool '$toolName' requires permission '${metadata.permission}' which is not granted for exposure",
+                    "tool-exposure-permission-denied",
+                )
+            }
+        }
+
         return PolicyDecision.Allow
     }
 
@@ -106,7 +137,7 @@ class DefaultPolicyEngine(
                 return PolicyDecision.RequireApproval(
                     ApprovalRequirement(
                         toolName = toolName,
-                        argumentsDigest = "", // populated by approval subsystem
+                        argumentsDigest = "", // TODO(phase-2): populate from actual tool arguments when approval subsystem lands
                         reason = "Tool '$toolName' (risk=$risk) requires human approval",
                         timeoutMillis = 30_000,
                     ),
@@ -114,7 +145,7 @@ class DefaultPolicyEngine(
             }
 
             // Check permission
-            if (metadata.permission !in config.allowedTools && "*" !in config.allowedTools) {
+            if (metadata.permission !in config.allowedPermissions && "*" !in config.allowedPermissions) {
                 return PolicyDecision.Deny(
                     "Tool '$toolName' requires permission '${metadata.permission}' which is not granted",
                     "tool-permission-denied",
@@ -144,10 +175,14 @@ class DefaultPolicyEngine(
         if (classification != DataClassification.PUBLIC &&
             classification !in config.allowCloudForClassifications
         ) {
-            return PolicyDecision.Deny(
-                "Data classification '$classification' is not allowed for non-local providers",
-                "classification-egress-blocked",
-            )
+            val providerId = ctx.providerId
+            val isLocal = providerId == null || providerId in LOCAL_PROVIDER_IDS
+            if (!isLocal) {
+                return PolicyDecision.Deny(
+                    "Data classification '$classification' is not allowed for provider '$providerId'",
+                    "classification-egress-blocked",
+                )
+            }
         }
 
         return PolicyDecision.Allow
