@@ -9,7 +9,6 @@ import dev.tramai.core.annotations.User as UserMessage
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider
 import dev.tramai.core.memory.UuidConversationIdProvider
-import dev.tramai.core.exception.ApprovalRequiredException
 import dev.tramai.core.exception.CircuitBreakerOpenException
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.ProviderCapabilityException
@@ -42,8 +41,6 @@ import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.ResolvedProviderRoute
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.policy.PolicyEngine
-import dev.tramai.security.DefaultPolicyEngine
-import dev.tramai.security.PolicyConfiguration
 import dev.tramai.core.security.PromptSanitizer
 import dev.tramai.core.structured.StructuredOutputHandler
 import dev.tramai.core.structured.StructuredOutputResult
@@ -94,7 +91,8 @@ class TramaiEngine(
     private val retryDelayPolicy = ProviderRetryDelayPolicy(retryPolicySettings)
     private val migrationWarningGuard = java.util.concurrent.atomic.AtomicBoolean(false)
     private val resolvedPolicyEngine: PolicyEngine = policyEngine
-        ?: DefaultPolicyEngine(PolicyConfiguration.preview())
+        ?: LegacyPermissivePolicyEngine
+    private val isLegacyFallback: Boolean = policyEngine == null
 
     /**
      * Creates an engine backed by a single provider.
@@ -159,6 +157,7 @@ class TramaiEngine(
             serviceDefinition = definition,
             policyEngine = resolvedPolicyEngine,
             migrationWarningGuard = migrationWarningGuard,
+            isLegacyFallback = isLegacyFallback,
         )
 
         @Suppress("UNCHECKED_CAST")
@@ -199,9 +198,10 @@ private class TramaiInvocationHandler(
     private val serviceDefinition: ServiceDefinition,
     policyEngine: PolicyEngine,
     private val migrationWarningGuard: java.util.concurrent.atomic.AtomicBoolean,
+    isLegacyFallback: Boolean,
 ) : InvocationHandler {
 
-    private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard)
+    private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard, isLegacyFallback = isLegacyFallback)
 
     override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
         if (method.declaringClass == Any::class.java) {
@@ -266,28 +266,20 @@ private class TramaiInvocationHandler(
         val memoryInjection = injectMemoryMessages(operation, arguments, conversationId)
         val historySize = memoryInjection?.first?.size ?: 0
         val memoryMessages = memoryInjection?.second
-        val correlationId = java.util.UUID.randomUUID().toString()
-
-        // Enforce BEFORE_PROVIDER_RESOLUTION before resolving routes
-        policyHelper.enforce(
-            policyHelper.buildContext(
-                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_RESOLUTION,
-                correlationId = correlationId,
-            ).modelName(operation.operation.model).build()
-        )
-
-        // Enforce BEFORE_RESPONSE_RETURN before any token is emitted.
-        // Streaming tokens are externally visible immediately, so this is a preemptive check.
-        policyHelper.enforce(
-            policyHelper.buildContext(
-                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
-                correlationId = correlationId,
-            ).build()
-        )
-
-        val candidates = providerRegistry.resolveCandidates(operation.operation)
 
         return flow {
+            val correlationId = java.util.UUID.randomUUID().toString()
+
+            // Enforce BEFORE_PROVIDER_RESOLUTION inside the flow for cold-Flow semantics
+            policyHelper.enforce(
+                policyHelper.buildContext(
+                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_RESOLUTION,
+                    correlationId = correlationId,
+                ).modelName(operation.operation.model).build()
+            )
+
+            val candidates = providerRegistry.resolveCandidates(operation.operation)
+
             var lastFailure: Throwable? = null
             var lastCircuitOpen: CircuitBreakerOpenException? = null
             val attemptCounter = AttemptCounter()
@@ -296,8 +288,34 @@ private class TramaiInvocationHandler(
                 val blockedUntil = circuitBreaker.beforeCall(route.providerName)
                 if (blockedUntil != null) {
                     lastCircuitOpen = CircuitBreakerOpenException(route.providerName, blockedUntil)
+                    // Enforce BEFORE_FALLBACK before skipping to next route
+                    val nextRoute = candidates.getOrNull(routeIndex + 1)
+                    if (nextRoute != null) {
+                        try {
+                            enforceFallbackTransition(
+                                correlationId = correlationId,
+                                previousProviderId = route.providerName,
+                                previousModelName = route.effectiveModelName,
+                                nextProviderId = nextRoute.providerName,
+                                reason = "circuit-breaker-open",
+                            )
+                        } catch (policyError: PolicyViolationException) {
+                            policyError.addSuppressed(lastCircuitOpen)
+                            throw policyError
+                        }
+                    }
                     continue
                 }
+
+                // Enforce BEFORE_RESPONSE_RETURN per-route before any token emission
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                        correlationId = correlationId,
+                    ).providerId(route.providerName)
+                        .modelName(route.effectiveModelName)
+                        .build()
+                )
 
                 // Enforce BEFORE_TOOL_EXPOSURE per tool definition
                 operation.toolDefinitions.forEach { toolDef ->
@@ -356,15 +374,18 @@ private class TramaiInvocationHandler(
                         // Enforce BEFORE_FALLBACK before trying the next route
                         val nextRoute = candidates.getOrNull(routeIndex + 1)
                         if (nextRoute != null) {
-                            policyHelper.enforce(
-                                policyHelper.buildContext(
-                                    enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_FALLBACK,
+                            try {
+                                enforceFallbackTransition(
                                     correlationId = correlationId,
-                                ).providerId(route.providerName)
-                                    .modelName(route.effectiveModelName)
-                                    .fallbackProviderId(nextRoute.providerName)
-                                    .build()
-                            )
+                                    previousProviderId = route.providerName,
+                                    previousModelName = route.effectiveModelName,
+                                    nextProviderId = nextRoute.providerName,
+                                    reason = "streaming-startup-failure",
+                                )
+                            } catch (policyError: PolicyViolationException) {
+                                policyError.addSuppressed(result.error)
+                                throw policyError
+                            }
                         }
                         lastFailure = result.error
                     }
@@ -646,6 +667,29 @@ private class TramaiInvocationHandler(
         }
     }
 
+    /**
+     * Enforces [EnforcementPoint.BEFORE_FALLBACK] at any transition point.
+     * Used for provider failures, circuit breaker opens, streaming startup failures,
+     * and route-unavailable transitions.
+     */
+    private suspend fun enforceFallbackTransition(
+        correlationId: String,
+        previousProviderId: String?,
+        previousModelName: String?,
+        nextProviderId: String,
+        reason: String,
+    ) {
+        val ctx = policyHelper.buildContext(
+            enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_FALLBACK,
+            correlationId = correlationId,
+        )
+        if (previousProviderId != null) ctx.providerId(previousProviderId)
+        if (previousModelName != null) ctx.modelName(previousModelName)
+        ctx.fallbackProviderId(nextProviderId)
+        ctx.attribute("fallbackReason", reason)
+        policyHelper.enforce(ctx.build())
+    }
+
     private fun recordStartupRetryEvent(
         providerName: String,
         failureType: String,
@@ -864,7 +908,17 @@ private class TramaiInvocationHandler(
             )
         ) {
             is StructuredOutputResult.Success -> {
+                // Enforce BEFORE_RESPONSE_RETURN before any side effects (persist, cache)
+                // and before onCallCompleted so external consumers don't assume availability
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                        correlationId = correlationId,
+                    ).build()
+                )
+
                 result.observation.onCallCompleted(parseSuccess = true)
+
                 persistStructuredSuccess(
                     result = result,
                     messages = messages,
@@ -873,14 +927,6 @@ private class TramaiInvocationHandler(
                     messagesBeforeCall = messagesBeforeCall,
                 )
                 operation.cacheValue(arguments, analysis.value, schemaJson)
-
-                // Enforce BEFORE_RESPONSE_RETURN before returning parsed value
-                policyHelper.enforce(
-                    policyHelper.buildContext(
-                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
-                        correlationId = correlationId,
-                    ).build()
-                )
 
                 analysis.value
             }
@@ -1077,6 +1123,22 @@ private class TramaiInvocationHandler(
             val blockedUntil = circuitBreaker.beforeCall(route.providerName)
             if (blockedUntil != null) {
                 lastCircuitOpen = CircuitBreakerOpenException(route.providerName, blockedUntil)
+                // Enforce BEFORE_FALLBACK before skipping to next route
+                val nextRoute = candidates.getOrNull(routeIndex + 1)
+                if (nextRoute != null) {
+                    try {
+                        enforceFallbackTransition(
+                            correlationId = correlationId,
+                            previousProviderId = route.providerName,
+                            previousModelName = route.effectiveModelName,
+                            nextProviderId = nextRoute.providerName,
+                            reason = "circuit-breaker-open",
+                        )
+                    } catch (policyError: PolicyViolationException) {
+                        policyError.addSuppressed(lastCircuitOpen)
+                        throw policyError
+                    }
+                }
                 continue
             }
 
@@ -1116,14 +1178,12 @@ private class TramaiInvocationHandler(
                 val nextRoute = candidates.getOrNull(routeIndex + 1)
                 if (nextRoute != null) {
                     try {
-                        policyHelper.enforce(
-                            policyHelper.buildContext(
-                                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_FALLBACK,
-                                correlationId = correlationId,
-                            ).providerId(route.providerName)
-                                .modelName(route.effectiveModelName)
-                                .fallbackProviderId(nextRoute.providerName)
-                                .build()
+                        enforceFallbackTransition(
+                            correlationId = correlationId,
+                            previousProviderId = route.providerName,
+                            previousModelName = route.effectiveModelName,
+                            nextProviderId = nextRoute.providerName,
+                            reason = "provider-failure",
                         )
                     } catch (policyError: PolicyViolationException) {
                         // Fallback denied — propagate policy violation with original error as suppressed

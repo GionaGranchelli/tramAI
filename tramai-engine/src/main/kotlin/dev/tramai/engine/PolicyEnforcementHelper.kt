@@ -18,13 +18,14 @@ import java.util.logging.Logger
  * scattered decision-handling logic across the engine.
  *
  * When no explicit [PolicyEngine] is provided, the engine uses
- * [dev.tramai.security.DefaultPolicyEngine] with secure defaults.
+ * [dev.tramai.engine.LegacyPermissivePolicyEngine] for backward compatibility.
  * One migration warning is emitted per engine instance.
  */
 internal class PolicyEnforcementHelper(
     private val policyEngine: PolicyEngine,
     private val migrationWarningGuard: AtomicBoolean,
     private val policyVersion: String = DEFAULT_POLICY_VERSION,
+    private val isLegacyFallback: Boolean = false,
 ) {
     private val logger = Logger.getLogger(PolicyEnforcementHelper::class.java.name)
 
@@ -42,12 +43,12 @@ internal class PolicyEnforcementHelper(
     }
 
     private fun logMigrationWarningOnce() {
-        if (migrationWarningGuard.compareAndSet(false, true)) {
+        if (isLegacyFallback && migrationWarningGuard.compareAndSet(false, true)) {
             logger.log(
                 Level.WARNING,
-                "TramAI Engine: Using default policy enforcement. " +
-                    "No tools, models, or providers are allowed until explicitly configured. " +
-                    "See PolicyConfiguration for setup or use LegacyPermissivePolicyEngine for preview.",
+                "TramAI Engine: No PolicyEngine configured. Operations are allowed through " +
+                    "LegacyPermissivePolicyEngine for 0.4.x backward compatibility. " +
+                    "Configure an explicit PolicyEngine before production use.",
             )
         }
     }
@@ -97,6 +98,7 @@ internal class PolicyContextBuilder(
     private var toolSecurity: dev.tramai.core.policy.ToolSecurityMetadata? = null
     private var targetDestination: String? = null
     private var workflowDigest: String? = base.workflowDigest
+    private val attributes = mutableMapOf<String, String>()
 
     fun providerId(id: String?) = apply { this.providerId = id }
     fun modelName(name: String?) = apply { this.modelName = name }
@@ -110,6 +112,7 @@ internal class PolicyContextBuilder(
     fun workflowDigest(value: String?) = apply { this.workflowDigest = value }
     fun actorId(value: String) = apply { this.actorId = value }
     fun workflowId(value: String?) = apply { this.workflowId = value }
+    fun attribute(key: String, value: String) = apply { this.attributes[key] = value }
 
     fun build(): PolicyContext = PolicyContext(
         enforcementPoint = enforcementPoint,
@@ -127,5 +130,6 @@ internal class PolicyContextBuilder(
         targetDestination = targetDestination,
         policyVersion = policyVersion,
         workflowDigest = workflowDigest,
+        attributes = attributes.toMap(),
     )
 }
