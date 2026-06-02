@@ -5,7 +5,7 @@ import dev.tramai.core.policy.DataClassification
 
 data class ClassificationDecision(
     val classification: DataClassification,
-    val source: ClassificationSource = ClassificationSource.RULE_BASED,
+    val source: ClassificationSource,
     val matchedRuleIds: List<String>,
     val usedDefault: Boolean,
 )

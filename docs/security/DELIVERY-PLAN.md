@@ -156,7 +156,6 @@ Topic 1.8 ✅ — closed in feat/secure-cache-provenance (PR #6). See `Operation
 - Trust model: regex patterns are trusted administrative configuration, not end-user input
 - Precedence: highest `DataClassification` wins via exhaustive ranking; `matchedRuleIds` includes all matched rules, ordered by priority desc, then id asc
 - Default: `INTERNAL` (secure default)
-- `INTERNAL` is the documented secure default
 - No automatic argument classification is performed in `TramaiEngine` — classification is an explicit caller action
 - `LOCAL_MODEL_ASSISTED` classification is intentionally deferred
 - Spring binding: `tramai.security.classification.*` properties; bean created only when explicitly enabled; `tramai-security` remains Spring-independent

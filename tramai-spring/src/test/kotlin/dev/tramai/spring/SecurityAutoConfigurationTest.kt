@@ -6,6 +6,7 @@ import dev.tramai.security.classification.ClassificationInput
 import dev.tramai.security.classification.DocumentClassifier
 import org.assertj.core.api.Assertions.assertThat
 import org.springframework.boot.autoconfigure.AutoConfigurations
+import org.springframework.boot.test.context.FilteredClassLoader
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
@@ -91,6 +92,26 @@ class SecurityAutoConfigurationTest {
                 assertThat(decision.classification).isEqualTo(DataClassification.RESTRICTED)
                 assertThat(decision.matchedRuleIds).containsExactly("national-id")
                 assertThat(decision.usedDefault).isFalse()
+            }
+    }
+
+    @Test
+    fun `context starts without tramai-security on classpath and produces no DocumentClassifier bean`() {
+        ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(
+                    TramaiAutoConfiguration::class.java,
+                    SecurityClassificationAutoConfiguration::class.java,
+                ),
+            )
+            .withClassLoader(
+                FilteredClassLoader("dev.tramai.security"),
+            )
+            .run { context ->
+                assertThat(context).doesNotHaveBean("documentClassifier")
+                assertThat(context).doesNotHaveBean(
+                    dev.tramai.security.classification.DocumentClassifier::class.java,
+                )
             }
     }
 
