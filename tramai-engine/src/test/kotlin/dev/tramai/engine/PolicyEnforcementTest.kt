@@ -9,6 +9,7 @@ import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.model.ClassifiedDocument
+import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
@@ -171,6 +172,12 @@ class PolicyEnforcementTest {
     }
 
     @AiService
+    interface CachedToolTestService {
+        @Operation(prompt = "test", model = "test-model", tools = ["echo"], cacheable = true, cacheTtlMillis = 60_000)
+        suspend fun cachedCall(input: String): String
+    }
+
+    @AiService
     interface StructuredTestService {
         @Operation(prompt = "test", model = "test-model", maxRetries = 0)
         suspend fun analyze(input: String): TestPayload
@@ -238,6 +245,18 @@ class PolicyEnforcementTest {
             @ConversationId sessionId: String,
             input: String,
         ): String
+    }
+
+    @AiService
+    interface FingerprintWithoutToolsService {
+        @Operation(prompt = "test", model = "test-model", cacheable = true, cacheTtlMillis = 60_000)
+        suspend fun cachedCall(input: String): String
+    }
+
+    @AiService
+    interface FingerprintWithToolsService {
+        @Operation(prompt = "test", model = "test-model", tools = ["echo"], cacheable = true, cacheTtlMillis = 60_000)
+        suspend fun cachedCall(input: String): String
     }
 
     data class TestPayload(val answer: String)
@@ -1043,21 +1062,10 @@ class PolicyEnforcementTest {
     }
 
     @Test
-    fun `same current turn with different chat history produces separate cache entries`() = runBlocking {
+    fun `cacheable operation with active chatMemory bypasses cache`() = runBlocking {
         val provider = CountingProvider()
         val memory = object : ChatMemory {
-            private val store = mapOf(
-                "session-a" to listOf(
-                    Message(MessageRole.USER, "Earlier context A"),
-                    Message(MessageRole.ASSISTANT, "Assistant memory A"),
-                ),
-                "session-b" to listOf(
-                    Message(MessageRole.USER, "Earlier context B"),
-                    Message(MessageRole.ASSISTANT, "Assistant memory B"),
-                ),
-            )
-
-            override fun get(conversationId: String): List<Message> = store[conversationId].orEmpty()
+            override fun get(conversationId: String): List<Message> = emptyList()
 
             override fun add(conversationId: String, messages: List<Message>) = Unit
 
@@ -1076,7 +1084,7 @@ class PolicyEnforcementTest {
         val service: CachedConversationService = engine.create()
 
         assertThat(service.analyze("session-a", "same-turn")).isEqualTo("ok")
-        assertThat(service.analyze("session-b", "same-turn")).isEqualTo("ok")
+        assertThat(service.analyze("session-a", "same-turn")).isEqualTo("ok")
         assertThat(provider.callCount.get()).isEqualTo(2)
     }
 
@@ -1116,6 +1124,100 @@ class PolicyEnforcementTest {
     }
 
     @Test
+    fun `cached provider removed from allowlist denies cache hit and skips provider`() = runBlocking {
+        val cache = InMemoryOperationResponseCache()
+        val provider = CountingProvider(id = "cloud-provider")
+        val allowEngine = engineWithCache(
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("cloud-provider"),
+                    allowCloudForClassifications = setOf(DataClassification.PUBLIC),
+                ),
+            ),
+            provider = provider,
+            responseCache = cache,
+        )
+        val allowService = allowEngine.create<CachedTestService>()
+        assertThat(allowService.cachedCall("test")).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+
+        val denyEngine = engineWithCache(
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = emptySet(),
+                    allowCloudForClassifications = setOf(DataClassification.PUBLIC),
+                ),
+            ),
+            provider = provider,
+            responseCache = cache,
+        )
+        val denyService = denyEngine.create<CachedTestService>()
+
+        assertThatThrownBy { runBlocking { denyService.cachedCall("test") } }
+            .isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("Provider 'cloud-provider' is not in the allowed-providers registry")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `cached model removed from allowlist denies cache hit and skips provider`() = runBlocking {
+        val cache = InMemoryOperationResponseCache()
+        val provider = CountingProvider(id = "cloud-provider")
+        val allowEngine = engineWithCache(
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("cloud-provider"),
+                    allowCloudForClassifications = setOf(DataClassification.PUBLIC),
+                ),
+            ),
+            provider = provider,
+            responseCache = cache,
+        )
+        val allowService = allowEngine.create<CachedTestService>()
+        assertThat(allowService.cachedCall("test")).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+
+        val denyEngine = engineWithCache(
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = emptySet(),
+                    allowedProviders = setOf("cloud-provider"),
+                    allowCloudForClassifications = setOf(DataClassification.PUBLIC),
+                ),
+            ),
+            provider = provider,
+            responseCache = cache,
+        )
+        val denyService = denyEngine.create<CachedTestService>()
+
+        assertThatThrownBy { runBlocking { denyService.cachedCall("test") } }
+            .isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("Model 'test-model' is not in the allowed-models registry")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `cacheable operation with tools bypasses cache`() = runBlocking {
+        val provider = CountingProvider()
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
+            responseCache = InMemoryOperationResponseCache(),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+        )
+        val service: CachedToolTestService = engine.create()
+
+        assertThat(service.cachedCall("test")).isEqualTo("ok")
+        assertThat(service.cachedCall("test")).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(2)
+    }
+
+    @Test
     fun `cache key contains digest not raw prompt`() {
         val firstKey = buildOperationCacheKeyForTesting(
             serviceType = CachedTestService::class,
@@ -1137,6 +1239,156 @@ class PolicyEnforcementTest {
         assertThat(firstKey.requestDigest).isEqualTo(secondKey.requestDigest)
         assertThat(firstKey.requestDigest).isNotEqualTo(differentKey.requestDigest)
         assertThat(firstKey.requestDigest).doesNotContain("secret")
+    }
+
+    @Test
+    fun `text part containing delimiter characters does not collide with multiple parts`() {
+        val singlePartDigest = buildRequestDigest(
+            listOf(
+                Message(
+                    role = MessageRole.USER,
+                    content = "",
+                    contentParts = listOf(ContentPart.TextPart("a|T:b")),
+                ),
+            ),
+        )
+        val splitPartsDigest = buildRequestDigest(
+            listOf(
+                Message(
+                    role = MessageRole.USER,
+                    content = "",
+                    contentParts = listOf(
+                        ContentPart.TextPart("a"),
+                        ContentPart.TextPart("b"),
+                    ),
+                ),
+            ),
+        )
+
+        assertThat(singlePartDigest).isNotEqualTo(splitPartsDigest)
+    }
+
+    @Test
+    fun `image url and mime containing special characters produce distinct digests`() {
+        val firstDigest = buildRequestDigest(
+            listOf(
+                Message(
+                    role = MessageRole.USER,
+                    content = "",
+                    contentParts = listOf(
+                        ContentPart.ImageUrlContent(
+                            url = "https://example.com/a|b?x=1\ny=2",
+                            mimeType = "image/png|variant",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val secondDigest = buildRequestDigest(
+            listOf(
+                Message(
+                    role = MessageRole.USER,
+                    content = "",
+                    contentParts = listOf(
+                        ContentPart.ImageUrlContent(
+                            url = "https://example.com/a:b?x=1\ny=2",
+                            mimeType = "image/png:variant",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertThat(firstDigest).isNotEqualTo(secondDigest)
+    }
+
+    @Test
+    fun `same text with different toolCallId produces different digest`() {
+        val firstDigest = buildRequestDigest(
+            listOf(Message(role = MessageRole.TOOL, content = "same", toolCallId = "call-1")),
+        )
+        val secondDigest = buildRequestDigest(
+            listOf(Message(role = MessageRole.TOOL, content = "same", toolCallId = "call-2")),
+        )
+
+        assertThat(firstDigest).isNotEqualTo(secondDigest)
+    }
+
+    @Test
+    fun `same text with different assistant toolCalls produces different digest`() {
+        val firstDigest = buildRequestDigest(
+            listOf(
+                Message(
+                    role = MessageRole.ASSISTANT,
+                    content = "same",
+                    toolCalls = listOf(ToolCall("1", "refund-order", "{}")),
+                ),
+            ),
+        )
+        val secondDigest = buildRequestDigest(
+            listOf(
+                Message(
+                    role = MessageRole.ASSISTANT,
+                    content = "same",
+                    toolCalls = listOf(ToolCall("1", "lookup-order", "{}")),
+                ),
+            ),
+        )
+
+        assertThat(firstDigest).isNotEqualTo(secondDigest)
+    }
+
+    @Test
+    fun `operationFingerprint changes when tools change`() {
+        val withoutTools = buildOperationCacheKeyForTesting(
+            serviceType = FingerprintWithoutToolsService::class,
+            methodName = "cachedCall",
+            arguments = listOf("test"),
+        )
+        val withTools = buildOperationCacheKeyForTesting(
+            serviceType = FingerprintWithToolsService::class,
+            methodName = "cachedCall",
+            arguments = listOf("test"),
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
+        )
+
+        assertThat(withoutTools.operationFingerprint).isNotEqualTo(withTools.operationFingerprint)
+    }
+
+    @Test
+    fun `corrupted cached envelope with mismatched partition is rejected without policy call`() = runBlocking {
+        val provider = CountingProvider()
+        val policyCalls = AtomicInteger(0)
+        val cache = object : OperationResponseCache {
+            override fun get(key: OperationCacheKey): CachedOperationResult = CachedOperationResult(
+                value = "ok",
+                provenance = CachedResponseProvenance(
+                    providerId = "cloud-provider",
+                    modelName = "test-model",
+                    dataClassification = DataClassification.RESTRICTED,
+                    classificationSource = ClassificationSource.DECLARED,
+                ),
+            )
+
+            override fun put(key: OperationCacheKey, value: CachedOperationResult, ttlMillis: Long) = Unit
+        }
+        val engine = TramaiEngine(
+            provider = provider,
+            responseCache = cache,
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision {
+                    policyCalls.incrementAndGet()
+                    return PolicyDecision.Allow
+                }
+            },
+        )
+        val service: CachedTestService = engine.create()
+
+        assertThatThrownBy { runBlocking { service.cachedCall("test") } }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("Cached entry envelope mismatch")
+        assertThat(policyCalls.get()).isEqualTo(0)
+        assertThat(provider.callCount.get()).isEqualTo(0)
     }
 
     @Test

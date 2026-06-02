@@ -24,11 +24,13 @@ interface OperationResponseCache {
  * the key; a configurable HMAC strategy is intentionally deferred.
  */
 data class OperationCacheKey(
+    val schemaVersion: Int = 1,
     val serviceInterface: String,
     val methodName: String,
     val requestedModel: String,
     val explicitProvider: String?,
     val requestDigest: String,
+    val operationFingerprint: String,
     val securityPartition: CacheSecurityPartition,
 )
 

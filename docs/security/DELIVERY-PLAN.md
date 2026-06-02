@@ -62,7 +62,7 @@ Implementation note:
 - among equal classifications, the least-authoritative source is retained for conservative audit metadata (authority order: DECLARED > RULE_BASED > LOCAL_MODEL_ASSISTED)
 
 Remaining follow-up:
-Topic 1.8 ✅ — closed in feat/secure-cache-provenance (PR #6). See `CACHE-PROVENANCE.md` if present, otherwise see test names in `PolicyEnforcementTest.kt`.
+Topic 1.8 ✅ — closed in feat/secure-cache-provenance (PR #6). See `OperationResponseCache.kt`, `InMemoryOperationResponseCache.kt`, and the eight cache-provenance tests in `PolicyEnforcementTest.kt`.
 
 ---
 
