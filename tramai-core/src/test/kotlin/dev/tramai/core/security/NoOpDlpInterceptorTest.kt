@@ -26,12 +26,12 @@ class NoOpDlpInterceptorTest {
     }
 
     @Test
-    fun `modified is false`() {
+    fun `hasRedactions is false`() {
         val result = interceptor.inspect(
             DlpContext(contentType = DlpContentType.MODEL_OUTPUT, operationInterface = "test", operationMethod = "m", correlationId = "c3"),
             "hello"
         )
-        assertThat(result.modified).isFalse()
+        assertThat(result.hasRedactions).isFalse()
     }
 
     @Test
@@ -42,7 +42,7 @@ class NoOpDlpInterceptorTest {
                 "some text"
             )
             assertThat(result.sanitizedText).isEqualTo("some text")
-            assertThat(result.modified).isFalse()
+            assertThat(result.hasRedactions).isFalse()
         }
     }
 }

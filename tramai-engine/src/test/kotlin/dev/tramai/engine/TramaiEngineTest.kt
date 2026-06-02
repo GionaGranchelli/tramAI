@@ -1362,6 +1362,18 @@ class TramaiEngineTest {
             // Verify tool was invoked (toolCalls remain unchanged by DLP)
             // Two requests: one with tool call, one with tool result injected
             assertThat(provider.requests).hasSize(2)
+
+            // After tool execution, the second provider request should have sanitized assistant content
+            val secondRequest = provider.requests[1]
+            val assistantMessage = secondRequest.messages.last { it.role == MessageRole.ASSISTANT }
+            assertThat(assistantMessage.content).doesNotContain("user@example.com")
+            assertThat(assistantMessage.content).contains("[EMAIL]")
+
+            // ToolCall metadata must be preserved
+            val toolCallMessage = secondRequest.messages.last { it.role == MessageRole.ASSISTANT }
+            assertThat(toolCallMessage.toolCalls).hasSize(1)
+            assertThat(toolCallMessage.toolCalls?.single()?.id).isEqualTo("tc-1")
+            assertThat(toolCallMessage.toolCalls?.single()?.name).isEqualTo("lookup")
         }
 
         @Test

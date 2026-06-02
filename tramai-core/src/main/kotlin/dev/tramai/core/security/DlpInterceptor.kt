@@ -1,5 +1,8 @@
 package dev.tramai.core.security
 
+import dev.tramai.core.policy.ClassificationSource
+import dev.tramai.core.policy.DataClassification
+
 /**
  * Content type for DLP scanning, distinguishing model outputs from tool results.
  */
@@ -20,8 +23,8 @@ data class DlpContext(
     val modelName: String? = null,
     val toolName: String? = null,
     val correlationId: String,
-    val dataClassification: String? = null,
-    val classificationSource: String? = null,
+    val dataClassification: DataClassification? = null,
+    val classificationSource: ClassificationSource? = null,
 )
 
 /**
@@ -36,14 +39,25 @@ data class DlpRedaction(
 
 /**
  * Result of a DLP inspection. If [sanitizedText] differs from the input then
- * [redactions] describes what was redacted and [modified] is `true`.
+ * [redactions] describes what was redacted and [hasRedactions] is `true`.
  */
 data class DlpResult(
     val sanitizedText: String,
     val redactions: List<DlpRedaction> = emptyList(),
 ) {
-    val modified: Boolean get() = redactions.isNotEmpty()
+    val hasRedactions: Boolean get() = redactions.isNotEmpty()
 }
+
+/**
+ * Exception thrown when DLP inspection fails. This is distinct from provider
+ * failures — a DLP failure does not count toward provider circuit breakers
+ * and does not trigger fallback or retry.
+ */
+class DlpInspectionException(
+    ruleId: String? = null,
+    message: String = "DLP inspection failed",
+    cause: Throwable? = null,
+) : RuntimeException(message, cause)
 
 /**
  * Service-provider interface for DLP (Data Loss Prevention) interceptors.

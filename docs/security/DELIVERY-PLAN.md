@@ -309,18 +309,19 @@ tramai:
 **Where:**
 - `tramai-core/.../security/DlpInterceptor.kt` — SPI, context, result types, NoOpDlpInterceptor
 - `tramai-security/.../RuleBasedDlpInterceptor.kt` — rule-based implementation
-- `tramai-engine/.../TramaiEngine.kt` — engine hook at `applyDlpToResult()`
+- `tramai-engine/.../TramaiEngine.kt` — engine hook inside `callProviderWithRetries()`
 
 ### DLP API (`tramai-core`)
 
 | Type | Role |
 |------|------|
 | `DlpContentType` | Enum: `MODEL_OUTPUT`, `TOOL_RESULT` |
-| `DlpContext` | Metadata about the operation producing the text (contentType, service/method, provider/model, correlationId) |
-| `DlpResult` | Result containing `sanitizedText`, `redactions: List<DlpRedaction>`, and computed `modified` |
+| `DlpContext` | Metadata about the operation producing the text (contentType, service/method, provider/model, correlationId, dataClassification, classificationSource) |
+| `DlpResult` | Result containing `sanitizedText`, `redactions: List<DlpRedaction>`, and computed `hasRedactions` (renamed from `modified`) |
 | `DlpRedaction` | Rule reference with count — **no raw matched values** |
 | `DlpInterceptor` | `fun interface` with `inspect(context, text): DlpResult` |
 | `NoOpDlpInterceptor` | Pass-through singleton |
+| `DlpInspectionException` | Thrown when DLP inspection fails — distinct from provider failures |
 
 ### RuleBasedDlpInterceptor (`tramai-security`)
 
@@ -335,6 +336,8 @@ tramai:
 - **Security properties:** No raw matched values in `DlpRedaction` or exceptions; fixed exception messages
 - **Oversized input:** Rejected with `IllegalArgumentException("Input text exceeds maximum allowed length")` — no input content leaked
 - **Duplicate redaction counting:** `DlpRedaction.replacementCount` reports total matches per rule
+- **Zero-width safety:** Uses `Matcher.region()` to advance past zero-width matches (lookahead, boundary anchors), preventing infinite loops
+- **Literal replacements:** All replacements use `Matcher.quoteReplacement()` (when using `appendReplacement`) or direct appending, so `$1` / `\value` in replacements stay literal
 
 ### Engine Hook Location (`TramaiEngine`)
 
@@ -344,7 +347,7 @@ after `OperationInterceptor.interceptResponse()` and **before** `onProviderRespo
 ```
 ModelResponse
   → interceptResponse (operation interceptor)
-  → applyDlpToResult()  ← DLP applied here (earliest safe boundary)
+  → DLP inspection (inside callProviderWithRetries, earliest safe boundary)
     → observation.onProviderResponse(sanitized)
     → structured parsing (if structured output)
     → cache storage
@@ -360,40 +363,61 @@ Consequences:
 - `toolCalls` on the response are never modified
 - Short-circuit when `dlpInterceptor === NoOpDlpInterceptor` (zero overhead for default config)
 
+### DLP Failure Isolation
+
+DLP failures are strictly separated from provider failures:
+
+- A DLP inspection exception (`DlpInspectionException`) does NOT call `observation.onProviderFailure()`
+- It does NOT call `circuitBreaker.onFailure()` — DLP failures do not poison provider circuit breakers
+- It does NOT trigger provider retries (DLP is deterministic per response)
+- It does NOT trigger fallback (response content cannot be returned unsanitized)
+- The `DlpInspectionException` propagates directly to the caller
+
 ### Cache Behaviour
 
 Cache eligibility (`isSafeCacheEligible`) requires `dlpInterceptor === NoOpDlpInterceptor`.
 Custom DLP interceptors **bypass the cache entirely** — every provider response is freshly
 sanitized.
 
-Cache-aware DLP fingerprints (cache-key by dlpInterceptor identity) and cache-hit
-re-inspection are deferred until the interceptor is stable.
-
-### Test Matrix
+### Test Coverage
 
 #### NoOpDlpInterceptorTest (tramai-core)
 - Returns exact text unchanged
 - No redactions produced
-- `modified` is always false
+- `hasRedactions` is always false
 - Works with all DlpContentType values
 
-#### RuleBasedDlpInterceptorTest (tramai-security) — 16 tests
-1. Email regex redacts matching text
-2. API-key regex uses custom replacement string
-3. Multiple rules apply deterministically (in declaration order)
-4. Duplicate rule IDs rejected with clear message
-5. Blank rule IDs rejected
-6. Blank patterns rejected
-7. Oversized input rejected with fixed message (no input leakage)
-8. `TOOL_RESULT`-only rule does not affect `MODEL_OUTPUT`
-9. `MODEL_OUTPUT`-only rule does not affect `TOOL_RESULT`
-10. Rule applies to both content types when `enabledFor` includes both
-11. Empty rules list passes text through unchanged
-12. Input at `maxTextLength` boundary passes through
-13. `DlpResult` properties on modified output (sanitizedText, modified, redactions)
-14. Multiple occurrences of same pattern all redacted with correct count
-15. `maxTextLength = 0` rejected
-16. `maxTextLength` exceeding maximum rejected
+#### RuleBasedDlpInterceptorTest (tramai-security)
+- Email regex redacts matching text
+- API-key regex uses custom replacement string
+- Multiple rules apply deterministically (in declaration order)
+- Duplicate rule IDs rejected with clear message
+- Blank rule IDs rejected
+- Blank patterns rejected
+- Oversized input rejected with fixed message (no input leakage)
+- `TOOL_RESULT`-only rule does not affect `MODEL_OUTPUT`
+- `MODEL_OUTPUT`-only rule does not affect `TOOL_RESULT`
+- Rule applies to both content types when `enabledFor` includes both
+- Empty rules list passes text through unchanged
+- Input at `maxTextLength` boundary passes through
+- `DlpResult` properties on modified output (sanitizedText, hasRedactions, redactions)
+- Multiple occurrences of same pattern all redacted with correct count
+- `maxTextLength = 0` rejected
+- `maxTextLength` exceeding maximum rejected
+- Zero-width lookahead terminates safely (no infinite loop)
+- End-of-string anchor (`$`) terminates safely
+- Replacement with `$1` stays literal (no backreference interpretation)
+- Replacement with `\value` stays literal
+
+#### Engine Integration Tests (tramai-engine)
+- Raw response redacted before caller return
+- Structured JSON redacted before parser input
+- Chat memory stores sanitized assistant response
+- Operation observer sees sanitized response
+- Tool calls remain unchanged after DLP (sanitized assistant content, preserved tool call metadata)
+- Custom DLP disables cache
+- NoOp DLP preserves existing behavior
+- Custom DLP interceptor without redaction metadata still applies sanitized text
 
 ### Deferred Work (follow-up PRs)
 - **Field-level output policies** (2B.2) — annotation-driven per-field redaction

@@ -984,7 +984,6 @@ private class TramaiInvocationHandler(
 
                 persistStructuredSuccess(
                     result = result,
-                    sanitizedContent = result.response.content,
                     messages = messages,
                     historySize = historySize,
                     conversationId = conversationId,
@@ -1012,14 +1011,13 @@ private class TramaiInvocationHandler(
 
     private fun persistStructuredSuccess(
         result: ProviderCallResult,
-        sanitizedContent: String? = null,
         messages: MutableList<Message>,
         historySize: Int,
         conversationId: String?,
         messagesBeforeCall: Int,
     ) {
         if (chatMemory == null || conversationId == null) return
-        val content = sanitizedContent ?: result.response.content
+        val content = result.response.content
         val assistantMessage = Message(
             role = MessageRole.ASSISTANT,
             content = content,
@@ -1029,43 +1027,6 @@ private class TramaiInvocationHandler(
             .filter { it.role != MessageRole.SYSTEM }
         val toolMessages = messages.drop(messagesBeforeCall)
         chatMemory.add(conversationId, userPrompt + toolMessages + assistantMessage)
-    }
-
-    /**
-     * Applies DLP sanitization to the [ProviderCallResult.response] content if the
-     * interceptor is not the no-op default. Returns the original [result.response]
-     * unmodified if no DLP is configured or if the response content is null.
-     *
-     * Only [DlpContentType.MODEL_OUTPUT] is scanned in this pass.
-     * [ToolCall]s attached to the response are never modified.
-     */
-    private fun applyDlpToResult(
-        result: ProviderCallResult,
-        operation: OperationDefinition,
-        correlationId: String,
-        securityContext: ExecutionSecurityContext,
-    ): ModelResponse {
-        val response = result.response
-        if (dlpInterceptor === NoOpDlpInterceptor) {
-            return response
-        }
-
-        val context = DlpContext(
-            contentType = DlpContentType.MODEL_OUTPUT,
-            operationInterface = serviceDefinition.serviceType.qualifiedName
-                ?: serviceDefinition.serviceType.simpleName.orEmpty(),
-            operationMethod = operation.method.name,
-            providerId = result.providerId,
-            modelName = result.modelName,
-            correlationId = correlationId,
-        )
-
-        val dlpResult = dlpInterceptor.inspect(context, response.content)
-        return if (dlpResult.sanitizedText != response.content) {
-            response.copy(content = dlpResult.sanitizedText)
-        } else {
-            response
-        }
     }
 
     private fun handleStructuredFailure(
@@ -1378,26 +1339,42 @@ private class TramaiInvocationHandler(
                 val interceptedResponse = operationInterceptor.interceptResponse(callContext, rawResponse)
 
                 // DLP: sanitize model output at the earliest safe boundary
-                val sanitizedResponse = if (dlpInterceptor !== NoOpDlpInterceptor) {
-                    val dlpContext = DlpContext(
-                        contentType = DlpContentType.MODEL_OUTPUT,
-                        operationInterface = serviceDefinition.serviceType.qualifiedName
-                            ?: serviceDefinition.serviceType.simpleName.orEmpty(),
-                        operationMethod = operation.method.name,
-                        providerId = providerId,
-                        modelName = request.model,
-                        correlationId = correlationId,
-                        dataClassification = securityContext.dataClassification?.name,
-                        classificationSource = securityContext.classificationSource?.name,
-                    )
-                    val dlpResult = dlpInterceptor.inspect(dlpContext, interceptedResponse.content)
-                    if (dlpResult.sanitizedText != interceptedResponse.content) {
-                        interceptedResponse.copy(content = dlpResult.sanitizedText)
+                val sanitizedResponse = try {
+                    if (dlpInterceptor !== NoOpDlpInterceptor) {
+                        val dlpContext = DlpContext(
+                            contentType = DlpContentType.MODEL_OUTPUT,
+                            operationInterface = serviceDefinition.serviceType.qualifiedName
+                                ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+                            operationMethod = operation.method.name,
+                            providerId = providerId,
+                            modelName = request.model,
+                            correlationId = correlationId,
+                            dataClassification = securityContext.dataClassification,
+                            classificationSource = securityContext.classificationSource,
+                        )
+                        val dlpResult = dlpInterceptor.inspect(dlpContext, interceptedResponse.content)
+                        if (dlpResult.sanitizedText != interceptedResponse.content) {
+                            interceptedResponse.copy(content = dlpResult.sanitizedText)
+                        } else {
+                            interceptedResponse
+                        }
                     } else {
                         interceptedResponse
                     }
-                } else {
-                    interceptedResponse
+                } catch (e: Exception) {
+                    // DLP failures are separate from provider failures:
+                    //   - Do NOT call observation.onProviderFailure(...)
+                    //   - Do NOT call circuitBreaker.onFailure(...)
+                    //   - Do NOT retry (DLP is deterministic per response)
+                    //   - Do NOT fallback (response content cannot be returned unsanitized)
+                    observation.onEngineEvent(
+                        name = "tramai.dlp.inspection_failed",
+                        attributes = mapOf("providerId" to providerId, "correlationId" to correlationId),
+                    )
+                    throw dev.tramai.core.security.DlpInspectionException(
+                        message = "DLP inspection failed for provider '$providerId'",
+                        cause = e,
+                    )
                 }
 
                 observation.onProviderResponse(sanitizedResponse)
@@ -1407,6 +1384,11 @@ private class TramaiInvocationHandler(
                     providerId = providerId,
                     modelName = request.model,
                 )
+            } catch (error: dev.tramai.core.security.DlpInspectionException) {
+                // DLP failures propagate directly — NOT a provider failure.
+                // Do NOT call observation.onProviderFailure, circuitBreaker.onFailure,
+                // or retry.
+                throw error
             } catch (error: Throwable) {
                 observation.onProviderFailure(error)
                 observation.onCallCompleted(parseSuccess = null)
