@@ -384,9 +384,14 @@ class TramaiAutoConfigurationTest {
             val first = runBlocking { analyzer.analyze("invoice-123") }
             val second = runBlocking { analyzer.analyze("invoice-123") }
 
+            // Spring component scan picks up InterceptorConfiguration in the same
+            // package, registering a custom OperationInterceptor. With a custom
+            // interceptor configured, the engine's isSafeCacheEligible() returns
+            // false and the response cache is bypassed — each invocation reaches
+            // the provider so the current interceptor rules are always applied.
             assertThat(first).isEqualTo("cached spring hello 1")
-            assertThat(second).isEqualTo("cached spring hello 1")
-            assertThat(provider.requests).hasSize(1)
+            assertThat(second).isEqualTo("cached spring hello 2")
+            assertThat(provider.requests).hasSize(2)
         }
     }
 

@@ -61,6 +61,9 @@ import kotlinx.coroutines.withTimeout
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import java.util.Base64
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.reflect.KClass
@@ -773,24 +776,26 @@ private class TramaiInvocationHandler(
     ): String {
         val securityContext = ExecutionSecurityContext.fromArguments(arguments.toTypedArray())
         val correlationId = java.util.UUID.randomUUID().toString()
+        val initialMessages = operation.initialMessages(arguments)
+        val (history, effectiveMessages) = injectMemoryMessages(initialMessages, conversationId)
+            ?: (emptyList<Message>() to initialMessages)
+        val cacheKey = operation.takeIf { isSafeCacheEligible(it, conversationId) }?.buildCacheKey(
+            digestSource = effectiveMessages,
+            securityPartition = securityContext.toCacheSecurityPartition(),
+        )
 
-        // Enforce BEFORE_RESPONSE_RETURN before returning cached value
-        if (securityContext.dataClassification == null) {
-            operation.cachedValue(arguments)?.let { cached ->
-                policyHelper.enforce(
-                    policyHelper.buildContext(
-                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
-                        correlationId = correlationId,
-                    ).applySecurityContext(securityContext)
-                        .build()
+        cacheKey?.let { key ->
+            operation.cachedValue(key, conversationId)?.let { cached ->
+                authorizeCachedResult(
+                    cacheKey = key,
+                    cached = cached,
+                    securityContext = securityContext,
+                    correlationId = correlationId,
                 )
-                return cached as String
+                return cached.value as String
             }
         }
 
-        val messages = operation.initialMessages(arguments).toMutableList()
-        val (history, effectiveMessages) = injectMemoryMessages(messages, conversationId)
-            ?: (emptyList<Message>() to messages.toList())
         val effectiveMutableMessages = effectiveMessages.toMutableList()
 
         val result = executeWithTools(
@@ -826,8 +831,8 @@ private class TramaiInvocationHandler(
 
         result.observation.onCallCompleted(parseSuccess = null)
         return result.response.content.also {
-            if (securityContext.dataClassification == null) {
-                operation.cacheValue(arguments, it)
+            cacheKey?.let { key ->
+                operation.cacheValue(key, it, result.providerId, result.modelName, securityContext, conversationId)
             }
         }
     }
@@ -844,34 +849,33 @@ private class TramaiInvocationHandler(
         )
         val contract = operation.structuredContract(handler)
         val correlationId = java.util.UUID.randomUUID().toString()
+        val initialMessages = operation.initialMessages(arguments, contract.schemaJson)
+        val (history, effectiveMessages) = injectMemoryMessages(initialMessages, conversationId)
+            ?: (emptyList<Message>() to initialMessages)
+        val cacheKey = operation.takeIf { isSafeCacheEligible(it, conversationId) }?.buildCacheKey(
+            digestSource = effectiveMessages,
+            securityPartition = securityContext.toCacheSecurityPartition(),
+        )
 
-        // Enforce BEFORE_RESPONSE_RETURN before returning cached value
-        if (securityContext.dataClassification == null) {
-            operation.cachedValue(arguments, contract.schemaJson)?.let { cached ->
-                policyHelper.enforce(
-                    policyHelper.buildContext(
-                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
-                        correlationId = correlationId,
-                    ).applySecurityContext(securityContext)
-                        .build()
+        cacheKey?.let { key ->
+            operation.cachedValue(key, conversationId)?.let { cached ->
+                authorizeCachedResult(
+                    cacheKey = key,
+                    cached = cached,
+                    securityContext = securityContext,
+                    correlationId = correlationId,
                 )
-                return cached
+                return cached.value
             }
         }
 
-        val messages = operation.initialMessages(arguments, contract.schemaJson).toMutableList()
-        val (history, effectiveMessages) = injectMemoryMessages(messages, conversationId)
-            ?: (emptyList<Message>() to messages.toList())
-
         // Re-initialize messages list with history-injected content
+        val messages = effectiveMessages.toMutableList()
         val initialTurnCount = history.size
-        messages.clear()
-        messages.addAll(effectiveMessages)
 
         return executeStructuredRetryLoop(
             operation = operation,
-            arguments = arguments,
-            schemaJson = contract.schemaJson,
+            cacheKey = cacheKey,
             handler = handler,
             messages = messages,
             historySize = initialTurnCount,
@@ -884,8 +888,7 @@ private class TramaiInvocationHandler(
 
     private suspend fun executeStructuredRetryLoop(
         operation: OperationDefinition,
-        arguments: List<Any?>,
-        schemaJson: String,
+        cacheKey: OperationCacheKey?,
         handler: StructuredOutputHandler,
         messages: MutableList<Message>,
         historySize: Int,
@@ -902,8 +905,7 @@ private class TramaiInvocationHandler(
         repeat(maxAttempts) { attemptIndex ->
             val value = executeStructuredAttempt(
                 operation = operation,
-                arguments = arguments,
-                schemaJson = schemaJson,
+                cacheKey = cacheKey,
                 handler = handler,
                 messages = messages,
                 historySize = historySize,
@@ -925,8 +927,7 @@ private class TramaiInvocationHandler(
 
     private suspend fun executeStructuredAttempt(
         operation: OperationDefinition,
-        arguments: List<Any?>,
-        schemaJson: String,
+        cacheKey: OperationCacheKey?,
         handler: StructuredOutputHandler,
         messages: MutableList<Message>,
         historySize: Int,
@@ -974,8 +975,8 @@ private class TramaiInvocationHandler(
                     conversationId = conversationId,
                     messagesBeforeCall = messagesBeforeCall,
                 )
-                if (securityContext.dataClassification == null) {
-                    operation.cacheValue(arguments, analysis.value, schemaJson)
+                cacheKey?.let { key ->
+                    operation.cacheValue(key, analysis.value, result.providerId, result.modelName, securityContext, conversationId)
                 }
 
                 analysis.value
@@ -1593,29 +1594,119 @@ private class TramaiInvocationHandler(
         return conversationIdProvider.resolve()
     }
 
+    private suspend fun authorizeCachedResult(
+        cacheKey: OperationCacheKey,
+        cached: CachedOperationResult,
+        securityContext: ExecutionSecurityContext,
+        correlationId: String,
+    ) {
+        validateCachedEntry(cacheKey, cached)
+        policyHelper.enforce(
+            policyHelper.buildContext(
+                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_RESOLUTION,
+                correlationId = correlationId,
+            ).modelName(cacheKey.requestedModel)
+                .applySecurityContext(securityContext)
+                .attribute("cacheReuse", "true")
+                .build()
+        )
+        policyHelper.enforce(
+            policyHelper.buildContext(
+                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                correlationId = correlationId,
+            ).providerId(cached.provenance.providerId)
+                .modelName(cached.provenance.modelName)
+                .applySecurityContext(securityContext)
+                .attribute("cacheReuse", "true")
+                .build()
+        )
+        policyHelper.enforce(
+            policyHelper.buildContext(
+                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                correlationId = correlationId,
+            ).providerId(cached.provenance.providerId)
+                .modelName(cached.provenance.modelName)
+                .applySecurityContext(securityContext)
+                .attribute("cacheReuse", "true")
+                .build()
+        )
+    }
+
+    private fun validateCachedEntry(
+        key: OperationCacheKey,
+        cached: CachedOperationResult,
+    ) {
+        val provenance = cached.provenance
+        if (provenance.providerId.isBlank() ||
+            provenance.modelName.isBlank() ||
+            provenance.dataClassification != key.securityPartition.dataClassification ||
+            provenance.classificationSource != key.securityPartition.classificationSource
+        ) {
+            throw IllegalStateException(
+                "Cached entry envelope mismatch: key partition " +
+                    "${key.securityPartition} != cached provenance partition " +
+                    "(${provenance.dataClassification}, ${provenance.classificationSource})",
+            )
+        }
+    }
+
     private fun OperationDefinition.cachedValue(
-        arguments: List<Any?>,
-        schemaJson: String? = null,
-    ): Any? = if (isCacheEligible) {
-        responseCache.get(cacheKey(arguments, schemaJson))
+        key: OperationCacheKey,
+        conversationId: String?,
+    ): CachedOperationResult? = if (isSafeCacheEligible(this, conversationId)) {
+        responseCache.get(key)
     } else {
         null
     }
 
     private fun OperationDefinition.cacheValue(
-        arguments: List<Any?>,
+        key: OperationCacheKey,
         value: Any,
-        schemaJson: String? = null,
+        providerId: String,
+        modelName: String,
+        securityContext: ExecutionSecurityContext,
+        conversationId: String?,
     ) {
-        if (!isCacheEligible) {
+        if (!isSafeCacheEligible(this, conversationId)) {
             return
         }
         responseCache.put(
-            key = cacheKey(arguments, schemaJson),
-            value = value,
+            key = key,
+            value = CachedOperationResult(
+                value = value,
+                provenance = CachedResponseProvenance(
+                    providerId = providerId,
+                    modelName = modelName,
+                    dataClassification = securityContext.dataClassification,
+                    classificationSource = securityContext.classificationSource,
+                ),
+            ),
             ttlMillis = operation.cacheTtlMillis,
         )
     }
+
+    /**
+     * Cache eligibility including the conversation-memory and custom-interceptor
+     * gates. Both gates are engine-scoped, not operation-scoped, so they live
+     * on the handler.
+     *
+     * - **No chat memory** in scope: a cache hit would skip the
+     *   `chatMemory.add(...)` that a fresh execution performs.
+     * - **No custom interceptor**: a cache hit would skip
+     *   `operationInterceptor.interceptRequest(...)` and
+     *   `operationInterceptor.interceptResponse(...)`, allowing stale
+     *   redacted/audited responses to bypass current rules.
+     *
+     * Interceptor-aware caching is deferred to a follow-up that introduces a
+     * dedicated cache-aware interceptor SPI.
+     */
+    private fun isSafeCacheEligible(
+        operation: OperationDefinition,
+        conversationId: String?,
+    ): Boolean =
+        operation.isOperationCacheEligible() &&
+            conversationId == null &&
+            operationInterceptor === NoOpOperationInterceptor
 }
 
 private data class ServiceDefinition(
@@ -1687,8 +1778,18 @@ private data class OperationDefinition(
     val toolDefinitions: List<ToolDefinition>,
     val promptSanitizer: PromptSanitizer?,
 ) {
-    val isCacheEligible: Boolean
-        get() = operation.cacheable && returnKind != ReturnKind.STREAMING && toolDefinitions.isEmpty()
+    /**
+     * Operation-static cache eligibility (no chat memory, no tools, no streaming,
+     * no custom [dev.tramai.core.observation.OperationInterceptor]).
+     *
+     * The interceptor-aware portion of the check lives on the invocation handler
+     * because the interceptor is engine-scoped, not operation-scoped. Use the
+     * handler's [isSafeCacheEligible] when evaluating an actual cache read/write.
+     */
+    fun isOperationCacheEligible(): Boolean =
+        operation.cacheable &&
+            returnKind != ReturnKind.STREAMING &&
+            toolDefinitions.isEmpty()
 
     /**
      * The effective system message, resolved by precedence:
@@ -1849,18 +1950,39 @@ private data class OperationDefinition(
     fun cacheKey(
         arguments: List<Any?>,
         schemaJson: String? = null,
+    ): OperationCacheKey = buildCacheKey(
+        digestSource = initialMessages(arguments, schemaJson),
+        securityPartition = ExecutionSecurityContext.fromArguments(arguments.toTypedArray()).toCacheSecurityPartition(),
+    )
+
+    internal fun buildCacheKey(
+        digestSource: List<Message>,
+        securityPartition: CacheSecurityPartition,
     ): OperationCacheKey = OperationCacheKey(
         serviceInterface = method.declaringClass.name,
         methodName = method.name,
         requestedModel = operation.model,
         explicitProvider = operation.provider.takeIf { it.isNotBlank() },
-        messages = initialMessages(arguments, schemaJson).map { message ->
-            CachedMessage(
-                role = message.role.name,
-                content = message.content,
-            )
-        },
+        requestDigest = sha256Hex(canonicalizeMessages(digestSource)),
+        operationFingerprint = operationFingerprint(),
+        securityPartition = securityPartition,
     )
+
+    private fun operationFingerprint(): String {
+        val canonical = buildString {
+            append("tools_count=").append(toolDefinitions.size).append('\n')
+            toolDefinitions.forEachIndexed { index, tool ->
+                append("tool_").append(index).append("_name_len=").append(tool.name.length).append('\n')
+                append(tool.name).append('\n')
+                append("tool_").append(index).append("_schema_len=").append(tool.inputSchemaJson.length).append('\n')
+                append(tool.inputSchemaJson).append('\n')
+            }
+            append("timeout_millis=").append(operation.timeoutMillis).append('\n')
+            append("cacheable=").append(operation.cacheable).append('\n')
+            append("cache_ttl_millis=").append(operation.cacheTtlMillis).append('\n')
+        }
+        return sha256Hex(canonical)
+    }
 
     fun structuredContract(handler: StructuredOutputHandler) = handler.createContract(
         requireNotNull(returnType) {
@@ -1972,6 +2094,29 @@ private data class OperationDefinition(
         private fun Method.isSuspendSignature(): Boolean =
             parameterTypes.lastOrNull()?.name == "kotlin.coroutines.Continuation"
     }
+}
+
+internal fun buildOperationCacheKeyForTesting(
+    serviceType: KClass<*>,
+    methodName: String,
+    arguments: List<Any?>,
+    schemaJson: String? = null,
+    promptSanitizer: PromptSanitizer? = null,
+    toolRegistry: ToolRegistry = ToolRegistry(),
+): OperationCacheKey {
+    val definition = ServiceDefinition.create(
+        serviceType = serviceType,
+        toolRegistry = toolRegistry,
+        promptSanitizer = promptSanitizer,
+    )
+    val method = serviceType.java.methods.firstOrNull { it.name == methodName }
+        ?: throw IllegalArgumentException("No method named '$methodName' on ${serviceType.java.name}")
+    val operation = definition.operations[method]
+        ?: throw IllegalArgumentException("No operation metadata for ${serviceType.java.name}.$methodName")
+    return operation.buildCacheKey(
+        digestSource = operation.initialMessages(arguments, schemaJson),
+        securityPartition = ExecutionSecurityContext.fromArguments(arguments.toTypedArray()).toCacheSecurityPartition(),
+    )
 }
 
 private data class ProviderCallResult(
@@ -2186,6 +2331,73 @@ private fun PolicyContextBuilder.applySecurityContext(
     securityContext: ExecutionSecurityContext,
 ): PolicyContextBuilder = dataClassification(securityContext.dataClassification)
     .classificationSource(securityContext.classificationSource)
+
+private fun ExecutionSecurityContext.toCacheSecurityPartition() = CacheSecurityPartition(
+    dataClassification = dataClassification,
+    classificationSource = classificationSource,
+)
+
+/** Length-prefixed field encoding with a framed message separator. Adding a field: extend with appendField; never reuse `---` as a content marker. */
+private fun canonicalizeMessages(messages: List<Message>): String = buildString {
+    messages.forEachIndexed { index, message ->
+        if (index > 0) {
+            append("\n---\n")
+        }
+        append("role=")
+        append(message.role.name)
+        append('\n')
+        appendField("content", message.content)
+        append("parts_count=").append(message.contentParts?.size ?: 0).append('\n')
+        message.contentParts.orEmpty().forEachIndexed { partIndex, part ->
+            append("part_index=").append(partIndex).append('\n')
+            when (part) {
+                is ContentPart.TextPart -> {
+                    append("part_type=text\n")
+                    appendField("text", part.text)
+                }
+                is ContentPart.ImagePart -> {
+                    append("part_type=image\n")
+                    appendField("mime", part.mimeType)
+                    appendField("data_b64", Base64.getEncoder().encodeToString(part.data))
+                }
+                is ContentPart.ImageUrlContent -> {
+                    append("part_type=image_url\n")
+                    appendField("url", part.url)
+                    appendField("mime", part.mimeType)
+                }
+            }
+        }
+        if (message.toolCallId != null) {
+            appendField("tool_call_id", message.toolCallId)
+        }
+        message.toolCalls?.let { toolCalls ->
+            append("tool_calls_count=").append(toolCalls.size).append('\n')
+            toolCalls.forEachIndexed { toolIndex, toolCall ->
+                append("tool_call_index=").append(toolIndex).append('\n')
+                appendField("tool_call_id", toolCall.id)
+                appendField("tool_call_name", toolCall.name)
+                appendField("tool_call_args", toolCall.argumentsJson)
+            }
+        }
+    }
+}
+
+private fun StringBuilder.appendField(name: String, value: String?) {
+    if (value == null) {
+        append(name).append("_null\n")
+        return
+    }
+    val bytes = value.toByteArray(StandardCharsets.UTF_8)
+    append(name).append("_len=").append(bytes.size).append('\n')
+    append(value).append('\n')
+}
+
+internal fun buildRequestDigest(messages: List<Message>): String = sha256Hex(canonicalizeMessages(messages))
+
+private fun sha256Hex(input: String): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(StandardCharsets.UTF_8))
+    return digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
+}
 
 private const val INITIAL_PROVIDER_RETRY_DELAY_MILLIS = 50L
 private const val MAX_PROVIDER_RETRY_DELAY_MILLIS = 1_000L

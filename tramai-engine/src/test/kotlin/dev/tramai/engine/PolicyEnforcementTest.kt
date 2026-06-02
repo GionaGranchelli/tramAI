@@ -1,13 +1,17 @@
 package dev.tramai.engine
 
 import dev.tramai.core.annotations.AiService
+import dev.tramai.core.annotations.ConversationId
 import dev.tramai.core.annotations.Operation
+import dev.tramai.core.annotations.User as UserMessage
 import dev.tramai.core.exception.ApprovalRequiredException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.model.ClassifiedDocument
+import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
+import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
@@ -15,6 +19,7 @@ import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ToolExecutionContext
 import dev.tramai.core.model.ResolvedTool
 import dev.tramai.core.model.ToolResult
+import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.policy.ApprovalRequirement
 import dev.tramai.core.policy.ClassificationSource
 import dev.tramai.core.policy.DataClassification
@@ -168,6 +173,12 @@ class PolicyEnforcementTest {
     }
 
     @AiService
+    interface CachedToolTestService {
+        @Operation(prompt = "test", model = "test-model", tools = ["echo"], cacheable = true, cacheTtlMillis = 60_000)
+        suspend fun cachedCall(input: String): String
+    }
+
+    @AiService
     interface StructuredTestService {
         @Operation(prompt = "test", model = "test-model", maxRetries = 0)
         suspend fun analyze(input: String): TestPayload
@@ -221,6 +232,34 @@ class PolicyEnforcementTest {
         suspend fun analyze(input: ClassifiedDocument<String>): TestPayload
     }
 
+    @AiService
+    interface CachedConversationService {
+        @UserMessage("Analyze {input}")
+        @Operation(
+            prompt = "",
+            model = "test-model",
+            cacheable = true,
+            cacheTtlMillis = 60_000,
+            providerRetries = 0,
+        )
+        suspend fun analyze(
+            @ConversationId sessionId: String,
+            input: String,
+        ): String
+    }
+
+    @AiService
+    interface FingerprintWithoutToolsService {
+        @Operation(prompt = "test", model = "test-model", cacheable = true, cacheTtlMillis = 60_000)
+        suspend fun cachedCall(input: String): String
+    }
+
+    @AiService
+    interface FingerprintWithToolsService {
+        @Operation(prompt = "test", model = "test-model", tools = ["echo"], cacheable = true, cacheTtlMillis = 60_000)
+        suspend fun cachedCall(input: String): String
+    }
+
     data class TestPayload(val answer: String)
 
     // -- Helper ---------------------------------------------------------------
@@ -237,11 +276,26 @@ class PolicyEnforcementTest {
     private fun engineWithCache(
         policyEngine: PolicyEngine? = null,
         provider: ModelProvider = providerThatReturns("ok"),
+        responseCache: OperationResponseCache = InMemoryOperationResponseCache(),
     ) = TramaiEngine(
         provider = provider,
-        responseCache = InMemoryOperationResponseCache(),
+        responseCache = responseCache,
         policyEngine = policyEngine,
     )
+
+    private fun parsedStructuredOutputHandler(answer: String = "parsed") = object : StructuredOutputHandler {
+        override fun analyze(rawResponse: String, targetType: kotlin.reflect.KType): StructuredOutputResult =
+            StructuredOutputResult.Success(TestPayload(answer), rawResponse)
+
+        override fun createContract(targetType: kotlin.reflect.KType) =
+            StructuredOutputContract(targetType, "{ }")
+
+        override fun generateSchema(type: kotlin.reflect.KType) = "{ }"
+
+        override fun deserialize(input: Any, targetType: kotlin.reflect.KType) = TestPayload(answer)
+
+        override fun serialize(value: Any): Any = mapOf("answer" to answer)
+    }
 
     // -- Core enforcement tests ------------------------------------------------
 
@@ -873,134 +927,59 @@ class PolicyEnforcementTest {
     // -- Cache tests -----------------------------------------------------------
 
     @Test
-    fun `cached raw response denied after policy change`() = runBlocking {
-        // Phase 1: allow + cache the result
+    fun `unclassified raw cache hit does not invoke provider twice`() = runBlocking {
         val provider = CountingProvider()
-        val allowEngine = engineWithCache(
+        val service = engineWithCache(
             policyEngine = object : PolicyEngine {
                 override suspend fun evaluate(context: PolicyContext): PolicyDecision =
                     PolicyDecision.Allow
             },
             provider = provider,
-        )
-        val service1 = allowEngine.create<CachedTestService>()
-        val result1 = service1.cachedCall("test")
-        assertThat(result1).isEqualTo("ok")
+        ).create<CachedTestService>()
+
+        assertThat(service.cachedCall("test")).isEqualTo("ok")
+        assertThat(service.cachedCall("test")).isEqualTo("ok")
         assertThat(provider.callCount.get()).isEqualTo(1)
-
-        // Phase 2: deny BEFORE_RESPONSE_RETURN with a new engine instance
-        val denyEngine = engineWithCache(
-            policyEngine = object : PolicyEngine {
-                override suspend fun evaluate(context: PolicyContext): PolicyDecision =
-                    if (context.enforcementPoint == EnforcementPoint.BEFORE_RESPONSE_RETURN) {
-                        PolicyDecision.Deny("cache response blocked", "CACHE_DENY")
-                    } else PolicyDecision.Allow
-            },
-            provider = provider,
-        )
-        val service2 = denyEngine.create<CachedTestService>()
-
-        assertThatThrownBy { runBlocking { service2.cachedCall("test") } }
-            .isInstanceOf(PolicyViolationException::class.java)
-            .hasMessageContaining("cache response blocked")
     }
 
     @Test
-    fun `cached structured response denied`() = runBlocking {
-        val handler = object : StructuredOutputHandler {
-            override fun analyze(rawResponse: String, targetType: kotlin.reflect.KType): StructuredOutputResult {
-                return StructuredOutputResult.Success(TestPayload("parsed"), rawResponse)
-            }
-            override fun createContract(targetType: kotlin.reflect.KType) =
-                StructuredOutputContract(targetType, "{ }")
-            override fun generateSchema(type: kotlin.reflect.KType) = "{ }"
-            override fun deserialize(input: Any, targetType: kotlin.reflect.KType) = TestPayload("parsed")
-            override fun serialize(value: Any): Any = mapOf("answer" to "parsed")
-        }
-
-        // Phase 1: allow + cache
-        val provider = CountingProvider()
-        val allowEngine = TramaiEngine(
+    fun `classified RESTRICTED local raw cache hit does not invoke provider twice`() = runBlocking {
+        val provider = CountingProvider(id = "local-provider")
+        val service = engineWithCache(
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("local-provider"),
+                    trustedLocalProviders = setOf("local-provider"),
+                ),
+            ),
             provider = provider,
-            structuredOutputHandler = handler,
-            responseCache = InMemoryOperationResponseCache(),
-            policyEngine = object : PolicyEngine {
-                override suspend fun evaluate(context: PolicyContext): PolicyDecision =
-                    PolicyDecision.Allow
-            },
-        )
-        val service1: CachedStructuredService = allowEngine.create()
-        val result1 = service1.analyze("test")
-        assertThat(result1.answer).isEqualTo("parsed")
-        assertThat(provider.callCount.get()).isEqualTo(1)
-
-        // Phase 2: deny
-        val denyEngine = TramaiEngine(
-            provider = provider,
-            structuredOutputHandler = handler,
-            responseCache = InMemoryOperationResponseCache(),
-            policyEngine = object : PolicyEngine {
-                override suspend fun evaluate(context: PolicyContext): PolicyDecision =
-                    if (context.enforcementPoint == EnforcementPoint.BEFORE_RESPONSE_RETURN) {
-                        PolicyDecision.Deny("cache struct blocked", "CACHE_STRUCT_DENY")
-                    } else PolicyDecision.Allow
-            },
-        )
-        val service2: CachedStructuredService = denyEngine.create()
-
-        assertThatThrownBy { runBlocking { service2.analyze("test") } }
-            .isInstanceOf(PolicyViolationException::class.java)
-            .hasMessageContaining("cache struct blocked")
-    }
-
-    @Test
-    fun `classified raw cacheable calls bypass cache reuse`() = runBlocking {
-        val provider = CountingProvider()
-        val engine = TramaiEngine(
-            provider = provider,
-            responseCache = InMemoryOperationResponseCache(),
-            policyEngine = object : PolicyEngine {
-                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
-            },
-        )
-        val service: CachedClassifiedTestService = engine.create()
+        ).create<CachedClassifiedTestService>()
         val input = ClassifiedDocument(
             payload = "secret",
             classification = DataClassification.RESTRICTED,
             source = ClassificationSource.DECLARED,
         )
 
-        val first = service.analyze(input)
-        val second = service.analyze(input)
-
-        assertThat(first).isEqualTo("ok")
-        assertThat(second).isEqualTo("ok")
-        assertThat(provider.callCount.get()).isEqualTo(2)
+        assertThat(service.analyze(input)).isEqualTo("ok")
+        assertThat(service.analyze(input)).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(1)
     }
 
     @Test
-    fun `classified structured cacheable calls bypass cache reuse`() = runBlocking {
-        val handler = object : StructuredOutputHandler {
-            override fun analyze(rawResponse: String, targetType: kotlin.reflect.KType): StructuredOutputResult =
-                StructuredOutputResult.Success(TestPayload("parsed"), rawResponse)
-
-            override fun createContract(targetType: kotlin.reflect.KType) =
-                StructuredOutputContract(targetType, "{ }")
-
-            override fun generateSchema(type: kotlin.reflect.KType) = "{ }"
-
-            override fun deserialize(input: Any, targetType: kotlin.reflect.KType) = TestPayload("parsed")
-
-            override fun serialize(value: Any): Any = mapOf("answer" to "parsed")
-        }
-        val provider = CountingProvider()
+    fun `classified RESTRICTED local structured cache hit does not invoke provider twice`() = runBlocking {
+        val provider = CountingProvider(id = "local-provider")
         val engine = TramaiEngine(
             provider = provider,
-            structuredOutputHandler = handler,
+            structuredOutputHandler = parsedStructuredOutputHandler(),
             responseCache = InMemoryOperationResponseCache(),
-            policyEngine = object : PolicyEngine {
-                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
-            },
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("local-provider"),
+                    trustedLocalProviders = setOf("local-provider"),
+                ),
+            ),
         )
         val service: CachedClassifiedStructuredService = engine.create()
         val input = ClassifiedDocument(
@@ -1009,12 +988,469 @@ class PolicyEnforcementTest {
             source = ClassificationSource.DECLARED,
         )
 
-        val first = service.analyze(input)
-        val second = service.analyze(input)
+        assertThat(service.analyze(input).answer).isEqualTo("parsed")
+        assertThat(service.analyze(input).answer).isEqualTo("parsed")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+    }
 
-        assertThat(first.answer).isEqualTo("parsed")
-        assertThat(second.answer).isEqualTo("parsed")
+    @Test
+    fun `same payload under PUBLIC then RESTRICTED produces separate cache entries`() = runBlocking {
+        val provider = CountingProvider(id = "local-provider")
+        val engine = TramaiEngine(
+            provider = provider,
+            responseCache = InMemoryOperationResponseCache(),
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("local-provider"),
+                    trustedLocalProviders = setOf("local-provider"),
+                ),
+            ),
+        )
+        val service: CachedClassifiedTestService = engine.create()
+        val publicInput = ClassifiedDocument(
+            payload = "same-payload",
+            classification = DataClassification.PUBLIC,
+            source = ClassificationSource.DECLARED,
+        )
+        val restrictedInput = publicInput.copy(classification = DataClassification.RESTRICTED)
+
+        val first = service.analyze(publicInput)
+        val second = service.analyze(restrictedInput)
+
+        assertThat(first).isEqualTo("ok")
+        assertThat(second).isEqualTo("ok")
         assertThat(provider.callCount.get()).isEqualTo(2)
+    }
+
+    @Test
+    fun `cache hit is re-authorized against current policy`() = runBlocking {
+        val cache = InMemoryOperationResponseCache()
+        val provider = CountingProvider(id = "cloud-provider")
+        val allowEngine = engineWithCache(
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+            provider = provider,
+            responseCache = cache,
+        )
+        val allowService = allowEngine.create<CachedClassifiedTestService>()
+        val restrictedInput = ClassifiedDocument(
+            payload = "secret",
+            classification = DataClassification.RESTRICTED,
+            source = ClassificationSource.DECLARED,
+        )
+
+        assertThat(allowService.analyze(restrictedInput)).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+
+        val denyEngine = engineWithCache(
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("cloud-provider"),
+                ),
+            ),
+            provider = provider,
+            responseCache = cache,
+        )
+        val denyService = denyEngine.create<CachedClassifiedTestService>()
+
+        assertThatThrownBy { runBlocking { denyService.analyze(restrictedInput) } }
+            .isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("RESTRICTED data may not be sent to provider 'cloud-provider'")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `cacheable operation with active chatMemory bypasses cache`() = runBlocking {
+        val provider = CountingProvider()
+        val memory = object : ChatMemory {
+            override fun get(conversationId: String): List<Message> = emptyList()
+
+            override fun add(conversationId: String, messages: List<Message>) = Unit
+
+            override fun add(conversationId: String, message: Message) = Unit
+
+            override fun clear(conversationId: String) = Unit
+        }
+        val engine = TramaiEngine(
+            provider = provider,
+            responseCache = InMemoryOperationResponseCache(),
+            chatMemory = memory,
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+        )
+        val service: CachedConversationService = engine.create()
+
+        assertThat(service.analyze("session-a", "same-turn")).isEqualTo("ok")
+        assertThat(service.analyze("session-a", "same-turn")).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(2)
+    }
+
+    @Test
+    fun `policy change after cache write denies subsequent cache hit`() = runBlocking {
+        val provider = CountingProvider()
+        val cache = InMemoryOperationResponseCache()
+        val allowEngine = engineWithCache(
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+            provider = provider,
+            responseCache = cache,
+        )
+        val allowService = allowEngine.create<CachedTestService>()
+        assertThat(allowService.cachedCall("test")).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+
+        val denyEngine = engineWithCache(
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision =
+                    if (context.enforcementPoint == EnforcementPoint.BEFORE_RESPONSE_RETURN) {
+                        PolicyDecision.Deny("cache response blocked", "CACHE_DENY")
+                    } else {
+                        PolicyDecision.Allow
+                    }
+            },
+            provider = provider,
+            responseCache = cache,
+        )
+        val denyService = denyEngine.create<CachedTestService>()
+
+        assertThatThrownBy { runBlocking { denyService.cachedCall("test") } }
+            .isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("cache response blocked")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `cached provider removed from allowlist denies cache hit and skips provider`() = runBlocking {
+        val cache = InMemoryOperationResponseCache()
+        val provider = CountingProvider(id = "cloud-provider")
+        val allowEngine = engineWithCache(
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("cloud-provider"),
+                    allowCloudForClassifications = setOf(DataClassification.PUBLIC),
+                ),
+            ),
+            provider = provider,
+            responseCache = cache,
+        )
+        val allowService = allowEngine.create<CachedTestService>()
+        assertThat(allowService.cachedCall("test")).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+
+        val denyEngine = engineWithCache(
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = emptySet(),
+                    allowCloudForClassifications = setOf(DataClassification.PUBLIC),
+                ),
+            ),
+            provider = provider,
+            responseCache = cache,
+        )
+        val denyService = denyEngine.create<CachedTestService>()
+
+        assertThatThrownBy { runBlocking { denyService.cachedCall("test") } }
+            .isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("Provider 'cloud-provider' is not in the allowed-providers registry")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `cached model removed from allowlist denies cache hit and skips provider`() = runBlocking {
+        val cache = InMemoryOperationResponseCache()
+        val provider = CountingProvider(id = "cloud-provider")
+        val allowEngine = engineWithCache(
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("cloud-provider"),
+                    allowCloudForClassifications = setOf(DataClassification.PUBLIC),
+                ),
+            ),
+            provider = provider,
+            responseCache = cache,
+        )
+        val allowService = allowEngine.create<CachedTestService>()
+        assertThat(allowService.cachedCall("test")).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+
+        val denyEngine = engineWithCache(
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = emptySet(),
+                    allowedProviders = setOf("cloud-provider"),
+                    allowCloudForClassifications = setOf(DataClassification.PUBLIC),
+                ),
+            ),
+            provider = provider,
+            responseCache = cache,
+        )
+        val denyService = denyEngine.create<CachedTestService>()
+
+        assertThatThrownBy { runBlocking { denyService.cachedCall("test") } }
+            .isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("Model 'test-model' is not in the allowed-models registry")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `cacheable operation with tools bypasses cache`() = runBlocking {
+        val provider = CountingProvider()
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
+            responseCache = InMemoryOperationResponseCache(),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+        )
+        val service: CachedToolTestService = engine.create()
+
+        assertThat(service.cachedCall("test")).isEqualTo("ok")
+        assertThat(service.cachedCall("test")).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(2)
+    }
+
+    @Test
+    fun `cacheable operation with custom interceptor bypasses cache`() = runBlocking {
+        val provider = CountingProvider()
+        // A non-singleton interceptor — the engine checks reference-equality
+        // against NoOpOperationInterceptor, so a fresh anonymous instance
+        // always forces a cache bypass.
+        val customInterceptor = object : OperationInterceptor {}
+        val engine = TramaiEngine(
+            provider = provider,
+            responseCache = InMemoryOperationResponseCache(),
+            operationInterceptor = customInterceptor,
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+        )
+        val service: CachedTestService = engine.create()
+
+        assertThat(service.cachedCall("test")).isEqualTo("ok")
+        assertThat(service.cachedCall("test")).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(2)
+    }
+
+    @Test
+    fun `cache key contains digest not raw prompt`() {
+        val firstKey = buildOperationCacheKeyForTesting(
+            serviceType = CachedTestService::class,
+            methodName = "cachedCall",
+            arguments = listOf("secret"),
+        )
+        val secondKey = buildOperationCacheKeyForTesting(
+            serviceType = CachedTestService::class,
+            methodName = "cachedCall",
+            arguments = listOf("secret"),
+        )
+        val differentKey = buildOperationCacheKeyForTesting(
+            serviceType = CachedTestService::class,
+            methodName = "cachedCall",
+            arguments = listOf("different"),
+        )
+
+        assertThat(firstKey.requestDigest.matches(Regex("^[a-f0-9]{64}$"))).isTrue()
+        assertThat(firstKey.requestDigest).isEqualTo(secondKey.requestDigest)
+        assertThat(firstKey.requestDigest).isNotEqualTo(differentKey.requestDigest)
+        assertThat(firstKey.requestDigest).doesNotContain("secret")
+    }
+
+    @Test
+    fun `text part containing delimiter characters does not collide with multiple parts`() {
+        val singlePartDigest = buildRequestDigest(
+            listOf(
+                Message(
+                    role = MessageRole.USER,
+                    content = "",
+                    contentParts = listOf(ContentPart.TextPart("a|T:b")),
+                ),
+            ),
+        )
+        val splitPartsDigest = buildRequestDigest(
+            listOf(
+                Message(
+                    role = MessageRole.USER,
+                    content = "",
+                    contentParts = listOf(
+                        ContentPart.TextPart("a"),
+                        ContentPart.TextPart("b"),
+                    ),
+                ),
+            ),
+        )
+
+        assertThat(singlePartDigest).isNotEqualTo(splitPartsDigest)
+    }
+
+    @Test
+    fun `image url and mime containing special characters produce distinct digests`() {
+        val firstDigest = buildRequestDigest(
+            listOf(
+                Message(
+                    role = MessageRole.USER,
+                    content = "",
+                    contentParts = listOf(
+                        ContentPart.ImageUrlContent(
+                            url = "https://example.com/a|b?x=1\ny=2",
+                            mimeType = "image/png|variant",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val secondDigest = buildRequestDigest(
+            listOf(
+                Message(
+                    role = MessageRole.USER,
+                    content = "",
+                    contentParts = listOf(
+                        ContentPart.ImageUrlContent(
+                            url = "https://example.com/a:b?x=1\ny=2",
+                            mimeType = "image/png:variant",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertThat(firstDigest).isNotEqualTo(secondDigest)
+    }
+
+    @Test
+    fun `same text with different toolCallId produces different digest`() {
+        val firstDigest = buildRequestDigest(
+            listOf(Message(role = MessageRole.TOOL, content = "same", toolCallId = "call-1")),
+        )
+        val secondDigest = buildRequestDigest(
+            listOf(Message(role = MessageRole.TOOL, content = "same", toolCallId = "call-2")),
+        )
+
+        assertThat(firstDigest).isNotEqualTo(secondDigest)
+    }
+
+    @Test
+    fun `same text with different assistant toolCalls produces different digest`() {
+        val firstDigest = buildRequestDigest(
+            listOf(
+                Message(
+                    role = MessageRole.ASSISTANT,
+                    content = "same",
+                    toolCalls = listOf(ToolCall("1", "refund-order", "{}")),
+                ),
+            ),
+        )
+        val secondDigest = buildRequestDigest(
+            listOf(
+                Message(
+                    role = MessageRole.ASSISTANT,
+                    content = "same",
+                    toolCalls = listOf(ToolCall("1", "lookup-order", "{}")),
+                ),
+            ),
+        )
+
+        assertThat(firstDigest).isNotEqualTo(secondDigest)
+    }
+
+    @Test
+    fun `operationFingerprint changes when tools change`() {
+        val withoutTools = buildOperationCacheKeyForTesting(
+            serviceType = FingerprintWithoutToolsService::class,
+            methodName = "cachedCall",
+            arguments = listOf("test"),
+        )
+        val withTools = buildOperationCacheKeyForTesting(
+            serviceType = FingerprintWithToolsService::class,
+            methodName = "cachedCall",
+            arguments = listOf("test"),
+            toolRegistry = ToolRegistry(mapOf("echo" to echoTool)),
+        )
+
+        assertThat(withoutTools.operationFingerprint).isNotEqualTo(withTools.operationFingerprint)
+    }
+
+    @Test
+    fun `corrupted cached envelope with mismatched partition is rejected without policy call`() = runBlocking {
+        val provider = CountingProvider()
+        val policyCalls = AtomicInteger(0)
+        val cache = object : OperationResponseCache {
+            override fun get(key: OperationCacheKey): CachedOperationResult = CachedOperationResult(
+                value = "ok",
+                provenance = CachedResponseProvenance(
+                    providerId = "cloud-provider",
+                    modelName = "test-model",
+                    dataClassification = DataClassification.RESTRICTED,
+                    classificationSource = ClassificationSource.DECLARED,
+                ),
+            )
+
+            override fun put(key: OperationCacheKey, value: CachedOperationResult, ttlMillis: Long) = Unit
+        }
+        val engine = TramaiEngine(
+            provider = provider,
+            responseCache = cache,
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision {
+                    policyCalls.incrementAndGet()
+                    return PolicyDecision.Allow
+                }
+            },
+        )
+        val service: CachedTestService = engine.create()
+
+        assertThatThrownBy { runBlocking { service.cachedCall("test") } }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("Cached entry envelope mismatch")
+        assertThat(policyCalls.get()).isEqualTo(0)
+        assertThat(provider.callCount.get()).isEqualTo(0)
+    }
+
+    @Test
+    fun `provenance on cached raw and structured results includes providerId and modelName`() = runBlocking {
+        val rawCache = InMemoryOperationResponseCache()
+        val rawProvider = CountingProvider(id = "raw-provider")
+        val rawService = engineWithCache(
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+            provider = rawProvider,
+            responseCache = rawCache,
+        ).create<CachedTestService>()
+        assertThat(rawService.cachedCall("test")).isEqualTo("ok")
+
+        val rawKey = rawCache.snapshotKeys().single()
+        val rawEntry = rawCache.peek(rawKey)
+        assertThat(rawEntry).isNotNull()
+        assertThat(rawEntry!!.provenance.providerId).isEqualTo("raw-provider")
+        assertThat(rawEntry.provenance.modelName).isEqualTo("test-model")
+
+        val structuredCache = InMemoryOperationResponseCache()
+        val structuredProvider = CountingProvider(id = "structured-provider")
+        val structuredEngine = TramaiEngine(
+            provider = structuredProvider,
+            structuredOutputHandler = parsedStructuredOutputHandler(),
+            responseCache = structuredCache,
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+        )
+        val structuredService: CachedStructuredService = structuredEngine.create()
+        assertThat(structuredService.analyze("test").answer).isEqualTo("parsed")
+
+        val structuredKey = structuredCache.snapshotKeys().single()
+        val structuredEntry = structuredCache.peek(structuredKey)
+        assertThat(structuredEntry).isNotNull()
+        assertThat(structuredEntry!!.provenance.providerId).isEqualTo("structured-provider")
+        assertThat(structuredEntry.provenance.modelName).isEqualTo("test-model")
     }
 
     // -- Context semantics tests -----------------------------------------------
@@ -1221,8 +1657,8 @@ class PolicyEnforcementTest {
         val provider = CountingProvider()
 
         val cache = object : OperationResponseCache {
-            override fun get(key: OperationCacheKey): Any? = null
-            override fun put(key: OperationCacheKey, value: Any, ttlMillis: Long) {
+            override fun get(key: OperationCacheKey): CachedOperationResult? = null
+            override fun put(key: OperationCacheKey, value: CachedOperationResult, ttlMillis: Long) {
                 cachePutCalled = true
             }
         }
