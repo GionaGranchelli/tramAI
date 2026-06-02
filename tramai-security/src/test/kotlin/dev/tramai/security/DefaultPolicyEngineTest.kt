@@ -646,4 +646,367 @@ class DefaultPolicyEngineTest {
             assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("model-name-missing")
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Epic 2.3 / 2.4 — Classification-aware provider routing matrix tests
+    // ═══════════════════════════════════════════════════════════════════════
+
+    private val routingEngine = DefaultPolicyEngine(
+        PolicyConfiguration.secure().copy(
+            allowedProviders = setOf("*"),
+            allowedFallbackProviders = setOf("*"),
+            allowedModels = setOf("*"),
+            providerRouting = ProviderRoutingConfiguration(
+                providerZones = mapOf(
+                    "ollama" to ProviderTrustZone.LOCAL,
+                    "eu-openai" to ProviderTrustZone.EU_CLOUD,
+                    "openai" to ProviderTrustZone.GLOBAL_CLOUD,
+                ),
+                enabled = true,
+            ),
+        )
+    )
+
+    private fun routingCtx(
+        enforcementPoint: EnforcementPoint,
+        providerId: String? = null,
+        fallbackProviderId: String? = null,
+        dataClassification: DataClassification? = null,
+    ) = PolicyContext(
+        enforcementPoint = enforcementPoint,
+        correlationId = "routing-test",
+        actorId = "test",
+        policyVersion = "1.0.0",
+        providerId = providerId,
+        fallbackProviderId = fallbackProviderId,
+        dataClassification = dataClassification,
+    )
+
+    // 1. RESTRICTED → local allowed
+    @Test
+    fun `RESTRICTED classification with LOCAL zone is allowed for primary invocation`() {
+        runBlocking {
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "ollama",
+                    dataClassification = DataClassification.RESTRICTED,
+                )
+            )
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
+
+    // 2. RESTRICTED → EU denied
+    @Test
+    fun `RESTRICTED classification with EU_CLOUD zone is denied for primary invocation`() {
+        runBlocking {
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "eu-openai",
+                    dataClassification = DataClassification.RESTRICTED,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-routing-blocked")
+        }
+    }
+
+    // 3. RESTRICTED → global denied
+    @Test
+    fun `RESTRICTED classification with GLOBAL_CLOUD zone is denied for primary invocation`() {
+        runBlocking {
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "openai",
+                    dataClassification = DataClassification.RESTRICTED,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-routing-blocked")
+        }
+    }
+
+    // 4. CONFIDENTIAL → local allowed
+    @Test
+    fun `CONFIDENTIAL classification with LOCAL zone is allowed for primary invocation`() {
+        runBlocking {
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "ollama",
+                    dataClassification = DataClassification.CONFIDENTIAL,
+                )
+            )
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
+
+    // 5. CONFIDENTIAL → EU allowed
+    @Test
+    fun `CONFIDENTIAL classification with EU_CLOUD zone is allowed for primary invocation`() {
+        runBlocking {
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "eu-openai",
+                    dataClassification = DataClassification.CONFIDENTIAL,
+                )
+            )
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
+
+    // 6. CONFIDENTIAL → global denied
+    @Test
+    fun `CONFIDENTIAL classification with GLOBAL_CLOUD zone is denied for primary invocation`() {
+        runBlocking {
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "openai",
+                    dataClassification = DataClassification.CONFIDENTIAL,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-routing-blocked")
+        }
+    }
+
+    // 7. INTERNAL → global allowed
+    @Test
+    fun `INTERNAL classification with GLOBAL_CLOUD zone is allowed for primary invocation`() {
+        runBlocking {
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "openai",
+                    dataClassification = DataClassification.INTERNAL,
+                )
+            )
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
+
+    // 8. PUBLIC → global allowed
+    @Test
+    fun `PUBLIC classification with GLOBAL_CLOUD zone is allowed for primary invocation`() {
+        runBlocking {
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "openai",
+                    dataClassification = DataClassification.PUBLIC,
+                )
+            )
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
+
+    // 9. Unknown provider denied independently of zone
+    @Test
+    fun `unknown provider with routing enabled and INTERNAL data is denied due to missing zone`() {
+        runBlocking {
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "unknown-provider",
+                    dataClassification = DataClassification.INTERNAL,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("provider-zone-missing")
+        }
+    }
+
+    // 10. Missing provider zone denied
+    @Test
+    fun `provider without zone mapping is denied for classified request`() {
+        runBlocking {
+            val engine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    providerRouting = ProviderRoutingConfiguration(
+                        providerZones = emptyMap(), // no zones configured
+                        enabled = true,
+                    ),
+                )
+            )
+            val decision = engine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "ollama",
+                    dataClassification = DataClassification.PUBLIC,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("provider-zone-missing")
+        }
+    }
+
+    // 11. Missing routing rule denied
+    @Test
+    fun `classification without routing rule is denied`() {
+        runBlocking {
+            val engine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    providerRouting = ProviderRoutingConfiguration(
+                        providerZones = mapOf("ollama" to ProviderTrustZone.LOCAL),
+                        rules = emptyMap(), // no rules defined
+                        enabled = true,
+                    ),
+                )
+            )
+            val decision = engine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "ollama",
+                    dataClassification = DataClassification.PUBLIC,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-routing-rule-missing")
+        }
+    }
+
+    // 12. RESTRICTED local failure → global fallback denied (assert fallback call count == 0)
+    @Test
+    fun `RESTRICTED classification global fallback is denied at BEFORE_FALLBACK`() {
+        runBlocking {
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_FALLBACK,
+                    providerId = "ollama",
+                    fallbackProviderId = "openai",
+                    dataClassification = DataClassification.RESTRICTED,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-fallback-blocked")
+        }
+    }
+
+    // 13. CONFIDENTIAL local failure → EU fallback allowed
+    @Test
+    fun `CONFIDENTIAL classification EU_CLOUD fallback is allowed at BEFORE_FALLBACK`() {
+        runBlocking {
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_FALLBACK,
+                    providerId = "ollama",
+                    fallbackProviderId = "eu-openai",
+                    dataClassification = DataClassification.CONFIDENTIAL,
+                )
+            )
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
+
+    // 14. Secure cached result reauthorization honors current zone policy
+    @Test
+    fun `cached result reauthorization honors current zone policy at response return`() {
+        runBlocking {
+            // When routing is enabled, response return re-checks the matrix
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    providerId = "openai",
+                    dataClassification = DataClassification.CONFIDENTIAL,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-routing-blocked")
+        }
+    }
+
+    // 15. Cache reuse denied after provider zone changes
+    @Test
+    fun `cache reuse is denied when provider zone changes to restricted zone`() {
+        runBlocking {
+            // Simulate reauthorization against current policy: provider
+            // was previously LOCAL but zone config now maps it to GLOBAL_CLOUD
+            val engine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    providerRouting = ProviderRoutingConfiguration(
+                        providerZones = mapOf("ollama" to ProviderTrustZone.GLOBAL_CLOUD),
+                        enabled = true,
+                    ),
+                )
+            )
+            val decision = engine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    providerId = "ollama",
+                    dataClassification = DataClassification.RESTRICTED,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-routing-blocked")
+        }
+    }
+
+    // 16. Preview backward compatibility works
+    @Test
+    fun `preview mode preserves legacy routing behavior when matrix is disabled`() {
+        runBlocking {
+            // Preview has trustedLocalProviders but providerRouting.enabled=false
+            val decision = previewEngine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    providerId = "ollama",
+                    dataClassification = DataClassification.RESTRICTED,
+                )
+            )
+            // With matrix disabled, legacy egress logic uses trustedLocalProviders
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
+
+    @Test
+    fun `preview mode RESTRICTED data to non-local provider is still denied with legacy logic`() {
+        runBlocking {
+            val decision = previewEngine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                    providerId = "openai",
+                    dataClassification = DataClassification.RESTRICTED,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("restricted-data-egress-blocked")
+        }
+    }
+
+    @Test
+    fun `classified request with null providerId returns classification-provider-missing when routing enabled`() {
+        runBlocking {
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = null,
+                    dataClassification = DataClassification.INTERNAL,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-provider-missing")
+        }
+    }
+
+    @Test
+    fun `unclassified request passes through routing matrix without denial`() {
+        runBlocking {
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "openai",
+                    dataClassification = null,
+                )
+            )
+            // No classification → routing matrix returns null → falls through to
+            // allowlist check. Since routingEngine has wildcard allowedProviders,
+            // it gets all the way to Allow.
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
 }

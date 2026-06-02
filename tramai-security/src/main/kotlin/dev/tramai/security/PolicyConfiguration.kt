@@ -8,6 +8,19 @@ import dev.tramai.core.policy.RiskLevel
  *
  * All sets are empty by default, producing full deny-by-default behavior.
  * Add entries to explicitly allow specific tools, models, or providers.
+ *
+ * ## Classification-Aware Provider Routing (Epic 2.3 / 2.4)
+ *
+ * The [providerRouting] field provides a matrix-based routing model where
+ * each [DataClassification] maps to allowed [ProviderTrustZone] sets for
+ * primary and fallback invocation. When [ProviderRoutingConfiguration.enabled]
+ * is true, this matrix is authoritative for classification-based routing.
+ *
+ * **Backward compatibility:** [trustedLocalProviders] and
+ * [allowCloudForClassifications] are retained as deprecated compatibility
+ * fields. When [providerRouting.enabled] is true, the matrix overrides them.
+ * When false (default), the legacy classification egress logic in
+ * [DefaultPolicyEngine] uses the old fields.
  */
 data class PolicyConfiguration(
     /** Tools whose execution is permitted. Empty = deny all tools. */
@@ -24,10 +37,31 @@ data class PolicyConfiguration(
     val allowLegacyToolsWithoutSecurityMetadata: Boolean = false,
     /** Risk levels that require human approval before tool execution. */
     val requireApprovalForRiskLevel: Set<RiskLevel> = setOf(RiskLevel.HIGH, RiskLevel.CRITICAL),
-    /** Data classifications permitted for non-local providers. */
+    /**
+     * Data classifications permitted for non-local providers.
+     *
+     * @deprecated Use [providerRouting] with classification-aware routing matrix instead.
+     * When [providerRouting.enabled] is true, this field is ignored for routing decisions.
+     */
+    @Deprecated("Use providerRouting instead", ReplaceWith("providerRouting"))
     val allowCloudForClassifications: Set<DataClassification> = setOf(DataClassification.PUBLIC),
-    /** Providers treated as inside the local trust boundary. */
+    /**
+     * Providers treated as inside the local trust boundary.
+     *
+     * @deprecated Use [providerRouting] with [ProviderTrustZone.LOCAL] zone mapping instead.
+     * When [providerRouting.enabled] is true, this field is ignored for routing decisions.
+     */
+    @Deprecated("Use providerRouting instead", ReplaceWith("providerRouting"))
     val trustedLocalProviders: Set<String> = emptySet(),
+    /**
+     * Classification-aware provider routing matrix.
+     *
+     * When [ProviderRoutingConfiguration.enabled] is true, this matrix
+     * overrides the legacy [trustedLocalProviders] and
+     * [allowCloudForClassifications] fields for routing decisions.
+     * Disabled by default for backward compatibility.
+     */
+    val providerRouting: ProviderRoutingConfiguration = ProviderRoutingConfiguration(),
 ) {
     companion object {
         /**
@@ -36,6 +70,10 @@ data class PolicyConfiguration(
          * CRITICAL-risk tools still require approval.
          * RESTRICTED data remains limited to trusted local providers when
          * classification context is available.
+         *
+         * The [providerRouting] matrix is **not** enabled in preview mode
+         * to preserve 0.4.x behavior. Legacy [trustedLocalProviders] and
+         * [allowCloudForClassifications] remain authoritative.
          */
         fun preview() = PolicyConfiguration(
             allowedTools = setOf("*"),
@@ -47,6 +85,15 @@ data class PolicyConfiguration(
             requireApprovalForRiskLevel = setOf(RiskLevel.CRITICAL),
             allowCloudForClassifications = DataClassification.entries.toSet(),
             trustedLocalProviders = setOf("ollama", "vllm", "llama.cpp", "local"),
+            providerRouting = ProviderRoutingConfiguration(
+                providerZones = mapOf(
+                    "ollama" to ProviderTrustZone.LOCAL,
+                    "vllm" to ProviderTrustZone.LOCAL,
+                    "llama.cpp" to ProviderTrustZone.LOCAL,
+                    "local" to ProviderTrustZone.LOCAL,
+                ),
+                enabled = false,
+            ),
         )
 
         /** Deny-by-default with no exclusions. */

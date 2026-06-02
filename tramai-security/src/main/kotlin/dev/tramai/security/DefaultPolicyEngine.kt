@@ -9,10 +9,16 @@ import dev.tramai.core.policy.*
  * Unknown tools, models, and providers are denied. HIGH/CRITICAL-risk
  * tools and tools with non-AUTO approval modes require human approval.
  *
- * Classified-request egress is enforced when classification metadata is
- * attached to the [PolicyContext]. RESTRICTED data is limited to trusted
- * local providers, while other non-public classifications require explicit
- * cloud permission for non-local providers.
+ * ## Classification-aware provider routing (Epic 2.3 / 2.4)
+ *
+ * When [PolicyConfiguration.providerRouting] is enabled, the routing
+ * matrix determines which provider trust zones are allowed for each
+ * [DataClassification] at primary invocation and fallback. This
+ * supplements the legacy [PolicyConfiguration.trustedLocalProviders]
+ * and [PolicyConfiguration.allowCloudForClassifications] checks.
+ *
+ * When the matrix is disabled (default), the legacy classification
+ * egress logic in [evaluateClassificationEgress] is used.
  */
 class DefaultPolicyEngine(
     private val config: PolicyConfiguration,
@@ -55,10 +61,23 @@ class DefaultPolicyEngine(
 
     private fun evaluateProviderInvocation(ctx: PolicyContext): PolicyDecision {
         val providerId = ctx.providerId
-        evaluateClassificationEgress(
+
+        // Classification-aware routing matrix (Epic 2.3) — checked before allowlist
+        evaluateProviderRouting(
             classification = ctx.dataClassification,
             providerId = providerId,
+            isFallback = false,
         )?.let { return it }
+
+        // Legacy classification egress (only when routing matrix is disabled,
+        // since evaluateProviderRouting returns null when routing is not enabled)
+        if (!config.providerRouting.enabled) {
+            evaluateClassificationEgress(
+                classification = ctx.dataClassification,
+                providerId = providerId,
+            )?.let { return it }
+        }
+
         if (providerId == null) {
             return PolicyDecision.Deny(
                 "Provider invocation requires a provider ID",
@@ -78,6 +97,14 @@ class DefaultPolicyEngine(
 
     private fun evaluateFallback(ctx: PolicyContext): PolicyDecision {
         val fallbackId = ctx.fallbackProviderId
+
+        // Classification-aware routing matrix (Epic 2.4) — checked before allowlist
+        evaluateProviderRouting(
+            classification = ctx.dataClassification,
+            providerId = fallbackId,
+            isFallback = true,
+        )?.let { return it }
+
         if (fallbackId == null) {
             return PolicyDecision.Deny(
                 "No fallback provider specified",
@@ -199,11 +226,91 @@ class DefaultPolicyEngine(
     // ─── Response return ────────────────────────────────────────────────────
 
     private fun evaluateResponseReturn(ctx: PolicyContext): PolicyDecision {
-        return evaluateClassificationEgress(
+        // Classification-aware routing matrix (Epic 2.3) — re-check on return
+        evaluateProviderRouting(
             classification = ctx.dataClassification,
             providerId = ctx.providerId,
-        ) ?: PolicyDecision.Allow
+            isFallback = false,
+        )?.let { return it }
+
+        // Legacy classification egress (only when routing matrix is disabled)
+        if (!config.providerRouting.enabled) {
+            return evaluateClassificationEgress(
+                classification = ctx.dataClassification,
+                providerId = ctx.providerId,
+            ) ?: PolicyDecision.Allow
+        }
+        return PolicyDecision.Allow
     }
+
+    // ─── Classification-aware provider routing matrix (Epic 2.3 / 2.4) ─────
+
+    /**
+     * Evaluates the classification-aware routing matrix for the given
+     * [classification], [providerId], and fallback context.
+     *
+     * Returns a [PolicyDecision.Deny] when routing is violated, or `null`
+     * to indicate the check is inconclusive (either no classification is
+     * present, or routing is disabled) — the caller should then fall back
+     * to legacy checks.
+     *
+     * **Reason codes:**
+     * - `classification-provider-missing`: classified request without provider ID
+     * - `provider-zone-missing`: classified request where the provider has no zone mapping
+     * - `classification-routing-rule-missing`: classification has no routing rule defined
+     * - `classification-routing-blocked`: provider zone not in [allowedZones]
+     * - `classification-fallback-blocked`: provider zone not in [allowedFallbackZones]
+     */
+    private fun evaluateProviderRouting(
+        classification: DataClassification?,
+        providerId: String?,
+        isFallback: Boolean,
+    ): PolicyDecision? {
+        // Routing matrix disabled — defer to legacy checks
+        if (!config.providerRouting.enabled) return null
+
+        // No classification — preserve current registry behavior
+        if (classification == null) return null
+
+        // Classified request without a provider ID
+        if (providerId == null) {
+            return PolicyDecision.Deny(
+                "Classified request ($classification) requires a provider ID for routing",
+                "classification-provider-missing",
+            )
+        }
+
+        val zone = config.providerRouting.providerZones[providerId]
+        if (zone == null) {
+            return PolicyDecision.Deny(
+                "Provider '$providerId' has no trust zone configured for classification routing",
+                "provider-zone-missing",
+            )
+        }
+
+        val rule = config.providerRouting.rules[classification]
+        if (rule == null) {
+            return PolicyDecision.Deny(
+                "No routing rule defined for classification '$classification'",
+                "classification-routing-rule-missing",
+            )
+        }
+
+        val allowedSet = if (isFallback) rule.allowedFallbackZones else rule.allowedZones
+        val reasonCode = if (isFallback) "classification-fallback-blocked" else "classification-routing-blocked"
+
+        if (zone !in allowedSet) {
+            val direction = if (isFallback) "fallback" else "invocation"
+            return PolicyDecision.Deny(
+                "Provider '$providerId' (zone=$zone) is not allowed for $direction of '$classification' data",
+                reasonCode,
+            )
+        }
+
+        return null
+    }
+
+    // ─── Legacy classification egress ───────────────────────────────────────
 
     private fun evaluateClassificationEgress(
         classification: DataClassification?,
