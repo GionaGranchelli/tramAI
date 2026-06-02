@@ -76,7 +76,7 @@ data class ProviderRoutingConfiguration(
          * - PUBLIC: any zone, fallback to any zone
          */
         fun sovereignDefaults(): Map<DataClassification, ClassificationRoutingRule> {
-            val allZones = ProviderTrustZone.entries.toSet()
+            val allZones = setOf(ProviderTrustZone.LOCAL, ProviderTrustZone.EU_CLOUD, ProviderTrustZone.GLOBAL_CLOUD)
             val localOnly = setOf(ProviderTrustZone.LOCAL)
             val localAndEu = setOf(ProviderTrustZone.LOCAL, ProviderTrustZone.EU_CLOUD)
             return mapOf(

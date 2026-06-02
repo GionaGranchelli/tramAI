@@ -309,7 +309,7 @@ class DefaultPolicyEngineTest {
     }
 
     @Test
-    fun `classified provider invocation without provider id is denied with provider-id-missing`() {
+    fun `classified provider invocation without provider id is denied with classification-provider-missing`() {
         runBlocking {
             val decision = secureEngine.evaluate(
                 ctx(
@@ -318,7 +318,7 @@ class DefaultPolicyEngineTest {
                 )
             )
             assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
-            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("provider-id-missing")
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-provider-missing")
         }
     }
 
@@ -872,7 +872,7 @@ class DefaultPolicyEngineTest {
         }
     }
 
-    // 12. RESTRICTED local failure → global fallback denied (assert fallback call count == 0)
+    // 12. RESTRICTED local failure → global fallback denied
     @Test
     fun `RESTRICTED classification global fallback is denied at BEFORE_FALLBACK`() {
         runBlocking {
@@ -1109,6 +1109,95 @@ class DefaultPolicyEngineTest {
                 providerZones = mapOf("  " to ProviderTrustZone.LOCAL),
                 enabled = true,
             )
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Regression tests — Legacy mode semantics (providerRouting disabled)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `matrix disabled + INTERNAL + null provider ID yields classification-provider-missing`() {
+        runBlocking {
+            // providerRouting.enabled = false (default on secure engine)
+            // classification = INTERNAL, providerId = null
+            // Legacy mode should check egress first → classification-provider-missing
+            val decision = secureEngine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    dataClassification = DataClassification.INTERNAL,
+                    providerId = null,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-provider-missing")
+        }
+    }
+
+    @Test
+    fun `matrix disabled + RESTRICTED + unknown cloud provider yields restricted-data-egress-blocked`() {
+        runBlocking {
+            // providerRouting.enabled = false
+            // trustedLocalProviders = ["ollama"], classification = RESTRICTED, providerId = "openai"
+            // Legacy mode: egress check before allowlist → restricted-data-egress-blocked
+            val engine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    trustedLocalProviders = setOf("ollama"),
+                )
+            )
+            val decision = engine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    dataClassification = DataClassification.RESTRICTED,
+                    providerId = "openai",
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("restricted-data-egress-blocked")
+        }
+    }
+
+    @Test
+    fun `matrix enabled + INTERNAL + null provider ID yields provider-id-missing`() {
+        runBlocking {
+            // providerRouting.enabled = true, classification = INTERNAL, providerId = null
+            // Matrix mode: null check before routing → provider-id-missing
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = null,
+                    dataClassification = DataClassification.INTERNAL,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("provider-id-missing")
+        }
+    }
+
+    @Test
+    fun `matrix enabled + mapped but unregistered provider yields unknown-provider`() {
+        runBlocking {
+            // providerRouting.enabled = true, providerZones = {"ollama" -> LOCAL}
+            // allowedProviders = ["other-provider"], classification = INTERNAL, providerId = "ollama"
+            // Matrix mode: allowlist before routing → unknown-provider
+            val engine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedProviders = setOf("other-provider"),
+                    providerRouting = ProviderRoutingConfiguration(
+                        providerZones = mapOf("ollama" to ProviderTrustZone.LOCAL),
+                        enabled = true,
+                    ),
+                )
+            )
+            val decision = engine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "ollama",
+                    dataClassification = DataClassification.INTERNAL,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("unknown-provider")
         }
     }
 }

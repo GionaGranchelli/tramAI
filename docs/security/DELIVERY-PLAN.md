@@ -244,12 +244,12 @@ tramai:
           pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
 ```
 
-#### 2.5 — Classification routing tests 🔄
+#### 2.5 — Classification routing tests ✅
 - Each classification level routed correctly
 - Fallback blocked for restricted classifications
 - Provider policy annotation overrides defaults — deferred (annotation-based operation-level overrides not yet implemented)
 - **Acceptance:** Classification matrix unit tests pass; fallback and cache integration tests pass
-- **Status:** Matrix-level unit tests complete. Engine-level fallback and cache integration tests are required. Annotation override tests deferred to separate PR.
+- **Status:** Matrix-level unit tests complete. Engine-level fallback and cache integration tests complete. Annotation override tests deferred to separate PR.
 
 **Epic Exit Criteria:**
 - [x] RESTRICTED data never reaches unauthorized provider

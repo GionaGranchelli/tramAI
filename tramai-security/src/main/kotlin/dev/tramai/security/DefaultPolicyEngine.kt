@@ -62,37 +62,46 @@ class DefaultPolicyEngine(
     private fun evaluateProviderInvocation(ctx: PolicyContext): PolicyDecision {
         val providerId = ctx.providerId
 
-        // 1. Provider ID must be present
+        if (!config.providerRouting.enabled) {
+            // Legacy mode: classification egress first, then registry checks
+            evaluateClassificationEgress(
+                classification = ctx.dataClassification,
+                providerId = providerId,
+            )?.let { return it }
+
+            if (providerId == null) {
+                return PolicyDecision.Deny(
+                    "Provider invocation requires a provider ID",
+                    "provider-id-missing",
+                )
+            }
+            if (providerId !in config.allowedProviders && "*" !in config.allowedProviders) {
+                return PolicyDecision.Deny(
+                    "Provider '$providerId' is not in the allowed-providers registry",
+                    "unknown-provider",
+                )
+            }
+            return PolicyDecision.Allow
+        }
+
+        // Matrix-enabled mode: provider ID check -> allowlist -> routing matrix (Epic 2.3)
         if (providerId == null) {
             return PolicyDecision.Deny(
                 "Provider invocation requires a provider ID",
                 "provider-id-missing",
             )
         }
-
-        // 2. Provider must be in the allowlist
         if (providerId !in config.allowedProviders && "*" !in config.allowedProviders) {
             return PolicyDecision.Deny(
                 "Provider '$providerId' is not in the allowed-providers registry",
                 "unknown-provider",
             )
         }
-
-        // 3. Classification-aware routing matrix (Epic 2.3)
         evaluateProviderRouting(
             classification = ctx.dataClassification,
             providerId = providerId,
             isFallback = false,
         )?.let { return it }
-
-        // 4. Legacy classification egress (only when routing matrix is disabled,
-        //    since evaluateProviderRouting returns null when routing is not enabled)
-        if (!config.providerRouting.enabled) {
-            evaluateClassificationEgress(
-                classification = ctx.dataClassification,
-                providerId = providerId,
-            )?.let { return it }
-        }
 
         return PolicyDecision.Allow
     }
@@ -102,22 +111,36 @@ class DefaultPolicyEngine(
     private fun evaluateFallback(ctx: PolicyContext): PolicyDecision {
         val fallbackId = ctx.fallbackProviderId
 
-        // 1. Fallback provider ID must be present
+        if (!config.providerRouting.enabled) {
+            // Legacy mode: registry checks only, no routing matrix
+            if (fallbackId == null) {
+                return PolicyDecision.Deny(
+                    "No fallback provider specified",
+                    "no-fallback-provider",
+                )
+            }
+            if (fallbackId !in config.allowedFallbackProviders && "*" !in config.allowedFallbackProviders) {
+                return PolicyDecision.Deny(
+                    "Fallback provider '$fallbackId' is not authorized",
+                    "fallback-not-authorized",
+                )
+            }
+            return PolicyDecision.Allow
+        }
+
+        // Matrix-enabled mode: registry checks + routing matrix (Epic 2.4)
         if (fallbackId == null) {
             return PolicyDecision.Deny(
                 "No fallback provider specified",
                 "no-fallback-provider",
             )
         }
-
-        // 2. Fallback provider must be in the allowlist
         if (fallbackId !in config.allowedFallbackProviders && "*" !in config.allowedFallbackProviders) {
             return PolicyDecision.Deny(
                 "Fallback provider '$fallbackId' is not authorized",
                 "fallback-not-authorized",
             )
         }
-
         // 3. Classification-aware routing matrix (Epic 2.4)
         evaluateProviderRouting(
             classification = ctx.dataClassification,
@@ -234,20 +257,19 @@ class DefaultPolicyEngine(
     // ─── Response return ────────────────────────────────────────────────────
 
     private fun evaluateResponseReturn(ctx: PolicyContext): PolicyDecision {
-        // Classification-aware routing matrix (Epic 2.3) — re-check on return
-        evaluateProviderRouting(
-            classification = ctx.dataClassification,
-            providerId = ctx.providerId,
-            isFallback = false,
-        )?.let { return it }
-
-        // Legacy classification egress (only when routing matrix is disabled)
         if (!config.providerRouting.enabled) {
+            // Legacy mode: only classification egress
             return evaluateClassificationEgress(
                 classification = ctx.dataClassification,
                 providerId = ctx.providerId,
             ) ?: PolicyDecision.Allow
         }
+        // Matrix-enabled mode: provider routing check (Epic 2.3)
+        evaluateProviderRouting(
+            classification = ctx.dataClassification,
+            providerId = ctx.providerId,
+            isFallback = false,
+        )?.let { return it }
         return PolicyDecision.Allow
     }
 
