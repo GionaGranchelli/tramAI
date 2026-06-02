@@ -44,10 +44,10 @@ This workflow is used across releases to prove functional behavior, policy enfor
 
 ### Deliverables
 
-- `PRODUCT-THESIS.md`
-- `SECURITY-MODEL.md`
+- `docs/security/PRODUCT-THESIS.md` — position, problem, promise, target segments, non-goals
+- `docs/security/SECURITY-MODEL.md` — trust boundaries, threat model, abuse scenarios, controls mapping, residual risk
 - Initial architecture diagram
-- Initial risk register
+- Initial risk register (`docs/security/RISK-REGISTER.md`)
 - Prioritized epic backlog
 
 ### Exit Criteria
