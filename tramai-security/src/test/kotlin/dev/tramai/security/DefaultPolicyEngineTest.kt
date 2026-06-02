@@ -309,7 +309,7 @@ class DefaultPolicyEngineTest {
     }
 
     @Test
-    fun `classified provider invocation without provider id is denied`() {
+    fun `classified provider invocation without provider id is denied with provider-id-missing`() {
         runBlocking {
             val decision = secureEngine.evaluate(
                 ctx(
@@ -318,7 +318,7 @@ class DefaultPolicyEngineTest {
                 )
             )
             assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
-            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-provider-missing")
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("provider-id-missing")
         }
     }
 
@@ -827,6 +827,7 @@ class DefaultPolicyEngineTest {
         runBlocking {
             val engine = DefaultPolicyEngine(
                 PolicyConfiguration.secure().copy(
+                    allowedProviders = setOf("ollama"),
                     providerRouting = ProviderRoutingConfiguration(
                         providerZones = emptyMap(), // no zones configured
                         enabled = true,
@@ -851,6 +852,7 @@ class DefaultPolicyEngineTest {
         runBlocking {
             val engine = DefaultPolicyEngine(
                 PolicyConfiguration.secure().copy(
+                    allowedProviders = setOf("ollama"),
                     providerRouting = ProviderRoutingConfiguration(
                         providerZones = mapOf("ollama" to ProviderTrustZone.LOCAL),
                         rules = emptyMap(), // no rules defined
@@ -979,7 +981,7 @@ class DefaultPolicyEngineTest {
     }
 
     @Test
-    fun `classified request with null providerId returns classification-provider-missing when routing enabled`() {
+    fun `classified request with null providerId returns provider-id-missing when routing enabled`() {
         runBlocking {
             val decision = routingEngine.evaluate(
                 routingCtx(
@@ -989,7 +991,7 @@ class DefaultPolicyEngineTest {
                 )
             )
             assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
-            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("classification-provider-missing")
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("provider-id-missing")
         }
     }
 
@@ -1007,6 +1009,106 @@ class DefaultPolicyEngineTest {
             // allowlist check. Since routingEngine has wildcard allowedProviders,
             // it gets all the way to Allow.
             assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
+
+    @Test
+    fun `classified fallback with null fallbackId returns no-fallback-provider`() {
+        runBlocking {
+            val decision = routingEngine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_FALLBACK,
+                    providerId = "ollama",
+                    fallbackProviderId = null,
+                    dataClassification = DataClassification.RESTRICTED,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("no-fallback-provider")
+        }
+    }
+
+    @Test
+    fun `zone-mapped but unregistered provider is denied with unknown-provider`() {
+        runBlocking {
+            val engine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedProviders = emptySet(),
+                    providerRouting = ProviderRoutingConfiguration(
+                        providerZones = mapOf("ollama" to ProviderTrustZone.LOCAL),
+                        enabled = true,
+                    ),
+                )
+            )
+            val decision = engine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "ollama",
+                    dataClassification = DataClassification.PUBLIC,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("unknown-provider")
+        }
+    }
+
+    @Test
+    fun `zone-allowed but unregistered fallback is denied with fallback-not-authorized`() {
+        runBlocking {
+            val engine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedFallbackProviders = emptySet(),
+                    providerRouting = ProviderRoutingConfiguration(
+                        providerZones = mapOf("eu-openai" to ProviderTrustZone.EU_CLOUD),
+                        enabled = true,
+                    ),
+                )
+            )
+            val decision = engine.evaluate(
+                routingCtx(
+                    EnforcementPoint.BEFORE_FALLBACK,
+                    fallbackProviderId = "eu-openai",
+                    dataClassification = DataClassification.CONFIDENTIAL,
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("fallback-not-authorized")
+        }
+    }
+
+    @Test
+    fun `routing rule with fallback zones not subset of allowed zones throws IllegalArgumentException`() {
+        org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            ProviderRoutingConfiguration(
+                providerZones = mapOf("ollama" to ProviderTrustZone.LOCAL),
+                rules = mapOf(
+                    DataClassification.RESTRICTED to ClassificationRoutingRule(
+                        allowedZones = setOf(ProviderTrustZone.LOCAL),
+                        allowedFallbackZones = setOf(ProviderTrustZone.GLOBAL_CLOUD),
+                    ),
+                ),
+                enabled = true,
+            )
+        }
+    }
+
+    @Test
+    fun `provider routing configuration with blank provider key throws IllegalArgumentException`() {
+        org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            ProviderRoutingConfiguration(
+                providerZones = mapOf("" to ProviderTrustZone.LOCAL),
+                enabled = true,
+            )
+        }
+    }
+
+    @Test
+    fun `provider routing configuration with blank provider key spaces throws IllegalArgumentException`() {
+        org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            ProviderRoutingConfiguration(
+                providerZones = mapOf("  " to ProviderTrustZone.LOCAL),
+                enabled = true,
+            )
         }
     }
 }

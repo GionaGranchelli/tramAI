@@ -14,8 +14,8 @@ import dev.tramai.core.policy.*
  * When [PolicyConfiguration.providerRouting] is enabled, the routing
  * matrix determines which provider trust zones are allowed for each
  * [DataClassification] at primary invocation and fallback. This
- * supplements the legacy [PolicyConfiguration.trustedLocalProviders]
- * and [PolicyConfiguration.allowCloudForClassifications] checks.
+ * replaces legacy classification-egress fields when enabled;
+ * registry allowlists remain independent.
  *
  * When the matrix is disabled (default), the legacy classification
  * egress logic in [evaluateClassificationEgress] is used.
@@ -62,15 +62,31 @@ class DefaultPolicyEngine(
     private fun evaluateProviderInvocation(ctx: PolicyContext): PolicyDecision {
         val providerId = ctx.providerId
 
-        // Classification-aware routing matrix (Epic 2.3) — checked before allowlist
+        // 1. Provider ID must be present
+        if (providerId == null) {
+            return PolicyDecision.Deny(
+                "Provider invocation requires a provider ID",
+                "provider-id-missing",
+            )
+        }
+
+        // 2. Provider must be in the allowlist
+        if (providerId !in config.allowedProviders && "*" !in config.allowedProviders) {
+            return PolicyDecision.Deny(
+                "Provider '$providerId' is not in the allowed-providers registry",
+                "unknown-provider",
+            )
+        }
+
+        // 3. Classification-aware routing matrix (Epic 2.3)
         evaluateProviderRouting(
             classification = ctx.dataClassification,
             providerId = providerId,
             isFallback = false,
         )?.let { return it }
 
-        // Legacy classification egress (only when routing matrix is disabled,
-        // since evaluateProviderRouting returns null when routing is not enabled)
+        // 4. Legacy classification egress (only when routing matrix is disabled,
+        //    since evaluateProviderRouting returns null when routing is not enabled)
         if (!config.providerRouting.enabled) {
             evaluateClassificationEgress(
                 classification = ctx.dataClassification,
@@ -78,18 +94,6 @@ class DefaultPolicyEngine(
             )?.let { return it }
         }
 
-        if (providerId == null) {
-            return PolicyDecision.Deny(
-                "Provider invocation requires a provider ID",
-                "provider-id-missing",
-            )
-        }
-        if (providerId !in config.allowedProviders && "*" !in config.allowedProviders) {
-            return PolicyDecision.Deny(
-                "Provider '$providerId' is not in the allowed-providers registry",
-                "unknown-provider",
-            )
-        }
         return PolicyDecision.Allow
     }
 
@@ -98,25 +102,29 @@ class DefaultPolicyEngine(
     private fun evaluateFallback(ctx: PolicyContext): PolicyDecision {
         val fallbackId = ctx.fallbackProviderId
 
-        // Classification-aware routing matrix (Epic 2.4) — checked before allowlist
-        evaluateProviderRouting(
-            classification = ctx.dataClassification,
-            providerId = fallbackId,
-            isFallback = true,
-        )?.let { return it }
-
+        // 1. Fallback provider ID must be present
         if (fallbackId == null) {
             return PolicyDecision.Deny(
                 "No fallback provider specified",
                 "no-fallback-provider",
             )
         }
+
+        // 2. Fallback provider must be in the allowlist
         if (fallbackId !in config.allowedFallbackProviders && "*" !in config.allowedFallbackProviders) {
             return PolicyDecision.Deny(
                 "Fallback provider '$fallbackId' is not authorized",
                 "fallback-not-authorized",
             )
         }
+
+        // 3. Classification-aware routing matrix (Epic 2.4)
+        evaluateProviderRouting(
+            classification = ctx.dataClassification,
+            providerId = fallbackId,
+            isFallback = true,
+        )?.let { return it }
+
         return PolicyDecision.Allow
     }
 

@@ -52,6 +52,20 @@ data class ProviderRoutingConfiguration(
     val rules: Map<DataClassification, ClassificationRoutingRule> = sovereignDefaults(),
     val enabled: Boolean = false,
 ) {
+    init {
+        rules.forEach { (classification, rule) ->
+            require(rule.allowedFallbackZones.all { it in rule.allowedZones }) {
+                "allowedFallbackZones ($classification) must be subset of allowedZones: " +
+                "allowedZones=${rule.allowedZones}, allowedFallbackZones=${rule.allowedFallbackZones}"
+            }
+        }
+        providerZones.forEach { (key, _) ->
+            require(key.isNotBlank()) {
+                "Provider zone key must not be blank"
+            }
+        }
+    }
+
     companion object {
         /**
          * Sovereign defaults for classification-aware routing.
