@@ -108,7 +108,42 @@ class RuleBasedDocumentClassifierTest {
         )
 
         assertThat(decision.classification).isEqualTo(DataClassification.RESTRICTED)
-        assertThat(decision.matchedRuleIds).containsExactly("restricted-keyword")
+        assertThat(decision.matchedRuleIds).containsExactly(
+            "confidential-keyword",
+            "internal-keyword",
+            "restricted-keyword",
+        )
+        assertThat(decision.usedDefault).isFalse()
+    }
+
+    @Test
+    fun `all matched rule IDs are retained even when higher classification wins`() {
+        val classifier = RuleBasedDocumentClassifier(
+            RuleBasedClassifierConfiguration(
+                rules = listOf(
+                    ClassificationRule(
+                        id = "rule-a",
+                        classification = DataClassification.INTERNAL,
+                        pattern = "data",
+                    ),
+                    ClassificationRule(
+                        id = "rule-b",
+                        classification = DataClassification.RESTRICTED,
+                        metadataEquals = mapOf("type" to "secret"),
+                    ),
+                ),
+            ),
+        )
+
+        val decision = classifier.classify(
+            ClassificationInput(
+                text = "some data",
+                metadata = mapOf("type" to "secret"),
+            ),
+        )
+
+        assertThat(decision.classification).isEqualTo(DataClassification.RESTRICTED)
+        assertThat(decision.matchedRuleIds).containsExactly("rule-a", "rule-b")
         assertThat(decision.usedDefault).isFalse()
     }
 
@@ -203,6 +238,64 @@ class RuleBasedDocumentClassifierTest {
         }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("must define a pattern or metadataEquals")
+    }
+
+    @Test
+    fun `blank pattern is rejected`() {
+        assertThatThrownBy {
+            RuleBasedDocumentClassifier(
+                RuleBasedClassifierConfiguration(
+                    rules = listOf(
+                        ClassificationRule(
+                            id = "blank-pattern",
+                            classification = DataClassification.INTERNAL,
+                            pattern = "   ",
+                        ),
+                    ),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("pattern must not be blank")
+    }
+
+    @Test
+    fun `blank metadata key is rejected`() {
+        assertThatThrownBy {
+            RuleBasedDocumentClassifier(
+                RuleBasedClassifierConfiguration(
+                    rules = listOf(
+                        ClassificationRule(
+                            id = "blank-metadata-key",
+                            classification = DataClassification.CONFIDENTIAL,
+                            metadataEquals = mapOf("" to "value"),
+                        ),
+                    ),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("metadata key must not be blank")
+    }
+
+    @Test
+    fun `maxTextLength is validated before rule compilation`() {
+        assertThatThrownBy {
+            RuleBasedDocumentClassifier(
+                RuleBasedClassifierConfiguration(
+                    maxTextLength = 0,
+                    rules = listOf(
+                        ClassificationRule(
+                            id = "bad-regex",
+                            classification = DataClassification.RESTRICTED,
+                            pattern = "(",
+                        ),
+                    ),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("maxTextLength must be greater than 0")
     }
 
     @Test

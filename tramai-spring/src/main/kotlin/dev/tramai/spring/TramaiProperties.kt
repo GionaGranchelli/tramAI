@@ -1,7 +1,5 @@
 package dev.tramai.spring
 
-import dev.tramai.core.policy.DataClassification
-import dev.tramai.security.classification.ClassificationRule
 import org.springframework.boot.context.properties.ConfigurationProperties
 
 /**
@@ -143,10 +141,19 @@ data class TramaiProperties(
         var classification: Classification = Classification(),
     )
 
+    data class ClassificationRuleProperties(
+        var id: String = "",
+        var classification: String = "",
+        var priority: Int = 0,
+        var pattern: String? = null,
+        var metadataEquals: Map<String, String> = emptyMap(),
+    )
+
     data class Classification(
-        var defaultClassification: DataClassification = DataClassification.INTERNAL,
+        var enabled: Boolean = false,
+        var defaultClassification: String = "INTERNAL",
         var maxTextLength: Int = 100_000,
-        var rules: List<ClassificationRule> = emptyList(),
+        var rules: List<ClassificationRuleProperties> = emptyList(),
     )
 
     /**

@@ -151,13 +151,16 @@ Topic 1.8 ✅ — closed in feat/secure-cache-provenance (PR #6). See `Operation
 
 - Module: `tramai-security` (independent of Spring)
 - API: `DocumentClassifier`, `RuleBasedDocumentClassifier`, `ClassificationInput`, `ClassificationRule`, `ClassificationDecision`, `classifyDocument` helper
-- Matching semantics: regex rules are compiled once at construction; metadata equality requires all configured entries; if both regex and metadata are configured, both must match; conditionless rules are rejected
-- Precedence: highest `DataClassification` wins via exhaustive ranking; `matchedRuleIds` are ordered by priority desc, then id asc
+- Activation: Spring Boot auto-configuration is explicit; set `tramai.security.classification.enabled=true` to create a classifier bean
+- Matching semantics: regex rules are compiled once at construction; regex matching is case-sensitive by default; metadata key/value matching is exact and case-sensitive; if both regex and metadata are configured, both must match; conditionless rules are rejected; blank patterns and blank metadata keys are rejected
+- Trust model: regex patterns are trusted administrative configuration, not end-user input
+- Precedence: highest `DataClassification` wins via exhaustive ranking; `matchedRuleIds` includes all matched rules, ordered by priority desc, then id asc
 - Default: `INTERNAL` (secure default)
 - `INTERNAL` is the documented secure default
 - No automatic argument classification is performed in `TramaiEngine` — classification is an explicit caller action
 - `LOCAL_MODEL_ASSISTED` classification is intentionally deferred
-- Spring binding: `tramai.security.classification.*` properties; bean created only when config is present; `tramai-security` remains Spring-independent
+- Spring binding: `tramai.security.classification.*` properties; bean created only when explicitly enabled; `tramai-security` remains Spring-independent
+- Deferred hardening: evaluate RE2/J or bounded-regex execution to mitigate administrative misconfiguration that could otherwise allow regex-based ReDoS
 - Configuration example, programmatic:
 
 ```kotlin
@@ -181,6 +184,7 @@ val classifier = RuleBasedDocumentClassifier(
 tramai:
   security:
     classification:
+      enabled: true
       default-classification: INTERNAL
       max-text-length: 100000
       rules:

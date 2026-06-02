@@ -13,13 +13,13 @@ class RuleBasedDocumentClassifier(
     private val configuration: RuleBasedClassifierConfiguration,
 ) : DocumentClassifier {
 
-    private val compiledRules = compileRules(configuration)
-
     init {
         require(configuration.maxTextLength > 0) {
             "maxTextLength must be greater than 0"
         }
     }
+
+    private val compiledRules = compileRules(configuration)
 
     override fun classify(input: ClassificationInput): ClassificationDecision {
         val text = input.text
@@ -45,14 +45,11 @@ class RuleBasedDocumentClassifier(
         }
 
         val winning = highest(matches)
-        val matchedRuleIds = matches
-            .filter { it.classification == winning.classification }
-            .map { it.id }
 
         return ClassificationDecision(
             classification = winning.classification,
             source = ClassificationSource.RULE_BASED,
-            matchedRuleIds = matchedRuleIds,
+            matchedRuleIds = matches.map { it.id },
             usedDefault = false,
         )
     }
@@ -65,6 +62,14 @@ class RuleBasedDocumentClassifier(
             .map { rule ->
                 require(rule.id.isNotBlank()) { "Classification rule id must not be blank" }
                 require(seenIds.add(rule.id)) { "Duplicate classification rule id '${rule.id}'" }
+                require(rule.pattern?.isBlank() != true) {
+                    "Classification rule '${rule.id}' pattern must not be blank"
+                }
+                rule.metadataEquals.keys.forEach { key ->
+                    require(key.isNotBlank()) {
+                        "Classification rule '${rule.id}' metadata key must not be blank"
+                    }
+                }
                 require(rule.priority >= 0) { "Classification rule '${rule.id}' priority must be >= 0" }
                 require(rule.pattern != null || rule.metadataEquals.isNotEmpty()) {
                     "Classification rule '${rule.id}' must define a pattern or metadataEquals"

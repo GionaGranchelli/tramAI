@@ -49,3 +49,6 @@ val classifiedInvoice = classifier.classifyDocument(
     ),
 )
 ```
+
+For Spring Boot users, the optional classifier bean is only auto-configured when
+`tramai.security.classification.enabled=true` is set and `tramai-security` is on the classpath.
