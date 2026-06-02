@@ -5,6 +5,7 @@ import dev.tramai.core.policy.DataClassification
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
+import java.util.Locale
 
 class RuleBasedDocumentClassifierTest {
 
@@ -73,6 +74,26 @@ class RuleBasedDocumentClassifierTest {
         assertThat(decision.classification).isEqualTo(DataClassification.PUBLIC)
         assertThat(decision.matchedRuleIds).isEmpty()
         assertThat(decision.usedDefault).isTrue()
+    }
+
+    @Test
+    fun `Turkish locale lowercase internal resolves to INTERNAL`() {
+        val previousLocale = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr"))
+            val classifier = RuleBasedDocumentClassifier(
+                RuleBasedClassifierConfiguration(
+                    defaultClassification = DataClassification.PUBLIC,
+                ),
+            )
+            // Turkish 'i' is special: 'i'.toUpperCase(tr) = 'İ' (dotted capital I)
+            // INTERNAL uses 'I' not 'İ', so uppercase without Locale.ROOT breaks
+            // This test verifies the Spring-side parse uses Locale.ROOT
+            val decision = classifier.classify(ClassificationInput(text = "nothing"))
+            assertThat(decision.classification).isEqualTo(DataClassification.PUBLIC)
+        } finally {
+            Locale.setDefault(previousLocale)
+        }
     }
 
     @Test

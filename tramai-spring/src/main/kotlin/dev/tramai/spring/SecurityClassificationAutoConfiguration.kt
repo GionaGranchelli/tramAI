@@ -10,6 +10,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
+import java.util.Locale
 
 /**
  * Optional auto-configuration for rule-based document classification.
@@ -42,7 +43,7 @@ class SecurityClassificationAutoConfiguration {
     }
 
     private fun parseDataClassification(name: String): DataClassification =
-        enumValueOf(name.uppercase())
+        enumValueOf(name.uppercase(Locale.ROOT))
 
     private fun TramaiProperties.ClassificationRuleProperties.toDomain(): ClassificationRule =
         ClassificationRule(
