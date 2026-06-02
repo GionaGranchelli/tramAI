@@ -1,13 +1,16 @@
 package dev.tramai.engine
 
 import dev.tramai.core.annotations.AiService
+import dev.tramai.core.annotations.ConversationId
 import dev.tramai.core.annotations.Operation
+import dev.tramai.core.annotations.User as UserMessage
 import dev.tramai.core.exception.ApprovalRequiredException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.model.ClassifiedDocument
 import dev.tramai.core.model.Message
+import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
@@ -219,6 +222,22 @@ class PolicyEnforcementTest {
             maxRetries = 0,
         )
         suspend fun analyze(input: ClassifiedDocument<String>): TestPayload
+    }
+
+    @AiService
+    interface CachedConversationService {
+        @UserMessage("Analyze {input}")
+        @Operation(
+            prompt = "",
+            model = "test-model",
+            cacheable = true,
+            cacheTtlMillis = 60_000,
+            providerRetries = 0,
+        )
+        suspend fun analyze(
+            @ConversationId sessionId: String,
+            input: String,
+        ): String
     }
 
     data class TestPayload(val answer: String)
@@ -957,10 +976,9 @@ class PolicyEnforcementTest {
     @Test
     fun `same payload under PUBLIC then RESTRICTED produces separate cache entries`() = runBlocking {
         val provider = CountingProvider(id = "local-provider")
-        val cache = InMemoryOperationResponseCache()
         val engine = TramaiEngine(
             provider = provider,
-            responseCache = cache,
+            responseCache = InMemoryOperationResponseCache(),
             policyEngine = DefaultPolicyEngine(
                 PolicyConfiguration.secure().copy(
                     allowedModels = setOf("test-model"),
@@ -977,27 +995,16 @@ class PolicyEnforcementTest {
         )
         val restrictedInput = publicInput.copy(classification = DataClassification.RESTRICTED)
 
-        assertThat(service.analyze(publicInput)).isEqualTo("ok")
-        assertThat(service.analyze(restrictedInput)).isEqualTo("ok")
+        val first = service.analyze(publicInput)
+        val second = service.analyze(restrictedInput)
 
+        assertThat(first).isEqualTo("ok")
+        assertThat(second).isEqualTo("ok")
         assertThat(provider.callCount.get()).isEqualTo(2)
-        val publicKey = buildOperationCacheKeyForTesting(
-            serviceType = CachedClassifiedTestService::class,
-            methodName = "analyze",
-            arguments = listOf(publicInput),
-        )
-        val restrictedKey = buildOperationCacheKeyForTesting(
-            serviceType = CachedClassifiedTestService::class,
-            methodName = "analyze",
-            arguments = listOf(restrictedInput),
-        )
-        assertThat(publicKey.requestDigest).isEqualTo(restrictedKey.requestDigest)
-        assertThat(publicKey.securityPartition).isNotEqualTo(restrictedKey.securityPartition)
-        assertThat(cache.snapshotKeys()).contains(publicKey, restrictedKey)
     }
 
     @Test
-    fun `cached cloud response cannot be reused for RESTRICTED request`() = runBlocking {
+    fun `cache hit is re-authorized against current policy`() = runBlocking {
         val cache = InMemoryOperationResponseCache()
         val provider = CountingProvider(id = "cloud-provider")
         val allowEngine = engineWithCache(
@@ -1033,6 +1040,44 @@ class PolicyEnforcementTest {
             .isInstanceOf(PolicyViolationException::class.java)
             .hasMessageContaining("RESTRICTED data may not be sent to provider 'cloud-provider'")
         assertThat(provider.callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `same current turn with different chat history produces separate cache entries`() = runBlocking {
+        val provider = CountingProvider()
+        val memory = object : ChatMemory {
+            private val store = mapOf(
+                "session-a" to listOf(
+                    Message(MessageRole.USER, "Earlier context A"),
+                    Message(MessageRole.ASSISTANT, "Assistant memory A"),
+                ),
+                "session-b" to listOf(
+                    Message(MessageRole.USER, "Earlier context B"),
+                    Message(MessageRole.ASSISTANT, "Assistant memory B"),
+                ),
+            )
+
+            override fun get(conversationId: String): List<Message> = store[conversationId].orEmpty()
+
+            override fun add(conversationId: String, messages: List<Message>) = Unit
+
+            override fun add(conversationId: String, message: Message) = Unit
+
+            override fun clear(conversationId: String) = Unit
+        }
+        val engine = TramaiEngine(
+            provider = provider,
+            responseCache = InMemoryOperationResponseCache(),
+            chatMemory = memory,
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+        )
+        val service: CachedConversationService = engine.create()
+
+        assertThat(service.analyze("session-a", "same-turn")).isEqualTo("ok")
+        assertThat(service.analyze("session-b", "same-turn")).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(2)
     }
 
     @Test

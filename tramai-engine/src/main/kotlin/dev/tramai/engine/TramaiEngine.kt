@@ -63,6 +63,7 @@ import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.util.Base64
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.reflect.KClass
@@ -775,9 +776,16 @@ private class TramaiInvocationHandler(
     ): String {
         val securityContext = ExecutionSecurityContext.fromArguments(arguments.toTypedArray())
         val correlationId = java.util.UUID.randomUUID().toString()
+        val initialMessages = operation.initialMessages(arguments)
+        val (history, effectiveMessages) = injectMemoryMessages(initialMessages, conversationId)
+            ?: (emptyList<Message>() to initialMessages)
+        val cacheKey = operation.buildCacheKey(
+            digestSource = effectiveMessages,
+            securityPartition = securityContext.toCacheSecurityPartition(),
+        )
 
         // Enforce BEFORE_RESPONSE_RETURN before returning cached value
-        operation.cachedValue(arguments)?.let { cached ->
+        operation.cachedValue(cacheKey)?.let { cached ->
             policyHelper.enforce(
                 policyHelper.buildContext(
                     enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
@@ -790,9 +798,6 @@ private class TramaiInvocationHandler(
             return cached.value as String
         }
 
-        val messages = operation.initialMessages(arguments).toMutableList()
-        val (history, effectiveMessages) = injectMemoryMessages(messages, conversationId)
-            ?: (emptyList<Message>() to messages.toList())
         val effectiveMutableMessages = effectiveMessages.toMutableList()
 
         val result = executeWithTools(
@@ -828,7 +833,7 @@ private class TramaiInvocationHandler(
 
         result.observation.onCallCompleted(parseSuccess = null)
         return result.response.content.also {
-            operation.cacheValue(arguments, it, result.providerId, result.modelName)
+            operation.cacheValue(cacheKey, it, result.providerId, result.modelName, securityContext)
         }
     }
 
@@ -844,9 +849,16 @@ private class TramaiInvocationHandler(
         )
         val contract = operation.structuredContract(handler)
         val correlationId = java.util.UUID.randomUUID().toString()
+        val initialMessages = operation.initialMessages(arguments, contract.schemaJson)
+        val (history, effectiveMessages) = injectMemoryMessages(initialMessages, conversationId)
+            ?: (emptyList<Message>() to initialMessages)
+        val cacheKey = operation.buildCacheKey(
+            digestSource = effectiveMessages,
+            securityPartition = securityContext.toCacheSecurityPartition(),
+        )
 
         // Enforce BEFORE_RESPONSE_RETURN before returning cached value
-        operation.cachedValue(arguments, contract.schemaJson)?.let { cached ->
+        operation.cachedValue(cacheKey)?.let { cached ->
             policyHelper.enforce(
                 policyHelper.buildContext(
                     enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
@@ -859,19 +871,13 @@ private class TramaiInvocationHandler(
             return cached.value
         }
 
-        val messages = operation.initialMessages(arguments, contract.schemaJson).toMutableList()
-        val (history, effectiveMessages) = injectMemoryMessages(messages, conversationId)
-            ?: (emptyList<Message>() to messages.toList())
-
         // Re-initialize messages list with history-injected content
+        val messages = effectiveMessages.toMutableList()
         val initialTurnCount = history.size
-        messages.clear()
-        messages.addAll(effectiveMessages)
 
         return executeStructuredRetryLoop(
             operation = operation,
-            arguments = arguments,
-            schemaJson = contract.schemaJson,
+            cacheKey = cacheKey,
             handler = handler,
             messages = messages,
             historySize = initialTurnCount,
@@ -884,8 +890,7 @@ private class TramaiInvocationHandler(
 
     private suspend fun executeStructuredRetryLoop(
         operation: OperationDefinition,
-        arguments: List<Any?>,
-        schemaJson: String,
+        cacheKey: OperationCacheKey,
         handler: StructuredOutputHandler,
         messages: MutableList<Message>,
         historySize: Int,
@@ -902,8 +907,7 @@ private class TramaiInvocationHandler(
         repeat(maxAttempts) { attemptIndex ->
             val value = executeStructuredAttempt(
                 operation = operation,
-                arguments = arguments,
-                schemaJson = schemaJson,
+                cacheKey = cacheKey,
                 handler = handler,
                 messages = messages,
                 historySize = historySize,
@@ -925,8 +929,7 @@ private class TramaiInvocationHandler(
 
     private suspend fun executeStructuredAttempt(
         operation: OperationDefinition,
-        arguments: List<Any?>,
-        schemaJson: String,
+        cacheKey: OperationCacheKey,
         handler: StructuredOutputHandler,
         messages: MutableList<Message>,
         historySize: Int,
@@ -974,7 +977,7 @@ private class TramaiInvocationHandler(
                     conversationId = conversationId,
                     messagesBeforeCall = messagesBeforeCall,
                 )
-                operation.cacheValue(arguments, analysis.value, result.providerId, result.modelName, schemaJson)
+                operation.cacheValue(cacheKey, analysis.value, result.providerId, result.modelName, securityContext)
 
                 analysis.value
             }
@@ -1592,27 +1595,25 @@ private class TramaiInvocationHandler(
     }
 
     private fun OperationDefinition.cachedValue(
-        arguments: List<Any?>,
-        schemaJson: String? = null,
+        key: OperationCacheKey,
     ): CachedOperationResult? = if (isCacheEligible) {
-        responseCache.get(cacheKey(arguments, schemaJson))
+        responseCache.get(key)
     } else {
         null
     }
 
     private fun OperationDefinition.cacheValue(
-        arguments: List<Any?>,
+        key: OperationCacheKey,
         value: Any,
         providerId: String,
         modelName: String,
-        schemaJson: String? = null,
+        securityContext: ExecutionSecurityContext,
     ) {
         if (!isCacheEligible) {
             return
         }
-        val securityContext = ExecutionSecurityContext.fromArguments(arguments.toTypedArray())
         responseCache.put(
-            key = cacheKey(arguments, schemaJson),
+            key = key,
             value = CachedOperationResult(
                 value = value,
                 provenance = CachedResponseProvenance(
@@ -1858,15 +1859,21 @@ private data class OperationDefinition(
     fun cacheKey(
         arguments: List<Any?>,
         schemaJson: String? = null,
+    ): OperationCacheKey = buildCacheKey(
+        digestSource = initialMessages(arguments, schemaJson),
+        securityPartition = ExecutionSecurityContext.fromArguments(arguments.toTypedArray()).toCacheSecurityPartition(),
+    )
+
+    internal fun buildCacheKey(
+        digestSource: List<Message>,
+        securityPartition: CacheSecurityPartition,
     ): OperationCacheKey = OperationCacheKey(
         serviceInterface = method.declaringClass.name,
         methodName = method.name,
         requestedModel = operation.model,
         explicitProvider = operation.provider.takeIf { it.isNotBlank() },
-        // The cache key is intentionally derived from the request that reaches
-        // the model so redactions remain stable across repeated calls.
-        requestDigest = sha256Hex(canonicalizeMessages(initialMessages(arguments, schemaJson))),
-        securityPartition = ExecutionSecurityContext.fromArguments(arguments.toTypedArray()).toCacheSecurityPartition(),
+        requestDigest = sha256Hex(canonicalizeMessages(digestSource)),
+        securityPartition = securityPartition,
     )
 
     fun structuredContract(handler: StructuredOutputHandler) = handler.createContract(
@@ -1997,7 +2004,10 @@ internal fun buildOperationCacheKeyForTesting(
         ?: throw IllegalArgumentException("No method named '$methodName' on ${serviceType.java.name}")
     val operation = definition.operations[method]
         ?: throw IllegalArgumentException("No operation metadata for ${serviceType.java.name}.$methodName")
-    return operation.cacheKey(arguments, schemaJson)
+    return operation.buildCacheKey(
+        digestSource = operation.initialMessages(arguments, schemaJson),
+        securityPartition = ExecutionSecurityContext.fromArguments(arguments.toTypedArray()).toCacheSecurityPartition(),
+    )
 }
 
 private data class ProviderCallResult(
@@ -2218,8 +2228,37 @@ private fun ExecutionSecurityContext.toCacheSecurityPartition() = CacheSecurityP
     classificationSource = classificationSource,
 )
 
-private fun canonicalizeMessages(messages: List<Message>): String = messages.joinToString("\u001E") { message ->
-    "${message.role.name}\u001F${message.content}"
+/** Length-prefixed format — collision-free without escaping. Adding a field: extend the per-message block, never reuse `---` as a content marker. */
+private fun canonicalizeMessages(messages: List<Message>): String = buildString {
+    messages.forEachIndexed { index, message ->
+        if (index > 0) {
+            append("\n---\n")
+        }
+        append("role=")
+        append(message.role.name)
+        append('\n')
+        append("content_len=")
+        append(message.content.toByteArray(StandardCharsets.UTF_8).size)
+        append('\n')
+        append(message.content)
+        message.contentParts?.let { parts ->
+            val partsCanonical = parts.joinToString("|") { part ->
+                when (part) {
+                    is ContentPart.TextPart -> "T:${part.text}"
+                    is ContentPart.ImagePart -> {
+                        val encoded = Base64.getEncoder().encodeToString(part.data)
+                        "I:${part.mimeType}:$encoded"
+                    }
+                    is ContentPart.ImageUrlContent -> "U:${part.url}:${part.mimeType}"
+                }
+            }
+            append('\n')
+            append("parts_len=")
+            append(partsCanonical.toByteArray(StandardCharsets.UTF_8).size)
+            append('\n')
+            append(partsCanonical)
+        }
+    }
 }
 
 private fun sha256Hex(input: String): String {
