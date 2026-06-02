@@ -21,6 +21,7 @@ kotlin {
 
 dependencies {
     api(project(":tramai-standalone"))
+    compileOnly(project(":tramai-security"))
 
     implementation(project(":tramai-anthropic"))
     implementation(project(":tramai-openai"))
@@ -37,6 +38,7 @@ dependencies {
     testImplementation(libs.coroutines.core)
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(libs.spring.boot.starter.test)
+    testImplementation(project(":tramai-security"))
 }
 
 tasks.test {

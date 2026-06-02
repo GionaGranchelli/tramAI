@@ -15,6 +15,7 @@ data class TramaiProperties(
     var cache: Cache = Cache(),
     var secrets: Secrets = Secrets(),
     var providers: Providers = Providers(),
+    var security: Security = Security(),
 ) {
     /**
      * Explicit fallback route for a requested model.
@@ -134,6 +135,25 @@ data class TramaiProperties(
         var openai: OpenAi = OpenAi(),
         var openaiCompatible: OpenAiCompatible = OpenAiCompatible(),
         var ollama: Ollama = Ollama(),
+    )
+
+    data class Security(
+        var classification: Classification = Classification(),
+    )
+
+    data class ClassificationRuleProperties(
+        var id: String = "",
+        var classification: String = "",
+        var priority: Int = 0,
+        var pattern: String? = null,
+        var metadataEquals: Map<String, String> = emptyMap(),
+    )
+
+    data class Classification(
+        var enabled: Boolean = false,
+        var defaultClassification: String = "INTERNAL",
+        var maxTextLength: Int = 100_000,
+        var rules: List<ClassificationRuleProperties> = emptyList(),
     )
 
     /**
