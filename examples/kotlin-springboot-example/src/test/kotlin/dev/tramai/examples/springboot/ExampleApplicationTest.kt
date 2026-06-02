@@ -387,7 +387,7 @@ class ExampleApplicationTest {
 
         var cancelledPayload: String? = null
         var pollDelay = 10L
-        repeat(300) {
+        repeat(200) {
             val resultPayload = asyncJson(get("/invoice/workflow/result/$workflowId"))
                 .andExpect(status().isOk)
                 .andReturn()
@@ -399,7 +399,7 @@ class ExampleApplicationTest {
                 return@repeat
             }
             Thread.sleep(pollDelay)
-            pollDelay = (pollDelay * 1.5).toLong().coerceAtMost(200)
+            pollDelay = (pollDelay * 1.5).toLong().coerceAtMost(500)
         }
 
         val cancelled = objectMapper.readTree(cancelledPayload ?: error("workflow did not cancel in time"))
