@@ -42,6 +42,10 @@ import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.ResolvedProviderRoute
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.policy.PolicyEngine
+import dev.tramai.core.security.DlpContentType
+import dev.tramai.core.security.DlpContext
+import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.PromptSanitizer
 import dev.tramai.core.structured.StructuredOutputHandler
 import dev.tramai.core.structured.StructuredOutputResult
@@ -90,6 +94,7 @@ class TramaiEngine(
     private val job: Job = SupervisorJob(),
     private val scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
     private val policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
+    private val dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
 ) : AutoCloseable {
     private val circuitBreaker = ProviderCircuitBreaker(circuitBreakerSettings)
     private val retryDelayPolicy = ProviderRetryDelayPolicy(retryPolicySettings)
@@ -117,6 +122,7 @@ class TramaiEngine(
         job: Job = SupervisorJob(),
         scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
         policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
+        dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
     ) : this(
         providerRegistry = ProviderRegistry.singleProvider(provider),
         structuredOutputHandler = structuredOutputHandler,
@@ -133,6 +139,7 @@ class TramaiEngine(
         job = job,
         scope = scope,
         policyEngine = policyEngine,
+        dlpInterceptor = dlpInterceptor,
     )
 
     /**
@@ -162,6 +169,7 @@ class TramaiEngine(
             policyEngine = resolvedPolicyEngine,
             migrationWarningGuard = migrationWarningGuard,
             isLegacyFallback = isLegacyFallback,
+            dlpInterceptor = dlpInterceptor,
         )
 
         @Suppress("UNCHECKED_CAST")
@@ -203,6 +211,7 @@ private class TramaiInvocationHandler(
     policyEngine: PolicyEngine,
     private val migrationWarningGuard: java.util.concurrent.atomic.AtomicBoolean,
     isLegacyFallback: Boolean,
+    private val dlpInterceptor: DlpInterceptor,
 ) : InvocationHandler {
 
     private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard, isLegacyFallback = isLegacyFallback)
@@ -806,6 +815,14 @@ private class TramaiInvocationHandler(
             securityContext = securityContext,
         )
 
+        // DLP: sanitize model output before policy re-check, memory, cache, and return
+        val sanitizedResponse = applyDlpToResult(
+            result = result,
+            operation = operation,
+            correlationId = correlationId,
+            securityContext = securityContext,
+        )
+
         // Enforce BEFORE_RESPONSE_RETURN
         policyHelper.enforce(
             policyHelper.buildContext(
@@ -821,7 +838,7 @@ private class TramaiInvocationHandler(
         if (chatMemory != null && conversationId != null) {
             val assistantMessage = Message(
                 role = MessageRole.ASSISTANT,
-                content = result.response.content,
+                content = sanitizedResponse.content,
                 toolCalls = result.response.toolCalls,
             )
             // Persist non-system messages from this turn (tool rounds + final assistant)
@@ -830,7 +847,7 @@ private class TramaiInvocationHandler(
         }
 
         result.observation.onCallCompleted(parseSuccess = null)
-        return result.response.content.also {
+        return sanitizedResponse.content.also {
             cacheKey?.let { key ->
                 operation.cacheValue(key, it, result.providerId, result.modelName, securityContext, conversationId)
             }
@@ -947,9 +964,18 @@ private class TramaiInvocationHandler(
             correlationId = correlationId,
             securityContext = securityContext,
         )
+
+        // DLP: sanitize model output before structured parsing, memory, cache, and return
+        val sanitizedResponse = applyDlpToResult(
+            result = result,
+            operation = operation,
+            correlationId = correlationId,
+            securityContext = securityContext,
+        )
+
         return when (
             val analysis = handler.analyze(
-                rawResponse = result.response.content,
+                rawResponse = sanitizedResponse.content,
                 targetType = targetType,
             )
         ) {
@@ -970,6 +996,7 @@ private class TramaiInvocationHandler(
 
                 persistStructuredSuccess(
                     result = result,
+                    sanitizedContent = sanitizedResponse.content,
                     messages = messages,
                     historySize = historySize,
                     conversationId = conversationId,
@@ -997,21 +1024,60 @@ private class TramaiInvocationHandler(
 
     private fun persistStructuredSuccess(
         result: ProviderCallResult,
+        sanitizedContent: String? = null,
         messages: MutableList<Message>,
         historySize: Int,
         conversationId: String?,
         messagesBeforeCall: Int,
     ) {
         if (chatMemory == null || conversationId == null) return
+        val content = sanitizedContent ?: result.response.content
         val assistantMessage = Message(
             role = MessageRole.ASSISTANT,
-            content = result.response.content,
+            content = content,
             toolCalls = result.response.toolCalls,
         )
         val userPrompt = messages.subList(historySize, messagesBeforeCall)
             .filter { it.role != MessageRole.SYSTEM }
         val toolMessages = messages.drop(messagesBeforeCall)
         chatMemory.add(conversationId, userPrompt + toolMessages + assistantMessage)
+    }
+
+    /**
+     * Applies DLP sanitization to the [ProviderCallResult.response] content if the
+     * interceptor is not the no-op default. Returns the original [result.response]
+     * unmodified if no DLP is configured or if the response content is null.
+     *
+     * Only [DlpContentType.MODEL_OUTPUT] is scanned in this pass.
+     * [ToolCall]s attached to the response are never modified.
+     */
+    private fun applyDlpToResult(
+        result: ProviderCallResult,
+        operation: OperationDefinition,
+        correlationId: String,
+        securityContext: ExecutionSecurityContext,
+    ): ModelResponse {
+        val response = result.response
+        if (dlpInterceptor === NoOpDlpInterceptor) {
+            return response
+        }
+
+        val context = DlpContext(
+            contentType = DlpContentType.MODEL_OUTPUT,
+            operationInterface = serviceDefinition.serviceType.qualifiedName
+                ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+            operationMethod = operation.method.name,
+            providerId = result.providerId,
+            modelName = result.modelName,
+            correlationId = correlationId,
+        )
+
+        val dlpResult = dlpInterceptor.inspect(context, response.content)
+        return if (dlpResult.modified) {
+            response.copy(content = dlpResult.sanitizedText)
+        } else {
+            response
+        }
     }
 
     private fun handleStructuredFailure(

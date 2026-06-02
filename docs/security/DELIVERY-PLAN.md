@@ -264,37 +264,126 @@ tramai:
 
 ### Issues
 
-#### 2B.1 — DlpInterceptor SPI
+#### 2B.1 — DlpInterceptor SPI ✅
 - Define DlpInterceptor interface for output scanning
-- Default no-op implementation
+- Default no-op implementation (NoOpDlpInterceptor)
+- Rule-based first pass implementation (RuleBasedDlpInterceptor)
 - **Acceptance:** SPI compiles, default passes through
+- **Status:** Completed — see Implementation Notes below
 
-#### 2B.2 — Field-level output policies
+#### 2B.2 — Field-level output policies ⏳
 - Annotate output fields with sensitivity level
 - Redact fields above configured threshold before returning
 - **Acceptance:** Sensitive fields redacted; non-sensitive fields preserved
+- **Status:** Deferred to follow-up PR
 
-#### 2B.3 — Tool-result minimization hook
+#### 2B.3 — Tool-result minimization hook ⏳
 - Filter tool results before reinjection into model context
 - Configurable per-tool minimization rules
 - **Acceptance:** Tool results filtered before model sees them
+- **Status:** Deferred to follow-up PR (DlpContentType.TOOL_RESULT type exists, RuleBasedDlpInterceptor supports `enabledFor` including TOOL_RESULT, but engine hook only applies to MODEL_OUTPUT)
 
-#### 2B.4 — Redaction audit events
+#### 2B.4 — Redaction audit events ⏳
 - Emit audit event when DLP redacts content
 - Record field name, rule matched, not the redacted value
 - **Acceptance:** Redaction events in audit trail; no sensitive data in audit
+- **Status:** Deferred to follow-up PR
 
-#### 2B.5 — Negative tests for valid-schema data leakage
+#### 2B.5 — Negative tests for valid-schema data leakage ⏳
 - Test: valid JSON output containing PII → redacted
 - Test: tool result containing secrets → filtered
 - Test: redaction events emitted and verifiable
 - **Acceptance:** Schema-valid outputs with PII are caught by DLP layer
+- **Status:** Deferred to follow-up PR (compensating coverage provided by RuleBasedDlpInterceptor unit tests)
 
 **Epic Exit Criteria:**
-- [ ] DLP SPI implemented with rule-based first pass
+- [x] DLP SPI implemented with rule-based first pass
 - [ ] Field-level redaction works for annotated fields
 - [ ] Tool results filtered before context reinjection
 - [ ] Schema-valid-but-leaky outputs blocked by DLP layer
+
+---
+
+## Implementation Notes — DLP Interceptor Foundation (PR 8)
+
+**Where:**
+- `tramai-core/.../security/DlpInterceptor.kt` — SPI, context, result types, NoOpDlpInterceptor
+- `tramai-security/.../RuleBasedDlpInterceptor.kt` — rule-based implementation
+- `tramai-engine/.../TramaiEngine.kt` — engine hook at `applyDlpToResult()`
+
+### DLP API (`tramai-core`)
+
+| Type | Role |
+|------|------|
+| `DlpContentType` | Enum: `MODEL_OUTPUT`, `TOOL_RESULT` |
+| `DlpContext` | Metadata about the operation producing the text (contentType, service/method, provider/model, correlationId) |
+| `DlpResult` | Result containing `sanitizedText`, `redactions: List<DlpRedaction>`, and computed `modified` |
+| `DlpRedaction` | Rule reference with count — **no raw matched values** |
+| `DlpInterceptor` | `fun interface` with `inspect(context, text): DlpResult` |
+| `NoOpDlpInterceptor` | Pass-through singleton |
+
+### RuleBasedDlpInterceptor (`tramai-security`)
+
+- **Configuration:** `RuleBasedDlpConfiguration(rules, maxTextLength)` with default 100K limit
+- **Validation (init):**
+  - `maxTextLength` in (0, 10_000_000]
+  - Non-blank rule IDs (unique)
+  - Non-blank patterns
+  - Non-empty `enabledFor` sets
+- **Deterministic ordering:** Rules applied in constructor-declared order
+- **Content-type filtering:** Each rule has `enabledFor: Set<DlpContentType>` (default `MODEL_OUTPUT`)
+- **Security properties:** No raw matched values in `DlpRedaction` or exceptions; fixed exception messages
+- **Oversized input:** Rejected with `IllegalArgumentException("Input text exceeds maximum allowed length")` — no input content leaked
+- **Duplicate redaction counting:** `DlpRedaction.replacementCount` reports total matches per rule
+
+### Engine Hook Location (`TramaiEngine`)
+
+```
+ModelResponse
+  → interceptResponse (operation interceptor)
+  → applyDlpToResult()  ← DLP applied here
+    → structured parsing (if structured output)
+    → cache storage
+    → chatMemory storage
+    → return
+```
+
+- Only `DlpContentType.MODEL_OUTPUT` is scanned in this pass
+- `toolCalls` on the response are never modified
+- Short-circuit when `dlpInterceptor === NoOpDlpInterceptor` (zero overhead for default config)
+
+### Test Matrix
+
+#### NoOpDlpInterceptorTest (tramai-core)
+- Returns exact text unchanged
+- No redactions produced
+- `modified` is always false
+- Works with all DlpContentType values
+
+#### RuleBasedDlpInterceptorTest (tramai-security) — 16 tests
+1. Email regex redacts matching text
+2. API-key regex uses custom replacement string
+3. Multiple rules apply deterministically (in declaration order)
+4. Duplicate rule IDs rejected with clear message
+5. Blank rule IDs rejected
+6. Blank patterns rejected
+7. Oversized input rejected with fixed message (no input leakage)
+8. `TOOL_RESULT`-only rule does not affect `MODEL_OUTPUT`
+9. `MODEL_OUTPUT`-only rule does not affect `TOOL_RESULT`
+10. Rule applies to both content types when `enabledFor` includes both
+11. Empty rules list passes text through unchanged
+12. Input at `maxTextLength` boundary passes through
+13. `DlpResult` properties on modified output (sanitizedText, modified, redactions)
+14. Multiple occurrences of same pattern all redacted with correct count
+15. `maxTextLength = 0` rejected
+16. `maxTextLength` exceeding maximum rejected
+
+### Deferred Work (follow-up PRs)
+- **Field-level output policies** (2B.2) — annotation-driven per-field redaction
+- **Tool-result filtering** (2B.3) — engine hook for `DlpContentType.TOOL_RESULT`
+- **Redaction audit events** (2B.4) — emit events via audit engine
+- **Streaming DLP** — apply DLP to streaming `Flow<StreamChunk>`
+- **Binary content DLP** — image/document scanning for embedded sensitive data
 
 ---
 
