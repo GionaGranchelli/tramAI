@@ -130,7 +130,7 @@ Topic 1.8 ✅ — closed in feat/secure-cache-provenance (PR #6). See `Operation
 - Add `ClassificationSource` enum (DECLARED, RULE_BASED, LOCAL_MODEL_ASSISTED)
 - **Acceptance:** ClassifiedDocument wraps any payload with classification metadata
 
-#### 2.2 — Rule-based classification engine
+#### 2.2 — Rule-based classification engine ✅
 - Implement regex/metadata-based classification rules
 - Configurable via application.yml or programmatic
 - **Acceptance:** Document matching rule → correct classification
@@ -146,6 +146,48 @@ Topic 1.8 ✅ — closed in feat/secure-cache-provenance (PR #6). See `Operation
 - If local model unavailable, do NOT fall back to cloud for RESTRICTED data
 - Configurable fallback policy per classification
 - **Acceptance:** RESTRICTED + local model down → PolicyViolationException, not silent cloud call
+
+## Implementation Notes — Rule-Based Classifier (PR for Epic 2.2) ✅
+
+- Module: `tramai-security` (independent of Spring)
+- API: `DocumentClassifier`, `RuleBasedDocumentClassifier`, `ClassificationInput`, `ClassificationRule`, `ClassificationDecision`, `classifyDocument` helper
+- Matching semantics: regex rules are compiled once at construction; metadata equality requires all configured entries; if both regex and metadata are configured, both must match; conditionless rules are rejected
+- Precedence: highest `DataClassification` wins via exhaustive ranking; `matchedRuleIds` are ordered by priority desc, then id asc
+- Default: `INTERNAL` (secure default)
+- `INTERNAL` is the documented secure default
+- No automatic argument classification is performed in `TramaiEngine` — classification is an explicit caller action
+- `LOCAL_MODEL_ASSISTED` classification is intentionally deferred
+- Spring binding: `tramai.security.classification.*` properties; bean created only when config is present; `tramai-security` remains Spring-independent
+- Configuration example, programmatic:
+
+```kotlin
+val classifier = RuleBasedDocumentClassifier(
+    RuleBasedClassifierConfiguration(
+        defaultClassification = DataClassification.INTERNAL,
+        rules = listOf(
+            ClassificationRule(
+                id = "national-id",
+                classification = DataClassification.RESTRICTED,
+                pattern = "\\b\\d{3}-\\d{2}-\\d{4}\\b",
+            ),
+        ),
+    ),
+)
+```
+
+- Configuration example, Spring YAML:
+
+```yaml
+tramai:
+  security:
+    classification:
+      default-classification: INTERNAL
+      max-text-length: 100000
+      rules:
+        - id: national-id
+          classification: RESTRICTED
+          pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+```
 
 #### 2.5 — Classification routing tests
 - Each classification level routed correctly
@@ -357,7 +399,7 @@ Epics 1, 2, 2B, 3, and 4 can partially overlap. Epic 5 requires the relevant ver
 |------|-------|
 | 1–2 | Epic 1: PolicyEngine SPI, tramai-security scaffold, enforcement hooks |
 | 3–4 | Epic 1 continued: annotations, negative tests |
-| 5 | Epic 2: ClassifiedDocument, rule-based classification, provider routing |
+| 5 | Epic 2: Epic 2.2 closed (ClassifiedDocument + rule-based classification); provider routing in progress |
 | 5–6 | Epic 2B: DlpInterceptor SPI, field-level policies, tool-result filtering |
 | 6 | Epic 3: ApprovalStateMachine, workflow suspension |
 | 7 | Epic 4: AuditEngine, hash chain, fail modes |

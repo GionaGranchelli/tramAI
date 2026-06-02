@@ -1,5 +1,7 @@
 package dev.tramai.spring
 
+import dev.tramai.core.policy.DataClassification
+import dev.tramai.security.classification.ClassificationRule
 import org.springframework.boot.context.properties.ConfigurationProperties
 
 /**
@@ -15,6 +17,7 @@ data class TramaiProperties(
     var cache: Cache = Cache(),
     var secrets: Secrets = Secrets(),
     var providers: Providers = Providers(),
+    var security: Security = Security(),
 ) {
     /**
      * Explicit fallback route for a requested model.
@@ -134,6 +137,16 @@ data class TramaiProperties(
         var openai: OpenAi = OpenAi(),
         var openaiCompatible: OpenAiCompatible = OpenAiCompatible(),
         var ollama: Ollama = Ollama(),
+    )
+
+    data class Security(
+        var classification: Classification = Classification(),
+    )
+
+    data class Classification(
+        var defaultClassification: DataClassification = DataClassification.INTERNAL,
+        var maxTextLength: Int = 100_000,
+        var rules: List<ClassificationRule> = emptyList(),
     )
 
     /**
