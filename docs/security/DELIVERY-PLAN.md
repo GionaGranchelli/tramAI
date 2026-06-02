@@ -135,17 +135,69 @@ Topic 1.8 ✅ — closed in feat/secure-cache-provenance (PR #6). See `Operation
 - Configurable via application.yml or programmatic
 - **Acceptance:** Document matching rule → correct classification
 
-#### 2.3 — Provider routing by classification
+#### 2.3 — Provider routing by classification ✅
 - RESTRICTED → LOCAL_ONLY, block cloud
 - CONFIDENTIAL → LOCAL_ONLY or EU_ONLY
 - INTERNAL → APPROVED_CLOUD
 - PUBLIC → ANY_APPROVED
 - **Acceptance:** Wrong provider for classification → Deny
+- **Implementation:** `ProviderRoutingConfiguration`, `ProviderTrustZone`, `ClassificationRoutingRule` in `tramai-security`; `evaluateProviderRouting()` in `DefaultPolicyEngine` evaluated at `BEFORE_PROVIDER_INVOCATION`, `BEFORE_FALLBACK`, `BEFORE_RESPONSE_RETURN`.
 
-#### 2.4 — No silent fallback
+#### 2.4 — No silent fallback ✅
 - If local model unavailable, do NOT fall back to cloud for RESTRICTED data
-- Configurable fallback policy per classification
+- Configurable fallback policy per classification via `ClassificationRoutingRule.allowedFallbackZones`
 - **Acceptance:** RESTRICTED + local model down → PolicyViolationException, not silent cloud call
+- **Implementation:** Fallback zone set evaluated at `BEFORE_FALLBACK` enforcement point; RESTRICTED has `allowedFallbackZones = emptySet()` in sovereign defaults
+
+## Implementation Notes — Classification-Aware Provider Routing Matrix (PR for Epic 2.3/2.4) ✅
+
+**Where:** `tramai-security/.../ProviderRoutingConfiguration.kt`, `DefaultPolicyEngine.kt`
+
+### Routing Model
+
+Three new types in `tramai-security`:
+
+- **`ProviderTrustZone`** — `LOCAL`, `EU_CLOUD`, `GLOBAL_CLOUD`
+- **`ClassificationRoutingRule`** — `allowedZones` (primary) + `allowedFallbackZones` (fallback)
+- **`ProviderRoutingConfiguration`** — `providerZones: Map<String, ProviderTrustZone>`, `rules: Map<DataClassification, ClassificationRoutingRule>`, `enabled: Boolean`
+
+### Sovereign Default Routing Matrix
+
+| Classification | allowedZones | allowedFallbackZones |
+|---|---|---|
+| RESTRICTED | LOCAL | (empty — no fallback) |
+| CONFIDENTIAL | LOCAL, EU_CLOUD | LOCAL, EU_CLOUD |
+| INTERNAL | LOCAL, EU_CLOUD, GLOBAL_CLOUD | LOCAL, EU_CLOUD, GLOBAL_CLOUD |
+| PUBLIC | LOCAL, EU_CLOUD, GLOBAL_CLOUD | LOCAL, EU_CLOUD, GLOBAL_CLOUD |
+
+### Enforcement Points
+
+`evaluateProviderRouting()` is called at:
+1. `BEFORE_PROVIDER_INVOCATION` — checks primary routing
+2. `BEFORE_FALLBACK` — checks fallback routing (uses `allowedFallbackZones`)
+3. `BEFORE_RESPONSE_RETURN` — re-checks on response return (cache reauthorization)
+
+### Stable Reason Codes
+
+- `classification-provider-missing` — classified request without provider ID
+- `provider-zone-missing` — classified request where provider has no zone mapping
+- `classification-routing-rule-missing` — classification has no routing rule
+- `classification-routing-blocked` — provider zone not in `allowedZones`
+- `classification-fallback-blocked` — provider zone not in `allowedFallbackZones`
+
+### Compatibility Strategy
+
+- `ProviderRoutingConfiguration.enabled = false` by default
+- Legacy `trustedLocalProviders` and `allowCloudForClassifications` fields retained with `@Deprecated` annotations
+- When `enabled = true`, the routing matrix is authoritative and legacy fields are ignored for routing
+- When `enabled = false`, the legacy `evaluateClassificationEgress()` logic continues to work unchanged
+- `PolicyConfiguration.preview()` keeps `enabled = false` for 0.4.x backward compatibility
+
+### Deferred Work
+- Annotation-based operation-level provider policy overrides (@ProviderPolicy on methods) are intentionally deferred to a separate PR
+- Provider zone auto-detection (classpath scanning, SPI) is not implemented — zones must be configured explicitly
+
+---
 
 ## Implementation Notes — Rule-Based Classifier (PR for Epic 2.2) ✅
 
@@ -192,16 +244,17 @@ tramai:
           pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
 ```
 
-#### 2.5 — Classification routing tests
+#### 2.5 — Classification routing tests ✅
 - Each classification level routed correctly
 - Fallback blocked for restricted classifications
-- Provider policy annotation overrides defaults
-- **Acceptance:** Classification matrix tests pass
+- Provider policy annotation overrides defaults — deferred (annotation-based operation-level overrides not yet implemented)
+- **Acceptance:** Classification matrix unit tests pass; fallback and cache integration tests pass
+- **Status:** Matrix-level unit tests complete. Engine-level fallback and cache integration tests complete. Annotation override tests deferred to separate PR.
 
 **Epic Exit Criteria:**
-- [ ] RESTRICTED data never reaches unauthorized provider
-- [ ] Classification routing works for all 4 levels (reference defaults; organizations may override)
-- [ ] No silent fallback from local to cloud for restricted data
+- [x] RESTRICTED data never reaches unauthorized provider
+- [x] Classification routing works for all 4 levels (reference defaults; organizations may override)
+- [x] No silent fallback from local to cloud for restricted data
 
 ---
 

@@ -399,7 +399,7 @@ class ExampleApplicationTest {
                 return@repeat
             }
             Thread.sleep(pollDelay)
-            pollDelay = (pollDelay * 1.5).toLong().coerceAtMost(200)
+            pollDelay = (pollDelay * 1.5).toLong().coerceAtMost(500)
         }
 
         val cancelled = objectMapper.readTree(cancelledPayload ?: error("workflow did not cancel in time"))

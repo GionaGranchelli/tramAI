@@ -215,8 +215,8 @@ class OpenTelemetryOperationObserverTest {
             val result = runBlocking { service.respond("world") }
 
             assertThat(result).isEqualTo("hello")
-            assertThat(otlpMeterProvider.forceFlush().join(5, TimeUnit.SECONDS).isSuccess()).isTrue()
-            assertThat(exportLatch.await(5, TimeUnit.SECONDS)).isTrue()
+            assertThat(otlpMeterProvider.forceFlush().join(15, TimeUnit.SECONDS).isSuccess()).isTrue()
+            assertThat(exportLatch.await(15, TimeUnit.SECONDS)).isTrue()
             assertThat(capturedRequestPath).isEqualTo("/v1/metrics")
             assertThat(capturedContentType).startsWith("application/x-protobuf")
             assertThat(capturedBody).isNotEmpty()

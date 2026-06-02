@@ -35,6 +35,8 @@ import dev.tramai.core.structured.StructuredOutputResult
 import dev.tramai.core.structured.StructuredOutputContract
 import dev.tramai.security.DefaultPolicyEngine
 import dev.tramai.security.PolicyConfiguration
+import dev.tramai.security.ProviderRoutingConfiguration
+import dev.tramai.security.ProviderTrustZone
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.toList
@@ -2017,5 +2019,168 @@ class PolicyEnforcementTest {
 
         val result = service.analyze("test")
         assertThat(result).isEqualTo("done")
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Epic 2.3 / 2.4 — Engine-level classification routing matrix tests
+    // ═══════════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `RESTRICTED local failure to GLOBAL_CLOUD fallback is denied via routing matrix`() = runBlocking {
+        val localProvider = object : ModelProvider {
+            val callCount = AtomicInteger(0)
+            override fun providerId() = "local-provider"
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                callCount.incrementAndGet()
+                throw ProviderException("local failed", retryable = true)
+            }
+        }
+        val cloudProvider = CountingProvider(id = "cloud-provider")
+
+        val engine = TramaiEngine(
+            providerRegistry = ProviderRegistry.builder()
+                .provider("local-provider", localProvider, default = true)
+                .model("test-model", "local-provider")
+                .fallbackProvider("test-model", "cloud-provider")
+                .provider("cloud-provider", cloudProvider)
+                .build(),
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("local-provider", "cloud-provider"),
+                    allowedFallbackProviders = setOf("cloud-provider"),
+                    providerRouting = ProviderRoutingConfiguration(
+                        providerZones = mapOf(
+                            "local-provider" to ProviderTrustZone.LOCAL,
+                            "cloud-provider" to ProviderTrustZone.GLOBAL_CLOUD,
+                        ),
+                        enabled = true,
+                    ),
+                ),
+            ),
+        )
+        val service = engine.create<ClassifiedTestService>()
+
+        assertThatThrownBy {
+            runBlocking {
+                service.analyze(
+                    ClassifiedDocument(
+                        payload = "secret",
+                        classification = DataClassification.RESTRICTED,
+                        source = ClassificationSource.DECLARED,
+                    ),
+                )
+            }
+        }.isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("not allowed for fallback")
+        assertThat(localProvider.callCount.get()).isEqualTo(1)
+        assertThat(cloudProvider.callCount.get()).isEqualTo(0)
+    }
+
+    @Test
+    fun `CONFIDENTIAL local failure to EU_CLOUD fallback is allowed via routing matrix`() = runBlocking {
+        val localProvider = object : ModelProvider {
+            val callCount = AtomicInteger(0)
+            override fun providerId() = "local-provider"
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                callCount.incrementAndGet()
+                throw ProviderException("local failed", retryable = true)
+            }
+        }
+        val euProvider = CountingProvider(id = "eu-provider")
+
+        val engine = TramaiEngine(
+            providerRegistry = ProviderRegistry.builder()
+                .provider("local-provider", localProvider, default = true)
+                .model("test-model", "local-provider")
+                .fallbackProvider("test-model", "eu-provider")
+                .provider("eu-provider", euProvider)
+                .build(),
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("local-provider", "eu-provider"),
+                    allowedFallbackProviders = setOf("eu-provider"),
+                    providerRouting = ProviderRoutingConfiguration(
+                        providerZones = mapOf(
+                            "local-provider" to ProviderTrustZone.LOCAL,
+                            "eu-provider" to ProviderTrustZone.EU_CLOUD,
+                        ),
+                        enabled = true,
+                    ),
+                ),
+            ),
+        )
+        val service = engine.create<ClassifiedTestService>()
+
+        val result = service.analyze(
+            ClassifiedDocument(
+                payload = "confidential",
+                classification = DataClassification.CONFIDENTIAL,
+                source = ClassificationSource.DECLARED,
+            ),
+        )
+
+        assertThat(result).isEqualTo("ok")
+        assertThat(localProvider.callCount.get()).isEqualTo(1)
+        assertThat(euProvider.callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `cache hit is invalidated when provider zone changes to restricted classification`() = runBlocking {
+        val cache = InMemoryOperationResponseCache()
+        val provider = CountingProvider(id = "ollama")
+
+        // Engine 1: provider=ollama, LOCAL zone, RESTRICTED → allowed
+        val engine1 = TramaiEngine(
+            provider = provider,
+            responseCache = cache,
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("ollama"),
+                    trustedLocalProviders = setOf("ollama"),
+                    providerRouting = ProviderRoutingConfiguration(
+                        providerZones = mapOf("ollama" to ProviderTrustZone.LOCAL),
+                        enabled = true,
+                    ),
+                ),
+            ),
+        )
+        val service1 = engine1.create<CachedClassifiedTestService>()
+        val input = ClassifiedDocument(
+            payload = "cache-test",
+            classification = DataClassification.RESTRICTED,
+            source = ClassificationSource.DECLARED,
+        )
+
+        assertThat(service1.analyze(input)).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+
+        // Engine 2: same provider now mapped to GLOBAL_CLOUD, RESTRICTED → denied
+        val engine2 = TramaiEngine(
+            provider = provider,
+            responseCache = cache,
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.secure().copy(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("ollama"),
+                    trustedLocalProviders = setOf("ollama"),
+                    providerRouting = ProviderRoutingConfiguration(
+                        providerZones = mapOf("ollama" to ProviderTrustZone.GLOBAL_CLOUD),
+                        enabled = true,
+                    ),
+                ),
+            ),
+        )
+        val service2 = engine2.create<CachedClassifiedTestService>()
+
+        assertThatThrownBy {
+            runBlocking { service2.analyze(input) }
+        }.isInstanceOf(PolicyViolationException::class.java)
+            .hasMessageContaining("not allowed for invocation")
+
+        // Provider should NOT have been invoked again (cache hit denied by policy)
+        assertThat(provider.callCount.get()).isEqualTo(1)
     }
 }
