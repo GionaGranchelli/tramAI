@@ -779,7 +779,7 @@ private class TramaiInvocationHandler(
         val initialMessages = operation.initialMessages(arguments)
         val (history, effectiveMessages) = injectMemoryMessages(initialMessages, conversationId)
             ?: (emptyList<Message>() to initialMessages)
-        val cacheKey = operation.takeIf { it.isSafeCacheEligible(conversationId) }?.buildCacheKey(
+        val cacheKey = operation.takeIf { isSafeCacheEligible(it, conversationId) }?.buildCacheKey(
             digestSource = effectiveMessages,
             securityPartition = securityContext.toCacheSecurityPartition(),
         )
@@ -852,7 +852,7 @@ private class TramaiInvocationHandler(
         val initialMessages = operation.initialMessages(arguments, contract.schemaJson)
         val (history, effectiveMessages) = injectMemoryMessages(initialMessages, conversationId)
             ?: (emptyList<Message>() to initialMessages)
-        val cacheKey = operation.takeIf { it.isSafeCacheEligible(conversationId) }?.buildCacheKey(
+        val cacheKey = operation.takeIf { isSafeCacheEligible(it, conversationId) }?.buildCacheKey(
             digestSource = effectiveMessages,
             securityPartition = securityContext.toCacheSecurityPartition(),
         )
@@ -1653,7 +1653,7 @@ private class TramaiInvocationHandler(
     private fun OperationDefinition.cachedValue(
         key: OperationCacheKey,
         conversationId: String?,
-    ): CachedOperationResult? = if (isSafeCacheEligible(conversationId)) {
+    ): CachedOperationResult? = if (isSafeCacheEligible(this, conversationId)) {
         responseCache.get(key)
     } else {
         null
@@ -1667,7 +1667,7 @@ private class TramaiInvocationHandler(
         securityContext: ExecutionSecurityContext,
         conversationId: String?,
     ) {
-        if (!isSafeCacheEligible(conversationId)) {
+        if (!isSafeCacheEligible(this, conversationId)) {
             return
         }
         responseCache.put(
@@ -1684,6 +1684,29 @@ private class TramaiInvocationHandler(
             ttlMillis = operation.cacheTtlMillis,
         )
     }
+
+    /**
+     * Cache eligibility including the conversation-memory and custom-interceptor
+     * gates. Both gates are engine-scoped, not operation-scoped, so they live
+     * on the handler.
+     *
+     * - **No chat memory** in scope: a cache hit would skip the
+     *   `chatMemory.add(...)` that a fresh execution performs.
+     * - **No custom interceptor**: a cache hit would skip
+     *   `operationInterceptor.interceptRequest(...)` and
+     *   `operationInterceptor.interceptResponse(...)`, allowing stale
+     *   redacted/audited responses to bypass current rules.
+     *
+     * Interceptor-aware caching is deferred to a follow-up that introduces a
+     * dedicated cache-aware interceptor SPI.
+     */
+    private fun isSafeCacheEligible(
+        operation: OperationDefinition,
+        conversationId: String?,
+    ): Boolean =
+        operation.isOperationCacheEligible() &&
+            conversationId == null &&
+            operationInterceptor === NoOpOperationInterceptor
 }
 
 private data class ServiceDefinition(
@@ -1755,11 +1778,18 @@ private data class OperationDefinition(
     val toolDefinitions: List<ToolDefinition>,
     val promptSanitizer: PromptSanitizer?,
 ) {
-    fun isSafeCacheEligible(conversationId: String?): Boolean =
+    /**
+     * Operation-static cache eligibility (no chat memory, no tools, no streaming,
+     * no custom [dev.tramai.core.observation.OperationInterceptor]).
+     *
+     * The interceptor-aware portion of the check lives on the invocation handler
+     * because the interceptor is engine-scoped, not operation-scoped. Use the
+     * handler's [isSafeCacheEligible] when evaluating an actual cache read/write.
+     */
+    fun isOperationCacheEligible(): Boolean =
         operation.cacheable &&
             returnKind != ReturnKind.STREAMING &&
-            toolDefinitions.isEmpty() &&
-            conversationId == null
+            toolDefinitions.isEmpty()
 
     /**
      * The effective system message, resolved by precedence:
@@ -2307,7 +2337,7 @@ private fun ExecutionSecurityContext.toCacheSecurityPartition() = CacheSecurityP
     classificationSource = classificationSource,
 )
 
-/** Length-prefixed, no delimiters. Adding a field: extend with appendField; never reuse `---` as a content marker. */
+/** Length-prefixed field encoding with a framed message separator. Adding a field: extend with appendField; never reuse `---` as a content marker. */
 private fun canonicalizeMessages(messages: List<Message>): String = buildString {
     messages.forEachIndexed { index, message ->
         if (index > 0) {

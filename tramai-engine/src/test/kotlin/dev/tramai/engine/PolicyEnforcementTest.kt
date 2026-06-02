@@ -19,6 +19,7 @@ import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ToolExecutionContext
 import dev.tramai.core.model.ResolvedTool
 import dev.tramai.core.model.ToolResult
+import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.policy.ApprovalRequirement
 import dev.tramai.core.policy.ClassificationSource
 import dev.tramai.core.policy.DataClassification
@@ -1211,6 +1212,28 @@ class PolicyEnforcementTest {
             },
         )
         val service: CachedToolTestService = engine.create()
+
+        assertThat(service.cachedCall("test")).isEqualTo("ok")
+        assertThat(service.cachedCall("test")).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(2)
+    }
+
+    @Test
+    fun `cacheable operation with custom interceptor bypasses cache`() = runBlocking {
+        val provider = CountingProvider()
+        // A non-singleton interceptor — the engine checks reference-equality
+        // against NoOpOperationInterceptor, so a fresh anonymous instance
+        // always forces a cache bypass.
+        val customInterceptor = object : OperationInterceptor {}
+        val engine = TramaiEngine(
+            provider = provider,
+            responseCache = InMemoryOperationResponseCache(),
+            operationInterceptor = customInterceptor,
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+        )
+        val service: CachedTestService = engine.create()
 
         assertThat(service.cachedCall("test")).isEqualTo("ok")
         assertThat(service.cachedCall("test")).isEqualTo("ok")
