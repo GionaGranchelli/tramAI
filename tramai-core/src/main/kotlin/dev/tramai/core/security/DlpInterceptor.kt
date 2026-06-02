@@ -20,6 +20,8 @@ data class DlpContext(
     val modelName: String? = null,
     val toolName: String? = null,
     val correlationId: String,
+    val dataClassification: String? = null,
+    val classificationSource: String? = null,
 )
 
 /**

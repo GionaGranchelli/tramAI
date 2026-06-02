@@ -310,4 +310,62 @@ class RuleBasedDlpInterceptorTest {
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("maxTextLength exceeds maximum allowed value")
     }
+
+    // ── 17. Zero-width pattern terminates safely ─────────────────────────────
+
+    @Test
+    fun `zero-width pattern terminates safely without infinite loop`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(id = "lookahead", pattern = "(?=\\d)")
+        }
+
+        // The zero-width lookahead should not cause infinite loop
+        val result = dlp.inspect(context(), "abc123def456")
+
+        assertThat(result.sanitizedText).isEqualTo("abc[REDACTED][REDACTED][REDACTED]def[REDACTED][REDACTED][REDACTED]")
+        assertThat(result.modified).isTrue()
+        assertThat(result.redactions).hasSize(1)
+        assertThat(result.redactions[0].replacementCount).isEqualTo(6)
+    }
+
+    // ── 18. Replacement with $1 stays literal ────────────────────────────────
+
+    @Test
+    fun `replacement with dollar-group reference stays literal`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(id = "mask", pattern = "(\\d{4})-(\\d{4})-(\\d{4})-(\\d{4})", replacement = "MASK-$1")
+        }
+
+        // $1 in the replacement should stay as literal "$1" due to quoteReplacement,
+        // not reinsert the captured group
+        val result = dlp.inspect(context(), "Card: 4111-1111-1111-1111")
+
+        assertThat(result.sanitizedText).isEqualTo("Card: MASK-$1")
+        assertThat(result.modified).isTrue()
+    }
+
+    // ── 19. Multiple replacements counted correctly ──────────────────────────
+
+    @Test
+    fun `multiple replacements across overlapping rules are counted correctly`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(id = "email", pattern = "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}")
+            rule(id = "phone", pattern = "\\d{3}-\\d{3}-\\d{4}")
+        }
+
+        val result = dlp.inspect(
+            context(),
+            "Contact: alice@example.com or bob@test.org, Phone: 555-123-4567",
+        )
+
+        assertThat(result.sanitizedText).isEqualTo("Contact: [REDACTED] or [REDACTED], Phone: [REDACTED]")
+        assertThat(result.redactions).hasSize(2)
+        assertThat(result.redactions[0].ruleId).isEqualTo("email")
+        assertThat(result.redactions[0].replacementCount).isEqualTo(2)
+        assertThat(result.redactions[1].ruleId).isEqualTo("phone")
+        assertThat(result.redactions[1].replacementCount).isEqualTo(1)
+    }
 }

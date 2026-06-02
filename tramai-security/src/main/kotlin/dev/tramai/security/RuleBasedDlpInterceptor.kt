@@ -94,51 +94,45 @@ class RuleBasedDlpInterceptor(
     }
 
     override fun inspect(context: DlpContext, text: String): DlpResult {
-        val sanitized = sanitize(context, text)
-        if (sanitized !== text && sanitized != text) {
-            // Compute redactions by re-running rules to count replacements
-            val redactions = mutableListOf<DlpRedaction>()
-            var working = text
-            for (rule in compiledRules) {
-                if (rule.enabledFor.contains(context.contentType)) {
-                    val count = countMatches(rule.pattern, working)
-                    if (count > 0) {
-                        val matcher = rule.pattern.matcher(working)
-                        working = matcher.replaceAll(rule.replacement)
-                        redactions.add(DlpRedaction(ruleId = rule.id, replacementCount = count))
-                    }
-                }
-            }
-            return DlpResult(sanitizedText = working, redactions = redactions)
-        }
-        return DlpResult(text)
-    }
-
-    private fun sanitize(context: DlpContext, text: String): String {
         if (text.length > maxTextLength) {
             throw IllegalArgumentException("Input text exceeds maximum allowed length")
         }
 
+        val redactions = mutableListOf<DlpRedaction>()
         var result = text
+
         for (rule in compiledRules) {
-            if (rule.enabledFor.contains(context.contentType)) {
-                val matcher = rule.pattern.matcher(result)
-                result = matcher.replaceAll(rule.replacement)
+            if (!rule.enabledFor.contains(context.contentType)) continue
+
+            val matcher = rule.pattern.matcher(result)
+            val sb = StringBuilder()
+            var count = 0
+            var searchStart = 0
+
+            while (matcher.find(searchStart)) {
+                // Append text from last position to start of match
+                sb.append(result, searchStart, matcher.start())
+                sb.append(rule.replacement)
+                count++
+
+                val matchEnd = matcher.end()
+                searchStart = if (matcher.start() == matchEnd) {
+                    // Zero-width match — advance by one character to avoid infinite loop
+                    matchEnd + 1
+                } else {
+                    matchEnd
+                }
+            }
+            // Append remaining text after last match
+            sb.append(result, searchStart, result.length)
+
+            if (count > 0) {
+                result = sb.toString()
+                redactions.add(DlpRedaction(ruleId = rule.id, replacementCount = count))
             }
         }
-        return result
-    }
 
-    private fun countMatches(pattern: Pattern, text: String): Int {
-        var count = 0
-        var matcher = pattern.matcher(text)
-        var start = 0
-        while (matcher.find(start)) {
-            count++
-            start = matcher.end()
-            if (start >= text.length) break
-        }
-        return count
+        return DlpResult(sanitizedText = result, redactions = redactions)
     }
 
     private data class CompiledDlpRule(

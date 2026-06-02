@@ -33,6 +33,14 @@ import dev.tramai.core.policy.DataClassification
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.StreamCapable
+import dev.tramai.core.security.DlpContentType
+import dev.tramai.core.security.DlpContext
+import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpResult
+import dev.tramai.core.security.NoOpDlpInterceptor
+import dev.tramai.security.DlpRule
+import dev.tramai.security.RuleBasedDlpConfiguration
+import dev.tramai.security.RuleBasedDlpInterceptor
 import dev.tramai.structured.JacksonStructuredOutputHandler
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -1228,6 +1236,208 @@ class TramaiEngineTest {
             )
         }
     }
+
+    // ── DLP Integration Tests ───────────────────────────────────────────
+
+    @Nested
+    inner class DlpIntegration {
+
+        private val emailRule = DlpRule(
+            id = "email",
+            pattern = "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}",
+            replacement = "[EMAIL]",
+        )
+
+        private fun dlpInterceptor() = RuleBasedDlpInterceptor(
+            RuleBasedDlpConfiguration(rules = listOf(emailRule)),
+        )
+
+        @Test
+        fun `raw response is redacted before caller return`() {
+            val provider = RecordingProvider {
+                ModelResponse(content = "Contact me at user@example.com for info")
+            }
+            val engine = TramaiEngine(provider = provider, dlpInterceptor = dlpInterceptor())
+            val service = engine.create<DlpRawService>()
+
+            val result = runBlocking { service.process("input") }
+
+            assertThat(result).isEqualTo("Contact me at [EMAIL] for info")
+            assertThat(result).doesNotContain("user@example.com")
+        }
+
+        @Test
+        fun `structured JSON redacted before parser input`() {
+            val provider = RecordingProvider {
+                ModelResponse(content = """{"email":"alice@example.com","status":"ok"}""")
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                structuredOutputHandler = JacksonStructuredOutputHandler(),
+                dlpInterceptor = dlpInterceptor(),
+            )
+            val service = engine.create<DlpStructuredService>()
+
+            val result = runBlocking { service.process("input") }
+
+            // Parsed result should use the redacted content
+            assertThat(result.email).isEqualTo("[EMAIL]")
+            assertThat(result.status).isEqualTo("ok")
+        }
+
+        @Test
+        fun `chat memory stores sanitized assistant response`() {
+            val memory = TestChatMemory()
+            val provider = RecordingProvider {
+                ModelResponse(content = "My email is bob@example.com")
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                chatMemory = memory,
+                dlpInterceptor = dlpInterceptor(),
+            )
+            val service = engine.create<DlpMemoryService>()
+
+            runBlocking { service.chat(sessionId = "s1", message = "What is your email?") }
+
+            val history = memory.get("s1")
+            assertThat(history).hasSize(2)
+            val assistantMsg = history.last { it.role == MessageRole.ASSISTANT }
+            assertThat(assistantMsg.content).isEqualTo("My email is [EMAIL]")
+            assertThat(assistantMsg.content).doesNotContain("bob@example.com")
+        }
+
+        @Test
+        fun `operation observer sees sanitized response`() {
+            val observer = RecordingObserver()
+            val provider = RecordingProvider {
+                ModelResponse(content = "User: alice@example.com")
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                operationObserver = observer,
+                dlpInterceptor = dlpInterceptor(),
+            )
+            val service = engine.create<DlpRawService>()
+
+            runBlocking { service.process("input") }
+
+            val record = observer.records.single()
+            assertThat(record.response?.content).isEqualTo("User: [EMAIL]")
+            assertThat(record.response?.content).doesNotContain("alice@example.com")
+        }
+
+        @Test
+        fun `toolCalls remain unchanged after DLP`() {
+            val tool = object : ResolvedTool {
+                override val name: String = "lookup"
+                override val description: String = "Looks up data"
+                override val inputSchemaJson: String = """{"type":"object"}"""
+                override val idempotent: Boolean = false
+                override val sideEffectLevel: dev.tramai.core.model.SideEffectLevel =
+                    dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(
+                    input: Any,
+                    context: ToolExecutionContext,
+                ): ToolResult = ToolResult.Success("""{"value":"resolved"}""")
+            }
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(
+                    content = "check user@example.com",
+                    toolCalls = listOf(ToolCall("tc-1", "lookup", """{"query":"user"}""")),
+                ),
+                ModelResponse(content = "done with user@example.com"),
+            )
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                dlpInterceptor = dlpInterceptor(),
+            )
+            val service = engine.create<DlpToolService>()
+
+            val result = runBlocking { service.answer("input") }
+
+            assertThat(result).isEqualTo("done with [EMAIL]")
+            // Verify tool was invoked (toolCalls remain unchanged by DLP)
+            // Two requests: one with tool call, one with tool result injected
+            assertThat(provider.requests).hasSize(2)
+        }
+
+        @Test
+        fun `custom DLP disables cache`() {
+            val provider = RecordingProvider(
+                SequenceResponder(
+                    suspend { ModelResponse(content = "first call user@example.com") },
+                    suspend { ModelResponse(content = "second call user@example.com") },
+                )::next,
+            )
+            val cache = InMemoryOperationResponseCache()
+            val dlp1 = NoOpDlpInterceptor
+            val engine1 = TramaiEngine(
+                provider = provider,
+                responseCache = cache,
+                dlpInterceptor = dlp1,
+            )
+            val service1 = engine1.create<DlpCacheableService>()
+
+            val first = runBlocking { service1.process("key") }
+            val second = runBlocking { service1.process("key") }
+
+            // NoOp DLP should cache
+            assertThat(first).isEqualTo("first call user@example.com")
+            assertThat(second).isEqualTo("first call user@example.com")
+            assertThat(provider.requests).hasSize(1)
+
+            // Create a second engine with custom DLP sharing the same cache
+            val provider2 = RecordingProvider(
+                SequenceResponder(
+                    suspend { ModelResponse(content = "first call user@example.com") },
+                    suspend { ModelResponse(content = "second call user@example.com") },
+                )::next,
+            )
+            val engine2 = TramaiEngine(
+                provider = provider2,
+                responseCache = cache,
+                dlpInterceptor = dlpInterceptor(),
+            )
+            val service2 = engine2.create<DlpCacheableService>()
+
+            val result = runBlocking { service2.process("key") }
+
+            // Custom DLP should bypass cache and invoke provider
+            assertThat(result).isEqualTo("first call [EMAIL]")
+            assertThat(provider2.requests).hasSize(1)
+        }
+
+        @Test
+        fun `NoOp DLP preserves existing behavior`() {
+            val provider = RecordingProvider { ModelResponse(content = "normal response") }
+            val engine = TramaiEngine(provider = provider, dlpInterceptor = NoOpDlpInterceptor)
+            val service = engine.create<DlpRawService>()
+
+            val result = runBlocking { service.process("input") }
+
+            assertThat(result).isEqualTo("normal response")
+            assertThat(provider.requests).hasSize(1)
+        }
+
+        @Test
+        fun `custom DLP interceptor without redaction metadata still applies sanitized text`() {
+            val customInterceptor = object : DlpInterceptor {
+                override fun inspect(context: DlpContext, text: String): DlpResult {
+                    return DlpResult(sanitizedText = "[REDACTED]")
+                }
+            }
+            val provider = RecordingProvider { ModelResponse(content = "some secret content") }
+            val engine = TramaiEngine(provider = provider, dlpInterceptor = customInterceptor)
+            val service = engine.create<DlpRawService>()
+
+            val result = runBlocking { service.process("input") }
+
+            assertThat(result).isEqualTo("[REDACTED]")
+        }
+    }
 }
 
 @AiService
@@ -1378,6 +1588,63 @@ private interface FallbackService {
     )
     suspend fun analyze(invoiceId: String): String
 }
+
+@AiService
+private interface DlpRawService {
+    @Operation(
+        prompt = "Process the input",
+        model = "claude-sonnet-4-20250514",
+    )
+    suspend fun process(input: String): String
+}
+
+@AiService
+@SystemPrompt("Return structured JSON.")
+private interface DlpStructuredService {
+    @Operation(
+        prompt = "Return status as JSON",
+        model = "claude-sonnet-4-20250514",
+    )
+    suspend fun process(input: String): DlpStatusResult
+}
+
+@AiService
+@SystemPrompt("You are a helpful assistant.")
+private interface DlpMemoryService {
+    @Operation(
+        prompt = "Respond to the user's message",
+        model = "claude-sonnet-4-20250514",
+    )
+    suspend fun chat(
+        @ConversationId sessionId: String,
+        message: String,
+    ): String
+}
+
+@AiService
+private interface DlpToolService {
+    @Operation(
+        prompt = "Use the lookup tool",
+        model = "claude-sonnet-4-20250514",
+        tools = ["lookup"],
+    )
+    suspend fun answer(question: String): String
+}
+
+@AiService
+private interface DlpCacheableService {
+    @Operation(
+        prompt = "Return a cached answer",
+        model = "claude-sonnet-4-20250514",
+        cacheable = true,
+    )
+    suspend fun process(input: String): String
+}
+
+private data class DlpStatusResult(
+    val email: String,
+    val status: String,
+)
 
 private interface NotAnAiService {
     @Operation(

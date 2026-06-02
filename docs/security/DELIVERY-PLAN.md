@@ -304,7 +304,7 @@ tramai:
 
 ---
 
-## Implementation Notes — DLP Interceptor Foundation (PR 8)
+## Implementation Notes — DLP Interceptor Foundation (PR 9)
 
 **Where:**
 - `tramai-core/.../security/DlpInterceptor.kt` — SPI, context, result types, NoOpDlpInterceptor
@@ -338,19 +338,36 @@ tramai:
 
 ### Engine Hook Location (`TramaiEngine`)
 
+DLP is applied at the **earliest safe response boundary** — inside `callProviderWithRetries()`,
+after `OperationInterceptor.interceptResponse()` and **before** `onProviderResponse()`:
+
 ```
 ModelResponse
   → interceptResponse (operation interceptor)
-  → applyDlpToResult()  ← DLP applied here
+  → applyDlpToResult()  ← DLP applied here (earliest safe boundary)
+    → observation.onProviderResponse(sanitized)
     → structured parsing (if structured output)
     → cache storage
     → chatMemory storage
     → return
 ```
 
+Consequences:
+- **Observers** see only sanitized output
+- **Tool-loop assistant responses** are sanitized before reinjection as next-turn context
+- **Raw return, structured parsing, chat memory, and cache** all use sanitized content
 - Only `DlpContentType.MODEL_OUTPUT` is scanned in this pass
 - `toolCalls` on the response are never modified
 - Short-circuit when `dlpInterceptor === NoOpDlpInterceptor` (zero overhead for default config)
+
+### Cache Behaviour
+
+Cache eligibility (`isSafeCacheEligible`) requires `dlpInterceptor === NoOpDlpInterceptor`.
+Custom DLP interceptors **bypass the cache entirely** — every provider response is freshly
+sanitized.
+
+Cache-aware DLP fingerprints (cache-key by dlpInterceptor identity) and cache-hit
+re-inspection are deferred until the interceptor is stable.
 
 ### Test Matrix
 

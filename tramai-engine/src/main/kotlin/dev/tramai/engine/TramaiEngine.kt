@@ -815,13 +815,7 @@ private class TramaiInvocationHandler(
             securityContext = securityContext,
         )
 
-        // DLP: sanitize model output before policy re-check, memory, cache, and return
-        val sanitizedResponse = applyDlpToResult(
-            result = result,
-            operation = operation,
-            correlationId = correlationId,
-            securityContext = securityContext,
-        )
+        // DLP is already applied inside callProviderWithRetries — use the sanitized response directly
 
         // Enforce BEFORE_RESPONSE_RETURN
         policyHelper.enforce(
@@ -838,7 +832,7 @@ private class TramaiInvocationHandler(
         if (chatMemory != null && conversationId != null) {
             val assistantMessage = Message(
                 role = MessageRole.ASSISTANT,
-                content = sanitizedResponse.content,
+                content = result.response.content,
                 toolCalls = result.response.toolCalls,
             )
             // Persist non-system messages from this turn (tool rounds + final assistant)
@@ -847,7 +841,7 @@ private class TramaiInvocationHandler(
         }
 
         result.observation.onCallCompleted(parseSuccess = null)
-        return sanitizedResponse.content.also {
+        return result.response.content.also {
             cacheKey?.let { key ->
                 operation.cacheValue(key, it, result.providerId, result.modelName, securityContext, conversationId)
             }
@@ -965,17 +959,11 @@ private class TramaiInvocationHandler(
             securityContext = securityContext,
         )
 
-        // DLP: sanitize model output before structured parsing, memory, cache, and return
-        val sanitizedResponse = applyDlpToResult(
-            result = result,
-            operation = operation,
-            correlationId = correlationId,
-            securityContext = securityContext,
-        )
+        // DLP is already applied inside callProviderWithRetries — use the sanitized response directly
 
         return when (
             val analysis = handler.analyze(
-                rawResponse = sanitizedResponse.content,
+                rawResponse = result.response.content,
                 targetType = targetType,
             )
         ) {
@@ -996,7 +984,7 @@ private class TramaiInvocationHandler(
 
                 persistStructuredSuccess(
                     result = result,
-                    sanitizedContent = sanitizedResponse.content,
+                    sanitizedContent = result.response.content,
                     messages = messages,
                     historySize = historySize,
                     conversationId = conversationId,
@@ -1073,7 +1061,7 @@ private class TramaiInvocationHandler(
         )
 
         val dlpResult = dlpInterceptor.inspect(context, response.content)
-        return if (dlpResult.modified) {
+        return if (dlpResult.sanitizedText != response.content) {
             response.copy(content = dlpResult.sanitizedText)
         } else {
             response
@@ -1389,9 +1377,32 @@ private class TramaiInvocationHandler(
                 val rawResponse = callProviderOnce(providerId, provider, interceptedRequest, operation)
                 val interceptedResponse = operationInterceptor.interceptResponse(callContext, rawResponse)
 
-                observation.onProviderResponse(interceptedResponse)
+                // DLP: sanitize model output at the earliest safe boundary
+                val sanitizedResponse = if (dlpInterceptor !== NoOpDlpInterceptor) {
+                    val dlpContext = DlpContext(
+                        contentType = DlpContentType.MODEL_OUTPUT,
+                        operationInterface = serviceDefinition.serviceType.qualifiedName
+                            ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+                        operationMethod = operation.method.name,
+                        providerId = providerId,
+                        modelName = request.model,
+                        correlationId = correlationId,
+                        dataClassification = securityContext.dataClassification?.name,
+                        classificationSource = securityContext.classificationSource?.name,
+                    )
+                    val dlpResult = dlpInterceptor.inspect(dlpContext, interceptedResponse.content)
+                    if (dlpResult.sanitizedText != interceptedResponse.content) {
+                        interceptedResponse.copy(content = dlpResult.sanitizedText)
+                    } else {
+                        interceptedResponse
+                    }
+                } else {
+                    interceptedResponse
+                }
+
+                observation.onProviderResponse(sanitizedResponse)
                 return ProviderCallResult(
-                    response = interceptedResponse,
+                    response = sanitizedResponse,
                     observation = observation,
                     providerId = providerId,
                     modelName = request.model,
@@ -1772,7 +1783,8 @@ private class TramaiInvocationHandler(
     ): Boolean =
         operation.isOperationCacheEligible() &&
             conversationId == null &&
-            operationInterceptor === NoOpOperationInterceptor
+            operationInterceptor === NoOpOperationInterceptor &&
+            dlpInterceptor === NoOpDlpInterceptor
 }
 
 private data class ServiceDefinition(
