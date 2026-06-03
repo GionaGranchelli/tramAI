@@ -1119,7 +1119,6 @@ private class TramaiInvocationHandler(
                 messages = messages,
                 correlationId = correlationId,
                 securityContext = securityContext,
-                observation = result.observation,
             )
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
@@ -1131,12 +1130,11 @@ private class TramaiInvocationHandler(
         messages: MutableList<Message>,
         correlationId: String,
         securityContext: ExecutionSecurityContext,
-        observation: OperationObservation,
     ) {
         for (toolCall in toolCalls) {
             val tool = toolRegistry.resolve(toolCall.name)
             val toolResult = if (tool == null) {
-                ToolResult.PermanentFailure("Tool '${toolCall.name}' not found")
+                ToolResult.PermanentFailure("Tool '<unregistered>' not found")
             } else {
                 executeTool(tool, toolCall, operation, correlationId, securityContext)
             }
@@ -1193,8 +1191,20 @@ private class TramaiInvocationHandler(
         )
         val aggregateTextLimit = toolResultFilteringSettings.maxAggregateTextLengthForTool(toolName)
 
+        fun emitEngineEventSafely(
+            name: String,
+            attributes: Map<String, Any?>,
+        ) {
+            runCatching {
+                engineEventObserver.onEngineEvent(name, attributes)
+            }.onFailure { error ->
+                System.getLogger("dev.tramai.engine.TramaiEngine")
+                    .log(System.Logger.Level.WARNING, "Engine event observer failed for '$name'", error)
+            }
+        }
+
         fun rejectAggregateTextLength(actualLength: Long): Nothing {
-            engineEventObserver.onEngineEvent(
+            emitEngineEventSafely(
                 name = "tramai.dlp.tool_result_rejected",
                 attributes = mapOf(
                     "reasonCode" to "aggregate_text_limit_exceeded",
@@ -1210,7 +1220,7 @@ private class TramaiInvocationHandler(
         }
 
         fun rejectSanitizedTextLimit(actualLength: Long): Nothing {
-            engineEventObserver.onEngineEvent(
+            emitEngineEventSafely(
                 name = "tramai.dlp.tool_result_rejected",
                 attributes = mapOf(
                     "reasonCode" to "sanitized_text_limit_exceeded",
@@ -1226,7 +1236,7 @@ private class TramaiInvocationHandler(
         }
 
         fun rejectCrossBoundarySensitiveText(): Nothing {
-            engineEventObserver.onEngineEvent(
+            emitEngineEventSafely(
                 name = "tramai.dlp.tool_result_rejected",
                 attributes = mapOf(
                     "reasonCode" to "cross_boundary_sensitive_text_detected",
@@ -1250,7 +1260,7 @@ private class TramaiInvocationHandler(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            engineEventObserver.onEngineEvent(
+            emitEngineEventSafely(
                 name = "tramai.dlp.inspection_failed",
                 attributes = mapOf("toolName" to safeToolLabel, "correlationId" to correlationId),
             )

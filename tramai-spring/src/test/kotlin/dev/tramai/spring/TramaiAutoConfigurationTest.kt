@@ -15,6 +15,8 @@ import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpResult
+import dev.tramai.engine.EngineEventObserver
+import dev.tramai.standalone.Tramai
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -487,6 +489,48 @@ class TramaiAutoConfigurationTest {
                 )
         }
     }
+
+    @Test
+    fun `single EngineEventObserver bean is wired`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, EngineEventObserverConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+
+        contextRunner.run { context ->
+            assertThat(context).hasSingleBean(Tramai::class.java)
+            val tramai = context.getBean(Tramai::class.java)
+            // The observer bean should be forwarded to the engine
+            val service = tramai.create(TestInvoiceAnalyzer::class)
+            val result = runBlocking { service.analyze("invoice-echo") }
+            assertThat(result).isNotNull
+        }
+    }
+
+    @Test
+    fun `multiple EngineEventObserver beans fail fast`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withBean("firstObserver", EngineEventObserver::class.java, Supplier {
+                EngineEventObserver { _: String, _: Map<String, Any?> -> }
+            })
+            .withBean("secondObserver", EngineEventObserver::class.java, Supplier {
+                EngineEventObserver { _: String, _: Map<String, Any?> -> }
+            })
+            .withPropertyValues("tramai.default-provider=stub")
+
+        contextRunner.run { context ->
+            assertThat(context).hasFailed()
+            val failure = requireNotNull(context.startupFailure)
+            assertThat(failure)
+                .hasRootCauseInstanceOf(IllegalArgumentException::class.java)
+        }
+    }
 }
 
 @AiService
@@ -590,6 +634,12 @@ open class InterceptorConfiguration {
             response: ModelResponse,
         ): ModelResponse = response.copy(content = response.content.replace("sensitive", "redacted"))
     }
+}
+
+@TestConfiguration
+open class EngineEventObserverConfiguration {
+    @Bean
+    open fun engineEventObserver(): EngineEventObserver = EngineEventObserver { _, _ -> }
 }
 
 class PrimaryFailingProvider : ModelProvider {
