@@ -44,6 +44,7 @@ import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
+import dev.tramai.core.security.DlpInspectionException
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.PromptSanitizer
@@ -75,6 +76,9 @@ import kotlin.reflect.KFunction
 import kotlin.reflect.KParameter
 import kotlin.reflect.jvm.kotlinFunction
 
+private const val MAX_SAFE_TOOL_NAME_LENGTH = 128
+private const val UNREGISTERED_TOOL_NAME = "unregistered_tool"
+
 /**
  * Runtime engine that turns annotated service interfaces into AI-backed proxies.
  */
@@ -95,6 +99,8 @@ class TramaiEngine(
     private val scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
     private val policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
     private val dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
+    private val toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
+    private val engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
 ) : AutoCloseable {
     private val circuitBreaker = ProviderCircuitBreaker(circuitBreakerSettings)
     private val retryDelayPolicy = ProviderRetryDelayPolicy(retryPolicySettings)
@@ -123,6 +129,8 @@ class TramaiEngine(
         scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
         policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
         dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
+        toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
+        engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
     ) : this(
         providerRegistry = ProviderRegistry.singleProvider(provider),
         structuredOutputHandler = structuredOutputHandler,
@@ -140,6 +148,8 @@ class TramaiEngine(
         scope = scope,
         policyEngine = policyEngine,
         dlpInterceptor = dlpInterceptor,
+        toolResultFilteringSettings = toolResultFilteringSettings,
+        engineEventObserver = engineEventObserver,
     )
 
     /**
@@ -170,6 +180,8 @@ class TramaiEngine(
             migrationWarningGuard = migrationWarningGuard,
             isLegacyFallback = isLegacyFallback,
             dlpInterceptor = dlpInterceptor,
+            toolResultFilteringSettings = toolResultFilteringSettings,
+            engineEventObserver = engineEventObserver,
         )
 
         @Suppress("UNCHECKED_CAST")
@@ -212,6 +224,8 @@ private class TramaiInvocationHandler(
     private val migrationWarningGuard: java.util.concurrent.atomic.AtomicBoolean,
     isLegacyFallback: Boolean,
     private val dlpInterceptor: DlpInterceptor,
+    private val toolResultFilteringSettings: ToolResultFilteringSettings,
+    private val engineEventObserver: EngineEventObserver,
 ) : InvocationHandler {
 
     private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard, isLegacyFallback = isLegacyFallback)
@@ -1092,16 +1106,30 @@ private class TramaiInvocationHandler(
                 return result
             }
 
-            // End the observation of the call that produced tool calls
             result.observation.onCallCompleted(parseSuccess = null)
 
-            // Append assistant message with tool calls
+            // Normalize unregistered tool calls: replace unknown names with safe placeholder
+            val normalizedToolCalls = toolCalls.map { toolCall ->
+                if (toolRegistry.resolve(toolCall.name) == null) {
+                    toolCall.copy(name = UNREGISTERED_TOOL_NAME, argumentsJson = "{}")
+                } else {
+                    toolCall
+                }
+            }
+
+            // Append assistant message with normalized tool calls
             messages += Message(
                 role = MessageRole.ASSISTANT,
                 content = result.response.content,
-                toolCalls = toolCalls,
+                toolCalls = normalizedToolCalls,
             )
-            processToolCalls(operation, toolCalls, messages, correlationId, securityContext)
+            processToolCalls(
+                operation = operation,
+                toolCalls = normalizedToolCalls,
+                messages = messages,
+                correlationId = correlationId,
+                securityContext = securityContext,
+            )
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
     }
@@ -1116,7 +1144,7 @@ private class TramaiInvocationHandler(
         for (toolCall in toolCalls) {
             val tool = toolRegistry.resolve(toolCall.name)
             val toolResult = if (tool == null) {
-                ToolResult.PermanentFailure("Tool '${toolCall.name}' not found")
+                ToolResult.PermanentFailure("Tool '<unregistered>' not found")
             } else {
                 executeTool(tool, toolCall, operation, correlationId, securityContext)
             }
@@ -1126,14 +1154,220 @@ private class TramaiInvocationHandler(
                 policyHelper.buildContext(
                     enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION,
                     correlationId = correlationId,
-                ).toolName(toolCall.name)
+                ).toolName(tool?.name ?: "<unregistered>")
                     .toolSecurity(tool?.security)
                     .applySecurityContext(securityContext)
                     .build()
             )
 
-            messages += formatToolResult(toolResult, toolCall.id)
+            val toolMessage = formatToolResult(
+                toolResult = toolResult,
+                toolCallId = toolCall.id,
+            )
+            messages += sanitizeToolMessageForReinjection(
+                message = toolMessage,
+                operation = operation,
+                toolName = toolCall.name,
+                correlationId = correlationId,
+                securityContext = securityContext,
+                engineEventObserver = engineEventObserver,
+            )
         }
+    }
+
+    private fun sanitizeToolMessageForReinjection(
+        message: Message,
+        operation: OperationDefinition,
+        toolName: String,
+        correlationId: String,
+        securityContext: ExecutionSecurityContext,
+        engineEventObserver: EngineEventObserver,
+    ): Message {
+        if (dlpInterceptor === NoOpDlpInterceptor) {
+            return message
+        }
+
+        val resolvedTool = toolRegistry.resolve(toolName)
+        val canonicalToolName = resolvedTool?.name ?: "<unregistered>"
+        val safeToolLabel = canonicalToolName.take(MAX_SAFE_TOOL_NAME_LENGTH)
+        val dlpContext = DlpContext(
+            contentType = DlpContentType.TOOL_RESULT,
+            operationInterface = operation.method.declaringClass.name,
+            operationMethod = operation.method.name,
+            toolName = canonicalToolName,
+            correlationId = correlationId,
+            dataClassification = securityContext.dataClassification,
+            classificationSource = securityContext.classificationSource,
+        )
+        val aggregateTextLimit = toolResultFilteringSettings.maxAggregateTextLengthForTool(toolName)
+
+        fun emitEngineEventSafely(
+            name: String,
+            attributes: Map<String, Any?>,
+        ) {
+            try {
+                engineEventObserver.onEngineEvent(name, attributes)
+            } catch (error: Exception) {
+                System.getLogger("dev.tramai.engine.TramaiEngine")
+                    .log(System.Logger.Level.WARNING, "Engine event observer failed for '$name': ${error::class.simpleName}")
+            }
+        }
+
+        fun rejectAggregateTextLength(actualLength: Long): Nothing {
+            emitEngineEventSafely(
+                name = "tramai.dlp.tool_result_rejected",
+                attributes = mapOf(
+                    "reasonCode" to "aggregate_text_limit_exceeded",
+                    "aggregateTextLength" to actualLength,
+                    "configuredLimit" to aggregateTextLimit,
+                    "correlationId" to correlationId,
+                    "toolName" to safeToolLabel,
+                ),
+            )
+            throw dev.tramai.core.security.DlpInspectionException(
+                message = "Tool result from '$safeToolLabel' exceeds aggregate input limit ($actualLength > $aggregateTextLimit)",
+            )
+        }
+
+        fun rejectSanitizedTextLimit(actualLength: Long): Nothing {
+            emitEngineEventSafely(
+                name = "tramai.dlp.tool_result_rejected",
+                attributes = mapOf(
+                    "reasonCode" to "sanitized_text_limit_exceeded",
+                    "aggregateTextLength" to actualLength,
+                    "configuredLimit" to aggregateTextLimit,
+                    "correlationId" to correlationId,
+                    "toolName" to safeToolLabel,
+                ),
+            )
+            throw dev.tramai.core.security.DlpInspectionException(
+                message = "Sanitized tool result from '$safeToolLabel' exceeds aggregate limit ($actualLength > $aggregateTextLimit)",
+            )
+        }
+
+        fun rejectCrossBoundarySensitiveText(): Nothing {
+            emitEngineEventSafely(
+                name = "tramai.dlp.tool_result_rejected",
+                attributes = mapOf(
+                    "reasonCode" to "cross_boundary_sensitive_text_detected",
+                    "correlationId" to correlationId,
+                    "toolName" to safeToolLabel,
+                ),
+            )
+            throw dev.tramai.core.security.DlpInspectionException(
+                message = "Tool result from '$safeToolLabel' contains sensitive text spanning non-text boundaries",
+            )
+        }
+
+        fun sanitizeText(text: String): String = try {
+            dlpInterceptor.inspect(dlpContext, text).sanitizedText.also { sanitizedText ->
+                if (sanitizedText.length.toLong() > aggregateTextLimit) {
+                    rejectSanitizedTextLimit(sanitizedText.length.toLong())
+                }
+            }
+        } catch (e: DlpInspectionException) {
+            throw e
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emitEngineEventSafely(
+                name = "tramai.dlp.inspection_failed",
+                attributes = mapOf("toolName" to safeToolLabel, "correlationId" to correlationId),
+            )
+            throw dev.tramai.core.security.DlpInspectionException(
+                message = "DLP inspection failed for tool result from tool '$safeToolLabel'",
+                cause = e,
+            )
+        }
+
+        fun accumulateLength(currentLength: Long, text: String): Long {
+            val nextLength = if (currentLength > Long.MAX_VALUE - text.length.toLong()) {
+                Long.MAX_VALUE
+            } else {
+                currentLength + text.length.toLong()
+            }
+            if (nextLength > aggregateTextLimit) {
+                rejectAggregateTextLength(nextLength)
+            }
+            return nextLength
+        }
+
+        val contentParts = message.contentParts
+        if (contentParts.isNullOrEmpty()) {
+            if (message.content.isEmpty()) {
+                return message
+            }
+            accumulateLength(0L, message.content)
+            return message.copy(content = sanitizeText(message.content))
+        }
+
+        var aggregateLength = 0L
+        val sanitizedParts = mutableListOf<ContentPart>()
+        val textRun = mutableListOf<String>()
+        val sanitizedTextRuns = mutableListOf<String>()
+        var sanitizedAggregateLength = 0L
+
+        fun accumulateSanitizedLength(currentLength: Long, text: String): Long {
+            val nextLength = if (currentLength > Long.MAX_VALUE - text.length.toLong()) {
+                Long.MAX_VALUE
+            } else {
+                currentLength + text.length.toLong()
+            }
+            if (nextLength > aggregateTextLimit) {
+                rejectSanitizedTextLimit(nextLength)
+            }
+            return nextLength
+        }
+
+        fun flushTextRun() {
+            if (textRun.isEmpty()) {
+                return
+            }
+            val combinedText = buildString {
+                textRun.forEach(::append)
+            }
+            val sanitizedText = sanitizeText(combinedText)
+            sanitizedAggregateLength = accumulateSanitizedLength(sanitizedAggregateLength, sanitizedText)
+            sanitizedTextRuns += sanitizedText
+            if (sanitizedText.isNotEmpty()) {
+                sanitizedParts += ContentPart.TextPart(sanitizedText)
+            }
+            textRun.clear()
+        }
+
+        contentParts.forEach { part ->
+            when (part) {
+                is ContentPart.TextPart -> {
+                    aggregateLength = accumulateLength(aggregateLength, part.text)
+                    textRun += part.text
+                }
+                else -> {
+                    flushTextRun()
+                    sanitizedParts += part
+                }
+            }
+        }
+        flushTextRun()
+
+        val allTextParts = contentParts.mapNotNull { part ->
+            (part as? ContentPart.TextPart)?.text
+        }
+        if (allTextParts.size > 1) {
+            val projectedText = allTextParts.joinToString("")
+            val projectedResult = sanitizeText(projectedText)
+            val individualCombined = buildString {
+                sanitizedTextRuns.forEach(::append)
+            }
+            val combinedResanitized = sanitizeText(individualCombined)
+            if (projectedResult != individualCombined && combinedResanitized != individualCombined) {
+                rejectCrossBoundarySensitiveText()
+            }
+        }
+
+        return message.copy(
+            content = "",
+            contentParts = sanitizedParts.ifEmpty { null },
+        )
     }
 
     private fun formatToolResult(toolResult: ToolResult, toolCallId: String): Message = when (toolResult) {

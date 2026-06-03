@@ -13,10 +13,12 @@ class RuleBasedDlpInterceptorTest {
     private fun context(
         contentType: DlpContentType = DlpContentType.MODEL_OUTPUT,
         corrId: String = "test-corr",
+        toolName: String? = null,
     ) = DlpContext(
         contentType = contentType,
         operationInterface = "TestService",
         operationMethod = "process",
+        toolName = toolName,
         correlationId = corrId,
     )
 
@@ -39,8 +41,17 @@ class RuleBasedDlpInterceptorTest {
         pattern: String,
         replacement: String = "[REDACTED]",
         enabledFor: Set<DlpContentType> = setOf(DlpContentType.MODEL_OUTPUT),
+        toolNames: Set<String> = emptySet(),
     ) {
-        rules.add(DlpRule(id = id, pattern = pattern, replacement = replacement, enabledFor = enabledFor))
+        rules.add(
+            DlpRule(
+                id = id,
+                pattern = pattern,
+                replacement = replacement,
+                enabledFor = enabledFor,
+                toolNames = toolNames,
+            ),
+        )
     }
 
     @Test
@@ -173,6 +184,143 @@ class RuleBasedDlpInterceptorTest {
             assertThat(result.sanitizedText).isEqualTo("This is [REDACTED]")
             assertThat(result.hasRedactions).isTrue()
         }
+    }
+
+    @Test
+    fun `TOOL_RESULT rule applies when context toolName matches`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(
+                id = "lookup-email",
+                pattern = "alice@example.com",
+                enabledFor = setOf(DlpContentType.TOOL_RESULT),
+                toolNames = setOf("lookup"),
+            )
+        }
+
+        val result = dlp.inspect(
+            context(contentType = DlpContentType.TOOL_RESULT, toolName = "lookup"),
+            "Contact alice@example.com",
+        )
+
+        assertThat(result.sanitizedText).isEqualTo("Contact [REDACTED]")
+        assertThat(result.hasRedactions).isTrue()
+    }
+
+    @Test
+    fun `TOOL_RESULT rule is skipped when context toolName differs`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(
+                id = "lookup-email",
+                pattern = "alice@example.com",
+                enabledFor = setOf(DlpContentType.TOOL_RESULT),
+                toolNames = setOf("lookup"),
+            )
+        }
+
+        val result = dlp.inspect(
+            context(contentType = DlpContentType.TOOL_RESULT, toolName = "search"),
+            "Contact alice@example.com",
+        )
+
+        assertThat(result.sanitizedText).isEqualTo("Contact alice@example.com")
+        assertThat(result.hasRedactions).isFalse()
+    }
+
+    @Test
+    fun `empty toolNames applies to any tool`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(
+                id = "email",
+                pattern = "alice@example.com",
+                enabledFor = setOf(DlpContentType.TOOL_RESULT),
+            )
+        }
+
+        val result = dlp.inspect(
+            context(contentType = DlpContentType.TOOL_RESULT, toolName = "anything"),
+            "Contact alice@example.com",
+        )
+
+        assertThat(result.sanitizedText).isEqualTo("Contact [REDACTED]")
+        assertThat(result.hasRedactions).isTrue()
+    }
+
+    @Test
+    fun `blank tool name is rejected`() {
+        assertThatThrownBy {
+            RuleBasedDlpInterceptor(
+                RuleBasedDlpConfiguration(
+                    rules = listOf(
+                        DlpRule(
+                            id = "blank-tool",
+                            pattern = "secret",
+                            enabledFor = setOf(DlpContentType.TOOL_RESULT),
+                            toolNames = setOf("lookup", " "),
+                        ),
+                    ),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("must not contain blank tool names")
+            .hasMessageContaining("blank-tool")
+    }
+
+    @Test
+    fun `tool name with surrounding whitespace is rejected`() {
+        assertThatThrownBy {
+            RuleBasedDlpInterceptor(
+                RuleBasedDlpConfiguration(
+                    rules = listOf(
+                        DlpRule(
+                            id = "whitespace-tool",
+                            pattern = "SECRET",
+                            enabledFor = setOf(DlpContentType.TOOL_RESULT),
+                            toolNames = setOf(" lookup "),
+                        ),
+                    ),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("must not contain tool names with surrounding whitespace")
+            .hasMessageContaining("whitespace-tool")
+    }
+
+    @Test
+    fun `content type and tool name filters compose correctly`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(
+                id = "lookup-tool-result",
+                pattern = "SECRET",
+                enabledFor = setOf(DlpContentType.TOOL_RESULT),
+                toolNames = setOf("lookup"),
+            )
+        }
+
+        val mismatchedType = dlp.inspect(
+            context(contentType = DlpContentType.MODEL_OUTPUT, toolName = "lookup"),
+            "SECRET",
+        )
+        val mismatchedTool = dlp.inspect(
+            context(contentType = DlpContentType.TOOL_RESULT, toolName = "search"),
+            "SECRET",
+        )
+        val matching = dlp.inspect(
+            context(contentType = DlpContentType.TOOL_RESULT, toolName = "lookup"),
+            "SECRET",
+        )
+
+        assertThat(mismatchedType.sanitizedText).isEqualTo("SECRET")
+        assertThat(mismatchedType.hasRedactions).isFalse()
+        assertThat(mismatchedTool.sanitizedText).isEqualTo("SECRET")
+        assertThat(mismatchedTool.hasRedactions).isFalse()
+        assertThat(matching.sanitizedText).isEqualTo("[REDACTED]")
+        assertThat(matching.hasRedactions).isTrue()
     }
 
     @Test
