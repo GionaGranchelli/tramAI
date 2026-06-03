@@ -12,6 +12,9 @@ import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.security.DlpContext
+import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpResult
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -21,6 +24,7 @@ import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import java.net.InetSocketAddress
+import java.util.function.Supplier
 import kotlin.test.Test
 
 class TramaiAutoConfigurationTest {
@@ -420,6 +424,69 @@ class TramaiAutoConfigurationTest {
                 .doesNotContain("secret-id")
         }
     }
+
+    @Test
+    fun `wires a single custom DLP bean into the engine`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java)
+            .withBean(DlpProvider::class.java)
+            .withBean("dlpInterceptor", DlpInterceptor::class.java, Supplier {
+                DlpInterceptor { _: DlpContext, _: String ->
+                    DlpResult(sanitizedText = "[REDACTED]")
+                }
+            })
+            .withPropertyValues(
+                "tramai.default-provider=dlp-provider",
+                "tramai.models.gpt-5.1-chat-latest=dlp-provider",
+            )
+
+        contextRunner.run { context ->
+            val analyzer = context.getBean(TestInvoiceAnalyzer::class.java)
+            val provider = context.getBean(DlpProvider::class.java)
+
+            val result = runBlocking { analyzer.analyze("invoice-123") }
+
+            assertThat(result).isEqualTo("[REDACTED]")
+            assertThat(provider.requests).hasSize(1)
+        }
+    }
+
+    @Test
+    fun `rejects multiple DLP beans with a clear startup error`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java)
+            .withBean(DlpProvider::class.java)
+            .withBean("firstDlpInterceptor", DlpInterceptor::class.java, Supplier {
+                DlpInterceptor { _: DlpContext, text: String ->
+                    DlpResult(sanitizedText = text)
+                }
+            })
+            .withBean("secondDlpInterceptor", DlpInterceptor::class.java, Supplier {
+                DlpInterceptor { _: DlpContext, text: String ->
+                    DlpResult(sanitizedText = text)
+                }
+            })
+            .withPropertyValues(
+                "tramai.default-provider=dlp-provider",
+                "tramai.models.gpt-5.1-chat-latest=dlp-provider",
+            )
+
+        contextRunner.run { context ->
+            assertThat(context).hasFailed()
+            val failure = requireNotNull(context.startupFailure)
+            assertThat(failure)
+                .hasRootCauseInstanceOf(IllegalArgumentException::class.java)
+                .hasRootCauseMessage(
+                    "Multiple DlpInterceptor beans found: firstDlpInterceptor, secondDlpInterceptor. Define exactly one DlpInterceptor bean or none.",
+                )
+        }
+    }
 }
 
 @AiService
@@ -567,6 +634,17 @@ class InterceptingProvider : ModelProvider {
     }
 
     override fun providerId(): String = "intercepted"
+}
+
+class DlpProvider : ModelProvider {
+    val requests = mutableListOf<ModelRequest>()
+
+    override suspend fun complete(request: ModelRequest): ModelResponse {
+        requests += request
+        return ModelResponse(content = "sensitive spring payload")
+    }
+
+    override fun providerId(): String = "dlp-provider"
 }
 
 private fun respond(

@@ -9,7 +9,13 @@ import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ToolExecutionContext
 import dev.tramai.core.model.TramaiTool
+import dev.tramai.core.observation.OperationCallContext
+import dev.tramai.core.observation.OperationObservation
+import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.security.DlpContext
+import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpResult
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.InMemoryOperationResponseCache
 import dev.tramai.engine.TokenBudgetSettings
@@ -198,6 +204,28 @@ class TramaiTest {
         assertThat(second).isEqualTo("cached-1")
         assertThat(provider.requests).hasSize(1)
     }
+
+    @Test
+    fun `builder configured DLP sanitizes provider response before observer sees it`() {
+        val observer = ResponseRecordingObserver()
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "sensitive output") }
+        val dlp = DlpInterceptor { _: DlpContext, _: String ->
+            DlpResult(sanitizedText = "[REDACTED]")
+        }
+
+        val tramai = Tramai.builder()
+            .provider(provider, default = true)
+            .model("claude-sonnet-4-20250514", "anthropic")
+            .observer(observer)
+            .dlp(dlp)
+            .build()
+        val service = tramai.create(SuspendService::class)
+
+        val result = runBlocking { service.respond("world") }
+
+        assertThat(result).isEqualTo("[REDACTED]")
+        assertThat(observer.responses).containsExactly("[REDACTED]")
+    }
 }
 
 @AiService
@@ -327,4 +355,23 @@ private class ToolLoopProvider(
     }
 
     override fun providerId(): String = "mock"
+}
+
+private class ResponseRecordingObserver : OperationObserver {
+    val responses = mutableListOf<String>()
+
+    override fun onCallStarted(context: OperationCallContext): OperationObservation = object : OperationObservation {
+        override fun onProviderResponse(response: ModelResponse) {
+            responses += response.content
+        }
+
+        override fun onProviderFailure(error: Throwable) = Unit
+
+        override fun onStructuredParseFailure(
+            rawResponse: String,
+            errorSummary: String,
+        ) = Unit
+
+        override fun onCallCompleted(parseSuccess: Boolean?) = Unit
+    }
 }

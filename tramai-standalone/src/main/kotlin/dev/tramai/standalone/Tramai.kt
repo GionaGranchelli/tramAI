@@ -14,6 +14,8 @@ import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
+import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.PromptSanitizer
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.NoOpOperationResponseCache
@@ -38,6 +40,7 @@ class Tramai private constructor(
     private val circuitBreakerSettings: CircuitBreakerSettings,
     private val retryPolicySettings: RetryPolicySettings,
     private val tokenBudgetSettings: TokenBudgetSettings,
+    private val dlpInterceptor: DlpInterceptor,
     private val promptSanitizer: PromptSanitizer?,
     private val chatMemory: ChatMemory?,
 ) {
@@ -54,6 +57,7 @@ class Tramai private constructor(
         circuitBreakerSettings = circuitBreakerSettings,
         retryPolicySettings = retryPolicySettings,
         tokenBudgetSettings = tokenBudgetSettings,
+        dlpInterceptor = dlpInterceptor,
         promptSanitizer = promptSanitizer,
         chatMemory = chatMemory,
     ).create(serviceType)
@@ -78,6 +82,7 @@ class Tramai private constructor(
         private var circuitBreakerSettings: CircuitBreakerSettings = CircuitBreakerSettings()
         private var retryPolicySettings: RetryPolicySettings = RetryPolicySettings()
         private var tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings()
+        private var dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor
         private var promptSanitizer: PromptSanitizer? = null
         private val handler = JacksonStructuredOutputHandler()
         private var chatMemory: ChatMemory? = null
@@ -190,6 +195,13 @@ class Tramai private constructor(
         }
 
         /**
+         * Configures the DLP interceptor applied to model output before observer, parser, and caller access.
+         */
+        fun dlp(interceptor: DlpInterceptor): Builder = apply {
+            this.dlpInterceptor = interceptor
+        }
+
+        /**
          * Configures the sanitizer applied to user-supplied operation arguments before prompt construction.
          */
         fun promptSanitizer(promptSanitizer: PromptSanitizer?): Builder = apply {
@@ -220,6 +232,7 @@ class Tramai private constructor(
             circuitBreakerSettings = circuitBreakerSettings,
             retryPolicySettings = retryPolicySettings,
             tokenBudgetSettings = tokenBudgetSettings,
+            dlpInterceptor = dlpInterceptor,
             promptSanitizer = promptSanitizer,
             chatMemory = chatMemory,
         )

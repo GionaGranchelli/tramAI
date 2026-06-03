@@ -9,6 +9,7 @@ import dev.tramai.core.observation.NoOpOperationInterceptor
 import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.anthropic.AnthropicProvider
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.openai.CodexAuthFileTokenSource
 import dev.tramai.openai.ExperimentalCodexAuth
 import dev.tramai.openai.OpenAiCompatibleProvider
@@ -45,6 +46,7 @@ class TramaiAutoConfiguration {
         modelProviders: ObjectProvider<ModelProvider>,
         operationResponseCache: ObjectProvider<OperationResponseCache>,
         operationInterceptors: ObjectProvider<OperationInterceptor>,
+        dlpInterceptors: ObjectProvider<DlpInterceptor>,
         secretResolvers: ObjectProvider<SecretValueResolver>,
         applicationContext: org.springframework.context.ApplicationContext,
     ): Tramai {
@@ -92,6 +94,7 @@ class TramaiAutoConfiguration {
                 CompositeOperationInterceptor(interceptorChain)
             },
         )
+        resolveDlpInterceptor(applicationContext, dlpInterceptors)?.let(builder::dlp)
 
         // Register property-backed providers first so explicit provider beans can override them when needed.
         resolveSecret(
@@ -277,6 +280,24 @@ class TramaiAutoConfiguration {
 
         return secretResolver.resolve(trimmedRef)
             ?: throw IllegalStateException("No SecretValueResolver could resolve '$trimmedRef' for $fieldName")
+    }
+
+    private fun resolveDlpInterceptor(
+        applicationContext: org.springframework.context.ApplicationContext,
+        dlpInterceptors: ObjectProvider<DlpInterceptor>,
+    ): DlpInterceptor? {
+        val interceptors = dlpInterceptors.orderedStream().toList()
+        if (interceptors.isEmpty()) {
+            return null
+        }
+        if (interceptors.size == 1) {
+            return interceptors.single()
+        }
+
+        val beanNames = applicationContext.getBeanNamesForType(DlpInterceptor::class.java).sorted()
+        throw IllegalArgumentException(
+            "Multiple DlpInterceptor beans found: ${beanNames.joinToString(", ")}. Define exactly one DlpInterceptor bean or none.",
+        )
     }
 
     private fun createVaultSecretValueResolver(

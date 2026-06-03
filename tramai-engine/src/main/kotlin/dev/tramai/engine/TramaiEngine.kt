@@ -42,6 +42,10 @@ import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.ResolvedProviderRoute
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.policy.PolicyEngine
+import dev.tramai.core.security.DlpContentType
+import dev.tramai.core.security.DlpContext
+import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.PromptSanitizer
 import dev.tramai.core.structured.StructuredOutputHandler
 import dev.tramai.core.structured.StructuredOutputResult
@@ -90,6 +94,7 @@ class TramaiEngine(
     private val job: Job = SupervisorJob(),
     private val scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
     private val policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
+    private val dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
 ) : AutoCloseable {
     private val circuitBreaker = ProviderCircuitBreaker(circuitBreakerSettings)
     private val retryDelayPolicy = ProviderRetryDelayPolicy(retryPolicySettings)
@@ -117,6 +122,7 @@ class TramaiEngine(
         job: Job = SupervisorJob(),
         scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
         policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
+        dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
     ) : this(
         providerRegistry = ProviderRegistry.singleProvider(provider),
         structuredOutputHandler = structuredOutputHandler,
@@ -133,6 +139,7 @@ class TramaiEngine(
         job = job,
         scope = scope,
         policyEngine = policyEngine,
+        dlpInterceptor = dlpInterceptor,
     )
 
     /**
@@ -162,6 +169,7 @@ class TramaiEngine(
             policyEngine = resolvedPolicyEngine,
             migrationWarningGuard = migrationWarningGuard,
             isLegacyFallback = isLegacyFallback,
+            dlpInterceptor = dlpInterceptor,
         )
 
         @Suppress("UNCHECKED_CAST")
@@ -203,6 +211,7 @@ private class TramaiInvocationHandler(
     policyEngine: PolicyEngine,
     private val migrationWarningGuard: java.util.concurrent.atomic.AtomicBoolean,
     isLegacyFallback: Boolean,
+    private val dlpInterceptor: DlpInterceptor,
 ) : InvocationHandler {
 
     private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard, isLegacyFallback = isLegacyFallback)
@@ -806,6 +815,8 @@ private class TramaiInvocationHandler(
             securityContext = securityContext,
         )
 
+        // DLP is already applied inside callProviderWithRetries — use the sanitized response directly
+
         // Enforce BEFORE_RESPONSE_RETURN
         policyHelper.enforce(
             policyHelper.buildContext(
@@ -947,6 +958,9 @@ private class TramaiInvocationHandler(
             correlationId = correlationId,
             securityContext = securityContext,
         )
+
+        // DLP is already applied inside callProviderWithRetries — use the sanitized response directly
+
         return when (
             val analysis = handler.analyze(
                 rawResponse = result.response.content,
@@ -1003,9 +1017,10 @@ private class TramaiInvocationHandler(
         messagesBeforeCall: Int,
     ) {
         if (chatMemory == null || conversationId == null) return
+        val content = result.response.content
         val assistantMessage = Message(
             role = MessageRole.ASSISTANT,
-            content = result.response.content,
+            content = content,
             toolCalls = result.response.toolCalls,
         )
         val userPrompt = messages.subList(historySize, messagesBeforeCall)
@@ -1323,13 +1338,62 @@ private class TramaiInvocationHandler(
                 val rawResponse = callProviderOnce(providerId, provider, interceptedRequest, operation)
                 val interceptedResponse = operationInterceptor.interceptResponse(callContext, rawResponse)
 
-                observation.onProviderResponse(interceptedResponse)
+                // DLP: sanitize model output at the earliest safe boundary
+                val sanitizedResponse = try {
+                    if (dlpInterceptor !== NoOpDlpInterceptor) {
+                        val dlpContext = DlpContext(
+                            contentType = DlpContentType.MODEL_OUTPUT,
+                            operationInterface = serviceDefinition.serviceType.qualifiedName
+                                ?: serviceDefinition.serviceType.simpleName.orEmpty(),
+                            operationMethod = operation.method.name,
+                            providerId = providerId,
+                            modelName = request.model,
+                            correlationId = correlationId,
+                            dataClassification = securityContext.dataClassification,
+                            classificationSource = securityContext.classificationSource,
+                        )
+                        val dlpResult = dlpInterceptor.inspect(dlpContext, interceptedResponse.content)
+                        if (dlpResult.sanitizedText != interceptedResponse.content) {
+                            interceptedResponse.copy(content = dlpResult.sanitizedText)
+                        } else {
+                            interceptedResponse
+                        }
+                    } else {
+                        interceptedResponse
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // DLP failures are separate from provider failures:
+                    //   - Do NOT call observation.onProviderFailure(...)
+                    //   - Do NOT call circuitBreaker.onFailure(...)
+                    //   - Do NOT retry (DLP is deterministic per response)
+                    //   - Do NOT fallback (response content cannot be returned unsanitized)
+                    observation.onEngineEvent(
+                        name = "tramai.dlp.inspection_failed",
+                        attributes = mapOf("providerId" to providerId, "correlationId" to correlationId),
+                    )
+                    throw dev.tramai.core.security.DlpInspectionException(
+                        message = "DLP inspection failed for provider '$providerId'",
+                        cause = e,
+                    )
+                }
+
+                observation.onProviderResponse(sanitizedResponse)
                 return ProviderCallResult(
-                    response = interceptedResponse,
+                    response = sanitizedResponse,
                     observation = observation,
                     providerId = providerId,
                     modelName = request.model,
                 )
+            } catch (error: dev.tramai.core.security.DlpInspectionException) {
+                // DLP failures propagate directly — NOT a provider failure.
+                // Do NOT call observation.onProviderFailure, circuitBreaker.onFailure,
+                // or retry. Record call completion once.
+                observation.onCallCompleted(parseSuccess = null)
+                throw error
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Throwable) {
                 observation.onProviderFailure(error)
                 observation.onCallCompleted(parseSuccess = null)
@@ -1706,7 +1770,8 @@ private class TramaiInvocationHandler(
     ): Boolean =
         operation.isOperationCacheEligible() &&
             conversationId == null &&
-            operationInterceptor === NoOpOperationInterceptor
+            operationInterceptor === NoOpOperationInterceptor &&
+            dlpInterceptor === NoOpDlpInterceptor
 }
 
 private data class ServiceDefinition(
