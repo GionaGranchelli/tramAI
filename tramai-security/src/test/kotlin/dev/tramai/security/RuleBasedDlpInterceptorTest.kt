@@ -242,7 +242,7 @@ class RuleBasedDlpInterceptorTest {
             rule(id = "lookahead", pattern = "(?=\\d)")
         }
         val result = dlp.inspect(context(), "abc123def456")
-        assertThat(result.sanitizedText).isEqualTo("abc[REDACTED][REDACTED][REDACTED]def[REDACTED][REDACTED][REDACTED]")
+        assertThat(result.sanitizedText).isEqualTo("abc[REDACTED]1[REDACTED]2[REDACTED]3def[REDACTED]4[REDACTED]5[REDACTED]6")
         assertThat(result.hasRedactions).isTrue()
         assertThat(result.redactions).hasSize(1)
         assertThat(result.redactions[0].replacementCount).isEqualTo(6)
@@ -298,8 +298,8 @@ class RuleBasedDlpInterceptorTest {
             rule(id = "start-anchor", pattern = "^")
         }
         val result = dlp.inspect(context(), "abc")
-        // Zero-width ^ match at position 0 advances cursor to 1, consuming 'a'
-        assertThat(result.sanitizedText).isEqualTo("[REDACTED]bc")
+        // Zero-width ^ match at position 0 inserts [REDACTED] without consuming characters
+        assertThat(result.sanitizedText).isEqualTo("[REDACTED]abc")
         assertThat(result.hasRedactions).isTrue()
         assertThat(result.redactions[0].replacementCount).isEqualTo(1)
     }
@@ -311,8 +311,8 @@ class RuleBasedDlpInterceptorTest {
             rule(id = "digit-lookahead", pattern = "(?=\\d)")
         }
         val result = dlp.inspect(context(), "abc123")
-        // Zero-width skip consumes the next character after each match
-        assertThat(result.sanitizedText).isEqualTo("abc[REDACTED][REDACTED][REDACTED]")
+        // Zero-width lookahead inserts [REDACTED] before each digit without consuming it
+        assertThat(result.sanitizedText).isEqualTo("abc[REDACTED]1[REDACTED]2[REDACTED]3")
         assertThat(result.hasRedactions).isTrue()
         assertThat(result.redactions[0].replacementCount).isEqualTo(3)
     }

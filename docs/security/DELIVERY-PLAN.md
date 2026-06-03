@@ -336,8 +336,8 @@ tramai:
 - **Security properties:** No raw matched values in `DlpRedaction` or exceptions; fixed exception messages
 - **Oversized input:** Rejected with `IllegalArgumentException("Input text exceeds maximum allowed length")` — no input content leaked
 - **Duplicate redaction counting:** `DlpRedaction.replacementCount` reports total matches per rule
-- **Zero-width safety:** Uses manual `matcher.find(cursor)` loop with `cursor = end + 1` advancement for zero-width matches (lookahead, boundary anchors), preventing infinite loops without using `Matcher.region()` (which resets append state)
-- **Literal replacements:** Replacement strings are inserted directly via `StringBuilder.append()` — `$1`, `\value`, and other special characters stay literal without requiring `Matcher.quoteReplacement()`
+|- **Zero-width safety:** Uses `Matcher.find() + appendReplacement() + appendTail()` loop — `appendReplacement` safely handles zero-width matches (lookahead, boundary anchors) without consuming characters or looping infinitely. `quoteReplacement()` escapes `$` and `\` for literal insertion.
+|- **Literal replacements:** Replacement strings are passed through `Matcher.quoteReplacement()` before `appendReplacement()` — `$1`, `\value`, and other special characters are escaped for literal output.
 
 ### Engine Hook Location (`TramaiEngine`)
 

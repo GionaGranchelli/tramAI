@@ -5,6 +5,7 @@ import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpRedaction
 import dev.tramai.core.security.DlpResult
+import java.util.regex.Matcher
 import java.util.regex.Pattern
 
 data class RuleBasedDlpConfiguration(
@@ -59,22 +60,12 @@ class RuleBasedDlpInterceptor(
             val matcher = rule.pattern.matcher(result)
             val sb = StringBuilder()
             var count = 0
-            var cursor = 0
 
-            while (matcher.find(cursor)) {
-                sb.append(result, cursor, matcher.start())
-                sb.append(rule.replacement)
+            while (matcher.find()) {
+                matcher.appendReplacement(sb, Matcher.quoteReplacement(rule.replacement))
                 count++
-                cursor = if (matcher.start() == matcher.end()) {
-                    matcher.end() + 1
-                } else {
-                    matcher.end()
-                }
-                if (cursor > result.length) break
             }
-            if (cursor < result.length) {
-                sb.append(result, cursor, result.length)
-            }
+            matcher.appendTail(sb)
 
             if (count > 0) {
                 result = sb.toString()

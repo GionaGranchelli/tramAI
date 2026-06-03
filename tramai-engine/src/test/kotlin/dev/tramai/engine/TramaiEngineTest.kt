@@ -1483,10 +1483,11 @@ class TramaiEngineTest {
             // Circuit breaker remains closed (DLP failure is not a provider failure)
             engine.close()
 
-            // Observer: no provider failure recorded, call completed with null parseSuccess
+            // Observer: no provider failure or response recorded, call completed with null parseSuccess
             assertThat(observer.records).hasSize(1)
             val record = observer.records.single()
             assertThat(record.providerFailure).isNull()
+            assertThat(record.response).isNull()
             assertThat(record.parseSuccess).isNull()
 
             // Engine event "tramai.dlp.inspection_failed" emitted
