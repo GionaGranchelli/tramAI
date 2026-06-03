@@ -24,6 +24,8 @@ import dev.tramai.engine.OperationResponseCache
 import dev.tramai.engine.RetryPolicySettings
 import dev.tramai.engine.TokenBudgetSettings
 import dev.tramai.engine.ToolResultFilteringSettings
+import dev.tramai.engine.EngineEventObserver
+import dev.tramai.engine.NoOpEngineEventObserver
 import dev.tramai.standalone.Tramai
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory
@@ -48,6 +50,7 @@ class TramaiAutoConfiguration {
         operationResponseCache: ObjectProvider<OperationResponseCache>,
         operationInterceptors: ObjectProvider<OperationInterceptor>,
         dlpInterceptors: ObjectProvider<DlpInterceptor>,
+        engineEventObservers: ObjectProvider<EngineEventObserver>,
         secretResolvers: ObjectProvider<SecretValueResolver>,
         applicationContext: org.springframework.context.ApplicationContext,
     ): Tramai {
@@ -100,6 +103,7 @@ class TramaiAutoConfiguration {
             applicationContext.getBeanProvider(ToolResultFilteringSettings::class.java).ifAvailable
                 ?: ToolResultFilteringSettings()
         )
+        resolveEngineEventObserver(engineEventObservers)?.let(builder::engineEventObserver)
 
         // Register property-backed providers first so explicit provider beans can override them when needed.
         resolveSecret(
@@ -302,6 +306,22 @@ class TramaiAutoConfiguration {
         val beanNames = applicationContext.getBeanNamesForType(DlpInterceptor::class.java).sorted()
         throw IllegalArgumentException(
             "Multiple DlpInterceptor beans found: ${beanNames.joinToString(", ")}. Define exactly one DlpInterceptor bean or none.",
+        )
+    }
+
+    private fun resolveEngineEventObserver(
+        engineEventObservers: ObjectProvider<EngineEventObserver>,
+    ): EngineEventObserver? {
+        val observers = engineEventObservers.orderedStream().toList()
+        if (observers.isEmpty()) {
+            return null
+        }
+        if (observers.size == 1) {
+            return observers.single()
+        }
+
+        throw IllegalArgumentException(
+            "Multiple EngineEventObserver beans found (${observers.size}). Define at most one.",
         )
     }
 

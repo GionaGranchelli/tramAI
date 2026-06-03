@@ -44,6 +44,7 @@ import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
+import dev.tramai.core.security.DlpInspectionException
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.PromptSanitizer
@@ -1145,7 +1146,7 @@ private class TramaiInvocationHandler(
                 policyHelper.buildContext(
                     enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION,
                     correlationId = correlationId,
-                ).toolName(tool?.name ?: toolCall.name.take(MAX_SAFE_TOOL_NAME_LENGTH))
+                ).toolName(tool?.name ?: "<unregistered>")
                     .toolSecurity(tool?.security)
                     .applySecurityContext(securityContext)
                     .build()
@@ -1179,12 +1180,13 @@ private class TramaiInvocationHandler(
         }
 
         val resolvedTool = toolRegistry.resolve(toolName)
-        val safeToolLabel = resolvedTool?.name?.take(MAX_SAFE_TOOL_NAME_LENGTH) ?: "<unregistered>"
+        val canonicalToolName = resolvedTool?.name ?: "<unregistered>"
+        val safeToolLabel = canonicalToolName.take(MAX_SAFE_TOOL_NAME_LENGTH)
         val dlpContext = DlpContext(
             contentType = DlpContentType.TOOL_RESULT,
             operationInterface = operation.method.declaringClass.name,
             operationMethod = operation.method.name,
-            toolName = safeToolLabel,
+            toolName = canonicalToolName,
             correlationId = correlationId,
             dataClassification = securityContext.dataClassification,
             classificationSource = securityContext.classificationSource,
@@ -1243,6 +1245,8 @@ private class TramaiInvocationHandler(
                     rejectSanitizedTextLimit(sanitizedText.length.toLong())
                 }
             }
+        } catch (e: DlpInspectionException) {
+            throw e
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1280,7 +1284,20 @@ private class TramaiInvocationHandler(
         var aggregateLength = 0L
         val sanitizedParts = mutableListOf<ContentPart>()
         val textRun = mutableListOf<String>()
-        val originalTextRuns = mutableListOf<String>()
+        val sanitizedTextRuns = mutableListOf<String>()
+        var sanitizedAggregateLength = 0L
+
+        fun accumulateSanitizedLength(currentLength: Long, text: String): Long {
+            val nextLength = if (currentLength > Long.MAX_VALUE - text.length.toLong()) {
+                Long.MAX_VALUE
+            } else {
+                currentLength + text.length.toLong()
+            }
+            if (nextLength > aggregateTextLimit) {
+                rejectSanitizedTextLimit(nextLength)
+            }
+            return nextLength
+        }
 
         fun flushTextRun() {
             if (textRun.isEmpty()) {
@@ -1289,8 +1306,9 @@ private class TramaiInvocationHandler(
             val combinedText = buildString {
                 textRun.forEach(::append)
             }
-            originalTextRuns += combinedText
             val sanitizedText = sanitizeText(combinedText)
+            sanitizedAggregateLength = accumulateSanitizedLength(sanitizedAggregateLength, sanitizedText)
+            sanitizedTextRuns += sanitizedText
             if (sanitizedText.isNotEmpty()) {
                 sanitizedParts += ContentPart.TextPart(sanitizedText)
             }
@@ -1318,9 +1336,7 @@ private class TramaiInvocationHandler(
             val projectedText = allTextParts.joinToString("")
             val projectedResult = sanitizeText(projectedText)
             val individualCombined = buildString {
-                originalTextRuns.forEach { textRun ->
-                    append(sanitizeText(textRun))
-                }
+                sanitizedTextRuns.forEach(::append)
             }
             val combinedResanitized = sanitizeText(individualCombined)
             if (projectedResult != individualCombined && combinedResanitized != individualCombined) {

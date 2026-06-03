@@ -24,6 +24,8 @@ import dev.tramai.engine.TokenBudgetSettings
 import dev.tramai.engine.RetryPolicySettings
 import dev.tramai.engine.ToolRegistry
 import dev.tramai.engine.ToolResultFilteringSettings
+import dev.tramai.engine.EngineEventObserver
+import dev.tramai.engine.NoOpEngineEventObserver
 import dev.tramai.engine.TramaiEngine
 import dev.tramai.structured.JacksonStructuredOutputHandler
 import kotlin.reflect.KClass
@@ -43,6 +45,7 @@ class Tramai private constructor(
     private val tokenBudgetSettings: TokenBudgetSettings,
     private val dlpInterceptor: DlpInterceptor,
     private val toolResultFilteringSettings: ToolResultFilteringSettings,
+    private val engineEventObserver: EngineEventObserver,
     private val promptSanitizer: PromptSanitizer?,
     private val chatMemory: ChatMemory?,
 ) {
@@ -61,6 +64,7 @@ class Tramai private constructor(
         tokenBudgetSettings = tokenBudgetSettings,
         dlpInterceptor = dlpInterceptor,
         toolResultFilteringSettings = toolResultFilteringSettings,
+        engineEventObserver = engineEventObserver,
         promptSanitizer = promptSanitizer,
         chatMemory = chatMemory,
     ).create(serviceType)
@@ -87,6 +91,7 @@ class Tramai private constructor(
         private var tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings()
         private var dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor
         private var toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings()
+        private var engineEventObserver: EngineEventObserver = NoOpEngineEventObserver
         private var promptSanitizer: PromptSanitizer? = null
         private val handler = JacksonStructuredOutputHandler()
         private var chatMemory: ChatMemory? = null
@@ -206,10 +211,19 @@ class Tramai private constructor(
         }
 
         /**
-         * Configures tool-result text filtering limits for provider-bound tool reinjection.
+         * Configures textual tool-result filtering thresholds.
          */
         fun toolResultFiltering(settings: ToolResultFilteringSettings): Builder = apply {
             this.toolResultFilteringSettings = settings
+        }
+
+        /**
+         * Configures an observer for engine-level security events (DLP rejection, inspection failure).
+         * These events are emitted independently of provider-attempt observations.
+         * Defaults to [NoOpEngineEventObserver] when not set.
+         */
+        fun engineEventObserver(observer: EngineEventObserver): Builder = apply {
+            this.engineEventObserver = observer
         }
 
         /**
@@ -245,6 +259,7 @@ class Tramai private constructor(
             tokenBudgetSettings = tokenBudgetSettings,
             dlpInterceptor = dlpInterceptor,
             toolResultFilteringSettings = toolResultFilteringSettings,
+            engineEventObserver = engineEventObserver,
             promptSanitizer = promptSanitizer,
             chatMemory = chatMemory,
         )
