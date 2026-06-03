@@ -368,23 +368,33 @@ ModelResponse
 Consequences:
 - **Observers** see only sanitized output
 - **Tool-loop assistant responses** are sanitized before reinjection as next-turn context
-- **Tool-result reinjection** now sanitizes textual tool content after `BEFORE_TOOL_RESULT_REINJECTION` policy enforcement and before the tool message is appended to `messages`
+- **Tool-result reinjection** now scans provider-bound `TOOL` messages after `BEFORE_TOOL_RESULT_REINJECTION` policy enforcement and before the sanitized message is appended to `messages`
 - **Raw return, structured parsing, chat memory, and cache** all use sanitized content
 - `DlpContentType.MODEL_OUTPUT` and textual `DlpContentType.TOOL_RESULT` reinjection paths are scanned
 - `toolCalls` on the response are never modified
 - Short-circuit when `dlpInterceptor === NoOpDlpInterceptor` (zero overhead for default config)
 
 Textual tool-result branches covered by the engine hook:
-- `ToolResult.Success.value.toString()`
-- `ContentPart.TextPart` fragments in `ToolResult.Success.contentParts`
-- `ToolResult.InvalidInput.message`
-- `ToolResult.PermanentFailure.message`
+- Plain-text `TOOL` message `content`
+- Rich `TOOL` message `contentParts` adjacent `ContentPart.TextPart` runs
+- Formatted `ToolResult.InvalidInput` messages
+- Formatted `ToolResult.PermanentFailure` messages
+
+Tool-result textual filtering details:
+- The engine formats `ToolResult` into the final provider-bound `TOOL` `Message` first, then applies DLP to that assembled message
+- Adjacent text fragments are coalesced for inspection without reordering multimodal parts
+- Non-text parts (`ImagePart`, `ImageUrlContent`) remain in their original positions
+- Aggregate textual limits are validated incrementally with `Long` accounting before any concatenation/allocation of the coalesced text
+- Aggregate-limit rejection fails closed and emits a bounded `tramai.dlp.tool_result_rejected` engine event with safe metadata only
+- `ToolResultFilteringSettings` configures the default aggregate limit and per-tool overrides
+- `NoOpDlpInterceptor` preserves legacy reinjection behavior and skips the tool-result filtering path entirely
 
 Tool-result branches intentionally preserved or deferred:
 - `ContentPart.ImagePart` preserved unchanged
 - `ContentPart.ImageUrlContent` preserved unchanged
 - `ToolResult.TransientFailure` remains on the existing retry path and is not DLP-scanned here
-- Image-byte inspection, OCR/image scanning, and URL-token inspection remain deferred
+- Image-byte inspection, OCR/image scanning, URL-token inspection, and other URL/binary channels remain deferred to **2B.3b**
+- Redaction audit events remain deferred to **2B.4**
 
 ### DLP Failure Isolation
 
@@ -394,7 +404,8 @@ DLP failures are strictly separated from provider failures:
 - It does NOT call `circuitBreaker.onFailure()` — DLP failures do not poison provider circuit breakers
 - It does NOT trigger provider retries (DLP is deterministic per response)
 - It does NOT trigger fallback (response content cannot be returned unsanitized)
-- It DOES call `observation.onCallCompleted(parseSuccess = null)` exactly once — the call lifecycle completes even when DLP rejects the response
+- Aggregate-limit rejection emits `tramai.dlp.tool_result_rejected` with bounded metadata only (`reasonCode`, aggregate length, configured limit, correlation ID, tool name)
+- For provider responses that contain tool calls, `observation.onCallCompleted(parseSuccess = null)` now completes at the provider boundary before tool execution/DLP reinjection
 - It DOES emit `tramai.dlp.inspection_failed` engine event for observability
 - `CancellationException` is caught separately and rethrown unchanged before DLP or provider failure handling
 - The `DlpInspectionException` propagates directly to the caller
