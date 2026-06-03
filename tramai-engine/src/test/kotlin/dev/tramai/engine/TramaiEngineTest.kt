@@ -1276,10 +1276,12 @@ class TramaiEngineTest {
                 ModelResponse(content = "done"),
             ),
             operationObserver: OperationObserver = dev.tramai.core.observation.NoOpOperationObserver,
+            engineEventObserver: EngineEventObserver = RecordingEngineEventObserver(),
         ): TramaiEngine = TramaiEngine(
             provider = provider,
             toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
             operationObserver = operationObserver,
+            engineEventObserver = engineEventObserver,
             dlpInterceptor = if (dlpRules.isEmpty()) NoOpDlpInterceptor else dlpInterceptor(*dlpRules.toTypedArray()),
             toolResultFilteringSettings = ToolResultFilteringSettings(
                 defaultMaxAggregateTextLength = maxLength,
@@ -1673,6 +1675,7 @@ class TramaiEngineTest {
                 }
             }
             val observer = RecordingObserver()
+            val engineEventObserver = RecordingEngineEventObserver()
             val provider = ToolCallingRecordingProvider(
                 ModelResponse(
                     content = "calling tool",
@@ -1684,6 +1687,7 @@ class TramaiEngineTest {
                 provider = provider,
                 toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
                 operationObserver = observer,
+                engineEventObserver = engineEventObserver,
                 dlpInterceptor = failingInterceptor,
             )
             val service = engine.create<DlpToolService>()
@@ -1700,7 +1704,7 @@ class TramaiEngineTest {
             assertThat(record.providerFailure).isNull()
             assertThat(record.parseSuccess).isNull()
             assertThat(record.completionCount).isEqualTo(1)
-            assertThat(record.engineEvents.map { it.name }).contains("tramai.dlp.inspection_failed")
+            assertThat(engineEventObserver.events.map { it.name }).contains("tramai.dlp.inspection_failed")
         }
 
         @Test
@@ -1906,7 +1910,7 @@ class TramaiEngineTest {
         }
 
         @Test
-        fun `text fragments separated by image preserve their positions`() {
+        fun `text fragments separated by image are rejected when they reconstruct sensitive text`() {
             val imagePart = ContentPart.ImageUrlContent("https://example.com/image.png", "image/png")
             val tool = object : ResolvedTool {
                 override val name: String = "lookup"
@@ -1935,22 +1939,23 @@ class TramaiEngineTest {
             ).apply {
                 capabilities = setOf(dev.tramai.core.provider.ProviderCapability.VISION)
             }
+            val engineEventObserver = RecordingEngineEventObserver()
             val engine = filteringEngine(
                 tool = tool,
                 dlpRules = listOf(toolResultEmailRule()),
                 provider = provider,
+                engineEventObserver = engineEventObserver,
             )
             val service = engine.create<DlpToolService>()
 
-            runBlocking { service.answer("input") }
+            val exception = runCatching { runBlocking { service.answer("input") } }.exceptionOrNull()
 
-            val toolMessage = secondRequestToolMessage(provider)
-            assertThat(toolMessage.content).isEmpty()
-            assertThat(toolMessage.contentParts).containsExactly(
-                ContentPart.TextPart("alice@"),
-                imagePart,
-                ContentPart.TextPart("example.com"),
-            )
+            assertThat(exception).isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+            assertThat(exception).hasMessageContaining("sensitive text spanning non-text boundaries")
+            assertThat(provider.requests).hasSize(1)
+            val rejection = engineEventObserver.events.single { it.name == "tramai.dlp.tool_result_rejected" }
+            assertThat(rejection.attributes["reasonCode"]).isEqualTo("cross_boundary_sensitive_text_detected")
+            assertThat(rejection.attributes["toolName"]).isEqualTo("lookup")
         }
 
         @Test
@@ -2026,19 +2031,21 @@ class TramaiEngineTest {
                 ModelResponse(content = "done"),
             )
             val observer = RecordingObserver()
+            val engineEventObserver = RecordingEngineEventObserver()
             val engine = filteringEngine(
                 maxLength = 100_000L,
                 tool = tool,
                 dlpRules = listOf(toolResultEmailRule()),
                 provider = provider,
                 operationObserver = observer,
+                engineEventObserver = engineEventObserver,
             )
 
             val exception = runCatching { runBlocking { engine.create<DlpToolService>().answer("input") } }.exceptionOrNull()
 
             assertThat(exception).isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
             assertThat(provider.requests).hasSize(1)
-            val rejection = observer.records.single().engineEvents.single { it.name == "tramai.dlp.tool_result_rejected" }
+            val rejection = engineEventObserver.events.single { it.name == "tramai.dlp.tool_result_rejected" }
             assertThat(rejection.attributes["reasonCode"]).isEqualTo("aggregate_text_limit_exceeded")
             assertThat(rejection.attributes["aggregateTextLength"]).isEqualTo(100_001L)
             assertThat(rejection.attributes["configuredLimit"]).isEqualTo(100_000L)
@@ -2090,6 +2097,7 @@ class TramaiEngineTest {
         fun `aggregate rejection emits safe event and does not replay tool or poison circuit breaker`() {
             val toolExecutions = AtomicInteger(0)
             val observer = RecordingObserver()
+            val engineEventObserver = RecordingEngineEventObserver()
             val tool = object : ResolvedTool {
                 override val name = "lookup"
                 override val description = "Looks up data"
@@ -2110,6 +2118,7 @@ class TramaiEngineTest {
                 provider = provider,
                 toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
                 operationObserver = observer,
+                engineEventObserver = engineEventObserver,
                 dlpInterceptor = dlpInterceptor(toolResultEmailRule()),
                 circuitBreakerSettings = CircuitBreakerSettings(failureThreshold = 1, openDurationMillis = 100_000),
                 toolResultFilteringSettings = ToolResultFilteringSettings(defaultMaxAggregateTextLength = 10L),
@@ -2127,7 +2136,8 @@ class TramaiEngineTest {
             observer.records.forEach { record ->
                 assertThat(record.providerFailure).isNull()
                 assertThat(record.completionCount).isEqualTo(1)
-                val rejection = record.engineEvents.single { it.name == "tramai.dlp.tool_result_rejected" }
+            }
+            engineEventObserver.events.forEach { rejection ->
                 assertThat(rejection.attributes.keys).containsExactlyInAnyOrder(
                     "reasonCode",
                     "aggregateTextLength",
@@ -2237,6 +2247,94 @@ class TramaiEngineTest {
             runBlocking { engine.create<DlpToolService>().answer("input") }
 
             assertThat(secondRequestToolMessage(provider).content).isEqualTo("abcdef")
+        }
+
+        @Test
+        fun `sanitized tool result expansion beyond configured limit is rejected`() {
+            val engineEventObserver = RecordingEngineEventObserver()
+            val expandingInterceptor = object : DlpInterceptor {
+                override fun inspect(context: DlpContext, text: String): DlpResult =
+                    if (context.contentType == DlpContentType.TOOL_RESULT) {
+                        DlpResult("x".repeat(12))
+                    } else {
+                        DlpResult(text)
+                    }
+            }
+            val tool = object : ResolvedTool {
+                override val name = "lookup"
+                override val description = "Looks up data"
+                override val inputSchemaJson = """{"type":"object"}"""
+                override val idempotent = false
+                override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult =
+                    ToolResult.Success("abc")
+            }
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(content = "calling tool", toolCalls = listOf(ToolCall("tc-1", "lookup", """{"q":"x"}"""))),
+                ModelResponse(content = "done"),
+            )
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                dlpInterceptor = expandingInterceptor,
+                engineEventObserver = engineEventObserver,
+                toolResultFilteringSettings = ToolResultFilteringSettings(defaultMaxAggregateTextLength = 10L),
+            )
+
+            val exception = runCatching { runBlocking { engine.create<DlpToolService>().answer("input") } }.exceptionOrNull()
+
+            assertThat(exception).isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+            val rejection = engineEventObserver.events.single { it.name == "tramai.dlp.tool_result_rejected" }
+            assertThat(rejection.attributes["reasonCode"]).isEqualTo("sanitized_text_limit_exceeded")
+            assertThat(rejection.attributes["aggregateTextLength"]).isEqualTo(12L)
+        }
+
+        @Test
+        fun `malicious tool name is sanitized in events and exceptions`() {
+            val longToolName = "secret:user@example.com" + "x".repeat(10_000)
+            val engineEventObserver = RecordingEngineEventObserver()
+            val registeredTool = object : ResolvedTool {
+                override val name = "lookup"
+                override val description = "Looks up data"
+                override val inputSchemaJson = """{"type":"object"}"""
+                override val idempotent = false
+                override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult =
+                    ToolResult.Success("unused")
+            }
+            val failingInterceptor = object : DlpInterceptor {
+                override fun inspect(context: DlpContext, text: String): DlpResult {
+                    if (context.contentType == DlpContentType.TOOL_RESULT) {
+                        throw RuntimeException("tool dlp failure")
+                    }
+                    return DlpResult(text)
+                }
+            }
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(
+                    content = "calling tool",
+                    toolCalls = listOf(ToolCall("tc-1", longToolName, """{"q":"x"}""")),
+                ),
+                ModelResponse(content = "done"),
+            )
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(registeredTool.name to registeredTool)),
+                dlpInterceptor = failingInterceptor,
+                engineEventObserver = engineEventObserver,
+            )
+
+            val exception = runCatching { runBlocking { engine.create<DlpToolService>().answer("input") } }.exceptionOrNull()
+
+            assertThat(exception).isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+            assertThat(exception).hasMessageContaining("<unregistered>")
+            assertThat(exception).hasMessageNotContaining("user@example.com")
+            val event = engineEventObserver.events.single { it.name == "tramai.dlp.inspection_failed" }
+            assertThat(event.attributes["toolName"]).isEqualTo("<unregistered>")
+            assertThat(event.attributes.values.joinToString(" ")).doesNotContain("user@example.com")
+            assertThat(event.attributes["toolName"].toString().length).isLessThanOrEqualTo(128)
         }
 
         @Test
@@ -2691,3 +2789,14 @@ private data class EngineEventRecord(
     val name: String,
     val attributes: Map<String, Any?>,
 )
+
+private class RecordingEngineEventObserver : EngineEventObserver {
+    val events = mutableListOf<EngineEventRecord>()
+
+    override fun onEngineEvent(
+        name: String,
+        attributes: Map<String, Any?>,
+    ) {
+        events += EngineEventRecord(name, attributes)
+    }
+}

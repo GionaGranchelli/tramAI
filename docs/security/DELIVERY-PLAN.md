@@ -278,7 +278,7 @@ tramai:
 - **Status:** Deferred to follow-up PR
 
 #### 2B.3a — Textual tool-result minimization hook ✅
-- Coalesced TextPart detection: concatenates `Success.value` + all `TextPart.text` fragments before DLP to prevent split-secret bypasses
+- Tool-result reinjection filtering: sanitizes adjacent text runs in the final provider-bound `TOOL` message using format -> sanitize -> append, with cross-boundary detection via an all-text projection
 - Aggregate size limit: combined textual size checked before DLP (exceeds 100K → fail closed, no retry)
 - Sanitized: `Success.value`, `TextPart` (coalesced), `InvalidInput.message`, `PermanentFailure.message`
 - Preserved: `ContentPart.ImagePart`, `ContentPart.ImageUrlContent` (deferred to 2B.3b)
@@ -382,7 +382,8 @@ Textual tool-result branches covered by the engine hook:
 
 Tool-result textual filtering details:
 - The engine formats `ToolResult` into the final provider-bound `TOOL` `Message` first, then applies DLP to that assembled message
-- Adjacent text fragments are coalesced for inspection without reordering multimodal parts
+- The engine sanitizes adjacent text runs in the final provider-bound `TOOL` message using a format -> sanitize -> append flow
+- TextParts are coalesced per adjacent run, and cross-image or other non-text-separated runs are detected via a global all-text projection
 - Non-text parts (`ImagePart`, `ImageUrlContent`) remain in their original positions
 - Aggregate textual limits are validated incrementally with `Long` accounting before any concatenation/allocation of the coalesced text
 - Aggregate-limit rejection fails closed and emits a bounded `tramai.dlp.tool_result_rejected` engine event with safe metadata only

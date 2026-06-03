@@ -23,6 +23,7 @@ import dev.tramai.engine.NoOpOperationResponseCache
 import dev.tramai.engine.OperationResponseCache
 import dev.tramai.engine.RetryPolicySettings
 import dev.tramai.engine.TokenBudgetSettings
+import dev.tramai.engine.ToolResultFilteringSettings
 import dev.tramai.standalone.Tramai
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory
@@ -95,6 +96,10 @@ class TramaiAutoConfiguration {
             },
         )
         resolveDlpInterceptor(applicationContext, dlpInterceptors)?.let(builder::dlp)
+        builder.toolResultFiltering(
+            applicationContext.getBeanProvider(ToolResultFilteringSettings::class.java).ifAvailable
+                ?: ToolResultFilteringSettings()
+        )
 
         // Register property-backed providers first so explicit provider beans can override them when needed.
         resolveSecret(

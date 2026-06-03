@@ -23,6 +23,7 @@ import dev.tramai.engine.OperationResponseCache
 import dev.tramai.engine.TokenBudgetSettings
 import dev.tramai.engine.RetryPolicySettings
 import dev.tramai.engine.ToolRegistry
+import dev.tramai.engine.ToolResultFilteringSettings
 import dev.tramai.engine.TramaiEngine
 import dev.tramai.structured.JacksonStructuredOutputHandler
 import kotlin.reflect.KClass
@@ -41,6 +42,7 @@ class Tramai private constructor(
     private val retryPolicySettings: RetryPolicySettings,
     private val tokenBudgetSettings: TokenBudgetSettings,
     private val dlpInterceptor: DlpInterceptor,
+    private val toolResultFilteringSettings: ToolResultFilteringSettings,
     private val promptSanitizer: PromptSanitizer?,
     private val chatMemory: ChatMemory?,
 ) {
@@ -58,6 +60,7 @@ class Tramai private constructor(
         retryPolicySettings = retryPolicySettings,
         tokenBudgetSettings = tokenBudgetSettings,
         dlpInterceptor = dlpInterceptor,
+        toolResultFilteringSettings = toolResultFilteringSettings,
         promptSanitizer = promptSanitizer,
         chatMemory = chatMemory,
     ).create(serviceType)
@@ -83,6 +86,7 @@ class Tramai private constructor(
         private var retryPolicySettings: RetryPolicySettings = RetryPolicySettings()
         private var tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings()
         private var dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor
+        private var toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings()
         private var promptSanitizer: PromptSanitizer? = null
         private val handler = JacksonStructuredOutputHandler()
         private var chatMemory: ChatMemory? = null
@@ -202,6 +206,13 @@ class Tramai private constructor(
         }
 
         /**
+         * Configures tool-result text filtering limits for provider-bound tool reinjection.
+         */
+        fun toolResultFiltering(settings: ToolResultFilteringSettings): Builder = apply {
+            this.toolResultFilteringSettings = settings
+        }
+
+        /**
          * Configures the sanitizer applied to user-supplied operation arguments before prompt construction.
          */
         fun promptSanitizer(promptSanitizer: PromptSanitizer?): Builder = apply {
@@ -233,6 +244,7 @@ class Tramai private constructor(
             retryPolicySettings = retryPolicySettings,
             tokenBudgetSettings = tokenBudgetSettings,
             dlpInterceptor = dlpInterceptor,
+            toolResultFilteringSettings = toolResultFilteringSettings,
             promptSanitizer = promptSanitizer,
             chatMemory = chatMemory,
         )
