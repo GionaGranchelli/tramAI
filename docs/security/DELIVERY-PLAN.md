@@ -371,7 +371,8 @@ Consequences:
 - **Tool-result reinjection** now scans provider-bound `TOOL` messages after `BEFORE_TOOL_RESULT_REINJECTION` policy enforcement and before the sanitized message is appended to `messages`
 - **Raw return, structured parsing, chat memory, and cache** all use sanitized content
 - `DlpContentType.MODEL_OUTPUT` and textual `DlpContentType.TOOL_RESULT` reinjection paths are scanned
-- `toolCalls` on the response are never modified
+- Registered tool calls preserve their metadata through DLP sanitization
+- Unregistered tool calls are normalized to a safe placeholder (`unregistered_tool` with cleared arguments) before provider reinjection to prevent raw model-generated names from appearing in the conversation history
 - Short-circuit when `dlpInterceptor === NoOpDlpInterceptor` (zero overhead for default config)
 
 Textual tool-result branches covered by the engine hook:
