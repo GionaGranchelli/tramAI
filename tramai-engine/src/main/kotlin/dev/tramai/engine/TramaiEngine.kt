@@ -77,6 +77,7 @@ import kotlin.reflect.KParameter
 import kotlin.reflect.jvm.kotlinFunction
 
 private const val MAX_SAFE_TOOL_NAME_LENGTH = 128
+private const val UNREGISTERED_TOOL_NAME = "unregistered_tool"
 
 /**
  * Runtime engine that turns annotated service interfaces into AI-backed proxies.
@@ -1107,15 +1108,24 @@ private class TramaiInvocationHandler(
 
             result.observation.onCallCompleted(parseSuccess = null)
 
-            // Append assistant message with tool calls
+            // Normalize unregistered tool calls: replace unknown names with safe placeholder
+            val normalizedToolCalls = toolCalls.map { toolCall ->
+                if (toolRegistry.resolve(toolCall.name) == null) {
+                    toolCall.copy(name = UNREGISTERED_TOOL_NAME, argumentsJson = "{}")
+                } else {
+                    toolCall
+                }
+            }
+
+            // Append assistant message with normalized tool calls
             messages += Message(
                 role = MessageRole.ASSISTANT,
                 content = result.response.content,
-                toolCalls = toolCalls,
+                toolCalls = normalizedToolCalls,
             )
             processToolCalls(
                 operation = operation,
-                toolCalls = toolCalls,
+                toolCalls = normalizedToolCalls,
                 messages = messages,
                 correlationId = correlationId,
                 securityContext = securityContext,
@@ -1195,11 +1205,11 @@ private class TramaiInvocationHandler(
             name: String,
             attributes: Map<String, Any?>,
         ) {
-            runCatching {
+            try {
                 engineEventObserver.onEngineEvent(name, attributes)
-            }.onFailure { error ->
+            } catch (error: Exception) {
                 System.getLogger("dev.tramai.engine.TramaiEngine")
-                    .log(System.Logger.Level.WARNING, "Engine event observer failed for '$name'", error)
+                    .log(System.Logger.Level.WARNING, "Engine event observer failed for '$name': ${error::class.simpleName}")
             }
         }
 
