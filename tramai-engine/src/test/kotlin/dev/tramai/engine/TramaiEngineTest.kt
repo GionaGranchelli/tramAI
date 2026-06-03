@@ -1489,6 +1489,7 @@ class TramaiEngineTest {
             assertThat(record.providerFailure).isNull()
             assertThat(record.response).isNull()
             assertThat(record.parseSuccess).isNull()
+            assertThat(record.completionCount).isEqualTo(1)
 
             // Engine event "tramai.dlp.inspection_failed" emitted
             assertThat(record.engineEvents.map { it.name })
@@ -1896,6 +1897,7 @@ private class RecordingObserver : OperationObserver {
 
             override fun onCallCompleted(parseSuccess: Boolean?) {
                 record.parseSuccess = parseSuccess
+                record.completionCount++
             }
         }
     }
@@ -1905,6 +1907,7 @@ private class RecordingObserver : OperationObserver {
         var response: ModelResponse? = null,
         var providerFailure: Throwable? = null,
         var parseSuccess: Boolean? = null,
+        var completionCount: Int = 0,
         val engineEvents: MutableList<EngineEventRecord> = mutableListOf(),
     )
 }

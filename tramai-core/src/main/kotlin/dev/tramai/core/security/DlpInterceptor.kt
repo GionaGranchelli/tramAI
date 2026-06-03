@@ -38,8 +38,11 @@ data class DlpRedaction(
 )
 
 /**
- * Result of a DLP inspection. If [sanitizedText] differs from the input then
- * [redactions] describes what was redacted and [hasRedactions] is `true`.
+ * Result of a DLP inspection.
+ *
+ * [sanitizedText] is authoritative. [redactions] optionally provides
+ * rule-level evidence when available. [hasRedactions] reports whether
+ * such evidence entries are present.
  */
 data class DlpResult(
     val sanitizedText: String,
