@@ -321,7 +321,7 @@ tramai:
 | `DlpRedaction` | Rule reference with count — **no raw matched values** |
 | `DlpInterceptor` | `fun interface` with `inspect(context, text): DlpResult` |
 | `NoOpDlpInterceptor` | Pass-through singleton |
-| `DlpInspectionException` | Thrown when DLP inspection fails — distinct from provider failures |
+| `DlpInspectionException` | Thrown when DLP inspection fails — distinct from provider failures; constructor remains intentionally minimal (`message`, `cause`) with no `ruleId` parameter |
 
 ### RuleBasedDlpInterceptor (`tramai-security`)
 
@@ -381,6 +381,22 @@ DLP failures are strictly separated from provider failures:
 Cache eligibility (`isSafeCacheEligible`) requires `dlpInterceptor === NoOpDlpInterceptor`.
 Custom DLP interceptors **bypass the cache entirely** — every provider response is freshly
 sanitized.
+
+### Standalone Builder Wiring (`tramai-standalone`)
+
+- `dev.tramai.standalone.Tramai` now stores a private `dlpInterceptor: dev.tramai.core.security.DlpInterceptor`
+- The standalone builder defaults that field to `dev.tramai.core.security.NoOpDlpInterceptor`
+- `Tramai.Builder.dlp(interceptor: DlpInterceptor)` wires custom DLP into the standalone runtime without adding any property surface
+- `Tramai.create(...)` forwards the configured interceptor into `TramaiEngine(dlpInterceptor = ...)`
+- Standalone integration test expectation: a builder-configured custom interceptor sanitizes provider output before `OperationObserver.onProviderResponse()` runs
+
+### Spring Bean Wiring (`tramai-spring`)
+
+- `TramaiAutoConfiguration` receives `ObjectProvider<dev.tramai.core.security.DlpInterceptor>` through auto-configuration method parameter injection
+- Zero beans: no action; the standalone builder keeps `NoOpDlpInterceptor`
+- One bean: auto-configuration calls `builder.dlp(interceptor)`
+- Multiple beans: startup fails fast with `IllegalArgumentException` describing the ambiguous `DlpInterceptor` beans
+- YAML/property binding for `tramai.dlp.*` remains deferred; this PR only exposes bean-based wiring
 
 ### Test Coverage
 
