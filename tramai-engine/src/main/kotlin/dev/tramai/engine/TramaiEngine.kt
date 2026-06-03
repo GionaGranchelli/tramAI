@@ -1092,16 +1092,29 @@ private class TramaiInvocationHandler(
                 return result
             }
 
-            // End the observation of the call that produced tool calls
-            result.observation.onCallCompleted(parseSuccess = null)
-
             // Append assistant message with tool calls
             messages += Message(
                 role = MessageRole.ASSISTANT,
                 content = result.response.content,
                 toolCalls = toolCalls,
             )
-            processToolCalls(operation, toolCalls, messages, correlationId, securityContext)
+            try {
+                processToolCalls(
+                    operation = operation,
+                    toolCalls = toolCalls,
+                    messages = messages,
+                    correlationId = correlationId,
+                    securityContext = securityContext,
+                    observation = result.observation,
+                )
+                result.observation.onCallCompleted(parseSuccess = null)
+            } catch (error: dev.tramai.core.security.DlpInspectionException) {
+                result.observation.onCallCompleted(parseSuccess = null)
+                throw error
+            } catch (error: Throwable) {
+                result.observation.onCallCompleted(parseSuccess = null)
+                throw error
+            }
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
     }
@@ -1112,6 +1125,7 @@ private class TramaiInvocationHandler(
         messages: MutableList<Message>,
         correlationId: String,
         securityContext: ExecutionSecurityContext,
+        observation: OperationObservation,
     ) {
         for (toolCall in toolCalls) {
             val tool = toolRegistry.resolve(toolCall.name)
@@ -1132,7 +1146,75 @@ private class TramaiInvocationHandler(
                     .build()
             )
 
-            messages += formatToolResult(toolResult, toolCall.id)
+            messages += formatToolResult(
+                toolResult = sanitizeToolResultForReinjection(
+                    toolResult = toolResult,
+                    operation = operation,
+                    toolName = toolCall.name,
+                    correlationId = correlationId,
+                    securityContext = securityContext,
+                    observation = observation,
+                ),
+                toolCallId = toolCall.id,
+            )
+        }
+    }
+
+    private fun sanitizeToolResultForReinjection(
+        toolResult: ToolResult,
+        operation: OperationDefinition,
+        toolName: String,
+        correlationId: String,
+        securityContext: ExecutionSecurityContext,
+        observation: OperationObservation,
+    ): ToolResult {
+        if (dlpInterceptor === NoOpDlpInterceptor) {
+            return toolResult
+        }
+
+        val dlpContext = DlpContext(
+            contentType = DlpContentType.TOOL_RESULT,
+            operationInterface = operation.method.declaringClass.name,
+            operationMethod = operation.method.name,
+            toolName = toolName,
+            correlationId = correlationId,
+            dataClassification = securityContext.dataClassification,
+            classificationSource = securityContext.classificationSource,
+        )
+
+        fun sanitizeText(text: String): String = try {
+            dlpInterceptor.inspect(dlpContext, text).sanitizedText
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            observation.onEngineEvent(
+                name = "tramai.dlp.inspection_failed",
+                attributes = mapOf("toolName" to toolName, "correlationId" to correlationId),
+            )
+            throw dev.tramai.core.security.DlpInspectionException(
+                message = "DLP inspection failed for tool result from tool '$toolName'",
+                cause = e,
+            )
+        }
+
+        return when (toolResult) {
+            is ToolResult.Success -> {
+                val sanitizedValue = sanitizeText(toolResult.value.toString())
+                val sanitizedContentParts = toolResult.contentParts?.map { part ->
+                    when (part) {
+                        is ContentPart.TextPart -> ContentPart.TextPart(sanitizeText(part.text))
+                        is ContentPart.ImagePart -> part
+                        is ContentPart.ImageUrlContent -> part
+                    }
+                }
+                ToolResult.Success(
+                    value = sanitizedValue,
+                    contentParts = sanitizedContentParts,
+                )
+            }
+            is ToolResult.InvalidInput -> ToolResult.InvalidInput(sanitizeText(toolResult.message))
+            is ToolResult.PermanentFailure -> ToolResult.PermanentFailure(sanitizeText(toolResult.message))
+            is ToolResult.TransientFailure -> toolResult
         }
     }
 

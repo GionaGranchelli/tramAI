@@ -14,6 +14,7 @@ import dev.tramai.core.exception.StructuredOutputException
 import dev.tramai.core.exception.TokenBudgetExceededException
 import dev.tramai.core.exception.TimeoutException
 import dev.tramai.core.model.ClassifiedDocument
+import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
@@ -1248,9 +1249,19 @@ class TramaiEngineTest {
             replacement = "[EMAIL]",
         )
 
-        private fun dlpInterceptor() = RuleBasedDlpInterceptor(
-            RuleBasedDlpConfiguration(rules = listOf(emailRule)),
+        private fun dlpInterceptor(vararg rules: DlpRule) = RuleBasedDlpInterceptor(
+            RuleBasedDlpConfiguration(rules = rules.toList().ifEmpty { listOf(emailRule) }),
         )
+
+        private fun toolResultEmailRule(toolNames: Set<String> = emptySet()) = emailRule.copy(
+            enabledFor = setOf(DlpContentType.TOOL_RESULT),
+            toolNames = toolNames,
+        )
+
+        private fun secondRequestToolMessage(provider: ToolCallingRecordingProvider): Message {
+            assertThat(provider.requests).hasSize(2)
+            return provider.requests[1].messages.last { it.role == MessageRole.TOOL }
+        }
 
         @Test
         fun `raw response is redacted before caller return`() {
@@ -1374,6 +1385,330 @@ class TramaiEngineTest {
             assertThat(toolCallMessage.toolCalls).hasSize(1)
             assertThat(toolCallMessage.toolCalls?.single()?.id).isEqualTo("tc-1")
             assertThat(toolCallMessage.toolCalls?.single()?.name).isEqualTo("lookup")
+        }
+
+        @Test
+        fun `success tool result is redacted before second provider call`() {
+            val tool = object : ResolvedTool {
+                override val name: String = "lookup"
+                override val description: String = "Looks up data"
+                override val inputSchemaJson: String = """{"type":"object"}"""
+                override val idempotent: Boolean = false
+                override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(
+                    input: Any,
+                    context: ToolExecutionContext,
+                ): ToolResult = ToolResult.Success("Tool email user@example.com")
+            }
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(
+                    content = "calling tool",
+                    toolCalls = listOf(ToolCall("tc-1", "lookup", """{"query":"user"}""")),
+                ),
+                ModelResponse(content = "done"),
+            ).apply {
+                capabilities = setOf(dev.tramai.core.provider.ProviderCapability.VISION)
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                dlpInterceptor = dlpInterceptor(toolResultEmailRule()),
+            )
+            val service = engine.create<DlpToolService>()
+
+            runBlocking { service.answer("input") }
+
+            val toolMessage = secondRequestToolMessage(provider)
+            assertThat(toolMessage.content).isEqualTo("Tool email [EMAIL]")
+            assertThat(toolMessage.content).doesNotContain("user@example.com")
+        }
+
+        @Test
+        fun `invalid input tool result is sanitized before reinjection`() {
+            val tool = object : ResolvedTool {
+                override val name: String = "lookup"
+                override val description: String = "Looks up data"
+                override val inputSchemaJson: String = """{"type":"object"}"""
+                override val idempotent: Boolean = false
+                override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(
+                    input: Any,
+                    context: ToolExecutionContext,
+                ): ToolResult = ToolResult.InvalidInput("invalid user@example.com")
+            }
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(
+                    content = "calling tool",
+                    toolCalls = listOf(ToolCall("tc-1", "lookup", """{"query":"user"}""")),
+                ),
+                ModelResponse(content = "done"),
+            ).apply {
+                capabilities = setOf(dev.tramai.core.provider.ProviderCapability.VISION)
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                dlpInterceptor = dlpInterceptor(toolResultEmailRule()),
+            )
+            val service = engine.create<DlpToolService>()
+
+            runBlocking { service.answer("input") }
+
+            val toolMessage = secondRequestToolMessage(provider)
+            assertThat(toolMessage.content).isEqualTo("Error: invalid [EMAIL]")
+        }
+
+        @Test
+        fun `permanent failure tool result is sanitized before reinjection`() {
+            val tool = object : ResolvedTool {
+                override val name: String = "lookup"
+                override val description: String = "Looks up data"
+                override val inputSchemaJson: String = """{"type":"object"}"""
+                override val idempotent: Boolean = false
+                override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(
+                    input: Any,
+                    context: ToolExecutionContext,
+                ): ToolResult = ToolResult.PermanentFailure("failed user@example.com")
+            }
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(
+                    content = "calling tool",
+                    toolCalls = listOf(ToolCall("tc-1", "lookup", """{"query":"user"}""")),
+                ),
+                ModelResponse(content = "done"),
+            ).apply {
+                capabilities = setOf(dev.tramai.core.provider.ProviderCapability.VISION)
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                dlpInterceptor = dlpInterceptor(toolResultEmailRule()),
+            )
+            val service = engine.create<DlpToolService>()
+
+            runBlocking { service.answer("input") }
+
+            val toolMessage = secondRequestToolMessage(provider)
+            assertThat(toolMessage.content).isEqualTo("Permanent error: failed [EMAIL]")
+        }
+
+        @Test
+        fun `rich text parts are sanitized before reinjection`() {
+            val tool = object : ResolvedTool {
+                override val name: String = "lookup"
+                override val description: String = "Looks up data"
+                override val inputSchemaJson: String = """{"type":"object"}"""
+                override val idempotent: Boolean = false
+                override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(
+                    input: Any,
+                    context: ToolExecutionContext,
+                ): ToolResult = ToolResult.Success(
+                    value = "summary user@example.com",
+                    contentParts = listOf(
+                        ContentPart.TextPart("body alice@example.com"),
+                        ContentPart.ImageUrlContent("https://example.com/image.png", "image/png"),
+                    ),
+                )
+            }
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(
+                    content = "calling tool",
+                    toolCalls = listOf(ToolCall("tc-1", "lookup", """{"query":"user"}""")),
+                ),
+                ModelResponse(content = "done"),
+            ).apply {
+                capabilities = setOf(dev.tramai.core.provider.ProviderCapability.VISION)
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                dlpInterceptor = dlpInterceptor(toolResultEmailRule()),
+            )
+            val service = engine.create<DlpToolService>()
+
+            runBlocking { service.answer("input") }
+
+            val toolMessage = secondRequestToolMessage(provider)
+            assertThat(toolMessage.content).isEmpty()
+            assertThat(toolMessage.contentParts).containsExactly(
+                ContentPart.TextPart("summary [EMAIL]"),
+                ContentPart.TextPart("body [EMAIL]"),
+                ContentPart.ImageUrlContent("https://example.com/image.png", "image/png"),
+            )
+        }
+
+        @Test
+        fun `image parts are preserved during tool result sanitization`() {
+            val imagePart = ContentPart.ImagePart("image/png", byteArrayOf(1, 2, 3))
+            val tool = object : ResolvedTool {
+                override val name: String = "lookup"
+                override val description: String = "Looks up data"
+                override val inputSchemaJson: String = """{"type":"object"}"""
+                override val idempotent: Boolean = false
+                override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(
+                    input: Any,
+                    context: ToolExecutionContext,
+                ): ToolResult = ToolResult.Success(
+                    value = "summary user@example.com",
+                    contentParts = listOf(imagePart),
+                )
+            }
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(
+                    content = "calling tool",
+                    toolCalls = listOf(ToolCall("tc-1", "lookup", """{"query":"user"}""")),
+                ),
+                ModelResponse(content = "done"),
+            ).apply {
+                capabilities = setOf(dev.tramai.core.provider.ProviderCapability.VISION)
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                dlpInterceptor = dlpInterceptor(toolResultEmailRule()),
+            )
+            val service = engine.create<DlpToolService>()
+
+            runBlocking { service.answer("input") }
+
+            val toolMessage = secondRequestToolMessage(provider)
+            assertThat(toolMessage.contentParts).containsExactly(
+                ContentPart.TextPart("summary [EMAIL]"),
+                imagePart,
+            )
+        }
+
+        @Test
+        fun `per tool DLP rule is skipped for unrelated tool`() {
+            val tool = object : ResolvedTool {
+                override val name: String = "lookup"
+                override val description: String = "Looks up data"
+                override val inputSchemaJson: String = """{"type":"object"}"""
+                override val idempotent: Boolean = false
+                override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(
+                    input: Any,
+                    context: ToolExecutionContext,
+                ): ToolResult = ToolResult.Success("Tool email user@example.com")
+            }
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(
+                    content = "calling tool",
+                    toolCalls = listOf(ToolCall("tc-1", "lookup", """{"query":"user"}""")),
+                ),
+                ModelResponse(content = "done"),
+            )
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                dlpInterceptor = dlpInterceptor(toolResultEmailRule(toolNames = setOf("other-tool"))),
+            )
+            val service = engine.create<DlpToolService>()
+
+            runBlocking { service.answer("input") }
+
+            val toolMessage = secondRequestToolMessage(provider)
+            assertThat(toolMessage.content).isEqualTo("Tool email user@example.com")
+        }
+
+        @Test
+        fun `DLP failure during tool result sanitization does not reinject raw content and does not replay the tool`() {
+            val toolExecutions = AtomicInteger(0)
+            val tool = object : ResolvedTool {
+                override val name: String = "lookup"
+                override val description: String = "Looks up data"
+                override val inputSchemaJson: String = """{"type":"object"}"""
+                override val idempotent: Boolean = false
+                override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(
+                    input: Any,
+                    context: ToolExecutionContext,
+                ): ToolResult {
+                    toolExecutions.incrementAndGet()
+                    return ToolResult.Success("Tool email user@example.com")
+                }
+            }
+            val failingInterceptor = object : DlpInterceptor {
+                override fun inspect(context: DlpContext, text: String): DlpResult {
+                    if (context.contentType == DlpContentType.TOOL_RESULT) {
+                        throw RuntimeException("tool dlp failure")
+                    }
+                    return DlpResult(text)
+                }
+            }
+            val observer = RecordingObserver()
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(
+                    content = "calling tool",
+                    toolCalls = listOf(ToolCall("tc-1", "lookup", """{"query":"user"}""")),
+                ),
+                ModelResponse(content = "should not be requested"),
+            )
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                operationObserver = observer,
+                dlpInterceptor = failingInterceptor,
+            )
+            val service = engine.create<DlpToolService>()
+
+            val exception = runCatching { runBlocking { service.answer("input") } }.exceptionOrNull()
+
+            assertThat(exception).isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+            assertThat(exception).hasMessageContaining("DLP inspection failed for tool result")
+            assertThat(exception).hasMessageContaining("lookup")
+            assertThat(exception).hasMessageNotContaining("user@example.com")
+            assertThat(provider.requests).hasSize(1)
+            assertThat(toolExecutions.get()).isEqualTo(1)
+            val record = observer.records.single()
+            assertThat(record.providerFailure).isNull()
+            assertThat(record.parseSuccess).isNull()
+            assertThat(record.completionCount).isEqualTo(1)
+            assertThat(record.engineEvents.map { it.name }).contains("tramai.dlp.inspection_failed")
+        }
+
+        @Test
+        fun `NoOp DLP preserves tool result reinjection behavior`() {
+            val tool = object : ResolvedTool {
+                override val name: String = "lookup"
+                override val description: String = "Looks up data"
+                override val inputSchemaJson: String = """{"type":"object"}"""
+                override val idempotent: Boolean = false
+                override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(
+                    input: Any,
+                    context: ToolExecutionContext,
+                ): ToolResult = ToolResult.Success("Tool email user@example.com")
+            }
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(
+                    content = "calling tool",
+                    toolCalls = listOf(ToolCall("tc-1", "lookup", """{"query":"user"}""")),
+                ),
+                ModelResponse(content = "done"),
+            )
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                dlpInterceptor = NoOpDlpInterceptor,
+            )
+            val service = engine.create<DlpToolService>()
+
+            runBlocking { service.answer("input") }
+
+            val toolMessage = secondRequestToolMessage(provider)
+            assertThat(toolMessage.content).isEqualTo("Tool email user@example.com")
         }
 
         @Test
@@ -1843,11 +2178,15 @@ private class ToolCallingRecordingProvider(
 ) : ModelProvider {
     private val queue = ArrayDeque(responses.toList())
     val requests = mutableListOf<ModelRequest>()
+    var capabilities: Set<dev.tramai.core.provider.ProviderCapability> = emptySet()
 
     override suspend fun complete(request: ModelRequest): ModelResponse {
         requests += request
         return queue.removeFirstOrNull() ?: error("No more queued responses")
     }
+
+    override fun supportsCapability(capability: dev.tramai.core.provider.ProviderCapability): Boolean =
+        capability in capabilities
 }
 
 private class NamedStreamingProvider(

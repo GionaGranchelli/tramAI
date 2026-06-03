@@ -277,11 +277,11 @@ tramai:
 - **Acceptance:** Sensitive fields redacted; non-sensitive fields preserved
 - **Status:** Deferred to follow-up PR
 
-#### 2B.3 — Tool-result minimization hook ⏳
+#### 2B.3 — Tool-result minimization hook ✅
 - Filter tool results before reinjection into model context
 - Configurable per-tool minimization rules
 - **Acceptance:** Tool results filtered before model sees them
-- **Status:** Deferred to follow-up PR (DlpContentType.TOOL_RESULT type exists, RuleBasedDlpInterceptor supports `enabledFor` including TOOL_RESULT, but engine hook only applies to MODEL_OUTPUT)
+- **Status:** Completed for textual tool-result reinjection. Image bytes, image URLs, OCR scanning, and URL-token inspection remain deferred.
 
 #### 2B.4 — Redaction audit events ⏳
 - Emit audit event when DLP redacts content
@@ -299,7 +299,7 @@ tramai:
 **Epic Exit Criteria:**
 - [x] DLP SPI implemented with rule-based first pass
 - [ ] Field-level redaction works for annotated fields
-- [ ] Tool results filtered before context reinjection
+- [x] Tool results filtered before context reinjection
 - [ ] Schema-valid-but-leaky outputs blocked by DLP layer
 
 ---
@@ -333,6 +333,7 @@ tramai:
   - Non-empty `enabledFor` sets
 - **Deterministic ordering:** Rules applied in constructor-declared order
 - **Content-type filtering:** Each rule has `enabledFor: Set<DlpContentType>` (default `MODEL_OUTPUT`)
+- **Per-tool filtering:** Each rule has `toolNames: Set<String>` (default empty). Empty means "all tools"; non-empty means the rule only applies when `DlpContext.toolName` matches one of those tool names. `enabledFor` and `toolNames` compose additively: both filters must match for the rule to apply.
 - **Security properties:** No raw matched values in `DlpRedaction` or exceptions; fixed exception messages
 - **Oversized input:** Rejected with `IllegalArgumentException("Input text exceeds maximum allowed length")` — no input content leaked
 - **Duplicate redaction counting:** `DlpRedaction.replacementCount` reports total matches per rule
@@ -358,10 +359,23 @@ ModelResponse
 Consequences:
 - **Observers** see only sanitized output
 - **Tool-loop assistant responses** are sanitized before reinjection as next-turn context
+- **Tool-result reinjection** now sanitizes textual tool content after `BEFORE_TOOL_RESULT_REINJECTION` policy enforcement and before the tool message is appended to `messages`
 - **Raw return, structured parsing, chat memory, and cache** all use sanitized content
-- Only `DlpContentType.MODEL_OUTPUT` is scanned in this pass
+- `DlpContentType.MODEL_OUTPUT` and textual `DlpContentType.TOOL_RESULT` reinjection paths are scanned
 - `toolCalls` on the response are never modified
 - Short-circuit when `dlpInterceptor === NoOpDlpInterceptor` (zero overhead for default config)
+
+Textual tool-result branches covered by the engine hook:
+- `ToolResult.Success.value.toString()`
+- `ContentPart.TextPart` fragments in `ToolResult.Success.contentParts`
+- `ToolResult.InvalidInput.message`
+- `ToolResult.PermanentFailure.message`
+
+Tool-result branches intentionally preserved or deferred:
+- `ContentPart.ImagePart` preserved unchanged
+- `ContentPart.ImageUrlContent` preserved unchanged
+- `ToolResult.TransientFailure` remains on the existing retry path and is not DLP-scanned here
+- Image-byte inspection, OCR/image scanning, and URL-token inspection remain deferred
 
 ### DLP Failure Isolation
 
@@ -417,6 +431,11 @@ sanitized.
 - `TOOL_RESULT`-only rule does not affect `MODEL_OUTPUT`
 - `MODEL_OUTPUT`-only rule does not affect `TOOL_RESULT`
 - Rule applies to both content types when `enabledFor` includes both
+- `TOOL_RESULT` rule applies when `toolName` matches
+- `TOOL_RESULT` rule is skipped when `toolName` differs
+- Empty `toolNames` applies to any tool
+- Blank `toolNames` entries are rejected
+- Content-type and tool-name filters compose correctly
 - Empty rules list passes text through unchanged
 - Input at `maxTextLength` boundary passes through
 - `DlpResult` properties on modified output (sanitizedText, hasRedactions, redactions)
@@ -434,13 +453,20 @@ sanitized.
 - Chat memory stores sanitized assistant response
 - Operation observer sees sanitized response
 - Tool calls remain unchanged after DLP (sanitized assistant content, preserved tool call metadata)
+- Successful tool-result text is redacted before the second provider call
+- `InvalidInput` tool-result messages are sanitized before reinjection
+- `PermanentFailure` tool-result messages are sanitized before reinjection
+- Mixed tool-result `TextPart` content is sanitized before reinjection
+- `ImagePart` and `ImageUrlContent` branches are preserved during tool-result sanitization
+- Per-tool DLP rules are skipped for unrelated tools
+- Tool-result DLP failure does not reinject raw content and does not replay the tool
+- No-op DLP preserves tool-result reinjection behaviour
 - Custom DLP disables cache
 - NoOp DLP preserves existing behavior
 - Custom DLP interceptor without redaction metadata still applies sanitized text
 
 ### Deferred Work (follow-up PRs)
 - **Field-level output policies** (2B.2) — annotation-driven per-field redaction
-- **Tool-result filtering** (2B.3) — engine hook for `DlpContentType.TOOL_RESULT`
 - **Redaction audit events** (2B.4) — emit events via audit engine
 - **Streaming DLP** — apply DLP to streaming `Flow<StreamChunk>`
 - **Binary content DLP** — image/document scanning for embedded sensitive data

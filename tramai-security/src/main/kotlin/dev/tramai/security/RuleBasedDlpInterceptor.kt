@@ -18,6 +18,7 @@ data class DlpRule(
     val pattern: String,
     val replacement: String = "[REDACTED]",
     val enabledFor: Set<DlpContentType> = setOf(DlpContentType.MODEL_OUTPUT),
+    val toolNames: Set<String> = emptySet(),
 )
 
 class RuleBasedDlpInterceptor(
@@ -36,11 +37,13 @@ class RuleBasedDlpInterceptor(
             require(ids.add(rule.id)) { "Duplicate DLP rule ID: '${rule.id}'" }
             require(rule.pattern.isNotBlank()) { "DLP rule pattern must not be blank for rule '${rule.id}'" }
             require(rule.enabledFor.isNotEmpty()) { "DLP rule '${rule.id}' must have at least one enabled content type" }
+            require(rule.toolNames.none { it.isBlank() }) { "DLP rule '${rule.id}' must not contain blank tool names" }
             CompiledDlpRule(
                 id = rule.id,
                 pattern = Pattern.compile(rule.pattern),
                 replacement = rule.replacement,
                 enabledFor = rule.enabledFor.toSet(),
+                toolNames = rule.toolNames.toSet(),
             )
         }
         this.maxTextLength = configuration.maxTextLength
@@ -56,6 +59,7 @@ class RuleBasedDlpInterceptor(
 
         for (rule in compiledRules) {
             if (!rule.enabledFor.contains(context.contentType)) continue
+            if (rule.toolNames.isNotEmpty() && context.toolName !in rule.toolNames) continue
 
             val matcher = rule.pattern.matcher(result)
             val sb = StringBuilder()
@@ -81,5 +85,6 @@ class RuleBasedDlpInterceptor(
         val pattern: Pattern,
         val replacement: String,
         val enabledFor: Set<DlpContentType>,
+        val toolNames: Set<String>,
     )
 }
