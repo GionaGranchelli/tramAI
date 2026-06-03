@@ -38,6 +38,7 @@ class RuleBasedDlpInterceptor(
             require(rule.pattern.isNotBlank()) { "DLP rule pattern must not be blank for rule '${rule.id}'" }
             require(rule.enabledFor.isNotEmpty()) { "DLP rule '${rule.id}' must have at least one enabled content type" }
             require(rule.toolNames.none { it.isBlank() }) { "DLP rule '${rule.id}' must not contain blank tool names" }
+            require(rule.toolNames.all { it == it.trim() }) { "DLP rule '${rule.id}' must not contain tool names with surrounding whitespace" }
             CompiledDlpRule(
                 id = rule.id,
                 pattern = Pattern.compile(rule.pattern),

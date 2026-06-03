@@ -270,6 +270,27 @@ class RuleBasedDlpInterceptorTest {
     }
 
     @Test
+    fun `tool name with surrounding whitespace is rejected`() {
+        assertThatThrownBy {
+            RuleBasedDlpInterceptor(
+                RuleBasedDlpConfiguration(
+                    rules = listOf(
+                        DlpRule(
+                            id = "whitespace-tool",
+                            pattern = "SECRET",
+                            enabledFor = setOf(DlpContentType.TOOL_RESULT),
+                            toolNames = setOf(" lookup "),
+                        ),
+                    ),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("must not contain tool names with surrounding whitespace")
+            .hasMessageContaining("whitespace-tool")
+    }
+
+    @Test
     fun `content type and tool name filters compose correctly`() {
         val dlp = interceptor {
             maxTextLength = 10_000

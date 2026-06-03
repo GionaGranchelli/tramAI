@@ -277,11 +277,19 @@ tramai:
 - **Acceptance:** Sensitive fields redacted; non-sensitive fields preserved
 - **Status:** Deferred to follow-up PR
 
-#### 2B.3 — Tool-result minimization hook ✅
-- Filter tool results before reinjection into model context
-- Configurable per-tool minimization rules
-- **Acceptance:** Tool results filtered before model sees them
-- **Status:** Completed for textual tool-result reinjection. Image bytes, image URLs, OCR scanning, and URL-token inspection remain deferred.
+#### 2B.3a — Textual tool-result minimization hook ✅
+- Coalesced TextPart detection: concatenates `Success.value` + all `TextPart.text` fragments before DLP to prevent split-secret bypasses
+- Aggregate size limit: combined textual size checked before DLP (exceeds 100K → fail closed, no retry)
+- Sanitized: `Success.value`, `TextPart` (coalesced), `InvalidInput.message`, `PermanentFailure.message`
+- Preserved: `ContentPart.ImagePart`, `ContentPart.ImageUrlContent` (deferred to 2B.3b)
+- Per-tool scoping via `DlpRule.toolNames` — whitespace rejected at construction
+- DLP failure: fail closed, no raw reinjection, no tool replay, no provider failure/retry
+- **Status:** Complete for text. URLs and binary channels remain deferred.
+
+#### 2B.3b — URL and binary tool-result minimization ⏳
+- Image URLs passed through unchanged — may contain signed query params, SAS tokens, internal hostnames
+- OCR scanning, image-byte inspection, URL-token/credential detection deferred
+- **Status:** Deferred to follow-up PR
 
 #### 2B.4 — Redaction audit events ⏳
 - Emit audit event when DLP redacts content
@@ -299,7 +307,8 @@ tramai:
 **Epic Exit Criteria:**
 - [x] DLP SPI implemented with rule-based first pass
 - [ ] Field-level redaction works for annotated fields
-- [x] Tool results filtered before context reinjection
+- [x] Textual tool results filtered before context reinjection
+- [ ] URL and binary tool-result channels protected before external reinjection
 - [ ] Schema-valid-but-leaky outputs blocked by DLP layer
 
 ---

@@ -1107,13 +1107,8 @@ private class TramaiInvocationHandler(
                     securityContext = securityContext,
                     observation = result.observation,
                 )
+            } finally {
                 result.observation.onCallCompleted(parseSuccess = null)
-            } catch (error: dev.tramai.core.security.DlpInspectionException) {
-                result.observation.onCallCompleted(parseSuccess = null)
-                throw error
-            } catch (error: Throwable) {
-                result.observation.onCallCompleted(parseSuccess = null)
-                throw error
             }
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
@@ -1199,17 +1194,34 @@ private class TramaiInvocationHandler(
 
         return when (toolResult) {
             is ToolResult.Success -> {
-                val sanitizedValue = sanitizeText(toolResult.value.toString())
-                val sanitizedContentParts = toolResult.contentParts?.map { part ->
-                    when (part) {
-                        is ContentPart.TextPart -> ContentPart.TextPart(sanitizeText(part.text))
-                        is ContentPart.ImagePart -> part
-                        is ContentPart.ImageUrlContent -> part
+                // Coalesce ALL textual content (value + TextPart fragments) into one
+                // string before DLP to prevent split-secret bypasses.
+                val allTextParts = mutableListOf<String>().apply {
+                    add(toolResult.value.toString())
+                    toolResult.contentParts?.forEach { part ->
+                        if (part is ContentPart.TextPart) add(part.text)
                     }
                 }
+                val combinedText = allTextParts.joinToString("")
+                val aggregateSize = allTextParts.sumOf { it.length }
+
+                if (aggregateSize > maxInputLengthForToolResult(operation)) {
+                    throw dev.tramai.core.security.DlpInspectionException(
+                        message = "Tool result from '$toolName' exceeds aggregate input limit ($aggregateSize > ${maxInputLengthForToolResult(operation)})",
+                    )
+                }
+
+                val sanitizedCombined = sanitizeText(combinedText)
+
+                // Preserve non-text content parts (images), drop TextParts since their
+                // content is already included in the sanitized combined value.
+                val nonTextParts = toolResult.contentParts?.filter { part ->
+                    part !is ContentPart.TextPart
+                }?.ifEmpty { null }
+
                 ToolResult.Success(
-                    value = sanitizedValue,
-                    contentParts = sanitizedContentParts,
+                    value = sanitizedCombined,
+                    contentParts = nonTextParts,
                 )
             }
             is ToolResult.InvalidInput -> ToolResult.InvalidInput(sanitizeText(toolResult.message))
@@ -1217,6 +1229,8 @@ private class TramaiInvocationHandler(
             is ToolResult.TransientFailure -> toolResult
         }
     }
+
+    private fun maxInputLengthForToolResult(operation: OperationDefinition): Int = 100_000
 
     private fun formatToolResult(toolResult: ToolResult, toolCallId: String): Message = when (toolResult) {
         is ToolResult.Success -> createToolSuccessMessage(toolResult, toolCallId)

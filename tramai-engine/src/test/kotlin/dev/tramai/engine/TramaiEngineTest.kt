@@ -1497,7 +1497,7 @@ class TramaiEngineTest {
         }
 
         @Test
-        fun `rich text parts are sanitized before reinjection`() {
+        fun `rich text parts coalesce TextParts before DLP preventing split-secret bypass`() {
             val tool = object : ResolvedTool {
                 override val name: String = "lookup"
                 override val description: String = "Looks up data"
@@ -1509,9 +1509,10 @@ class TramaiEngineTest {
                     input: Any,
                     context: ToolExecutionContext,
                 ): ToolResult = ToolResult.Success(
-                    value = "summary user@example.com",
+                    value = "summary ",
                     contentParts = listOf(
-                        ContentPart.TextPart("body alice@example.com"),
+                        ContentPart.TextPart("alice@"),
+                        ContentPart.TextPart("example.com"),
                         ContentPart.ImageUrlContent("https://example.com/image.png", "image/png"),
                     ),
                 )
@@ -1535,12 +1536,15 @@ class TramaiEngineTest {
             runBlocking { service.answer("input") }
 
             val toolMessage = secondRequestToolMessage(provider)
+            // TextParts are coalesced into value, then placed into contentParts[0] as TextPart
             assertThat(toolMessage.content).isEmpty()
-            assertThat(toolMessage.contentParts).containsExactly(
-                ContentPart.TextPart("summary [EMAIL]"),
-                ContentPart.TextPart("body [EMAIL]"),
-                ContentPart.ImageUrlContent("https://example.com/image.png", "image/png"),
-            )
+            assertThat(toolMessage.contentParts).hasSize(2)
+            val textPart = toolMessage.contentParts!![0] as ContentPart.TextPart
+            assertThat(textPart.text).isEqualTo("summary [EMAIL]")
+            assertThat(textPart.text).doesNotContain("alice@")
+            assertThat(textPart.text).doesNotContain("example.com")
+            val imagePart = toolMessage.contentParts!![1]
+            assertThat(imagePart).isEqualTo(ContentPart.ImageUrlContent("https://example.com/image.png", "image/png"))
         }
 
         @Test
@@ -1829,6 +1833,91 @@ class TramaiEngineTest {
             // Engine event "tramai.dlp.inspection_failed" emitted
             assertThat(record.engineEvents.map { it.name })
                 .contains("tramai.dlp.inspection_failed")
+        }
+
+        @Test
+        fun `aggregate tool result text size above limit fails closed`() {
+            val largeText = "a".repeat(50_001)
+            val tool = object : ResolvedTool {
+                override val name: String = "lookup"
+                override val description: String = "Looks up data"
+                override val inputSchemaJson: String = """{"type":"object"}"""
+                override val idempotent: Boolean = false
+                override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(
+                    input: Any,
+                    context: ToolExecutionContext,
+                ): ToolResult = ToolResult.Success(
+                    value = largeText,
+                    contentParts = listOf(
+                        ContentPart.TextPart(largeText),
+                    ),
+                )
+            }
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(
+                    content = "calling tool",
+                    toolCalls = listOf(ToolCall("tc-1", "lookup", """{"query":"data"}""")),
+                ),
+                ModelResponse(content = "done"),
+            )
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                dlpInterceptor = dlpInterceptor(toolResultEmailRule()),
+            )
+            val service = engine.create<DlpToolService>()
+
+            val exception = runCatching { runBlocking { service.answer("input") } }
+                .exceptionOrNull()
+
+            assertThat(exception).isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+            assertThat(exception).hasMessageContaining("aggregate input limit")
+
+            // Tool was NOT replayed (only the original tool call, no follow-up)
+            assertThat(provider.requests).hasSize(1)
+        }
+
+        @Test
+        fun `aggregate tool result text at boundary passes through`() {
+            val boundaryText = "a".repeat(49_950)
+            val tool = object : ResolvedTool {
+                override val name: String = "lookup"
+                override val description: String = "Looks up data"
+                override val inputSchemaJson: String = """{"type":"object"}"""
+                override val idempotent: Boolean = false
+                override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(
+                    input: Any,
+                    context: ToolExecutionContext,
+                ): ToolResult = ToolResult.Success(
+                    value = boundaryText,
+                    contentParts = listOf(
+                        ContentPart.TextPart("safe"),
+                    ),
+                )
+            }
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(
+                    content = "calling tool",
+                    toolCalls = listOf(ToolCall("tc-1", "lookup", """{"query":"data"}""")),
+                ),
+                ModelResponse(content = "done"),
+            )
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                dlpInterceptor = dlpInterceptor(toolResultEmailRule()),
+            )
+            val service = engine.create<DlpToolService>()
+
+            runBlocking { service.answer("input") }
+
+            // Service call succeeded - aggregate size within limit
+            val toolMessage = secondRequestToolMessage(provider)
+            assertThat(toolMessage).isNotNull()
         }
     }
 }
