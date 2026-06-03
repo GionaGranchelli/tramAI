@@ -336,8 +336,8 @@ tramai:
 - **Security properties:** No raw matched values in `DlpRedaction` or exceptions; fixed exception messages
 - **Oversized input:** Rejected with `IllegalArgumentException("Input text exceeds maximum allowed length")` — no input content leaked
 - **Duplicate redaction counting:** `DlpRedaction.replacementCount` reports total matches per rule
-- **Zero-width safety:** Uses `Matcher.region()` to advance past zero-width matches (lookahead, boundary anchors), preventing infinite loops
-- **Literal replacements:** All replacements use `Matcher.quoteReplacement()` (when using `appendReplacement`) or direct appending, so `$1` / `\value` in replacements stay literal
+- **Zero-width safety:** Uses manual `matcher.find(cursor)` loop with `cursor = end + 1` advancement for zero-width matches (lookahead, boundary anchors), preventing infinite loops without using `Matcher.region()` (which resets append state)
+- **Literal replacements:** Replacement strings are inserted directly via `StringBuilder.append()` — `$1`, `\value`, and other special characters stay literal without requiring `Matcher.quoteReplacement()`
 
 ### Engine Hook Location (`TramaiEngine`)
 
@@ -371,6 +371,9 @@ DLP failures are strictly separated from provider failures:
 - It does NOT call `circuitBreaker.onFailure()` — DLP failures do not poison provider circuit breakers
 - It does NOT trigger provider retries (DLP is deterministic per response)
 - It does NOT trigger fallback (response content cannot be returned unsanitized)
+- It DOES call `observation.onCallCompleted(parseSuccess = null)` exactly once — the call lifecycle completes even when DLP rejects the response
+- It DOES emit `tramai.dlp.inspection_failed` engine event for observability
+- `CancellationException` is caught separately and rethrown unchanged before DLP or provider failure handling
 - The `DlpInspectionException` propagates directly to the caller
 
 ### Cache Behaviour

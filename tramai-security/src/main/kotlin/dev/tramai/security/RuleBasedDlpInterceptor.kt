@@ -65,8 +65,11 @@ class RuleBasedDlpInterceptor(
                 sb.append(result, cursor, matcher.start())
                 sb.append(rule.replacement)
                 count++
-                val matchEnd = matcher.end()
-                cursor = if (matcher.start() == matchEnd) matchEnd + 1 else matchEnd
+                cursor = if (matcher.start() == matcher.end()) {
+                    matcher.end() + 1
+                } else {
+                    matcher.end()
+                }
                 if (cursor > result.length) break
             }
             if (cursor < result.length) {

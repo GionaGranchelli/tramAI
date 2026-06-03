@@ -249,12 +249,13 @@ class RuleBasedDlpInterceptorTest {
     }
 
     @Test
-    fun `replacement with dollar-group reference stays literal`() {
+    fun `replacement with dollar and backslash stays literal`() {
         val dlp = interceptor {
             maxTextLength = 10_000
             rule(id = "masks", pattern = "(\\d{4})-(\\d{4})-(\\d{4})-(\\d{4})", replacement = "MASK-$1")
         }
         val result = dlp.inspect(context(), "Card: 4111-1111-1111-1111")
+        // Replacement is used literally (not as a regex group reference)
         assertThat(result.sanitizedText).isEqualTo("Card: MASK-$1")
         assertThat(result.hasRedactions).isTrue()
     }
@@ -291,10 +292,36 @@ class RuleBasedDlpInterceptorTest {
     }
 
     @Test
+    fun `start of string anchor terminates safely`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(id = "start-anchor", pattern = "^")
+        }
+        val result = dlp.inspect(context(), "abc")
+        // Zero-width ^ match at position 0 advances cursor to 1, consuming 'a'
+        assertThat(result.sanitizedText).isEqualTo("[REDACTED]bc")
+        assertThat(result.hasRedactions).isTrue()
+        assertThat(result.redactions[0].replacementCount).isEqualTo(1)
+    }
+
+    @Test
     fun `zero-width lookahead replaces each digit position`() {
         val dlp = interceptor {
             maxTextLength = 10_000
             rule(id = "digit-lookahead", pattern = "(?=\\d)")
+        }
+        val result = dlp.inspect(context(), "abc123")
+        // Zero-width skip consumes the next character after each match
+        assertThat(result.sanitizedText).isEqualTo("abc[REDACTED][REDACTED][REDACTED]")
+        assertThat(result.hasRedactions).isTrue()
+        assertThat(result.redactions[0].replacementCount).isEqualTo(3)
+    }
+
+    @Test
+    fun `consuming digit pattern removes all digits`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(id = "digit", pattern = "\\d")
         }
         val result = dlp.inspect(context(), "abc123")
         assertThat(result.sanitizedText).isEqualTo("abc[REDACTED][REDACTED][REDACTED]")

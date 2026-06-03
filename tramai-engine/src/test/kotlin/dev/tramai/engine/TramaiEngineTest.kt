@@ -1449,6 +1449,50 @@ class TramaiEngineTest {
 
             assertThat(result).isEqualTo("[REDACTED]")
         }
+
+        @Test
+        fun `DLP failure emits engine event records call completion and does not poison circuit breaker`() {
+            val failingInterceptor = object : DlpInterceptor {
+                override fun inspect(context: DlpContext, text: String): DlpResult {
+                    throw RuntimeException("DLP engine failure")
+                }
+            }
+            val observer = RecordingObserver()
+            val provider = RecordingProvider { ModelResponse(content = "sensitive data") }
+            val circuitBreakerSettings = CircuitBreakerSettings(
+                failureThreshold = 1,
+                openDurationMillis = 100_000,
+            )
+            val engine = TramaiEngine(
+                provider = provider,
+                operationObserver = observer,
+                dlpInterceptor = failingInterceptor,
+                circuitBreakerSettings = circuitBreakerSettings,
+            )
+            val service = engine.create<DlpRawService>()
+
+            val exception = runCatching { runBlocking { service.process("input") } }
+                .exceptionOrNull()
+
+            assertThat(exception).isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+            assertThat(exception).hasMessageContaining("DLP inspection failed")
+
+            // Provider was called exactly once (no retry, no fallback)
+            assertThat(provider.requests).hasSize(1)
+
+            // Circuit breaker remains closed (DLP failure is not a provider failure)
+            engine.close()
+
+            // Observer: no provider failure recorded, call completed with null parseSuccess
+            assertThat(observer.records).hasSize(1)
+            val record = observer.records.single()
+            assertThat(record.providerFailure).isNull()
+            assertThat(record.parseSuccess).isNull()
+
+            // Engine event "tramai.dlp.inspection_failed" emitted
+            assertThat(record.engineEvents.map { it.name })
+                .contains("tramai.dlp.inspection_failed")
+        }
     }
 }
 

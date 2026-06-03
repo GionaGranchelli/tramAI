@@ -54,7 +54,6 @@ data class DlpResult(
  * and does not trigger fallback or retry.
  */
 class DlpInspectionException(
-    ruleId: String? = null,
     message: String = "DLP inspection failed",
     cause: Throwable? = null,
 ) : RuntimeException(message, cause)

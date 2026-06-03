@@ -1361,6 +1361,8 @@ private class TramaiInvocationHandler(
                     } else {
                         interceptedResponse
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     // DLP failures are separate from provider failures:
                     //   - Do NOT call observation.onProviderFailure(...)
@@ -1387,7 +1389,10 @@ private class TramaiInvocationHandler(
             } catch (error: dev.tramai.core.security.DlpInspectionException) {
                 // DLP failures propagate directly — NOT a provider failure.
                 // Do NOT call observation.onProviderFailure, circuitBreaker.onFailure,
-                // or retry.
+                // or retry. Record call completion once.
+                observation.onCallCompleted(parseSuccess = null)
+                throw error
+            } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
                 observation.onProviderFailure(error)
