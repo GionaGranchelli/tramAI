@@ -154,7 +154,12 @@ class InMemoryApprovalStore(
                 is ApprovalTransition.Timeout -> ApprovalStatus.TIMED_OUT
             }
             ApprovalStatus.APPROVED -> throw IllegalApprovalTransitionException(
-                current.approvalId, current.status, ApprovalStatus.APPROVED,
+                current.approvalId, current.status,
+                when (transition) {
+                    is ApprovalTransition.Approve -> ApprovalStatus.APPROVED
+                    is ApprovalTransition.Deny -> ApprovalStatus.DENIED
+                    is ApprovalTransition.Timeout -> ApprovalStatus.TIMED_OUT
+                },
                 "approval already granted",
             )
             ApprovalStatus.DENIED -> throw IllegalApprovalTransitionException(

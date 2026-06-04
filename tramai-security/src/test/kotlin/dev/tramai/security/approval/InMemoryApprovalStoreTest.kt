@@ -551,29 +551,50 @@ class InMemoryApprovalStoreTest {
 
     @Test
     fun `CAS retry budget exhaustion throws IllegalStateException`() = runBlocking {
-        // Use a store with 0 retries to force immediate exhaustion
         val zeroRetryStore = InMemoryApprovalStore(clock = fixedClock, maxCasRetries = 0)
-        zeroRetryStore.create(aPendingRequest())
+        zeroRetryStore.create(aPendingRequest(approvalId = "cas-exhaust-req"))
 
-        // We need a concurrent write to force CAS failure
-        val ctx = newSingleThreadContext("cas-exhaust-test")
-        try {
-            // Grab the reference so we know replace will fail
-            val job = launch(ctx) {
-                // Do a concurrent transition to advance version and force CAS failure
-                zeroRetryStore.transition("req-1", 0L, ApprovalTransition.Approve("user-2", null))
+        val results = mutableListOf<Result<ApprovalRequest>>()
+
+        // Use Dispatchers.Default for true parallelism so both threads read version 0
+        // before either calls replace(). One succeeds at CAS, the other fails CAS and
+        // exhausts its retry budget (retries=0 → 1 > 0 → IllegalStateException).
+        val job1 = launch(kotlinx.coroutines.Dispatchers.Default) {
+            try {
+                val r = zeroRetryStore.transition(
+                    "cas-exhaust-req", 0L,
+                    ApprovalTransition.Approve("user-a", null),
+                )
+                synchronized(results) { results.add(Result.success(r)) }
+            } catch (e: Exception) {
+                synchronized(results) { results.add(Result.failure(e)) }
             }
-            job.join()
-        } finally {
-            ctx.close()
         }
 
-        // Now version is 1, expected 0 will CAS-fail and retry budget will exhaust
-        assertThatThrownBy {
-            runBlocking { zeroRetryStore.transition("req-1", 0L, ApprovalTransition.Deny("user-3", null)) }
+        val job2 = launch(kotlinx.coroutines.Dispatchers.Default) {
+            try {
+                val r = zeroRetryStore.transition(
+                    "cas-exhaust-req", 0L,
+                    ApprovalTransition.Deny("user-b", null),
+                )
+                synchronized(results) { results.add(Result.success(r)) }
+            } catch (e: Exception) {
+                synchronized(results) { results.add(Result.failure(e)) }
+            }
         }
-            .isInstanceOf(IllegalStateException::class.java)
-            .hasMessageContaining("CAS retry budget exhausted")
+
+        job1.join()
+        job2.join()
+
+        val successes = results.filter { it.isSuccess }
+        val failures = results.filter { it.isFailure }
+
+        assertThat(successes).hasSize(1)
+        assertThat(failures).hasSize(1)
+
+        val failureException = failures.single().exceptionOrNull()
+        assertThat(failureException).isInstanceOf(IllegalStateException::class.java)
+        assertThat(failureException!!.message).contains("CAS retry budget exhausted")
     }
 
     // -----------------------------------------------------------------------
