@@ -1190,6 +1190,11 @@ private class TramaiInvocationHandler(
         }
     }
 
+    /**
+     * Performs the authoritative DLP scan for a single response boundary.
+     *
+     * `text` must be the raw pre-DLP text for the specific scan boundary being inspected.
+     */
     private suspend fun inspectDlpAuthoritatively(
         context: DlpContext,
         text: String,

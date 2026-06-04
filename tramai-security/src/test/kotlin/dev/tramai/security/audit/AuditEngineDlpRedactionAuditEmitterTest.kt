@@ -282,6 +282,18 @@ class AuditEngineDlpRedactionAuditEmitterTest {
     }
 
     @Test
+    fun `negative replacementCount fails closed`() {
+        val (emitter, _) = emitter()
+        assertThatThrownBy {
+            runTest {
+                emitter.emit(modelOutputContext(), listOf(DlpRedaction("email", -1)))
+            }
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("greater than zero")
+    }
+
+    @Test
     fun `blank correlation ID fails closed`() {
         val (emitter, _) = emitter()
         assertThatThrownBy {

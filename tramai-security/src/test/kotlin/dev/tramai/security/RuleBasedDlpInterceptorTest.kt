@@ -360,19 +360,6 @@ class RuleBasedDlpInterceptorTest {
     }
 
     @Test
-    fun `exception messages remain safe for invalid rule IDs`() {
-        assertThatThrownBy {
-            RuleBasedDlpInterceptor(
-                RuleBasedDlpConfiguration(
-                    rules = listOf(DlpRule(id = "Secret-Key-123", pattern = "aaa")),
-                ),
-            )
-        }
-            .isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageNotContaining("Secret-Key-123")
-    }
-
-    @Test
     fun `content type and tool name filters compose correctly`() {
         val dlp = interceptor {
             maxTextLength = 10_000
@@ -559,6 +546,33 @@ class RuleBasedDlpInterceptorTest {
         }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("DLP replacement preserves matched content")
+    }
+
+    @Test
+    fun `case insensitive regex with lowercase replacement fails closed`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(id = "secret-lowercase", pattern = "(?i)secret", replacement = "secret")
+        }
+        assertThatThrownBy {
+            dlp.inspect(context(), "Value: Secret")
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("DLP replacement preserves matched content")
+    }
+
+    @Test
+    fun `case insensitive regex with safe placeholder succeeds`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(id = "secret-placeholder", pattern = "(?i)secret", replacement = "[REDACTED]")
+        }
+        val result = dlp.inspect(context(), "Value: Secret")
+        assertThat(result.sanitizedText).isEqualTo("Value: [REDACTED]")
+        assertThat(result.hasRedactions).isTrue()
+        assertThat(result.redactions).containsExactly(
+            DlpRedaction(ruleId = "secret-placeholder", replacementCount = 1),
+        )
     }
 
     @Test

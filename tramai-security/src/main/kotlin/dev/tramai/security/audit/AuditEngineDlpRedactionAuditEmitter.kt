@@ -5,6 +5,7 @@ import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpRedaction
 import dev.tramai.core.security.DlpRedactionAuditEmitter
+import dev.tramai.core.security.DlpRuleIdNormalizer
 
 fun interface DlpAuditStreamIdResolver {
     fun resolve(context: DlpContext): String
@@ -51,7 +52,11 @@ class AuditEngineDlpRedactionAuditEmitter(
             correlationId = normalizedCorrelationId,
             workflowRunId = normalizedWorkflowRunId,
         )
-        val streamId = resolveSafeStreamId(normalizedContext)
+        val streamId = resolveSafeStreamId(
+            context = normalizedContext,
+            correlationId = normalizedCorrelationId,
+            workflowRunId = normalizedWorkflowRunId,
+        )
         val normalized = normalizeRedactions(redactions)
         val enforcementPoint = enforcementPointName(normalizedContext.contentType)
         val sharedMetadata = buildSharedMetadata(normalizedContext)
@@ -75,25 +80,21 @@ class AuditEngineDlpRedactionAuditEmitter(
         }
     }
 
-    private fun resolveSafeStreamId(context: DlpContext): String {
-        val normalizedCorrelationId = context.correlationId.trim()
-        require(normalizedCorrelationId.isNotEmpty()) {
+    private fun resolveSafeStreamId(
+        context: DlpContext,
+        correlationId: String,
+        workflowRunId: String?,
+    ): String {
+        require(correlationId.isNotBlank()) {
             "DLP audit correlation ID must not be blank"
         }
-        require(normalizedCorrelationId.length <= MAX_STREAM_ID_LENGTH) {
-            "DLP audit correlation ID exceeds maximum length of 256"
-        }
-
-        val normalizedWorkflowRunId = context.workflowRunId
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-        require(normalizedWorkflowRunId == null || normalizedWorkflowRunId.length <= MAX_STREAM_ID_LENGTH) {
-            "DLP audit workflowRunId exceeds maximum length of 256"
+        require(workflowRunId == null || workflowRunId.isNotBlank()) {
+            "DLP audit workflowRunId must not be blank"
         }
 
         val resolverInput = context.copy(
-            correlationId = normalizedCorrelationId,
-            workflowRunId = normalizedWorkflowRunId,
+            correlationId = correlationId,
+            workflowRunId = workflowRunId,
         )
         val raw = streamIdResolver.resolve(resolverInput).trim()
         require(raw.isNotEmpty()) {
@@ -116,7 +117,7 @@ class AuditEngineDlpRedactionAuditEmitter(
             require(redaction.replacementCount > 0) {
                 "DLP replacement count must be greater than zero"
             }
-            val normalizedRuleId = normalizeRuleId(redaction.ruleId)
+            val normalizedRuleId = DlpRuleIdNormalizer.normalize(redaction.ruleId)
             val existing = grouped[normalizedRuleId] ?: 0L
             val updated = existing + redaction.replacementCount.toLong()
             require(updated >= existing) {
@@ -133,15 +134,6 @@ class AuditEngineDlpRedactionAuditEmitter(
                     replacementCount = replacementCount,
                 )
             }
-    }
-
-    private fun normalizeRuleId(ruleId: String): String {
-        val normalized = ruleId.trim()
-        require(normalized.isNotEmpty()) { "DLP rule ID must not be blank" }
-        require(normalized == ruleId) { "DLP rule ID must not contain surrounding whitespace" }
-        require(normalized.length <= MAX_RULE_ID_LENGTH) { "DLP rule ID exceeds maximum length of 128" }
-        require(SAFE_RULE_ID.matches(normalized)) { "DLP rule ID is invalid" }
-        return normalized
     }
 
     private fun buildSharedMetadata(context: DlpContext): Map<String, String> {
@@ -191,7 +183,6 @@ class AuditEngineDlpRedactionAuditEmitter(
         private const val DECISION_REDACTED = "REDACTED"
         private const val REASON_CODE_REDACTION_APPLIED = "dlp_redaction_applied"
         private const val MAX_STREAM_ID_LENGTH = 256
-        private const val MAX_RULE_ID_LENGTH = 128
         private const val MAX_METADATA_ENTRIES = 16
         private const val MAX_KEY_LENGTH = 64
         private const val MAX_VALUE_LENGTH = 256
@@ -206,6 +197,5 @@ class AuditEngineDlpRedactionAuditEmitter(
         private const val METADATA_TOOL_NAME = "toolName"
         private const val METADATA_CLASSIFICATION = "classification"
         private const val METADATA_CLASSIFICATION_SOURCE = "classificationSource"
-        private val SAFE_RULE_ID = Regex("[a-z0-9][a-z0-9._:-]{0,127}")
     }
 }

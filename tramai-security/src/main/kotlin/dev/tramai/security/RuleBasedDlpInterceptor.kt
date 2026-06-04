@@ -5,6 +5,7 @@ import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpRedaction
 import dev.tramai.core.security.DlpResult
+import dev.tramai.core.security.DlpRuleIdNormalizer
 import java.util.regex.Matcher
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
@@ -34,7 +35,7 @@ class RuleBasedDlpInterceptor(
         require(configuration.maxTextLength <= 10_000_000) { "maxTextLength exceeds maximum allowed value" }
         val ids = mutableSetOf<String>()
         compiledRules = configuration.rules.map { rule ->
-            val normalizedId = normalizeRuleId(rule.id)
+            val normalizedId = DlpRuleIdNormalizer.normalize(rule.id)
             require(ids.add(normalizedId)) { "Duplicate DLP rule ID" }
             require(rule.pattern.isNotBlank()) { "DLP rule pattern must not be blank" }
             require(rule.enabledFor.isNotEmpty()) { "DLP rule must have at least one enabled content type" }
@@ -76,7 +77,7 @@ class RuleBasedDlpInterceptor(
                     "DLP rule produced an unsafe zero-width match"
                 }
                 val matchedValue = matcher.group()
-                require(!rule.replacement.contains(matchedValue)) {
+                require(!rule.replacement.lowercase().contains(matchedValue.lowercase())) {
                     "DLP replacement preserves matched content"
                 }
                 matcher.appendReplacement(sb, Matcher.quoteReplacement(rule.replacement))
@@ -100,17 +101,4 @@ class RuleBasedDlpInterceptor(
         val enabledFor: Set<DlpContentType>,
         val toolNames: Set<String>,
     )
-
-    companion object {
-        private const val MAX_RULE_ID_LENGTH = 128
-        private val SAFE_RULE_ID = Regex("[a-z0-9][a-z0-9._:-]{0,127}")
-
-        private fun normalizeRuleId(ruleId: String): String {
-            require(ruleId.isNotBlank()) { "DLP rule ID must not be blank" }
-            require(ruleId == ruleId.trim()) { "DLP rule ID must not contain surrounding whitespace" }
-            require(ruleId.length <= MAX_RULE_ID_LENGTH) { "DLP rule ID exceeds maximum length of 128" }
-            require(SAFE_RULE_ID.matches(ruleId)) { "DLP rule ID is invalid" }
-            return ruleId
-        }
-    }
 }
