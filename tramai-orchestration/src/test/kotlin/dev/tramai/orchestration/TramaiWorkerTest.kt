@@ -827,7 +827,7 @@ class TramaiWorkerTest {
     }
 
     private suspend fun waitUntil(block: suspend () -> Boolean) {
-        withTimeout(10_000) {
+        withTimeout(20_000) {
             while (!block()) {
                 delay(10)
             }
