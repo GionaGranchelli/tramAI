@@ -17,6 +17,8 @@ import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.PromptSanitizer
+import dev.tramai.core.policy.PolicyDecisionAuditEmitter
+import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.NoOpOperationResponseCache
 import dev.tramai.engine.OperationResponseCache
@@ -48,6 +50,7 @@ class Tramai private constructor(
     private val engineEventObserver: EngineEventObserver,
     private val promptSanitizer: PromptSanitizer?,
     private val chatMemory: ChatMemory?,
+    private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
 ) {
     /**
      * Creates a service proxy using the built-in Jackson structured output handler.
@@ -67,6 +70,7 @@ class Tramai private constructor(
         engineEventObserver = engineEventObserver,
         promptSanitizer = promptSanitizer,
         chatMemory = chatMemory,
+        policyDecisionAuditEmitter = policyDecisionAuditEmitter,
     ).create(serviceType)
 
     companion object {
@@ -95,6 +99,7 @@ class Tramai private constructor(
         private var promptSanitizer: PromptSanitizer? = null
         private val handler = JacksonStructuredOutputHandler()
         private var chatMemory: ChatMemory? = null
+        private var policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter
 
         /**
          * Registers a provider with an optional explicit [name].
@@ -246,6 +251,17 @@ class Tramai private constructor(
         }
 
         /**
+         * Configures the audit emitter for policy decisions.
+         *
+         * When set, every policy evaluation emits a hash-chained audit event
+         * through the configured emitter before the decision is enforced.
+         * Defaults to [NoOpPolicyDecisionAuditEmitter] when not set.
+         */
+        fun policyDecisionAudit(emitter: PolicyDecisionAuditEmitter): Builder = apply {
+            this.policyDecisionAuditEmitter = emitter
+        }
+
+        /**
          * Builds an immutable standalone Tramai instance.
          */
         fun build(): Tramai = Tramai(
@@ -262,6 +278,7 @@ class Tramai private constructor(
             engineEventObserver = engineEventObserver,
             promptSanitizer = promptSanitizer,
             chatMemory = chatMemory,
+            policyDecisionAuditEmitter = policyDecisionAuditEmitter,
         )
     }
 }

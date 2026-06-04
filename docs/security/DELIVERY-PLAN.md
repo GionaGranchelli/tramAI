@@ -674,12 +674,62 @@ Epics 1, 2, 2B, 3, and 4 can partially overlap. Epic 5 requires the relevant ver
 - `AuditChainVerifier` — verifies stream consistency, schema/hashAlgorithm consistency, unique eventIds, sequence continuity, hash chain, and hash recalculation
 - Deterministic canonical JSON serializer (manual `StringBuilder`, no third-party lib) with stable field ordering, sorted metadata keys, explicit null serialization, and ISO-8601 UTC timestamps
 
-**Deferred to PR #12:**
-- Audit emission hooks in DefaultPolicyEngine enforcement points (BEFORE_PROVIDER_INVOCATION, BEFORE_FALLBACK, BEFORE_TOOL_EXECUTION, BEFORE_RESPONSE_RETURN)
+**Deferred to PR #12 (completed):**
+- ✅ **Centralized audit emission in PolicyEnforcementHelper.enforce()** — all 8 mandatory enforcement points produce hash-chained events
+- ✅ **PolicyDecisionAuditEmitter SPI** — covers DefaultPolicyEngine and custom implementations
+- ✅ **AuditEnginePolicyDecisionAuditEmitter** with safe metadata allowlist and stable stream ID
+- ✅ **NoOpPolicyDecisionAuditEmitter** for backward compatibility
+- ✅ **Standalone builder and Spring auto-configuration** wiring
+
+**Deferred to follow-up PRs:**
 - AuditMode enum (MINIMAL/DECISION_ONLY/FULL) and PolicyConfiguration wiring
-- AuditEngine wiring in TramaiEngine with fail modes (FAIL_CLOSED / FAIL_SAFE_READ_ONLY)
+- Configurable audit failure modes (FAIL_SAFE_READ_ONLY)
+- Durable offline buffer and buffer limits
+- Storage-full strategy
 - DLP redaction audit bridge (2B.4)
-- File store / database store implementations
+- Approval audit events (Epic 3 integration)
+- File store and database store implementations
+- Audit retention and governance UI
+
+---
+
+## Implementation Notes — Runtime Policy Decision Audit Wiring (PR 12) ✅
+
+**Branch:** `feat/audit-policy-decision-wiring`
+
+**Central audit-emission boundary:** `PolicyEnforcementHelper.enforce()` — the mandatory shared runtime enforcement path through which every policy evaluation passes.
+
+**Architecture:**
+- `PolicyDecisionAuditEmitter` SPI in `tramai-core` with `NoOpPolicyDecisionAuditEmitter`
+- `AuditEnginePolicyDecisionAuditEmitter` in `tramai-security` backed by `AuditEngine`
+- `AuditStreamIdResolver` resolves stable stream ID: `workflowRunId > correlationId > generated`
+- Wiring at `PolicyEnforcementHelper.enforce()`: evaluate policy → audit synchronously → then enforce side effects
+- Standalone builder (`Tramai.Builder.policyDecisionAudit()`) and Spring auto-configuration (`ObjectProvider<PolicyDecisionAuditEmitter>`)
+
+**Enforcement points covered:**
+- All 8 `EnforcementPoint` values: BEFORE_PROVIDER_RESOLUTION, BEFORE_PROVIDER_INVOCATION, BEFORE_FALLBACK, BEFORE_TOOL_EXPOSURE, BEFORE_TOOL_EXECUTION, BEFORE_TOOL_RESULT_REINJECTION, BEFORE_RESPONSE_RETURN, BEFORE_WORKFLOW_RESUME
+
+**Decision mapping:**
+| PolicyDecision | audit decision | audit reasonCode |
+|---------------|----------------|------------------|
+| ALLOW | `"ALLOW"` | `"policy_allowed"` |
+| DENY | `"DENY"` | `decision.reasonCode` |
+| REQUIRE_APPROVAL | `"REQUIRE_APPROVAL"` | `"policy_requires_approval"` |
+
+**Ordering:**
+- ALLOW: evaluate → audit → proceed
+- DENY: evaluate → audit → throw PolicyViolationException
+- REQUIRE_APPROVAL: evaluate → audit → throw ApprovalRequiredException
+
+**Safe metadata allowlist (bounded to 256 chars, max 16 entries):**
+- providerName, modelName, toolName, classification, classificationSource, riskLevel, fallbackProviderName, targetDestination, selected attributes (prefixed `attr_`)
+
+**Failure behavior:** Fail-closed by propagation — when a configured emitter fails, the exception propagates before the protected operation proceeds. Default unconfigured behavior uses `NoOpPolicyDecisionAuditEmitter`.
+
+**Tests:** 10+ tests covering:
+- Emitter unit tests: ALLOW, DENY, enforcement point mapping, stream ID stability, chain integrity, safe metadata
+- Enforcement boundary tests: exactly-once ALLOW/DENY, audit failure propagation, NoOp backward compatibility
+- Security/tool-result/standalone/Spring wiring tests
 
 ---
 

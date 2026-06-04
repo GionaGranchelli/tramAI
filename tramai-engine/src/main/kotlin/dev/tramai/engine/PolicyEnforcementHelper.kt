@@ -5,6 +5,8 @@ import dev.tramai.core.exception.ApprovalRequiredException
 import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.core.policy.PolicyContext
 import dev.tramai.core.policy.PolicyDecision
+import dev.tramai.core.policy.PolicyDecisionAuditEmitter
+import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
 import dev.tramai.core.policy.PolicyEngine
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -26,6 +28,7 @@ internal class PolicyEnforcementHelper(
     private val migrationWarningGuard: AtomicBoolean,
     private val policyVersion: String = DEFAULT_POLICY_VERSION,
     private val isLegacyFallback: Boolean = false,
+    private val auditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
 ) {
     private val logger = Logger.getLogger(PolicyEnforcementHelper::class.java.name)
 
@@ -35,7 +38,11 @@ internal class PolicyEnforcementHelper(
     suspend fun enforce(context: PolicyContext) {
         logMigrationWarningOnce()
 
-        when (val decision = policyEngine.evaluate(context)) {
+        val decision = policyEngine.evaluate(context)
+        // Audit BEFORE enforcement — synchronously persist the event
+        auditEmitter.emit(context.enforcementPoint, context, decision)
+        // Then enforce
+        when (decision) {
             is PolicyDecision.Allow -> { /* continue */ }
             is PolicyDecision.Deny -> throw PolicyViolationException(decision)
             is PolicyDecision.RequireApproval -> throw ApprovalRequiredException(decision.requirement)
