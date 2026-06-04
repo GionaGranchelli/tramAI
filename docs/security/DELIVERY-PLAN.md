@@ -601,7 +601,7 @@ PENDING ──┬── Approve ──→ APPROVED (terminal)
 - `status == PENDING` (no pre-set status)
 - No decision fields set (`decidedBy`, `decidedAt`, `decisionComment` must be null)
 - All ID/binding fields: non-blank, ≤ max length, no surrounding whitespace
-- All digests: valid SHA-256 format via `Sha256Digest.validate()`
+- All digests: valid SHA-256 format via `Sha256Digest.of()`
 - Expiry: must be in the future and after `requestedAt`
 - Atomic insert: `putIfAbsent` rejects duplicates
 

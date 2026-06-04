@@ -190,14 +190,14 @@ enum class ClassificationSource { DECLARED, RULE_BASED, LOCAL_MODEL_ASSISTED }
 data class ApprovalBinding(
     val workflowRunId: String,
     val toolName: String,
-    val argumentsDigest: String,
+    val argumentsDigest: Sha256Digest,
     val policyVersion: String,
-    val workflowDigest: String,
-    val approvalTokenDigest: String,
+    val workflowDigest: Sha256Digest,
+    val approvalTokenDigest: Sha256Digest,
 )
 ```
 
-All fields are non-nullable. `argumentsDigest`, `workflowDigest`, and `approvalTokenDigest` are validated as SHA-256 format (`sha256:<64 hex chars>`) via `Sha256Digest.validate()`.
+All fields are non-nullable. `argumentsDigest`, `workflowDigest`, and `approvalTokenDigest` are validated as SHA-256 format (`sha256:<64 hex chars>`) via `Sha256Digest.of()`.
 
 ### ApprovalRequest
 
@@ -245,7 +245,7 @@ sealed interface ApprovalTransition {
 @JvmInline
 value class Sha256Digest(val value: String) {
     companion object {
-        fun validate(digest: String): String  // requires format ^sha256:[0-9a-f]{64}$
+        fun of(raw: String): Sha256Digest  // requires format ^sha256:[0-9a-f]{64}$
     }
 }
 ```

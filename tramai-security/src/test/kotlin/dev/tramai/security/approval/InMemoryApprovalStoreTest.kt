@@ -5,6 +5,7 @@ import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.IllegalApprovalTransitionException
+import dev.tramai.core.approval.Sha256Digest
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
@@ -38,10 +39,10 @@ class InMemoryApprovalStoreTest {
         approvalId: String = "req-1",
         workflowRunId: String = "wf-run-1",
         toolName: String = "search-tool",
-        argumentsDigest: String = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        argumentsDigest: Sha256Digest = Sha256Digest.of("sha256:0000000000000000000000000000000000000000000000000000000000000000"),
         policyVersion: String = "v1",
-        workflowDigest: String = "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-        approvalTokenDigest: String = "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        workflowDigest: Sha256Digest = Sha256Digest.of("sha256:1111111111111111111111111111111111111111111111111111111111111111"),
+        approvalTokenDigest: Sha256Digest = Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
         requestedBy: String = "user-1",
         expiresAt: Instant = fixedClock.instant().plusSeconds(3600),
         version: Long = 0L,
@@ -337,39 +338,19 @@ class InMemoryApprovalStoreTest {
     }
 
     @Test
-    fun `blank argumentsDigest throws IllegalArgumentException mentioning invalid digest`() = runBlocking {
-        val request = aPendingRequest(argumentsDigest = "")
+    fun `blank requestedBy throws IllegalArgumentException`() = runBlocking {
+        val request = aPendingRequest(requestedBy = "")
         assertThatIllegalArgumentException()
             .isThrownBy { runBlocking { store.create(request) } }
-            .withMessageContaining("Invalid digest format")
-    }
-
-    // -----------------------------------------------------------------------
-    // Validation: SHA-256 digest format
-    // -----------------------------------------------------------------------
-
-    @Test
-    fun `invalid argumentsDigest format throws IllegalArgumentException`() = runBlocking {
-        val request = aPendingRequest(argumentsDigest = "sha256:xyz")
-        assertThatIllegalArgumentException()
-            .isThrownBy { runBlocking { store.create(request) } }
-            .withMessageContaining("Invalid digest format")
+            .withMessageContaining("must not be blank")
     }
 
     @Test
-    fun `invalid workflowDigest format throws IllegalArgumentException`() = runBlocking {
-        val request = aPendingRequest(workflowDigest = "sha256:xyz")
+    fun `initial request with decisionComment set throws IllegalArgumentException`() = runBlocking {
+        val request = aPendingRequest().copy(decisionComment = "should not be set")
         assertThatIllegalArgumentException()
             .isThrownBy { runBlocking { store.create(request) } }
-            .withMessageContaining("Invalid digest format")
-    }
-
-    @Test
-    fun `invalid approvalTokenDigest format throws IllegalArgumentException`() = runBlocking {
-        val request = aPendingRequest(approvalTokenDigest = "sha256:xyz")
-        assertThatIllegalArgumentException()
-            .isThrownBy { runBlocking { store.create(request) } }
-            .withMessageContaining("Invalid digest format")
+            .withMessageContaining("must not have decisionComment set")
     }
 
     // -----------------------------------------------------------------------
@@ -677,18 +658,6 @@ class InMemoryApprovalStoreTest {
     }
 
     // -----------------------------------------------------------------------
-    // Blank requestedBy
-    // -----------------------------------------------------------------------
-
-    @Test
-    fun `blank requestedBy throws IllegalArgumentException`() = runBlocking {
-        val request = aPendingRequest(requestedBy = "")
-        assertThatIllegalArgumentException()
-            .isThrownBy { runBlocking { store.create(request) } }
-            .withMessageContaining("must not be blank")
-    }
-
-    // -----------------------------------------------------------------------
     // decidedBy validation on transitions
     // -----------------------------------------------------------------------
 
@@ -724,5 +693,17 @@ class InMemoryApprovalStoreTest {
                 runBlocking { store.transition("req-1", 0L, ApprovalTransition.Approve(longName)) }
             }
             .withMessageContaining("exceeds maximum length")
+    }
+
+    @Test
+    fun `deny with oversize decidedBy throws IllegalArgumentException`() = runBlocking {
+        store.create(aPendingRequest())
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.transition("req-1", 0L, ApprovalTransition.Deny("a".repeat(257)))
+                }
+            }
+            .withMessageContaining("decidedBy exceeds maximum length")
     }
 }

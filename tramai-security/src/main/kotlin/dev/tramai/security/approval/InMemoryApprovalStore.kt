@@ -5,7 +5,6 @@ import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.IllegalApprovalTransitionException
-import dev.tramai.core.approval.Sha256Digest
 import java.time.Clock
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -31,39 +30,16 @@ class InMemoryApprovalStore(
         require(request.decisionComment == null) { "Initial approval must not have decisionComment set" }
 
         // Approval ID
-        val normalizedId = request.approvalId.trim()
-        require(normalizedId.isNotBlank()) { "approvalId must not be blank" }
-        require(normalizedId.length <= maxIdLength) { "approvalId exceeds maximum length of $maxIdLength" }
-        require(normalizedId == request.approvalId) { "approvalId must not contain surrounding whitespace" }
+        validateIdField(request.approvalId, "approvalId", maxIdLength)
 
         // Requested by
-        val normalizedRequester = request.requestedBy.trim()
-        require(normalizedRequester.isNotBlank()) { "requestedBy must not be blank" }
-        require(normalizedRequester.length <= maxIdLength) { "requestedBy exceeds maximum length of $maxIdLength" }
-        require(normalizedRequester == request.requestedBy) { "requestedBy must not contain surrounding whitespace" }
+        validateIdField(request.requestedBy, "requestedBy", maxIdLength)
 
         // Binding fields
         val binding = request.binding
-        val normalizedWorkflowRunId = binding.workflowRunId.trim()
-        require(normalizedWorkflowRunId.isNotBlank()) { "workflowRunId must not be blank" }
-        require(normalizedWorkflowRunId.length <= maxIdLength) { "workflowRunId exceeds maximum length of $maxIdLength" }
-        require(normalizedWorkflowRunId == binding.workflowRunId) { "workflowRunId must not contain surrounding whitespace" }
-
-        val normalizedToolName = binding.toolName.trim()
-        require(normalizedToolName.isNotBlank()) { "toolName must not be blank" }
-        require(normalizedToolName.length <= maxIdLength) { "toolName exceeds maximum length of $maxIdLength" }
-        require(normalizedToolName == binding.toolName) { "toolName must not contain surrounding whitespace" }
-
-        // Digest validation
-        Sha256Digest.validate(binding.argumentsDigest)
-        Sha256Digest.validate(binding.workflowDigest)
-        Sha256Digest.validate(binding.approvalTokenDigest)
-
-        // Policy version
-        val normalizedPolicyVersion = binding.policyVersion.trim()
-        require(normalizedPolicyVersion.isNotBlank()) { "policyVersion must not be blank" }
-        require(normalizedPolicyVersion.length <= maxIdLength) { "policyVersion exceeds maximum length of $maxIdLength" }
-        require(normalizedPolicyVersion == binding.policyVersion) { "policyVersion must not contain surrounding whitespace" }
+        validateIdField(binding.workflowRunId, "workflowRunId", maxIdLength)
+        validateIdField(binding.toolName, "toolName", maxIdLength)
+        validateIdField(binding.policyVersion, "policyVersion", maxIdLength)
 
         // Expiry: must be in the future
         val now = clock.instant()
@@ -97,16 +73,10 @@ class InMemoryApprovalStore(
 
         // Validate decidedBy for non-timeout transitions
         when (transition) {
-            is ApprovalTransition.Approve -> {
-                val normalized = transition.decidedBy.trim()
-                require(normalized.isNotBlank()) { "decidedBy must not be blank" }
-                require(normalized.length <= maxIdLength) { "decidedBy exceeds maximum length of $maxIdLength" }
-            }
-            is ApprovalTransition.Deny -> {
-                val normalized = transition.decidedBy.trim()
-                require(normalized.isNotBlank()) { "decidedBy must not be blank" }
-                require(normalized.length <= maxIdLength) { "decidedBy exceeds maximum length of $maxIdLength" }
-            }
+            is ApprovalTransition.Approve ->
+                validateIdField(transition.decidedBy, "decidedBy", maxIdLength)
+            is ApprovalTransition.Deny ->
+                validateIdField(transition.decidedBy, "decidedBy", maxIdLength)
             is ApprovalTransition.Timeout -> {}
         }
 
@@ -167,7 +137,6 @@ class InMemoryApprovalStore(
                 // Not expired: timeout is NOT allowed, approve and deny are fine
                 when (transition) {
                     is ApprovalTransition.Approve -> {
-                        require(now < current.expiresAt) { "Cannot approve approval before expiry" }
                         ApprovalStatus.APPROVED
                     }
                     is ApprovalTransition.Deny -> ApprovalStatus.DENIED
@@ -195,5 +164,13 @@ class InMemoryApprovalStore(
                 "approval already timed out",
             )
         }
+    }
+
+    private fun validateIdField(value: String, fieldName: String, maxLength: Int): String {
+        val trimmed = value.trim()
+        require(trimmed.isNotBlank()) { "$fieldName must not be blank" }
+        require(trimmed.length <= maxLength) { "$fieldName exceeds maximum length of $maxLength" }
+        require(trimmed == value) { "$fieldName must not contain surrounding whitespace" }
+        return trimmed
     }
 }
