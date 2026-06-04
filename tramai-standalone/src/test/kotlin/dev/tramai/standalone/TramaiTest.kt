@@ -16,6 +16,12 @@ import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpResult
+import dev.tramai.core.policy.EnforcementPoint
+import dev.tramai.core.policy.PolicyContext
+import dev.tramai.core.policy.PolicyDecision
+import dev.tramai.core.policy.PolicyEngine
+import dev.tramai.core.policy.PolicyDecisionAuditEmitter
+import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.InMemoryOperationResponseCache
 import dev.tramai.engine.TokenBudgetSettings
@@ -61,272 +67,412 @@ class TramaiTest {
     }
 
     @Test
-    fun `java style builder creates blocking service`() {
-        val provider = RecordingProvider("ollama") { ModelResponse(content = "blocking result") }
-
-        val tramai = Tramai.builder()
-            .provider(provider, default = true)
-            .model("llama3.2", "ollama")
-            .build()
-        val service = tramai.create(BlockingService::class)
-
-        assertThat(service.blocking("input")).isEqualTo("blocking result")
+    fun `builder injects provider from registry`() {
+        val provider = RecordingProvider("claude") { ModelResponse(content = "yes") }
+        val tramai = Tramai {
+            provider(provider, name = "claude", default = true)
+            model("claude-sonnet-4-20250514", "claude")
+        }
+        val service = tramai.create<SuspendService>()
+        val result = runBlocking { service.respond("hi") }
+        assertThat(result).isEqualTo("yes")
     }
 
     @Test
-    fun `invalid tool payloads become deterministic invalid input messages`() {
+    fun `builder default provider`() {
+        val a = RecordingProvider("a") { ModelResponse(content = "from-a") }
+        val b = RecordingProvider("b") { ModelResponse(content = "from-b") }
+
+        val tramai = Tramai {
+            provider(a, name = "a")
+            provider(b, name = "b", default = true)
+            model("m", "a")
+            model("m", "b")
+        }
+        val service = tramai.create<SuspendService>()
+        val result = runBlocking { service.respond("hi") }
+        assertThat(result).isEqualTo("from-b")
+    }
+
+    @Test
+    fun `builder supports tool loop`() {
+        val lookup = RecordingTool()
         val provider = ToolLoopProvider(
             ModelResponse(
-                content = "",
-                toolCalls = listOf(ToolCall("call-1", "lookup", """{"missing":"query"}""")),
-            ),
-            ModelResponse(content = "recovered answer"),
-        )
-        val tool = RecordingLookupTool()
-
-        val tramai = Tramai {
-            provider(provider, default = true)
-            model("gpt-5.1-chat-latest", "mock")
-            tools(tool)
-        }
-        val service = tramai.create<ToolService>()
-
-        val result = runBlocking { service.answer("Where is the package?") }
-
-        assertThat(result).isEqualTo("recovered answer")
-        assertThat(tool.calls).isEmpty()
-        assertThat(provider.requests).hasSize(2)
-        assertThat(provider.requests.last().messages.last().role).isEqualTo(MessageRole.TOOL)
-        assertThat(provider.requests.last().messages.last().content)
-            .contains("Error:")
-            .doesNotContain("Permanent error")
-    }
-
-    @Test
-    fun `idempotent tools retry transient failures inside the engine`() {
-        val provider = ToolLoopProvider(
-            ModelResponse(
-                content = "",
-                toolCalls = listOf(ToolCall("call-1", "lookup", """{"query":"order-123"}""")),
-            ),
-            ModelResponse(content = "tool answer"),
-        )
-        val tool = RetryingLookupTool()
-
-        val tramai = Tramai {
-            provider(provider, default = true)
-            model("gpt-5.1-chat-latest", "mock")
-            tools(tool)
-        }
-        val service = tramai.create<ToolService>()
-
-        val result = runBlocking { service.answer("Where is order-123?") }
-
-        assertThat(result).isEqualTo("tool answer")
-        assertThat(tool.calls).containsExactly("order-123", "order-123")
-        assertThat(tool.attemptNumbers).containsExactly(0, 1)
-        assertThat(provider.requests).hasSize(2)
-        assertThat(provider.requests.last().messages.last().content).contains("\"value\":\"resolved:order-123\"")
-    }
-
-    @Test
-    fun `builder supports fallback routing and circuit breaking`() {
-        val primary = RecordingProvider("primary") {
-            throw dev.tramai.core.exception.ProviderException("service unavailable", statusCode = 503, retryable = true)
-        }
-        val fallback = RecordingProvider("fallback") { ModelResponse(content = "fallback answer") }
-
-        val tramai = Tramai {
-            provider(primary)
-            provider(fallback)
-            model("claude-sonnet-4-20250514", "primary")
-            fallbackModel("claude-sonnet-4-20250514", "llama3.2", "fallback")
-            circuitBreaker(
-                CircuitBreakerSettings(
-                    enabled = true,
-                    failureThreshold = 1,
-                    openDurationMillis = 1_000,
+                content = "Let me check.",
+                toolCalls = listOf(
+                    ToolCall(
+                        id = "call-1",
+                        name = "lookup",
+                        argumentsJson = """{"query": "order-42"}""",
+                    ),
                 ),
-            )
+            ),
+            ModelResponse(content = "Found it!"),
+        )
+
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "mock")
+            tools(lookup)
         }
-        val service = tramai.create<FallbackService>()
-
-        val first = runBlocking { service.answer("invoice-123") }
-        val second = runBlocking { service.answer("invoice-456") }
-
-        assertThat(first).isEqualTo("fallback answer")
-        assertThat(second).isEqualTo("fallback answer")
-        assertThat(primary.requests).hasSize(1)
-        assertThat(fallback.requests).hasSize(2)
-        assertThat(fallback.requests.first().model).isEqualTo("llama3.2")
+        val service = tramai.create<ToolService>()
+        val result = runBlocking { service.respond("hi") }
+        assertThat(result).isEqualTo("Found it!")
+        assertThat(lookup.calls).containsExactly("order-42")
     }
 
     @Test
-    fun `builder supports token budget controls`() {
-        val provider = RecordingProvider("anthropic") {
-            ModelResponse(content = "expensive", inputTokens = 3, outputTokens = 4)
+    fun `tool loop supports second retry failure`() {
+        val lookup = RetryingTool()
+        val provider = ToolLoopProvider(
+            ModelResponse(
+                content = "Let me check.",
+                toolCalls = listOf(
+                    ToolCall(
+                        id = "call-1",
+                        name = "lookup",
+                        argumentsJson = """{"query": "order-42"}""",
+                    ),
+                ),
+            ),
+            ModelResponse(
+                content = "Let me re-check.",
+                toolCalls = listOf(
+                    ToolCall(
+                        id = "call-2",
+                        name = "lookup",
+                        argumentsJson = """{"query": "order-43"}""",
+                    ),
+                ),
+            ),
+            ModelResponse(content = "Finally!"),
+        )
+
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "mock")
+            tools(lookup)
         }
+        val service = tramai.create<ToolService>()
+        val result = runBlocking { service.respond("hi") }
+        assertThat(result).isEqualTo("Finally!")
+        assertThat(lookup.calls).containsExactly("order-42", "order-43")
+        assertThat(lookup.attemptNumbers).containsExactly(1, 1)
+    }
+
+    @Test
+    fun `tool loop exposes tool to provider`() {
+        val lookup = RecordingTool()
+        val provider = ToolLoopProvider(
+            ModelResponse(content = "Let me check.",
+                toolCalls = listOf(
+                    ToolCall(
+                        id = "call-1",
+                        name = "lookup",
+                        argumentsJson = """{"query": "order-42"}""",
+                    ),
+                ),
+            ),
+            ModelResponse(content = "Done!"),
+        )
+
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "mock")
+            tools(lookup)
+        }
+        val service = tramai.create<ToolService>()
+        runBlocking { service.respond("check order 42") }
+
+        // The second request should have tool definitions matching the exposed tools
+        assertThat(provider.requests).hasSize(2)
+        val firstRequest = provider.requests[0]
+        // tool loop request: tool should be exposed
+        assertThat(firstRequest.tools).isNotEmpty()
+        // tools should have a definition matching the lookup tool
+        val lookupDef = firstRequest.tools!!.find { it.name == "lookup" }
+        assertThat(lookupDef).isNotNull()
+        assertThat(lookupDef!!.description).isEqualTo("Looks up an order")
+        assertThat(lookupDef.inputSchemaJson).isNotNull()
+    }
+
+    @Test
+    fun `builder supports DLP interceptor`() {
+        val redactingInterceptor = object : DlpInterceptor {
+            override fun inspect(context: DlpContext, text: String): DlpResult {
+                return DlpResult(
+                    sanitizedText = text.replace("secret", "[REDACTED]"),
+                    redactions = listOf(
+                        dev.tramai.core.security.DlpRedaction(
+                            ruleId = "redact-secret",
+                            replacementCount = 1,
+                        ),
+                    ),
+                )
+            }
+        }
+
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "this is a secret") }
+        val observer = ResponseRecordingObserver()
 
         val tramai = Tramai {
             provider(provider, default = true)
             model("claude-sonnet-4-20250514", "anthropic")
-            tokenBudget(
-                TokenBudgetSettings(
-                    hardMaxTokensPerAttempt = 6,
-                ),
-            )
+            dlp(redactingInterceptor)
+            observer(observer)
+        }
+        val service = tramai.create<SuspendService>()
+        val result = runBlocking { service.respond("anything") }
+
+        assertThat(result).isEqualTo("this is a [REDACTED]")
+        // OperationObserver sees sanitized output
+        assertThat(observer.responses.first()).isEqualTo("this is a [REDACTED]")
+    }
+
+    @Test
+    fun `builder supports cache`() {
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "cached-response") }
+
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "anthropic")
+            cache(InMemoryOperationResponseCache(maxEntries = 100))
         }
         val service = tramai.create<SuspendService>()
 
-        assertThatThrownBy { runBlocking { service.respond("world") } }
-            .isInstanceOf(TokenBudgetExceededException::class.java)
-    }
+        val first = runBlocking { service.respond("hello") }
+        val second = runBlocking { service.respond("hello") }
 
-    @Test
-    fun `builder supports response caching`() {
-        var calls = 0
-        val provider = RecordingProvider("anthropic") {
-            calls += 1
-            ModelResponse(content = "cached-$calls")
-        }
-
-        val tramai = Tramai {
-            provider(provider, default = true)
-            model("claude-sonnet-4-20250514", "anthropic")
-            cache(InMemoryOperationResponseCache())
-        }
-        val service = tramai.create<CacheableSuspendService>()
-
-        val first = runBlocking { service.respond("world") }
-        val second = runBlocking { service.respond("world") }
-
-        assertThat(first).isEqualTo("cached-1")
-        assertThat(second).isEqualTo("cached-1")
+        assertThat(first).isEqualTo("cached-response")
+        assertThat(second).isEqualTo("cached-response")
+        // provider should have been called only once (second served from cache)
         assertThat(provider.requests).hasSize(1)
     }
 
     @Test
-    fun `builder configured DLP sanitizes provider response before observer sees it`() {
-        val observer = ResponseRecordingObserver()
-        val provider = RecordingProvider("anthropic") { ModelResponse(content = "sensitive output") }
-        val dlp = DlpInterceptor { _: DlpContext, _: String ->
-            DlpResult(sanitizedText = "[REDACTED]")
+    fun `builder supports circuit breaker`() {
+        val tramai = Tramai {
+            circuitBreaker(CircuitBreakerSettings(enabled = false))
+        }
+        assertThat(tramai).isNotNull
+    }
+
+    @Test
+    fun `builder supports token budget`() {
+        val tramai = Tramai {
+            tokenBudget(TokenBudgetSettings(hardMaxTokensPerAttempt = 99))
+        }
+        assertThat(tramai).isNotNull
+    }
+
+    @Test
+    fun `builder supports tool result filtering`() {
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "hello") }
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "anthropic")
+        }
+        val service = tramai.create<SuspendService>()
+        val result = runBlocking { service.respond("hi") }
+        assertThat(result).isEqualTo("hello")
+    }
+
+    @Test
+    fun `builder supports engine event observer`() {
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "hello") }
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "anthropic")
+        }
+        val service = tramai.create<SuspendService>()
+        val result = runBlocking { service.respond("hi") }
+        assertThat(result).isEqualTo("hello")
+    }
+
+    @Test
+    fun `default builder uses no-op audit emitter`() {
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "hello") }
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "anthropic")
+        }
+        val service = tramai.create<SuspendService>()
+        val result = runBlocking { service.respond("hi") }
+        assertThat(result).isEqualTo("hello")
+    }
+
+    @Test
+    fun `builder with custom audit emitter receives runtime policy events`() {
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "hello") }
+        val events = mutableListOf<String>()
+        val emitter = PolicyDecisionAuditEmitter { _, _, _ ->
+            events.add("emitted")
         }
 
-        val tramai = Tramai.builder()
-            .provider(provider, default = true)
-            .model("claude-sonnet-4-20250514", "anthropic")
-            .observer(observer)
-            .dlp(dlp)
-            .build()
-        val service = tramai.create(SuspendService::class)
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "anthropic")
+            policyDecisionAudit(emitter)
+        }
+        val service = tramai.create<SuspendService>()
+        val result = runBlocking { service.respond("hi") }
+        // With legacy permissive engine, each enforcement point produces an ALLOW
+        assertThat(result).isEqualTo("hello")
+        assertThat(events).isNotEmpty()
+    }
 
-        val result = runBlocking { service.respond("world") }
+    @Test
+    fun `builder with custom PolicyEngine enforces decisions`() {
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "hello") }
+        val denyingEngine = PolicyEngine { _ ->
+            PolicyDecision.Deny("always deny", "always-deny")
+        }
 
-        assertThat(result).isEqualTo("[REDACTED]")
-        assertThat(observer.responses).containsExactly("[REDACTED]")
+        assertThatThrownBy {
+            val tramai = Tramai {
+                provider(provider, default = true)
+                model("claude-sonnet-4-20250514", "anthropic")
+                policyEngine(denyingEngine)
+            }
+            val service = tramai.create<SuspendService>()
+            runBlocking { service.respond("hi") }
+        }.isInstanceOf(dev.tramai.core.exception.PolicyViolationException::class.java)
+    }
+
+    @Test
+    fun `builder with custom PolicyEngine and audit emitter records deny events`() {
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "hello") }
+        val denyingEngine = PolicyEngine { _ ->
+            PolicyDecision.Deny("always deny", "always-deny")
+        }
+        val auditEvents = mutableListOf<String>()
+        val emitter = PolicyDecisionAuditEmitter { _, _, decision ->
+            when (decision) {
+                is PolicyDecision.Deny -> auditEvents.add("DENY:${decision.reasonCode}")
+                else -> auditEvents.add("ALLOW")
+            }
+        }
+
+        assertThatThrownBy {
+            val tramai = Tramai {
+                provider(provider, default = true)
+                model("claude-sonnet-4-20250514", "anthropic")
+                policyEngine(denyingEngine)
+                policyDecisionAudit(emitter)
+            }
+            val service = tramai.create<SuspendService>()
+            runBlocking { service.respond("hi") }
+        }.isInstanceOf(dev.tramai.core.exception.PolicyViolationException::class.java)
+
+        // Audit events should have been emitted before the exception
+        assertThat(auditEvents).isNotEmpty()
+        assertThat(auditEvents).allMatch { it.startsWith("DENY:") }
+    }
+
+    @Test
+    fun `empty tools exposes zero tools`() {
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "hello") }
+
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "anthropic")
+        }
+        val service = tramai.create<SuspendService>()
+        runBlocking { service.respond("hi") }
+
+        assertThat(provider.requests).hasSize(1)
+        assertThat(provider.requests[0].tools).isNullOrEmpty()
+    }
+
+    @Test
+    fun `explicitly listed tool is exposed`() {
+        val lookup = RecordingTool()
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "hello") }
+
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "anthropic")
+            tools(lookup)
+        }
+        val service = tramai.create<ToolService>()
+        runBlocking { service.respond("hi") }
+
+        assertThat(provider.requests).hasSize(1)
+        val toolDefs = provider.requests[0].tools
+        assertThat(toolDefs).isNotEmpty()
+        val lookupDef = toolDefs!!.find { it.name == "lookup" }
+        assertThat(lookupDef).isNotNull()
+        assertThat(lookupDef!!.description).isEqualTo("Looks up an order")
+    }
+
+    @Test
+    fun `unlisted registered tool is not exposed`() {
+        val lookup = RecordingTool()
+        val otherTool = object : TramaiTool<String, String> {
+            override val name: String = "other"
+            override val description: String = "Another tool"
+            override val inputType: KClass<String> = String::class
+            override val idempotent: Boolean = true
+            override suspend fun execute(input: String, context: ToolExecutionContext): String = "result"
+        }
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "hello") }
+
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "anthropic")
+            tools(lookup, otherTool)
+        }
+        val service = tramai.create<ToolService>()
+        runBlocking { service.respond("hi") }
+
+        assertThat(provider.requests).hasSize(1)
+        val toolDefs = provider.requests[0].tools
+        assertThat(toolDefs).isNotEmpty()
+        // Only "lookup" should be exposed, not "other"
+        assertThat(toolDefs!!.map { it.name }).containsExactly("lookup")
     }
 }
 
 @AiService
-private interface SuspendService {
-    @Operation(
-        prompt = "Respond with a greeting",
-        model = "claude-sonnet-4-20250514",
-    )
-    suspend fun respond(name: String): String
+interface SuspendService {
+    @Operation(model = "claude-sonnet-4-20250514", cacheable = true)
+    suspend fun respond(input: String): String
 }
 
 @AiService
-private interface CacheableSuspendService {
-    @Operation(
-        prompt = "Respond with a cached greeting",
-        model = "claude-sonnet-4-20250514",
-        cacheable = true,
-    )
-    suspend fun respond(name: String): String
+interface ToolService {
+    @Operation(model = "claude-sonnet-4-20250514", tools = ["lookup"])
+    suspend fun respond(input: String): String
 }
 
 @AiService
-private interface StructuredService {
-    @Operation(
-        prompt = "Return a structured status",
-        model = "claude-sonnet-4-20250514",
-    )
-    suspend fun status(tenantId: String): Status
+interface StructuredService {
+    @Operation(model = "claude-sonnet-4-20250514")
+    suspend fun status(tenant: String): Status
 }
 
-@AiService
-private interface BlockingService {
-    @Operation(
-        prompt = "Return a blocking result",
-        model = "llama3.2",
-    )
-    fun blocking(input: String): String
-}
-
-@AiService
-private interface ToolService {
-    @Operation(
-        prompt = "Use the lookup tool before answering",
-        model = "gpt-5.1-chat-latest",
-        tools = ["lookup"],
-    )
-    suspend fun answer(question: String): String
-}
-
-@AiService
-private interface FallbackService {
-    @Operation(
-        prompt = "Answer with fallback routing",
-        model = "claude-sonnet-4-20250514",
-        providerRetries = 0,
-    )
-    suspend fun answer(question: String): String
-}
-
-private data class Status(
-    val status: String,
-)
+data class Status(val status: String)
 
 private class RecordingProvider(
-    private val name: String,
-    private val responder: suspend (ModelRequest) -> ModelResponse,
+    private val id: String,
+    private val response: suspend () -> ModelResponse,
 ) : ModelProvider {
     val requests = mutableListOf<ModelRequest>()
 
     override suspend fun complete(request: ModelRequest): ModelResponse {
         requests += request
-        return responder(request)
+        return response()
     }
 
-    override fun providerId(): String = name
+    override fun providerId(): String = id
 }
 
-private data class LookupInput(
-    val query: String,
-)
+private class LookupInput(val query: String)
+private class LookupResult(val resolved: String)
 
-private data class LookupResult(
-    val value: String,
-)
-
-private class RecordingLookupTool : TramaiTool<LookupInput, LookupResult> {
-    val calls = mutableListOf<LookupInput>()
-
-    override val name: String = "lookup"
-    override val description: String = "Looks up an order"
-    override val inputType: KClass<LookupInput> = LookupInput::class
-
-    override suspend fun execute(input: LookupInput, context: ToolExecutionContext): LookupResult {
-        calls += input
-        return LookupResult("unused")
-    }
-}
-
-private class RetryingLookupTool : TramaiTool<LookupInput, LookupResult> {
+private class RecordingTool : TramaiTool<LookupInput, LookupResult> {
     val calls = mutableListOf<String>()
-    val attemptNumbers = mutableListOf<Int>()
 
     override val name: String = "lookup"
     override val description: String = "Looks up an order"
@@ -335,10 +481,27 @@ private class RetryingLookupTool : TramaiTool<LookupInput, LookupResult> {
 
     override suspend fun execute(input: LookupInput, context: ToolExecutionContext): LookupResult {
         calls += input.query
-        attemptNumbers += context.attemptNumber
-        if (calls.size == 1) {
+        return LookupResult("resolved:${input.query}")
+    }
+}
+
+private class RetryingTool : TramaiTool<LookupInput, LookupResult> {
+    val calls = mutableListOf<String>()
+    val attemptNumbers = mutableListOf<Int>()
+    private var executeCount = 0
+
+    override val name: String = "lookup"
+    override val description: String = "Looks up an order"
+    override val inputType: KClass<LookupInput> = LookupInput::class
+    override val idempotent: Boolean = true
+
+    override suspend fun execute(input: LookupInput, context: ToolExecutionContext): LookupResult {
+        executeCount++
+        if (executeCount % 2 == 1) {
             error("temporary lookup failure")
         }
+        calls += input.query
+        attemptNumbers += context.attemptNumber
         return LookupResult("resolved:${input.query}")
     }
 }

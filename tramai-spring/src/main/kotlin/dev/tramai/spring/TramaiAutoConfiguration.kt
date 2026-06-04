@@ -26,6 +26,8 @@ import dev.tramai.engine.TokenBudgetSettings
 import dev.tramai.engine.ToolResultFilteringSettings
 import dev.tramai.engine.EngineEventObserver
 import dev.tramai.engine.NoOpEngineEventObserver
+import dev.tramai.core.policy.PolicyDecisionAuditEmitter
+import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.standalone.Tramai
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory
@@ -51,6 +53,8 @@ class TramaiAutoConfiguration {
         operationInterceptors: ObjectProvider<OperationInterceptor>,
         dlpInterceptors: ObjectProvider<DlpInterceptor>,
         engineEventObservers: ObjectProvider<EngineEventObserver>,
+        auditEmitters: ObjectProvider<PolicyDecisionAuditEmitter>,
+        policyEngines: ObjectProvider<PolicyEngine>,
         secretResolvers: ObjectProvider<SecretValueResolver>,
         applicationContext: org.springframework.context.ApplicationContext,
     ): Tramai {
@@ -104,6 +108,8 @@ class TramaiAutoConfiguration {
                 ?: ToolResultFilteringSettings()
         )
         resolveEngineEventObserver(engineEventObservers)?.let(builder::engineEventObserver)
+        resolvePolicyDecisionAuditEmitter(auditEmitters)?.let(builder::policyDecisionAudit)
+        resolvePolicyEngine(policyEngines)?.let(builder::policyEngine)
 
         // Register property-backed providers first so explicit provider beans can override them when needed.
         resolveSecret(
@@ -322,6 +328,28 @@ class TramaiAutoConfiguration {
 
         throw IllegalArgumentException(
             "Multiple EngineEventObserver beans found (${observers.size}). Define at most one.",
+        )
+    }
+
+    private fun resolvePolicyDecisionAuditEmitter(
+        auditEmitters: ObjectProvider<PolicyDecisionAuditEmitter>,
+    ): PolicyDecisionAuditEmitter? {
+        val emitters = auditEmitters.orderedStream().toList()
+        if (emitters.isEmpty()) return null
+        if (emitters.size == 1) return emitters.single()
+        throw IllegalArgumentException(
+            "Multiple PolicyDecisionAuditEmitter beans found (${emitters.size}). Define at most one.",
+        )
+    }
+
+    private fun resolvePolicyEngine(
+        policyEngines: ObjectProvider<PolicyEngine>,
+    ): PolicyEngine? {
+        val engines = policyEngines.orderedStream().toList()
+        if (engines.isEmpty()) return null
+        if (engines.size == 1) return engines.single()
+        throw IllegalArgumentException(
+            "Multiple PolicyEngine beans found (${engines.size}). Define at most one.",
         )
     }
 

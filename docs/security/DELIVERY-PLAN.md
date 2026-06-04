@@ -674,12 +674,81 @@ Epics 1, 2, 2B, 3, and 4 can partially overlap. Epic 5 requires the relevant ver
 - `AuditChainVerifier` — verifies stream consistency, schema/hashAlgorithm consistency, unique eventIds, sequence continuity, hash chain, and hash recalculation
 - Deterministic canonical JSON serializer (manual `StringBuilder`, no third-party lib) with stable field ordering, sorted metadata keys, explicit null serialization, and ISO-8601 UTC timestamps
 
-**Deferred to PR #12:**
-- Audit emission hooks in DefaultPolicyEngine enforcement points (BEFORE_PROVIDER_INVOCATION, BEFORE_FALLBACK, BEFORE_TOOL_EXECUTION, BEFORE_RESPONSE_RETURN)
+**Deferred to PR #12 (completed):**
+- ✅ **Centralized audit emission in PolicyEnforcementHelper.enforce()** — all 8 mandatory enforcement points produce hash-chained events
+- ✅ **PolicyDecisionAuditEmitter SPI** — covers DefaultPolicyEngine and custom implementations
+- ✅ **AuditEnginePolicyDecisionAuditEmitter** with safe metadata allowlist and stable stream ID
+- ✅ **NoOpPolicyDecisionAuditEmitter** for backward compatibility
+- ✅ **Standalone builder and Spring auto-configuration** wiring
+
+**Deferred to follow-up PRs:**
 - AuditMode enum (MINIMAL/DECISION_ONLY/FULL) and PolicyConfiguration wiring
-- AuditEngine wiring in TramaiEngine with fail modes (FAIL_CLOSED / FAIL_SAFE_READ_ONLY)
+- Configurable audit failure modes (FAIL_SAFE_READ_ONLY)
+- Durable offline buffer and buffer limits
+- Storage-full strategy
 - DLP redaction audit bridge (2B.4)
-- File store / database store implementations
+- Approval audit events (Epic 3 integration)
+- File store and database store implementations
+- Audit retention and governance UI
+- BEFORE_WORKFLOW_RESUME runtime call site (Epic 3 approval workflow)
+- Streaming `BEFORE_RESPONSE_RETURN` semantics clarification (pre-stream egress preflight)
+
+---
+
+## Implementation Notes — Runtime Policy Decision Audit Wiring (PR 12) ✅
+
+**Branch:** `feat/audit-policy-decision-wiring`
+
+**Central audit-emission boundary:** `PolicyEnforcementHelper.enforce()` — the mandatory shared runtime enforcement path through which every policy evaluation passes.
+
+**Architecture:**
+- `PolicyDecisionAuditEmitter` SPI in `tramai-core` with `NoOpPolicyDecisionAuditEmitter`
+- `AuditEnginePolicyDecisionAuditEmitter` in `tramai-security` backed by `AuditEngine`
+- `AuditStreamIdResolver` resolves stable stream ID: `workflowRunId > required non-blank correlationId`
+- Wiring at `PolicyEnforcementHelper.enforce()`: evaluate policy → audit synchronously → then enforce side effects
+- Standalone builder (`Tramai.Builder.policyDecisionAudit()`) and Spring auto-configuration (`ObjectProvider<PolicyDecisionAuditEmitter>`)
+
+**Enforcement points covered (7 active):**
+- BEFORE_PROVIDER_RESOLUTION
+- BEFORE_PROVIDER_INVOCATION
+- BEFORE_FALLBACK
+- BEFORE_TOOL_EXPOSURE
+- BEFORE_TOOL_EXECUTION
+- BEFORE_TOOL_RESULT_REINJECTION
+- BEFORE_RESPONSE_RETURN
+
+⚠️ `BEFORE_WORKFLOW_RESUME` is enumerated in the `EnforcementPoint` enum but has **no active runtime call site** in `TramaiEngine` yet. It is reserved for the approval-resume flow (Epic 3) and will become active when workflow suspension is implemented. All 7 active enforcement points are audited.
+
+**Streaming `BEFORE_RESPONSE_RETURN` semantics:**
+In streaming execution, `BEFORE_RESPONSE_RETURN` is evaluated as an egress preflight *before* `BEFORE_TOOL_EXPOSURE` and `BEFORE_PROVIDER_INVOCATION`. It is not literally "before returning a response" during streaming — it acts as a streaming egress preflight gate. The audit metadata field `enforcementPoint` will read `BEFORE_RESPONSE_RETURN` but the event represents a pre-stream authorization decision, not a post-stream response check.
+
+**Decision mapping:**
+| PolicyDecision | audit decision | audit reasonCode |
+|---------------|----------------|------------------|
+| ALLOW | `"ALLOW"` | `"policy_allowed"` |
+| DENY | `"DENY"` | `decision.reasonCode` |
+| REQUIRE_APPROVAL | `"REQUIRE_APPROVAL"` | `"policy_requires_approval"` |
+
+**Ordering:**
+- ALLOW: evaluate → audit → proceed
+- DENY: evaluate → audit → throw PolicyViolationException
+- REQUIRE_APPROVAL: evaluate → audit → throw ApprovalRequiredException
+
+**Safe metadata allowlist (bounded to 256 chars, max 16 entries):**
+- providerName, modelName, toolName, classification, classificationSource, riskLevel, fallbackProviderName
+- Attributes are filtered through an explicit allowlist: only `cacheReuse` and `fallbackReason` are exported (prefixed `attr_`). All other attributes (prompt, toolArguments, secret, etc.) are dropped.
+- `Deny.reasonCode` is normalized through the `SAFE_REASON_CODE` pattern `[a-z0-9][a-z0-9._:-]{0,127}` — invalid, oversize, or secret-like values are replaced with `"policy_denied"`.
+
+**Failure behavior:** Fail-closed by propagation — when a configured emitter fails, the exception propagates before the protected operation proceeds. Default unconfigured behavior uses `NoOpPolicyDecisionAuditEmitter`.
+
+**Tests:** 30+ tests covering:
+- Emitter unit tests: ALLOW, DENY, enforcement point mapping, stream ID stability, chain integrity, safe metadata, attribute allowlist (prompt/toolArguments dropped, cacheReuse/fallbackReason retained)
+- Reason code normalization: valid, overlong, whitespace, secret-like, newline, empty, digit-starting
+- Stream ID validation: blank workflowRunId falls back to correlationId, both blank throws
+- Leakage tests: no prompt secret, no tool argument secret, no DLP match, no raw model-generated tool name in serialized audit event
+| Enforcement boundary tests: exactly-once ALLOW/DENY, audit failure propagation (6 engine-level fail-closed), NoOp backward compatibility
+- Standalone builder tests: NoOp default, custom emitter receives events, custom PolicyEngine enforces deny, custom PolicyEngine+audit emitter records deny events
+- Spring wiring tests: zero emitter beans preserves default, one emitter bean wired, multiple emitter beans fail fast; zero PolicyEngine beans preserves legacy permissive, one PolicyEngine bean wired, multiple PolicyEngine beans fail fast
 
 ---
 

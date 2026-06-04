@@ -42,6 +42,8 @@ import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.ResolvedProviderRoute
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.policy.PolicyEngine
+import dev.tramai.core.policy.PolicyDecisionAuditEmitter
+import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
 import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInspectionException
@@ -101,6 +103,7 @@ class TramaiEngine(
     private val dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
     private val toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
     private val engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
+    private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
 ) : AutoCloseable {
     private val circuitBreaker = ProviderCircuitBreaker(circuitBreakerSettings)
     private val retryDelayPolicy = ProviderRetryDelayPolicy(retryPolicySettings)
@@ -131,6 +134,7 @@ class TramaiEngine(
         dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
         toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
         engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
+        policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
     ) : this(
         providerRegistry = ProviderRegistry.singleProvider(provider),
         structuredOutputHandler = structuredOutputHandler,
@@ -150,6 +154,7 @@ class TramaiEngine(
         dlpInterceptor = dlpInterceptor,
         toolResultFilteringSettings = toolResultFilteringSettings,
         engineEventObserver = engineEventObserver,
+        policyDecisionAuditEmitter = policyDecisionAuditEmitter,
     )
 
     /**
@@ -182,6 +187,7 @@ class TramaiEngine(
             dlpInterceptor = dlpInterceptor,
             toolResultFilteringSettings = toolResultFilteringSettings,
             engineEventObserver = engineEventObserver,
+            policyDecisionAuditEmitter = policyDecisionAuditEmitter,
         )
 
         @Suppress("UNCHECKED_CAST")
@@ -226,9 +232,10 @@ private class TramaiInvocationHandler(
     private val dlpInterceptor: DlpInterceptor,
     private val toolResultFilteringSettings: ToolResultFilteringSettings,
     private val engineEventObserver: EngineEventObserver,
+    private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter,
 ) : InvocationHandler {
 
-    private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard, isLegacyFallback = isLegacyFallback)
+    private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard, isLegacyFallback = isLegacyFallback, auditEmitter = policyDecisionAuditEmitter)
 
     override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
         if (method.declaringClass == Any::class.java) {
