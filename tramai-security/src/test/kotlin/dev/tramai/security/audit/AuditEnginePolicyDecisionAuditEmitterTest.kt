@@ -336,6 +336,32 @@ class AuditEnginePolicyDecisionAuditEmitterTest {
         Assertions.assertEquals("gen-run-abc", events[0].auditStreamId)
     }
 
+    @Test
+    fun `blank stream ID from custom resolver throws`() = runTest {
+        val blankResolver = AuditStreamIdResolver { "" }
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, blankResolver)
+
+        val ex = Assertions.assertThrows(IllegalArgumentException::class.java) {
+            kotlinx.coroutines.runBlocking {
+                emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, baseCtx, PolicyDecision.Allow)
+            }
+        }
+        Assertions.assertEquals("Audit stream ID must not be blank", ex.message)
+    }
+
+    @Test
+    fun `oversize stream ID from custom resolver throws`() = runTest {
+        val longResolver = AuditStreamIdResolver { "a".repeat(257) }
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, longResolver)
+
+        val ex = Assertions.assertThrows(IllegalArgumentException::class.java) {
+            kotlinx.coroutines.runBlocking {
+                emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, baseCtx, PolicyDecision.Allow)
+            }
+        }
+        Assertions.assertEquals("Audit stream ID exceeds maximum length of 256", ex.message)
+    }
+
     // ─── Deterministic attribute ordering ──────────────────────────────
 
     @Test

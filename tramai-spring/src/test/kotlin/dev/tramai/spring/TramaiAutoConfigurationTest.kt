@@ -15,6 +15,7 @@ import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpResult
+import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.engine.EngineEventObserver
 import dev.tramai.standalone.Tramai
 import kotlinx.coroutines.runBlocking
@@ -428,6 +429,70 @@ class TramaiAutoConfigurationTest {
     }
 
     @Test
+    fun `zero PolicyDecisionAuditEmitter beans uses NoOp behavior`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+
+        contextRunner.run { context ->
+            val tramai = context.getBean(Tramai::class.java)
+            val service = tramai.create(TestInvoiceAnalyzer::class)
+            val result = runBlocking { service.analyze("test") }
+            // NoOp default → operation proceeds without audit enforcement
+            assertThat(result).isEqualTo("spring hello")
+        }
+    }
+
+    @Test
+    fun `single PolicyDecisionAuditEmitter bean is wired`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+            .withBean("auditEmitter", PolicyDecisionAuditEmitter::class.java, Supplier {
+                PolicyDecisionAuditEmitter { _, _, _ -> }
+            })
+
+        contextRunner.run { context ->
+            val tramai = context.getBean(Tramai::class.java)
+            val service = tramai.create(TestInvoiceAnalyzer::class)
+            val result = runBlocking { service.analyze("test") }
+            // Custom emitter wired → operation proceeds
+            assertThat(result).isEqualTo("spring hello")
+        }
+    }
+
+    @Test
+    fun `multiple PolicyDecisionAuditEmitter beans fail fast`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+            .withBean("firstEmitter", PolicyDecisionAuditEmitter::class.java, Supplier {
+                PolicyDecisionAuditEmitter { _, _, _ -> }
+            })
+            .withBean("secondEmitter", PolicyDecisionAuditEmitter::class.java, Supplier {
+                PolicyDecisionAuditEmitter { _, _, _ -> }
+            })
+
+        contextRunner.run { context ->
+            assertThat(context).hasFailed()
+            assertThat(context).getFailure()
+                .hasRootCauseInstanceOf(IllegalArgumentException::class.java)
+                .hasRootCauseMessage(
+                    "Multiple PolicyDecisionAuditEmitter beans found (2). Define at most one.",
+                )
+        }
+    }
+
+    @Test
     fun `wires a single custom DLP bean into the engine`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
@@ -521,6 +586,68 @@ class TramaiAutoConfigurationTest {
             })
             .withBean("secondObserver", EngineEventObserver::class.java, Supplier {
                 EngineEventObserver { _: String, _: Map<String, Any?> -> }
+            })
+            .withPropertyValues("tramai.default-provider=stub")
+
+        contextRunner.run { context ->
+            assertThat(context).hasFailed()
+            val failure = requireNotNull(context.startupFailure)
+            assertThat(failure)
+                .hasRootCauseInstanceOf(IllegalArgumentException::class.java)
+        }
+    }
+
+    @Test
+    fun `zero audit emitter beans uses default no-op behavior`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+
+        contextRunner.run { context ->
+            assertThat(context).hasSingleBean(Tramai::class.java)
+            val tramai = context.getBean(Tramai::class.java)
+            val service = tramai.create(TestInvoiceAnalyzer::class)
+            val result = runBlocking { service.analyze("invoice-123") }
+            assertThat(result).isEqualTo("spring hello")
+        }
+    }
+
+    @Test
+    fun `single audit emitter bean is wired`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withBean(PolicyDecisionAuditEmitter::class.java, Supplier {
+                PolicyDecisionAuditEmitter { _, _, _ -> }
+            })
+            .withPropertyValues("tramai.default-provider=stub")
+
+        contextRunner.run { context ->
+            assertThat(context).hasSingleBean(Tramai::class.java)
+            val tramai = context.getBean(Tramai::class.java)
+            val service = tramai.create(TestInvoiceAnalyzer::class)
+            val result = runBlocking { service.analyze("invoice-123") }
+            assertThat(result).isEqualTo("spring hello")
+        }
+    }
+
+    @Test
+    fun `multiple audit emitter beans fail fast`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withBean("firstEmitter", PolicyDecisionAuditEmitter::class.java, Supplier {
+                PolicyDecisionAuditEmitter { _, _, _ -> }
+            })
+            .withBean("secondEmitter", PolicyDecisionAuditEmitter::class.java, Supplier {
+                PolicyDecisionAuditEmitter { _, _, _ -> }
             })
             .withPropertyValues("tramai.default-provider=stub")
 

@@ -116,7 +116,7 @@ class TramaiTest {
             model("claude-sonnet-4-20250514", "mock")
             tools(lookup)
         }
-        val service = tramai.create<SuspendService>()
+        val service = tramai.create<ToolService>()
         val result = runBlocking { service.respond("hi") }
         assertThat(result).isEqualTo("Found it!")
         assertThat(lookup.calls).containsExactly("order-42")
@@ -154,7 +154,7 @@ class TramaiTest {
             model("claude-sonnet-4-20250514", "mock")
             tools(lookup)
         }
-        val service = tramai.create<SuspendService>()
+        val service = tramai.create<ToolService>()
         val result = runBlocking { service.respond("hi") }
         assertThat(result).isEqualTo("Finally!")
         assertThat(lookup.calls).containsExactly("order-42", "order-43")
@@ -182,7 +182,7 @@ class TramaiTest {
             model("claude-sonnet-4-20250514", "mock")
             tools(lookup)
         }
-        val service = tramai.create<SuspendService>()
+        val service = tramai.create<ToolService>()
         runBlocking { service.respond("check order 42") }
 
         // The second request should have tool definitions matching the exposed tools
@@ -369,11 +369,80 @@ class TramaiTest {
         assertThat(auditEvents).isNotEmpty
         assertThat(auditEvents).allMatch { it.startsWith("DENY:") }
     }
+
+    @Test
+    fun `empty tools exposes zero tools`() {
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "hello") }
+
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "anthropic")
+        }
+        val service = tramai.create<SuspendService>()
+        runBlocking { service.respond("hi") }
+
+        assertThat(provider.requests).hasSize(1)
+        assertThat(provider.requests[0].tools).isNullOrEmpty()
+    }
+
+    @Test
+    fun `explicitly listed tool is exposed`() {
+        val lookup = LookupTool()
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "hello") }
+
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "anthropic")
+            tools(lookup)
+        }
+        val service = tramai.create<ToolService>()
+        runBlocking { service.respond("hi") }
+
+        assertThat(provider.requests).hasSize(1)
+        val toolDefs = provider.requests[0].tools
+        assertThat(toolDefs).isNotEmpty
+        val lookupDef = toolDefs!!.find { it.name == "lookup" }
+        assertThat(lookupDef).isNotNull
+        assertThat(lookupDef!!.description).isEqualTo("Looks up an order")
+    }
+
+    @Test
+    fun `unlisted registered tool is not exposed`() {
+        val lookup = LookupTool()
+        val otherTool = object : TramaiTool<String, String> {
+            override val name: String = "other"
+            override val description: String = "Another tool"
+            override val inputType: KClass<String> = String::class
+            override val idempotent: Boolean = true
+            override suspend fun execute(input: String, context: ToolExecutionContext): String = "result"
+        }
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "hello") }
+
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "anthropic")
+            tools(lookup, otherTool)
+        }
+        val service = tramai.create<ToolService>()
+        runBlocking { service.respond("hi") }
+
+        assertThat(provider.requests).hasSize(1)
+        val toolDefs = provider.requests[0].tools
+        assertThat(toolDefs).isNotEmpty
+        // Only "lookup" should be exposed, not "other"
+        assertThat(toolDefs!!.map { it.name }).containsExactly("lookup")
+    }
 }
 
 @AiService
 interface SuspendService {
     @Operation(model = "claude-sonnet-4-20250514", cacheable = true)
+    suspend fun respond(input: String): String
+}
+
+@AiService
+interface ToolService {
+    @Operation(model = "claude-sonnet-4-20250514", tools = ["lookup"])
     suspend fun respond(input: String): String
 }
 
