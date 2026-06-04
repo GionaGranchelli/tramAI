@@ -10,6 +10,7 @@ import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.anthropic.AnthropicProvider
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.openai.CodexAuthFileTokenSource
 import dev.tramai.openai.ExperimentalCodexAuth
 import dev.tramai.openai.OpenAiCompatibleProvider
@@ -52,6 +53,7 @@ class TramaiAutoConfiguration {
         operationResponseCache: ObjectProvider<OperationResponseCache>,
         operationInterceptors: ObjectProvider<OperationInterceptor>,
         dlpInterceptors: ObjectProvider<DlpInterceptor>,
+        dlpRedactionAuditEmitters: ObjectProvider<DlpRedactionAuditEmitter>,
         engineEventObservers: ObjectProvider<EngineEventObserver>,
         auditEmitters: ObjectProvider<PolicyDecisionAuditEmitter>,
         policyEngines: ObjectProvider<PolicyEngine>,
@@ -103,6 +105,7 @@ class TramaiAutoConfiguration {
             },
         )
         resolveDlpInterceptor(applicationContext, dlpInterceptors)?.let(builder::dlp)
+        resolveDlpRedactionAuditEmitter(dlpRedactionAuditEmitters)?.let(builder::dlpRedactionAudit)
         builder.toolResultFiltering(
             applicationContext.getBeanProvider(ToolResultFilteringSettings::class.java).ifAvailable
                 ?: ToolResultFilteringSettings()
@@ -328,6 +331,17 @@ class TramaiAutoConfiguration {
 
         throw IllegalArgumentException(
             "Multiple EngineEventObserver beans found (${observers.size}). Define at most one.",
+        )
+    }
+
+    private fun resolveDlpRedactionAuditEmitter(
+        auditEmitters: ObjectProvider<DlpRedactionAuditEmitter>,
+    ): DlpRedactionAuditEmitter? {
+        val emitters = auditEmitters.orderedStream().toList()
+        if (emitters.isEmpty()) return null
+        if (emitters.size == 1) return emitters.single()
+        throw IllegalArgumentException(
+            "Multiple DlpRedactionAuditEmitter beans found (${emitters.size}). Define at most one.",
         )
     }
 

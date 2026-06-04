@@ -14,6 +14,7 @@ import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.DlpResult
 import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
@@ -490,6 +491,68 @@ class TramaiAutoConfigurationTest {
                 .hasRootCauseInstanceOf(IllegalArgumentException::class.java)
                 .hasRootCauseMessage(
                     "Multiple PolicyDecisionAuditEmitter beans found (2). Define at most one.",
+                )
+        }
+    }
+
+    @Test
+    fun `zero DlpRedactionAuditEmitter beans uses NoOp behavior`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+
+        contextRunner.run { context ->
+            val tramai = context.getBean(Tramai::class.java)
+            val service = tramai.create(TestInvoiceAnalyzer::class)
+            val result = runBlocking { service.analyze("test") }
+            assertThat(result).isEqualTo("spring hello")
+        }
+    }
+
+    @Test
+    fun `single DlpRedactionAuditEmitter bean is wired`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+            .withBean("dlpRedactionAuditEmitter", DlpRedactionAuditEmitter::class.java, Supplier {
+                DlpRedactionAuditEmitter { _, _ -> }
+            })
+
+        contextRunner.run { context ->
+            val tramai = context.getBean(Tramai::class.java)
+            val service = tramai.create(TestInvoiceAnalyzer::class)
+            val result = runBlocking { service.analyze("test") }
+            assertThat(result).isEqualTo("spring hello")
+        }
+    }
+
+    @Test
+    fun `multiple DlpRedactionAuditEmitter beans fail fast`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+            .withBean("firstDlpEmitter", DlpRedactionAuditEmitter::class.java, Supplier {
+                DlpRedactionAuditEmitter { _, _ -> }
+            })
+            .withBean("secondDlpEmitter", DlpRedactionAuditEmitter::class.java, Supplier {
+                DlpRedactionAuditEmitter { _, _ -> }
+            })
+
+        contextRunner.run { context ->
+            assertThat(context).hasFailed()
+            assertThat(context).getFailure()
+                .hasRootCauseInstanceOf(IllegalArgumentException::class.java)
+                .hasRootCauseMessage(
+                    "Multiple DlpRedactionAuditEmitter beans found (2). Define at most one.",
                 )
         }
     }

@@ -15,6 +15,7 @@ import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.DlpResult
 import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.core.policy.PolicyContext
@@ -228,6 +229,64 @@ class TramaiTest {
         assertThat(result).isEqualTo("this is a [REDACTED]")
         // OperationObserver sees sanitized output
         assertThat(observer.responses.first()).isEqualTo("this is a [REDACTED]")
+    }
+
+    @Test
+    fun `builder supports DLP redaction audit emitter for model output`() {
+        val auditCalls = mutableListOf<Pair<String, Int>>()
+        val redactingInterceptor = object : DlpInterceptor {
+            override fun inspect(context: DlpContext, text: String): DlpResult {
+                return DlpResult(
+                    sanitizedText = text.replace("secret", "[REDACTED]"),
+                    redactions = listOf(dev.tramai.core.security.DlpRedaction("redact-secret", 1)),
+                )
+            }
+        }
+        val auditEmitter = DlpRedactionAuditEmitter { context, redactions ->
+            auditCalls += context.contentType.name to redactions.size
+        }
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "this is a secret") }
+
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "anthropic")
+            dlp(redactingInterceptor)
+            dlpRedactionAudit(auditEmitter)
+        }
+        val service = tramai.create<SuspendService>()
+
+        val result = runBlocking { service.respond("anything") }
+
+        assertThat(result).isEqualTo("this is a [REDACTED]")
+        assertThat(auditCalls).containsExactly("MODEL_OUTPUT" to 1)
+    }
+
+    @Test
+    fun `builder propagates DLP redaction audit emitter failures`() {
+        val redactingInterceptor = object : DlpInterceptor {
+            override fun inspect(context: DlpContext, text: String): DlpResult {
+                return DlpResult(
+                    sanitizedText = text.replace("secret", "[REDACTED]"),
+                    redactions = listOf(dev.tramai.core.security.DlpRedaction("redact-secret", 1)),
+                )
+            }
+        }
+        val auditEmitter = DlpRedactionAuditEmitter { _, _ ->
+            throw RuntimeException("audit bridge failed")
+        }
+        val provider = RecordingProvider("anthropic") { ModelResponse(content = "this is a secret") }
+
+        assertThatThrownBy {
+            val tramai = Tramai {
+                provider(provider, default = true)
+                model("claude-sonnet-4-20250514", "anthropic")
+                dlp(redactingInterceptor)
+                dlpRedactionAudit(auditEmitter)
+            }
+            val service = tramai.create<SuspendService>()
+            runBlocking { service.respond("anything") }
+        }
+            .isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
     }
 
     @Test

@@ -12,17 +12,28 @@ enum class DlpContentType {
 }
 
 /**
+ * Controlled location label for the exact textual boundary being inspected.
+ */
+enum class DlpContentLocation {
+    MODEL_RESPONSE_CONTENT,
+    TOOL_MESSAGE_CONTENT,
+    TOOL_MESSAGE_TEXT_RUN,
+}
+
+/**
  * Execution context for a DLP inspection, providing metadata about the operation
  * that produced the text being scanned.
  */
 data class DlpContext(
     val contentType: DlpContentType,
+    val contentLocation: DlpContentLocation,
     val operationInterface: String,
     val operationMethod: String,
     val providerId: String? = null,
     val modelName: String? = null,
     val toolName: String? = null,
     val correlationId: String,
+    val workflowRunId: String? = null,
     val dataClassification: DataClassification? = null,
     val classificationSource: ClassificationSource? = null,
 )

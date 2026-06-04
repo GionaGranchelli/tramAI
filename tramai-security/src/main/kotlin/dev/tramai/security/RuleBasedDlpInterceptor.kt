@@ -33,14 +33,14 @@ class RuleBasedDlpInterceptor(
         require(configuration.maxTextLength <= 10_000_000) { "maxTextLength exceeds maximum allowed value" }
         val ids = mutableSetOf<String>()
         compiledRules = configuration.rules.map { rule ->
-            require(rule.id.isNotBlank()) { "DLP rule ID must not be blank" }
-            require(ids.add(rule.id)) { "Duplicate DLP rule ID: '${rule.id}'" }
-            require(rule.pattern.isNotBlank()) { "DLP rule pattern must not be blank for rule '${rule.id}'" }
-            require(rule.enabledFor.isNotEmpty()) { "DLP rule '${rule.id}' must have at least one enabled content type" }
-            require(rule.toolNames.none { it.isBlank() }) { "DLP rule '${rule.id}' must not contain blank tool names" }
-            require(rule.toolNames.all { it == it.trim() }) { "DLP rule '${rule.id}' must not contain tool names with surrounding whitespace" }
+            val normalizedId = normalizeRuleId(rule.id)
+            require(ids.add(normalizedId)) { "Duplicate DLP rule ID" }
+            require(rule.pattern.isNotBlank()) { "DLP rule pattern must not be blank" }
+            require(rule.enabledFor.isNotEmpty()) { "DLP rule must have at least one enabled content type" }
+            require(rule.toolNames.none { it.isBlank() }) { "DLP rule must not contain blank tool names" }
+            require(rule.toolNames.all { it == it.trim() }) { "DLP rule must not contain tool names with surrounding whitespace" }
             CompiledDlpRule(
-                id = rule.id,
+                id = normalizedId,
                 pattern = Pattern.compile(rule.pattern),
                 replacement = rule.replacement,
                 enabledFor = rule.enabledFor.toSet(),
@@ -88,4 +88,17 @@ class RuleBasedDlpInterceptor(
         val enabledFor: Set<DlpContentType>,
         val toolNames: Set<String>,
     )
+
+    companion object {
+        private const val MAX_RULE_ID_LENGTH = 128
+        private val SAFE_RULE_ID = Regex("[a-z0-9][a-z0-9._:-]{0,127}")
+
+        private fun normalizeRuleId(ruleId: String): String {
+            require(ruleId.isNotBlank()) { "DLP rule ID must not be blank" }
+            require(ruleId == ruleId.trim()) { "DLP rule ID must not contain surrounding whitespace" }
+            require(ruleId.length <= MAX_RULE_ID_LENGTH) { "DLP rule ID exceeds maximum length of 128" }
+            require(SAFE_RULE_ID.matches(ruleId)) { "DLP rule ID is invalid" }
+            return ruleId
+        }
+    }
 }

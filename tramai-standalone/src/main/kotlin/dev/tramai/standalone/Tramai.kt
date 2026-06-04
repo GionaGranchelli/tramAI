@@ -15,7 +15,9 @@ import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.NoOpDlpInterceptor
+import dev.tramai.core.security.NoOpDlpRedactionAuditEmitter
 import dev.tramai.core.security.PromptSanitizer
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
@@ -47,6 +49,7 @@ class Tramai private constructor(
     private val retryPolicySettings: RetryPolicySettings,
     private val tokenBudgetSettings: TokenBudgetSettings,
     private val dlpInterceptor: DlpInterceptor,
+    private val dlpRedactionAuditEmitter: DlpRedactionAuditEmitter,
     private val toolResultFilteringSettings: ToolResultFilteringSettings,
     private val engineEventObserver: EngineEventObserver,
     private val promptSanitizer: PromptSanitizer?,
@@ -68,6 +71,7 @@ class Tramai private constructor(
         retryPolicySettings = retryPolicySettings,
         tokenBudgetSettings = tokenBudgetSettings,
         dlpInterceptor = dlpInterceptor,
+        dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
         toolResultFilteringSettings = toolResultFilteringSettings,
         engineEventObserver = engineEventObserver,
         promptSanitizer = promptSanitizer,
@@ -97,6 +101,7 @@ class Tramai private constructor(
         private var retryPolicySettings: RetryPolicySettings = RetryPolicySettings()
         private var tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings()
         private var dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor
+        private var dlpRedactionAuditEmitter: DlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter
         private var toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings()
         private var engineEventObserver: EngineEventObserver = NoOpEngineEventObserver
         private var promptSanitizer: PromptSanitizer? = null
@@ -220,6 +225,13 @@ class Tramai private constructor(
         }
 
         /**
+         * Configures the audit emitter used for authoritative DLP redaction evidence.
+         */
+        fun dlpRedactionAudit(emitter: DlpRedactionAuditEmitter): Builder = apply {
+            this.dlpRedactionAuditEmitter = emitter
+        }
+
+        /**
          * Configures textual tool-result filtering thresholds.
          */
         fun toolResultFiltering(settings: ToolResultFilteringSettings): Builder = apply {
@@ -290,6 +302,7 @@ class Tramai private constructor(
             retryPolicySettings = retryPolicySettings,
             tokenBudgetSettings = tokenBudgetSettings,
             dlpInterceptor = dlpInterceptor,
+            dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
             toolResultFilteringSettings = toolResultFilteringSettings,
             engineEventObserver = engineEventObserver,
             promptSanitizer = promptSanitizer,

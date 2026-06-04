@@ -8,6 +8,10 @@ package dev.tramai.core.policy
  * through the policy engine at the relevant enforcement point.
  */
 enum class EnforcementPoint {
+    /** Hash-chained audit evidence for authoritative model-output DLP redactions. */
+    DLP_MODEL_OUTPUT,
+    /** Hash-chained audit evidence for authoritative tool-result DLP redactions. */
+    DLP_TOOL_RESULT,
     /** Before model resolution and allowlist check. */
     BEFORE_PROVIDER_RESOLUTION,
     /** Before the actual provider HTTP/stream call. */

@@ -3,6 +3,7 @@ package dev.tramai.security
 import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpContentLocation
 import dev.tramai.core.security.DlpResult
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -16,6 +17,11 @@ class RuleBasedDlpInterceptorTest {
         toolName: String? = null,
     ) = DlpContext(
         contentType = contentType,
+        contentLocation = if (contentType == DlpContentType.MODEL_OUTPUT) {
+            DlpContentLocation.MODEL_RESPONSE_CONTENT
+        } else {
+            DlpContentLocation.TOOL_MESSAGE_CONTENT
+        },
         operationInterface = "TestService",
         operationMethod = "process",
         toolName = toolName,
@@ -110,7 +116,6 @@ class RuleBasedDlpInterceptorTest {
         }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("Duplicate DLP rule ID")
-            .hasMessageContaining("dup")
     }
 
     @Test
@@ -137,7 +142,6 @@ class RuleBasedDlpInterceptorTest {
         }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("DLP rule pattern must not be blank")
-            .hasMessageContaining("blank-pat")
     }
 
     @Test
@@ -266,7 +270,6 @@ class RuleBasedDlpInterceptorTest {
         }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("must not contain blank tool names")
-            .hasMessageContaining("blank-tool")
     }
 
     @Test
@@ -287,7 +290,71 @@ class RuleBasedDlpInterceptorTest {
         }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("must not contain tool names with surrounding whitespace")
-            .hasMessageContaining("whitespace-tool")
+    }
+
+    @Test
+    fun `surrounding whitespace in rule ID is rejected`() {
+        assertThatThrownBy {
+            RuleBasedDlpInterceptor(
+                RuleBasedDlpConfiguration(
+                    rules = listOf(DlpRule(id = " email ", pattern = "aaa")),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("surrounding whitespace")
+    }
+
+    @Test
+    fun `uppercase rule ID is rejected`() {
+        assertThatThrownBy {
+            RuleBasedDlpInterceptor(
+                RuleBasedDlpConfiguration(
+                    rules = listOf(DlpRule(id = "Email", pattern = "aaa")),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("DLP rule ID is invalid")
+    }
+
+    @Test
+    fun `newline in rule ID is rejected`() {
+        assertThatThrownBy {
+            RuleBasedDlpInterceptor(
+                RuleBasedDlpConfiguration(
+                    rules = listOf(DlpRule(id = "email\nrule", pattern = "aaa")),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("DLP rule ID is invalid")
+    }
+
+    @Test
+    fun `overlong rule ID is rejected`() {
+        assertThatThrownBy {
+            RuleBasedDlpInterceptor(
+                RuleBasedDlpConfiguration(
+                    rules = listOf(DlpRule(id = "a" + "b".repeat(128), pattern = "aaa")),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("maximum length of 128")
+    }
+
+    @Test
+    fun `exception messages remain safe for invalid rule IDs`() {
+        assertThatThrownBy {
+            RuleBasedDlpInterceptor(
+                RuleBasedDlpConfiguration(
+                    rules = listOf(DlpRule(id = "Secret-Key-123", pattern = "aaa")),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageNotContaining("Secret-Key-123")
     }
 
     @Test
