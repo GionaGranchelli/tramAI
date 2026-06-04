@@ -1,8 +1,10 @@
 package dev.tramai.security.audit
 
+import java.time.Instant
+
 data class AuditEvent(
     val schemaVersion: Int,
-    val hashAlgorithm: String,
+    val hashAlgorithm: AuditHashAlgorithm,
     val auditStreamId: String,
     val eventId: String,
     val sequenceNumber: Long,
@@ -15,7 +17,7 @@ data class AuditEvent(
     val workflowDigest: String?,
     val previousEventHash: String?,
     val eventHash: String,
-    val timestamp: String,
+    val timestamp: Instant,
     val reasonCode: String?,
     val metadata: Map<String, String> = emptyMap(),
 )

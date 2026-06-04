@@ -1,16 +1,15 @@
 package dev.tramai.security.audit
 
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import java.util.concurrent.ConcurrentHashMap
+import java.time.Clock
+import java.util.UUID
 
-class AuditEngine(private val store: AuditStore) {
-
-    private val streamLocks: ConcurrentHashMap<String, Mutex> = ConcurrentHashMap()
-
+class AuditEngine(
+    private val store: AuditStore,
+    private val clock: Clock = Clock.systemUTC(),
+    private val idGenerator: () -> String = { UUID.randomUUID().toString() },
+) {
     suspend fun emit(
         auditStreamId: String,
-        eventId: String,
         workflowRunId: String?,
         correlationId: String?,
         actor: String?,
@@ -20,17 +19,14 @@ class AuditEngine(private val store: AuditStore) {
         workflowDigest: String?,
         reasonCode: String?,
         metadata: Map<String, String>,
-        timestamp: String,
     ): AuditEvent {
-        val lock = streamLocks.computeIfAbsent(auditStreamId) { Mutex() }
-        return lock.withLock {
-            val latestEvent = store.latestEvent(auditStreamId)
+        return store.appendNext(auditStreamId) { latest ->
             val event = AuditEvent(
                 schemaVersion = 1,
-                hashAlgorithm = "SHA-256",
+                hashAlgorithm = AuditHashAlgorithm.SHA_256,
                 auditStreamId = auditStreamId,
-                eventId = eventId,
-                sequenceNumber = (latestEvent?.sequenceNumber ?: 0L) + 1L,
+                eventId = idGenerator(),
+                sequenceNumber = (latest?.sequenceNumber ?: 0L) + 1L,
                 workflowRunId = workflowRunId,
                 correlationId = correlationId,
                 actor = actor,
@@ -38,15 +34,13 @@ class AuditEngine(private val store: AuditStore) {
                 decision = decision,
                 policyVersion = policyVersion,
                 workflowDigest = workflowDigest,
-                previousEventHash = latestEvent?.eventHash,
+                previousEventHash = latest?.eventHash,
                 eventHash = "",
-                timestamp = timestamp,
+                timestamp = clock.instant(),
                 reasonCode = reasonCode,
                 metadata = metadata.toMap(),
             )
-            val persistedEvent = event.copy(eventHash = event.calculateHash())
-            store.append(auditStreamId, persistedEvent)
-            persistedEvent
+            event.copy(eventHash = event.copy(eventHash = "").calculateHash())
         }
     }
 }
