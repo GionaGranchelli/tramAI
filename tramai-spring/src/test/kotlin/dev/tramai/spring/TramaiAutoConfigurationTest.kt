@@ -520,17 +520,30 @@ class TramaiAutoConfigurationTest {
             .withConfiguration(
                 AutoConfigurations.of(TramaiAutoConfiguration::class.java),
             )
-            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
-            .withPropertyValues("tramai.default-provider=stub")
+            .withUserConfiguration(TestApplication::class.java)
+            .withBean(DlpProvider::class.java)
+            .withBean("dlpInterceptor", DlpInterceptor::class.java, Supplier {
+                DlpInterceptor { _: DlpContext, text: String ->
+                    val sanitizedText = text.replace("sensitive", "redacted")
+                    DlpResult(
+                        sanitizedText = sanitizedText,
+                        redactions = if (sanitizedText != text) listOf(DlpRedaction("dlp-rule", 1)) else emptyList(),
+                    )
+                }
+            })
             .withBean("dlpRedactionAuditEmitter", DlpRedactionAuditEmitter::class.java, Supplier {
                 DlpRedactionAuditEmitter { _, _ -> }
             })
+            .withPropertyValues(
+                "tramai.default-provider=dlp-provider",
+                "tramai.models.gpt-5.1-chat-latest=dlp-provider",
+            )
 
         contextRunner.run { context ->
-            val tramai = context.getBean(Tramai::class.java)
-            val service = tramai.create(TestInvoiceAnalyzer::class)
+            assertThat(context).hasSingleBean(DlpRedactionAuditEmitter::class.java)
+            val service = context.getBean(TestInvoiceAnalyzer::class.java)
             val result = runBlocking { service.analyze("test") }
-            assertThat(result).isEqualTo("spring hello")
+            assertThat(result).isEqualTo("redacted spring payload")
         }
     }
 
@@ -870,10 +883,13 @@ class DlpProvider : ModelProvider {
 }
 
 class CountingDlpRedactionAuditEmitter : DlpRedactionAuditEmitter {
+    val instanceInvocationCount = AtomicInteger(0)
+
     override suspend fun emit(
         context: DlpContext,
         redactions: List<DlpRedaction>,
     ) {
+        instanceInvocationCount.incrementAndGet()
         invocationCount.incrementAndGet()
     }
 

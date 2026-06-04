@@ -97,6 +97,52 @@ class AuditEngineDlpRedactionAuditEmitterTest {
     }
 
     @Test
+    fun `oversized correlationId with valid workflowRunId fails closed`() {
+        val (emitter, _) = emitter()
+        assertThatThrownBy {
+            runTest {
+                emitter.emit(
+                    modelOutputContext().copy(
+                        correlationId = "c".repeat(257),
+                        workflowRunId = "run-123",
+                    ),
+                    listOf(DlpRedaction("email", 1)),
+                )
+            }
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("DLP audit correlation ID exceeds maximum length of 256")
+    }
+
+    @Test
+    fun `padded correlationId is normalized and accepted`() = runTest {
+        val (emitter, store) = emitter()
+        emitter.emit(
+            modelOutputContext().copy(correlationId = "  corr-1  "),
+            listOf(DlpRedaction("email", 1)),
+        )
+
+        val event = store.readStream("corr-1").single()
+        assertThat(event.correlationId).isEqualTo("corr-1")
+    }
+
+    @Test
+    fun `padded workflowRunId is normalized and accepted`() = runTest {
+        val (emitter, store) = emitter()
+        emitter.emit(
+            modelOutputContext().copy(
+                correlationId = "  corr-fallback  ",
+                workflowRunId = "  run-123  ",
+            ),
+            listOf(DlpRedaction("email", 1)),
+        )
+
+        val event = store.readStream("run-123").single()
+        assertThat(event.workflowRunId).isEqualTo("run-123")
+        assertThat(event.correlationId).isEqualTo("corr-fallback")
+    }
+
+    @Test
     fun `rule ID is persisted safely`() = runTest {
         val (emitter, store) = emitter()
         emitter.emit(modelOutputContext(), listOf(DlpRedaction("email.rule-1", 1)))

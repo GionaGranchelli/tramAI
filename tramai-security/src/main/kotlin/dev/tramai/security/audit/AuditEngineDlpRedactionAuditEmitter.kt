@@ -33,16 +33,34 @@ class AuditEngineDlpRedactionAuditEmitter(
         context: DlpContext,
         redactions: List<DlpRedaction>,
     ) {
-        val streamId = resolveSafeStreamId(context)
+        val normalizedCorrelationId = context.correlationId.trim().also {
+            require(it.isNotEmpty()) { "DLP audit correlation ID must not be blank" }
+            require(it.length <= MAX_STREAM_ID_LENGTH) {
+                "DLP audit correlation ID exceeds maximum length of 256"
+            }
+        }
+        val normalizedWorkflowRunId = context.workflowRunId
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.also {
+                require(it.length <= MAX_STREAM_ID_LENGTH) {
+                    "DLP audit workflowRunId exceeds maximum length of 256"
+                }
+            }
+        val normalizedContext = context.copy(
+            correlationId = normalizedCorrelationId,
+            workflowRunId = normalizedWorkflowRunId,
+        )
+        val streamId = resolveSafeStreamId(normalizedContext)
         val normalized = normalizeRedactions(redactions)
-        val enforcementPoint = enforcementPointName(context.contentType)
-        val sharedMetadata = buildSharedMetadata(context)
+        val enforcementPoint = enforcementPointName(normalizedContext.contentType)
+        val sharedMetadata = buildSharedMetadata(normalizedContext)
 
         normalized.forEach { redaction ->
             auditEngine.emit(
                 auditStreamId = streamId,
-                workflowRunId = context.workflowRunId,
-                correlationId = context.correlationId,
+                workflowRunId = normalizedWorkflowRunId,
+                correlationId = normalizedCorrelationId,
                 actor = null,
                 enforcementPoint = enforcementPoint,
                 decision = DECISION_REDACTED,
@@ -58,13 +76,26 @@ class AuditEngineDlpRedactionAuditEmitter(
     }
 
     private fun resolveSafeStreamId(context: DlpContext): String {
-        val workflowRunId = context.workflowRunId
+        val normalizedCorrelationId = context.correlationId.trim()
+        require(normalizedCorrelationId.isNotEmpty()) {
+            "DLP audit correlation ID must not be blank"
+        }
+        require(normalizedCorrelationId.length <= MAX_STREAM_ID_LENGTH) {
+            "DLP audit correlation ID exceeds maximum length of 256"
+        }
+
+        val normalizedWorkflowRunId = context.workflowRunId
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
-        require(workflowRunId == null || workflowRunId.length <= MAX_STREAM_ID_LENGTH) {
-            "DLP workflowRunId exceeds maximum length of 256"
+        require(normalizedWorkflowRunId == null || normalizedWorkflowRunId.length <= MAX_STREAM_ID_LENGTH) {
+            "DLP audit workflowRunId exceeds maximum length of 256"
         }
-        val raw = streamIdResolver.resolve(context).trim()
+
+        val resolverInput = context.copy(
+            correlationId = normalizedCorrelationId,
+            workflowRunId = normalizedWorkflowRunId,
+        )
+        val raw = streamIdResolver.resolve(resolverInput).trim()
         require(raw.isNotEmpty()) {
             "DLP audit stream ID must not be blank"
         }

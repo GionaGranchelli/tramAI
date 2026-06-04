@@ -105,7 +105,7 @@ class TramaiAutoConfiguration {
             },
         )
         resolveDlpInterceptor(applicationContext, dlpInterceptors)?.let(builder::dlp)
-        resolveDlpRedactionAuditEmitter(dlpRedactionAuditEmitters)?.let(builder::dlpRedactionAudit)
+        resolveDlpRedactionAuditEmitter(applicationContext, dlpRedactionAuditEmitters)?.let(builder::dlpRedactionAudit)
         builder.toolResultFiltering(
             applicationContext.getBeanProvider(ToolResultFilteringSettings::class.java).ifAvailable
                 ?: ToolResultFilteringSettings()
@@ -335,10 +335,20 @@ class TramaiAutoConfiguration {
     }
 
     private fun resolveDlpRedactionAuditEmitter(
+        applicationContext: org.springframework.context.ApplicationContext,
         auditEmitters: ObjectProvider<DlpRedactionAuditEmitter>,
     ): DlpRedactionAuditEmitter? {
         val emitters = auditEmitters.orderedStream().toList()
-        if (emitters.isEmpty()) return null
+        if (emitters.isEmpty()) {
+            val beanNames = applicationContext.getBeanNamesForType(DlpRedactionAuditEmitter::class.java)
+            if (beanNames.isEmpty()) return null
+            if (beanNames.size == 1) {
+                return applicationContext.getBean(beanNames.single(), DlpRedactionAuditEmitter::class.java)
+            }
+            throw IllegalArgumentException(
+                "Multiple DlpRedactionAuditEmitter beans found (${beanNames.size}). Define at most one.",
+            )
+        }
         if (emitters.size == 1) return emitters.single()
         throw IllegalArgumentException(
             "Multiple DlpRedactionAuditEmitter beans found (${emitters.size}). Define at most one.",

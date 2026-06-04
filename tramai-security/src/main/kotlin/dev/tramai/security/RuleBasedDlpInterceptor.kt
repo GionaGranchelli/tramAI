@@ -72,6 +72,13 @@ class RuleBasedDlpInterceptor(
             var count = 0
 
             while (matcher.find()) {
+                require(matcher.start() < matcher.end()) {
+                    "DLP rule produced an unsafe zero-width match"
+                }
+                val matchedValue = matcher.group()
+                require(!rule.replacement.contains(matchedValue)) {
+                    "DLP replacement preserves matched content"
+                }
                 matcher.appendReplacement(sb, Matcher.quoteReplacement(rule.replacement))
                 count++
             }
