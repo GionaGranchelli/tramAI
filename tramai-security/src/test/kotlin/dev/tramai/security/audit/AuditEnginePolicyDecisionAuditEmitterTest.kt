@@ -150,17 +150,6 @@ class AuditEnginePolicyDecisionAuditEmitterTest {
     }
 
     @Test
-    fun `NoOpPolicyDecisionAuditEmitter does nothing`() = runTest {
-        val noop = NoOpPolicyDecisionAuditEmitter
-        noop.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, baseCtx, PolicyDecision.Allow)
-        noop.emit(EnforcementPoint.BEFORE_FALLBACK, baseCtx, PolicyDecision.Deny(
-            reason = "test", reasonCode = "test"
-        ))
-        // No exception should be thrown, nothing should be stored
-        Assertions.assertTrue(true)
-    }
-
-    @Test
     fun `classification metadata included when present`() = runTest {
         val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
         val ctx = baseCtx.copy(
@@ -323,17 +312,31 @@ class AuditEnginePolicyDecisionAuditEmitterTest {
     // ─── Stream ID validation tests ────────────────────────────────────
 
     @Test
-    fun `blanks in both workflowRunId and correlationId still produces valid event via generated ID`() = runTest {
-        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+    fun `blank workflowRunId and correlationId use custom resolver when configured`() = runTest {
         val resolver = AuditStreamIdResolver { "gen-run-abc" }
         val emitterWithResolver = AuditEnginePolicyDecisionAuditEmitter(auditEngine, resolver)
         val ctx = baseCtx.copy(workflowRunId = "", correlationId = "")
         emitterWithResolver.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctx, PolicyDecision.Allow)
 
-        // Should emit to the generated stream ID
         val events = store.readStream("gen-run-abc")
         Assertions.assertEquals(1, events.size)
         Assertions.assertEquals("gen-run-abc", events[0].auditStreamId)
+    }
+
+    @Test
+    fun `default resolver rejects blank workflowRunId and correlationId`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        val ctx = baseCtx.copy(workflowRunId = "", correlationId = "")
+
+        val ex = Assertions.assertThrows(IllegalArgumentException::class.java) {
+            kotlinx.coroutines.runBlocking {
+                emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctx, PolicyDecision.Allow)
+            }
+        }
+        Assertions.assertEquals(
+            "AuditStreamIdResolver requires at least one of workflowRunId or correlationId to be non-blank",
+            ex.message,
+        )
     }
 
     @Test
@@ -420,5 +423,15 @@ class AuditEnginePolicyDecisionAuditEmitterTest {
         // No DLP-related metadata should be present
         Assertions.assertNull(events[0].metadata["dlpMatch"])
         Assertions.assertNull(events[0].metadata["redactedValue"])
+    }
+
+    @Test
+    fun `target destination is excluded from durable audit metadata`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        val ctx = baseCtx.copy(targetDestination = "https://internal.example.com/account/123")
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctx, PolicyDecision.Allow)
+
+        val events = store.readStream("run-1")
+        Assertions.assertNull(events[0].metadata["targetDestination"])
     }
 }

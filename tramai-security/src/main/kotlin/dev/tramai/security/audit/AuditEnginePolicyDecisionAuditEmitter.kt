@@ -84,7 +84,7 @@ class AuditEnginePolicyDecisionAuditEmitter(
         val map = mutableMapOf<String, String>()
 
         // Safe allowlisted fields only — never raw prompts, tool arguments,
-        // secrets, or unbounded model-generated strings.
+        // secrets, arbitrary destinations, or unbounded model-generated strings.
         context.providerId?.let { map["providerName"] = bounded(it) }
         context.modelName?.let { map["modelName"] = bounded(it) }
         context.toolName?.let { map["toolName"] = bounded(it) }
@@ -92,7 +92,6 @@ class AuditEnginePolicyDecisionAuditEmitter(
         context.classificationSource?.let { map["classificationSource"] = bounded(it.name) }
         context.toolSecurity?.risk?.let { map["riskLevel"] = bounded(it.name) }
         context.fallbackProviderId?.let { map["fallbackProviderName"] = bounded(it) }
-        context.targetDestination?.let { map["targetDestination"] = bounded(it) }
 
         // Explicit attribute allowlist — only known safe keys are exported.
         // Unknown keys (e.g. "prompt", "toolArguments", "secret") are dropped.

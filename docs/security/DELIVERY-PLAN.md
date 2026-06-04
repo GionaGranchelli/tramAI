@@ -704,7 +704,7 @@ Epics 1, 2, 2B, 3, and 4 can partially overlap. Epic 5 requires the relevant ver
 **Architecture:**
 - `PolicyDecisionAuditEmitter` SPI in `tramai-core` with `NoOpPolicyDecisionAuditEmitter`
 - `AuditEnginePolicyDecisionAuditEmitter` in `tramai-security` backed by `AuditEngine`
-- `AuditStreamIdResolver` resolves stable stream ID: `workflowRunId > correlationId > generated`
+- `AuditStreamIdResolver` resolves stable stream ID: `workflowRunId > required non-blank correlationId`
 - Wiring at `PolicyEnforcementHelper.enforce()`: evaluate policy → audit synchronously → then enforce side effects
 - Standalone builder (`Tramai.Builder.policyDecisionAudit()`) and Spring auto-configuration (`ObjectProvider<PolicyDecisionAuditEmitter>`)
 
@@ -735,7 +735,7 @@ In streaming execution, `BEFORE_RESPONSE_RETURN` is evaluated as an egress prefl
 - REQUIRE_APPROVAL: evaluate → audit → throw ApprovalRequiredException
 
 **Safe metadata allowlist (bounded to 256 chars, max 16 entries):**
-- providerName, modelName, toolName, classification, classificationSource, riskLevel, fallbackProviderName, targetDestination
+- providerName, modelName, toolName, classification, classificationSource, riskLevel, fallbackProviderName
 - Attributes are filtered through an explicit allowlist: only `cacheReuse` and `fallbackReason` are exported (prefixed `attr_`). All other attributes (prompt, toolArguments, secret, etc.) are dropped.
 - `Deny.reasonCode` is normalized through the `SAFE_REASON_CODE` pattern `[a-z0-9][a-z0-9._:-]{0,127}` — invalid, oversize, or secret-like values are replaced with `"policy_denied"`.
 
@@ -744,11 +744,11 @@ In streaming execution, `BEFORE_RESPONSE_RETURN` is evaluated as an egress prefl
 **Tests:** 30+ tests covering:
 - Emitter unit tests: ALLOW, DENY, enforcement point mapping, stream ID stability, chain integrity, safe metadata, attribute allowlist (prompt/toolArguments dropped, cacheReuse/fallbackReason retained)
 - Reason code normalization: valid, overlong, whitespace, secret-like, newline, empty, digit-starting
-- Stream ID validation: blank workflowRunId falls back to correlationId, blank both generates fallback, deterministic attribute ordering
+- Stream ID validation: blank workflowRunId falls back to correlationId, both blank throws
 - Leakage tests: no prompt secret, no tool argument secret, no DLP match, no raw model-generated tool name in serialized audit event
-- Enforcement boundary tests: exactly-once ALLOW/DENY, audit failure propagation, NoOp backward compatibility
+| Enforcement boundary tests: exactly-once ALLOW/DENY, audit failure propagation (6 engine-level fail-closed), NoOp backward compatibility
 - Standalone builder tests: NoOp default, custom emitter receives events, custom PolicyEngine enforces deny, custom PolicyEngine+audit emitter records deny events
-- Spring wiring tests: zero emitter beans preserves default, one emitter bean wired, multiple emitter beans fail fast
+- Spring wiring tests: zero emitter beans preserves default, one emitter bean wired, multiple emitter beans fail fast; zero PolicyEngine beans preserves legacy permissive, one PolicyEngine bean wired, multiple PolicyEngine beans fail fast
 
 ---
 

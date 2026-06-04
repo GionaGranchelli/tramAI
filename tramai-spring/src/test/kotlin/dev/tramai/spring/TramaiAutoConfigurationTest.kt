@@ -15,7 +15,9 @@ import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpResult
+import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
+import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.engine.EngineEventObserver
 import dev.tramai.standalone.Tramai
 import kotlinx.coroutines.runBlocking
@@ -488,6 +490,70 @@ class TramaiAutoConfigurationTest {
                 .hasRootCauseInstanceOf(IllegalArgumentException::class.java)
                 .hasRootCauseMessage(
                     "Multiple PolicyDecisionAuditEmitter beans found (2). Define at most one.",
+                )
+        }
+    }
+
+    @Test
+    fun `zero PolicyEngine beans preserves legacy permissive fallback`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+
+        contextRunner.run { context ->
+            val tramai = context.getBean(Tramai::class.java)
+            val service = tramai.create(TestInvoiceAnalyzer::class)
+            val result = runBlocking { service.analyze("test") }
+            assertThat(result).isEqualTo("spring hello")
+        }
+    }
+
+    @Test
+    fun `single PolicyEngine bean is wired`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+            .withBean("customPolicyEngine", PolicyEngine::class.java, Supplier {
+                PolicyEngine { PolicyDecision.Allow }
+            })
+
+        contextRunner.run { context ->
+            assertThat(context).hasSingleBean(PolicyEngine::class.java)
+            val tramai = context.getBean(Tramai::class.java)
+            val service = tramai.create(TestInvoiceAnalyzer::class)
+            val result = runBlocking { service.analyze("test") }
+            assertThat(result).isEqualTo("spring hello")
+        }
+    }
+
+    @Test
+    fun `multiple PolicyEngine beans fail fast with clear error`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+            .withBean("firstEngine", PolicyEngine::class.java, Supplier {
+                PolicyEngine { PolicyDecision.Allow }
+            })
+            .withBean("secondEngine", PolicyEngine::class.java, Supplier {
+                PolicyEngine { PolicyDecision.Allow }
+            })
+
+        contextRunner.run { context ->
+            assertThat(context).hasFailed()
+            val failure = requireNotNull(context.startupFailure)
+            assertThat(failure)
+                .hasRootCauseInstanceOf(IllegalArgumentException::class.java)
+                .hasRootCauseMessage(
+                    "Multiple PolicyEngine beans found (2). Define at most one.",
                 )
         }
     }

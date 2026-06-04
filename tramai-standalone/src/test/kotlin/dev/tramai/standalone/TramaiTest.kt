@@ -96,7 +96,7 @@ class TramaiTest {
 
     @Test
     fun `builder supports tool loop`() {
-        val lookup = LookupTool()
+        val lookup = RecordingTool()
         val provider = ToolLoopProvider(
             ModelResponse(
                 content = "Let me check.",
@@ -124,7 +124,7 @@ class TramaiTest {
 
     @Test
     fun `tool loop supports second retry failure`() {
-        val lookup = LookupTool()
+        val lookup = RetryingTool()
         val provider = ToolLoopProvider(
             ModelResponse(
                 content = "Let me check.",
@@ -163,7 +163,7 @@ class TramaiTest {
 
     @Test
     fun `tool loop exposes tool to provider`() {
-        val lookup = LookupTool()
+        val lookup = RecordingTool()
         val provider = ToolLoopProvider(
             ModelResponse(content = "Let me check.",
                 toolCalls = listOf(
@@ -189,12 +189,12 @@ class TramaiTest {
         assertThat(provider.requests).hasSize(2)
         val firstRequest = provider.requests[0]
         // tool loop request: tool should be exposed
-        assertThat(firstRequest.tools).isNotEmpty
+        assertThat(firstRequest.tools).isNotEmpty()
         // tools should have a definition matching the lookup tool
         val lookupDef = firstRequest.tools!!.find { it.name == "lookup" }
-        assertThat(lookupDef).isNotNull
+        assertThat(lookupDef).isNotNull()
         assertThat(lookupDef!!.description).isEqualTo("Looks up an order")
-        assertThat(lookupDef.inputSchemaJson).isNotNull
+        assertThat(lookupDef.inputSchemaJson).isNotNull()
     }
 
     @Test
@@ -319,7 +319,7 @@ class TramaiTest {
         val result = runBlocking { service.respond("hi") }
         // With legacy permissive engine, each enforcement point produces an ALLOW
         assertThat(result).isEqualTo("hello")
-        assertThat(events).isNotEmpty
+        assertThat(events).isNotEmpty()
     }
 
     @Test
@@ -366,7 +366,7 @@ class TramaiTest {
         }.isInstanceOf(dev.tramai.core.exception.PolicyViolationException::class.java)
 
         // Audit events should have been emitted before the exception
-        assertThat(auditEvents).isNotEmpty
+        assertThat(auditEvents).isNotEmpty()
         assertThat(auditEvents).allMatch { it.startsWith("DENY:") }
     }
 
@@ -387,7 +387,7 @@ class TramaiTest {
 
     @Test
     fun `explicitly listed tool is exposed`() {
-        val lookup = LookupTool()
+        val lookup = RecordingTool()
         val provider = RecordingProvider("anthropic") { ModelResponse(content = "hello") }
 
         val tramai = Tramai {
@@ -400,15 +400,15 @@ class TramaiTest {
 
         assertThat(provider.requests).hasSize(1)
         val toolDefs = provider.requests[0].tools
-        assertThat(toolDefs).isNotEmpty
+        assertThat(toolDefs).isNotEmpty()
         val lookupDef = toolDefs!!.find { it.name == "lookup" }
-        assertThat(lookupDef).isNotNull
+        assertThat(lookupDef).isNotNull()
         assertThat(lookupDef!!.description).isEqualTo("Looks up an order")
     }
 
     @Test
     fun `unlisted registered tool is not exposed`() {
-        val lookup = LookupTool()
+        val lookup = RecordingTool()
         val otherTool = object : TramaiTool<String, String> {
             override val name: String = "other"
             override val description: String = "Another tool"
@@ -428,7 +428,7 @@ class TramaiTest {
 
         assertThat(provider.requests).hasSize(1)
         val toolDefs = provider.requests[0].tools
-        assertThat(toolDefs).isNotEmpty
+        assertThat(toolDefs).isNotEmpty()
         // Only "lookup" should be exposed, not "other"
         assertThat(toolDefs!!.map { it.name }).containsExactly("lookup")
     }
@@ -471,7 +471,21 @@ private class RecordingProvider(
 private class LookupInput(val query: String)
 private class LookupResult(val resolved: String)
 
-private class LookupTool : TramaiTool<LookupInput, LookupResult> {
+private class RecordingTool : TramaiTool<LookupInput, LookupResult> {
+    val calls = mutableListOf<String>()
+
+    override val name: String = "lookup"
+    override val description: String = "Looks up an order"
+    override val inputType: KClass<LookupInput> = LookupInput::class
+    override val idempotent: Boolean = true
+
+    override suspend fun execute(input: LookupInput, context: ToolExecutionContext): LookupResult {
+        calls += input.query
+        return LookupResult("resolved:${input.query}")
+    }
+}
+
+private class RetryingTool : TramaiTool<LookupInput, LookupResult> {
     val calls = mutableListOf<String>()
     val attemptNumbers = mutableListOf<Int>()
     private var executeCount = 0
@@ -483,7 +497,7 @@ private class LookupTool : TramaiTool<LookupInput, LookupResult> {
 
     override suspend fun execute(input: LookupInput, context: ToolExecutionContext): LookupResult {
         executeCount++
-        if (executeCount == 1 || executeCount == 3) {
+        if (executeCount % 2 == 1) {
             error("temporary lookup failure")
         }
         calls += input.query

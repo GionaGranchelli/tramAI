@@ -1,7 +1,6 @@
 package dev.tramai.security.audit
 
 import dev.tramai.core.policy.PolicyContext
-import java.util.UUID
 
 fun interface AuditStreamIdResolver {
     /**
@@ -18,7 +17,6 @@ fun interface AuditStreamIdResolver {
 
 object DefaultAuditStreamIdResolver : AuditStreamIdResolver {
     override fun resolve(context: PolicyContext): String {
-        // Priority: non-blank workflowRunId > non-blank correlationId
         val workflowRunId = context.workflowRunId
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
@@ -29,11 +27,8 @@ object DefaultAuditStreamIdResolver : AuditStreamIdResolver {
             .takeIf { it.isNotEmpty() }
         if (correlationId != null) return correlationId
 
-        // Generated fallback — must be propagated consistently across the
-        // entire execution to avoid breaking the hash chain.
-        // Production code should always provide a stable workflowRunId
-        // or correlationId. This fallback exists only for edge cases where
-        // neither is set.
-        return "generated-${UUID.randomUUID()}"
+        throw IllegalArgumentException(
+            "AuditStreamIdResolver requires at least one of workflowRunId or correlationId to be non-blank"
+        )
     }
 }
