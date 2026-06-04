@@ -1,6 +1,5 @@
 package dev.tramai.security.audit
 
-import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.core.security.DlpContentLocation
 import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
@@ -36,16 +35,16 @@ class AuditEngineDlpRedactionAuditEmitter(
     ) {
         val streamId = resolveSafeStreamId(context)
         val normalized = normalizeRedactions(redactions)
-        val enforcementPoint = enforcementPointFor(context.contentType)
+        val enforcementPoint = enforcementPointName(context.contentType)
         val sharedMetadata = buildSharedMetadata(context)
 
         normalized.forEach { redaction ->
             auditEngine.emit(
                 auditStreamId = streamId,
-                workflowRunId = null,
+                workflowRunId = context.workflowRunId,
                 correlationId = context.correlationId,
                 actor = null,
-                enforcementPoint = enforcementPoint.name,
+                enforcementPoint = enforcementPoint,
                 decision = DECISION_REDACTED,
                 policyVersion = null,
                 workflowDigest = null,
@@ -59,6 +58,12 @@ class AuditEngineDlpRedactionAuditEmitter(
     }
 
     private fun resolveSafeStreamId(context: DlpContext): String {
+        val workflowRunId = context.workflowRunId
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        require(workflowRunId == null || workflowRunId.length <= MAX_STREAM_ID_LENGTH) {
+            "DLP workflowRunId exceeds maximum length of 256"
+        }
         val raw = streamIdResolver.resolve(context).trim()
         require(raw.isNotEmpty()) {
             "DLP audit stream ID must not be blank"
@@ -69,9 +74,9 @@ class AuditEngineDlpRedactionAuditEmitter(
         return raw
     }
 
-    private fun enforcementPointFor(contentType: DlpContentType): EnforcementPoint = when (contentType) {
-        DlpContentType.MODEL_OUTPUT -> EnforcementPoint.DLP_MODEL_OUTPUT
-        DlpContentType.TOOL_RESULT -> EnforcementPoint.DLP_TOOL_RESULT
+    private fun enforcementPointName(contentType: DlpContentType): String = when (contentType) {
+        DlpContentType.MODEL_OUTPUT -> DLP_MODEL_OUTPUT
+        DlpContentType.TOOL_RESULT -> DLP_TOOL_RESULT
     }
 
     private fun normalizeRedactions(redactions: List<DlpRedaction>): List<NormalizedDlpRedaction> {
@@ -150,6 +155,8 @@ class AuditEngineDlpRedactionAuditEmitter(
     )
 
     companion object {
+        private const val DLP_MODEL_OUTPUT = "DLP_MODEL_OUTPUT"
+        private const val DLP_TOOL_RESULT = "DLP_TOOL_RESULT"
         private const val DECISION_REDACTED = "REDACTED"
         private const val REASON_CODE_REDACTION_APPLIED = "dlp_redaction_applied"
         private const val MAX_STREAM_ID_LENGTH = 256
@@ -168,6 +175,6 @@ class AuditEngineDlpRedactionAuditEmitter(
         private const val METADATA_TOOL_NAME = "toolName"
         private const val METADATA_CLASSIFICATION = "classification"
         private const val METADATA_CLASSIFICATION_SOURCE = "classificationSource"
-        val SAFE_RULE_ID = Regex("[a-z0-9][a-z0-9._:-]{0,127}")
+        private val SAFE_RULE_ID = Regex("[a-z0-9][a-z0-9._:-]{0,127}")
     }
 }

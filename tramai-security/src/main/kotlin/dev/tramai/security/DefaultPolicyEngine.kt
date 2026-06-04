@@ -25,8 +25,6 @@ class DefaultPolicyEngine(
 ) : PolicyEngine {
 
     override suspend fun evaluate(context: PolicyContext): PolicyDecision = when (context.enforcementPoint) {
-        EnforcementPoint.DLP_MODEL_OUTPUT -> PolicyDecision.Allow
-        EnforcementPoint.DLP_TOOL_RESULT -> PolicyDecision.Allow
         EnforcementPoint.BEFORE_PROVIDER_RESOLUTION -> evaluateProviderResolution(context)
         EnforcementPoint.BEFORE_PROVIDER_INVOCATION -> evaluateProviderInvocation(context)
         EnforcementPoint.BEFORE_FALLBACK -> evaluateFallback(context)

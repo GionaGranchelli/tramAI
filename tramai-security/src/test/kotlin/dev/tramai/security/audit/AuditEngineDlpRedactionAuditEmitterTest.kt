@@ -2,7 +2,6 @@ package dev.tramai.security.audit
 
 import dev.tramai.core.policy.ClassificationSource
 import dev.tramai.core.policy.DataClassification
-import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.core.security.DlpContentLocation
 import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
@@ -51,7 +50,7 @@ class AuditEngineDlpRedactionAuditEmitterTest {
         emitter.emit(modelOutputContext(), listOf(DlpRedaction("email", 1)))
 
         val event = store.readStream("corr-1").single()
-        assertThat(event.enforcementPoint).isEqualTo(EnforcementPoint.DLP_MODEL_OUTPUT.name)
+        assertThat(event.enforcementPoint).isEqualTo("DLP_MODEL_OUTPUT")
         assertThat(event.decision).isEqualTo("REDACTED")
         assertThat(event.reasonCode).isEqualTo("dlp_redaction_applied")
     }
@@ -62,7 +61,39 @@ class AuditEngineDlpRedactionAuditEmitterTest {
         emitter.emit(toolResultContext(), listOf(DlpRedaction("email", 1)))
 
         assertThat(store.readStream("corr-1").single().enforcementPoint)
-            .isEqualTo(EnforcementPoint.DLP_TOOL_RESULT.name)
+            .isEqualTo("DLP_TOOL_RESULT")
+    }
+
+    @Test
+    fun `workflowRunId determines stream and is persisted`() = runTest {
+        val (emitter, store) = emitter()
+        emitter.emit(
+            modelOutputContext().copy(
+                workflowRunId = "run-123",
+                correlationId = "corr-fallback",
+            ),
+            listOf(DlpRedaction("email", 1)),
+        )
+
+        val events = store.readStream("run-123")
+        assertThat(events).hasSize(1)
+        assertThat(events.single().workflowRunId).isEqualTo("run-123")
+        assertThat(events.single().correlationId).isEqualTo("corr-fallback")
+    }
+
+    @Test
+    fun `oversized workflowRunId fails closed`() {
+        val (emitter, _) = emitter()
+        assertThatThrownBy {
+            runTest {
+                emitter.emit(
+                    modelOutputContext().copy(workflowRunId = "w".repeat(257)),
+                    listOf(DlpRedaction("email", 1)),
+                )
+            }
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("workflowRunId exceeds maximum length of 256")
     }
 
     @Test

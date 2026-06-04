@@ -1194,6 +1194,15 @@ private class TramaiInvocationHandler(
         context: DlpContext,
         text: String,
     ) = dlpInterceptor.inspect(context, text).also { result ->
+        val sanitizedTextChanged = result.sanitizedText != text
+        val hasRedactionEvidence = result.redactions.isNotEmpty()
+
+        if (sanitizedTextChanged && !hasRedactionEvidence && dlpRedactionAuditEmitter !== NoOpDlpRedactionAuditEmitter) {
+            throw DlpInspectionException("DLP modified output without redaction evidence")
+        }
+        if (!sanitizedTextChanged && hasRedactionEvidence) {
+            throw DlpInspectionException("DLP redactions reported without modifying output")
+        }
         if (result.redactions.isNotEmpty()) {
             try {
                 dlpRedactionAuditEmitter.emit(context, result.redactions)
@@ -1664,6 +1673,8 @@ private class TramaiInvocationHandler(
                         interceptedResponse
                     }
                 } catch (e: CancellationException) {
+                    throw e
+                } catch (e: dev.tramai.core.security.DlpInspectionException) {
                     throw e
                 } catch (e: Exception) {
                     // DLP failures are separate from provider failures:

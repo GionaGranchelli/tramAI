@@ -14,6 +14,7 @@ import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpRedaction
 import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.DlpResult
 import dev.tramai.core.policy.PolicyDecision
@@ -30,6 +31,7 @@ import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import java.net.InetSocketAddress
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.Supplier
 import kotlin.test.Test
 
@@ -865,6 +867,23 @@ class DlpProvider : ModelProvider {
     }
 
     override fun providerId(): String = "dlp-provider"
+}
+
+class CountingDlpRedactionAuditEmitter : DlpRedactionAuditEmitter {
+    override suspend fun emit(
+        context: DlpContext,
+        redactions: List<DlpRedaction>,
+    ) {
+        invocationCount.incrementAndGet()
+    }
+
+    companion object {
+        val invocationCount = AtomicInteger(0)
+
+        fun reset() {
+            invocationCount.set(0)
+        }
+    }
 }
 
 private fun respond(

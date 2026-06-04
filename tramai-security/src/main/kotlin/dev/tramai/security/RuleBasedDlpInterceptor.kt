@@ -7,6 +7,7 @@ import dev.tramai.core.security.DlpRedaction
 import dev.tramai.core.security.DlpResult
 import java.util.regex.Matcher
 import java.util.regex.Pattern
+import java.util.regex.PatternSyntaxException
 
 data class RuleBasedDlpConfiguration(
     val rules: List<DlpRule> = emptyList(),
@@ -41,7 +42,11 @@ class RuleBasedDlpInterceptor(
             require(rule.toolNames.all { it == it.trim() }) { "DLP rule must not contain tool names with surrounding whitespace" }
             CompiledDlpRule(
                 id = normalizedId,
-                pattern = Pattern.compile(rule.pattern),
+                pattern = try {
+                    Pattern.compile(rule.pattern)
+                } catch (_: PatternSyntaxException) {
+                    throw IllegalArgumentException("DLP rule pattern is invalid")
+                },
                 replacement = rule.replacement,
                 enabledFor = rule.enabledFor.toSet(),
                 toolNames = rule.toolNames.toSet(),

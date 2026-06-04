@@ -145,6 +145,20 @@ class RuleBasedDlpInterceptorTest {
     }
 
     @Test
+    fun `invalid regex pattern is rejected with safe message`() {
+        assertThatThrownBy {
+            RuleBasedDlpInterceptor(
+                RuleBasedDlpConfiguration(
+                    rules = listOf(DlpRule(id = "bad-regex", pattern = "[")),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("DLP rule pattern is invalid")
+            .hasNoCause()
+    }
+
+    @Test
     fun `oversized input is rejected with fixed message`() {
         val dlp = RuleBasedDlpInterceptor(RuleBasedDlpConfiguration(maxTextLength = 10))
         assertThatThrownBy {

@@ -68,13 +68,13 @@ Topic 1.8 ✅ — closed in feat/secure-cache-provenance (PR #6). See `Operation
 
 ## Epic 1: Policy Engine Core
 
-**Goal:** Introduce `tramai-security` with deny-by-default policy enforcement at all 8 mandatory enforcement points (expanded to 10 with DLP audit enforcement points).
+**Goal:** Introduce `tramai-security` with deny-by-default policy enforcement at all 8 mandatory policy enforcement points.
 
 ### Issues
 
 #### 1.1 — PolicyEngine SPI, PolicyDecision, and enums
 - Create `PolicyEngine` interface, `PolicyContext`, `PolicyDecision` sealed interface in `tramai-core`
-- Add `EnforcementPoint` enum (10 values as of PR #13)
+- Add `EnforcementPoint` enum (8 mandatory policy points; 7 active + `BEFORE_WORKFLOW_RESUME` deferred)
 - Add `DataClassification`, `RiskLevel`, `ApprovalMode`, `ManagedNetworkEgress`, `AuditDetail`, `ProviderPolicy`, `CompatibilityMode` enums
 - **Acceptance:** Interfaces compile, all enums have documented values
 
@@ -91,7 +91,7 @@ Topic 1.8 ✅ — closed in feat/secure-cache-provenance (PR #6). See `Operation
 - **Acceptance:** All unknown operations denied; known operations require explicit allow rules
 
 #### 1.4 — Enforcement hooks in TramaiEngine
-- Add mandatory `policyEngine.evaluate()` calls at all active policy enforcement points (7 active + 1 deferred; DLP points default to Allow and are audited)
+- Add mandatory `policyEngine.evaluate()` calls at all active policy enforcement points (7 active + 1 deferred)
 - Remove any code path that reaches provider/tool executor without evaluation
 - Version-scoped migration: 0.3.x unchanged, 0.4.x opt-in with warning, `tramai-sovereign` always secure, 1.0 secure-by-default
 - **Acceptance:** Cannot reach provider without policy evaluation; LEGACY_PERMISSIVE requires explicit config; sovereign profile enforces SECURE
@@ -675,7 +675,7 @@ Epics 1, 2, 2B, 3, and 4 can partially overlap. Epic 5 requires the relevant ver
 - Deterministic canonical JSON serializer (manual `StringBuilder`, no third-party lib) with stable field ordering, sorted metadata keys, explicit null serialization, and ISO-8601 UTC timestamps
 
 **Deferred to PR #12 (completed):**
-- ✅ **Centralized audit emission in PolicyEnforcementHelper.enforce()** — all active policy enforcement points produce hash-chained events (7 active; DLP points produce events via DlpRedactionAuditEmitter)
+- ✅ **Centralized audit emission in PolicyEnforcementHelper.enforce()** — all active policy enforcement points produce hash-chained events (7 active); DLP redaction events are emitted separately via `DlpRedactionAuditEmitter`
 - ✅ **PolicyDecisionAuditEmitter SPI** — covers DefaultPolicyEngine and custom implementations
 - ✅ **AuditEnginePolicyDecisionAuditEmitter** with safe metadata allowlist and stable stream ID
 - ✅ **NoOpPolicyDecisionAuditEmitter** for backward compatibility
@@ -717,7 +717,7 @@ Epics 1, 2, 2B, 3, and 4 can partially overlap. Epic 5 requires the relevant ver
 - BEFORE_TOOL_RESULT_REINJECTION
 - BEFORE_RESPONSE_RETURN
 
-⚠️ `BEFORE_WORKFLOW_RESUME` is enumerated in the `EnforcementPoint` enum but has **no active runtime call site** in `TramaiEngine` yet. It is reserved for the approval-resume flow (Epic 3) and will become active when workflow suspension is implemented. All 7 active enforcement points are audited.
+⚠️ `BEFORE_WORKFLOW_RESUME` is enumerated in the `EnforcementPoint` enum but has **no active runtime call site** in `TramaiEngine` yet. It is reserved for the approval-resume flow (Epic 3) and will become active when workflow suspension is implemented. All 7 active policy enforcement points are audited.
 
 **Streaming `BEFORE_RESPONSE_RETURN` semantics:**
 In streaming execution, `BEFORE_RESPONSE_RETURN` is evaluated as an egress preflight *before* `BEFORE_TOOL_EXPOSURE` and `BEFORE_PROVIDER_INVOCATION`. It is not literally "before returning a response" during streaming — it acts as a streaming egress preflight gate. The audit metadata field `enforcementPoint` will read `BEFORE_RESPONSE_RETURN` but the event represents a pre-stream authorization decision, not a post-stream response check.
@@ -800,7 +800,7 @@ In streaming execution, `BEFORE_RESPONSE_RETURN` is evaluated as an egress prefl
 
 **Key Design Elements:**
 - **SPI Safety:** `DlpRedactionAuditEmitter` exposes only `DlpContext` and `List<DlpRedaction>`. No raw matches, sanitized values, replacement strings, or regex patterns are leaked.
-- **Enforcement Points:** Added `DLP_MODEL_OUTPUT` and `DLP_TOOL_RESULT` to the `EnforcementPoint` enum to represent the audit contexts.
+- **DLP Audit Labels:** `DLP_MODEL_OUTPUT` and `DLP_TOOL_RESULT` are emitted as audit-event labels, not `PolicyEngine` enforcement points.
 - **Audit Normalization:** Enforces deterministic alphabetical sorting of rule IDs, groupings of duplicate rule IDs, safe metadata allowlists (only specific metadata attributes from context), and rule ID validation.
 - **Safe Exception Handling:** All exceptions generated during ID validation and audit emission avoid leaking raw or invalid values (e.g. invalid rule IDs).
 - **Engine Integration:** Separates authoritative (affects context, audits) from detection-only (e.g. projection matching checks, does not audit) scans. DLP audit emission failure propagates as `DlpInspectionException`, executing fail-closed behavior immediately to bypass retry/fallback loops and prevent circuit poisoning.
