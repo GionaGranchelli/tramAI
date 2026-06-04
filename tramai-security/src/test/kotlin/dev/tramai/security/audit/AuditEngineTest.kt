@@ -6,6 +6,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -923,47 +924,139 @@ class AuditEngineTest {
     }
 
     // ===============================================================
-    //  30. 100 concurrent emits on Dispatchers.Default with release gate
+    //  30. 100 concurrent emits with barrier and two engines
     // ===============================================================
     @Test
-    fun `100 concurrent emits on Dispatchers Default with release gate`() = runTest {
+    fun `100 concurrent emits with barrier and two engines`() = runTest {
         val store = InMemoryAuditStore()
         val engine1 = AuditEngine(store, clock = fixedClock)
         val engine2 = AuditEngine(store, clock = fixedClock)
-
-        val gate = CompletableDeferred<Unit>()
         val total = 100
+
+        val readyCounter = java.util.concurrent.atomic.AtomicInteger(0)
+        val startGate = CompletableDeferred<Unit>()
 
         val deferred = (1..total).map { i ->
             async(Dispatchers.Default) {
-                gate.await()
+                readyCounter.incrementAndGet()
+                if (readyCounter.get() == total) startGate.complete(Unit)
+                startGate.await()
                 val engine = if (i % 2 == 0) engine1 else engine2
                 engine.emit(
-                    auditStreamId = "stream-1",
-                    workflowRunId = "workflow-1",
-                    correlationId = "corr-1",
+                    auditStreamId = "stream-100",
+                    workflowRunId = "wf-100",
+                    correlationId = "corr-100",
                     actor = "actor-$i",
-                    enforcementPoint = "policy-gate",
+                    enforcementPoint = "gate",
                     decision = "ALLOW",
                     policyVersion = "v1",
-                    workflowDigest = "digest-1",
+                    workflowDigest = "digest-100",
                     reasonCode = "reason-$i",
-                    metadata = mapOf("idx" to i.toString()),
+                    metadata = mapOf("i" to i.toString()),
                 )
             }
         }
 
-        gate.complete(Unit)
         deferred.awaitAll()
-
-        val events = store.readStream("stream-1")
+        val events = store.readStream("stream-100")
         assertEquals(total.toLong(), events.size.toLong())
         assertEquals((1L..total.toLong()).toList(), events.map { it.sequenceNumber })
+        assertEquals(total, events.map { it.eventId }.distinct().size)
+        assertTrue(AuditChainVerifier.verify(events).isValid)
+    }
 
-        val eventIds = events.map { it.eventId }.toSet()
-        assertEquals(total, eventIds.size)
+    // ===============================================================
+    //  35. Deterministic regression: mutable HashMap metadata immutability
+    // ===============================================================
+    @Test
+    fun `mutable HashMap metadata cannot alter stored evidence after emit`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine = AuditEngine(store, clock = fixedClock)
 
-        val result = AuditChainVerifier.verify(events)
-        assertTrue(result.isValid, "Chain verifier failed: ${result.errors}")
+        val mutableMeta = HashMap<String, String>()
+        mutableMeta["key"] = "original"
+        val event = engine.emit(
+            auditStreamId = "stream-35",
+            workflowRunId = null, correlationId = null, actor = null,
+            enforcementPoint = "gate", decision = "ALLOW",
+            policyVersion = null, workflowDigest = null, reasonCode = null,
+            metadata = mutableMeta,
+        )
+
+        // Mutate the original map after emit
+        mutableMeta["key"] = "modified"
+        mutableMeta["extra"] = "injected"
+
+        val stored = store.readStream("stream-35").first()
+        assertEquals("original", stored.metadata["key"])
+        assertNull(stored.metadata["extra"])
+        assertEquals(event.eventHash, stored.eventHash)
+
+        // Verify the chain is still valid
+        val result = AuditChainVerifier.verify(store.readStream("stream-35"))
+        assertTrue(result.isValid)
+    }
+
+    // ===============================================================
+    //  36. Emoji in metadata produces stable canonical JSON
+    // ===============================================================
+    @Test
+    fun `emoji in metadata produces stable canonical json`() {
+        val event = baseEvent(
+            eventId = "emoji-test",
+            metadata = mapOf("emoji" to "\uD83D\uDE80"), // 🚀
+        ).let { it.copy(eventHash = it.copy(eventHash = "").calculateHash()) }
+
+        val json1 = event.toCanonicalJson()
+        val json2 = event.toCanonicalJson()
+        assertEquals(json1, json2)
+
+        val hash1 = event.calculateHash()
+        val hash2 = event.copy(eventHash = "").calculateHash()
+        assertEquals(hash1, hash2)
+    }
+
+    // ===============================================================
+    //  37. Lone high surrogate in metadata escapes correctly
+    // ===============================================================
+    @Test
+    fun `lone high surrogate in metadata escapes correctly`() {
+        val event = baseEvent(
+            eventId = "high-surrogate",
+            metadata = mapOf("surrogate" to "\uD800"),
+        )
+        val json = event.toCanonicalJson()
+        assertTrue(json.contains("\\ud800"), "JSON should contain \\\\ud800 escape: $json")
+    }
+
+    // ===============================================================
+    //  38. Lone low surrogate in metadata escapes correctly
+    // ===============================================================
+    @Test
+    fun `lone low surrogate in metadata escapes correctly`() {
+        val event = baseEvent(
+            eventId = "low-surrogate",
+            metadata = mapOf("surrogate" to "\uDFFF"),
+        )
+        val json = event.toCanonicalJson()
+        assertTrue(json.contains("\\udfff"), "JSON should contain \\\\udfff escape: $json")
+    }
+
+    // ===============================================================
+    //  39. Distinct hashes for malformed surrogate vs question mark
+    // ===============================================================
+    @Test
+    fun `distinct hashes for malformed surrogate vs question mark`() {
+        val event1 = baseEvent(
+            eventId = "surrogate-event",
+            metadata = mapOf("val" to "\uD800x"),
+        ).let { it.copy(eventHash = it.copy(eventHash = "").calculateHash()) }
+        val event2 = baseEvent(
+            eventId = "question-event",
+            metadata = mapOf("val" to "?x"),
+        ).let { it.copy(eventHash = it.copy(eventHash = "").calculateHash()) }
+
+        assertNotEquals(event1.toCanonicalJson(), event2.toCanonicalJson())
+        assertNotEquals(event1.eventHash, event2.eventHash)
     }
 }

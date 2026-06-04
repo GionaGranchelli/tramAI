@@ -25,43 +25,42 @@ class InMemoryAuditStore : AuditStore {
         val state = streams.computeIfAbsent(auditStreamId) { StreamState() }
         return state.lock.withLock {
             val latest = state.events.lastOrNull()
-            val newEvent = eventFactory(latest)
+            // Pass the latest event's snapshot (unmodifiable view) to the factory,
+            // then IMMEDIATELY snapshot the result — the snapshot IS the defensive copy.
+            val rawEvent = eventFactory(latest?.snapshot())
+            val snapshot = rawEvent.snapshot()
 
             // auditStreamId must match
-            require(newEvent.auditStreamId == auditStreamId) {
-                "event auditStreamId '${newEvent.auditStreamId}' does not match expected '$auditStreamId'"
+            require(snapshot.auditStreamId == auditStreamId) {
+                "event auditStreamId '${snapshot.auditStreamId}' does not match expected '$auditStreamId'"
             }
 
             // sequence must be exactly 1 more than latest
             val expectedSequence = (latest?.sequenceNumber ?: 0L) + 1L
-            require(newEvent.sequenceNumber == expectedSequence) {
-                "Expected sequenceNumber $expectedSequence for stream '$auditStreamId' but got ${newEvent.sequenceNumber}"
+            require(snapshot.sequenceNumber == expectedSequence) {
+                "Expected sequenceNumber $expectedSequence for stream '$auditStreamId' but got ${snapshot.sequenceNumber}"
             }
 
             // previousEventHash must match latest eventHash
-            require(newEvent.previousEventHash == latest?.eventHash) {
+            require(snapshot.previousEventHash == latest?.eventHash) {
                 "previousEventHash does not match latest eventHash"
             }
 
             // eventHash must equal calculated hash
-            val calculatedHash = newEvent.copy(eventHash = "").calculateHash()
-            require(newEvent.eventHash == calculatedHash) {
+            require(snapshot.eventHash == snapshot.copy(eventHash = "").calculateHash()) {
                 "eventHash does not match calculated hash"
             }
 
             // schemaVersion must be current
-            require(newEvent.schemaVersion == CURRENT_AUDIT_SCHEMA_VERSION) {
-                "Unsupported audit schema version ${newEvent.schemaVersion}"
+            require(snapshot.schemaVersion == CURRENT_AUDIT_SCHEMA_VERSION) {
+                "Unsupported audit schema version ${snapshot.schemaVersion}"
             }
 
             // no duplicate eventId in stream
-            require(state.events.none { it.eventId == newEvent.eventId }) {
-                "Duplicate eventId '${newEvent.eventId}' in stream '$auditStreamId'"
+            require(state.events.none { it.eventId == snapshot.eventId }) {
+                "Duplicate eventId '${snapshot.eventId}' in stream '$auditStreamId'"
             }
 
-            // defensive copy of metadata
-            val defensiveCopy = newEvent.copy(metadata = newEvent.metadata.toMap())
-            val snapshot = defensiveCopy.snapshot()
             state.events.add(snapshot)
             snapshot
         }
