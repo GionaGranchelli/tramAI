@@ -11,15 +11,23 @@ interface ApprovalStore {
 }
 
 sealed interface ApprovalTransition {
+    fun targetStatus(): ApprovalStatus
+
     data class Approve(
-        val decidedBy: String?,
-        val comment: String?,
-    ) : ApprovalTransition
+        val decidedBy: String,
+        val comment: String? = null,
+    ) : ApprovalTransition {
+        override fun targetStatus() = ApprovalStatus.APPROVED
+    }
 
     data class Deny(
-        val decidedBy: String?,
-        val comment: String?,
-    ) : ApprovalTransition
+        val decidedBy: String,
+        val comment: String? = null,
+    ) : ApprovalTransition {
+        override fun targetStatus() = ApprovalStatus.DENIED
+    }
 
-    data object Timeout : ApprovalTransition
+    data object Timeout : ApprovalTransition {
+        override fun targetStatus() = ApprovalStatus.TIMED_OUT
+    }
 }

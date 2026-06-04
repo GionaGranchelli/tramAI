@@ -5,6 +5,7 @@ import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.IllegalApprovalTransitionException
+import dev.tramai.core.approval.Sha256Digest
 import java.time.Clock
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -13,43 +14,65 @@ class InMemoryApprovalStore(
     private val clock: Clock = Clock.systemUTC(),
     private val maxIdLength: Int = 256,
     private val maxCommentLength: Int = 4096,
-    private val maxDigestLength: Int = 1024,
-    private val maxCasRetries: Int = 10,
 ) : ApprovalStore {
 
     private val store = ConcurrentHashMap<String, ApprovalRequest>()
 
     override suspend fun create(request: ApprovalRequest): ApprovalRequest {
-        require(request.approvalId.isNotBlank()) { "approvalId must not be blank" }
-        require(request.binding.workflowRunId.isNotBlank()) { "workflowRunId must not be blank" }
-        require(request.binding.toolName.isNotBlank()) { "toolName must not be blank" }
-        require(request.binding.argumentsDigest.isNotBlank()) { "argumentsDigest must not be blank" }
-        require(request.binding.argumentsDigest.length <= maxDigestLength) {
-            "argumentsDigest exceeds maximum length of $maxDigestLength"
-        }
-        require(request.approvalId.length <= maxIdLength) {
-            "approvalId exceeds maximum length of $maxIdLength"
-        }
-        require(request.binding.workflowRunId.length <= maxIdLength) {
-            "workflowRunId exceeds maximum length of $maxIdLength"
-        }
-        require(request.binding.toolName.length <= maxIdLength) {
-            "toolName exceeds maximum length of $maxIdLength"
-        }
-        request.binding.policyVersion?.let {
-            require(it.length <= maxIdLength) { "policyVersion exceeds maximum length of $maxIdLength" }
-        }
-        request.binding.workflowDigest?.let {
-            require(it.length <= maxDigestLength) { "workflowDigest exceeds maximum length of $maxDigestLength" }
-        }
-        require(request.status == ApprovalStatus.PENDING) {
-            "Initial approval status must be PENDING, got ${request.status}"
-        }
+        // Version
+        require(request.version == 0L) { "Initial approval version must be 0, got ${request.version}" }
 
+        // Status
+        require(request.status == ApprovalStatus.PENDING) { "Initial approval status must be PENDING, got ${request.status}" }
+
+        // No decision fields set
+        require(request.decidedBy == null) { "Initial approval must not have decidedBy set" }
+        require(request.decidedAt == null) { "Initial approval must not have decidedAt set" }
+        require(request.decisionComment == null) { "Initial approval must not have decisionComment set" }
+
+        // Approval ID
+        val normalizedId = request.approvalId.trim()
+        require(normalizedId.isNotBlank()) { "approvalId must not be blank" }
+        require(normalizedId.length <= maxIdLength) { "approvalId exceeds maximum length of $maxIdLength" }
+        require(normalizedId == request.approvalId) { "approvalId must not contain surrounding whitespace" }
+
+        // Requested by
+        val normalizedRequester = request.requestedBy.trim()
+        require(normalizedRequester.isNotBlank()) { "requestedBy must not be blank" }
+        require(normalizedRequester.length <= maxIdLength) { "requestedBy exceeds maximum length of $maxIdLength" }
+        require(normalizedRequester == request.requestedBy) { "requestedBy must not contain surrounding whitespace" }
+
+        // Binding fields
+        val binding = request.binding
+        val normalizedWorkflowRunId = binding.workflowRunId.trim()
+        require(normalizedWorkflowRunId.isNotBlank()) { "workflowRunId must not be blank" }
+        require(normalizedWorkflowRunId.length <= maxIdLength) { "workflowRunId exceeds maximum length of $maxIdLength" }
+        require(normalizedWorkflowRunId == binding.workflowRunId) { "workflowRunId must not contain surrounding whitespace" }
+
+        val normalizedToolName = binding.toolName.trim()
+        require(normalizedToolName.isNotBlank()) { "toolName must not be blank" }
+        require(normalizedToolName.length <= maxIdLength) { "toolName exceeds maximum length of $maxIdLength" }
+        require(normalizedToolName == binding.toolName) { "toolName must not contain surrounding whitespace" }
+
+        // Digest validation
+        Sha256Digest.validate(binding.argumentsDigest)
+        Sha256Digest.validate(binding.workflowDigest)
+        Sha256Digest.validate(binding.approvalTokenDigest)
+
+        // Policy version
+        val normalizedPolicyVersion = binding.policyVersion.trim()
+        require(normalizedPolicyVersion.isNotBlank()) { "policyVersion must not be blank" }
+        require(normalizedPolicyVersion.length <= maxIdLength) { "policyVersion exceeds maximum length of $maxIdLength" }
+        require(normalizedPolicyVersion == binding.policyVersion) { "policyVersion must not contain surrounding whitespace" }
+
+        // Expiry: must be in the future
+        val now = clock.instant()
+        require(request.expiresAt > now) { "expiresAt must be in the future, got $now for expiry ${request.expiresAt}" }
+        require(request.expiresAt > request.requestedAt) { "expiresAt must be after requestedAt" }
+
+        // Atomically insert
         val existing = store.putIfAbsent(request.approvalId, request)
-        require(existing == null) {
-            "Approval '${request.approvalId}' already exists"
-        }
+        require(existing == null) { "Approval '${request.approvalId}' already exists" }
 
         return request
     }
@@ -61,47 +84,56 @@ class InMemoryApprovalStore(
         expectedVersion: Long,
         transition: ApprovalTransition,
     ): ApprovalRequest {
-        // Validate comment length before entering the retry loop
+        // Validate comment length
         when (transition) {
             is ApprovalTransition.Approve -> transition.comment?.let {
-                require(it.length <= maxCommentLength) {
-                    "Comment exceeds maximum length of $maxCommentLength in Approve transition for '$approvalId'"
-                }
+                require(it.length <= maxCommentLength) { "Comment exceeds maximum length of $maxCommentLength" }
             }
             is ApprovalTransition.Deny -> transition.comment?.let {
-                require(it.length <= maxCommentLength) {
-                    "Comment exceeds maximum length of $maxCommentLength in Deny transition for '$approvalId'"
-                }
+                require(it.length <= maxCommentLength) { "Comment exceeds maximum length of $maxCommentLength" }
             }
-            is ApprovalTransition.Timeout -> { /* no comment to validate */ }
+            is ApprovalTransition.Timeout -> {}
         }
 
-        var retries = 0
-        while (true) {
-            val current = store[approvalId]
-                ?: throw IllegalArgumentException("Approval '$approvalId' not found")
+        // Validate decidedBy for non-timeout transitions
+        when (transition) {
+            is ApprovalTransition.Approve -> {
+                val normalized = transition.decidedBy.trim()
+                require(normalized.isNotBlank()) { "decidedBy must not be blank" }
+                require(normalized.length <= maxIdLength) { "decidedBy exceeds maximum length of $maxIdLength" }
+            }
+            is ApprovalTransition.Deny -> {
+                val normalized = transition.decidedBy.trim()
+                require(normalized.isNotBlank()) { "decidedBy must not be blank" }
+                require(normalized.length <= maxIdLength) { "decidedBy exceeds maximum length of $maxIdLength" }
+            }
+            is ApprovalTransition.Timeout -> {}
+        }
 
-            require(current.version == expectedVersion) {
-                "Approval '$approvalId' version mismatch: expected $expectedVersion, actual ${current.version}"
+        val now = clock.instant()
+
+        val result = store.compute(approvalId) { _, current ->
+            val req = current ?: throw IllegalArgumentException("Approval '$approvalId' not found")
+
+            require(req.version == expectedVersion) {
+                "Approval '$approvalId' version mismatch: expected $expectedVersion, actual ${req.version}"
             }
 
-            check(current.version < Long.MAX_VALUE) {
-                "Approval '$approvalId' version overflow"
-            }
+            check(req.version < Long.MAX_VALUE) { "Approval '$approvalId' version overflow" }
 
-            val now = clock.instant()
-            val nextStatus = resolveNextStatus(current, transition, now)
-            val updated = current.copy(
+            val nextStatus = resolveNextStatus(req, transition, now)
+
+            req.copy(
                 status = nextStatus,
-                version = current.version + 1,
+                version = req.version + 1,
                 decidedAt = when (transition) {
                     is ApprovalTransition.Approve -> now
                     is ApprovalTransition.Deny -> now
                     is ApprovalTransition.Timeout -> now
                 },
                 decidedBy = when (transition) {
-                    is ApprovalTransition.Approve -> transition.decidedBy
-                    is ApprovalTransition.Deny -> transition.decidedBy
+                    is ApprovalTransition.Approve -> transition.decidedBy.trim()
+                    is ApprovalTransition.Deny -> transition.decidedBy.trim()
                     is ApprovalTransition.Timeout -> null
                 },
                 decisionComment = when (transition) {
@@ -110,18 +142,9 @@ class InMemoryApprovalStore(
                     is ApprovalTransition.Timeout -> null
                 },
             )
-
-            if (store.replace(approvalId, current, updated)) {
-                return updated
-            }
-            // CAS failed — concurrent modification, retry
-            retries++
-            if (retries > maxCasRetries) {
-                throw IllegalStateException(
-                    "Approval '$approvalId' CAS retry budget exhausted after $maxCasRetries attempts"
-                )
-            }
         }
+
+        return result ?: throw IllegalArgumentException("Approval '$approvalId' not found")
     }
 
     private fun resolveNextStatus(
@@ -129,55 +152,46 @@ class InMemoryApprovalStore(
         transition: ApprovalTransition,
         now: Instant,
     ): ApprovalStatus {
-        // Expiry check: if PENDING and has expiry and is expired, reject non-timeout transitions
-        if (current.status == ApprovalStatus.PENDING
-            && current.expiresAt != null
-            && now >= current.expiresAt
-            && transition !is ApprovalTransition.Timeout
-        ) {
-            throw IllegalApprovalTransitionException(
-                current.approvalId,
-                current.status,
-                when (transition) {
-                    is ApprovalTransition.Approve -> ApprovalStatus.APPROVED
-                    is ApprovalTransition.Deny -> ApprovalStatus.DENIED
-                    is ApprovalTransition.Timeout -> ApprovalStatus.TIMED_OUT
-                },
-                "approval has expired at ${current.expiresAt}",
-            )
-        }
-
         return when (current.status) {
-            ApprovalStatus.PENDING -> when (transition) {
-                is ApprovalTransition.Approve -> ApprovalStatus.APPROVED
-                is ApprovalTransition.Deny -> ApprovalStatus.DENIED
-                is ApprovalTransition.Timeout -> ApprovalStatus.TIMED_OUT
+            ApprovalStatus.PENDING -> {
+                // Expiry check: if expired (now >= expiresAt), only timeout is allowed
+                if (now >= current.expiresAt) {
+                    if (transition is ApprovalTransition.Timeout) {
+                        return ApprovalStatus.TIMED_OUT
+                    }
+                    throw IllegalApprovalTransitionException(
+                        current.approvalId, current.status, transition.targetStatus(),
+                        "approval has expired at ${current.expiresAt}",
+                    )
+                }
+                // Not expired: timeout is NOT allowed, approve and deny are fine
+                when (transition) {
+                    is ApprovalTransition.Approve -> {
+                        require(now < current.expiresAt) { "Cannot approve approval before expiry" }
+                        ApprovalStatus.APPROVED
+                    }
+                    is ApprovalTransition.Deny -> ApprovalStatus.DENIED
+                    is ApprovalTransition.Timeout -> {
+                        throw IllegalApprovalTransitionException(
+                            current.approvalId, current.status, transition.targetStatus(),
+                            "Cannot time out approval before expiry at ${current.expiresAt}",
+                        )
+                    }
+                }
             }
             ApprovalStatus.APPROVED -> throw IllegalApprovalTransitionException(
                 current.approvalId, current.status,
-                when (transition) {
-                    is ApprovalTransition.Approve -> ApprovalStatus.APPROVED
-                    is ApprovalTransition.Deny -> ApprovalStatus.DENIED
-                    is ApprovalTransition.Timeout -> ApprovalStatus.TIMED_OUT
-                },
+                transition.targetStatus(),
                 "approval already granted",
             )
             ApprovalStatus.DENIED -> throw IllegalApprovalTransitionException(
                 current.approvalId, current.status,
-                when (transition) {
-                    is ApprovalTransition.Approve -> ApprovalStatus.APPROVED
-                    is ApprovalTransition.Deny -> ApprovalStatus.DENIED
-                    is ApprovalTransition.Timeout -> ApprovalStatus.TIMED_OUT
-                },
+                transition.targetStatus(),
                 "approval already denied",
             )
             ApprovalStatus.TIMED_OUT -> throw IllegalApprovalTransitionException(
                 current.approvalId, current.status,
-                when (transition) {
-                    is ApprovalTransition.Approve -> ApprovalStatus.APPROVED
-                    is ApprovalTransition.Deny -> ApprovalStatus.DENIED
-                    is ApprovalTransition.Timeout -> ApprovalStatus.TIMED_OUT
-                },
+                transition.targetStatus(),
                 "approval already timed out",
             )
         }

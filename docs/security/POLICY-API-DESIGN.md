@@ -182,30 +182,95 @@ enum class ClassificationSource { DECLARED, RULE_BASED, LOCAL_MODEL_ASSISTED }
 
 ---
 
-## Approval Request — Full Binding
+## Approval Domain Model (PR #14)
 
-An approval authorizes one exact action, not vaguely "continue the workflow."
+### ApprovalBinding (mandatory fields, tramai-core)
+
+```kotlin
+data class ApprovalBinding(
+    val workflowRunId: String,
+    val toolName: String,
+    val argumentsDigest: String,
+    val policyVersion: String,
+    val workflowDigest: String,
+    val approvalTokenDigest: String,
+)
+```
+
+All fields are non-nullable. `argumentsDigest`, `workflowDigest`, and `approvalTokenDigest` are validated as SHA-256 format (`sha256:<64 hex chars>`) via `Sha256Digest.validate()`.
+
+### ApprovalRequest
 
 ```kotlin
 data class ApprovalRequest(
     val approvalId: String,
-    val workflowRunId: String,
-    val toolName: String,
-    val argumentsDigest: String,
-    val requestedBy: Actor,
-    val decidedBy: Actor?,
-    val decidedAt: Instant?,
-    val decisionComment: String?,
-    val policyVersion: String,
-    val workflowDigest: String,
+    val binding: ApprovalBinding,
+    val status: ApprovalStatus,
+    val requestedBy: String,
     val requestedAt: Instant,
     val expiresAt: Instant,
-    val nonce: String,
-    val status: ApprovalStatus
+    val decidedBy: String?,
+    val decidedAt: Instant?,
+    val decisionComment: String?,
+    val version: Long,
 )
 
-enum class ApprovalStatus { PENDING, APPROVED, DENIED, EXPIRED }
+enum class ApprovalStatus { PENDING, APPROVED, DENIED, TIMED_OUT }
 ```
+
+### ApprovalStore SPI
+
+```kotlin
+interface ApprovalStore {
+    suspend fun create(request: ApprovalRequest): ApprovalRequest
+    suspend fun get(approvalId: String): ApprovalRequest?
+    suspend fun transition(approvalId: String, expectedVersion: Long, transition: ApprovalTransition): ApprovalRequest
+}
+```
+
+### ApprovalTransition (with targetStatus())
+
+```kotlin
+sealed interface ApprovalTransition {
+    fun targetStatus(): ApprovalStatus
+    data class Approve(val decidedBy: String, val comment: String? = null) : ApprovalTransition
+    data class Deny(val decidedBy: String, val comment: String? = null) : ApprovalTransition
+    data object Timeout : ApprovalTransition
+}
+```
+
+### Sha256Digest Validation
+
+```kotlin
+@JvmInline
+value class Sha256Digest(val value: String) {
+    companion object {
+        fun validate(digest: String): String  // requires format ^sha256:[0-9a-f]{64}$
+    }
+}
+```
+
+### State Machine
+
+PENDING → APPROVED/DENIED/TIMED_OUT (all terminal). Timeout succeeds only when `now >= expiresAt`. Expired pending approvals reject approve/deny.
+
+### InMemoryApprovalStore
+
+- `create()`: full validation (version==0, status==PENDING, no decision fields, non-blank IDs, SHA-256 digests, future expiry, no surrounding whitespace). Uses `putIfAbsent` for atomic insert.
+- `transition()`: uses `ConcurrentHashMap.compute()` for atomic read-modify-write — no CAS retry loop.
+- `resolveNextStatus()`: checks expiry first for PENDING state, uses `transition.targetStatus()` uniformly.
+
+### Key design decisions
+
+- Approval token (`approvalTokenDigest`) is a SHA-256 digest of a generated nonce. The raw token is provided to the requestor at creation time. PR #15 will consume and verify the raw token exactly once.
+- `decidedBy` is non-nullable on `Approve`/`Deny` transitions.
+- Comments are optional on transitions.
+- Version starts at 0 and is incremented atomically. No CAS retry loop — `ConcurrentHashMap.compute()` provides the atomicity.
+- No engine integration yet. PR #15 will build workflow suspension/resume on this foundation.
+
+## Original Design (Phase 0) — Approval Request — Full Binding
+
+An approval authorizes one exact action, not vaguely "continue the workflow."
 
 **Required semantics:**
 - **Single-use.** An approval token grants one execution. No replay.
