@@ -2,6 +2,8 @@ package dev.tramai.security.audit
 
 import java.time.Instant
 
+const val CURRENT_AUDIT_SCHEMA_VERSION = 1
+
 data class AuditEvent(
     val schemaVersion: Int,
     val hashAlgorithm: AuditHashAlgorithm,

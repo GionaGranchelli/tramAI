@@ -34,6 +34,15 @@ object AuditChainVerifier {
                     ),
                 )
             }
+            if (event.schemaVersion != CURRENT_AUDIT_SCHEMA_VERSION) {
+                errors.add(
+                    VerificationError(
+                        eventId = event.eventId,
+                        sequenceNumber = event.sequenceNumber,
+                        message = "Unsupported schemaVersion ${event.schemaVersion}",
+                    ),
+                )
+            }
         }
 
         // Consistent hashAlgorithm

@@ -2,6 +2,8 @@ package dev.tramai.security.audit
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.Collections
+import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
 
 class InMemoryAuditStore : AuditStore {
@@ -13,9 +15,12 @@ class InMemoryAuditStore : AuditStore {
 
     private val streams: ConcurrentHashMap<String, StreamState> = ConcurrentHashMap()
 
+    private fun AuditEvent.snapshot(): AuditEvent =
+        copy(metadata = Collections.unmodifiableMap(LinkedHashMap(metadata)))
+
     override suspend fun appendNext(
         auditStreamId: String,
-        eventFactory: suspend (latest: AuditEvent?) -> AuditEvent,
+        eventFactory: (latest: AuditEvent?) -> AuditEvent,
     ): AuditEvent {
         val state = streams.computeIfAbsent(auditStreamId) { StreamState() }
         return state.lock.withLock {
@@ -44,6 +49,11 @@ class InMemoryAuditStore : AuditStore {
                 "eventHash does not match calculated hash"
             }
 
+            // schemaVersion must be current
+            require(newEvent.schemaVersion == CURRENT_AUDIT_SCHEMA_VERSION) {
+                "Unsupported audit schema version ${newEvent.schemaVersion}"
+            }
+
             // no duplicate eventId in stream
             require(state.events.none { it.eventId == newEvent.eventId }) {
                 "Duplicate eventId '${newEvent.eventId}' in stream '$auditStreamId'"
@@ -51,22 +61,23 @@ class InMemoryAuditStore : AuditStore {
 
             // defensive copy of metadata
             val defensiveCopy = newEvent.copy(metadata = newEvent.metadata.toMap())
-            state.events.add(defensiveCopy)
-            defensiveCopy
+            val snapshot = defensiveCopy.snapshot()
+            state.events.add(snapshot)
+            snapshot
         }
     }
 
     override suspend fun readStream(auditStreamId: String): List<AuditEvent> {
         val state = streams[auditStreamId] ?: return emptyList()
         return state.lock.withLock {
-            state.events.toList()
+            state.events.map { it.snapshot() }
         }
     }
 
     override suspend fun latestEvent(auditStreamId: String): AuditEvent? {
         val state = streams[auditStreamId] ?: return null
         return state.lock.withLock {
-            state.events.lastOrNull()
+            state.events.lastOrNull()?.snapshot()
         }
     }
 }

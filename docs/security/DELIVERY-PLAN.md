@@ -660,6 +660,29 @@ Epics 1, 2, 2B, 3, and 4 can partially overlap. Epic 5 requires the relevant ver
 
 ---
 
+## Implementation Notes — Audit Engine Foundation (PR 11) ✅
+
+**Where:** `tramai-security/.../audit/`
+
+**Epic 4.1–4.2 status:** Foundation complete.
+
+**Implemented:**
+- `AuditEvent` v1 with `schemaVersion`, `AuditHashAlgorithm`, `auditStreamId`, `eventId`, `sequenceNumber`, `previousEventHash`, `eventHash` (SHA-256 over canonical JSON), `timestamp` (via `java.time.Clock`), and typed metadata map
+- `AuditStore` SPI with atomically sequenced `appendNext(auditStreamId, eventFactory)` — store owns sequence, linking, and invariant enforcement
+- `InMemoryAuditStore` — thread-safe via `Mutex` + `ConcurrentHashMap`, enforces streamId match, sequence continuity, previousEventHash match, eventHash recalculation, duplicate eventId rejection, and schemaVersion check
+- `AuditEngine` — synchronous `emit()` with injected `Clock` and `idGenerator`, delegates persistence to `AuditStore.appendNext()`
+- `AuditChainVerifier` — verifies stream consistency, schema/hashAlgorithm consistency, unique eventIds, sequence continuity, hash chain, and hash recalculation
+- Deterministic canonical JSON serializer (manual `StringBuilder`, no third-party lib) with stable field ordering, sorted metadata keys, explicit null serialization, and ISO-8601 UTC timestamps
+
+**Deferred to PR #12:**
+- Audit emission hooks in DefaultPolicyEngine enforcement points (BEFORE_PROVIDER_INVOCATION, BEFORE_FALLBACK, BEFORE_TOOL_EXECUTION, BEFORE_RESPONSE_RETURN)
+- AuditMode enum (MINIMAL/DECISION_ONLY/FULL) and PolicyConfiguration wiring
+- AuditEngine wiring in TramaiEngine with fail modes (FAIL_CLOSED / FAIL_SAFE_READ_ONLY)
+- DLP redaction audit bridge (2B.4)
+- File store / database store implementations
+
+---
+
 ## Implementation Notes — Secure Cache Provenance (PR 6) ✅
 
 **Where:** `tramai-engine/.../OperationResponseCache.kt`, `InMemoryOperationResponseCache.kt`, `TramaiEngine.kt`.

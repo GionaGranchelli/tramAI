@@ -67,7 +67,7 @@ fun AuditEvent.toCanonicalJson(): String {
     }
 
     appendIntField("schemaVersion", schemaVersion)
-    appendStringField("hashAlgorithm", hashAlgorithm.name)
+    appendStringField("hashAlgorithm", hashAlgorithm.wireName)
     appendStringField("auditStreamId", auditStreamId)
     appendStringField("eventId", eventId)
     appendLongField("sequenceNumber", sequenceNumber)

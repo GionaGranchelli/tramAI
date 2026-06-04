@@ -22,7 +22,7 @@ class AuditEngine(
     ): AuditEvent {
         return store.appendNext(auditStreamId) { latest ->
             val event = AuditEvent(
-                schemaVersion = 1,
+                schemaVersion = CURRENT_AUDIT_SCHEMA_VERSION,
                 hashAlgorithm = AuditHashAlgorithm.SHA_256,
                 auditStreamId = auditStreamId,
                 eventId = idGenerator(),

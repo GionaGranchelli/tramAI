@@ -16,6 +16,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 
 class AuditEngineTest {
 
@@ -309,7 +310,7 @@ class AuditEngineTest {
         val gate = CompletableDeferred<Unit>()
         val inner = InMemoryAuditStore()
         val store = object : AuditStore {
-            override suspend fun appendNext(auditStreamId: String, eventFactory: suspend (AuditEvent?) -> AuditEvent): AuditEvent {
+            override suspend fun appendNext(auditStreamId: String, eventFactory: (AuditEvent?) -> AuditEvent): AuditEvent {
                 gate.await()
                 return inner.appendNext(auditStreamId, eventFactory)
             }
@@ -712,5 +713,257 @@ class AuditEngineTest {
         val result = AuditChainVerifier.verify(fixed)
         assertFalse(result.isValid)
         assertTrue(result.errors.any { it.message.contains("Duplicate") || it.message.contains("eventId") })
+    }
+
+    // ===============================================================
+    //  23. mutating original input metadata does not alter evidence
+    // ===============================================================
+    @Test
+    fun `mutating original input metadata does not alter evidence`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine = AuditEngine(store, clock = fixedClock)
+
+        val mutableMeta = HashMap<String, String>()
+        mutableMeta["key"] = "value"
+        engine.emit(
+            auditStreamId = "stream-mm",
+            workflowRunId = null, correlationId = null, actor = null,
+            enforcementPoint = "gate", decision = "ALLOW",
+            policyVersion = null, workflowDigest = null, reasonCode = null,
+            metadata = mutableMeta,
+        )
+
+        mutableMeta["key"] = "mutated"
+
+        val stored = store.readStream("stream-mm").first()
+        assertEquals("value", stored.metadata["key"])
+    }
+
+    // ===============================================================
+    //  24. metadata returned by appendNext cannot alter stored evidence
+    // ===============================================================
+    @Test
+    fun `metadata returned by appendNext cannot alter stored evidence`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine = AuditEngine(store, clock = fixedClock)
+
+        val returned = engine.emit(
+            auditStreamId = "stream-mr",
+            workflowRunId = null, correlationId = null, actor = null,
+            enforcementPoint = "gate", decision = "ALLOW",
+            policyVersion = null, workflowDigest = null, reasonCode = null,
+            metadata = mapOf("key" to "value"),
+        )
+
+        @Suppress("UNCHECKED_CAST")
+        try {
+            (returned.metadata as MutableMap<String, String>)["key"] = "hacked"
+        } catch (_: UnsupportedOperationException) {
+            // immutable snapshot correctly prevents mutation
+        }
+
+        val stored = store.readStream("stream-mr").first()
+        assertEquals("value", stored.metadata["key"])
+    }
+
+    // ===============================================================
+    //  25. metadata returned by readStream cannot alter stored evidence
+    // ===============================================================
+    @Test
+    fun `metadata returned by readStream cannot alter stored evidence`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine = AuditEngine(store, clock = fixedClock)
+
+        engine.emit(
+            auditStreamId = "stream-rs",
+            workflowRunId = null, correlationId = null, actor = null,
+            enforcementPoint = "gate", decision = "ALLOW",
+            policyVersion = null, workflowDigest = null, reasonCode = null,
+            metadata = mapOf("key" to "value"),
+        )
+
+        val readEvents = store.readStream("stream-rs")
+        @Suppress("UNCHECKED_CAST")
+        try {
+            (readEvents.first().metadata as MutableMap<String, String>)["key"] = "hacked"
+        } catch (_: UnsupportedOperationException) {
+            // immutable snapshot correctly prevents mutation
+        }
+
+        val stored = store.readStream("stream-rs").first()
+        assertEquals("value", stored.metadata["key"])
+    }
+
+    // ===============================================================
+    //  26. metadata returned by latestEvent cannot alter stored evidence
+    // ===============================================================
+    @Test
+    fun `metadata returned by latestEvent cannot alter stored evidence`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine = AuditEngine(store, clock = fixedClock)
+
+        engine.emit(
+            auditStreamId = "stream-le",
+            workflowRunId = null, correlationId = null, actor = null,
+            enforcementPoint = "gate", decision = "ALLOW",
+            policyVersion = null, workflowDigest = null, reasonCode = null,
+            metadata = mapOf("key" to "value"),
+        )
+
+        val latest = store.latestEvent("stream-le")!!
+        @Suppress("UNCHECKED_CAST")
+        try {
+            (latest.metadata as MutableMap<String, String>)["key"] = "hacked"
+        } catch (_: UnsupportedOperationException) {
+            // immutable snapshot correctly prevents mutation
+        }
+
+        val stored = store.readStream("stream-le").first()
+        assertEquals("value", stored.metadata["key"])
+    }
+
+    // ===============================================================
+    //  27. verifier still succeeds after attempted mutation
+    // ===============================================================
+    @Test
+    fun `verifier still succeeds after attempted mutation`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine = AuditEngine(store, clock = fixedClock)
+
+        engine.emit(
+            auditStreamId = "stream-vm",
+            workflowRunId = null, correlationId = null, actor = null,
+            enforcementPoint = "gate", decision = "ALLOW",
+            policyVersion = null, workflowDigest = null, reasonCode = null,
+            metadata = mapOf("key" to "value"),
+        )
+
+        val returned = engine.emit(
+            auditStreamId = "stream-vm",
+            workflowRunId = null, correlationId = null, actor = null,
+            enforcementPoint = "gate", decision = "ALLOW",
+            policyVersion = null, workflowDigest = null, reasonCode = null,
+            metadata = mapOf("key" to "value2"),
+        )
+
+        @Suppress("UNCHECKED_CAST")
+        try {
+            (returned.metadata as MutableMap<String, String>)["key"] = "hacked"
+        } catch (_: UnsupportedOperationException) {
+            // immutable snapshot correctly prevents mutation
+        }
+
+        val readEvents = store.readStream("stream-vm")
+        @Suppress("UNCHECKED_CAST")
+        try {
+            (readEvents.last().metadata as MutableMap<String, String>)["key"] = "hacked2"
+        } catch (_: UnsupportedOperationException) {
+            // immutable snapshot correctly prevents mutation
+        }
+
+        val result = AuditChainVerifier.verify(store.readStream("stream-vm"))
+        assertTrue(result.isValid)
+    }
+
+    // ===============================================================
+    //  28. consistent schemaVersion 999 chain fails verification
+    // ===============================================================
+    @Test
+    fun `consistent schemaVersion 999 chain fails verification`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine = AuditEngine(store, clock = fixedClock)
+
+        repeat(3) { index ->
+            engine.emit(
+                auditStreamId = "stream-sv",
+                workflowRunId = null, correlationId = null, actor = null,
+                enforcementPoint = "gate", decision = "ALLOW",
+                policyVersion = null, workflowDigest = null, reasonCode = null,
+                metadata = mapOf("i" to index.toString()),
+            )
+        }
+
+        val tampered = store.readStream("stream-sv").map {
+            val modified = it.copy(schemaVersion = 999)
+            modified.copy(eventHash = modified.copy(eventHash = "").calculateHash())
+        }
+
+        val result = AuditChainVerifier.verify(tampered)
+        assertFalse(result.isValid)
+        assertTrue(result.errors.any { it.message.contains("Unsupported schemaVersion") })
+    }
+
+    // ===============================================================
+    //  29. direct append with unsupported schemaVersion fails
+    // ===============================================================
+    @Test
+    fun `direct append with unsupported schemaVersion fails`() = runTest {
+        val store = InMemoryAuditStore()
+
+        val exception = assertThrows<IllegalArgumentException> {
+            store.appendNext("stream-bad") {
+                AuditEvent(
+                    schemaVersion = 999,
+                    hashAlgorithm = AuditHashAlgorithm.SHA_256,
+                    auditStreamId = "stream-bad",
+                    eventId = "e1",
+                    sequenceNumber = 1L,
+                    workflowRunId = null, correlationId = null, actor = null,
+                    enforcementPoint = "gate", decision = "ALLOW",
+                    policyVersion = null, workflowDigest = null,
+                    previousEventHash = null,
+                    eventHash = "",
+                    timestamp = fixedClock.instant(),
+                    reasonCode = null,
+                    metadata = emptyMap(),
+                ).let { it.copy(eventHash = it.copy(eventHash = "").calculateHash()) }
+            }
+        }
+        assertTrue(exception.message?.contains("Unsupported") == true)
+    }
+
+    // ===============================================================
+    //  30. 100 concurrent emits on Dispatchers.Default with release gate
+    // ===============================================================
+    @Test
+    fun `100 concurrent emits on Dispatchers Default with release gate`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine1 = AuditEngine(store, clock = fixedClock)
+        val engine2 = AuditEngine(store, clock = fixedClock)
+
+        val gate = CompletableDeferred<Unit>()
+        val total = 100
+
+        val deferred = (1..total).map { i ->
+            async(Dispatchers.Default) {
+                gate.await()
+                val engine = if (i % 2 == 0) engine1 else engine2
+                engine.emit(
+                    auditStreamId = "stream-1",
+                    workflowRunId = "workflow-1",
+                    correlationId = "corr-1",
+                    actor = "actor-$i",
+                    enforcementPoint = "policy-gate",
+                    decision = "ALLOW",
+                    policyVersion = "v1",
+                    workflowDigest = "digest-1",
+                    reasonCode = "reason-$i",
+                    metadata = mapOf("idx" to i.toString()),
+                )
+            }
+        }
+
+        gate.complete(Unit)
+        deferred.awaitAll()
+
+        val events = store.readStream("stream-1")
+        assertEquals(total.toLong(), events.size.toLong())
+        assertEquals((1L..total.toLong()).toList(), events.map { it.sequenceNumber })
+
+        val eventIds = events.map { it.eventId }.toSet()
+        assertEquals(total, eventIds.size)
+
+        val result = AuditChainVerifier.verify(events)
+        assertTrue(result.isValid, "Chain verifier failed: ${result.errors}")
     }
 }
