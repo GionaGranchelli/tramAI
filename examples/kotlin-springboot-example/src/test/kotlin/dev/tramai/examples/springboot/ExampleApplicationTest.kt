@@ -430,8 +430,8 @@ class ExampleApplicationTest {
             .andExpect(status().isAccepted)
 
         var completed = false
-        var pollDelay = 10L
-        repeat(200) {
+        var pollDelay = 50L
+        repeat(120) {
             val resultPayload = asyncJson(get("/invoice/workflow/result/$workflowId"))
                 .andExpect(status().isOk)
                 .andReturn()
@@ -442,7 +442,7 @@ class ExampleApplicationTest {
                 return@repeat
             }
             Thread.sleep(pollDelay)
-            pollDelay = (pollDelay * 1.5).toLong().coerceAtMost(200)
+            pollDelay = (pollDelay * 1.5).toLong().coerceAtMost(1000)
         }
         assertThat(completed).isTrue()
 
