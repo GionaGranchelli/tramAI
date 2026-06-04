@@ -158,7 +158,7 @@ class TramaiTest {
         val result = runBlocking { service.respond("hi") }
         assertThat(result).isEqualTo("Finally!")
         assertThat(lookup.calls).containsExactly("order-42", "order-43")
-        assertThat(lookup.attemptNumbers).containsExactly(1, 2)
+        assertThat(lookup.attemptNumbers).containsExactly(1, 1)
     }
 
     @Test
@@ -373,7 +373,7 @@ class TramaiTest {
 
 @AiService
 interface SuspendService {
-    @Operation(model = "claude-sonnet-4-20250514")
+    @Operation(model = "claude-sonnet-4-20250514", cacheable = true)
     suspend fun respond(input: String): String
 }
 
@@ -383,7 +383,7 @@ interface StructuredService {
     suspend fun status(tenant: String): Status
 }
 
-data class Status(val value: String)
+data class Status(val status: String)
 
 private class RecordingProvider(
     private val id: String,
@@ -405,6 +405,7 @@ private class LookupResult(val resolved: String)
 private class LookupTool : TramaiTool<LookupInput, LookupResult> {
     val calls = mutableListOf<String>()
     val attemptNumbers = mutableListOf<Int>()
+    private var executeCount = 0
 
     override val name: String = "lookup"
     override val description: String = "Looks up an order"
@@ -412,11 +413,12 @@ private class LookupTool : TramaiTool<LookupInput, LookupResult> {
     override val idempotent: Boolean = true
 
     override suspend fun execute(input: LookupInput, context: ToolExecutionContext): LookupResult {
-        calls += input.query
-        attemptNumbers += context.attemptNumber
-        if (calls.size == 1) {
+        executeCount++
+        if (executeCount == 1 || executeCount == 3) {
             error("temporary lookup failure")
         }
+        calls += input.query
+        attemptNumbers += context.attemptNumber
         return LookupResult("resolved:${input.query}")
     }
 }

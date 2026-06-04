@@ -2041,10 +2041,19 @@ private data class ServiceDefinition(
                     val operation = method.getAnnotation(Operation::class.java)
                         ?: throw ConfigurationException("${javaType.name}.${method.name} must be annotated with @Operation")
 
-                    val toolDefinitions = operation.tools.map { toolName ->
-                        val tool = toolRegistry.resolve(toolName)
-                            ?: throw ConfigurationException("Tool '$toolName' requested by ${method.name} is not registered in the engine")
-                        ToolDefinition(tool.name, tool.description, tool.inputSchemaJson)
+                    val toolDefinitions = if (operation.tools.isNotEmpty()) {
+                        operation.tools.map { toolName ->
+                            val tool = toolRegistry.resolve(toolName)
+                                ?: throw ConfigurationException("Tool '$toolName' requested by ${method.name} is not registered in the engine")
+                            ToolDefinition(tool.name, tool.description, tool.inputSchemaJson)
+                        }
+                    } else {
+                        toolRegistry.registeredToolNames().map { toolName ->
+                            val tool = requireNotNull(toolRegistry.resolve(toolName)) {
+                                "Tool '$toolName' from registry is no longer resolvable"
+                            }
+                            ToolDefinition(tool.name, tool.description, tool.inputSchemaJson)
+                        }
                     }
 
                     val systemAnnotations = method.getAnnotationsByType(SystemMessage::class.java).map { it.value }
