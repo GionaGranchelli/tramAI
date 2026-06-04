@@ -31,17 +31,26 @@ import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.policy.ClassificationSource
 import dev.tramai.core.policy.DataClassification
+import dev.tramai.core.policy.EnforcementPoint
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.DlpResult
 import dev.tramai.core.security.NoOpDlpInterceptor
+import dev.tramai.core.security.NoOpDlpRedactionAuditEmitter
 import dev.tramai.security.DlpRule
 import dev.tramai.security.RuleBasedDlpConfiguration
 import dev.tramai.security.RuleBasedDlpInterceptor
+import dev.tramai.security.audit.AuditChainVerifier
+import dev.tramai.security.audit.AuditEngine
+import dev.tramai.security.audit.AuditEngineDlpRedactionAuditEmitter
+import dev.tramai.security.audit.AuditEnginePolicyDecisionAuditEmitter
+import dev.tramai.security.audit.InMemoryAuditStore
+import dev.tramai.security.audit.toCanonicalJson
 import dev.tramai.structured.JacksonStructuredOutputHandler
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -55,6 +64,9 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Nested
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneId
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
@@ -1242,6 +1254,7 @@ class TramaiEngineTest {
 
     @Nested
     inner class DlpIntegration {
+        private val fixedAuditClock = Clock.fixed(Instant.parse("2026-06-04T12:00:00Z"), ZoneId.of("UTC"))
 
         private val emailRule = DlpRule(
             id = "email",
@@ -1253,6 +1266,16 @@ class TramaiEngineTest {
             RuleBasedDlpConfiguration(rules = rules.toList().ifEmpty { listOf(emailRule) }),
         )
 
+        private fun inconsistentDlpInterceptor(
+            sanitizedText: String,
+            redactions: Boolean,
+        ) = DlpInterceptor { _, _ ->
+            DlpResult(
+                sanitizedText = sanitizedText,
+                redactions = if (redactions) listOf(dev.tramai.core.security.DlpRedaction("email", 1)) else emptyList(),
+            )
+        }
+
         private fun toolResultEmailRule(toolNames: Set<String> = emptySet()) = emailRule.copy(
             enabledFor = setOf(DlpContentType.TOOL_RESULT),
             toolNames = toolNames,
@@ -1262,6 +1285,14 @@ class TramaiEngineTest {
             assertThat(provider.requests).hasSize(2)
             return provider.requests[1].messages.last { it.role == MessageRole.TOOL }
         }
+
+        private fun auditEmitter(
+            store: InMemoryAuditStore = InMemoryAuditStore(),
+            streamId: String = "stream-1",
+        ) = AuditEngineDlpRedactionAuditEmitter(
+            AuditEngine(store, clock = fixedAuditClock),
+            dev.tramai.security.audit.DlpAuditStreamIdResolver { streamId },
+        ) to store
 
         private fun filteringEngine(
             maxLength: Long = 100_000L,
@@ -1304,7 +1335,180 @@ class TramaiEngineTest {
         }
 
         @Test
+        fun `model output redaction emits hash chained audit evidence`() {
+            val (redactionAuditEmitter, store) = auditEmitter()
+            val provider = RecordingProvider {
+                ModelResponse(content = "Contact me at user@example.com for info")
+            }
+            val observer = RecordingObserver()
+            val engine = TramaiEngine(
+                provider = provider,
+                operationObserver = observer,
+                dlpInterceptor = dlpInterceptor(),
+                dlpRedactionAuditEmitter = redactionAuditEmitter,
+            )
+            val service = engine.create<DlpRawService>()
+
+            val result = runBlocking { service.process("input") }
+
+            assertThat(result).isEqualTo("Contact me at [EMAIL] for info")
+            assertThat(observer.records.single().response?.content).isEqualTo("Contact me at [EMAIL] for info")
+            val streamEvents = runBlocking { store.readStream("stream-1") }
+            assertThat(streamEvents).hasSize(1)
+            val event = streamEvents.single()
+            assertThat(event.enforcementPoint).isEqualTo("DLP_MODEL_OUTPUT")
+            assertThat(event.metadata["ruleId"]).isEqualTo("email")
+            assertThat(event.metadata["replacementCount"]).isEqualTo("1")
+            assertThat(event.metadata.values.joinToString(" ")).doesNotContain("user@example.com")
+            assertThat(AuditChainVerifier.verify(streamEvents).isValid).isTrue()
+        }
+
+        @Test
+        fun `DLP audit emission failure blocks response return without retry fallback or circuit poisoning`() {
+            val primary = NamedProvider("primary") { ModelResponse(content = "Contact me at user@example.com for info") }
+            val fallback = NamedProvider("fallback") { ModelResponse(content = "fallback response") }
+            val failingEmitter = DlpRedactionAuditEmitter { _, _ ->
+                throw RuntimeException("audit bridge failed")
+            }
+            val engine = TramaiEngine(
+                providerRegistry = ProviderRegistry.builder()
+                    .provider("primary", primary, default = true)
+                    .provider("fallback", fallback)
+                    .model("claude-sonnet-4-20250514", "primary")
+                    .fallbackProvider("claude-sonnet-4-20250514", "fallback")
+                    .build(),
+                dlpInterceptor = dlpInterceptor(),
+                dlpRedactionAuditEmitter = failingEmitter,
+                circuitBreakerSettings = CircuitBreakerSettings(failureThreshold = 1, openDurationMillis = 60_000),
+            )
+            val service = engine.create<DlpRawService>()
+
+            val first = runCatching { runBlocking { service.process("input") } }.exceptionOrNull()
+            val second = runCatching { runBlocking { service.process("input") } }.exceptionOrNull()
+
+            assertThat(first).isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+            assertThat(first).hasMessageContaining("DLP redaction audit emission failed")
+            assertThat(second).isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+            assertThat(primary.requests).hasSize(2)
+            assertThat(fallback.requests).isEmpty()
+        }
+
+        @Test
+        fun `DLP sanitizer modifies content without redaction evidence plus NoOp audit emitter preserves legacy behavior`() {
+            val provider = RecordingProvider { ModelResponse(content = "alice@example.com") }
+            val engine = TramaiEngine(
+                provider = provider,
+                dlpInterceptor = inconsistentDlpInterceptor(sanitizedText = "[EMAIL]", redactions = false),
+                dlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
+            )
+            val service = engine.create<DlpRawService>()
+
+            val result = runBlocking { service.process("input") }
+
+            assertThat(result).isEqualTo("[EMAIL]")
+            assertThat(provider.requests).hasSize(1)
+        }
+
+        @Test
+        fun `DLP sanitizer modifies content without redaction evidence plus configured audit emitter fails closed`() {
+            val (auditEmitter, _) = auditEmitter()
+            val provider = RecordingProvider { ModelResponse(content = "alice@example.com") }
+            val engine = TramaiEngine(
+                provider = provider,
+                dlpInterceptor = inconsistentDlpInterceptor(sanitizedText = "[EMAIL]", redactions = false),
+                dlpRedactionAuditEmitter = auditEmitter,
+            )
+            val service = engine.create<DlpRawService>()
+
+            assertThatThrownBy { runBlocking { service.process("input") } }
+                .isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+                .hasMessage("DLP modified output without redaction evidence")
+        }
+
+        @Test
+        fun `DLP rule matches but replacement equals original value fails closed`() {
+            val provider = RecordingProvider { ModelResponse(content = "alice@example.com") }
+            val engine = TramaiEngine(
+                provider = provider,
+                dlpInterceptor = inconsistentDlpInterceptor(sanitizedText = "alice@example.com", redactions = true),
+            )
+            val service = engine.create<DlpRawService>()
+
+            assertThatThrownBy { runBlocking { service.process("input") } }
+                .isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+                .hasMessage("DLP redactions reported without modifying output")
+        }
+
+        @Test
+        fun `DLP consistency failure does not trigger provider retry`() {
+            val provider = RecordingProvider { ModelResponse(content = "alice@example.com") }
+            val engine = TramaiEngine(
+                provider = provider,
+                dlpInterceptor = inconsistentDlpInterceptor(sanitizedText = "alice@example.com", redactions = true),
+            )
+            val service = engine.create<DlpRetryService>()
+
+            assertThatThrownBy { runBlocking { service.process("input") } }
+                .isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+                .hasMessage("DLP redactions reported without modifying output")
+            assertThat(provider.requests).hasSize(1)
+        }
+
+        @Test
+        fun `DLP consistency failure does not trigger fallback`() {
+            val primary = NamedProvider("primary") { ModelResponse(content = "alice@example.com") }
+            val fallback = NamedProvider("fallback") { ModelResponse(content = "fallback response") }
+            val engine = TramaiEngine(
+                providerRegistry = ProviderRegistry.builder()
+                    .provider("primary", primary, default = true)
+                    .provider("fallback", fallback)
+                    .model("claude-sonnet-4-20250514", "primary")
+                    .fallbackProvider("claude-sonnet-4-20250514", "fallback")
+                    .build(),
+                dlpInterceptor = inconsistentDlpInterceptor(sanitizedText = "alice@example.com", redactions = true),
+            )
+            val service = engine.create<DlpRawService>()
+
+            assertThatThrownBy { runBlocking { service.process("input") } }
+                .isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+                .hasMessage("DLP redactions reported without modifying output")
+            assertThat(primary.requests).hasSize(1)
+            assertThat(fallback.requests).isEmpty()
+        }
+
+        @Test
+        fun `DLP consistency failure does not poison circuit breaker`() {
+            val provider = RecordingProvider { ModelResponse(content = "alice@example.com") }
+            val engine = TramaiEngine(
+                provider = provider,
+                dlpInterceptor = inconsistentDlpInterceptor(sanitizedText = "alice@example.com", redactions = true),
+                circuitBreakerSettings = CircuitBreakerSettings(
+                    enabled = true,
+                    failureThreshold = 1,
+                    openDurationMillis = 60_000,
+                ),
+            )
+            val service = engine.create<DlpRawService>()
+
+            val first = runCatching { runBlocking { service.process("input") } }.exceptionOrNull()
+            val second = runCatching { runBlocking { service.process("input") } }.exceptionOrNull()
+
+            assertThat(first).isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+            assertThat(second).isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+            assertThat(second).isNotInstanceOf(dev.tramai.core.exception.CircuitBreakerOpenException::class.java)
+            assertThat(provider.requests).hasSize(2)
+        }
+
+        @Test
         fun `structured JSON redacted before parser input`() {
+            val store = InMemoryAuditStore()
+            val streamIds = mutableListOf<String>()
+            val auditEmitter = AuditEngineDlpRedactionAuditEmitter(
+                AuditEngine(store, clock = fixedAuditClock),
+                dev.tramai.security.audit.DlpAuditStreamIdResolver {
+                    it.correlationId.also(streamIds::add)
+                },
+            )
             val provider = RecordingProvider {
                 ModelResponse(content = """{"email":"alice@example.com","status":"ok"}""")
             }
@@ -1312,14 +1516,70 @@ class TramaiEngineTest {
                 provider = provider,
                 structuredOutputHandler = JacksonStructuredOutputHandler(),
                 dlpInterceptor = dlpInterceptor(),
+                dlpRedactionAuditEmitter = auditEmitter,
             )
             val service = engine.create<DlpStructuredService>()
 
             val result = runBlocking { service.process("input") }
 
-            // Parsed result should use the redacted content
             assertThat(result.email).isEqualTo("[EMAIL]")
             assertThat(result.status).isEqualTo("ok")
+            assertThat(streamIds).hasSize(1)
+
+            val events = runBlocking { store.readStream(streamIds.single()) }
+            assertThat(events).hasSize(1)
+            assertThat(events.single().metadata["ruleId"]).isEqualTo("email")
+            assertThat(AuditChainVerifier.verify(events).isValid).isTrue()
+            assertThat(events.single().toCanonicalJson()).doesNotContain("alice@example.com")
+        }
+
+        @Test
+        fun `policy and DLP audit events share one ordered timeline`() {
+            val store = InMemoryAuditStore()
+            val auditEngine = AuditEngine(store, clock = fixedAuditClock)
+            val sharedStreamIds = mutableListOf<String>()
+            val policyEmitter = AuditEnginePolicyDecisionAuditEmitter(
+                auditEngine,
+                dev.tramai.security.audit.AuditStreamIdResolver {
+                    it.correlationId.also(sharedStreamIds::add)
+                },
+            )
+            val dlpEmitter = AuditEngineDlpRedactionAuditEmitter(
+                auditEngine,
+                dev.tramai.security.audit.DlpAuditStreamIdResolver {
+                    it.correlationId.also(sharedStreamIds::add)
+                },
+            )
+            val provider = RecordingProvider {
+                ModelResponse(content = "Reach me at alice@example.com")
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                dlpInterceptor = dlpInterceptor(),
+                dlpRedactionAuditEmitter = dlpEmitter,
+                policyDecisionAuditEmitter = policyEmitter,
+            )
+            val service = engine.create<DlpRawService>()
+
+            val result = runBlocking { service.process("input") }
+
+            assertThat(result).isEqualTo("Reach me at [EMAIL]")
+            val streamId = sharedStreamIds.first()
+            val events = runBlocking { store.readStream(streamId) }
+            assertThat(events.map { it.enforcementPoint }).containsExactly(
+                EnforcementPoint.BEFORE_PROVIDER_RESOLUTION.name,
+                EnforcementPoint.BEFORE_PROVIDER_INVOCATION.name,
+                "DLP_MODEL_OUTPUT",
+                EnforcementPoint.BEFORE_RESPONSE_RETURN.name,
+            )
+            assertThat(events.map { it.decision }).containsExactly("ALLOW", "ALLOW", "REDACTED", "ALLOW")
+            assertThat(events.map { it.sequenceNumber }).containsExactly(1L, 2L, 3L, 4L)
+            assertThat(events.map { it.eventId }).doesNotHaveDuplicates()
+            assertThat(events.mapNotNull { it.correlationId }.distinct()).hasSize(1)
+            assertThat(AuditChainVerifier.verify(events).isValid).isTrue()
+            events.forEach { event ->
+                assertThat(event.toCanonicalJson()).doesNotContain("alice@example.com")
+            }
         }
 
         @Test
@@ -1448,6 +1708,98 @@ class TramaiEngineTest {
             val toolMessage = secondRequestToolMessage(provider)
             assertThat(toolMessage.content).isEqualTo("Tool email [EMAIL]")
             assertThat(toolMessage.content).doesNotContain("user@example.com")
+        }
+
+        @Test
+        fun `tool result authoritative scan emits one audit event and detection scans emit none`() {
+            val (redactionAuditEmitter, store) = auditEmitter()
+            val tool = object : ResolvedTool {
+                override val name: String = "lookup"
+                override val description: String = "Looks up data"
+                override val inputSchemaJson: String = """{"type":"object"}"""
+                override val idempotent: Boolean = false
+                override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(
+                    input: Any,
+                    context: ToolExecutionContext,
+                ): ToolResult = ToolResult.Success(
+                    value = "alice@",
+                    contentParts = listOf(
+                        ContentPart.TextPart("example.com"),
+                        ContentPart.ImageUrlContent("https://example.com/image.png", "image/png"),
+                    ),
+                )
+            }
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(
+                    content = "calling tool",
+                    toolCalls = listOf(ToolCall("tc-1", "lookup", """{"query":"user"}""")),
+                ),
+                ModelResponse(content = "done"),
+            ).apply {
+                capabilities = setOf(dev.tramai.core.provider.ProviderCapability.VISION)
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                dlpInterceptor = dlpInterceptor(toolResultEmailRule()),
+                dlpRedactionAuditEmitter = redactionAuditEmitter,
+            )
+            val service = engine.create<DlpToolService>()
+
+            runBlocking { service.answer("input") }
+
+            val events = runBlocking { store.readStream("stream-1") }
+            assertThat(events).hasSize(1)
+            assertThat(events.single().enforcementPoint).isEqualTo("DLP_TOOL_RESULT")
+            assertThat(events.single().metadata["contentLocation"]).isEqualTo("TOOL_MESSAGE_TEXT_RUN")
+            assertThat(events.single().metadata["ruleId"]).isEqualTo("email")
+            assertThat(events.single().metadata.values.joinToString(" ")).doesNotContain("alice@example.com")
+            assertThat(AuditChainVerifier.verify(events).isValid).isTrue()
+        }
+
+        @Test
+        fun `tool result audit emission failure blocks reinjection without replaying tool or issuing second provider request`() {
+            val toolExecutions = AtomicInteger(0)
+            val tool = object : ResolvedTool {
+                override val name: String = "lookup"
+                override val description: String = "Looks up data"
+                override val inputSchemaJson: String = """{"type":"object"}"""
+                override val idempotent: Boolean = false
+                override val sideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+
+                override suspend fun execute(
+                    input: Any,
+                    context: ToolExecutionContext,
+                ): ToolResult {
+                    toolExecutions.incrementAndGet()
+                    return ToolResult.Success("Tool email user@example.com")
+                }
+            }
+            val provider = ToolCallingRecordingProvider(
+                ModelResponse(
+                    content = "calling tool",
+                    toolCalls = listOf(ToolCall("tc-1", "lookup", """{"query":"user"}""")),
+                ),
+                ModelResponse(content = "should not be requested"),
+            )
+            val failingEmitter = DlpRedactionAuditEmitter { _, _ ->
+                throw RuntimeException("audit bridge failed")
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+                dlpInterceptor = dlpInterceptor(toolResultEmailRule()),
+                dlpRedactionAuditEmitter = failingEmitter,
+            )
+            val service = engine.create<DlpToolService>()
+
+            val exception = runCatching { runBlocking { service.answer("input") } }.exceptionOrNull()
+
+            assertThat(exception).isInstanceOf(dev.tramai.core.security.DlpInspectionException::class.java)
+            assertThat(provider.requests).hasSize(1)
+            assertThat(toolExecutions.get()).isEqualTo(1)
         }
 
         @Test
@@ -2698,6 +3050,16 @@ private interface DlpRawService {
     @Operation(
         prompt = "Process the input",
         model = "claude-sonnet-4-20250514",
+    )
+    suspend fun process(input: String): String
+}
+
+@AiService
+private interface DlpRetryService {
+    @Operation(
+        prompt = "Process the input with retries",
+        model = "claude-sonnet-4-20250514",
+        providerRetries = 2,
     )
     suspend fun process(input: String): String
 }

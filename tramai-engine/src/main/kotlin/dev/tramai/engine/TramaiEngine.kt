@@ -45,10 +45,13 @@ import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
 import dev.tramai.core.security.DlpContentType
+import dev.tramai.core.security.DlpContentLocation
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInspectionException
 import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.NoOpDlpInterceptor
+import dev.tramai.core.security.NoOpDlpRedactionAuditEmitter
 import dev.tramai.core.security.PromptSanitizer
 import dev.tramai.core.structured.StructuredOutputHandler
 import dev.tramai.core.structured.StructuredOutputResult
@@ -101,6 +104,7 @@ class TramaiEngine(
     private val scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
     private val policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
     private val dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
+    private val dlpRedactionAuditEmitter: DlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
     private val toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
     private val engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
     private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
@@ -132,6 +136,7 @@ class TramaiEngine(
         scope: CoroutineScope = CoroutineScope(job + Dispatchers.Default),
         policyEngine: dev.tramai.core.policy.PolicyEngine? = null,
         dlpInterceptor: DlpInterceptor = NoOpDlpInterceptor,
+        dlpRedactionAuditEmitter: DlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
         toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
         engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
         policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
@@ -152,6 +157,7 @@ class TramaiEngine(
         scope = scope,
         policyEngine = policyEngine,
         dlpInterceptor = dlpInterceptor,
+        dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
         toolResultFilteringSettings = toolResultFilteringSettings,
         engineEventObserver = engineEventObserver,
         policyDecisionAuditEmitter = policyDecisionAuditEmitter,
@@ -185,6 +191,7 @@ class TramaiEngine(
             migrationWarningGuard = migrationWarningGuard,
             isLegacyFallback = isLegacyFallback,
             dlpInterceptor = dlpInterceptor,
+            dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
             toolResultFilteringSettings = toolResultFilteringSettings,
             engineEventObserver = engineEventObserver,
             policyDecisionAuditEmitter = policyDecisionAuditEmitter,
@@ -230,6 +237,7 @@ private class TramaiInvocationHandler(
     private val migrationWarningGuard: java.util.concurrent.atomic.AtomicBoolean,
     isLegacyFallback: Boolean,
     private val dlpInterceptor: DlpInterceptor,
+    private val dlpRedactionAuditEmitter: DlpRedactionAuditEmitter,
     private val toolResultFilteringSettings: ToolResultFilteringSettings,
     private val engineEventObserver: EngineEventObserver,
     private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter,
@@ -1182,7 +1190,44 @@ private class TramaiInvocationHandler(
         }
     }
 
-    private fun sanitizeToolMessageForReinjection(
+    /**
+     * Performs the authoritative DLP scan for a single response boundary.
+     *
+     * `text` must be the raw pre-DLP text for the specific scan boundary being inspected.
+     */
+    private suspend fun inspectDlpAuthoritatively(
+        context: DlpContext,
+        text: String,
+    ) = dlpInterceptor.inspect(context, text).also { result ->
+        val sanitizedTextChanged = result.sanitizedText != text
+        val hasRedactionEvidence = result.redactions.isNotEmpty()
+
+        if (sanitizedTextChanged && !hasRedactionEvidence && dlpRedactionAuditEmitter !== NoOpDlpRedactionAuditEmitter) {
+            throw DlpInspectionException("DLP modified output without redaction evidence")
+        }
+        if (!sanitizedTextChanged && hasRedactionEvidence) {
+            throw DlpInspectionException("DLP redactions reported without modifying output")
+        }
+        if (result.redactions.isNotEmpty()) {
+            try {
+                dlpRedactionAuditEmitter.emit(context, result.redactions)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                throw DlpInspectionException(
+                    message = "DLP redaction audit emission failed",
+                    cause = error,
+                )
+            }
+        }
+    }
+
+    private fun inspectDlpForDetectionOnly(
+        context: DlpContext,
+        text: String,
+    ) = dlpInterceptor.inspect(context, text)
+
+    private suspend fun sanitizeToolMessageForReinjection(
         message: Message,
         operation: OperationDefinition,
         toolName: String,
@@ -1199,6 +1244,7 @@ private class TramaiInvocationHandler(
         val safeToolLabel = canonicalToolName.take(MAX_SAFE_TOOL_NAME_LENGTH)
         val dlpContext = DlpContext(
             contentType = DlpContentType.TOOL_RESULT,
+            contentLocation = DlpContentLocation.TOOL_MESSAGE_CONTENT,
             operationInterface = operation.method.declaringClass.name,
             operationMethod = operation.method.name,
             toolName = canonicalToolName,
@@ -1266,8 +1312,18 @@ private class TramaiInvocationHandler(
             )
         }
 
-        fun sanitizeText(text: String): String = try {
-            dlpInterceptor.inspect(dlpContext, text).sanitizedText.also { sanitizedText ->
+        suspend fun sanitizeText(
+            text: String,
+            contentLocation: DlpContentLocation,
+            authoritative: Boolean,
+        ): String = try {
+            val effectiveContext = dlpContext.copy(contentLocation = contentLocation)
+            val result = if (authoritative) {
+                inspectDlpAuthoritatively(effectiveContext, text)
+            } else {
+                inspectDlpForDetectionOnly(effectiveContext, text)
+            }
+            result.sanitizedText.also { sanitizedText ->
                 if (sanitizedText.length.toLong() > aggregateTextLimit) {
                     rejectSanitizedTextLimit(sanitizedText.length.toLong())
                 }
@@ -1305,7 +1361,13 @@ private class TramaiInvocationHandler(
                 return message
             }
             accumulateLength(0L, message.content)
-            return message.copy(content = sanitizeText(message.content))
+            return message.copy(
+                content = sanitizeText(
+                    text = message.content,
+                    contentLocation = DlpContentLocation.TOOL_MESSAGE_CONTENT,
+                    authoritative = true,
+                ),
+            )
         }
 
         var aggregateLength = 0L
@@ -1326,14 +1388,18 @@ private class TramaiInvocationHandler(
             return nextLength
         }
 
-        fun flushTextRun() {
+        suspend fun flushTextRun() {
             if (textRun.isEmpty()) {
                 return
             }
             val combinedText = buildString {
                 textRun.forEach(::append)
             }
-            val sanitizedText = sanitizeText(combinedText)
+            val sanitizedText = sanitizeText(
+                text = combinedText,
+                contentLocation = DlpContentLocation.TOOL_MESSAGE_TEXT_RUN,
+                authoritative = true,
+            )
             sanitizedAggregateLength = accumulateSanitizedLength(sanitizedAggregateLength, sanitizedText)
             sanitizedTextRuns += sanitizedText
             if (sanitizedText.isNotEmpty()) {
@@ -1361,11 +1427,19 @@ private class TramaiInvocationHandler(
         }
         if (allTextParts.size > 1) {
             val projectedText = allTextParts.joinToString("")
-            val projectedResult = sanitizeText(projectedText)
+            val projectedResult = sanitizeText(
+                text = projectedText,
+                contentLocation = DlpContentLocation.TOOL_MESSAGE_CONTENT,
+                authoritative = false,
+            )
             val individualCombined = buildString {
                 sanitizedTextRuns.forEach(::append)
             }
-            val combinedResanitized = sanitizeText(individualCombined)
+            val combinedResanitized = sanitizeText(
+                text = individualCombined,
+                contentLocation = DlpContentLocation.TOOL_MESSAGE_CONTENT,
+                authoritative = false,
+            )
             if (projectedResult != individualCombined && combinedResanitized != individualCombined) {
                 rejectCrossBoundarySensitiveText()
             }
@@ -1584,6 +1658,7 @@ private class TramaiInvocationHandler(
                     if (dlpInterceptor !== NoOpDlpInterceptor) {
                         val dlpContext = DlpContext(
                             contentType = DlpContentType.MODEL_OUTPUT,
+                            contentLocation = DlpContentLocation.MODEL_RESPONSE_CONTENT,
                             operationInterface = serviceDefinition.serviceType.qualifiedName
                                 ?: serviceDefinition.serviceType.simpleName.orEmpty(),
                             operationMethod = operation.method.name,
@@ -1593,7 +1668,7 @@ private class TramaiInvocationHandler(
                             dataClassification = securityContext.dataClassification,
                             classificationSource = securityContext.classificationSource,
                         )
-                        val dlpResult = dlpInterceptor.inspect(dlpContext, interceptedResponse.content)
+                        val dlpResult = inspectDlpAuthoritatively(dlpContext, interceptedResponse.content)
                         if (dlpResult.sanitizedText != interceptedResponse.content) {
                             interceptedResponse.copy(content = dlpResult.sanitizedText)
                         } else {
@@ -1603,6 +1678,8 @@ private class TramaiInvocationHandler(
                         interceptedResponse
                     }
                 } catch (e: CancellationException) {
+                    throw e
+                } catch (e: dev.tramai.core.security.DlpInspectionException) {
                     throw e
                 } catch (e: Exception) {
                     // DLP failures are separate from provider failures:

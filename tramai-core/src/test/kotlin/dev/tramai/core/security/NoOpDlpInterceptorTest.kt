@@ -10,7 +10,7 @@ class NoOpDlpInterceptorTest {
     @Test
     fun `returns exact text`() {
         val result = interceptor.inspect(
-            DlpContext(contentType = DlpContentType.MODEL_OUTPUT, operationInterface = "test", operationMethod = "m", correlationId = "c1"),
+            DlpContext(contentType = DlpContentType.MODEL_OUTPUT, contentLocation = DlpContentLocation.MODEL_RESPONSE_CONTENT, operationInterface = "test", operationMethod = "m", correlationId = "c1"),
             "hello world"
         )
         assertThat(result.sanitizedText).isEqualTo("hello world")
@@ -19,7 +19,7 @@ class NoOpDlpInterceptorTest {
     @Test
     fun `has no redactions`() {
         val result = interceptor.inspect(
-            DlpContext(contentType = DlpContentType.MODEL_OUTPUT, operationInterface = "test", operationMethod = "m", correlationId = "c2"),
+            DlpContext(contentType = DlpContentType.MODEL_OUTPUT, contentLocation = DlpContentLocation.MODEL_RESPONSE_CONTENT, operationInterface = "test", operationMethod = "m", correlationId = "c2"),
             "hello"
         )
         assertThat(result.redactions).isEmpty()
@@ -28,7 +28,7 @@ class NoOpDlpInterceptorTest {
     @Test
     fun `hasRedactions is false`() {
         val result = interceptor.inspect(
-            DlpContext(contentType = DlpContentType.MODEL_OUTPUT, operationInterface = "test", operationMethod = "m", correlationId = "c3"),
+            DlpContext(contentType = DlpContentType.MODEL_OUTPUT, contentLocation = DlpContentLocation.MODEL_RESPONSE_CONTENT, operationInterface = "test", operationMethod = "m", correlationId = "c3"),
             "hello"
         )
         assertThat(result.hasRedactions).isFalse()
@@ -38,7 +38,7 @@ class NoOpDlpInterceptorTest {
     fun `works with all content types`() {
         for (ct in DlpContentType.entries) {
             val result = interceptor.inspect(
-                DlpContext(contentType = ct, operationInterface = "test", operationMethod = "m", correlationId = "c4"),
+                DlpContext(contentType = ct, contentLocation = if (ct == DlpContentType.MODEL_OUTPUT) DlpContentLocation.MODEL_RESPONSE_CONTENT else DlpContentLocation.TOOL_MESSAGE_CONTENT, operationInterface = "test", operationMethod = "m", correlationId = "c4"),
                 "some text"
             )
             assertThat(result.sanitizedText).isEqualTo("some text")

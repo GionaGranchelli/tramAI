@@ -14,6 +14,8 @@ import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpRedaction
+import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.DlpResult
 import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
@@ -28,7 +30,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.ComponentScan
+import org.springframework.context.annotation.FilterType
 import java.net.InetSocketAddress
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.Supplier
 import kotlin.test.Test
 
@@ -495,6 +500,81 @@ class TramaiAutoConfigurationTest {
     }
 
     @Test
+    fun `zero DlpRedactionAuditEmitter beans uses NoOp behavior`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+
+        contextRunner.run { context ->
+            val tramai = context.getBean(Tramai::class.java)
+            val service = tramai.create(TestInvoiceAnalyzer::class)
+            val result = runBlocking { service.analyze("test") }
+            assertThat(result).isEqualTo("spring hello")
+        }
+    }
+
+    @Test
+    fun `single DlpRedactionAuditEmitter bean is wired`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(DlpTestApplication::class.java)
+            .withBean(DlpProvider::class.java)
+            .withBean("dlpInterceptor", DlpInterceptor::class.java, Supplier {
+                DlpInterceptor { _: DlpContext, text: String ->
+                    val sanitizedText = text.replace("sensitive", "redacted")
+                    DlpResult(
+                        sanitizedText = sanitizedText,
+                        redactions = if (sanitizedText != text) listOf(DlpRedaction("dlp-rule", 1)) else emptyList(),
+                    )
+                }
+            })
+            .withBean("dlpRedactionAuditEmitter", DlpRedactionAuditEmitter::class.java, Supplier {
+                DlpRedactionAuditEmitter { _, _ -> }
+            })
+            .withPropertyValues(
+                "tramai.default-provider=dlp-provider",
+                "tramai.models.gpt-5.1-chat-latest=dlp-provider",
+            )
+
+        contextRunner.run { context ->
+            assertThat(context).hasSingleBean(DlpRedactionAuditEmitter::class.java)
+            val service = context.getBean(TestInvoiceAnalyzer::class.java)
+            val result = runBlocking { service.analyze("test") }
+            assertThat(result).isEqualTo("redacted spring payload")
+        }
+    }
+
+    @Test
+    fun `multiple DlpRedactionAuditEmitter beans fail fast`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+            .withBean("firstDlpEmitter", DlpRedactionAuditEmitter::class.java, Supplier {
+                DlpRedactionAuditEmitter { _, _ -> }
+            })
+            .withBean("secondDlpEmitter", DlpRedactionAuditEmitter::class.java, Supplier {
+                DlpRedactionAuditEmitter { _, _ -> }
+            })
+
+        contextRunner.run { context ->
+            assertThat(context).hasFailed()
+            assertThat(context).getFailure()
+                .hasRootCauseInstanceOf(IllegalArgumentException::class.java)
+                .hasRootCauseMessage(
+                    "Multiple DlpRedactionAuditEmitter beans found (2). Define at most one.",
+                )
+        }
+    }
+
+    @Test
     fun `zero PolicyEngine beans preserves legacy permissive fallback`() {
         val contextRunner = ApplicationContextRunner()
             .withConfiguration(
@@ -672,6 +752,10 @@ interface FallbackInvoiceAnalyzer {
 @SpringBootApplication
 open class TestApplication
 
+@SpringBootApplication
+@ComponentScan(excludeFilters = [ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE, value = [InterceptorConfiguration::class])])
+open class DlpTestApplication
+
 @TestConfiguration
 open class ProviderConfiguration {
     @Bean
@@ -802,6 +886,26 @@ class DlpProvider : ModelProvider {
     }
 
     override fun providerId(): String = "dlp-provider"
+}
+
+class CountingDlpRedactionAuditEmitter : DlpRedactionAuditEmitter {
+    val instanceInvocationCount = AtomicInteger(0)
+
+    override suspend fun emit(
+        context: DlpContext,
+        redactions: List<DlpRedaction>,
+    ) {
+        instanceInvocationCount.incrementAndGet()
+        invocationCount.incrementAndGet()
+    }
+
+    companion object {
+        val invocationCount = AtomicInteger(0)
+
+        fun reset() {
+            invocationCount.set(0)
+        }
+    }
 }
 
 private fun respond(

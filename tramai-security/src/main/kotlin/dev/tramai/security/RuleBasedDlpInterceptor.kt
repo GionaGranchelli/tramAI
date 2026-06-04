@@ -5,8 +5,10 @@ import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpRedaction
 import dev.tramai.core.security.DlpResult
+import dev.tramai.core.security.DlpRuleIdNormalizer
 import java.util.regex.Matcher
 import java.util.regex.Pattern
+import java.util.regex.PatternSyntaxException
 
 data class RuleBasedDlpConfiguration(
     val rules: List<DlpRule> = emptyList(),
@@ -33,15 +35,19 @@ class RuleBasedDlpInterceptor(
         require(configuration.maxTextLength <= 10_000_000) { "maxTextLength exceeds maximum allowed value" }
         val ids = mutableSetOf<String>()
         compiledRules = configuration.rules.map { rule ->
-            require(rule.id.isNotBlank()) { "DLP rule ID must not be blank" }
-            require(ids.add(rule.id)) { "Duplicate DLP rule ID: '${rule.id}'" }
-            require(rule.pattern.isNotBlank()) { "DLP rule pattern must not be blank for rule '${rule.id}'" }
-            require(rule.enabledFor.isNotEmpty()) { "DLP rule '${rule.id}' must have at least one enabled content type" }
-            require(rule.toolNames.none { it.isBlank() }) { "DLP rule '${rule.id}' must not contain blank tool names" }
-            require(rule.toolNames.all { it == it.trim() }) { "DLP rule '${rule.id}' must not contain tool names with surrounding whitespace" }
+            val normalizedId = DlpRuleIdNormalizer.normalize(rule.id)
+            require(ids.add(normalizedId)) { "Duplicate DLP rule ID" }
+            require(rule.pattern.isNotBlank()) { "DLP rule pattern must not be blank" }
+            require(rule.enabledFor.isNotEmpty()) { "DLP rule must have at least one enabled content type" }
+            require(rule.toolNames.none { it.isBlank() }) { "DLP rule must not contain blank tool names" }
+            require(rule.toolNames.all { it == it.trim() }) { "DLP rule must not contain tool names with surrounding whitespace" }
             CompiledDlpRule(
-                id = rule.id,
-                pattern = Pattern.compile(rule.pattern),
+                id = normalizedId,
+                pattern = try {
+                    Pattern.compile(rule.pattern)
+                } catch (_: PatternSyntaxException) {
+                    throw IllegalArgumentException("DLP rule pattern is invalid")
+                },
                 replacement = rule.replacement,
                 enabledFor = rule.enabledFor.toSet(),
                 toolNames = rule.toolNames.toSet(),
@@ -67,6 +73,13 @@ class RuleBasedDlpInterceptor(
             var count = 0
 
             while (matcher.find()) {
+                require(matcher.start() < matcher.end()) {
+                    "DLP rule produced an unsafe zero-width match"
+                }
+                val matchedValue = matcher.group()
+                require(!rule.replacement.lowercase().contains(matchedValue.lowercase())) {
+                    "DLP replacement preserves matched content"
+                }
                 matcher.appendReplacement(sb, Matcher.quoteReplacement(rule.replacement))
                 count++
             }

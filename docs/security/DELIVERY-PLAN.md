@@ -68,13 +68,13 @@ Topic 1.8 ✅ — closed in feat/secure-cache-provenance (PR #6). See `Operation
 
 ## Epic 1: Policy Engine Core
 
-**Goal:** Introduce `tramai-security` with deny-by-default policy enforcement at all 8 mandatory enforcement points.
+**Goal:** Introduce `tramai-security` with deny-by-default policy enforcement at all 8 mandatory policy enforcement points.
 
 ### Issues
 
 #### 1.1 — PolicyEngine SPI, PolicyDecision, and enums
 - Create `PolicyEngine` interface, `PolicyContext`, `PolicyDecision` sealed interface in `tramai-core`
-- Add `EnforcementPoint` enum (8 values)
+- Add `EnforcementPoint` enum (8 mandatory policy points; 7 active + `BEFORE_WORKFLOW_RESUME` deferred)
 - Add `DataClassification`, `RiskLevel`, `ApprovalMode`, `ManagedNetworkEgress`, `AuditDetail`, `ProviderPolicy`, `CompatibilityMode` enums
 - **Acceptance:** Interfaces compile, all enums have documented values
 
@@ -91,7 +91,7 @@ Topic 1.8 ✅ — closed in feat/secure-cache-provenance (PR #6). See `Operation
 - **Acceptance:** All unknown operations denied; known operations require explicit allow rules
 
 #### 1.4 — Enforcement hooks in TramaiEngine
-- Add mandatory `policyEngine.evaluate()` calls at all 8 enforcement points
+- Add mandatory `policyEngine.evaluate()` calls at all active policy enforcement points (7 active + 1 deferred)
 - Remove any code path that reaches provider/tool executor without evaluation
 - Version-scoped migration: 0.3.x unchanged, 0.4.x opt-in with warning, `tramai-sovereign` always secure, 1.0 secure-by-default
 - **Acceptance:** Cannot reach provider without policy evaluation; LEGACY_PERMISSIVE requires explicit config; sovereign profile enforces SECURE
@@ -291,18 +291,18 @@ tramai:
 - OCR scanning, image-byte inspection, URL-token/credential detection deferred
 - **Status:** Deferred to follow-up PR
 
-#### 2B.4 — Redaction audit events ⏳
+#### 2B.4 — Redaction audit events ✅
 - Emit audit event when DLP redacts content
 - Record field name, rule matched, not the redacted value
 - **Acceptance:** Redaction events in audit trail; no sensitive data in audit
-- **Status:** Deferred to follow-up PR
+- **Status:** Completed in feat/dlp-redaction-audit-bridge (PR #13)
 
-#### 2B.5 — Negative tests for valid-schema data leakage ⏳
+#### 2B.5 — Negative tests for valid-schema data leakage ✅
 - Test: valid JSON output containing PII → redacted
 - Test: tool result containing secrets → filtered
 - Test: redaction events emitted and verifiable
 - **Acceptance:** Schema-valid outputs with PII are caught by DLP layer
-- **Status:** Deferred to follow-up PR (compensating coverage provided by RuleBasedDlpInterceptor unit tests)
+- **Status:** Completed in feat/dlp-redaction-audit-bridge (PR #13)
 
 **Epic Exit Criteria:**
 - [x] DLP SPI implemented with rule-based first pass
@@ -675,7 +675,7 @@ Epics 1, 2, 2B, 3, and 4 can partially overlap. Epic 5 requires the relevant ver
 - Deterministic canonical JSON serializer (manual `StringBuilder`, no third-party lib) with stable field ordering, sorted metadata keys, explicit null serialization, and ISO-8601 UTC timestamps
 
 **Deferred to PR #12 (completed):**
-- ✅ **Centralized audit emission in PolicyEnforcementHelper.enforce()** — all 8 mandatory enforcement points produce hash-chained events
+- ✅ **Centralized audit emission in PolicyEnforcementHelper.enforce()** — all active policy enforcement points produce hash-chained events (7 active); DLP redaction events are emitted separately via `DlpRedactionAuditEmitter`
 - ✅ **PolicyDecisionAuditEmitter SPI** — covers DefaultPolicyEngine and custom implementations
 - ✅ **AuditEnginePolicyDecisionAuditEmitter** with safe metadata allowlist and stable stream ID
 - ✅ **NoOpPolicyDecisionAuditEmitter** for backward compatibility
@@ -686,7 +686,7 @@ Epics 1, 2, 2B, 3, and 4 can partially overlap. Epic 5 requires the relevant ver
 - Configurable audit failure modes (FAIL_SAFE_READ_ONLY)
 - Durable offline buffer and buffer limits
 - Storage-full strategy
-- DLP redaction audit bridge (2B.4)
+- DLP redaction audit bridge (2B.4) (completed in PR #13)
 - Approval audit events (Epic 3 integration)
 - File store and database store implementations
 - Audit retention and governance UI
@@ -717,7 +717,7 @@ Epics 1, 2, 2B, 3, and 4 can partially overlap. Epic 5 requires the relevant ver
 - BEFORE_TOOL_RESULT_REINJECTION
 - BEFORE_RESPONSE_RETURN
 
-⚠️ `BEFORE_WORKFLOW_RESUME` is enumerated in the `EnforcementPoint` enum but has **no active runtime call site** in `TramaiEngine` yet. It is reserved for the approval-resume flow (Epic 3) and will become active when workflow suspension is implemented. All 7 active enforcement points are audited.
+⚠️ `BEFORE_WORKFLOW_RESUME` is enumerated in the `EnforcementPoint` enum but has **no active runtime call site** in `TramaiEngine` yet. It is reserved for the approval-resume flow (Epic 3) and will become active when workflow suspension is implemented. All 7 active policy enforcement points are audited.
 
 **Streaming `BEFORE_RESPONSE_RETURN` semantics:**
 In streaming execution, `BEFORE_RESPONSE_RETURN` is evaluated as an egress preflight *before* `BEFORE_TOOL_EXPOSURE` and `BEFORE_PROVIDER_INVOCATION`. It is not literally "before returning a response" during streaming — it acts as a streaming egress preflight gate. The audit metadata field `enforcementPoint` will read `BEFORE_RESPONSE_RETURN` but the event represents a pre-stream authorization decision, not a post-stream response check.
@@ -786,5 +786,24 @@ In streaming execution, `BEFORE_RESPONSE_RETURN` is evaluated as an egress prefl
 **Removed:**
 - The temporary `securityContext.dataClassification == null` bypass in raw + structured cache read/write paths.
 - The `classified raw cacheable calls bypass cache reuse` and `classified structured cacheable calls bypass cache reuse` tests (bypass closed).
+
+---
+
+## Implementation Notes — DLP Redaction Audit Bridge (PR 13) ✅
+
+**Where:**
+- `tramai-core/.../security/DlpRedactionAuditEmitter.kt` — SPI, NoOp emitter
+- `tramai-security/.../audit/AuditEngineDlpRedactionAuditEmitter.kt` — implementation, DlpAuditStreamIdResolver
+- `tramai-engine/.../TramaiEngine.kt` — integration with authoritative vs detection-only scans
+
+**Epic 2B.4 & 2B.5 status:** Complete.
+
+**Key Design Elements:**
+- **SPI Safety:** `DlpRedactionAuditEmitter` exposes only `DlpContext` and `List<DlpRedaction>`. No raw matches, sanitized values, replacement strings, or regex patterns are leaked.
+- **DLP Audit Labels:** `DLP_MODEL_OUTPUT` and `DLP_TOOL_RESULT` are emitted as audit-event labels, not `PolicyEngine` enforcement points.
+- **Audit Normalization:** Enforces deterministic alphabetical sorting of rule IDs, groupings of duplicate rule IDs, safe metadata allowlists (only specific metadata attributes from context), and rule ID validation.
+- **Safe Exception Handling:** All exceptions generated during ID validation and audit emission avoid leaking raw or invalid values (e.g. invalid rule IDs).
+- **Engine Integration:** Separates authoritative (affects context, audits) from detection-only (e.g. projection matching checks, does not audit) scans. DLP audit emission failure propagates as `DlpInspectionException`, executing fail-closed behavior immediately to bypass retry/fallback loops and prevent circuit poisoning.
+- **Wiring:** Programmatic standalone builder support via `.dlpRedactionAudit(emitter)` and Spring Boot auto-configuration support with ObjectProvider resolution (zero/one/multi resolution).
 
 *Phase 0 delivery plan. Issues created in GitHub with labels: `phase-1`, `epic-{n}`. See ROADMAP.md for Phase 1 exit criteria.*

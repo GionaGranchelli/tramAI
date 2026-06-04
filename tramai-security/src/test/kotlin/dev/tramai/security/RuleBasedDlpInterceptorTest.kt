@@ -3,6 +3,8 @@ package dev.tramai.security
 import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpContentLocation
+import dev.tramai.core.security.DlpRedaction
 import dev.tramai.core.security.DlpResult
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -16,6 +18,11 @@ class RuleBasedDlpInterceptorTest {
         toolName: String? = null,
     ) = DlpContext(
         contentType = contentType,
+        contentLocation = if (contentType == DlpContentType.MODEL_OUTPUT) {
+            DlpContentLocation.MODEL_RESPONSE_CONTENT
+        } else {
+            DlpContentLocation.TOOL_MESSAGE_CONTENT
+        },
         operationInterface = "TestService",
         operationMethod = "process",
         toolName = toolName,
@@ -110,7 +117,6 @@ class RuleBasedDlpInterceptorTest {
         }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("Duplicate DLP rule ID")
-            .hasMessageContaining("dup")
     }
 
     @Test
@@ -137,7 +143,20 @@ class RuleBasedDlpInterceptorTest {
         }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("DLP rule pattern must not be blank")
-            .hasMessageContaining("blank-pat")
+    }
+
+    @Test
+    fun `invalid regex pattern is rejected with safe message`() {
+        assertThatThrownBy {
+            RuleBasedDlpInterceptor(
+                RuleBasedDlpConfiguration(
+                    rules = listOf(DlpRule(id = "bad-regex", pattern = "[")),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("DLP rule pattern is invalid")
+            .hasNoCause()
     }
 
     @Test
@@ -266,7 +285,6 @@ class RuleBasedDlpInterceptorTest {
         }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("must not contain blank tool names")
-            .hasMessageContaining("blank-tool")
     }
 
     @Test
@@ -287,7 +305,58 @@ class RuleBasedDlpInterceptorTest {
         }
             .isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("must not contain tool names with surrounding whitespace")
-            .hasMessageContaining("whitespace-tool")
+    }
+
+    @Test
+    fun `surrounding whitespace in rule ID is rejected`() {
+        assertThatThrownBy {
+            RuleBasedDlpInterceptor(
+                RuleBasedDlpConfiguration(
+                    rules = listOf(DlpRule(id = " email ", pattern = "aaa")),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("surrounding whitespace")
+    }
+
+    @Test
+    fun `uppercase rule ID is rejected`() {
+        assertThatThrownBy {
+            RuleBasedDlpInterceptor(
+                RuleBasedDlpConfiguration(
+                    rules = listOf(DlpRule(id = "Email", pattern = "aaa")),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("DLP rule ID is invalid")
+    }
+
+    @Test
+    fun `newline in rule ID is rejected`() {
+        assertThatThrownBy {
+            RuleBasedDlpInterceptor(
+                RuleBasedDlpConfiguration(
+                    rules = listOf(DlpRule(id = "email\nrule", pattern = "aaa")),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("DLP rule ID is invalid")
+    }
+
+    @Test
+    fun `overlong rule ID is rejected`() {
+        assertThatThrownBy {
+            RuleBasedDlpInterceptor(
+                RuleBasedDlpConfiguration(
+                    rules = listOf(DlpRule(id = "a" + "b".repeat(128), pattern = "aaa")),
+                ),
+            )
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("maximum length of 128")
     }
 
     @Test
@@ -384,16 +453,16 @@ class RuleBasedDlpInterceptorTest {
     }
 
     @Test
-    fun `zero-width pattern terminates safely without infinite loop`() {
+    fun `zero-width lookahead pattern is rejected`() {
         val dlp = interceptor {
             maxTextLength = 10_000
             rule(id = "lookahead", pattern = "(?=\\d)")
         }
-        val result = dlp.inspect(context(), "abc123def456")
-        assertThat(result.sanitizedText).isEqualTo("abc[REDACTED]1[REDACTED]2[REDACTED]3def[REDACTED]4[REDACTED]5[REDACTED]6")
-        assertThat(result.hasRedactions).isTrue()
-        assertThat(result.redactions).hasSize(1)
-        assertThat(result.redactions[0].replacementCount).isEqualTo(6)
+        assertThatThrownBy {
+            dlp.inspect(context(), "abc123")
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("DLP rule produced an unsafe zero-width match")
     }
 
     @Test
@@ -428,41 +497,94 @@ class RuleBasedDlpInterceptorTest {
     }
 
     @Test
-    fun `end of string anchor terminates safely`() {
-        val dlp = interceptor {
-            maxTextLength = 10_000
-            rule(id = "end-anchor", pattern = "$")
-        }
-        val result = dlp.inspect(context(), "abc")
-        assertThat(result.sanitizedText).isEqualTo("abc[REDACTED]")
-        assertThat(result.hasRedactions).isTrue()
-        assertThat(result.redactions[0].replacementCount).isEqualTo(1)
-    }
-
-    @Test
-    fun `start of string anchor terminates safely`() {
+    fun `anchor-only pattern is rejected`() {
         val dlp = interceptor {
             maxTextLength = 10_000
             rule(id = "start-anchor", pattern = "^")
         }
-        val result = dlp.inspect(context(), "abc")
-        // Zero-width ^ match at position 0 inserts [REDACTED] without consuming characters
-        assertThat(result.sanitizedText).isEqualTo("[REDACTED]abc")
-        assertThat(result.hasRedactions).isTrue()
-        assertThat(result.redactions[0].replacementCount).isEqualTo(1)
+        assertThatThrownBy {
+            dlp.inspect(context(), "abc")
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("DLP rule produced an unsafe zero-width match")
     }
 
     @Test
-    fun `zero-width lookahead replaces each digit position`() {
+    fun `end of string anchor is rejected`() {
         val dlp = interceptor {
             maxTextLength = 10_000
-            rule(id = "digit-lookahead", pattern = "(?=\\d)")
+            rule(id = "end-anchor", pattern = "$")
         }
-        val result = dlp.inspect(context(), "abc123")
-        // Zero-width lookahead inserts [REDACTED] before each digit without consuming it
-        assertThat(result.sanitizedText).isEqualTo("abc[REDACTED]1[REDACTED]2[REDACTED]3")
+        assertThatThrownBy {
+            dlp.inspect(context(), "abc")
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("DLP rule produced an unsafe zero-width match")
+    }
+
+    @Test
+    fun `replacement equals matched value fails closed`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(id = "exact-replacement", pattern = "abc", replacement = "abc")
+        }
+        assertThatThrownBy {
+            dlp.inspect(context(), "xyz abc def")
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("DLP replacement preserves matched content")
+    }
+
+    @Test
+    fun `replacement contains matched value fails closed`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(id = "wrapped-replacement", pattern = "abc", replacement = "_abc_")
+        }
+        assertThatThrownBy {
+            dlp.inspect(context(), "xyz abc def")
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("DLP replacement preserves matched content")
+    }
+
+    @Test
+    fun `case insensitive regex with lowercase replacement fails closed`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(id = "secret-lowercase", pattern = "(?i)secret", replacement = "secret")
+        }
+        assertThatThrownBy {
+            dlp.inspect(context(), "Value: Secret")
+        }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("DLP replacement preserves matched content")
+    }
+
+    @Test
+    fun `case insensitive regex with safe placeholder succeeds`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(id = "secret-placeholder", pattern = "(?i)secret", replacement = "[REDACTED]")
+        }
+        val result = dlp.inspect(context(), "Value: Secret")
+        assertThat(result.sanitizedText).isEqualTo("Value: [REDACTED]")
         assertThat(result.hasRedactions).isTrue()
-        assertThat(result.redactions[0].replacementCount).isEqualTo(3)
+        assertThat(result.redactions).containsExactly(
+            DlpRedaction(ruleId = "secret-placeholder", replacementCount = 1),
+        )
+    }
+
+    @Test
+    fun `safe placeholder replacement succeeds`() {
+        val dlp = interceptor {
+            maxTextLength = 10_000
+            rule(id = "safe-placeholder", pattern = "abc", replacement = "[REDACTED]")
+        }
+        val result = dlp.inspect(context(), "xyz abc def")
+        assertThat(result.sanitizedText).isEqualTo("xyz [REDACTED] def")
+        assertThat(result.hasRedactions).isTrue()
+        assertThat(result.redactions).containsExactly(DlpRedaction(ruleId = "safe-placeholder", replacementCount = 1))
     }
 
     @Test
