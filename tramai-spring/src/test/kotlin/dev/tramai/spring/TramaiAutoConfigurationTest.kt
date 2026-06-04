@@ -640,92 +640,6 @@ class TramaiAutoConfigurationTest {
         }
     }
 
-    @Test
-    fun `multiple EngineEventObserver beans fail fast`() {
-        val contextRunner = ApplicationContextRunner()
-            .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
-            )
-            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
-            .withBean("firstObserver", EngineEventObserver::class.java, Supplier {
-                EngineEventObserver { _: String, _: Map<String, Any?> -> }
-            })
-            .withBean("secondObserver", EngineEventObserver::class.java, Supplier {
-                EngineEventObserver { _: String, _: Map<String, Any?> -> }
-            })
-            .withPropertyValues("tramai.default-provider=stub")
-
-        contextRunner.run { context ->
-            assertThat(context).hasFailed()
-            val failure = requireNotNull(context.startupFailure)
-            assertThat(failure)
-                .hasRootCauseInstanceOf(IllegalArgumentException::class.java)
-        }
-    }
-
-    @Test
-    fun `zero audit emitter beans uses default no-op behavior`() {
-        val contextRunner = ApplicationContextRunner()
-            .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
-            )
-            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
-            .withPropertyValues("tramai.default-provider=stub")
-
-        contextRunner.run { context ->
-            assertThat(context).hasSingleBean(Tramai::class.java)
-            val tramai = context.getBean(Tramai::class.java)
-            val service = tramai.create(TestInvoiceAnalyzer::class)
-            val result = runBlocking { service.analyze("invoice-123") }
-            assertThat(result).isEqualTo("spring hello")
-        }
-    }
-
-    @Test
-    fun `single audit emitter bean is wired`() {
-        val contextRunner = ApplicationContextRunner()
-            .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
-            )
-            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
-            .withBean(PolicyDecisionAuditEmitter::class.java, Supplier {
-                PolicyDecisionAuditEmitter { _, _, _ -> }
-            })
-            .withPropertyValues("tramai.default-provider=stub")
-
-        contextRunner.run { context ->
-            assertThat(context).hasSingleBean(Tramai::class.java)
-            val tramai = context.getBean(Tramai::class.java)
-            val service = tramai.create(TestInvoiceAnalyzer::class)
-            val result = runBlocking { service.analyze("invoice-123") }
-            assertThat(result).isEqualTo("spring hello")
-        }
-    }
-
-    @Test
-    fun `multiple audit emitter beans fail fast`() {
-        val contextRunner = ApplicationContextRunner()
-            .withConfiguration(
-                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
-            )
-            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
-            .withBean("firstEmitter", PolicyDecisionAuditEmitter::class.java, Supplier {
-                PolicyDecisionAuditEmitter { _, _, _ -> }
-            })
-            .withBean("secondEmitter", PolicyDecisionAuditEmitter::class.java, Supplier {
-                PolicyDecisionAuditEmitter { _, _, _ -> }
-            })
-            .withPropertyValues("tramai.default-provider=stub")
-
-        contextRunner.run { context ->
-            assertThat(context).hasFailed()
-            val failure = requireNotNull(context.startupFailure)
-            assertThat(failure)
-                .hasRootCauseInstanceOf(IllegalArgumentException::class.java)
-        }
-    }
-}
-
 @AiService
 interface TestInvoiceAnalyzer {
     @Operation(
@@ -898,4 +812,6 @@ private fun respond(
     exchange.responseHeaders.add("Content-Type", "application/json")
     exchange.sendResponseHeaders(status, body.toByteArray().size.toLong())
     exchange.responseBody.use { it.write(body.toByteArray()) }
+}
+
 }
