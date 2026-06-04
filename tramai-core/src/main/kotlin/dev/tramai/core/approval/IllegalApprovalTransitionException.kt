@@ -6,5 +6,5 @@ class IllegalApprovalTransitionException(
     to: ApprovalStatus,
     reason: String,
 ) : IllegalArgumentException(
-    "Illegal approval transition for '$approvalId': $from → $to — $reason"
+    "Illegal approval transition for '$approvalId': $from -> $to - $reason"
 )

@@ -1,5 +1,10 @@
-package dev.tramai.core.approval
+package dev.tramai.security.approval
 
+import dev.tramai.core.approval.ApprovalRequest
+import dev.tramai.core.approval.ApprovalStatus
+import dev.tramai.core.approval.ApprovalStore
+import dev.tramai.core.approval.ApprovalTransition
+import dev.tramai.core.approval.IllegalApprovalTransitionException
 import java.time.Clock
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -9,6 +14,7 @@ class InMemoryApprovalStore(
     private val maxIdLength: Int = 256,
     private val maxCommentLength: Int = 4096,
     private val maxDigestLength: Int = 1024,
+    private val maxCasRetries: Int = 10,
 ) : ApprovalStore {
 
     private val store = ConcurrentHashMap<String, ApprovalRequest>()
@@ -55,12 +61,32 @@ class InMemoryApprovalStore(
         expectedVersion: Long,
         transition: ApprovalTransition,
     ): ApprovalRequest {
+        // Validate comment length before entering the retry loop
+        when (transition) {
+            is ApprovalTransition.Approve -> transition.comment?.let {
+                require(it.length <= maxCommentLength) {
+                    "Comment exceeds maximum length of $maxCommentLength in Approve transition for '$approvalId'"
+                }
+            }
+            is ApprovalTransition.Deny -> transition.comment?.let {
+                require(it.length <= maxCommentLength) {
+                    "Comment exceeds maximum length of $maxCommentLength in Deny transition for '$approvalId'"
+                }
+            }
+            is ApprovalTransition.Timeout -> { /* no comment to validate */ }
+        }
+
+        var retries = 0
         while (true) {
             val current = store[approvalId]
                 ?: throw IllegalArgumentException("Approval '$approvalId' not found")
 
             require(current.version == expectedVersion) {
                 "Approval '$approvalId' version mismatch: expected $expectedVersion, actual ${current.version}"
+            }
+
+            check(current.version < Long.MAX_VALUE) {
+                "Approval '$approvalId' version overflow"
             }
 
             val now = clock.instant()
@@ -89,6 +115,12 @@ class InMemoryApprovalStore(
                 return updated
             }
             // CAS failed — concurrent modification, retry
+            retries++
+            if (retries > maxCasRetries) {
+                throw IllegalStateException(
+                    "Approval '$approvalId' CAS retry budget exhausted after $maxCasRetries attempts"
+                )
+            }
         }
     }
 

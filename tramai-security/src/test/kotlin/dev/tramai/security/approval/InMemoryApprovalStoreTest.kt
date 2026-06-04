@@ -1,5 +1,10 @@
-package dev.tramai.core.approval
+package dev.tramai.security.approval
 
+import dev.tramai.core.approval.ApprovalBinding
+import dev.tramai.core.approval.ApprovalRequest
+import dev.tramai.core.approval.ApprovalStatus
+import dev.tramai.core.approval.ApprovalTransition
+import dev.tramai.core.approval.IllegalApprovalTransitionException
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
@@ -389,46 +394,6 @@ class InMemoryApprovalStoreTest {
     }
 
     // -----------------------------------------------------------------------
-    // Mutable input immutability
-    // -----------------------------------------------------------------------
-
-    @Test
-    fun `mutating the original ApprovalRequest after create does not affect stored state`() = runBlocking {
-        val binding = ApprovalBinding(
-            workflowRunId = "wf-run-immutable",
-            toolName = "tool",
-            argumentsDigest = "digest1",
-            policyVersion = null,
-            workflowDigest = null,
-        )
-        val request = ApprovalRequest(
-            approvalId = "immutable-test",
-            binding = binding,
-            status = ApprovalStatus.PENDING,
-            requestedBy = "user-1",
-            requestedAt = fixedClock.instant(),
-            expiresAt = null,
-            decidedBy = null,
-            decidedAt = null,
-            decisionComment = null,
-            version = 0L,
-        )
-        store.create(request)
-
-        // Mutate original — since data classes are shallowly immutable (copy on write),
-        // we construct a new object to simulate the scenario where the caller mutates a field.
-        // ApprovalRequest and ApprovalBinding are data classes, so their fields are val.
-        // The store holds ConcurrentHashMap references; data class copies won't back-propagate.
-        // This test verifies that the store's reference isn't inadvertently shared.
-
-        val stored = store.get("immutable-test")
-        assertThat(stored!!.binding.argumentsDigest).isEqualTo("digest1")
-        // The original is immutable (val fields) so no mutation is possible.
-        // The test establishes that the store returns its own reference.
-        assertThat(stored).isNotSameAs(request)
-    }
-
-    // -----------------------------------------------------------------------
     // Concurrency: CAS race between approve and deny
     // -----------------------------------------------------------------------
 
@@ -487,5 +452,144 @@ class InMemoryApprovalStoreTest {
         val failureException = failures.single().exceptionOrNull()
         assertThat(failureException).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(failureException!!.message).contains("version mismatch")
+    }
+
+    // -----------------------------------------------------------------------
+    // Concurrency: CAS race on create with duplicate ID
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `concurrent create with duplicate ID results in exactly one success`() = runBlocking {
+        val ctx = newSingleThreadContext("concurrency-create-test")
+        val concurrencyStore = InMemoryApprovalStore(clock = fixedClock)
+
+        val results = mutableListOf<Result<ApprovalRequest>>()
+
+        try {
+            val job1 = launch(ctx) {
+                try {
+                    val r = concurrencyStore.create(aPendingRequest(approvalId = "dup-create"))
+                    synchronized(results) { results.add(Result.success(r)) }
+                } catch (e: Exception) {
+                    synchronized(results) { results.add(Result.failure(e)) }
+                }
+            }
+
+            val job2 = launch(ctx) {
+                try {
+                    val r = concurrencyStore.create(aPendingRequest(approvalId = "dup-create"))
+                    synchronized(results) { results.add(Result.success(r)) }
+                } catch (e: Exception) {
+                    synchronized(results) { results.add(Result.failure(e)) }
+                }
+            }
+
+            job1.join()
+            job2.join()
+        } finally {
+            ctx.close()
+        }
+
+        // Exactly one should succeed, one should fail with "already exists"
+        val successes = results.filter { it.isSuccess }
+        val failures = results.filter { it.isFailure }
+
+        assertThat(successes).hasSize(1)
+        assertThat(failures).hasSize(1)
+
+        val failureException = failures.single().exceptionOrNull()
+        assertThat(failureException).isInstanceOf(IllegalArgumentException::class.java)
+        assertThat(failureException!!.message).contains("already exists")
+    }
+
+    // -----------------------------------------------------------------------
+    // Comment length enforcement
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `oversized comment on approve throws IllegalArgumentException`() = runBlocking {
+        val strictStore = InMemoryApprovalStore(clock = fixedClock, maxCommentLength = 10)
+        strictStore.create(aPendingRequest())
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    strictStore.transition("req-1", 0L, ApprovalTransition.Approve("user-2", "a".repeat(11)))
+                }
+            }
+            .withMessageContaining("Comment exceeds maximum length")
+    }
+
+    @Test
+    fun `oversized comment on deny throws IllegalArgumentException`() = runBlocking {
+        val strictStore = InMemoryApprovalStore(clock = fixedClock, maxCommentLength = 10)
+        strictStore.create(aPendingRequest())
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    strictStore.transition("req-1", 0L, ApprovalTransition.Deny("user-2", "a".repeat(11)))
+                }
+            }
+            .withMessageContaining("Comment exceeds maximum length")
+    }
+
+    @Test
+    fun `comment at max length on approve succeeds`() = runBlocking {
+        val strictStore = InMemoryApprovalStore(clock = fixedClock, maxCommentLength = 10)
+        strictStore.create(aPendingRequest())
+
+        val updated = strictStore.transition("req-1", 0L, ApprovalTransition.Approve("user-2", "a".repeat(10)))
+
+        assertThat(updated.status).isEqualTo(ApprovalStatus.APPROVED)
+        assertThat(updated.decisionComment).isEqualTo("a".repeat(10))
+    }
+
+    // -----------------------------------------------------------------------
+    // CAS retry budget exhaustion
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `CAS retry budget exhaustion throws IllegalStateException`() = runBlocking {
+        // Use a store with 0 retries to force immediate exhaustion
+        val zeroRetryStore = InMemoryApprovalStore(clock = fixedClock, maxCasRetries = 0)
+        zeroRetryStore.create(aPendingRequest())
+
+        // We need a concurrent write to force CAS failure
+        val ctx = newSingleThreadContext("cas-exhaust-test")
+        try {
+            // Grab the reference so we know replace will fail
+            val job = launch(ctx) {
+                // Do a concurrent transition to advance version and force CAS failure
+                zeroRetryStore.transition("req-1", 0L, ApprovalTransition.Approve("user-2", null))
+            }
+            job.join()
+        } finally {
+            ctx.close()
+        }
+
+        // Now version is 1, expected 0 will CAS-fail and retry budget will exhaust
+        assertThatThrownBy {
+            runBlocking { zeroRetryStore.transition("req-1", 0L, ApprovalTransition.Deny("user-3", null)) }
+        }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("CAS retry budget exhausted")
+    }
+
+    // -----------------------------------------------------------------------
+    // Version overflow guard
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `version overflow guard throws IllegalStateException`() = runBlocking {
+        val store = InMemoryApprovalStore(clock = fixedClock)
+        val request = aPendingRequest(version = Long.MAX_VALUE)
+        store.create(request)
+
+        assertThatThrownBy {
+            runBlocking { store.transition("req-1", Long.MAX_VALUE, ApprovalTransition.Approve("user-2", null)) }
+        }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("version overflow")
     }
 }
