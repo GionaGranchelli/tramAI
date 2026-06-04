@@ -30,6 +30,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.ComponentScan
+import org.springframework.context.annotation.FilterType
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.Supplier
@@ -520,7 +522,7 @@ class TramaiAutoConfigurationTest {
             .withConfiguration(
                 AutoConfigurations.of(TramaiAutoConfiguration::class.java),
             )
-            .withUserConfiguration(TestApplication::class.java)
+            .withUserConfiguration(DlpTestApplication::class.java)
             .withBean(DlpProvider::class.java)
             .withBean("dlpInterceptor", DlpInterceptor::class.java, Supplier {
                 DlpInterceptor { _: DlpContext, text: String ->
@@ -749,6 +751,10 @@ interface FallbackInvoiceAnalyzer {
 
 @SpringBootApplication
 open class TestApplication
+
+@SpringBootApplication
+@ComponentScan(excludeFilters = [ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE, value = [InterceptorConfiguration::class])])
+open class DlpTestApplication
 
 @TestConfiguration
 open class ProviderConfiguration {
