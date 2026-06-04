@@ -690,6 +690,8 @@ Epics 1, 2, 2B, 3, and 4 can partially overlap. Epic 5 requires the relevant ver
 - Approval audit events (Epic 3 integration)
 - File store and database store implementations
 - Audit retention and governance UI
+- BEFORE_WORKFLOW_RESUME runtime call site (Epic 3 approval workflow)
+- Streaming `BEFORE_RESPONSE_RETURN` semantics clarification (pre-stream egress preflight)
 
 ---
 
@@ -706,8 +708,19 @@ Epics 1, 2, 2B, 3, and 4 can partially overlap. Epic 5 requires the relevant ver
 - Wiring at `PolicyEnforcementHelper.enforce()`: evaluate policy → audit synchronously → then enforce side effects
 - Standalone builder (`Tramai.Builder.policyDecisionAudit()`) and Spring auto-configuration (`ObjectProvider<PolicyDecisionAuditEmitter>`)
 
-**Enforcement points covered:**
-- All 8 `EnforcementPoint` values: BEFORE_PROVIDER_RESOLUTION, BEFORE_PROVIDER_INVOCATION, BEFORE_FALLBACK, BEFORE_TOOL_EXPOSURE, BEFORE_TOOL_EXECUTION, BEFORE_TOOL_RESULT_REINJECTION, BEFORE_RESPONSE_RETURN, BEFORE_WORKFLOW_RESUME
+**Enforcement points covered (7 active):**
+- BEFORE_PROVIDER_RESOLUTION
+- BEFORE_PROVIDER_INVOCATION
+- BEFORE_FALLBACK
+- BEFORE_TOOL_EXPOSURE
+- BEFORE_TOOL_EXECUTION
+- BEFORE_TOOL_RESULT_REINJECTION
+- BEFORE_RESPONSE_RETURN
+
+⚠️ `BEFORE_WORKFLOW_RESUME` is enumerated in the `EnforcementPoint` enum but has **no active runtime call site** in `TramaiEngine` yet. It is reserved for the approval-resume flow (Epic 3) and will become active when workflow suspension is implemented. All 7 active enforcement points are audited.
+
+**Streaming `BEFORE_RESPONSE_RETURN` semantics:**
+In streaming execution, `BEFORE_RESPONSE_RETURN` is evaluated as an egress preflight *before* `BEFORE_TOOL_EXPOSURE` and `BEFORE_PROVIDER_INVOCATION`. It is not literally "before returning a response" during streaming — it acts as a streaming egress preflight gate. The audit metadata field `enforcementPoint` will read `BEFORE_RESPONSE_RETURN` but the event represents a pre-stream authorization decision, not a post-stream response check.
 
 **Decision mapping:**
 | PolicyDecision | audit decision | audit reasonCode |
@@ -722,14 +735,20 @@ Epics 1, 2, 2B, 3, and 4 can partially overlap. Epic 5 requires the relevant ver
 - REQUIRE_APPROVAL: evaluate → audit → throw ApprovalRequiredException
 
 **Safe metadata allowlist (bounded to 256 chars, max 16 entries):**
-- providerName, modelName, toolName, classification, classificationSource, riskLevel, fallbackProviderName, targetDestination, selected attributes (prefixed `attr_`)
+- providerName, modelName, toolName, classification, classificationSource, riskLevel, fallbackProviderName, targetDestination
+- Attributes are filtered through an explicit allowlist: only `cacheReuse` and `fallbackReason` are exported (prefixed `attr_`). All other attributes (prompt, toolArguments, secret, etc.) are dropped.
+- `Deny.reasonCode` is normalized through the `SAFE_REASON_CODE` pattern `[a-z0-9][a-z0-9._:-]{0,127}` — invalid, oversize, or secret-like values are replaced with `"policy_denied"`.
 
 **Failure behavior:** Fail-closed by propagation — when a configured emitter fails, the exception propagates before the protected operation proceeds. Default unconfigured behavior uses `NoOpPolicyDecisionAuditEmitter`.
 
-**Tests:** 10+ tests covering:
-- Emitter unit tests: ALLOW, DENY, enforcement point mapping, stream ID stability, chain integrity, safe metadata
+**Tests:** 30+ tests covering:
+- Emitter unit tests: ALLOW, DENY, enforcement point mapping, stream ID stability, chain integrity, safe metadata, attribute allowlist (prompt/toolArguments dropped, cacheReuse/fallbackReason retained)
+- Reason code normalization: valid, overlong, whitespace, secret-like, newline, empty, digit-starting
+- Stream ID validation: blank workflowRunId falls back to correlationId, blank both generates fallback, deterministic attribute ordering
+- Leakage tests: no prompt secret, no tool argument secret, no DLP match, no raw model-generated tool name in serialized audit event
 - Enforcement boundary tests: exactly-once ALLOW/DENY, audit failure propagation, NoOp backward compatibility
-- Security/tool-result/standalone/Spring wiring tests
+- Standalone builder tests: NoOp default, custom emitter receives events, custom PolicyEngine enforces deny, custom PolicyEngine+audit emitter records deny events
+- Spring wiring tests: zero emitter beans preserves default, one emitter bean wired, multiple emitter beans fail fast
 
 ---
 

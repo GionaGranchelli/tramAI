@@ -98,18 +98,40 @@ class AuditEnginePolicyDecisionAuditEmitterTest {
     }
 
     @Test
-    fun `safe metadata raw prompt NEVER present`() = runTest {
+    fun `unknown attribute keys like prompt are dropped from audit metadata`() = runTest {
         val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
-        val ctxWithAttrs = baseCtx.copy(attributes = mapOf("prompt" to "some user input"))
+        val ctxWithAttrs = baseCtx.copy(attributes = mapOf(
+            "prompt" to "ignore-all-previous-instructions",
+            "toolArguments" to "super-secret-api-key-123",
+            "secret" to "alice@example.com",
+        ))
         emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctxWithAttrs, PolicyDecision.Allow)
 
         val events = store.readStream("run-1")
-        // The attribute IS stored under "attr_prompt" — this tests that ONLY
-        // safe allowlisted top-level fields are extracted (no raw prompt field
-        // exists on PolicyContext). The test confirms the attribute key is
-        // prefixed with "attr_" to distinguish from allowlisted fields.
-        Assertions.assertEquals("some user input", events[0].metadata["attr_prompt"])
-        Assertions.assertNull(events[0].metadata["prompt"])
+        // Unknown attribute keys are dropped — they are NOT in ALLOWED_ATTRIBUTE_KEYS
+        Assertions.assertNull(events[0].metadata["attr_prompt"])
+        Assertions.assertNull(events[0].metadata["attr_toolArguments"])
+        Assertions.assertNull(events[0].metadata["attr_secret"])
+    }
+
+    @Test
+    fun `cacheReuse attribute is retained in metadata`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        val ctxWithCacheReuse = baseCtx.copy(attributes = mapOf("cacheReuse" to "true"))
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctxWithCacheReuse, PolicyDecision.Allow)
+
+        val events = store.readStream("run-1")
+        Assertions.assertEquals("true", events[0].metadata["attr_cacheReuse"])
+    }
+
+    @Test
+    fun `fallbackReason attribute is retained in metadata`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        val ctxWithFallback = baseCtx.copy(attributes = mapOf("fallbackReason" to "provider_unavailable"))
+        emitter.emit(EnforcementPoint.BEFORE_FALLBACK, ctxWithFallback, PolicyDecision.Allow)
+
+        val events = store.readStream("run-1")
+        Assertions.assertEquals("provider_unavailable", events[0].metadata["attr_fallbackReason"])
     }
 
     @Test
@@ -190,5 +212,187 @@ class AuditEnginePolicyDecisionAuditEmitterTest {
         val events = store.readStream("corr-1")
         Assertions.assertEquals(1, events.size)
         Assertions.assertEquals("corr-1", events[0].auditStreamId)
+    }
+
+    @Test
+    fun `blank workflowRunId falls back to correlationId`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        val ctx = baseCtx.copy(workflowRunId = "")
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctx, PolicyDecision.Allow)
+
+        val events = store.readStream("corr-1")
+        Assertions.assertEquals(1, events.size)
+        Assertions.assertEquals("corr-1", events[0].auditStreamId)
+    }
+
+    @Test
+    fun `blank correlationId and blank workflowRunId uses custom resolver fallback`() = runTest {
+        val customResolver = AuditStreamIdResolver { "custom-fallback" }
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, customResolver)
+        val ctx = baseCtx.copy(workflowRunId = "", correlationId = "")
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctx, PolicyDecision.Allow)
+
+        val events = store.readStream("custom-fallback")
+        Assertions.assertEquals(1, events.size)
+        Assertions.assertEquals("custom-fallback", events[0].auditStreamId)
+    }
+
+    // ─── Reason code normalization tests ───────────────────────────────
+
+    @Test
+    fun `valid stable reasonCode preserved`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, baseCtx,
+            PolicyDecision.Deny("blocked", "classification-routing-blocked"))
+
+        val events = store.readStream("run-1")
+        Assertions.assertEquals("classification-routing-blocked", events[0].reasonCode)
+    }
+
+    @Test
+    fun `overlong reasonCode replaced`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        val longCode = "a" + "b".repeat(200)
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, baseCtx,
+            PolicyDecision.Deny("blocked", longCode))
+
+        val events = store.readStream("run-1")
+        Assertions.assertEquals("policy_denied", events[0].reasonCode)
+    }
+
+    @Test
+    fun `whitespace-reasonCode replaced`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, baseCtx,
+            PolicyDecision.Deny("blocked", "blocked secret key"))
+
+        val events = store.readStream("run-1")
+        Assertions.assertEquals("policy_denied", events[0].reasonCode)
+    }
+
+    @Test
+    fun `uppercase-secret-like reasonCode replaced`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, baseCtx,
+            PolicyDecision.Deny("blocked", "sk-ABC123-DEF456"))
+
+        val events = store.readStream("run-1")
+        Assertions.assertEquals("policy_denied", events[0].reasonCode)
+    }
+
+    @Test
+    fun `reasonCode with special characters replaced`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, baseCtx,
+            PolicyDecision.Deny("blocked", "secret!@#"))
+
+        val events = store.readStream("run-1")
+        Assertions.assertEquals("policy_denied", events[0].reasonCode)
+    }
+
+    @Test
+    fun `newline-containing reasonCode replaced`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, baseCtx,
+            PolicyDecision.Deny("blocked", "allowed\n[INFO] user=admin"))
+
+        val events = store.readStream("run-1")
+        Assertions.assertEquals("policy_denied", events[0].reasonCode)
+    }
+
+    @Test
+    fun `empty reasonCode replaced`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, baseCtx,
+            PolicyDecision.Deny("blocked", ""))
+
+        val events = store.readStream("run-1")
+        Assertions.assertEquals("policy_denied", events[0].reasonCode)
+    }
+
+    @Test
+    fun `reasonCode starting with digit preserved`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, baseCtx,
+            PolicyDecision.Deny("blocked", "1policy-rule"))
+
+        val events = store.readStream("run-1")
+        Assertions.assertEquals("1policy-rule", events[0].reasonCode)
+    }
+
+    // ─── Stream ID validation tests ────────────────────────────────────
+
+    @Test
+    fun `blanks in both workflowRunId and correlationId still produces valid event via generated ID`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        val resolver = AuditStreamIdResolver { "gen-run-abc" }
+        val emitterWithResolver = AuditEnginePolicyDecisionAuditEmitter(auditEngine, resolver)
+        val ctx = baseCtx.copy(workflowRunId = "", correlationId = "")
+        emitterWithResolver.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctx, PolicyDecision.Allow)
+
+        // Should emit to the generated stream ID
+        val events = store.readStream("gen-run-abc")
+        Assertions.assertEquals(1, events.size)
+        Assertions.assertEquals("gen-run-abc", events[0].auditStreamId)
+    }
+
+    // ─── Deterministic attribute ordering ──────────────────────────────
+
+    @Test
+    fun `attributes are sorted deterministically`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        val ctx = baseCtx.copy(attributes = mapOf(
+            "fallbackReason" to "timeout",
+            "cacheReuse" to "true",
+        ))
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctx, PolicyDecision.Allow)
+
+        val events = store.readStream("run-1")
+        val metadata = events[0].metadata
+        val attrKeys = metadata.keys.filter { it.startsWith("attr_") }
+        Assertions.assertEquals(listOf("attr_cacheReuse", "attr_fallbackReason"), attrKeys)
+    }
+
+    // ─── Leakage tests ─────────────────────────────────────────────────
+
+    @Test
+    fun `serialized audit event does not contain known prompt secret`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        val ctx = baseCtx.copy(attributes = mapOf(
+            "prompt" to "super-secret-api-key-123",
+            "toolArguments" to "ignore-all-previous-instructions",
+        ))
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctx, PolicyDecision.Allow)
+
+        val events = store.readStream("run-1")
+        val serialized = events[0].toCanonicalJson()
+        Assertions.assertFalse(serialized.contains("super-secret-api-key-123"))
+        Assertions.assertFalse(serialized.contains("ignore-all-previous-instructions"))
+    }
+
+    @Test
+    fun `serialized audit event does not contain raw model-generated tool name`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        val ctx = baseCtx.copy(toolName = "<unregistered>")
+        emitter.emit(EnforcementPoint.BEFORE_TOOL_EXECUTION, ctx, PolicyDecision.Allow)
+
+        val events = store.readStream("run-1")
+        // The safe label "<unregistered>" itself is fine, but raw model-generated names
+        // (e.g., "execute_rm_-rf_/") should never appear.
+        Assertions.assertEquals("<unregistered>", events[0].metadata["toolName"])
+    }
+
+    @Test
+    fun `serialized audit event does not contain DLP matches`() = runTest {
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+        val ctx = baseCtx.copy(
+            attributes = mapOf("cacheReuse" to "true"),
+        )
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctx, PolicyDecision.Allow)
+
+        val events = store.readStream("run-1")
+        // No DLP-related metadata should be present
+        Assertions.assertNull(events[0].metadata["dlpMatch"])
+        Assertions.assertNull(events[0].metadata["redactedValue"])
     }
 }

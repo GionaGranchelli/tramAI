@@ -19,6 +19,7 @@ import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.PromptSanitizer
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
+import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.NoOpOperationResponseCache
 import dev.tramai.engine.OperationResponseCache
@@ -51,6 +52,7 @@ class Tramai private constructor(
     private val promptSanitizer: PromptSanitizer?,
     private val chatMemory: ChatMemory?,
     private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
+    private val policyEngine: PolicyEngine? = null,
 ) {
     /**
      * Creates a service proxy using the built-in Jackson structured output handler.
@@ -71,6 +73,7 @@ class Tramai private constructor(
         promptSanitizer = promptSanitizer,
         chatMemory = chatMemory,
         policyDecisionAuditEmitter = policyDecisionAuditEmitter,
+        policyEngine = policyEngine,
     ).create(serviceType)
 
     companion object {
@@ -100,6 +103,7 @@ class Tramai private constructor(
         private val handler = JacksonStructuredOutputHandler()
         private var chatMemory: ChatMemory? = null
         private var policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter
+        private var policyEngine: PolicyEngine? = null
 
         /**
          * Registers a provider with an optional explicit [name].
@@ -262,6 +266,18 @@ class Tramai private constructor(
         }
 
         /**
+         * Configures the [PolicyEngine] for explicit policy enforcement.
+         *
+         * When set, policy decisions at every [dev.tramai.core.policy.EnforcementPoint]
+         * are evaluated by the configured engine. When not set, the engine uses
+         * [dev.tramai.engine.LegacyPermissivePolicyEngine] for 0.4.x backward
+         * compatibility (all operations are allowed; a migration warning is logged).
+         */
+        fun policyEngine(engine: PolicyEngine): Builder = apply {
+            this.policyEngine = engine
+        }
+
+        /**
          * Builds an immutable standalone Tramai instance.
          */
         fun build(): Tramai = Tramai(
@@ -279,6 +295,7 @@ class Tramai private constructor(
             promptSanitizer = promptSanitizer,
             chatMemory = chatMemory,
             policyDecisionAuditEmitter = policyDecisionAuditEmitter,
+            policyEngine = policyEngine,
         )
     }
 }
