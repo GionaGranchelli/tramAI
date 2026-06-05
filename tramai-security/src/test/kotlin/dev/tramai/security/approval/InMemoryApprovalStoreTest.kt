@@ -10,6 +10,7 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import java.util.concurrent.CountDownLatch
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -27,7 +28,7 @@ class MutableClock(
     private val zone: ZoneId = ZoneId.of("UTC"),
 ) : Clock() {
     override fun instant(): Instant = now
-    override fun withZone(zone: ZoneId): Clock = MutableClock(now, zone)
+    override fun withZone(zone: ZoneId): Clock = Clock.fixed(now, zone)
     override fun getZone(): ZoneId = zone
 
     fun advance(amount: java.time.Duration) { now = now.plus(amount) }
@@ -83,11 +84,6 @@ class InMemoryApprovalStoreTest {
         consumedBy = null,
         consumedAt = null,
         version = version,
-    )
-
-    private fun fixedClock(iso: String): Clock = Clock.fixed(
-        Instant.parse(iso),
-        ZoneId.of("UTC"),
     )
 
     // -----------------------------------------------------------------------
@@ -366,6 +362,17 @@ class InMemoryApprovalStoreTest {
     }
 
     @Test
+    fun `transition with blank approvalId throws IllegalArgumentException`() = runBlocking {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.transition("", 0L, ApprovalTransition.Timeout)
+                }
+            }
+            .withMessageContaining("must not be blank")
+    }
+
+    @Test
     fun `initial request with decisionComment set throws IllegalArgumentException`() = runBlocking {
         val request = aPendingRequest().copy(decisionComment = "should not be set")
         assertThatIllegalArgumentException()
@@ -501,12 +508,11 @@ class InMemoryApprovalStoreTest {
         concurrencyStore.create(aPendingRequest(approvalId = "concurrent-req"))
 
         val results = mutableListOf<Result<ApprovalRequest>>()
-        var ready = 0
+        val barrier = CountDownLatch(2)
 
         val job1 = launch(kotlinx.coroutines.Dispatchers.Default) {
-            // Signal ready and wait for partner
-            synchronized(this@InMemoryApprovalStoreTest) { ready++ }
-            while (ready < 2) { kotlinx.coroutines.yield() }
+            barrier.countDown()
+            barrier.await()
 
             try {
                 val r = concurrencyStore.transition(
@@ -520,8 +526,8 @@ class InMemoryApprovalStoreTest {
         }
 
         val job2 = launch(kotlinx.coroutines.Dispatchers.Default) {
-            synchronized(this@InMemoryApprovalStoreTest) { ready++ }
-            while (ready < 2) { kotlinx.coroutines.yield() }
+            barrier.countDown()
+            barrier.await()
 
             try {
                 val r = concurrencyStore.transition(
@@ -561,11 +567,11 @@ class InMemoryApprovalStoreTest {
         val concurrencyStore = InMemoryApprovalStore(clock = fixedClock)
 
         val results = mutableListOf<Result<ApprovalRequest>>()
-        var ready = 0
+        val barrier = CountDownLatch(2)
 
         val job1 = launch(kotlinx.coroutines.Dispatchers.Default) {
-            synchronized(this@InMemoryApprovalStoreTest) { ready++ }
-            while (ready < 2) { kotlinx.coroutines.yield() }
+            barrier.countDown()
+            barrier.await()
 
             try {
                 val r = concurrencyStore.create(aPendingRequest(approvalId = "dup-create"))
@@ -576,8 +582,8 @@ class InMemoryApprovalStoreTest {
         }
 
         val job2 = launch(kotlinx.coroutines.Dispatchers.Default) {
-            synchronized(this@InMemoryApprovalStoreTest) { ready++ }
-            while (ready < 2) { kotlinx.coroutines.yield() }
+            barrier.countDown()
+            barrier.await()
 
             try {
                 val r = concurrencyStore.create(aPendingRequest(approvalId = "dup-create"))
@@ -947,11 +953,11 @@ class InMemoryApprovalStoreTest {
         concurrencyStore.transition("concurrent-consume", 0L, ApprovalTransition.Approve("user-2"))
 
         val results = mutableListOf<Result<ApprovalRequest>>()
-        var ready = 0
+        val barrier = CountDownLatch(2)
 
         val job1 = launch(kotlinx.coroutines.Dispatchers.Default) {
-            synchronized(this@InMemoryApprovalStoreTest) { ready++ }
-            while (ready < 2) { kotlinx.coroutines.yield() }
+            barrier.countDown()
+            barrier.await()
 
             try {
                 val r = concurrencyStore.consumeApproved(
@@ -966,8 +972,8 @@ class InMemoryApprovalStoreTest {
         }
 
         val job2 = launch(kotlinx.coroutines.Dispatchers.Default) {
-            synchronized(this@InMemoryApprovalStoreTest) { ready++ }
-            while (ready < 2) { kotlinx.coroutines.yield() }
+            barrier.countDown()
+            barrier.await()
 
             try {
                 val r = concurrencyStore.consumeApproved(
@@ -997,6 +1003,93 @@ class InMemoryApprovalStoreTest {
         val loser = failures.single().exceptionOrNull()
         assertThat(loser).isInstanceOf(IllegalArgumentException::class.java)
         assertThat(loser!!.message).contains("version mismatch")
+    }
+
+    // -----------------------------------------------------------------------
+    // consumeApproved validation
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `consumeApproved with blank consumedBy throws IllegalArgumentException`() = runBlocking {
+        store.create(aPendingRequest(approvalId = "consume-blank"))
+        store.transition("consume-blank", 0L, ApprovalTransition.Approve("user-2"))
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.consumeApproved(
+                        "consume-blank", 1L,
+                        Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                        "  ",
+                    )
+                }
+            }
+            .withMessageContaining("must not be blank")
+    }
+
+    @Test
+    fun `consumeApproved with oversized consumedBy throws IllegalArgumentException`() = runBlocking {
+        store.create(aPendingRequest(approvalId = "consume-oversized"))
+        store.transition("consume-oversized", 0L, ApprovalTransition.Approve("user-2"))
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.consumeApproved(
+                        "consume-oversized", 1L,
+                        Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                        "a".repeat(257),
+                    )
+                }
+            }
+            .withMessageContaining("exceeds maximum length")
+    }
+
+    @Test
+    fun `consumeApproved with control characters in consumedBy throws IllegalArgumentException`() = runBlocking {
+        store.create(aPendingRequest(approvalId = "consume-ctrl"))
+        store.transition("consume-ctrl", 0L, ApprovalTransition.Approve("user-2"))
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.consumeApproved(
+                        "consume-ctrl", 1L,
+                        Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                        "consumer\n-1",
+                    )
+                }
+            }
+            .withMessageContaining("control characters")
+    }
+
+    @Test
+    fun `consumeApproved with nonexistent approvalId throws IllegalArgumentException`() = runBlocking {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.consumeApproved(
+                        "does-not-exist", 0L,
+                        Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                        "consumer-1",
+                    )
+                }
+            }
+            .withMessageContaining("not found")
+    }
+
+    @Test
+    fun `consumeApproved with version mismatch throws IllegalArgumentException`() = runBlocking {
+        store.create(aPendingRequest(approvalId = "consume-version"))
+        store.transition("consume-version", 0L, ApprovalTransition.Approve("user-2"))
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.consumeApproved(
+                        "consume-version", 0L,
+                        Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                        "consumer-1",
+                    )
+                }
+            }
+            .withMessageContaining("version mismatch")
     }
 
     // -----------------------------------------------------------------------

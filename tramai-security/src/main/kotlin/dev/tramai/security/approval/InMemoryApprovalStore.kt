@@ -112,8 +112,8 @@ class InMemoryApprovalStore(
                     is ApprovalTransition.Timeout -> now
                 },
                 decidedBy = when (transition) {
-                    is ApprovalTransition.Approve -> transition.decidedBy.trim()
-                    is ApprovalTransition.Deny -> transition.decidedBy.trim()
+                    is ApprovalTransition.Approve -> transition.decidedBy
+                    is ApprovalTransition.Deny -> transition.decidedBy
                     is ApprovalTransition.Timeout -> null
                 },
                 decisionComment = when (transition) {
@@ -163,7 +163,7 @@ class InMemoryApprovalStore(
             )) { "Approval '$approvalId' token digest does not match" }
 
             req.copy(
-                consumedBy = consumedBy.trim(),
+                consumedBy = consumedBy,
                 consumedAt = now,
                 version = req.version + 1,
             )
