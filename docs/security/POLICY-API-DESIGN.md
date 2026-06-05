@@ -365,21 +365,90 @@ interface ApprovalGateCoordinator {
 | Token entropy | Minimum raised from 128 to 256 bits (`tokenBytes >= 32`) |
 | Token validation | Whitespace (leading, trailing, internal) now rejected, not silently trimmed |
 | Exception mapping | Store failures caught as typed `ApprovalStoreException` subtypes, not via `message.contains()` |
+| Exception boundary hardening | Sealed store exceptions separated from safe public exceptions; cause-chain sanitized |
 | Approval lifetime | `maxApprovalTtl: Duration` parameter (default 15 min) bounds `expiresAt` |
 | AuthorizeResume validation | All 5 ID fields + `expectedVersion >= 0` validated before store interaction |
-| Exception hierarchy | `ApprovalStoreException` base + `ApprovalAuthorizationException` for unexpected store failures |
+| Exception hierarchy | Sealed `ApprovalStoreException` subtypes + safe coordinator-facing `RuntimeException` subclasses |
 | SPI boundaries | `ApprovalTokenGenerator`, `ApprovalTokenDigester`, `ApprovalDecisionValidator`, `ApprovalStore`, `ApprovalIdGenerator` documented as trusted computing-base extensions |
+| Diagnostic observer | `ApprovalFailureObserver` records original failures before sanitization |
+| Bounded store TTL | `InMemoryApprovalStore` validates `maxCreationTtl` as defense-in-depth |
 
 ### Exception Hierarchy (PR #15)
 
+**Internal store exceptions (sealed, extends RuntimeException):**
+
 ```
-ApprovalException (open)
-├── ApprovalStoreException (open, has approvalId)
-│   ├── ApprovalNotFoundException (approvalId)
-│   ├── ApprovalBindingMismatchException (approvalId, field)
-│   └── ApprovalTokenRejectedException (approvalId)
-└── ApprovalAuthorizationException (approvalId?, cause)
+ApprovalStoreException (sealed)
+├── ApprovalStoreNotFoundException(approvalId)
+├── ApprovalStoreTokenRejectedException(approvalId)
+├── ApprovalStoreConflictException(approvalId)
+└── ApprovalStoreNotConsumableException(approvalId)
 ```
+
+- No message or cause parameters — only `approvalId`.
+
+**Safe coordinator-facing exceptions (extend RuntimeException directly):**
+
+```
+ApprovalNotFoundException(approvalId)
+ApprovalTokenRejectedException(approvalId)
+ApprovalBindingMismatchException(approvalId, field)
+ApprovalAuthorizationException(approvalId?)
+ApprovalCreationException(approvalId?)
+```
+
+- Fixed safe messages. No caller-provided message strings.
+- No `cause` parameter. Store internal details never leak.
+- No inheritance from `ApprovalStoreException` or `ApprovalException`.
+
+**Separate exception table:**
+
+| Exception | Message | Cause-safe? | Contains store internals? |
+|-----------|---------|------------|--------------------------|
+| `ApprovalStoreNotFoundException` | — | ✅ (no message param) | ❌ |
+| `ApprovalStoreTokenRejectedException` | — | ✅ (no message param) | ❌ |
+| `ApprovalStoreConflictException` | — | ✅ (no message param) | ❌ |
+| `ApprovalStoreNotConsumableException` | — | ✅ (no message param) | ❌ |
+| `ApprovalNotFoundException` | `"Approval not found: '<id>'"` | ✅ (no cause param) | ❌ |
+| `ApprovalTokenRejectedException` | `"Approval token rejected for '<id>'"` | ✅ (no cause param) | ❌ |
+| `ApprovalBindingMismatchException` | `"Approval binding mismatch for '<id>': <field>"` | ✅ (no cause param) | ❌ |
+| `ApprovalAuthorizationException` | `"Approval authorization failed"` | ✅ (no cause param) | ❌ |
+| `ApprovalCreationException` | `"Approval creation failed"` | ✅ (no cause param) | ❌ |
+
+Raw tokens, token digests, arguments, and workflow payloads are NEVER included in exception messages or cause chains.
+
+### ApprovalFailureObserver (internal diagnostic SPI)
+
+`DefaultApprovalGateCoordinator` accepts an optional `ApprovalFailureObserver`:
+
+```kotlin
+fun interface ApprovalFailureObserver {
+    fun record(operation: String, approvalId: String?, failure: RuntimeException)
+}
+```
+
+- Records the original exception before it is sanitized into a safe exception.
+- Called in every catch block: `createApproval()`, `authorizeResume()` store.get, `authorizeResume()` store.consumeApproved.
+- Internal-only diagnostic SPI. Not part of the public API contract.
+
+### mapStoreError
+
+```kotlin
+private fun mapStoreError(
+    approvalId: String,
+    exception: RuntimeException,
+): RuntimeException {
+    return when (exception) {
+        is ApprovalStoreNotFoundException -> ApprovalNotFoundException(approvalId)
+        is ApprovalStoreTokenRejectedException -> ApprovalTokenRejectedException(approvalId)
+        is ApprovalStoreConflictException -> ApprovalAuthorizationException(approvalId)
+        is ApprovalStoreNotConsumableException -> ApprovalAuthorizationException(approvalId)
+        else -> ApprovalAuthorizationException(approvalId)
+    }
+}
+```
+
+No `cause` parameter passed to safe constructors. Original exception is discarded after observer recording.
 
 ## Original Design (Phase 0) — Approval Request — Full Binding
 

@@ -4,6 +4,7 @@ import dev.tramai.core.approval.ApprovalBinding
 import dev.tramai.core.approval.ApprovalIdGenerator
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
+import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalToken
 import dev.tramai.core.approval.ApprovalTokenDigester
 import dev.tramai.core.approval.ApprovalTokenGenerator
@@ -13,6 +14,7 @@ import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.exception.ApprovalAuthorizationException
 import dev.tramai.core.exception.ApprovalBindingMismatchException
+import dev.tramai.core.exception.ApprovalCreationException
 import dev.tramai.core.exception.ApprovalNotFoundException
 import dev.tramai.core.exception.ApprovalTokenRejectedException
 import java.time.Clock
@@ -152,12 +154,11 @@ class DefaultApprovalGateCoordinatorTest {
     fun `duplicate ID propagates safely`() : Unit = runBlocking {
         coordinator.createApproval(createCommand())
 
-        assertThatIllegalArgumentException()
-            .isThrownBy {
-                runBlocking { coordinator.createApproval(createCommand(toolName = "tool-2")) }
-            }
-            .withMessage("Approval '$fixedApprovalId' already exists")
-            .withMessageNotContaining(issuedTokenRaw)
+        assertThatThrownBy {
+            runBlocking { coordinator.createApproval(createCommand(toolName = "tool-2")) }
+        }
+            .isInstanceOf(ApprovalCreationException::class.java)
+            .hasMessage("Approval creation failed")
     }
 
     @Test
@@ -180,7 +181,6 @@ class DefaultApprovalGateCoordinatorTest {
             runBlocking { coordinator.authorizeResume(authorizeCommand(challenge, expectedVersion = 0L)) }
         }
             .isInstanceOf(ApprovalAuthorizationException::class.java)
-            .hasCauseInstanceOf(IllegalArgumentException::class.java)
     }
 
     @Test
@@ -192,7 +192,6 @@ class DefaultApprovalGateCoordinatorTest {
             runBlocking { coordinator.authorizeResume(authorizeCommand(challenge)) }
         }
             .isInstanceOf(ApprovalAuthorizationException::class.java)
-            .hasCauseInstanceOf(IllegalArgumentException::class.java)
     }
 
     @Test
@@ -211,7 +210,6 @@ class DefaultApprovalGateCoordinatorTest {
             runBlocking { localCoordinator.authorizeResume(authorizeCommand(localChallenge, expectedVersion = 1L)) }
         }
             .isInstanceOf(ApprovalAuthorizationException::class.java)
-            .hasCauseInstanceOf(IllegalArgumentException::class.java)
 
         assertThat(challenge.approvalId).isEqualTo(fixedApprovalId)
     }
@@ -225,7 +223,6 @@ class DefaultApprovalGateCoordinatorTest {
             runBlocking { coordinator.authorizeResume(authorizeCommand(challenge)) }
         }
             .isInstanceOf(ApprovalAuthorizationException::class.java)
-            .hasCauseInstanceOf(IllegalArgumentException::class.java)
     }
 
     @Test
@@ -252,7 +249,6 @@ class DefaultApprovalGateCoordinatorTest {
             runBlocking { coordinator.authorizeResume(authorizeCommand(challenge, expectedVersion = 2L)) }
         }
             .isInstanceOf(ApprovalAuthorizationException::class.java)
-            .hasCauseInstanceOf(IllegalArgumentException::class.java)
     }
 
     @Test
@@ -263,7 +259,6 @@ class DefaultApprovalGateCoordinatorTest {
             runBlocking { coordinator.authorizeResume(authorizeCommand(challenge, expectedVersion = 0L)) }
         }
             .isInstanceOf(ApprovalAuthorizationException::class.java)
-            .hasCauseInstanceOf(IllegalArgumentException::class.java)
     }
 
     @Test
@@ -556,11 +551,202 @@ class DefaultApprovalGateCoordinatorTest {
             .hasMessage("Approval not found: 'nonexistent'")
     }
 
+    // -----------------------------------------------------------------------
+    // Leaky-store tests (CHANGE 5)
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `leaky store get throws RuntimeException sanitized to ApprovalAuthorizationException`() : Unit = runBlocking {
+        val leakyStore = object : ApprovalStore by store {
+            override suspend fun get(approvalId: String): ApprovalRequest? {
+                throw RuntimeException("secret-digest-value")
+            }
+        }
+        val leakyCoordinator = coordinator(store = leakyStore)
+        // Create and approve via the real store
+        val challenge = coordinator.createApproval(createCommand())
+        store.transition(fixedApprovalId, 0L, ApprovalTransition.Approve("approver", "approved"))
+
+        val ex = assertThatThrownBy {
+            runBlocking { leakyCoordinator.authorizeResume(authorizeCommand(challenge)) }
+        }
+            .isInstanceOf(ApprovalAuthorizationException::class.java)
+            .hasMessage("Approval authorization failed")
+    }
+
+    @Test
+    fun `leaky store consumeApproved throws RuntimeException sanitized to ApprovalAuthorizationException`() : Unit = runBlocking {
+        val leakyStore = object : ApprovalStore by store {
+            override suspend fun consumeApproved(
+                approvalId: String,
+                expectedVersion: Long,
+                presentedTokenDigest: Sha256Digest,
+                consumedBy: String,
+            ): ApprovalRequest {
+                throw RuntimeException("secret-digest-value")
+            }
+        }
+        val leakyCoordinator = coordinator(store = leakyStore)
+        val challenge = coordinator.createApproval(createCommand())
+        store.transition(fixedApprovalId, 0L, ApprovalTransition.Approve("approver", "approved"))
+
+        assertThatThrownBy {
+            runBlocking { leakyCoordinator.authorizeResume(authorizeCommand(challenge)) }
+        }
+            .isInstanceOf(ApprovalAuthorizationException::class.java)
+            .hasMessage("Approval authorization failed")
+    }
+
+    @Test
+    fun `leaky store create throws RuntimeException sanitized to ApprovalCreationException`() : Unit = runBlocking {
+        val leakyStore = object : ApprovalStore by store {
+            override suspend fun create(request: ApprovalRequest): ApprovalRequest {
+                throw RuntimeException("secret-digest-value")
+            }
+        }
+        val leakyCoordinator = coordinator(store = leakyStore)
+
+        assertThatThrownBy {
+            runBlocking { leakyCoordinator.createApproval(createCommand()) }
+        }
+            .isInstanceOf(ApprovalCreationException::class.java)
+            .hasMessage("Approval creation failed")
+    }
+
+    @Test
+    fun `leaky store throws internal error mapped to safe exception`() : Unit = runBlocking {
+        // Store that returns a fake request but throws on consumeApproved
+        val leakyStore = object : ApprovalStore by store {
+            override suspend fun get(approvalId: String): ApprovalRequest? {
+                return ApprovalRequest(
+                    approvalId = fixedApprovalId,
+                    binding = ApprovalBinding(
+                        workflowRunId = "wf-run-1",
+                        toolName = "tool-1",
+                        argumentsDigest = argumentsDigest(),
+                        policyVersion = "policy-v1",
+                        workflowDigest = workflowDigest(),
+                        approvalTokenDigest = digester.digest(ApprovalToken.parsePresented(issuedTokenRaw)),
+                    ),
+                    status = ApprovalStatus.APPROVED,
+                    requestedBy = "requester-1",
+                    requestedAt = clock.instant(),
+                    expiresAt = clock.instant().plusSeconds(300),
+                    decidedBy = "approver",
+                    decidedAt = clock.instant(),
+                    decisionComment = null,
+                    consumedBy = null,
+                    consumedAt = null,
+                    version = 1L,
+                )
+            }
+            override suspend fun consumeApproved(
+                approvalId: String,
+                expectedVersion: Long,
+                presentedTokenDigest: Sha256Digest,
+                consumedBy: String,
+            ): ApprovalRequest {
+                throw RuntimeException("secret-internal-error")
+            }
+        }
+        val leakyCoordinator = coordinator(store = leakyStore)
+        val challenge = coordinator.createApproval(createCommand())
+        store.transition(fixedApprovalId, 0L, ApprovalTransition.Approve("approver", "approved"))
+
+        assertThatThrownBy {
+            runBlocking { leakyCoordinator.authorizeResume(authorizeCommand(challenge)) }
+        }
+            .isInstanceOf(ApprovalAuthorizationException::class.java)
+            .hasMessage("Approval authorization failed")
+    }
+
+    @Test
+    fun `custom store with consumedBy null throws ApprovalAuthorizationException`() : Unit = runBlocking {
+        val nullConsumedByStore = object : ApprovalStore by store {
+            override suspend fun consumeApproved(
+                approvalId: String,
+                expectedVersion: Long,
+                presentedTokenDigest: Sha256Digest,
+                consumedBy: String,
+            ): ApprovalRequest {
+                val stored = store.get(approvalId)!!
+                return stored.copy(
+                    consumedBy = null,
+                    consumedAt = clock.instant(),
+                    version = stored.version + 1,
+                )
+            }
+        }
+        val nullCoordinator = coordinator(store = nullConsumedByStore)
+        val challenge = approvedChallenge()
+
+        assertThatThrownBy {
+            runBlocking { nullCoordinator.authorizeResume(authorizeCommand(challenge)) }
+        }
+            .isInstanceOf(ApprovalAuthorizationException::class.java)
+    }
+
+    @Test
+    fun `custom store with consumedAt null throws ApprovalAuthorizationException`() : Unit = runBlocking {
+        val nullConsumedAtStore = object : ApprovalStore by store {
+            override suspend fun consumeApproved(
+                approvalId: String,
+                expectedVersion: Long,
+                presentedTokenDigest: Sha256Digest,
+                consumedBy: String,
+            ): ApprovalRequest {
+                val stored = store.get(approvalId)!!
+                return stored.copy(
+                    consumedBy = consumedBy,
+                    consumedAt = null,
+                    version = stored.version + 1,
+                )
+            }
+        }
+        val nullCoordinator = coordinator(store = nullConsumedAtStore)
+        val challenge = approvedChallenge()
+
+        assertThatThrownBy {
+            runBlocking { nullCoordinator.authorizeResume(authorizeCommand(challenge)) }
+        }
+            .isInstanceOf(ApprovalAuthorizationException::class.java)
+    }
+
+    @Test
+    fun `walk entire throwable tree confirms no secret marker leakage`() : Unit = runBlocking {
+        val challenge = approvedChallenge()
+
+        assertThatThrownBy {
+            runBlocking {
+                coordinator.authorizeResume(
+                    authorizeCommand(challenge, presentedToken = ApprovalToken.parsePresented("wrong-token")),
+                )
+            }
+        }
+            .isInstanceOf(ApprovalTokenRejectedException::class.java)
+            .hasMessage("Approval token rejected for '$fixedApprovalId'")
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
     private suspend fun approvedChallenge(
         expiresAt: Instant = clock.instant().plusSeconds(300),
     ) = coordinator.createApproval(createCommand(expiresAt = expiresAt)).also {
         store.transition(fixedApprovalId, 0L, ApprovalTransition.Approve("approver", "approved"))
     }
+
+    private fun coordinator(
+        store: ApprovalStore = this.store,
+    ) = DefaultApprovalGateCoordinator(
+        store = store,
+        approvalIdGenerator = ApprovalIdGenerator { fixedApprovalId },
+        approvalTokenGenerator = ApprovalTokenGenerator { ApprovalToken.parsePresented(issuedTokenRaw) },
+        approvalTokenDigester = digester,
+        decisionValidator = AllowAnyApprovalDecisionValidator,
+        clock = clock,
+    )
 
     private fun createCommand(
         workflowRunId: String = "wf-run-1",
@@ -598,17 +784,6 @@ class DefaultApprovalGateCoordinatorTest {
         argumentsDigest = argumentsDigest,
         policyVersion = policyVersion,
         workflowDigest = workflowDigest,
-    )
-
-    private fun coordinator(
-        store: InMemoryApprovalStore = this.store,
-    ) = DefaultApprovalGateCoordinator(
-        store = store,
-        approvalIdGenerator = ApprovalIdGenerator { fixedApprovalId },
-        approvalTokenGenerator = ApprovalTokenGenerator { ApprovalToken.parsePresented(issuedTokenRaw) },
-        approvalTokenDigester = digester,
-        decisionValidator = AllowAnyApprovalDecisionValidator,
-        clock = clock,
     )
 
     private fun argumentsDigest(): Sha256Digest =

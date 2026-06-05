@@ -15,8 +15,13 @@ import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.exception.ApprovalAuthorizationException
 import dev.tramai.core.exception.ApprovalBindingMismatchException
+import dev.tramai.core.exception.ApprovalCreationException
+import dev.tramai.core.exception.ApprovalFailureObserver
 import dev.tramai.core.exception.ApprovalNotFoundException
-import dev.tramai.core.exception.ApprovalStoreException
+import dev.tramai.core.exception.ApprovalStoreConflictException
+import dev.tramai.core.exception.ApprovalStoreNotConsumableException
+import dev.tramai.core.exception.ApprovalStoreNotFoundException
+import dev.tramai.core.exception.ApprovalStoreTokenRejectedException
 import dev.tramai.core.exception.ApprovalTokenRejectedException
 import java.time.Clock
 import java.time.Duration
@@ -30,6 +35,7 @@ class DefaultApprovalGateCoordinator(
     private val clock: Clock = Clock.systemUTC(),
     private val maxIdLength: Int = 256,
     private val maxApprovalTtl: Duration = Duration.ofMinutes(15),
+    private val failureObserver: ApprovalFailureObserver? = null,
 ) : ApprovalGateCoordinator {
 
     init {
@@ -76,7 +82,15 @@ class DefaultApprovalGateCoordinator(
             version = 0L,
         )
 
-        store.create(request)
+        try {
+            store.create(request)
+        } catch (e: RuntimeException) {
+            failureObserver?.record("createApproval", approvalId, e)
+            throw when (e) {
+                is ApprovalStoreConflictException -> ApprovalCreationException(approvalId)
+                else -> ApprovalCreationException(approvalId)
+            }
+        }
 
         return ApprovalChallenge(
             approvalId = approvalId,
@@ -96,6 +110,7 @@ class DefaultApprovalGateCoordinator(
         val request = try {
             store.get(command.approvalId)
         } catch (e: RuntimeException) {
+            failureObserver?.record("authorizeResume.get", command.approvalId, e)
             throw mapStoreError(command.approvalId, e)
         } ?: throw ApprovalNotFoundException(command.approvalId)
 
@@ -111,13 +126,19 @@ class DefaultApprovalGateCoordinator(
                 consumedBy = command.consumedBy,
             )
         } catch (e: RuntimeException) {
+            failureObserver?.record("authorizeResume.consumeApproved", command.approvalId, e)
             throw mapStoreError(command.approvalId, e)
         }
 
+        val consumedBy = consumed.consumedBy
+            ?: throw ApprovalAuthorizationException(consumed.approvalId)
+        val consumedAt = consumed.consumedAt
+            ?: throw ApprovalAuthorizationException(consumed.approvalId)
+
         return ApprovalAuthorization(
             approvalId = consumed.approvalId,
-            consumedBy = consumed.consumedBy!!,
-            consumedAt = consumed.consumedAt!!,
+            consumedBy = consumedBy,
+            consumedAt = consumedAt,
             version = consumed.version,
         )
     }
@@ -148,8 +169,11 @@ class DefaultApprovalGateCoordinator(
         exception: RuntimeException,
     ): RuntimeException {
         return when (exception) {
-            is ApprovalStoreException -> exception
-            else -> ApprovalAuthorizationException(approvalId, cause = exception)
+            is ApprovalStoreNotFoundException -> ApprovalNotFoundException(approvalId)
+            is ApprovalStoreTokenRejectedException -> ApprovalTokenRejectedException(approvalId)
+            is ApprovalStoreConflictException -> ApprovalAuthorizationException(approvalId)
+            is ApprovalStoreNotConsumableException -> ApprovalAuthorizationException(approvalId)
+            else -> ApprovalAuthorizationException(approvalId)
         }
     }
 

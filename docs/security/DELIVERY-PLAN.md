@@ -755,13 +755,72 @@ for security properties. Default implementations in `tramai-security` meet all i
 - `AllowAnyApprovalDecisionValidator` — default, preserves backward compatibility
 - `RequireDistinctRequesterAndConsumer` — enforces separation of duties
 
-### Test Coverage (55+ tests)
+### Exception Boundary Hardening
 
-|- **ApprovalTokenTest** (11): toString, blank, whitespace in token, leading whitespace, trailing whitespace, tab rejected, non-whitespace control char, control chars, oversized, reveal, format
-|- **SecureRandomApprovalTokenGeneratorTest** (7): non-blank, 256-bit entropy, uniqueness, URL-safe, tokenBytes below 32 rejected, tokenBytes at 32 accepted, tokenBytes at 64 accepted
-|- **Sha256ApprovalTokenDigesterTest** (5): known vector, deterministic, different, format, no leakage
-|- **DefaultApprovalGateCoordinatorTest** (38): create (15) + authorizeResume (23)
-|- **ApprovalDecisionValidatorTest** (3): AllowAny, RequireDistinct rejects same, accepts different
+The exception hierarchy has been refactored to enforce strict separation between **internal store failures** and **safe public exceptions**:
+
+**Sealed store exceptions** (thrown by `ApprovalStore` implementations):
+
+```
+ApprovalStoreException (sealed, extends RuntimeException)
+├── ApprovalStoreNotFoundException(approvalId)
+├── ApprovalStoreTokenRejectedException(approvalId)
+├── ApprovalStoreConflictException(approvalId)     — version mismatch or duplicate ID
+└── ApprovalStoreNotConsumableException(approvalId) — wrong status, expired, already consumed
+```
+
+- All sealed. No custom implementations can add arbitrary messages.
+- Accept only `approvalId` — no message or `cause` parameter.
+- `InMemoryApprovalStore` now throws these instead of `IllegalArgumentException` or the old `ApprovalStoreException` subtypes.
+
+**Coordinator-facing safe exceptions** (thrown by `DefaultApprovalGateCoordinator`):
+
+```
+─ ApprovalNotFoundException(approvalId)
+─ ApprovalTokenRejectedException(approvalId)
+─ ApprovalBindingMismatchException(approvalId, field)   — extends RuntimeException directly
+─ ApprovalAuthorizationException(approvalId?)            — fixed safe message
+─ ApprovalCreationException(approvalId?)                 — fixed safe message
+```
+
+- All extend `RuntimeException` directly — no inheritance from `ApprovalStoreException` or `ApprovalException`.
+- Fixed, caller-safe messages. No caller-provided message strings.
+- Do NOT accept a `cause` parameter. Store internal details are never leaked through cause chains.
+- `mapStoreError()` maps each sealed `ApprovalStoreException` subtype to the corresponding safe exception.
+
+**Cause-chain sanitization:**
+
+- No `cause = exception` is passed to coordinator-facing constructors.
+- `mapStoreError()` discards the original exception after mapping.
+- An `else` branch catches stray `RuntimeException` (IAE, etc.) and maps to `ApprovalAuthorizationException`.
+
+**ApprovalFailureObserver (internal diagnostic SPI):**
+
+```kotlin
+fun interface ApprovalFailureObserver {
+    fun record(operation: String, approvalId: String?, failure: RuntimeException)
+}
+```
+
+- Optional `failureObserver` parameter on `DefaultApprovalGateCoordinator`.
+- Records the original exception before it is sanitized.
+- Called in every catch block in `createApproval()` and `authorizeResume()`.
+- Internal-only. Not part of the public API contract.
+- Implementations must not leak sensitive data through external channels.
+
+**Bounded TTL in InMemoryApprovalStore:**
+
+- Added `maxCreationTtl: Duration = Duration.ofMinutes(15)` constructor parameter.
+- `create()` validates that `expiresAt - requestedAt <= maxCreationTtl`.
+- Defense-in-depth: callers that bypass the coordinator are still bounded.
+
+### Test Coverage (63+ tests)
+
+- **ApprovalTokenTest** (11): toString, blank, whitespace in token, leading whitespace, trailing whitespace, tab rejected, non-whitespace control char, control chars, oversized, reveal, format
+- **SecureRandomApprovalTokenGeneratorTest** (7): non-blank, 256-bit entropy, uniqueness, URL-safe, tokenBytes below 32 rejected, tokenBytes at 32 accepted, tokenBytes at 64 accepted
+- **Sha256ApprovalTokenDigesterTest** (5): known vector, deterministic, different, format, no leakage
+- **DefaultApprovalGateCoordinatorTest** (46): create (15) + authorizeResume (23) + leaky-store (8)
+- **ApprovalDecisionValidatorTest** (3): AllowAny, RequireDistinct rejects same, accepts different
 
 ## Epic 4: Audit Engine
 

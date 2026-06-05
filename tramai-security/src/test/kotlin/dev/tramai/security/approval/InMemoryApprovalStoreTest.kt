@@ -4,8 +4,10 @@ import dev.tramai.core.approval.ApprovalBinding
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalTransition
-import dev.tramai.core.exception.ApprovalNotFoundException
-import dev.tramai.core.exception.ApprovalTokenRejectedException
+import dev.tramai.core.exception.ApprovalStoreConflictException
+import dev.tramai.core.exception.ApprovalStoreNotConsumableException
+import dev.tramai.core.exception.ApprovalStoreNotFoundException
+import dev.tramai.core.exception.ApprovalStoreTokenRejectedException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
 import dev.tramai.core.approval.Sha256Digest
 import java.time.Clock
@@ -48,7 +50,7 @@ class InMemoryApprovalStoreTest {
 
     @BeforeEach
     fun setUp() {
-        store = InMemoryApprovalStore(clock = fixedClock)
+        store = InMemoryApprovalStore(clock = fixedClock, maxCreationTtl = Duration.ofHours(2))
     }
 
     // -----------------------------------------------------------------------
@@ -149,7 +151,7 @@ class InMemoryApprovalStoreTest {
     @Test
     fun `timeout an expired pending request transitions to TIMED_OUT`() : Unit = runBlocking {
         val mutableClock = MutableClock(Instant.parse("2026-06-04T08:00:00Z"))
-        val store2 = InMemoryApprovalStore(clock = mutableClock)
+        val store2 = InMemoryApprovalStore(clock = mutableClock, maxCreationTtl = Duration.ofHours(2))
         val request = aPendingRequest(
             approvalId = "expired-to",
             requestedAt = Instant.parse("2026-06-04T08:00:00Z"),
@@ -212,7 +214,7 @@ class InMemoryApprovalStoreTest {
     @Test
     fun `approve a timed-out request throws IllegalApprovalTransitionException`() : Unit = runBlocking {
         val mutableClock = MutableClock(Instant.parse("2026-06-04T08:00:00Z"))
-        val store2 = InMemoryApprovalStore(clock = mutableClock)
+        val store2 = InMemoryApprovalStore(clock = mutableClock, maxCreationTtl = Duration.ofHours(2))
         store2.create(aPendingRequest(
             approvalId = "timed-out",
             requestedAt = Instant.parse("2026-06-04T08:00:00Z"),
@@ -234,7 +236,7 @@ class InMemoryApprovalStoreTest {
     @Test
     fun `timeout a timed-out request throws IllegalApprovalTransitionException`() : Unit = runBlocking {
         val mutableClock = MutableClock(Instant.parse("2026-06-04T08:00:00Z"))
-        val store2 = InMemoryApprovalStore(clock = mutableClock)
+        val store2 = InMemoryApprovalStore(clock = mutableClock, maxCreationTtl = Duration.ofHours(2))
         store2.create(aPendingRequest(
             approvalId = "timed-out-2",
             requestedAt = Instant.parse("2026-06-04T08:00:00Z"),
@@ -260,7 +262,7 @@ class InMemoryApprovalStoreTest {
     @Test
     fun `approve an expired pending request throws IllegalApprovalTransitionException mentioning expired`() : Unit = runBlocking {
         val mutableClock = MutableClock(Instant.parse("2026-06-04T09:00:00Z"))
-        val store2 = InMemoryApprovalStore(clock = mutableClock)
+        val store2 = InMemoryApprovalStore(clock = mutableClock, maxCreationTtl = Duration.ofHours(2))
         store2.create(aPendingRequest(
             approvalId = "expired-req",
             requestedAt = Instant.parse("2026-06-04T09:00:00Z"),
@@ -290,7 +292,7 @@ class InMemoryApprovalStoreTest {
     @Test
     fun `timeout on an expired pending request succeeds`() : Unit = runBlocking {
         val mutableClock = MutableClock(Instant.parse("2026-06-04T09:00:00Z"))
-        val store2 = InMemoryApprovalStore(clock = mutableClock)
+        val store2 = InMemoryApprovalStore(clock = mutableClock, maxCreationTtl = Duration.ofHours(2))
         store2.create(aPendingRequest(
             approvalId = "expired-req",
             requestedAt = Instant.parse("2026-06-04T09:00:00Z"),
@@ -325,30 +327,31 @@ class InMemoryApprovalStoreTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `duplicate approval ID throws IllegalArgumentException mentioning already exists`() : Unit = runBlocking {
+    fun `duplicate approval ID throws ApprovalStoreConflictException`() : Unit = runBlocking {
         store.create(aPendingRequest())
 
-        assertThatIllegalArgumentException()
-            .isThrownBy { runBlocking { store.create(aPendingRequest()) } }
-            .withMessageContaining("already exists")
+        assertThatThrownBy {
+            runBlocking { store.create(aPendingRequest()) }
+        }
+            .isInstanceOf(ApprovalStoreConflictException::class.java)
     }
 
     @Test
-    fun `stale expected version throws IllegalArgumentException mentioning version mismatch`() : Unit = runBlocking {
+    fun `stale expected version throws ApprovalStoreConflictException`() : Unit = runBlocking {
         store.create(aPendingRequest())
         // First transition advances version to 1
         store.transition("req-1", 0L, ApprovalTransition.Approve("user-2", null))
 
-        assertThatIllegalArgumentException()
-            .isThrownBy { runBlocking { store.transition("req-1", 0L, ApprovalTransition.Timeout) } }
-            .withMessageContaining("version mismatch")
+        assertThatThrownBy {
+            runBlocking { store.transition("req-1", 0L, ApprovalTransition.Timeout) }
+        }
+            .isInstanceOf(ApprovalStoreConflictException::class.java)
     }
 
     @Test
-    fun `transition on nonexistent approval throws IllegalArgumentException`() : Unit = runBlocking {
+    fun `transition on nonexistent approval throws ApprovalStoreNotFoundException`() : Unit = runBlocking {
         assertThatThrownBy { runBlocking { store.transition("nope", 0L, ApprovalTransition.Approve("u", null)) } }
-            .isInstanceOf(ApprovalNotFoundException::class.java)
-            .hasMessageContaining("not found")
+            .isInstanceOf(ApprovalStoreNotFoundException::class.java)
     }
 
     // -----------------------------------------------------------------------
@@ -530,7 +533,7 @@ class InMemoryApprovalStoreTest {
 
     @Test
     fun `concurrent approve and deny results in exactly one winning transition`() : Unit = runBlocking {
-        val concurrencyStore = InMemoryApprovalStore(clock = fixedClock)
+        val concurrencyStore = InMemoryApprovalStore(clock = fixedClock, maxCreationTtl = Duration.ofHours(2))
         concurrencyStore.create(aPendingRequest(approvalId = "concurrent-req"))
 
         val results = mutableListOf<Result<ApprovalRequest>>()
@@ -580,8 +583,7 @@ class InMemoryApprovalStoreTest {
         assertThat(winner.version).isEqualTo(1L)
 
         val loser = failures.single().exceptionOrNull()
-        assertThat(loser).isInstanceOf(IllegalArgumentException::class.java)
-        assertThat(loser!!.message).contains("version mismatch")
+        assertThat(loser).isInstanceOf(ApprovalStoreConflictException::class.java)
     }
 
     // -----------------------------------------------------------------------
@@ -590,7 +592,7 @@ class InMemoryApprovalStoreTest {
 
     @Test
     fun `concurrent create with duplicate ID results in exactly one success`() : Unit = runBlocking {
-        val concurrencyStore = InMemoryApprovalStore(clock = fixedClock)
+        val concurrencyStore = InMemoryApprovalStore(clock = fixedClock, maxCreationTtl = Duration.ofHours(2))
 
         val results = mutableListOf<Result<ApprovalRequest>>()
         val barrier = CountDownLatch(2)
@@ -630,8 +632,7 @@ class InMemoryApprovalStoreTest {
         assertThat(failures).hasSize(1)
 
         val failureException = failures.single().exceptionOrNull()
-        assertThat(failureException).isInstanceOf(IllegalArgumentException::class.java)
-        assertThat(failureException!!.message).contains("already exists")
+        assertThat(failureException).isInstanceOf(ApprovalStoreConflictException::class.java)
     }
 
     // -----------------------------------------------------------------------
@@ -640,7 +641,7 @@ class InMemoryApprovalStoreTest {
 
     @Test
     fun `oversized comment on approve throws IllegalArgumentException`() : Unit = runBlocking {
-        val strictStore = InMemoryApprovalStore(clock = fixedClock, maxCommentLength = 10)
+        val strictStore = InMemoryApprovalStore(clock = fixedClock, maxCommentLength = 10, maxCreationTtl = Duration.ofHours(2))
         strictStore.create(aPendingRequest())
 
         assertThatIllegalArgumentException()
@@ -654,7 +655,7 @@ class InMemoryApprovalStoreTest {
 
     @Test
     fun `oversized comment on deny throws IllegalArgumentException`() : Unit = runBlocking {
-        val strictStore = InMemoryApprovalStore(clock = fixedClock, maxCommentLength = 10)
+        val strictStore = InMemoryApprovalStore(clock = fixedClock, maxCommentLength = 10, maxCreationTtl = Duration.ofHours(2))
         strictStore.create(aPendingRequest())
 
         assertThatIllegalArgumentException()
@@ -668,7 +669,7 @@ class InMemoryApprovalStoreTest {
 
     @Test
     fun `comment at max length on approve succeeds`() : Unit = runBlocking {
-        val strictStore = InMemoryApprovalStore(clock = fixedClock, maxCommentLength = 10)
+        val strictStore = InMemoryApprovalStore(clock = fixedClock, maxCommentLength = 10, maxCreationTtl = Duration.ofHours(2))
         strictStore.create(aPendingRequest())
 
         val updated = strictStore.transition("req-1", 0L, ApprovalTransition.Approve("user-2", "a".repeat(10)))
@@ -727,6 +728,31 @@ class InMemoryApprovalStoreTest {
         assertThatIllegalArgumentException()
             .isThrownBy { runBlocking { store.create(request) } }
             .withMessageContaining("expiresAt must be in the future")
+    }
+
+    // -----------------------------------------------------------------------
+    // Bounded TTL validation
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `create rejects TTL exceeding maxCreationTtl`() : Unit = runBlocking {
+        val request = aPendingRequest(
+            approvalId = "ttl-reject",
+            expiresAt = fixedClock.instant().plusSeconds(3600 * 3), // 3 hours > 2 hour test TTL
+        )
+        assertThatIllegalArgumentException()
+            .isThrownBy { runBlocking { store.create(request) } }
+            .withMessageContaining("exceeds maximum creation TTL")
+    }
+
+    @Test
+    fun `create accepts TTL within maxCreationTtl`() : Unit = runBlocking {
+        val request = aPendingRequest(
+            approvalId = "ttl-accept",
+            expiresAt = fixedClock.instant().plusSeconds(600), // 10 min < 15 min default TTL
+        )
+        val created = store.create(request)
+        assertThat(created.approvalId).isEqualTo("ttl-accept")
     }
 
     // -----------------------------------------------------------------------
@@ -856,8 +882,7 @@ class InMemoryApprovalStoreTest {
             "consumer-1",
         )
 
-        assertThatIllegalArgumentException()
-            .isThrownBy {
+        assertThatThrownBy {
                 runBlocking {
                     store.consumeApproved(
                         "req-1", 2L,
@@ -866,15 +891,14 @@ class InMemoryApprovalStoreTest {
                     )
                 }
             }
-            .withMessageContaining("already been consumed")
+            .isInstanceOf(ApprovalStoreNotConsumableException::class.java)
     }
 
     @Test
     fun `pending approval consume fails`() : Unit = runBlocking {
         store.create(aPendingRequest())
 
-        assertThatIllegalArgumentException()
-            .isThrownBy {
+        assertThatThrownBy {
                 runBlocking {
                     store.consumeApproved(
                         "req-1", 0L,
@@ -883,8 +907,7 @@ class InMemoryApprovalStoreTest {
                     )
                 }
             }
-            .withMessageContaining("cannot be consumed")
-            .withMessageContaining("PENDING")
+            .isInstanceOf(ApprovalStoreNotConsumableException::class.java)
     }
 
     @Test
@@ -892,8 +915,7 @@ class InMemoryApprovalStoreTest {
         store.create(aPendingRequest())
         store.transition("req-1", 0L, ApprovalTransition.Deny("user-2"))
 
-        assertThatIllegalArgumentException()
-            .isThrownBy {
+        assertThatThrownBy {
                 runBlocking {
                     store.consumeApproved(
                         "req-1", 1L,
@@ -902,14 +924,13 @@ class InMemoryApprovalStoreTest {
                     )
                 }
             }
-            .withMessageContaining("cannot be consumed")
-            .withMessageContaining("DENIED")
+            .isInstanceOf(ApprovalStoreNotConsumableException::class.java)
     }
 
     @Test
     fun `timed-out approval consume fails`() : Unit = runBlocking {
         val mutableClock = MutableClock(Instant.parse("2026-06-04T08:00:00Z"))
-        val store2 = InMemoryApprovalStore(clock = mutableClock)
+        val store2 = InMemoryApprovalStore(clock = mutableClock, maxCreationTtl = Duration.ofHours(2))
         store2.create(aPendingRequest(
             approvalId = "timed-out-consumable",
             requestedAt = Instant.parse("2026-06-04T08:00:00Z"),
@@ -921,8 +942,7 @@ class InMemoryApprovalStoreTest {
 
         store2.transition("timed-out-consumable", 0L, ApprovalTransition.Timeout)
 
-        assertThatIllegalArgumentException()
-            .isThrownBy {
+        assertThatThrownBy {
                 runBlocking {
                     store2.consumeApproved(
                         "timed-out-consumable", 1L,
@@ -931,14 +951,13 @@ class InMemoryApprovalStoreTest {
                     )
                 }
             }
-            .withMessageContaining("cannot be consumed")
-            .withMessageContaining("TIMED_OUT")
+            .isInstanceOf(ApprovalStoreNotConsumableException::class.java)
     }
 
     @Test
     fun `expired approved approval consume fails`() : Unit = runBlocking {
         val mutableClock = MutableClock(Instant.parse("2026-06-04T08:00:00Z"))
-        val store2 = InMemoryApprovalStore(clock = mutableClock)
+        val store2 = InMemoryApprovalStore(clock = mutableClock, maxCreationTtl = Duration.ofHours(2))
         store2.create(aPendingRequest(
             approvalId = "expired-consumable",
             requestedAt = Instant.parse("2026-06-04T08:00:00Z"),
@@ -949,8 +968,7 @@ class InMemoryApprovalStoreTest {
         // Advance clock past expiry
         mutableClock.advance(Duration.ofHours(2))
 
-        assertThatIllegalArgumentException()
-            .isThrownBy {
+        assertThatThrownBy {
                 runBlocking {
                     store2.consumeApproved(
                         "expired-consumable", 1L,
@@ -959,7 +977,7 @@ class InMemoryApprovalStoreTest {
                     )
                 }
             }
-            .withMessageContaining("expired")
+            .isInstanceOf(ApprovalStoreNotConsumableException::class.java)
     }
 
     @Test
@@ -976,13 +994,12 @@ class InMemoryApprovalStoreTest {
                     )
                 }
             }
-            .isInstanceOf(ApprovalTokenRejectedException::class.java)
-            .hasMessageContaining("token rejected")
+            .isInstanceOf(ApprovalStoreTokenRejectedException::class.java)
     }
 
     @Test
     fun `concurrent consume calls exactly one succeeds`() : Unit = runBlocking {
-        val concurrencyStore = InMemoryApprovalStore(clock = fixedClock)
+        val concurrencyStore = InMemoryApprovalStore(clock = fixedClock, maxCreationTtl = Duration.ofHours(2))
         val request = aPendingRequest(approvalId = "concurrent-consume")
         concurrencyStore.create(request)
         concurrencyStore.transition("concurrent-consume", 0L, ApprovalTransition.Approve("user-2"))
@@ -1036,8 +1053,7 @@ class InMemoryApprovalStoreTest {
         assertThat(winner.version).isEqualTo(2L)
 
         val loser = failures.single().exceptionOrNull()
-        assertThat(loser).isInstanceOf(IllegalArgumentException::class.java)
-        assertThat(loser!!.message).contains("version mismatch")
+        assertThat(loser).isInstanceOf(ApprovalStoreConflictException::class.java)
     }
 
     // -----------------------------------------------------------------------
@@ -1096,7 +1112,7 @@ class InMemoryApprovalStoreTest {
     }
 
     @Test
-    fun `consumeApproved with nonexistent approvalId throws IllegalArgumentException`() : Unit = runBlocking {
+    fun `consumeApproved with nonexistent approvalId throws ApprovalStoreNotFoundException`() : Unit = runBlocking {
         assertThatThrownBy {
                 runBlocking {
                     store.consumeApproved(
@@ -1106,16 +1122,14 @@ class InMemoryApprovalStoreTest {
                     )
                 }
             }
-            .isInstanceOf(ApprovalNotFoundException::class.java)
-            .hasMessageContaining("not found")
+            .isInstanceOf(ApprovalStoreNotFoundException::class.java)
     }
 
     @Test
-    fun `consumeApproved with version mismatch throws IllegalArgumentException`() : Unit = runBlocking {
+    fun `consumeApproved with version mismatch throws ApprovalStoreConflictException`() : Unit = runBlocking {
         store.create(aPendingRequest(approvalId = "consume-version"))
         store.transition("consume-version", 0L, ApprovalTransition.Approve("user-2"))
-        assertThatIllegalArgumentException()
-            .isThrownBy {
+        assertThatThrownBy {
                 runBlocking {
                     store.consumeApproved(
                         "consume-version", 0L,
@@ -1124,7 +1138,7 @@ class InMemoryApprovalStoreTest {
                     )
                 }
             }
-            .withMessageContaining("version mismatch")
+            .isInstanceOf(ApprovalStoreConflictException::class.java)
     }
 
     // -----------------------------------------------------------------------
@@ -1171,7 +1185,7 @@ class InMemoryApprovalStoreTest {
 
     @Test
     fun `toolName with control character throws IllegalArgumentException`() : Unit = runBlocking {
-        val request = aPendingRequest(toolName = "search\tool")
+        val request = aPendingRequest(toolName = "search	ool")
         assertThatIllegalArgumentException()
             .isThrownBy { runBlocking { store.create(request) } }
             .withMessageContaining("must not contain control characters")
