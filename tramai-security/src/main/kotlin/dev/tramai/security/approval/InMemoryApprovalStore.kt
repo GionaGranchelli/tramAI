@@ -4,8 +4,9 @@ import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTransition
-import dev.tramai.core.approval.IllegalApprovalTransitionException
+import dev.tramai.core.exception.IllegalApprovalTransitionException
 import dev.tramai.core.approval.Sha256Digest
+import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Clock
 import java.time.Instant
@@ -158,8 +159,8 @@ class InMemoryApprovalStore(
 
             // Constant-time comparison of token digests
             require(MessageDigest.isEqual(
-                presentedTokenDigest.value.toByteArray(),
-                req.binding.approvalTokenDigest.value.toByteArray(),
+                presentedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
+                req.binding.approvalTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
             )) { "Approval '$approvalId' token digest does not match" }
 
             req.copy(

@@ -4,7 +4,7 @@ import dev.tramai.core.approval.ApprovalBinding
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalTransition
-import dev.tramai.core.approval.IllegalApprovalTransitionException
+import dev.tramai.core.exception.IllegalApprovalTransitionException
 import dev.tramai.core.approval.Sha256Digest
 import java.time.Clock
 import java.time.Duration
