@@ -129,3 +129,18 @@ class IllegalApprovalTransitionException(
 ) : ApprovalException(
     "Illegal approval transition for '$approvalId': $from -> $to - $reason"
 )
+
+class ApprovalNotFoundException(approvalId: String) : ApprovalException(
+    "Approval not found: '$approvalId'"
+)
+
+class ApprovalBindingMismatchException(
+    approvalId: String,
+    val field: String,
+) : ApprovalException(
+    "Approval binding mismatch for '$approvalId': $field"
+)
+
+class ApprovalTokenRejectedException(approvalId: String) : ApprovalException(
+    "Approval token rejected for '$approvalId'"
+)

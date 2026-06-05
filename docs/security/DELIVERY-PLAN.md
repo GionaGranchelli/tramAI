@@ -629,15 +629,101 @@ This is a **store-level atomic primitive**. Raw-token presentation (matching a r
 
 This PR (PR #14) establishes the domain model and store implementation only. No engine integration, no workflow suspension, no approval resume. PR #15 will build approval suspension/resume on this foundation.
 
-### Deferred to PR #15
-- Workflow suspension on RequireApproval
-- Engine-level approval resume (BEFORE_WORKFLOW_RESUME)
-- Raw-token presentation and verification at engine level (type `ApprovalToken`)
+### Deferred to PR #16
+- TramaiEngine workflow suspension
+- Provider-loop continuation storage
+- BEFORE_WORKFLOW_RESUME enforcement
+- Tool execution resume
 - Auto-deny on timeout (engine job, not store concern)
 - Approval audit events
 - Idempotency keys
+- REST endpoints, Spring controllers
+- Persistent database store
+- OIDC identity mapping
+- Multi-node coordination
 
 ---
+
+## Implementation Notes — Approval Gate Coordinator (PR #15) ✅
+
+**Branch:** `feat/approval-gate-coordinator`
+
+**Where:**
+- `tramai-core/.../approval/` — ApprovalToken, ApprovalTokenGenerator (SPI), ApprovalTokenDigester (SPI), ApprovalIdGenerator (SPI), ApprovalDecisionValidator (SPI), ApprovalGateCoordinator (interface), coordinator command/response types
+- `tramai-core/.../exception/` — ApprovalNotFoundException, ApprovalBindingMismatchException, ApprovalTokenRejectedException
+- `tramai-security/.../approval/` — SecureRandomApprovalTokenGenerator, Sha256ApprovalTokenDigester, UuidApprovalIdGenerator, DefaultApprovalGateCoordinator, AllowAnyApprovalDecisionValidator, RequireDistinctRequesterAndConsumer
+
+### Architecture
+
+```
+CreateApprovalCommand
+  → ApprovalGateCoordinator.createApproval()
+    → generate approvalId + raw token + SHA-256 digest
+    → store only digest on ApprovalBinding.approvalTokenDigest
+    → return ApprovalChallenge (approvalId + raw token + expiry)
+
+AuthorizeResumeCommand
+  → ApprovalGateCoordinator.authorizeResume()
+    → store.get() → revalidate exact binding (5 fields)
+    → validate decision → digest presented token
+    → store.consumeApproved() → return safe ApprovalAuthorization
+```
+
+### ApprovalToken Security
+
+- `@JvmInline value class` with `private constructor` — raw value never exposed as public property
+- `toString()` always returns `[REDACTED]`
+- `reveal()` is the only escape hatch, explicitly named to discourage automatic use
+- Max 512 chars, no control characters, not blank
+
+### Token Generation
+
+- `SecureRandomApprovalTokenGenerator` uses `java.security.SecureRandom`
+- Default: 32 bytes = 256 bits of entropy
+- URL-safe Base64 encoding without padding
+- Minimum 128 bits enforced
+
+### Token Hashing
+
+- `Sha256ApprovalTokenDigester` computes SHA-256 over `token.reveal().toByteArray(StandardCharsets.UTF_8)`
+- Always lowercase hex format: `sha256:<64 hex chars>`
+- Raw token is never persisted — only the digest goes into `ApprovalBinding.approvalTokenDigest`
+
+### Binding Revalidation
+
+`authorizeResume()` checks all 5 binding fields **before** calling `consumeApproved()`:
+1. workflowRunId
+2. toolName
+3. argumentsDigest
+4. policyVersion
+5. workflowDigest
+
+Any mismatch throws `ApprovalBindingMismatchException(approvalId, field)` and the approval remains unconsumed.
+
+### Safe Exceptions
+
+| Exception | Properties | Secret-free? |
+|-----------|------------|-------------|
+| `ApprovalNotFoundException(approvalId)` | `approvalId` only | ✅ |
+| `ApprovalBindingMismatchException(approvalId, field)` | `approvalId`, `field` name | ✅ |
+| `ApprovalTokenRejectedException(approvalId)` | `approvalId` only | ✅ |
+
+Raw tokens, token digests, arguments, and workflow payloads are NEVER included in exception messages.
+
+### Decision Validator Extension Point
+
+`ApprovalDecisionValidator.validate(request, consumedBy)` is invoked immediately before `store.consumeApproved()`:
+
+- `AllowAnyApprovalDecisionValidator` — default, preserves backward compatibility
+- `RequireDistinctRequesterAndConsumer` — enforces separation of duties
+
+### Test Coverage (48 tests)
+
+- **ApprovalTokenTest** (6): toString, blank, control chars, oversized, reveal, format
+- **SecureRandomApprovalTokenGeneratorTest** (5): non-blank, 256-bit entropy, uniqueness, URL-safe, min bytes
+- **Sha256ApprovalTokenDigesterTest** (5): known vector, deterministic, different, format, no leakage
+- **DefaultApprovalGateCoordinatorTest** (29): create (11) + authorizeResume (18)
+- **ApprovalDecisionValidatorTest** (3): AllowAny, RequireDistinct rejects same, accepts different
 
 ## Epic 4: Audit Engine
 

@@ -270,14 +270,91 @@ PENDING → APPROVED/DENIED/TIMED_OUT (all terminal). Timeout succeeds only when
 
 ### Key design decisions
 
-- Approval token (`approvalTokenDigest`) is a SHA-256 digest of a generated nonce. The raw token is provided to the requestor at creation time. PR #15 will consume and verify the raw token exactly once.
+- Approval token (`approvalTokenDigest`) is a SHA-256 digest of a generated nonce. The raw token is provided to the requestor at creation time. PR #16 will consume and verify the raw token exactly once at engine level.
 - `consumeApproved()` uses constant-time `MessageDigest.isEqual()` with explicit `StandardCharsets.US_ASCII` encoding to prevent digest-comparison timing attacks.
 - `consumedBy` and `consumedAt` are recorded atomically with the version increment. Second consume of the same approval fails with clear message.
 - `decidedBy` is non-nullable on `Approve`/`Deny` transitions.
 - Comments are optional on transitions.
 - Version starts at 0 and is incremented atomically. No CAS retry loop — `ConcurrentHashMap.compute()` provides the atomicity.
-- No engine integration yet. PR #15 will build workflow suspension/resume on this foundation.
-- PR #14 scope: domain model, store SPI, validation, expiry, deterministic tests. PR #15 scope: workflow suspension, raw-token engine integration, engine-level resume, auto-deny job.
+- No engine integration yet. PR #16 will build workflow suspension/resume on this foundation.
+- PR #14 scope: domain model, store SPI, validation, expiry, deterministic tests. PR #15 scope: token generation/hashing, coordinator, binding revalidation, safe exceptions. PR #16 scope: engine suspension, workflow resume, audit events.
+
+---
+
+## Approval Gate Coordinator (PR #15)
+
+### ApprovalToken
+
+```kotlin
+@JvmInline
+value class ApprovalToken private constructor(
+    private val rawValue: String,
+) {
+    fun reveal(): String = rawValue
+    override fun toString(): String = "[REDACTED]"
+    companion object {
+        fun parsePresented(raw: String): ApprovalToken
+        internal fun generated(raw: String): ApprovalToken
+    }
+}
+```
+
+### SPIs
+
+```kotlin
+fun interface ApprovalTokenGenerator { fun generate(): ApprovalToken }
+fun interface ApprovalTokenDigester { fun digest(token: ApprovalToken): Sha256Digest }
+fun interface ApprovalIdGenerator { fun generate(): String }
+fun interface ApprovalDecisionValidator { fun validate(request: ApprovalRequest, consumedBy: String) }
+```
+
+### Coordinator Commands
+
+```kotlin
+data class CreateApprovalCommand(
+    val workflowRunId: String,
+    val toolName: String,
+    val argumentsDigest: Sha256Digest,
+    val policyVersion: String,
+    val workflowDigest: Sha256Digest,
+    val requestedBy: String,
+    val expiresAt: Instant,
+)
+
+data class ApprovalChallenge(
+    val approvalId: String,
+    val token: ApprovalToken,
+    val expiresAt: Instant,
+)
+
+data class AuthorizeResumeCommand(
+    val approvalId: String,
+    val expectedVersion: Long,
+    val presentedToken: ApprovalToken,
+    val consumedBy: String,
+    val workflowRunId: String,
+    val toolName: String,
+    val argumentsDigest: Sha256Digest,
+    val policyVersion: String,
+    val workflowDigest: Sha256Digest,
+)
+
+data class ApprovalAuthorization(
+    val approvalId: String,
+    val consumedBy: String,
+    val consumedAt: Instant,
+    val version: Long,
+)
+```
+
+### ApprovalGateCoordinator
+
+```kotlin
+interface ApprovalGateCoordinator {
+    suspend fun createApproval(command: CreateApprovalCommand): ApprovalChallenge
+    suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization
+}
+```
 
 ## Original Design (Phase 0) — Approval Request — Full Binding
 
