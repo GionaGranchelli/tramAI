@@ -7,9 +7,9 @@ import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.IllegalApprovalTransitionException
 import dev.tramai.core.approval.Sha256Digest
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -17,6 +17,22 @@ import org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+
+/**
+ * A test clock whose instant can be advanced programmatically.
+ * Used to test time-dependent behavior without reflection.
+ */
+class MutableClock(
+    private var now: Instant,
+    private val zone: ZoneId = ZoneId.of("UTC"),
+) : Clock() {
+    override fun instant(): Instant = now
+    override fun withZone(zone: ZoneId): Clock = MutableClock(now, zone)
+    override fun getZone(): ZoneId = zone
+
+    fun advance(amount: java.time.Duration) { now = now.plus(amount) }
+    fun set(newNow: Instant) { now = newNow }
+}
 
 class InMemoryApprovalStoreTest {
 
@@ -224,28 +240,27 @@ class InMemoryApprovalStoreTest {
 
     @Test
     fun `approve an expired pending request throws IllegalApprovalTransitionException mentioning expired`() = runBlocking {
-        val past = fixedClock("2026-06-04T09:00:00Z")
-        val storeWithPastClock = InMemoryApprovalStore(clock = past)
-        val request = aPendingRequest(
+        val mutableClock = MutableClock(Instant.parse("2026-06-04T09:00:00Z"))
+        val store2 = InMemoryApprovalStore(clock = mutableClock)
+        store2.create(aPendingRequest(
             approvalId = "expired-req",
             expiresAt = Instant.parse("2026-06-04T09:30:00Z"),
-        )
-        storeWithPastClock.create(request)
+        ))
 
-        // clock is now at 09:00, expiry is 09:30, this should work
-        storeWithPastClock.transition("expired-req", 0L, ApprovalTransition.Approve("user-2", null))
+        // Not expired yet - approve should work
+        store2.transition("expired-req", 0L, ApprovalTransition.Approve("user-2", null))
 
-        // Now test actual expiry: create a new request with expiry in the past
-        val laterClock = fixedClock("2026-06-04T11:00:00Z")
-        val storeWithLaterClock = InMemoryApprovalStore(clock = laterClock)
-        val expiredRequest = aPendingRequest(
+        // Create another request
+        store2.create(aPendingRequest(
             approvalId = "expired-req-2",
-            expiresAt = Instant.parse("2026-06-04T10:30:00Z"),
-        )
-        storeWithLaterClock.create(expiredRequest)
+            expiresAt = Instant.parse("2026-06-04T09:30:00Z"),
+        ))
+
+        // Advance clock past expiry
+        mutableClock.advance(Duration.ofHours(2))
 
         assertThatThrownBy {
-            runBlocking { storeWithLaterClock.transition("expired-req-2", 0L, ApprovalTransition.Approve("user-2", null)) }
+            runBlocking { store2.transition("expired-req-2", 0L, ApprovalTransition.Approve("user-2", null)) }
         }
             .isInstanceOf(IllegalApprovalTransitionException::class.java)
             .hasMessageContaining("expired")
@@ -253,15 +268,17 @@ class InMemoryApprovalStoreTest {
 
     @Test
     fun `timeout on an expired pending request succeeds`() = runBlocking {
-        val clock = fixedClock("2026-06-04T11:00:00Z")
-        val expiredStore = InMemoryApprovalStore(clock = clock)
-        val request = aPendingRequest(
+        val mutableClock = MutableClock(Instant.parse("2026-06-04T09:00:00Z"))
+        val store2 = InMemoryApprovalStore(clock = mutableClock)
+        store2.create(aPendingRequest(
             approvalId = "expired-req",
-            expiresAt = Instant.parse("2026-06-04T10:30:00Z"),
-        )
-        expiredStore.create(request)
+            expiresAt = Instant.parse("2026-06-04T09:30:00Z"),
+        ))
 
-        val updated = expiredStore.transition("expired-req", 0L, ApprovalTransition.Timeout)
+        // Advance clock past expiry
+        mutableClock.advance(Duration.ofHours(2))
+
+        val updated = store2.transition("expired-req", 0L, ApprovalTransition.Timeout)
 
         assertThat(updated.status).isEqualTo(ApprovalStatus.TIMED_OUT)
     }
@@ -354,6 +371,69 @@ class InMemoryApprovalStoreTest {
         assertThatIllegalArgumentException()
             .isThrownBy { runBlocking { store.create(request) } }
             .withMessageContaining("must not have decisionComment set")
+    }
+
+    @Test
+    fun `get with newline in approvalId throws IllegalArgumentException`() = runBlocking {
+        assertThatIllegalArgumentException()
+            .isThrownBy { runBlocking { store.get("req\n-1") } }
+            .withMessageContaining("control characters")
+    }
+
+    @Test
+    fun `transition with newline in approvalId throws IllegalArgumentException`() = runBlocking {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.transition("req\n-1", 0L, ApprovalTransition.Timeout)
+                }
+            }
+            .withMessageContaining("control characters")
+    }
+
+    @Test
+    fun `consumeApproved with newline in approvalId throws IllegalArgumentException`() = runBlocking {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.consumeApproved(
+                        "req\n-1", 0L,
+                        Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                        "consumer-1",
+                    )
+                }
+            }
+            .withMessageContaining("control characters")
+    }
+
+    // -----------------------------------------------------------------------
+    // Validation: oversized
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `transition with oversized approvalId throws IllegalArgumentException`() = runBlocking {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.transition("a".repeat(257), 0L, ApprovalTransition.Timeout)
+                }
+            }
+            .withMessageContaining("exceeds maximum length")
+    }
+
+    @Test
+    fun `consumeApproved with oversized approvalId throws IllegalArgumentException`() = runBlocking {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.consumeApproved(
+                        "a".repeat(257), 0L,
+                        Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                        "consumer-1",
+                    )
+                }
+            }
+            .withMessageContaining("exceeds maximum length")
     }
 
     // -----------------------------------------------------------------------
@@ -817,37 +897,21 @@ class InMemoryApprovalStoreTest {
 
     @Test
     fun `expired approved approval consume fails`() = runBlocking {
-        // Reflection approach: we need to test consuming an expired-but-approved
-        // request, but create() rejects expiresAt in the past. We create and approve
-        // with an early clock, then inject the approved request into a late-clock
-        // store via reflection. This is a test-only workaround — no clean alternative
-        // exists without exposing package-private internals.
-        // Create and approve with an early clock
-        val earlyClock = fixedClock("2026-06-04T08:00:00Z")
-        val earlyStore = InMemoryApprovalStore(clock = earlyClock)
-        earlyStore.create(aPendingRequest(
+        val mutableClock = MutableClock(Instant.parse("2026-06-04T08:00:00Z"))
+        val store2 = InMemoryApprovalStore(clock = mutableClock)
+        store2.create(aPendingRequest(
             approvalId = "expired-consumable",
             expiresAt = Instant.parse("2026-06-04T09:00:00Z"),
         ))
-        earlyStore.transition("expired-consumable", 0L, ApprovalTransition.Approve("user-2"))
+        store2.transition("expired-consumable", 0L, ApprovalTransition.Approve("user-2"))
 
-        // Get the approved request
-        val approvedRequest = earlyStore.get("expired-consumable")!!
-
-        // Use a late-clock store where the request is already expired
-        val laterClock = fixedClock("2026-06-04T10:00:00Z")
-        val laterStore = InMemoryApprovalStore(clock = laterClock)
-
-        // Inject via reflection into the private store map
-        val mapField = laterStore.javaClass.getDeclaredField("store").also { it.isAccessible = true }
-        @Suppress("UNCHECKED_CAST")
-        val map = mapField.get(laterStore) as ConcurrentHashMap<String, ApprovalRequest>
-        map["expired-consumable"] = approvedRequest
+        // Advance clock past expiry
+        mutableClock.advance(Duration.ofHours(2))
 
         assertThatIllegalArgumentException()
             .isThrownBy {
                 runBlocking {
-                    laterStore.consumeApproved(
+                    store2.consumeApproved(
                         "expired-consumable", 1L,
                         Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
                         "consumer-1",

@@ -60,13 +60,19 @@ class InMemoryApprovalStore(
         return request
     }
 
-    override suspend fun get(approvalId: String): ApprovalRequest? = store[approvalId]
+    override suspend fun get(approvalId: String): ApprovalRequest? {
+        validateIdField(approvalId, "approvalId", maxIdLength)
+        return store[approvalId]
+    }
 
     override suspend fun transition(
         approvalId: String,
         expectedVersion: Long,
         transition: ApprovalTransition,
     ): ApprovalRequest {
+        // Validate approvalId
+        validateIdField(approvalId, "approvalId", maxIdLength)
+
         // Validate comment length
         when (transition) {
             is ApprovalTransition.Approve -> transition.comment?.let {
@@ -127,6 +133,7 @@ class InMemoryApprovalStore(
         presentedTokenDigest: Sha256Digest,
         consumedBy: String,
     ): ApprovalRequest {
+        validateIdField(approvalId, "approvalId", maxIdLength)
         validateIdField(consumedBy, "consumedBy", maxIdLength)
 
         val result = store.compute(approvalId) { _, current ->
