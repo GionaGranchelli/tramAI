@@ -441,6 +441,39 @@ class DefaultApprovalGateCoordinatorTest {
     }
 
     @Test
+    fun `createApproval with custom maxApprovalTtl accepts valid expiry`() : Unit = runBlocking {
+        val customCoordinator = DefaultApprovalGateCoordinator(
+            store = store,
+            approvalIdGenerator = ApprovalIdGenerator { "custom-ttl-test" },
+            approvalTokenGenerator = ApprovalTokenGenerator { ApprovalToken.parsePresented(issuedTokenRaw) },
+            approvalTokenDigester = digester,
+            maxApprovalTtl = Duration.ofMinutes(5),
+            clock = clock,
+        )
+
+        val inBounds = clock.instant().plusSeconds(240) // 4 min < 5 min TTL
+        val challenge = customCoordinator.createApproval(createCommand(expiresAt = inBounds))
+        assertThat(challenge.expiresAt).isEqualTo(inBounds)
+    }
+
+    @Test
+    fun `createApproval with custom maxApprovalTtl rejects exceeded expiry`() : Unit = runBlocking {
+        val customCoordinator = DefaultApprovalGateCoordinator(
+            store = store,
+            approvalIdGenerator = ApprovalIdGenerator { "custom-ttl-reject" },
+            approvalTokenGenerator = ApprovalTokenGenerator { ApprovalToken.parsePresented(issuedTokenRaw) },
+            approvalTokenDigester = digester,
+            maxApprovalTtl = Duration.ofMinutes(5),
+            clock = clock,
+        )
+
+        val tooFar = clock.instant().plusSeconds(600) // 10 min > 5 min TTL
+        assertThatIllegalArgumentException()
+            .isThrownBy { runBlocking { customCoordinator.createApproval(createCommand(expiresAt = tooFar)) } }
+            .withMessageContaining("expiresAt must be within")
+    }
+
+    @Test
     fun `authorizeResume validates workflowRunId`() : Unit = runBlocking {
         val challenge = approvedChallenge()
 

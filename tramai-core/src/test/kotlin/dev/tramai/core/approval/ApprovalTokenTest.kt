@@ -56,6 +56,13 @@ class ApprovalTokenTest {
     }
 
     @Test
+    fun `non-whitespace control character rejected`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy { ApprovalToken.parsePresented("token\u0000value") }
+            .withMessage("Approval token must not contain control characters")
+    }
+
+    @Test
     fun `oversized token rejected`() {
         val oversized = "a".repeat(513)
 
