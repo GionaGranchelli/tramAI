@@ -819,7 +819,7 @@ fun interface ApprovalFailureObserver {
 - **ApprovalTokenTest** (11): toString, blank, whitespace in token, leading whitespace, trailing whitespace, tab rejected, non-whitespace control char, control chars, oversized, reveal, format
 - **SecureRandomApprovalTokenGeneratorTest** (7): non-blank, 256-bit entropy, uniqueness, URL-safe, tokenBytes below 32 rejected, tokenBytes at 32 accepted, tokenBytes at 64 accepted
 - **Sha256ApprovalTokenDigesterTest** (5): known vector, deterministic, different, format, no leakage
-- **DefaultApprovalGateCoordinatorTest** (46): create (15) + authorizeResume (23) + leaky-store (8)
+|- **DefaultApprovalGateCoordinatorTest** (45): create (15) + authorizeResume (23) + leaky-store (7)
 - **ApprovalDecisionValidatorTest** (3): AllowAny, RequireDistinct rejects same, accepts different
 
 ## Epic 4: Audit Engine
