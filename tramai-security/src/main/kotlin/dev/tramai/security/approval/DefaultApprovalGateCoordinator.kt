@@ -13,10 +13,13 @@ import dev.tramai.core.approval.ApprovalTokenDigester
 import dev.tramai.core.approval.ApprovalTokenGenerator
 import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.CreateApprovalCommand
+import dev.tramai.core.exception.ApprovalAuthorizationException
 import dev.tramai.core.exception.ApprovalBindingMismatchException
 import dev.tramai.core.exception.ApprovalNotFoundException
+import dev.tramai.core.exception.ApprovalStoreException
 import dev.tramai.core.exception.ApprovalTokenRejectedException
 import java.time.Clock
+import java.time.Duration
 
 class DefaultApprovalGateCoordinator(
     private val store: ApprovalStore,
@@ -26,7 +29,12 @@ class DefaultApprovalGateCoordinator(
     private val decisionValidator: ApprovalDecisionValidator = AllowAnyApprovalDecisionValidator,
     private val clock: Clock = Clock.systemUTC(),
     private val maxIdLength: Int = 256,
+    private val maxApprovalTtl: Duration = Duration.ofMinutes(15),
 ) : ApprovalGateCoordinator {
+
+    init {
+        require(maxApprovalTtl > Duration.ZERO) { "maxApprovalTtl must be positive" }
+    }
 
     override suspend fun createApproval(command: CreateApprovalCommand): ApprovalChallenge {
         validateIdField(command.workflowRunId, "workflowRunId")
@@ -36,6 +44,11 @@ class DefaultApprovalGateCoordinator(
 
         val now = clock.instant()
         require(command.expiresAt > now) { "expiresAt must be in the future" }
+
+        val maxExpiry = now.plus(maxApprovalTtl)
+        require(!command.expiresAt.isAfter(maxExpiry)) {
+            "expiresAt must be within $maxApprovalTtl of now"
+        }
 
         val approvalId = validateIdField(approvalIdGenerator.generate(), "approvalId")
         val token = approvalTokenGenerator.generate()
@@ -75,10 +88,14 @@ class DefaultApprovalGateCoordinator(
     override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {
         validateIdField(command.approvalId, "approvalId")
         validateIdField(command.consumedBy, "consumedBy")
+        validateIdField(command.workflowRunId, "workflowRunId")
+        validateIdField(command.toolName, "toolName")
+        validateIdField(command.policyVersion, "policyVersion")
+        require(command.expectedVersion >= 0) { "expectedVersion must be non-negative" }
 
         val request = try {
             store.get(command.approvalId)
-        } catch (e: IllegalArgumentException) {
+        } catch (e: RuntimeException) {
             throw mapStoreError(command.approvalId, e)
         } ?: throw ApprovalNotFoundException(command.approvalId)
 
@@ -93,7 +110,7 @@ class DefaultApprovalGateCoordinator(
                 presentedTokenDigest = presentedTokenDigest,
                 consumedBy = command.consumedBy,
             )
-        } catch (e: IllegalArgumentException) {
+        } catch (e: RuntimeException) {
             throw mapStoreError(command.approvalId, e)
         }
 
@@ -128,13 +145,11 @@ class DefaultApprovalGateCoordinator(
 
     private fun mapStoreError(
         approvalId: String,
-        exception: IllegalArgumentException,
+        exception: RuntimeException,
     ): RuntimeException {
-        val message = exception.message.orEmpty()
-        return when {
-            message.contains("not found", ignoreCase = true) -> ApprovalNotFoundException(approvalId)
-            message.contains("token digest does not match", ignoreCase = true) -> ApprovalTokenRejectedException(approvalId)
-            else -> exception
+        return when (exception) {
+            is ApprovalStoreException -> exception
+            else -> ApprovalAuthorizationException(approvalId, cause = exception)
         }
     }
 

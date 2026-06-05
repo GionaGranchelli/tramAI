@@ -5,6 +5,8 @@ import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.exception.IllegalApprovalTransitionException
+import dev.tramai.core.exception.ApprovalNotFoundException
+import dev.tramai.core.exception.ApprovalTokenRejectedException
 import dev.tramai.core.approval.Sha256Digest
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -95,7 +97,7 @@ class InMemoryApprovalStore(
         }
 
         val result = store.compute(approvalId) { _, current ->
-            val req = current ?: throw IllegalArgumentException("Approval '$approvalId' not found")
+            val req = current ?: throw ApprovalNotFoundException(approvalId)
 
             require(req.version == expectedVersion) {
                 "Approval '$approvalId' version mismatch: expected $expectedVersion, actual ${req.version}"
@@ -125,7 +127,7 @@ class InMemoryApprovalStore(
             )
         }
 
-        return result ?: throw IllegalArgumentException("Approval '$approvalId' not found")
+        return result ?: throw ApprovalNotFoundException(approvalId)
     }
 
     override suspend fun consumeApproved(
@@ -138,7 +140,7 @@ class InMemoryApprovalStore(
         validateIdField(consumedBy, "consumedBy", maxIdLength)
 
         val result = store.compute(approvalId) { _, current ->
-            val req = current ?: throw IllegalArgumentException("Approval '$approvalId' not found")
+            val req = current ?: throw ApprovalNotFoundException(approvalId)
 
             require(req.version == expectedVersion) {
                 "Approval '$approvalId' version mismatch: expected $expectedVersion, actual ${req.version}"
@@ -158,10 +160,12 @@ class InMemoryApprovalStore(
             }
 
             // Constant-time comparison of token digests
-            require(MessageDigest.isEqual(
-                presentedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
-                req.binding.approvalTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
-            )) { "Approval '$approvalId' token digest does not match" }
+            if (!MessageDigest.isEqual(
+                    presentedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
+                    req.binding.approvalTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
+                )) {
+                throw ApprovalTokenRejectedException(approvalId)
+            }
 
             req.copy(
                 consumedBy = consumedBy,
@@ -170,7 +174,7 @@ class InMemoryApprovalStore(
             )
         }
 
-        return result ?: throw IllegalArgumentException("Approval '$approvalId' not found")
+        return result ?: throw ApprovalNotFoundException(approvalId)
     }
 
     private fun resolveNextStatus(

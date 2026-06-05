@@ -356,6 +356,31 @@ interface ApprovalGateCoordinator {
 }
 ```
 
+### PR #15 Changes Summary
+
+**Security hardening applied in the coordinator and related SPIs:**
+
+| Area | Change |
+|------|--------|
+| Token entropy | Minimum raised from 128 to 256 bits (`tokenBytes >= 32`) |
+| Token validation | Whitespace (leading, trailing, internal) now rejected, not silently trimmed |
+| Exception mapping | Store failures caught as typed `ApprovalStoreException` subtypes, not via `message.contains()` |
+| Approval lifetime | `maxApprovalTtl: Duration` parameter (default 15 min) bounds `expiresAt` |
+| AuthorizeResume validation | All 5 ID fields + `expectedVersion >= 0` validated before store interaction |
+| Exception hierarchy | `ApprovalStoreException` base + `ApprovalAuthorizationException` for unexpected store failures |
+| SPI boundaries | `ApprovalTokenGenerator`, `ApprovalTokenDigester`, `ApprovalDecisionValidator`, `ApprovalStore`, `ApprovalIdGenerator` documented as trusted computing-base extensions |
+
+### Exception Hierarchy (PR #15)
+
+```
+ApprovalException (open)
+├── ApprovalStoreException (open, has approvalId)
+│   ├── ApprovalNotFoundException (approvalId)
+│   ├── ApprovalBindingMismatchException (approvalId, field)
+│   └── ApprovalTokenRejectedException (approvalId)
+└── ApprovalAuthorizationException (approvalId?, cause)
+```
+
 ## Original Design (Phase 0) — Approval Request — Full Binding
 
 An approval authorizes one exact action, not vaguely "continue the workflow."

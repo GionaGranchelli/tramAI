@@ -4,6 +4,8 @@ import dev.tramai.core.approval.ApprovalBinding
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalTransition
+import dev.tramai.core.exception.ApprovalNotFoundException
+import dev.tramai.core.exception.ApprovalTokenRejectedException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
 import dev.tramai.core.approval.Sha256Digest
 import java.time.Clock
@@ -344,9 +346,9 @@ class InMemoryApprovalStoreTest {
 
     @Test
     fun `transition on nonexistent approval throws IllegalArgumentException`() : Unit = runBlocking {
-        assertThatIllegalArgumentException()
-            .isThrownBy { runBlocking { store.transition("nope", 0L, ApprovalTransition.Approve("u", null)) } }
-            .withMessageContaining("not found")
+        assertThatThrownBy { runBlocking { store.transition("nope", 0L, ApprovalTransition.Approve("u", null)) } }
+            .isInstanceOf(ApprovalNotFoundException::class.java)
+            .hasMessageContaining("not found")
     }
 
     // -----------------------------------------------------------------------
@@ -965,8 +967,7 @@ class InMemoryApprovalStoreTest {
         store.create(aPendingRequest())
         store.transition("req-1", 0L, ApprovalTransition.Approve("user-2"))
 
-        assertThatIllegalArgumentException()
-            .isThrownBy {
+        assertThatThrownBy {
                 runBlocking {
                     store.consumeApproved(
                         "req-1", 1L,
@@ -975,7 +976,8 @@ class InMemoryApprovalStoreTest {
                     )
                 }
             }
-            .withMessageContaining("token digest does not match")
+            .isInstanceOf(ApprovalTokenRejectedException::class.java)
+            .hasMessageContaining("token rejected")
     }
 
     @Test
@@ -1095,8 +1097,7 @@ class InMemoryApprovalStoreTest {
 
     @Test
     fun `consumeApproved with nonexistent approvalId throws IllegalArgumentException`() : Unit = runBlocking {
-        assertThatIllegalArgumentException()
-            .isThrownBy {
+        assertThatThrownBy {
                 runBlocking {
                     store.consumeApproved(
                         "does-not-exist", 0L,
@@ -1105,7 +1106,8 @@ class InMemoryApprovalStoreTest {
                     )
                 }
             }
-            .withMessageContaining("not found")
+            .isInstanceOf(ApprovalNotFoundException::class.java)
+            .hasMessageContaining("not found")
     }
 
     @Test

@@ -11,7 +11,9 @@ import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.exception.ApprovalAuthorizationException
 import dev.tramai.core.exception.ApprovalBindingMismatchException
+import dev.tramai.core.exception.ApprovalNotFoundException
 import dev.tramai.core.exception.ApprovalTokenRejectedException
 import java.time.Clock
 import java.time.Duration
@@ -174,9 +176,11 @@ class DefaultApprovalGateCoordinatorTest {
     fun `pending request rejected`() : Unit = runBlocking {
         val challenge = coordinator.createApproval(createCommand())
 
-        assertThatIllegalArgumentException()
-            .isThrownBy { runBlocking { coordinator.authorizeResume(authorizeCommand(challenge, expectedVersion = 0L)) } }
-            .withMessageContaining("status is PENDING")
+        assertThatThrownBy {
+            runBlocking { coordinator.authorizeResume(authorizeCommand(challenge, expectedVersion = 0L)) }
+        }
+            .isInstanceOf(ApprovalAuthorizationException::class.java)
+            .hasCauseInstanceOf(IllegalArgumentException::class.java)
     }
 
     @Test
@@ -184,9 +188,11 @@ class DefaultApprovalGateCoordinatorTest {
         val challenge = coordinator.createApproval(createCommand())
         store.transition(fixedApprovalId, 0L, ApprovalTransition.Deny("approver", null))
 
-        assertThatIllegalArgumentException()
-            .isThrownBy { runBlocking { coordinator.authorizeResume(authorizeCommand(challenge)) } }
-            .withMessageContaining("status is DENIED")
+        assertThatThrownBy {
+            runBlocking { coordinator.authorizeResume(authorizeCommand(challenge)) }
+        }
+            .isInstanceOf(ApprovalAuthorizationException::class.java)
+            .hasCauseInstanceOf(IllegalArgumentException::class.java)
     }
 
     @Test
@@ -201,9 +207,11 @@ class DefaultApprovalGateCoordinatorTest {
         clock.advance(Duration.ofSeconds(11))
         localStore.transition(fixedApprovalId, 0L, ApprovalTransition.Timeout)
 
-        assertThatIllegalArgumentException()
-            .isThrownBy { runBlocking { localCoordinator.authorizeResume(authorizeCommand(localChallenge, expectedVersion = 1L)) } }
-            .withMessageContaining("status is TIMED_OUT")
+        assertThatThrownBy {
+            runBlocking { localCoordinator.authorizeResume(authorizeCommand(localChallenge, expectedVersion = 1L)) }
+        }
+            .isInstanceOf(ApprovalAuthorizationException::class.java)
+            .hasCauseInstanceOf(IllegalArgumentException::class.java)
 
         assertThat(challenge.approvalId).isEqualTo(fixedApprovalId)
     }
@@ -213,9 +221,11 @@ class DefaultApprovalGateCoordinatorTest {
         val challenge = approvedChallenge(expiresAt = clock.instant().plusSeconds(5))
         clock.advance(Duration.ofSeconds(6))
 
-        assertThatIllegalArgumentException()
-            .isThrownBy { runBlocking { coordinator.authorizeResume(authorizeCommand(challenge)) } }
-            .withMessageContaining("has expired")
+        assertThatThrownBy {
+            runBlocking { coordinator.authorizeResume(authorizeCommand(challenge)) }
+        }
+            .isInstanceOf(ApprovalAuthorizationException::class.java)
+            .hasCauseInstanceOf(IllegalArgumentException::class.java)
     }
 
     @Test
@@ -238,22 +248,22 @@ class DefaultApprovalGateCoordinatorTest {
         val challenge = approvedChallenge()
         coordinator.authorizeResume(authorizeCommand(challenge))
 
-        assertThatIllegalArgumentException()
-            .isThrownBy {
-                runBlocking { coordinator.authorizeResume(authorizeCommand(challenge, expectedVersion = 2L)) }
-            }
-            .withMessageContaining("already been consumed")
+        assertThatThrownBy {
+            runBlocking { coordinator.authorizeResume(authorizeCommand(challenge, expectedVersion = 2L)) }
+        }
+            .isInstanceOf(ApprovalAuthorizationException::class.java)
+            .hasCauseInstanceOf(IllegalArgumentException::class.java)
     }
 
     @Test
     fun `stale version rejected`() : Unit = runBlocking {
         val challenge = approvedChallenge()
 
-        assertThatIllegalArgumentException()
-            .isThrownBy {
-                runBlocking { coordinator.authorizeResume(authorizeCommand(challenge, expectedVersion = 0L)) }
-            }
-            .withMessageContaining("version mismatch")
+        assertThatThrownBy {
+            runBlocking { coordinator.authorizeResume(authorizeCommand(challenge, expectedVersion = 0L)) }
+        }
+            .isInstanceOf(ApprovalAuthorizationException::class.java)
+            .hasCauseInstanceOf(IllegalArgumentException::class.java)
     }
 
     @Test
@@ -409,8 +419,112 @@ class DefaultApprovalGateCoordinatorTest {
             .hasMessageNotContaining(tokenDigest)
     }
 
+    @Test
+    fun `createApproval rejects expiry beyond max TTL`() : Unit = runBlocking {
+        val tooFar = clock.instant().plusSeconds(1800) // 30 min > 15 min TTL
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking { coordinator.createApproval(createCommand(expiresAt = tooFar)) }
+            }
+            .withMessageContaining("expiresAt must be within")
+            .withMessageContaining("PT15M")
+    }
+
+    @Test
+    fun `createApproval accepts expiry at max TTL boundary`() : Unit = runBlocking {
+        val atBoundary = clock.instant().plusSeconds(900) // exactly 15 min
+
+        val challenge = coordinator.createApproval(createCommand(expiresAt = atBoundary))
+
+        assertThat(challenge.expiresAt).isEqualTo(atBoundary)
+    }
+
+    @Test
+    fun `authorizeResume validates workflowRunId`() : Unit = runBlocking {
+        val challenge = approvedChallenge()
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    coordinator.authorizeResume(
+                        authorizeCommand(challenge, workflowRunId = "  "),
+                    )
+                }
+            }
+            .withMessageContaining("workflowRunId must not be blank")
+    }
+
+    @Test
+    fun `authorizeResume validates toolName`() : Unit = runBlocking {
+        val challenge = approvedChallenge()
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    coordinator.authorizeResume(
+                        authorizeCommand(challenge, toolName = "  "),
+                    )
+                }
+            }
+            .withMessageContaining("toolName must not be blank")
+    }
+
+    @Test
+    fun `authorizeResume validates policyVersion`() : Unit = runBlocking {
+        val challenge = approvedChallenge()
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    coordinator.authorizeResume(
+                        authorizeCommand(challenge, policyVersion = "  "),
+                    )
+                }
+            }
+            .withMessageContaining("policyVersion must not be blank")
+    }
+
+    @Test
+    fun `authorizeResume validates expectedVersion non-negative`() : Unit = runBlocking {
+        val challenge = approvedChallenge()
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    coordinator.authorizeResume(
+                        authorizeCommand(challenge, expectedVersion = -1),
+                    )
+                }
+            }
+            .withMessage("expectedVersion must be non-negative")
+    }
+
+    @Test
+    fun `store not found maps to typed exception`() : Unit = runBlocking {
+        assertThatThrownBy {
+            runBlocking {
+                coordinator.authorizeResume(
+                    AuthorizeResumeCommand(
+                        approvalId = "nonexistent",
+                        expectedVersion = 1L,
+                        presentedToken = ApprovalToken.parsePresented("some-token"),
+                        consumedBy = "consumer-1",
+                        workflowRunId = "wf-run-1",
+                        toolName = "tool-1",
+                        argumentsDigest = argumentsDigest(),
+                        policyVersion = "policy-v1",
+                        workflowDigest = workflowDigest(),
+                    ),
+                )
+            }
+        }
+            .isInstanceOf(ApprovalNotFoundException::class.java)
+            .hasMessage("Approval not found: 'nonexistent'")
+    }
+
     private suspend fun approvedChallenge(
-        expiresAt: Instant = clock.instant().plusSeconds(3600),
+        expiresAt: Instant = clock.instant().plusSeconds(300),
     ) = coordinator.createApproval(createCommand(expiresAt = expiresAt)).also {
         store.transition(fixedApprovalId, 0L, ApprovalTransition.Approve("approver", "approved"))
     }
@@ -420,7 +534,7 @@ class DefaultApprovalGateCoordinatorTest {
         toolName: String = "tool-1",
         policyVersion: String = "policy-v1",
         requestedBy: String = "requester-1",
-        expiresAt: Instant = clock.instant().plusSeconds(3600),
+        expiresAt: Instant = clock.instant().plusSeconds(300),
     ) = CreateApprovalCommand(
         workflowRunId = workflowRunId,
         toolName = toolName,

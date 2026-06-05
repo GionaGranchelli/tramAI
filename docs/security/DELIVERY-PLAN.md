@@ -649,9 +649,9 @@ This PR (PR #14) establishes the domain model and store implementation only. No 
 **Branch:** `feat/approval-gate-coordinator`
 
 **Where:**
-- `tramai-core/.../approval/` — ApprovalToken, ApprovalTokenGenerator (SPI), ApprovalTokenDigester (SPI), ApprovalIdGenerator (SPI), ApprovalDecisionValidator (SPI), ApprovalGateCoordinator (interface), coordinator command/response types
-- `tramai-core/.../exception/` — ApprovalNotFoundException, ApprovalBindingMismatchException, ApprovalTokenRejectedException
-- `tramai-security/.../approval/` — SecureRandomApprovalTokenGenerator, Sha256ApprovalTokenDigester, UuidApprovalIdGenerator, DefaultApprovalGateCoordinator, AllowAnyApprovalDecisionValidator, RequireDistinctRequesterAndConsumer
+|- `tramai-core/.../approval/` — ApprovalToken, ApprovalTokenGenerator (SPI), ApprovalTokenDigester (SPI), ApprovalIdGenerator (SPI), ApprovalDecisionValidator (SPI), ApprovalGateCoordinator (interface), coordinator command/response types
+|- `tramai-core/.../exception/` — ApprovalStoreException, ApprovalNotFoundException, ApprovalBindingMismatchException, ApprovalTokenRejectedException, ApprovalAuthorizationException
+|- `tramai-security/.../approval/` — SecureRandomApprovalTokenGenerator, Sha256ApprovalTokenDigester, UuidApprovalIdGenerator, DefaultApprovalGateCoordinator, AllowAnyApprovalDecisionValidator, RequireDistinctRequesterAndConsumer
 
 ### Architecture
 
@@ -671,17 +671,18 @@ AuthorizeResumeCommand
 
 ### ApprovalToken Security
 
-- `@JvmInline value class` with `private constructor` — raw value never exposed as public property
-- `toString()` always returns `[REDACTED]`
-- `reveal()` is the only escape hatch, explicitly named to discourage automatic use
-- Max 512 chars, no control characters, not blank
+|- `@JvmInline value class` with `private constructor` — raw value never exposed as public property
+|- `toString()` always returns `[REDACTED]`
+|- `reveal()` is the only escape hatch, explicitly named to discourage automatic use
+|- Max 512 chars, no control characters, no whitespace (leading, trailing, or internal), not blank
+|- Whitespace is rejected, not silently trimmed
 
 ### Token Generation
 
-- `SecureRandomApprovalTokenGenerator` uses `java.security.SecureRandom`
-- Default: 32 bytes = 256 bits of entropy
-- URL-safe Base64 encoding without padding
-- Minimum 128 bits enforced
+|- `SecureRandomApprovalTokenGenerator` uses `java.security.SecureRandom`
+|- Default: 32 bytes = 256 bits of entropy
+|- URL-safe Base64 encoding without padding
+|- Minimum 256 bits enforced (tokenBytes >= 32)
 
 ### Token Hashing
 
@@ -707,8 +708,45 @@ Any mismatch throws `ApprovalBindingMismatchException(approvalId, field)` and th
 | `ApprovalNotFoundException(approvalId)` | `approvalId` only | ✅ |
 | `ApprovalBindingMismatchException(approvalId, field)` | `approvalId`, `field` name | ✅ |
 | `ApprovalTokenRejectedException(approvalId)` | `approvalId` only | ✅ |
+| `ApprovalAuthorizationException(approvalId)` | `approvalId` (nullable), cause | ✅ |
+| `ApprovalStoreException(approvalId)` | abstract base with `approvalId` | ✅ |
 
 Raw tokens, token digests, arguments, and workflow payloads are NEVER included in exception messages.
+
+- Store failures are now caught as typed `ApprovalStoreException` subtypes, not via message-string parsing
+- `mapStoreError()` uses a `when` dispatch on exception type, not `exception.message.contains(...)`
+- Unexpected `RuntimeException` from the store is wrapped in `ApprovalAuthorizationException`
+
+### Approval Lifetime Bounding
+
+|- `DefaultApprovalGateCoordinator` accepts a `maxApprovalTtl: Duration` parameter (default: 15 minutes)
+|- `createApproval()` validates that `command.expiresAt` is within `maxApprovalTtl` of `clock.instant()`
+|- Past-expiry and beyond-TTL requests are both rejected with `IllegalArgumentException`
+|- Constructor validates `maxApprovalTtl > Duration.ZERO`
+
+### AuthorizeResume Validation
+
+`authorizeResume()` now validates ALL identifier fields before store lookup:
+1. `approvalId`
+2. `consumedBy`
+3. `workflowRunId`
+4. `toolName`
+5. `policyVersion`
+6. `expectedVersion >= 0`
+
+### Trusted SPI Boundaries
+
+The following SPIs are **trusted computing-base extensions** — they operate within the security
+boundary and must adhere to strict safety invariants:
+
+- `ApprovalTokenGenerator` — must not log, serialize, or expose raw token values
+- `ApprovalTokenDigester` — must not log, serialize, or expose raw token or digest values
+- `ApprovalDecisionValidator` — must not leak binding or token data in exception messages
+- `ApprovalStore` — must not log raw token digests or binding payloads; must not expose token data through any public API surface
+- `ApprovalIdGenerator` — must produce non-empty, non-blank, unique identifiers
+
+Implementations are considered part of the trusted computing base and should be reviewed
+for security properties. Default implementations in `tramai-security` meet all invariants.
 
 ### Decision Validator Extension Point
 
@@ -717,13 +755,13 @@ Raw tokens, token digests, arguments, and workflow payloads are NEVER included i
 - `AllowAnyApprovalDecisionValidator` — default, preserves backward compatibility
 - `RequireDistinctRequesterAndConsumer` — enforces separation of duties
 
-### Test Coverage (48 tests)
+### Test Coverage (55+ tests)
 
-- **ApprovalTokenTest** (6): toString, blank, control chars, oversized, reveal, format
-- **SecureRandomApprovalTokenGeneratorTest** (5): non-blank, 256-bit entropy, uniqueness, URL-safe, min bytes
-- **Sha256ApprovalTokenDigesterTest** (5): known vector, deterministic, different, format, no leakage
-- **DefaultApprovalGateCoordinatorTest** (29): create (11) + authorizeResume (18)
-- **ApprovalDecisionValidatorTest** (3): AllowAny, RequireDistinct rejects same, accepts different
+|- **ApprovalTokenTest** (10): toString, blank, whitespace in token, leading whitespace, trailing whitespace, tab rejected, control chars, oversized, reveal, format
+|- **SecureRandomApprovalTokenGeneratorTest** (7): non-blank, 256-bit entropy, uniqueness, URL-safe, tokenBytes below 32 rejected, tokenBytes at 32 accepted, tokenBytes at 64 accepted
+|- **Sha256ApprovalTokenDigesterTest** (5): known vector, deterministic, different, format, no leakage
+|- **DefaultApprovalGateCoordinatorTest** (38): create (13) + authorizeResume (25)
+|- **ApprovalDecisionValidatorTest** (3): AllowAny, RequireDistinct rejects same, accepts different
 
 ## Epic 4: Audit Engine
 

@@ -24,7 +24,35 @@ class ApprovalTokenTest {
     fun `control characters rejected`() {
         assertThatIllegalArgumentException()
             .isThrownBy { ApprovalToken.parsePresented("secret\nvalue") }
-            .withMessage("Approval token must not contain control characters")
+            .withMessage("Approval token must not contain whitespace")
+    }
+
+    @Test
+    fun `whitespace in token rejected`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy { ApprovalToken.parsePresented("token with spaces") }
+            .withMessage("Approval token must not contain whitespace")
+    }
+
+    @Test
+    fun `leading whitespace rejected`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy { ApprovalToken.parsePresented("  token") }
+            .withMessage("Approval token must not contain whitespace")
+    }
+
+    @Test
+    fun `trailing whitespace rejected`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy { ApprovalToken.parsePresented("token  ") }
+            .withMessage("Approval token must not contain whitespace")
+    }
+
+    @Test
+    fun `tab in token rejected`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy { ApprovalToken.parsePresented("token\tvalue") }
+            .withMessage("Approval token must not contain whitespace")
     }
 
     @Test

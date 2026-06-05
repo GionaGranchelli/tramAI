@@ -11,7 +11,7 @@ class SecureRandomApprovalTokenGenerator(
 ) : ApprovalTokenGenerator {
 
     init {
-        require(tokenBytes >= 16) { "tokenBytes must be at least 16 (128 bits)" }
+        require(tokenBytes >= 32) { "tokenBytes must be at least 32 (256 bits)" }
     }
 
     override fun generate(): ApprovalToken {

@@ -45,9 +45,23 @@ class SecureRandomApprovalTokenGeneratorTest {
     }
 
     @Test
-    fun `tokenBytes below 16 rejected`() {
+    fun `tokenBytes below 32 rejected`() {
         assertThatIllegalArgumentException()
-            .isThrownBy { SecureRandomApprovalTokenGenerator(tokenBytes = 15) }
-            .withMessage("tokenBytes must be at least 16 (128 bits)")
+            .isThrownBy { SecureRandomApprovalTokenGenerator(tokenBytes = 31) }
+            .withMessage("tokenBytes must be at least 32 (256 bits)")
+    }
+
+    @Test
+    fun `tokenBytes at 32 accepted`() {
+        val generator = SecureRandomApprovalTokenGenerator(tokenBytes = 32)
+        val token = generator.generate()
+        assertThat(token.reveal()).isNotBlank()
+    }
+
+    @Test
+    fun `tokenBytes at 64 accepted`() {
+        val generator = SecureRandomApprovalTokenGenerator(tokenBytes = 64)
+        val token = generator.generate()
+        assertThat(token.reveal()).isNotBlank()
     }
 }

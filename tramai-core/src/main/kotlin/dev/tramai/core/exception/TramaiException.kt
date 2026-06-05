@@ -117,6 +117,17 @@ class TokenBudgetExceededException(
 )
 
 /**
+ * Base class for approval-store specific exceptions.
+ * These are typed exceptions that store implementations throw and
+ * coordinators catch — replacing message-string parsing.
+ */
+open class ApprovalStoreException(
+    open val approvalId: String,
+    message: String,
+    cause: Throwable? = null,
+) : ApprovalException(message, cause)
+
+/**
  * Raised when an approval transition is not allowed by the state machine or
  * when the preconditions for the transition are not met (expired, already
  * decided, already consumed, etc.).
@@ -130,17 +141,27 @@ class IllegalApprovalTransitionException(
     "Illegal approval transition for '$approvalId': $from -> $to - $reason"
 )
 
-class ApprovalNotFoundException(approvalId: String) : ApprovalException(
-    "Approval not found: '$approvalId'"
+class ApprovalNotFoundException(
+    override val approvalId: String,
+) : ApprovalStoreException(
+    approvalId, "Approval not found: '$approvalId'"
 )
 
 class ApprovalBindingMismatchException(
-    approvalId: String,
+    override val approvalId: String,
     val field: String,
-) : ApprovalException(
-    "Approval binding mismatch for '$approvalId': $field"
+) : ApprovalStoreException(
+    approvalId, "Approval binding mismatch for '$approvalId': $field"
 )
 
-class ApprovalTokenRejectedException(approvalId: String) : ApprovalException(
-    "Approval token rejected for '$approvalId'"
+class ApprovalTokenRejectedException(
+    override val approvalId: String,
+) : ApprovalStoreException(
+    approvalId, "Approval token rejected for '$approvalId'"
 )
+
+class ApprovalAuthorizationException(
+    val approvalId: String?,
+    message: String = "Approval authorization failed",
+    cause: Throwable? = null,
+) : ApprovalException(message, cause)
