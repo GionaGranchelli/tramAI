@@ -5,6 +5,8 @@ import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.IllegalApprovalTransitionException
+import dev.tramai.core.approval.Sha256Digest
+import java.security.MessageDigest
 import java.time.Clock
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -46,6 +48,11 @@ class InMemoryApprovalStore(
         require(request.expiresAt > now) { "expiresAt must be in the future, got $now for expiry ${request.expiresAt}" }
         require(request.expiresAt > request.requestedAt) { "expiresAt must be after requestedAt" }
 
+        // requestedAt must not be in the future
+        require(request.requestedAt <= now) { "requestedAt must not be in the future, got ${request.requestedAt} for now $now" }
+        require(request.consumedBy == null) { "Initial approval must not have consumedBy set" }
+        require(request.consumedAt == null) { "Initial approval must not have consumedAt set" }
+
         // Atomically insert
         val existing = store.putIfAbsent(request.approvalId, request)
         require(existing == null) { "Approval '${request.approvalId}' already exists" }
@@ -80,8 +87,6 @@ class InMemoryApprovalStore(
             is ApprovalTransition.Timeout -> {}
         }
 
-        val now = clock.instant()
-
         val result = store.compute(approvalId) { _, current ->
             val req = current ?: throw IllegalArgumentException("Approval '$approvalId' not found")
 
@@ -91,6 +96,7 @@ class InMemoryApprovalStore(
 
             check(req.version < Long.MAX_VALUE) { "Approval '$approvalId' version overflow" }
 
+            val now = clock.instant()  // captured atomically with the mutation
             val nextStatus = resolveNextStatus(req, transition, now)
 
             req.copy(
@@ -111,6 +117,52 @@ class InMemoryApprovalStore(
                     is ApprovalTransition.Deny -> transition.comment
                     is ApprovalTransition.Timeout -> null
                 },
+            )
+        }
+
+        return result ?: throw IllegalArgumentException("Approval '$approvalId' not found")
+    }
+
+    override suspend fun consumeApproved(
+        approvalId: String,
+        expectedVersion: Long,
+        presentedTokenDigest: Sha256Digest,
+        consumedBy: String,
+    ): ApprovalRequest {
+        validateIdField(consumedBy, "consumedBy", maxIdLength)
+
+        val result = store.compute(approvalId) { _, current ->
+            val req = current ?: throw IllegalArgumentException("Approval '$approvalId' not found")
+
+            require(req.version == expectedVersion) {
+                "Approval '$approvalId' version mismatch: expected $expectedVersion, actual ${req.version}"
+            }
+
+            check(req.version < Long.MAX_VALUE) { "Approval '$approvalId' version overflow" }
+
+            require(req.status == ApprovalStatus.APPROVED) {
+                "Approval '$approvalId' cannot be consumed: status is ${req.status}, expected APPROVED"
+            }
+
+            val now = clock.instant()
+            require(now < req.expiresAt) {
+                "Approval '$approvalId' has expired at ${req.expiresAt}"
+            }
+
+            require(req.consumedAt == null) {
+                "Approval '$approvalId' has already been consumed"
+            }
+
+            // Constant-time comparison of token digests
+            require(MessageDigest.isEqual(
+                presentedTokenDigest.value.toByteArray(),
+                req.binding.approvalTokenDigest.value.toByteArray(),
+            )) { "Approval '$approvalId' token digest does not match" }
+
+            req.copy(
+                consumedBy = consumedBy.trim(),
+                consumedAt = now,
+                version = req.version + 1,
             )
         }
 
@@ -169,6 +221,7 @@ class InMemoryApprovalStore(
     private fun validateIdField(value: String, fieldName: String, maxLength: Int): String {
         val trimmed = value.trim()
         require(trimmed.isNotBlank()) { "$fieldName must not be blank" }
+        require(trimmed.none { it.isISOControl() }) { "$fieldName must not contain control characters" }
         require(trimmed.length <= maxLength) { "$fieldName exceeds maximum length of $maxLength" }
         require(trimmed == value) { "$fieldName must not contain surrounding whitespace" }
         return trimmed

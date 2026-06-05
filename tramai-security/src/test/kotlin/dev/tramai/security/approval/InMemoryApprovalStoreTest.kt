@@ -9,6 +9,7 @@ import dev.tramai.core.approval.Sha256Digest
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -63,6 +64,8 @@ class InMemoryApprovalStoreTest {
         decidedBy = null,
         decidedAt = null,
         decisionComment = null,
+        consumedBy = null,
+        consumedAt = null,
         version = version,
     )
 
@@ -705,5 +708,275 @@ class InMemoryApprovalStoreTest {
                 }
             }
             .withMessageContaining("decidedBy exceeds maximum length")
+    }
+
+    // -----------------------------------------------------------------------
+    // Consumption
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `approved approval with valid token digest succeeds`() = runBlocking {
+        val request = aPendingRequest()
+        store.create(request)
+        store.transition("req-1", 0L, ApprovalTransition.Approve("user-2"))
+
+        val consumed = store.consumeApproved(
+            "req-1", 1L,
+            Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+            "consumer-1",
+        )
+
+        assertThat(consumed.status).isEqualTo(ApprovalStatus.APPROVED)
+        assertThat(consumed.consumedBy).isEqualTo("consumer-1")
+        assertThat(consumed.consumedAt).isEqualTo(fixedClock.instant())
+        assertThat(consumed.version).isEqualTo(2L)
+    }
+
+    @Test
+    fun `second consume of same approval fails`() = runBlocking {
+        val request = aPendingRequest()
+        store.create(request)
+        store.transition("req-1", 0L, ApprovalTransition.Approve("user-2"))
+        store.consumeApproved(
+            "req-1", 1L,
+            Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+            "consumer-1",
+        )
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.consumeApproved(
+                        "req-1", 2L,
+                        Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                        "consumer-2",
+                    )
+                }
+            }
+            .withMessageContaining("already been consumed")
+    }
+
+    @Test
+    fun `pending approval consume fails`() = runBlocking {
+        store.create(aPendingRequest())
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.consumeApproved(
+                        "req-1", 0L,
+                        Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                        "consumer-1",
+                    )
+                }
+            }
+            .withMessageContaining("cannot be consumed")
+            .withMessageContaining("PENDING")
+    }
+
+    @Test
+    fun `denied approval consume fails`() = runBlocking {
+        store.create(aPendingRequest())
+        store.transition("req-1", 0L, ApprovalTransition.Deny("user-2"))
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.consumeApproved(
+                        "req-1", 1L,
+                        Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                        "consumer-1",
+                    )
+                }
+            }
+            .withMessageContaining("cannot be consumed")
+            .withMessageContaining("DENIED")
+    }
+
+    @Test
+    fun `timed-out approval consume fails`() = runBlocking {
+        store.create(aPendingRequest(
+            approvalId = "timed-out-consumable",
+            expiresAt = Instant.parse("2026-06-04T09:30:00Z"),
+        ))
+        store.transition("timed-out-consumable", 0L, ApprovalTransition.Timeout)
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.consumeApproved(
+                        "timed-out-consumable", 1L,
+                        Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                        "consumer-1",
+                    )
+                }
+            }
+            .withMessageContaining("cannot be consumed")
+            .withMessageContaining("TIMED_OUT")
+    }
+
+    @Test
+    fun `expired approved approval consume fails`() = runBlocking {
+        // Create and approve with an early clock
+        val earlyClock = fixedClock("2026-06-04T08:00:00Z")
+        val earlyStore = InMemoryApprovalStore(clock = earlyClock)
+        earlyStore.create(aPendingRequest(
+            approvalId = "expired-consumable",
+            expiresAt = Instant.parse("2026-06-04T09:00:00Z"),
+        ))
+        earlyStore.transition("expired-consumable", 0L, ApprovalTransition.Approve("user-2"))
+
+        // Get the approved request
+        val approvedRequest = earlyStore.get("expired-consumable")!!
+
+        // Use a late-clock store where the request is already expired
+        val laterClock = fixedClock("2026-06-04T10:00:00Z")
+        val laterStore = InMemoryApprovalStore(clock = laterClock)
+
+        // Inject via reflection into the private store map
+        val mapField = laterStore.javaClass.getDeclaredField("store").also { it.isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val map = mapField.get(laterStore) as ConcurrentHashMap<String, ApprovalRequest>
+        map["expired-consumable"] = approvedRequest
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    laterStore.consumeApproved(
+                        "expired-consumable", 1L,
+                        Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                        "consumer-1",
+                    )
+                }
+            }
+            .withMessageContaining("expired")
+    }
+
+    @Test
+    fun `wrong token digest for consume fails`() = runBlocking {
+        store.create(aPendingRequest())
+        store.transition("req-1", 0L, ApprovalTransition.Approve("user-2"))
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.consumeApproved(
+                        "req-1", 1L,
+                        Sha256Digest.of("sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+                        "consumer-1",
+                    )
+                }
+            }
+            .withMessageContaining("token digest does not match")
+    }
+
+    @Test
+    fun `concurrent consume calls exactly one succeeds`() = runBlocking {
+        val concurrencyStore = InMemoryApprovalStore(clock = fixedClock)
+        val request = aPendingRequest(approvalId = "concurrent-consume")
+        concurrencyStore.create(request)
+        concurrencyStore.transition("concurrent-consume", 0L, ApprovalTransition.Approve("user-2"))
+
+        val results = mutableListOf<Result<ApprovalRequest>>()
+        var ready = 0
+
+        val job1 = launch(kotlinx.coroutines.Dispatchers.Default) {
+            synchronized(this@InMemoryApprovalStoreTest) { ready++ }
+            while (ready < 2) { kotlinx.coroutines.yield() }
+
+            try {
+                val r = concurrencyStore.consumeApproved(
+                    "concurrent-consume", 1L,
+                    Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                    "consumer-a",
+                )
+                synchronized(results) { results.add(Result.success(r)) }
+            } catch (e: Exception) {
+                synchronized(results) { results.add(Result.failure(e)) }
+            }
+        }
+
+        val job2 = launch(kotlinx.coroutines.Dispatchers.Default) {
+            synchronized(this@InMemoryApprovalStoreTest) { ready++ }
+            while (ready < 2) { kotlinx.coroutines.yield() }
+
+            try {
+                val r = concurrencyStore.consumeApproved(
+                    "concurrent-consume", 1L,
+                    Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                    "consumer-b",
+                )
+                synchronized(results) { results.add(Result.success(r)) }
+            } catch (e: Exception) {
+                synchronized(results) { results.add(Result.failure(e)) }
+            }
+        }
+
+        job1.join()
+        job2.join()
+
+        val successes = results.filter { it.isSuccess }
+        val failures = results.filter { it.isFailure }
+
+        assertThat(successes).hasSize(1)
+        assertThat(failures).hasSize(1)
+
+        val winner = successes.single().getOrThrow()
+        assertThat(winner.consumedBy).isIn("consumer-a", "consumer-b")
+        assertThat(winner.version).isEqualTo(2L)
+
+        val loser = failures.single().exceptionOrNull()
+        assertThat(loser).isInstanceOf(IllegalArgumentException::class.java)
+        assertThat(loser!!.message).contains("version mismatch")
+    }
+
+    // -----------------------------------------------------------------------
+    // Create validation: consumption fields and future requestedAt
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `create rejects pre-set consumedBy`() = runBlocking {
+        val request = aPendingRequest().copy(consumedBy = "someone")
+        assertThatIllegalArgumentException()
+            .isThrownBy { runBlocking { store.create(request) } }
+            .withMessageContaining("must not have consumedBy set")
+    }
+
+    @Test
+    fun `create rejects pre-set consumedAt`() = runBlocking {
+        val request = aPendingRequest().copy(consumedAt = fixedClock.instant())
+        assertThatIllegalArgumentException()
+            .isThrownBy { runBlocking { store.create(request) } }
+            .withMessageContaining("must not have consumedAt set")
+    }
+
+    @Test
+    fun `create rejects requestedAt in the future`() = runBlocking {
+        val request = aPendingRequest().copy(
+            requestedAt = fixedClock.instant().plusSeconds(60),
+        )
+        assertThatIllegalArgumentException()
+            .isThrownBy { runBlocking { store.create(request) } }
+            .withMessageContaining("must not be in the future")
+    }
+
+    // -----------------------------------------------------------------------
+    // Validation: control characters
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `approvalId with control character throws IllegalArgumentException`() = runBlocking {
+        val request = aPendingRequest(approvalId = "req-1\n")
+        assertThatIllegalArgumentException()
+            .isThrownBy { runBlocking { store.create(request) } }
+            .withMessageContaining("must not contain control characters")
+    }
+
+    @Test
+    fun `toolName with control character throws IllegalArgumentException`() = runBlocking {
+        val request = aPendingRequest(toolName = "search\tool")
+        assertThatIllegalArgumentException()
+            .isThrownBy { runBlocking { store.create(request) } }
+            .withMessageContaining("must not contain control characters")
     }
 }

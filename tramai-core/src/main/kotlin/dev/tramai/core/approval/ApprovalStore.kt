@@ -43,6 +43,28 @@ interface ApprovalStore {
         expectedVersion: Long,
         transition: ApprovalTransition,
     ): ApprovalRequest
+
+    /**
+     * Consume an approved approval request exactly once.
+     *
+     * Validates that the presented token digest matches the stored [ApprovalBinding.approvalTokenDigest]
+     * using constant-time comparison. On success, marks the request as consumed by persisting
+     * [consumedBy] and [consumedAt] and incrementing the version.
+     *
+     * @param approvalId The approval to consume.
+     * @param expectedVersion The version the caller expects.
+     * @param presentedTokenDigest The SHA-256 digest of the approval token presented by the caller.
+     * @param consumedBy Identifier of the consuming actor (must not be blank).
+     * @return The updated [ApprovalRequest] with consumption fields set.
+     * @throws IllegalArgumentException if the approval does not exist, version mismatch,
+     *         status is not APPROVED, already consumed, expired, or token digest does not match.
+     */
+    suspend fun consumeApproved(
+        approvalId: String,
+        expectedVersion: Long,
+        presentedTokenDigest: Sha256Digest,
+        consumedBy: String,
+    ): ApprovalRequest
 }
 
 /**

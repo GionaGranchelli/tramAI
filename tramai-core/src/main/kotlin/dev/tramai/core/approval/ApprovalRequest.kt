@@ -13,6 +13,8 @@ import java.time.Instant
  * **Invariants:**
  * - `version` starts at 0 and is incremented atomically on each transition.
  * - `decidedBy`, `decidedAt`, and `decisionComment` are null until a transition occurs.
+ * - `consumedBy` and `consumedAt` are null until an APPROVED request is consumed
+ *   via [ApprovalStore.consumeApproved].
  * - `expiresAt` must be strictly in the future at creation time.
  * - The [binding] fields are immutable and lock the exact tool invocation context.
  */
@@ -26,5 +28,7 @@ data class ApprovalRequest(
     val decidedBy: String?,
     val decidedAt: Instant?,
     val decisionComment: String?,
+    val consumedBy: String?,
+    val consumedAt: Instant?,
     val version: Long,
 )
