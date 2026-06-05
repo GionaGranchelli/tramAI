@@ -543,6 +543,102 @@ sanitized.
 
 ---
 
+## Implementation Notes — Approval Gates Foundation (PR #14)
+
+**Where:**
+- `tramai-core/.../approval/` — domain model: ApprovalStatus, ApprovalBinding, ApprovalRequest, ApprovalStore (SPI), ApprovalTransition, IllegalApprovalTransitionException, Sha256Digest
+- `tramai-security/.../approval/InMemoryApprovalStore.kt` — in-memory implementation
+
+### ApprovalRequest Model
+
+All binding fields are mandatory (non-nullable):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| approvalId | String | Unique identifier |
+| binding | ApprovalBinding | Full binding context (see below) |
+| status | ApprovalStatus | Current state |
+| requestedBy | String | Actor requesting approval |
+| requestedAt | Instant | Creation timestamp |
+| expiresAt | Instant | Deadline — must be in the future at creation |
+| decidedBy | String? | Deciding actor (null until resolved) |
+| decidedAt | Instant? | Decision timestamp (null until resolved) |
+| decisionComment | String? | Optional justification |
+| consumedBy | String? | Consumer identity (null until consumed) |
+| consumedAt | Instant? | Consumption timestamp (null until consumed) |
+| version | Long | Optimistic concurrency version |
+
+### ApprovalBinding (mandatory fields)
+
+| Field | Type | Validation |
+|-------|------|------------|
+| workflowRunId | String | Non-blank, ≤ 256 chars, no surrounding whitespace |
+| toolName | String | Non-blank, ≤ 256 chars, no surrounding whitespace |
+| argumentsDigest | Sha256Digest | Format: `sha256:<64 lowercase hex chars>` |
+| policyVersion | String | Non-blank, ≤ 256 chars, no surrounding whitespace |
+| workflowDigest | Sha256Digest | Format: `sha256:<64 lowercase hex chars>` |
+| approvalTokenDigest | Sha256Digest | SHA-256 of generated nonce; raw token given to requestor at creation time |
+
+### SHA-256 Digest Validation
+
+`Sha256Digest` is a `@JvmInline value class` backed by `String` with a companion `validate()` method. The regex pattern `^sha256:[0-9a-f]{64}$` ensures exact format compliance. Used for argumentsDigest, workflowDigest, and approvalTokenDigest.
+
+### State Machine
+
+```
+PENDING ──┬── Approve ──→ APPROVED (terminal)
+          ├── Deny ──────→ DENIED (terminal)
+          └── Timeout ───→ TIMED_OUT (terminal)
+          (when now >= expiresAt)
+```
+
+- **Timeout semantics:** Timeout from PENDING succeeds only when `now >= expiresAt`. Timeout before expiry throws `IllegalApprovalTransitionException`. Expired approvals can only be timed out — approve/deny are rejected.
+- **Terminal states:** APPROVED, DENIED, and TIMED_OUT are terminal. Any transition from a terminal state throws `IllegalApprovalTransitionException`.
+- **targetStatus():** Each `ApprovalTransition` subclass implements `targetStatus()` returning the resolved `ApprovalStatus`. The `resolveNextStatus()` method uses this uniformly instead of inline `when` branches.
+
+### Hardened create()
+
+`InMemoryApprovalStore.create()` validates:
+- `version == 0L` (initial version invariant)
+- `status == PENDING` (no pre-set status)
+- No decision fields set (`decidedBy`, `decidedAt`, `decisionComment` must be null)
+- All ID/binding fields: non-blank, ≤ max length, no surrounding whitespace
+- All digests: valid SHA-256 format via `Sha256Digest.of()`
+- Expiry: must be in the future and after `requestedAt`
+- Atomic insert: `putIfAbsent` rejects duplicates
+
+### Simplified Optimistic Concurrency
+
+`transition()` and `consumeApproved()` use `ConcurrentHashMap.compute()` for atomic read-modify-write:
+- No CAS retry loop or `maxCasRetries` parameter
+- Version check inside the compute lambda (atomic with the update)
+- `compute()` returns `null` when the key is absent, detected as "not found"
+
+### consumeApproved — Atomic Single-Use Consumption
+
+`InMemoryApprovalStore.consumeApproved()` implements single-use consumption:
+- Version-gated via `ConcurrentHashMap.compute()` (same atomicity model as transition)
+- Requires `status = APPROVED`, `consumedAt == null`, and `now < expiresAt`
+- Constant-time token-digest comparison via `MessageDigest.isEqual()` to prevent timing attacks
+- Records `consumedBy` and `consumedAt` atomically with the version increment
+- Second consume of the same approval fails with clear message
+
+This is a **store-level atomic primitive**. Raw-token presentation (matching a raw bearer token against `approvalTokenDigest`) and the engine-level resume flow are deferred to PR #15.
+
+### No Engine Integration Yet
+
+This PR (PR #14) establishes the domain model and store implementation only. No engine integration, no workflow suspension, no approval resume. PR #15 will build approval suspension/resume on this foundation.
+
+### Deferred to PR #15
+- Workflow suspension on RequireApproval
+- Engine-level approval resume (BEFORE_WORKFLOW_RESUME)
+- Raw-token presentation and verification at engine level (type `ApprovalToken`)
+- Auto-deny on timeout (engine job, not store concern)
+- Approval audit events
+- Idempotency keys
+
+---
+
 ## Epic 4: Audit Engine
 
 **Goal:** Emit versioned, hash-chained audit events for every policy decision.

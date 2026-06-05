@@ -1,5 +1,7 @@
 package dev.tramai.core.exception
 
+import dev.tramai.core.approval.ApprovalStatus
+
 /**
  * Base runtime exception for Tramai failures.
  */
@@ -7,6 +9,14 @@ sealed class TramaiException(
     message: String,
     cause: Throwable? = null,
 ) : RuntimeException(message, cause)
+
+/**
+ * Base class for approval-domain exceptions.
+ */
+open class ApprovalException(
+    message: String,
+    cause: Throwable? = null,
+) : TramaiException(message, cause)
 
 /**
  * Raised when structured output cannot be parsed or validated within the allowed attempts.
@@ -104,4 +114,18 @@ class TokenBudgetExceededException(
             append("]")
         }
     },
+)
+
+/**
+ * Raised when an approval transition is not allowed by the state machine or
+ * when the preconditions for the transition are not met (expired, already
+ * decided, already consumed, etc.).
+ */
+class IllegalApprovalTransitionException(
+    val approvalId: String,
+    val from: ApprovalStatus,
+    val to: ApprovalStatus,
+    val reason: String,
+) : ApprovalException(
+    "Illegal approval transition for '$approvalId': $from -> $to - $reason"
 )

@@ -28,7 +28,7 @@ sealed interface PolicyDecision {
  * Metadata that binds an approval requirement to the exact action.
  *
  * The [PolicyEngine] returns this — it does NOT generate security tokens.
- * The approval subsystem creates [dev.tramai.core.policy.ApprovalRequest] with
+ * The approval subsystem creates [dev.tramai.core.approval.ApprovalRequest] with
  * generated identifiers.
  */
 data class ApprovalRequirement(
