@@ -1,0 +1,17 @@
+when:
+  - event: push
+    branch:
+      - main
+      - master
+  - event: pull_request
+
+steps:
+  - name: test
+    image: eclipse-temurin:25-jdk
+    commands:
+      - ./gradlew test
+
+  - name: publish-local
+    image: eclipse-temurin:25-jdk
+    commands:
+      - ./gradlew publishToMavenLocal
