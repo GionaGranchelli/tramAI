@@ -10,7 +10,7 @@ package dev.tramai.core.approval
  * @property policyVersion Policy version active at the time of the approval request.
  * @property workflowDigest SHA-256 digest of the workflow definition version, ensuring policy revalidation on changes.
  * @property approvalTokenDigest SHA-256 digest of a generated nonce token; the raw token is provided to the requestor
- *                                at creation time for single-use verification (PR #15).
+ *                                at creation time for single-use verification.
  */
 data class ApprovalBinding(
     val workflowRunId: String,

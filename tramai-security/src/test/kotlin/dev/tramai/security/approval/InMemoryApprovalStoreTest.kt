@@ -817,6 +817,11 @@ class InMemoryApprovalStoreTest {
 
     @Test
     fun `expired approved approval consume fails`() = runBlocking {
+        // Reflection approach: we need to test consuming an expired-but-approved
+        // request, but create() rejects expiresAt in the past. We create and approve
+        // with an early clock, then inject the approved request into a late-clock
+        // store via reflection. This is a test-only workaround — no clean alternative
+        // exists without exposing package-private internals.
         // Create and approve with an early clock
         val earlyClock = fixedClock("2026-06-04T08:00:00Z")
         val earlyStore = InMemoryApprovalStore(clock = earlyClock)

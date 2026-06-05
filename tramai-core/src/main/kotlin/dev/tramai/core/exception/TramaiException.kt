@@ -3,7 +3,7 @@ package dev.tramai.core.exception
 /**
  * Base runtime exception for Tramai failures.
  */
-sealed class TramaiException(
+open class TramaiException(
     message: String,
     cause: Throwable? = null,
 ) : RuntimeException(message, cause)

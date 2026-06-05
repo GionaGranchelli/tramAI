@@ -94,8 +94,6 @@ class InMemoryApprovalStore(
                 "Approval '$approvalId' version mismatch: expected $expectedVersion, actual ${req.version}"
             }
 
-            check(req.version < Long.MAX_VALUE) { "Approval '$approvalId' version overflow" }
-
             val now = clock.instant()  // captured atomically with the mutation
             val nextStatus = resolveNextStatus(req, transition, now)
 
@@ -137,8 +135,6 @@ class InMemoryApprovalStore(
             require(req.version == expectedVersion) {
                 "Approval '$approvalId' version mismatch: expected $expectedVersion, actual ${req.version}"
             }
-
-            check(req.version < Long.MAX_VALUE) { "Approval '$approvalId' version overflow" }
 
             require(req.status == ApprovalStatus.APPROVED) {
                 "Approval '$approvalId' cannot be consumed: status is ${req.status}, expected APPROVED"

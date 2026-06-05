@@ -54,7 +54,9 @@ interface ApprovalStore {
      * @param approvalId The approval to consume.
      * @param expectedVersion The version the caller expects.
      * @param presentedTokenDigest The SHA-256 digest of the approval token presented by the caller.
-     * @param consumedBy Identifier of the consuming actor (must not be blank).
+     * @param consumedBy Identifier of the consuming actor. Must not be blank, must not exceed
+     *                    the maximum ID length, must not contain control characters,
+     *                    and must not have surrounding whitespace.
      * @return The updated [ApprovalRequest] with consumption fields set.
      * @throws IllegalArgumentException if the approval does not exist, version mismatch,
      *         status is not APPROVED, already consumed, expired, or token digest does not match.
@@ -65,51 +67,4 @@ interface ApprovalStore {
         presentedTokenDigest: Sha256Digest,
         consumedBy: String,
     ): ApprovalRequest
-}
-
-/**
- * A transition to apply to an existing approval request.
- *
- * Each variant specifies the [targetStatus] it produces. The store validates
- * whether the transition is legal for the current [ApprovalStatus].
- */
-sealed interface ApprovalTransition {
-    /**
-     * The status that this transition would produce.
-     */
-    fun targetStatus(): ApprovalStatus
-
-    /**
-     * Approve the request. Requires [decidedBy] to identify the approver.
-     *
-     * @property decidedBy Identifier of the approving actor (must not be blank).
-     * @property comment Optional human-readable justification.
-     */
-    data class Approve(
-        val decidedBy: String,
-        val comment: String? = null,
-    ) : ApprovalTransition {
-        override fun targetStatus() = ApprovalStatus.APPROVED
-    }
-
-    /**
-     * Deny the request. Requires [decidedBy] to identify the denying actor.
-     *
-     * @property decidedBy Identifier of the denying actor (must not be blank).
-     * @property comment Optional human-readable justification.
-     */
-    data class Deny(
-        val decidedBy: String,
-        val comment: String? = null,
-    ) : ApprovalTransition {
-        override fun targetStatus() = ApprovalStatus.DENIED
-    }
-
-    /**
-     * Time out the request. Only valid when the request has expired
-     * (i.e., [ApprovalRequest.expiresAt] is in the past).
-     */
-    data object Timeout : ApprovalTransition {
-        override fun targetStatus() = ApprovalStatus.TIMED_OUT
-    }
 }
