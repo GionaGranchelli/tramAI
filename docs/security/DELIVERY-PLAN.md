@@ -564,6 +564,8 @@ All binding fields are mandatory (non-nullable):
 | decidedBy | String? | Deciding actor (null until resolved) |
 | decidedAt | Instant? | Decision timestamp (null until resolved) |
 | decisionComment | String? | Optional justification |
+| consumedBy | String? | Consumer identity (null until consumed) |
+| consumedAt | Instant? | Consumption timestamp (null until consumed) |
 | version | Long | Optimistic concurrency version |
 
 ### ApprovalBinding (mandatory fields)
@@ -607,21 +609,32 @@ PENDING ──┬── Approve ──→ APPROVED (terminal)
 
 ### Simplified Optimistic Concurrency
 
-`transition()` uses `ConcurrentHashMap.compute()` for atomic read-modify-write:
+`transition()` and `consumeApproved()` use `ConcurrentHashMap.compute()` for atomic read-modify-write:
 - No CAS retry loop or `maxCasRetries` parameter
 - Version check inside the compute lambda (atomic with the update)
 - `compute()` returns `null` when the key is absent, detected as "not found"
+
+### consumeApproved — Atomic Single-Use Consumption
+
+`InMemoryApprovalStore.consumeApproved()` implements single-use consumption:
+- Version-gated via `ConcurrentHashMap.compute()` (same atomicity model as transition)
+- Requires `status = APPROVED`, `consumedAt == null`, and `now < expiresAt`
+- Constant-time token-digest comparison via `MessageDigest.isEqual()` to prevent timing attacks
+- Records `consumedBy` and `consumedAt` atomically with the version increment
+- Second consume of the same approval fails with clear message
+
+This is a **store-level atomic primitive**. Raw-token presentation (matching a raw bearer token against `approvalTokenDigest`) and the engine-level resume flow are deferred to PR #15.
 
 ### No Engine Integration Yet
 
 This PR (PR #14) establishes the domain model and store implementation only. No engine integration, no workflow suspension, no approval resume. PR #15 will build approval suspension/resume on this foundation.
 
 ### Deferred to PR #15
-- Single-use token verification (approvalTokenDigest and raw token)
 - Workflow suspension on RequireApproval
-- Auto-deny on timeout
+- Engine-level approval resume (BEFORE_WORKFLOW_RESUME)
+- Raw-token presentation and verification at engine level (type `ApprovalToken`)
+- Auto-deny on timeout (engine job, not store concern)
 - Approval audit events
-- BEFORE_WORKFLOW_RESUME enforcement point activation
 - Idempotency keys
 
 ---
