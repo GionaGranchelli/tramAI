@@ -270,14 +270,14 @@ PENDING → APPROVED/DENIED/TIMED_OUT (all terminal). Timeout succeeds only when
 
 ### Key design decisions
 
-- Approval token (`approvalTokenDigest`) is a SHA-256 digest of a generated nonce. The raw token is provided to the requestor at creation time. PR #16 will consume and verify the raw token exactly once at engine level.
+- Approval token (`approvalTokenDigest`) is a SHA-256 digest of a generated nonce. The raw token is provided to the requestor at creation time. PR #15 consumes and verifies the raw token at the coordinator level via `consumeApproved()`. PR #16 adds TramaiEngine suspension and continuation persistence on top of this foundation.
 - `consumeApproved()` uses constant-time `MessageDigest.isEqual()` with explicit `StandardCharsets.US_ASCII` encoding to prevent digest-comparison timing attacks.
 - `consumedBy` and `consumedAt` are recorded atomically with the version increment. Second consume of the same approval fails with clear message.
 - `decidedBy` is non-nullable on `Approve`/`Deny` transitions.
 - Comments are optional on transitions.
 - Version starts at 0 and is incremented atomically. No CAS retry loop — `ConcurrentHashMap.compute()` provides the atomicity.
 - No engine integration yet. PR #16 will build workflow suspension/resume on this foundation.
-- PR #14 scope: domain model, store SPI, validation, expiry, deterministic tests. PR #15 scope: token generation/hashing, coordinator, binding revalidation, safe exceptions. PR #16 scope: engine suspension, workflow resume, audit events.
+- PR #14 scope: domain model, store SPI, validation, expiry, deterministic tests. PR #15 scope: token generation/hashing, coordinator, binding revalidation, consumed-result contract validation, non-interfering observer, recursive leakage traversal, safe exception taxonomy (all coordinator-facing exceptions extend ApprovalException). PR #16 scope: TramaiEngine suspension, continuation persistence, runtime invocation of ApprovalGateCoordinator, BEFORE_WORKFLOW_RESUME enforcement, idempotent tool execution resume, approval lifecycle audit events.
 
 ---
 
@@ -368,10 +368,13 @@ interface ApprovalGateCoordinator {
 | Exception boundary hardening | Sealed store exceptions separated from safe public exceptions; cause-chain sanitized |
 | Approval lifetime | `maxApprovalTtl: Duration` parameter (default 15 min) bounds `expiresAt` |
 | AuthorizeResume validation | All 5 ID fields + `expectedVersion >= 0` validated before store interaction |
-| Exception hierarchy | Sealed `ApprovalStoreException` subtypes + safe coordinator-facing `RuntimeException` subclasses |
+| Exception hierarchy | Sealed `ApprovalStoreException` subtypes + safe coordinator-facing `ApprovalException` subclasses |
 | SPI boundaries | `ApprovalTokenGenerator`, `ApprovalTokenDigester`, `ApprovalDecisionValidator`, `ApprovalStore`, `ApprovalIdGenerator` documented as trusted computing-base extensions |
-| Diagnostic observer | `ApprovalFailureObserver` records original failures before sanitization |
+| Diagnostic observer | `ApprovalFailureObserver` records original failures before sanitization; wrapped in `runCatching` for non-interference |
+| Consumed-result validation | Full 6-field contract check after `store.consumeApproved()` — approvalId, binding, status, consumedBy, consumedAt, version |
+| Recursive leakage traversal | `containsSecret()` helper traverses message, toString(), suppressed, and cause chain |
 | Bounded store TTL | `InMemoryApprovalStore` validates `maxCreationTtl` as defense-in-depth |
+| InMemoryApprovalStore init | `require(maxCreationTtl > Duration.ZERO)` added to reject zero/negative TTL at construction |
 
 ### Exception Hierarchy (PR #15)
 
@@ -387,19 +390,21 @@ ApprovalStoreException (sealed)
 
 - No message or cause parameters — only `approvalId`.
 
-**Safe coordinator-facing exceptions (extend RuntimeException directly):**
+**Safe coordinator-facing exceptions (extend ApprovalException → TramaiException):**
 
 ```
-ApprovalNotFoundException(approvalId)
-ApprovalTokenRejectedException(approvalId)
-ApprovalBindingMismatchException(approvalId, field)
-ApprovalAuthorizationException(approvalId?)
-ApprovalCreationException(approvalId?)
+ApprovalNotFoundException(approvalId)                          — fixed safe message
+ApprovalTokenRejectedException(approvalId)                     — fixed safe message
+ApprovalBindingMismatchException(approvalId, field)            — fixed safe message
+ApprovalAuthorizationException(approvalId?)                    — fixed safe message
+ApprovalCreationException(approvalId?)                         — fixed safe message
 ```
 
+- All extend `ApprovalException` (which extends `TramaiException` → `RuntimeException`).
+- Not part of the `ApprovalStoreException` sealed hierarchy.
 - Fixed safe messages. No caller-provided message strings.
 - No `cause` parameter. Store internal details never leak.
-- No inheritance from `ApprovalStoreException` or `ApprovalException`.
+- No inheritance from `ApprovalStoreException`.
 
 **Separate exception table:**
 
@@ -449,6 +454,37 @@ private fun mapStoreError(
 ```
 
 No `cause` parameter passed to safe constructors. Original exception is discarded after observer recording.
+
+### Non-Interfering Diagnostic Observer (PR #15)
+
+```kotlin
+private fun observeFailure(
+    operation: String,
+    approvalId: String?,
+    failure: RuntimeException,
+) {
+    runCatching {
+        failureObserver?.record(operation, approvalId, failure)
+    }
+}
+```
+
+The `observeFailure()` helper wraps all `failureObserver?.record()` calls in `runCatching {}` so a throwing observer can never bypass the safe public exception boundary. If the observer throws, the exception is silently swallowed and the caller always receives the safe exception.
+
+### Consumed-Result Contract Validation (PR #15)
+
+After `store.consumeApproved()` returns, the coordinator validates the consumed result against the command and stored request:
+
+```kotlin
+if (consumed.approvalId != command.approvalId) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.binding != request.binding) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.status != ApprovalStatus.APPROVED) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.consumedBy != command.consumedBy) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.consumedAt == null) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.version != command.expectedVersion + 1) throw ApprovalAuthorizationException(command.approvalId)
+```
+
+All 6 checks use the fixed safe message. No mismatch details are exposed to the caller. 7 fake-store tests verify each contract breach.
 
 ## Original Design (Phase 0) — Approval Request — Full Binding
 

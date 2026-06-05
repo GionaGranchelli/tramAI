@@ -85,7 +85,7 @@ class DefaultApprovalGateCoordinator(
         try {
             store.create(request)
         } catch (e: RuntimeException) {
-            failureObserver?.record("createApproval", approvalId, e)
+            observeFailure("createApproval", approvalId, e)
             throw when (e) {
                 is ApprovalStoreConflictException -> ApprovalCreationException(approvalId)
                 else -> ApprovalCreationException(approvalId)
@@ -110,7 +110,7 @@ class DefaultApprovalGateCoordinator(
         val request = try {
             store.get(command.approvalId)
         } catch (e: RuntimeException) {
-            failureObserver?.record("authorizeResume.get", command.approvalId, e)
+            observeFailure("authorizeResume.get", command.approvalId, e)
             throw mapStoreError(command.approvalId, e)
         } ?: throw ApprovalNotFoundException(command.approvalId)
 
@@ -126,19 +126,21 @@ class DefaultApprovalGateCoordinator(
                 consumedBy = command.consumedBy,
             )
         } catch (e: RuntimeException) {
-            failureObserver?.record("authorizeResume.consumeApproved", command.approvalId, e)
+            observeFailure("authorizeResume.consumeApproved", command.approvalId, e)
             throw mapStoreError(command.approvalId, e)
         }
 
-        val consumedBy = consumed.consumedBy
-            ?: throw ApprovalAuthorizationException(consumed.approvalId)
-        val consumedAt = consumed.consumedAt
-            ?: throw ApprovalAuthorizationException(consumed.approvalId)
+        if (consumed.approvalId != command.approvalId) throw ApprovalAuthorizationException(command.approvalId)
+        if (consumed.binding != request.binding) throw ApprovalAuthorizationException(command.approvalId)
+        if (consumed.status != ApprovalStatus.APPROVED) throw ApprovalAuthorizationException(command.approvalId)
+        if (consumed.consumedBy != command.consumedBy) throw ApprovalAuthorizationException(command.approvalId)
+        if (consumed.consumedAt == null) throw ApprovalAuthorizationException(command.approvalId)
+        if (consumed.version != command.expectedVersion + 1) throw ApprovalAuthorizationException(command.approvalId)
 
         return ApprovalAuthorization(
             approvalId = consumed.approvalId,
-            consumedBy = consumedBy,
-            consumedAt = consumedAt,
+            consumedBy = consumed.consumedBy!!,
+            consumedAt = consumed.consumedAt!!,
             version = consumed.version,
         )
     }
@@ -174,6 +176,16 @@ class DefaultApprovalGateCoordinator(
             is ApprovalStoreConflictException -> ApprovalAuthorizationException(approvalId)
             is ApprovalStoreNotConsumableException -> ApprovalAuthorizationException(approvalId)
             else -> ApprovalAuthorizationException(approvalId)
+        }
+    }
+
+    private fun observeFailure(
+        operation: String,
+        approvalId: String?,
+        failure: RuntimeException,
+    ) {
+        runCatching {
+            failureObserver?.record(operation, approvalId, failure)
         }
     }
 

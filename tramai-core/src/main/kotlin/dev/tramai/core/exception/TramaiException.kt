@@ -186,14 +186,14 @@ class ApprovalStoreNotConsumableException(
  */
 class ApprovalNotFoundException(
     val approvalId: String,
-) : RuntimeException("Approval not found: '$approvalId'")
+) : ApprovalException("Approval not found: '$approvalId'")
 
 /**
  * Raised by the coordinator when the presented approval token is rejected.
  */
 class ApprovalTokenRejectedException(
     val approvalId: String,
-) : RuntimeException("Approval token rejected for '$approvalId'")
+) : ApprovalException("Approval token rejected for '$approvalId'")
 
 /**
  * Raised by the coordinator when a binding field does not match the stored value.
@@ -201,7 +201,7 @@ class ApprovalTokenRejectedException(
 class ApprovalBindingMismatchException(
     val approvalId: String,
     val field: String,
-) : RuntimeException("Approval binding mismatch for '$approvalId': $field")
+) : ApprovalException("Approval binding mismatch for '$approvalId': $field")
 
 /**
  * Raised by the coordinator when authorization fails due to a store-level
@@ -209,7 +209,7 @@ class ApprovalBindingMismatchException(
  */
 class ApprovalAuthorizationException(
     val approvalId: String?,
-) : RuntimeException("Approval authorization failed")
+) : ApprovalException("Approval authorization failed")
 
 /**
  * Raised by the coordinator when approval creation fails due to a store-level
@@ -217,7 +217,7 @@ class ApprovalAuthorizationException(
  */
 class ApprovalCreationException(
     val approvalId: String?,
-) : RuntimeException("Approval creation failed")
+) : ApprovalException("Approval creation failed")
 
 // =============================================================================
 // Internal diagnostic observer SPI

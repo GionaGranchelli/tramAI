@@ -24,6 +24,12 @@ class InMemoryApprovalStore(
     private val maxCreationTtl: Duration = Duration.ofMinutes(15),
 ) : ApprovalStore {
 
+    init {
+        require(maxCreationTtl > Duration.ZERO) {
+            "maxCreationTtl must be positive"
+        }
+    }
+
     private val store = ConcurrentHashMap<String, ApprovalRequest>()
 
     override suspend fun create(request: ApprovalRequest): ApprovalRequest {

@@ -623,11 +623,11 @@ PENDING ──┬── Approve ──→ APPROVED (terminal)
 - Records `consumedBy` and `consumedAt` atomically with the version increment
 - Second consume of the same approval fails with clear message
 
-This is a **store-level atomic primitive**. Raw-token presentation (matching a raw bearer token against `approvalTokenDigest`) and the engine-level resume flow are deferred to PR #15.
+This is a **store-level atomic primitive**. Raw-token presentation (matching a raw bearer token against `approvalTokenDigest`) is handled at the coordinator level in PR #15 via `DefaultApprovalGateCoordinator.authorizeResume()`. Engine-level resume flow is deferred to PR #16.
 
 ### No Engine Integration Yet
 
-This PR (PR #14) establishes the domain model and store implementation only. No engine integration, no workflow suspension, no approval resume. PR #15 will build approval suspension/resume on this foundation.
+This PR (PR #14) establishes the domain model and store implementation only. No engine integration, no workflow suspension, no approval resume. PR #15 builds the coordinator, token handling, binding revalidation, and safe exception boundary. PR #16 will build engine suspension/resume on top of this foundation.
 
 ### Deferred to PR #16
 - TramaiEngine workflow suspension
@@ -776,14 +776,15 @@ ApprovalStoreException (sealed, extends RuntimeException)
 **Coordinator-facing safe exceptions** (thrown by `DefaultApprovalGateCoordinator`):
 
 ```
-─ ApprovalNotFoundException(approvalId)
-─ ApprovalTokenRejectedException(approvalId)
-─ ApprovalBindingMismatchException(approvalId, field)   — extends RuntimeException directly
-─ ApprovalAuthorizationException(approvalId?)            — fixed safe message
-─ ApprovalCreationException(approvalId?)                 — fixed safe message
+ApprovalNotFoundException(approvalId)                          — extends ApprovalException (TramaiException hierarchy)
+ApprovalTokenRejectedException(approvalId)                     — fixed safe message, no cause parameter
+ApprovalBindingMismatchException(approvalId, field)            — fixed safe message, no cause parameter
+ApprovalAuthorizationException(approvalId?)                    — fixed safe message, no cause parameter
+ApprovalCreationException(approvalId?)                         — fixed safe message, no cause parameter
 ```
 
-- All extend `RuntimeException` directly — no inheritance from `ApprovalStoreException` or `ApprovalException`.
+- All extend `ApprovalException` (which extends `TramaiException` → `RuntimeException`).
+- Not part of the `ApprovalStoreException` sealed hierarchy.
 - Fixed, caller-safe messages. No caller-provided message strings.
 - Do NOT accept a `cause` parameter. Store internal details are never leaked through cause chains.
 - `mapStoreError()` maps each sealed `ApprovalStoreException` subtype to the corresponding safe exception.
@@ -793,6 +794,64 @@ ApprovalStoreException (sealed, extends RuntimeException)
 - No `cause = exception` is passed to coordinator-facing constructors.
 - `mapStoreError()` discards the original exception after mapping.
 - An `else` branch catches stray `RuntimeException` (IAE, etc.) and maps to `ApprovalAuthorizationException`.
+
+### Non-Interfering Diagnostic Observer (PR #15)
+
+The `observeFailure()` helper wraps all `failureObserver?.record()` calls in `runCatching {}` so a throwing observer can never bypass the safe public exception boundary:
+
+```kotlin
+private fun observeFailure(
+    operation: String,
+    approvalId: String?,
+    failure: RuntimeException,
+) {
+    runCatching {
+        failureObserver?.record(operation, approvalId, failure)
+    }
+}
+```
+
+- Called in every catch block: `createApproval()`, `authorizeResume()` store.get, `authorizeResume()` store.consumeApproved.
+- If the observer throws, the exception is silently swallowed. The caller always receives the safe exception.
+- Tests verify that an observer throwing `RuntimeException("observer-secret-marker")` does not leak the marker into the exception message, `toString()`, or cause chain.
+
+### Consumed-Result Contract Validation (PR #15)
+
+After `store.consumeApproved()` returns, the coordinator performs a full contract validation against the command and the stored request:
+
+```kotlin
+if (consumed.approvalId != command.approvalId) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.binding != request.binding) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.status != ApprovalStatus.APPROVED) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.consumedBy != command.consumedBy) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.consumedAt == null) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.version != command.expectedVersion + 1) throw ApprovalAuthorizationException(command.approvalId)
+```
+
+- All 6 checks use the fixed safe message `"Approval authorization failed"`.
+- No mismatch details are exposed to the caller.
+- 7 fake-store tests verify each contract breach.
+
+### Recursive Leakage Traversal (PR #15)
+
+The `containsSecret()` helper traverses the entire throwable tree — message, `toString()`, all suppressed exceptions, and the entire cause chain:
+
+```kotlin
+private fun containsSecret(throwable: Throwable, secret: String): Boolean {
+    if (throwable.message?.contains(secret) == true) return true
+    if (throwable.toString().contains(secret)) return true
+    for (suppressed in throwable.suppressed) {
+        if (containsSecret(suppressed, secret)) return true
+    }
+    val cause = throwable.cause
+    if (cause != null && containsSecret(cause, secret)) return true
+    return false
+}
+```
+
+- 4 tests verify that `"secret"` is absent from the full exception tree for leaky store.get(), store.create(), store.consumeApproved(), and throwing observer paths.
+
+### Test Coverage (60+ tests)
 
 **ApprovalFailureObserver (internal diagnostic SPI):**
 
@@ -813,13 +872,12 @@ fun interface ApprovalFailureObserver {
 - Added `maxCreationTtl: Duration = Duration.ofMinutes(15)` constructor parameter.
 - `create()` validates that `expiresAt - requestedAt <= maxCreationTtl`.
 - Defense-in-depth: callers that bypass the coordinator are still bounded.
-
-### Test Coverage (63+ tests)
+### Test Coverage (75+ tests)
 
 - **ApprovalTokenTest** (11): toString, blank, whitespace in token, leading whitespace, trailing whitespace, tab rejected, non-whitespace control char, control chars, oversized, reveal, format
 - **SecureRandomApprovalTokenGeneratorTest** (7): non-blank, 256-bit entropy, uniqueness, URL-safe, tokenBytes below 32 rejected, tokenBytes at 32 accepted, tokenBytes at 64 accepted
 - **Sha256ApprovalTokenDigesterTest** (5): known vector, deterministic, different, format, no leakage
-|- **DefaultApprovalGateCoordinatorTest** (45): create (15) + authorizeResume (23) + leaky-store (7)
+- **DefaultApprovalGateCoordinatorTest** (54): create (15) + authorizeResume (23) + exception taxonomy (3) + observer (2) + consumed-result contract validation (7) + recursive leakage (4)
 - **ApprovalDecisionValidatorTest** (3): AllowAny, RequireDistinct rejects same, accepts different
 
 ## Epic 4: Audit Engine

@@ -755,6 +755,44 @@ class InMemoryApprovalStoreTest {
         assertThat(created.approvalId).isEqualTo("ttl-accept")
     }
 
+    @Test
+    fun `InMemoryApprovalStore rejects zero maxCreationTtl`() : Unit = runBlocking {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                InMemoryApprovalStore(
+                    clock = fixedClock,
+                    maxCreationTtl = Duration.ZERO,
+                )
+            }
+            .withMessageContaining("maxCreationTtl must be positive")
+    }
+
+    @Test
+    fun `InMemoryApprovalStore rejects negative maxCreationTtl`() : Unit = runBlocking {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                InMemoryApprovalStore(
+                    clock = fixedClock,
+                    maxCreationTtl = Duration.ofMinutes(-1),
+                )
+            }
+            .withMessageContaining("maxCreationTtl must be positive")
+    }
+
+    @Test
+    fun `InMemoryApprovalStore accepts positive maxCreationTtl`() : Unit = runBlocking {
+        val validStore = InMemoryApprovalStore(
+            clock = fixedClock,
+            maxCreationTtl = Duration.ofMinutes(30),
+        )
+        val request = aPendingRequest(
+            approvalId = "valid-ttl-store",
+            expiresAt = fixedClock.instant().plusSeconds(600),
+        )
+        val created = validStore.create(request)
+        assertThat(created.approvalId).isEqualTo("valid-ttl-store")
+    }
+
     // -----------------------------------------------------------------------
     // Whitespace trimming validation
     // -----------------------------------------------------------------------
