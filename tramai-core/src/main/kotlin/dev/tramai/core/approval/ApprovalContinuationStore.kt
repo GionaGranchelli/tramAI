@@ -28,4 +28,6 @@ interface ApprovalContinuationStore {
         approvalId: String,
         expectedVersion: Long,
     ): ApprovalContinuation
+
+    suspend fun sweepExpired(): Int
 }

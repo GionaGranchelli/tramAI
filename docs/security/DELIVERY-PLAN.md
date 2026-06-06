@@ -1180,6 +1180,16 @@ PR #16 introduces a strict metadata/payload split:
 - `get()`, `claimForExecution()`, and `cancel()` all apply lazy expiry before mutation
 - Explicit `expire()` also scrubs payload
 
+### `sweepExpired()` primitive
+
+- `sweepExpired()` iterates all stored continuations and applies `expireIfElapsed()`
+- Only elapsed `PENDING` records transition to `EXPIRED`
+- Scrubs arguments atomically
+- Ignores `CLAIMED`, `COMPLETED`, `EXPIRED`, `CANCELLED` records
+- Idempotent: second sweep won't increment version again
+- Returns count of transitions
+- No scheduling — PR #17 owns scheduler or invocation policy
+
 ### Approval-expiry binding
 
 - `continuation.approvalExpiresAt` matches the `ApprovalChallenge.expiresAt`

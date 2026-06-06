@@ -4,6 +4,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 
 class ShutdownHookTest {
@@ -27,7 +28,9 @@ class ShutdownHookTest {
         }
         val worker = makeWorker("worker-1", leaseStore, store, workflow, observability = observer)
         worker.start()
-        workerStarted.await()
+        assertThat(
+            workerStarted.await(5, TimeUnit.SECONDS),
+        ).isTrue()
         worker.shutdown()
         assertThat(events).containsExactly("started", "drain", "complete")
     }
@@ -52,7 +55,9 @@ class ShutdownHookTest {
         }
         val worker = makeWorker("worker-2", leaseStore, store, workflow, observability = observer)
         worker.start()
-        workerStarted.await()
+        assertThat(
+            workerStarted.await(5, TimeUnit.SECONDS),
+        ).isTrue()
         worker.close()
         assertThat(events).containsExactly("started", "drain", "complete")
     }

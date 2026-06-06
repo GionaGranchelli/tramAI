@@ -13,6 +13,7 @@ import dev.tramai.core.exception.ApprovalContinuationNotFoundException
 import java.time.Clock
 import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 class InMemoryApprovalContinuationStore(
     private val clock: Clock = Clock.systemUTC(),
@@ -199,6 +200,23 @@ class InMemoryApprovalContinuationStore(
         }?.continuation?.also {
             if (expired) throw ApprovalContinuationConflictException(approvalId)
         } ?: throw ApprovalContinuationConflictException(approvalId)
+    }
+
+    override suspend fun sweepExpired(): Int {
+        val now = clock.instant()
+        val expiredCount = AtomicInteger()
+
+        store.keys.forEach { approvalId ->
+            store.computeIfPresent(approvalId) { _, stored ->
+                val normalized = expireIfElapsed(approvalId, stored, now)
+                if (normalized !== stored) {
+                    expiredCount.incrementAndGet()
+                }
+                normalized
+            }
+        }
+
+        return expiredCount.get()
     }
 
     private fun expireIfElapsed(

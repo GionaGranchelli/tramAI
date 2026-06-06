@@ -895,6 +895,198 @@ class InMemoryApprovalContinuationStoreTest {
         assertThrowableTreeDoesNotContain(throwable, raw)
     }
 
+    @Test
+    fun `sweepExpired expires idle elapsed continuation`() : Unit = runBlocking {
+        createPendingContinuation(
+            approvalId = "sweep-expired",
+            approvalExpiresAt = fixedClock.instant().plusSeconds(5),
+        )
+        fixedClock.advance(Duration.ofSeconds(6))
+
+        store.sweepExpired()
+
+        assertThat(readStored("sweep-expired")!!.continuation.status).isEqualTo(ApprovalContinuationStatus.EXPIRED)
+    }
+
+    @Test
+    fun `sweepExpired scrubs idle elapsed payload`() : Unit = runBlocking {
+        createPendingContinuation(
+            approvalId = "sweep-scrub",
+            argumentsJson = """{"credential":"never-print"}""",
+            approvalExpiresAt = fixedClock.instant().plusSeconds(5),
+        )
+        fixedClock.advance(Duration.ofSeconds(6))
+
+        store.sweepExpired()
+
+        assertThat(readStored("sweep-scrub")!!.arguments).isNull()
+    }
+
+    @Test
+    fun `sweepExpired ignores valid PENDING continuation`() : Unit = runBlocking {
+        createPendingContinuation(
+            approvalId = "sweep-pending",
+            argumentsJson = """{"credential":"still-present"}""",
+            approvalExpiresAt = fixedClock.instant().plusSeconds(30),
+        )
+
+        store.sweepExpired()
+
+        val stored = readStored("sweep-pending")!!
+        assertThat(stored.continuation.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+        assertThat(stored.arguments).isNotNull()
+    }
+
+    @Test
+    fun `sweepExpired ignores CLAIMED continuation`() : Unit = runBlocking {
+        insertDirect(
+            continuation = aPendingContinuation(
+                approvalId = "sweep-claimed",
+                status = ApprovalContinuationStatus.CLAIMED,
+                claimedBy = "runner-1",
+                claimedAt = fixedClock.instant().minusSeconds(20),
+                approvalExpiresAt = fixedClock.instant().minusSeconds(10),
+                version = 4L,
+            ),
+            arguments = null,
+        )
+
+        store.sweepExpired()
+
+        assertThat(readStored("sweep-claimed")!!.continuation.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+    }
+
+    @Test
+    fun `sweepExpired ignores COMPLETED continuation`() : Unit = runBlocking {
+        insertDirect(
+            continuation = aPendingContinuation(
+                approvalId = "sweep-completed",
+                status = ApprovalContinuationStatus.COMPLETED,
+                claimedBy = "runner-1",
+                claimedAt = fixedClock.instant().minusSeconds(20),
+                completedAt = fixedClock.instant().minusSeconds(15),
+                approvalExpiresAt = fixedClock.instant().minusSeconds(10),
+                version = 5L,
+            ),
+            arguments = null,
+        )
+
+        store.sweepExpired()
+
+        assertThat(readStored("sweep-completed")!!.continuation.status).isEqualTo(ApprovalContinuationStatus.COMPLETED)
+    }
+
+    @Test
+    fun `sweepExpired ignores CANCELLED continuation`() : Unit = runBlocking {
+        insertDirect(
+            continuation = aPendingContinuation(
+                approvalId = "sweep-cancelled",
+                status = ApprovalContinuationStatus.CANCELLED,
+                approvalExpiresAt = fixedClock.instant().minusSeconds(10),
+                version = 2L,
+            ),
+            arguments = null,
+        )
+
+        store.sweepExpired()
+
+        assertThat(readStored("sweep-cancelled")!!.continuation.status).isEqualTo(ApprovalContinuationStatus.CANCELLED)
+    }
+
+    @Test
+    fun `sweepExpired is idempotent`() : Unit = runBlocking {
+        createPendingContinuation(
+            approvalId = "sweep-idempotent",
+            approvalExpiresAt = fixedClock.instant().plusSeconds(5),
+        )
+        fixedClock.advance(Duration.ofSeconds(6))
+
+        store.sweepExpired()
+        store.sweepExpired()
+
+        assertThat(readStored("sweep-idempotent")!!.continuation.version).isEqualTo(1L)
+    }
+
+    @Test
+    fun `sweepExpired returns transitioned count`() : Unit = runBlocking {
+        createPendingContinuation(
+            approvalId = "sweep-expired-1",
+            approvalExpiresAt = fixedClock.instant().plusSeconds(5),
+        )
+        createPendingContinuation(
+            approvalId = "sweep-expired-2",
+            approvalExpiresAt = fixedClock.instant().plusSeconds(5),
+        )
+        createPendingContinuation(
+            approvalId = "sweep-valid",
+            approvalExpiresAt = fixedClock.instant().plusSeconds(30),
+        )
+        fixedClock.advance(Duration.ofSeconds(6))
+
+        val transitioned = store.sweepExpired()
+
+        assertThat(transitioned).isEqualTo(2)
+    }
+
+    @Test
+    fun `concurrent sweep and claim allow at most one payload winner`() : Unit = runBlocking {
+        val raw = """{"credential":"race-secret"}"""
+        createPendingContinuation(
+            approvalId = "sweep-claim-race",
+            argumentsJson = raw,
+            approvalExpiresAt = fixedClock.instant().plusSeconds(5),
+        )
+        fixedClock.advance(Duration.ofSeconds(6))
+        val latch = CountDownLatch(1)
+
+        val sweepResult = async(Dispatchers.Default) {
+            latch.await()
+            runCatching { store.sweepExpired() }
+        }
+        val claimResult = async(Dispatchers.Default) {
+            latch.await()
+            runCatching { store.claimForExecution("sweep-claim-race", 0L, "runner-1") }
+        }
+
+        latch.countDown()
+        val sweep = sweepResult.await().getOrThrow()
+        val claim = claimResult.await()
+
+        val payloadWinnerCount =
+            listOf(
+                if (sweep == 1) 1 else 0,
+                if (claim.isSuccess) 1 else 0,
+            ).sum()
+
+        assertThat(payloadWinnerCount).isEqualTo(1)
+        assertThat(claim.exceptionOrNull())
+            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+        assertThat(readStored("sweep-claim-race")!!.arguments).isNull()
+        assertThat(readStored("sweep-claim-race")!!.continuation.status).isEqualTo(ApprovalContinuationStatus.EXPIRED)
+        assertThat(claim.exceptionOrNull()?.message ?: "").doesNotContain(raw)
+    }
+
+    @Test
+    fun `sweep never exposes raw arguments`() : Unit = runBlocking {
+        val raw = """{"credential":"never-print"}"""
+        createPendingContinuation(
+            approvalId = "sweep-no-leak",
+            argumentsJson = raw,
+            approvalExpiresAt = fixedClock.instant().plusSeconds(5),
+        )
+        fixedClock.advance(Duration.ofSeconds(6))
+
+        val sweepResult = runCatching { store.sweepExpired() }
+        val stored = readStored("sweep-no-leak")!!
+        val fetched = store.get("sweep-no-leak")
+
+        assertThat(sweepResult.getOrThrow()).isEqualTo(1)
+        assertThat(stored.arguments).isNull()
+        assertThat(stored.toString()).doesNotContain(raw)
+        assertThat(fetched.toString()).doesNotContain(raw)
+        sweepResult.exceptionOrNull()?.let { assertThrowableTreeDoesNotContain(it, raw) }
+    }
+
     private fun createPendingContinuation(
         approvalId: String = "cont-1",
         argumentsJson: String = "{}",
