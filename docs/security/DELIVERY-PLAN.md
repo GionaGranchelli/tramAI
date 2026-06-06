@@ -703,13 +703,13 @@ Any mismatch throws `ApprovalBindingMismatchException(approvalId, field)` and th
 
 ### Safe Exceptions
 
-|| Exception | Properties | Secret-free? |
-||-----------|------------|-------------|
-|| `ApprovalNotFoundException(approvalId)` | `approvalId` only | ✅ |
-|| `ApprovalBindingMismatchException(approvalId, field)` | `approvalId`, `field` name | ✅ |
-|| `ApprovalTokenRejectedException(approvalId)` | `approvalId` only | ✅ |
-|| `ApprovalAuthorizationException(approvalId?)` | `approvalId?` only | ✅ |
-|| `ApprovalStoreException(approvalId)` | abstract base with `approvalId` | ✅ |
+| Exception | Properties | Secret-free? |
+|-----------|------------|-------------|
+| `ApprovalNotFoundException(approvalId)` | `approvalId` only | ✅ |
+| `ApprovalBindingMismatchException(approvalId, field)` | `approvalId`, `field` name | ✅ |
+| `ApprovalTokenRejectedException(approvalId)` | `approvalId` only | ✅ |
+| `ApprovalAuthorizationException(approvalId?)` | `approvalId?` only | ✅ |
+| `ApprovalStoreException(approvalId)` | abstract base with `approvalId` | ✅ |
 
 Raw tokens, token digests, arguments, and workflow payloads are NEVER included in exception messages.
 

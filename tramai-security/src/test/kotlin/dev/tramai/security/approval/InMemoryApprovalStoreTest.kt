@@ -1235,7 +1235,7 @@ class InMemoryApprovalStoreTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `transition with stored version at Long MAX_VALUE throws ArithmeticException`() : Unit = runBlocking {
+    fun `transition with stored version at Long MAX_VALUE throws ApprovalStoreConflictException`() : Unit = runBlocking {
         store.create(aPendingRequest(approvalId = "overflow-transition"))
         corruptVersion("overflow-transition", Long.MAX_VALUE)
 
@@ -1243,11 +1243,11 @@ class InMemoryApprovalStoreTest {
             runBlocking {
                 store.transition("overflow-transition", Long.MAX_VALUE, ApprovalTransition.Approve("user-2"))
             }
-        }.isInstanceOf(ArithmeticException::class.java)
+        }.isInstanceOf(ApprovalStoreConflictException::class.java)
     }
 
     @Test
-    fun `consumeApproved with stored version at Long MAX_VALUE throws ArithmeticException`() : Unit = runBlocking {
+    fun `consumeApproved with stored version at Long MAX_VALUE throws ApprovalStoreConflictException`() : Unit = runBlocking {
         store.create(aPendingRequest(approvalId = "overflow-consume"))
         store.transition("overflow-consume", 0L, ApprovalTransition.Approve("user-2"))
         corruptVersion("overflow-consume", Long.MAX_VALUE)
@@ -1260,7 +1260,7 @@ class InMemoryApprovalStoreTest {
                     "consumer-1",
                 )
             }
-        }.isInstanceOf(ArithmeticException::class.java)
+        }.isInstanceOf(ApprovalStoreConflictException::class.java)
     }
 
     private fun corruptVersion(approvalId: String, version: Long) {

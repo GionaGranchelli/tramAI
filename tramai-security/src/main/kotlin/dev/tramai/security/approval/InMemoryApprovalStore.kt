@@ -122,7 +122,7 @@ class InMemoryApprovalStore(
 
             req.copy(
                 status = nextStatus,
-                version = Math.addExact(req.version, 1L),
+                version = incrementVersion(approvalId, req.version),
                 decidedAt = when (transition) {
                     is ApprovalTransition.Approve -> now
                     is ApprovalTransition.Deny -> now
@@ -176,12 +176,27 @@ class InMemoryApprovalStore(
             req.copy(
                 consumedBy = consumedBy,
                 consumedAt = now,
-                version = Math.addExact(req.version, 1L),
+                version = incrementVersion(approvalId, req.version),
             )
         }
 
         return result ?: throw ApprovalStoreNotFoundException(approvalId)
     }
+
+    private fun incrementVersion(
+        approvalId: String,
+        version: Long,
+    ): Long =
+        try {
+            Math.addExact(
+                version,
+                1L,
+            )
+        } catch (_: ArithmeticException) {
+            throw ApprovalStoreConflictException(
+                approvalId,
+            )
+        }
 
     private fun resolveNextStatus(
         current: ApprovalRequest,
