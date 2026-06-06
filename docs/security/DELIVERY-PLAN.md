@@ -1172,6 +1172,20 @@ PR #16 introduces a strict metadata/payload split:
 
 `approvalExpiresAt` is the approval challenge expiry. PR #17 must pass `ApprovalChallenge.expiresAt` through unchanged when creating the continuation; there is no independent continuation expiry that may extend raw-argument retention.
 
+### Lazy expiry semantics
+
+- Any touch of an elapsed PENDING continuation lazily transitions it to EXPIRED
+- Lazy expiration scrubs payload immediately
+- No background scheduler required for safe touch-path cleanup
+- `get()`, `claimForExecution()`, and `cancel()` all apply lazy expiry before mutation
+- Explicit `expire()` also scrubs payload
+
+### Approval-expiry binding
+
+- `continuation.approvalExpiresAt` matches the `ApprovalChallenge.expiresAt`
+- No independent continuation expiry extends raw-argument retention
+- PR #17 must pass `ApprovalChallenge.expiresAt` unchanged
+
 ### Raw arguments stored only behind SensitiveToolArguments
 
 ```kotlin

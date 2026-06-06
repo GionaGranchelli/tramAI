@@ -398,6 +398,36 @@ class InMemoryApprovalContinuationStoreTest {
     }
 
     @Test
+    fun `late claim marks continuation EXPIRED`() : Unit = runBlocking {
+        createPendingContinuation(approvalExpiresAt = fixedClock.instant().plusSeconds(5))
+        fixedClock.advance(Duration.ofSeconds(6))
+
+        assertThatThrownBy {
+            runBlocking { store.claimForExecution("cont-1", 0L, "runner-1") }
+        }
+            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+
+        assertThat(readStored("cont-1")!!.continuation.status).isEqualTo(ApprovalContinuationStatus.EXPIRED)
+    }
+
+    @Test
+    fun `late claim scrubs arguments`() : Unit = runBlocking {
+        createPendingContinuation(
+            approvalId = "late-claim-scrub",
+            argumentsJson = """{"credential":"never-print"}""",
+            approvalExpiresAt = fixedClock.instant().plusSeconds(5),
+        )
+        fixedClock.advance(Duration.ofSeconds(6))
+
+        assertThatThrownBy {
+            runBlocking { store.claimForExecution("late-claim-scrub", 0L, "runner-1") }
+        }
+            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+
+        assertThat(readStored("late-claim-scrub")!!.arguments).isNull()
+    }
+
+    @Test
     fun `stale version rejected`() : Unit = runBlocking {
         createPendingContinuation()
 
@@ -669,6 +699,36 @@ class InMemoryApprovalContinuationStoreTest {
     }
 
     @Test
+    fun `late cancellation marks continuation EXPIRED`() : Unit = runBlocking {
+        createPendingContinuation(approvalExpiresAt = fixedClock.instant().plusSeconds(5))
+        fixedClock.advance(Duration.ofSeconds(6))
+
+        assertThatThrownBy {
+            runBlocking { store.cancel("cont-1", 0L) }
+        }
+            .isInstanceOf(ApprovalContinuationConflictException::class.java)
+
+        assertThat(readStored("cont-1")!!.continuation.status).isEqualTo(ApprovalContinuationStatus.EXPIRED)
+    }
+
+    @Test
+    fun `late cancellation scrubs arguments`() : Unit = runBlocking {
+        createPendingContinuation(
+            approvalId = "late-cancel-scrub",
+            argumentsJson = """{"credential":"never-print"}""",
+            approvalExpiresAt = fixedClock.instant().plusSeconds(5),
+        )
+        fixedClock.advance(Duration.ofSeconds(6))
+
+        assertThatThrownBy {
+            runBlocking { store.cancel("late-cancel-scrub", 0L) }
+        }
+            .isInstanceOf(ApprovalContinuationConflictException::class.java)
+
+        assertThat(readStored("late-cancel-scrub")!!.arguments).isNull()
+    }
+
+    @Test
     fun `cancelled continuation cannot cancel`() : Unit = runBlocking {
         createPendingContinuation()
         store.cancel("cont-1", 0L)
@@ -763,6 +823,76 @@ class InMemoryApprovalContinuationStoreTest {
         assertThat(fetched).isNotNull()
         assertThat(fetched!!.toString()).doesNotContain(raw)
         assertThat(fetched.toString()).doesNotContain("arguments=")
+    }
+
+    @Test
+    fun `get lazily marks expired continuation EXPIRED`() : Unit = runBlocking {
+        createPendingContinuation(approvalExpiresAt = fixedClock.instant().plusSeconds(5))
+        fixedClock.advance(Duration.ofSeconds(6))
+
+        store.get("cont-1")
+
+        assertThat(readStored("cont-1")!!.continuation.status).isEqualTo(ApprovalContinuationStatus.EXPIRED)
+    }
+
+    @Test
+    fun `get lazily scrubs expired arguments`() : Unit = runBlocking {
+        createPendingContinuation(
+            approvalId = "lazy-get-scrub",
+            argumentsJson = """{"credential":"never-print"}""",
+            approvalExpiresAt = fixedClock.instant().plusSeconds(5),
+        )
+        fixedClock.advance(Duration.ofSeconds(6))
+
+        store.get("lazy-get-scrub")
+
+        assertThat(readStored("lazy-get-scrub")!!.arguments).isNull()
+    }
+
+    @Test
+    fun `lazy expiry increments version exactly once`() : Unit = runBlocking {
+        createPendingContinuation(approvalExpiresAt = fixedClock.instant().plusSeconds(5))
+        fixedClock.advance(Duration.ofSeconds(6))
+
+        store.get("cont-1")
+        store.get("cont-1")
+
+        assertThat(readStored("cont-1")!!.continuation.version).isEqualTo(1L)
+    }
+
+    @Test
+    fun `explicit expire after lazy expiry is rejected without another increment`() : Unit = runBlocking {
+        createPendingContinuation(approvalExpiresAt = fixedClock.instant().plusSeconds(5))
+        fixedClock.advance(Duration.ofSeconds(6))
+        store.get("cont-1")
+
+        assertThatThrownBy {
+            runBlocking { store.expire("cont-1", 1L) }
+        }
+            .isInstanceOf(ApprovalContinuationConflictException::class.java)
+
+        assertThat(readStored("cont-1")!!.continuation.version).isEqualTo(1L)
+    }
+
+    @Test
+    fun `throwable trees remain raw-argument free`() {
+        val raw = """{"credential":"fixture-redaction-marker"}"""
+
+        val throwable = catchThrowable {
+            runBlocking {
+                store.create(
+                    aPendingContinuation(
+                        argumentsJson = raw,
+                        argumentsDigest = Sha256Digest.of(
+                            "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                        ),
+                    ),
+                    SensitiveToolArguments.of(raw),
+                )
+            }
+        }
+
+        assertThrowableTreeDoesNotContain(throwable, raw)
     }
 
     private fun createPendingContinuation(
