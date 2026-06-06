@@ -7,6 +7,7 @@ import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.exception.ApprovalContinuationConflictException
 import dev.tramai.core.exception.ApprovalContinuationNotClaimableException
 import dev.tramai.core.exception.ApprovalContinuationNotCompletableException
+import dev.tramai.core.exception.ApprovalContinuationNotFoundException
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -409,6 +410,60 @@ class InMemoryApprovalContinuationStoreTest {
             runBlocking { store.cancel("cont-1", 2L) }
         }
             .isInstanceOf(ApprovalContinuationConflictException::class.java)
+    }
+
+    @Test
+    fun `expired continuation cannot cancel`() : Unit = runBlocking {
+        store.create(aPendingContinuation(expiresAt = fixedClock.instant().plusSeconds(5)))
+        fixedClock.advance(Duration.ofSeconds(6))
+
+        assertThatThrownBy {
+            runBlocking { store.cancel("cont-1", 0L) }
+        }
+            .isInstanceOf(ApprovalContinuationConflictException::class.java)
+    }
+
+    @Test
+    fun `cancelled continuation cannot cancel`() : Unit = runBlocking {
+        store.create(aPendingContinuation())
+        store.cancel("cont-1", 0L)
+
+        assertThatThrownBy {
+            runBlocking { store.cancel("cont-1", 1L) }
+        }
+            .isInstanceOf(ApprovalContinuationConflictException::class.java)
+    }
+
+    @Test
+    fun `claimForExecution on nonexistent continuation throws ApprovalContinuationNotFoundException`() : Unit = runBlocking {
+        assertThatThrownBy {
+            runBlocking { store.claimForExecution("does-not-exist", 0L, "runner-1") }
+        }
+            .isInstanceOf(ApprovalContinuationNotFoundException::class.java)
+    }
+
+    @Test
+    fun `complete on nonexistent continuation throws ApprovalContinuationNotFoundException`() : Unit = runBlocking {
+        assertThatThrownBy {
+            runBlocking { store.complete("does-not-exist", 0L) }
+        }
+            .isInstanceOf(ApprovalContinuationNotFoundException::class.java)
+    }
+
+    @Test
+    fun `expire on nonexistent continuation throws ApprovalContinuationNotFoundException`() : Unit = runBlocking {
+        assertThatThrownBy {
+            runBlocking { store.expire("does-not-exist", 0L) }
+        }
+            .isInstanceOf(ApprovalContinuationNotFoundException::class.java)
+    }
+
+    @Test
+    fun `cancel on nonexistent continuation throws ApprovalContinuationNotFoundException`() : Unit = runBlocking {
+        assertThatThrownBy {
+            runBlocking { store.cancel("does-not-exist", 0L) }
+        }
+            .isInstanceOf(ApprovalContinuationNotFoundException::class.java)
     }
 
     @Test
