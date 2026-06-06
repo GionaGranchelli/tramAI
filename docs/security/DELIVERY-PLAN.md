@@ -649,9 +649,9 @@ This PR (PR #14) establishes the domain model and store implementation only. No 
 **Branch:** `feat/approval-gate-coordinator`
 
 **Where:**
-|- `tramai-core/.../approval/` — ApprovalToken, ApprovalTokenGenerator (SPI), ApprovalTokenDigester (SPI), ApprovalIdGenerator (SPI), ApprovalDecisionValidator (SPI), ApprovalGateCoordinator (interface), coordinator command/response types
-|- `tramai-core/.../exception/` — ApprovalStoreException, ApprovalNotFoundException, ApprovalBindingMismatchException, ApprovalTokenRejectedException, ApprovalAuthorizationException
-|- `tramai-security/.../approval/` — SecureRandomApprovalTokenGenerator, Sha256ApprovalTokenDigester, UuidApprovalIdGenerator, DefaultApprovalGateCoordinator, AllowAnyApprovalDecisionValidator, RequireDistinctRequesterAndConsumer
+- `tramai-core/.../approval/` — ApprovalToken, ApprovalTokenGenerator (SPI), ApprovalTokenDigester (SPI), ApprovalIdGenerator (SPI), ApprovalDecisionValidator (SPI), ApprovalGateCoordinator (interface), coordinator command/response types
+- `tramai-core/.../exception/` — ApprovalStoreException, ApprovalNotFoundException, ApprovalBindingMismatchException, ApprovalTokenRejectedException, ApprovalAuthorizationException
+- `tramai-security/.../approval/` — SecureRandomApprovalTokenGenerator, Sha256ApprovalTokenDigester, UuidApprovalIdGenerator, DefaultApprovalGateCoordinator, AllowAnyApprovalDecisionValidator, RequireDistinctRequesterAndConsumer
 
 ### Architecture
 
@@ -671,18 +671,18 @@ AuthorizeResumeCommand
 
 ### ApprovalToken Security
 
-|- `@JvmInline value class` with `private constructor` — raw value never exposed as public property
-|- `toString()` always returns `[REDACTED]`
-|- `reveal()` is the only escape hatch, explicitly named to discourage automatic use
-|- Max 512 chars, no control characters, no whitespace (leading, trailing, or internal), not blank
-|- Whitespace is rejected, not silently trimmed
+- `@JvmInline value class` with `private constructor` — raw value never exposed as public property
+- `toString()` always returns `[REDACTED]`
+- `reveal()` is the only escape hatch, explicitly named to discourage automatic use
+- Max 512 chars, no control characters, no whitespace (leading, trailing, or internal), not blank
+- Whitespace is rejected, not silently trimmed
 
 ### Token Generation
 
-|- `SecureRandomApprovalTokenGenerator` uses `java.security.SecureRandom`
-|- Default: 32 bytes = 256 bits of entropy
-|- URL-safe Base64 encoding without padding
-|- Minimum 256 bits enforced (tokenBytes >= 32)
+- `SecureRandomApprovalTokenGenerator` uses `java.security.SecureRandom`
+- Default: 32 bytes = 256 bits of entropy
+- URL-safe Base64 encoding without padding
+- Minimum 256 bits enforced (tokenBytes >= 32)
 
 ### Token Hashing
 
@@ -719,10 +719,10 @@ Raw tokens, token digests, arguments, and workflow payloads are NEVER included i
 
 ### Approval Lifetime Bounding
 
-|- `DefaultApprovalGateCoordinator` accepts a `maxApprovalTtl: Duration` parameter (default: 15 minutes)
-|- `createApproval()` validates that `command.expiresAt` is within `maxApprovalTtl` of `clock.instant()`
-|- Past-expiry and beyond-TTL requests are both rejected with `IllegalArgumentException`
-|- Constructor validates `maxApprovalTtl > Duration.ZERO`
+- `DefaultApprovalGateCoordinator` accepts a `maxApprovalTtl: Duration` parameter (default: 15 minutes)
+- `createApproval()` validates that `command.expiresAt` is within `maxApprovalTtl` of `clock.instant()`
+- Past-expiry and beyond-TTL requests are both rejected with `IllegalArgumentException`
+- Constructor validates `maxApprovalTtl > Duration.ZERO`
 
 ### AuthorizeResume Validation
 
