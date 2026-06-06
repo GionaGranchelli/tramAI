@@ -3,6 +3,8 @@ package dev.tramai.security.approval
 import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalContinuationStore
+import dev.tramai.core.approval.ClaimedApprovalContinuation
+import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.exception.ApprovalContinuationConflictException
 import dev.tramai.core.exception.ApprovalContinuationNotClaimableException
@@ -10,7 +12,6 @@ import dev.tramai.core.exception.ApprovalContinuationNotCompletableException
 import dev.tramai.core.exception.ApprovalContinuationNotFoundException
 import java.time.Clock
 import java.time.Duration
-import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
 class InMemoryApprovalContinuationStore(
@@ -25,9 +26,12 @@ class InMemoryApprovalContinuationStore(
         }
     }
 
-    private val store = ConcurrentHashMap<String, ApprovalContinuation>()
+    private val store = ConcurrentHashMap<String, StoredApprovalContinuation>()
 
-    override suspend fun create(continuation: ApprovalContinuation): ApprovalContinuation {
+    override suspend fun create(
+        continuation: ApprovalContinuation,
+        arguments: SensitiveToolArguments,
+    ): ApprovalContinuation {
         validateIdentifier(continuation.approvalId, "approvalId")
         validateIdentifier(continuation.workflowRunId, "workflowRunId")
         validateIdentifier(continuation.correlationId, "correlationId")
@@ -44,20 +48,25 @@ class InMemoryApprovalContinuationStore(
 
         val now = clock.instant()
         require(continuation.createdAt <= now) { "createdAt must not be in the future" }
-        require(continuation.expiresAt > now) { "expiresAt must be in the future" }
-        require(continuation.expiresAt > continuation.createdAt) { "expiresAt must be after createdAt" }
-
-        val ttl = Duration.between(continuation.createdAt, continuation.expiresAt)
-        require(ttl <= maxContinuationTtl) {
-            "expiresAt exceeds maximum continuation TTL of $maxContinuationTtl"
+        require(continuation.approvalExpiresAt > now) { "approvalExpiresAt must be in the future" }
+        require(continuation.approvalExpiresAt > continuation.createdAt) {
+            "approvalExpiresAt must be after createdAt"
         }
 
-        val actualDigest = toolArgumentsDigester.digest(continuation.arguments)
+        val ttl = Duration.between(continuation.createdAt, continuation.approvalExpiresAt)
+        require(ttl <= maxContinuationTtl) {
+            "approvalExpiresAt exceeds maximum continuation TTL of $maxContinuationTtl"
+        }
+
+        val actualDigest = toolArgumentsDigester.digest(SensitiveToolArguments.of(arguments.reveal()))
         require(actualDigest == continuation.argumentsDigest) {
             "argumentsDigest does not match arguments"
         }
 
-        val existing = store.putIfAbsent(continuation.approvalId, continuation)
+        val existing = store.putIfAbsent(
+            continuation.approvalId,
+            StoredApprovalContinuation(continuation = continuation, arguments = arguments),
+        )
         if (existing != null) throw ApprovalContinuationConflictException(continuation.approvalId)
 
         return continuation
@@ -65,19 +74,21 @@ class InMemoryApprovalContinuationStore(
 
     override suspend fun get(approvalId: String): ApprovalContinuation? {
         validateIdentifier(approvalId, "approvalId")
-        return store[approvalId]
+        return store[approvalId]?.continuation
     }
 
     override suspend fun claimForExecution(
         approvalId: String,
         expectedVersion: Long,
         claimedBy: String,
-    ): ApprovalContinuation {
+    ): ClaimedApprovalContinuation {
         validateIdentifier(approvalId, "approvalId")
         validateIdentifier(claimedBy, "claimedBy")
 
-        return store.compute(approvalId) { _, current ->
-            val continuation = current ?: throw ApprovalContinuationNotFoundException(approvalId)
+        var claimed: ClaimedApprovalContinuation? = null
+        store.compute(approvalId) { _, current ->
+            val stored = current ?: throw ApprovalContinuationNotFoundException(approvalId)
+            val continuation = stored.continuation
 
             if (continuation.version != expectedVersion) throw ApprovalContinuationConflictException(approvalId)
             if (continuation.status != ApprovalContinuationStatus.PENDING) {
@@ -85,21 +96,30 @@ class InMemoryApprovalContinuationStore(
             }
 
             val now = clock.instant()
-            if (now >= continuation.expiresAt) throw ApprovalContinuationNotClaimableException(approvalId)
+            if (now >= continuation.approvalExpiresAt) throw ApprovalContinuationNotClaimableException(approvalId)
 
-            continuation.copy(
+            val capturedArguments = stored.arguments ?: throw ApprovalContinuationConflictException(approvalId)
+            val claimedContinuation = continuation.copy(
                 status = ApprovalContinuationStatus.CLAIMED,
                 claimedBy = claimedBy,
                 claimedAt = now,
                 version = incrementVersion(approvalId, continuation.version),
             )
+            claimed = ClaimedApprovalContinuation(claimedContinuation, capturedArguments)
+            StoredApprovalContinuation(
+                continuation = claimedContinuation,
+                arguments = null,
+            )
         } ?: throw ApprovalContinuationConflictException(approvalId)
+
+        return claimed ?: throw ApprovalContinuationConflictException(approvalId)
     }
 
     override suspend fun complete(approvalId: String, expectedVersion: Long): ApprovalContinuation {
         validateIdentifier(approvalId, "approvalId")
         return store.compute(approvalId) { _, current ->
-            val continuation = current ?: throw ApprovalContinuationNotFoundException(approvalId)
+            val stored = current ?: throw ApprovalContinuationNotFoundException(approvalId)
+            val continuation = stored.continuation
 
             if (continuation.version != expectedVersion) throw ApprovalContinuationConflictException(approvalId)
             if (continuation.status != ApprovalContinuationStatus.CLAIMED) {
@@ -108,19 +128,26 @@ class InMemoryApprovalContinuationStore(
             if (continuation.claimedAt == null || continuation.claimedBy == null || continuation.completedAt != null) {
                 throw ApprovalContinuationNotCompletableException(approvalId)
             }
+            if (stored.arguments != null) {
+                throw ApprovalContinuationNotCompletableException(approvalId)
+            }
 
-            continuation.copy(
-                status = ApprovalContinuationStatus.COMPLETED,
-                completedAt = clock.instant(),
-                version = incrementVersion(approvalId, continuation.version),
+            StoredApprovalContinuation(
+                continuation = continuation.copy(
+                    status = ApprovalContinuationStatus.COMPLETED,
+                    completedAt = clock.instant(),
+                    version = incrementVersion(approvalId, continuation.version),
+                ),
+                arguments = null,
             )
-        } ?: throw ApprovalContinuationConflictException(approvalId)
+        }?.continuation ?: throw ApprovalContinuationConflictException(approvalId)
     }
 
     override suspend fun expire(approvalId: String, expectedVersion: Long): ApprovalContinuation {
         validateIdentifier(approvalId, "approvalId")
         return store.compute(approvalId) { _, current ->
-            val continuation = current ?: throw ApprovalContinuationNotFoundException(approvalId)
+            val stored = current ?: throw ApprovalContinuationNotFoundException(approvalId)
+            val continuation = stored.continuation
 
             if (continuation.version != expectedVersion) throw ApprovalContinuationConflictException(approvalId)
             if (continuation.status != ApprovalContinuationStatus.PENDING) {
@@ -128,19 +155,23 @@ class InMemoryApprovalContinuationStore(
             }
 
             val now = clock.instant()
-            if (now < continuation.expiresAt) throw ApprovalContinuationConflictException(approvalId)
+            if (now < continuation.approvalExpiresAt) throw ApprovalContinuationConflictException(approvalId)
 
-            continuation.copy(
-                status = ApprovalContinuationStatus.EXPIRED,
-                version = incrementVersion(approvalId, continuation.version),
+            StoredApprovalContinuation(
+                continuation = continuation.copy(
+                    status = ApprovalContinuationStatus.EXPIRED,
+                    version = incrementVersion(approvalId, continuation.version),
+                ),
+                arguments = null,
             )
-        } ?: throw ApprovalContinuationConflictException(approvalId)
+        }?.continuation ?: throw ApprovalContinuationConflictException(approvalId)
     }
 
     override suspend fun cancel(approvalId: String, expectedVersion: Long): ApprovalContinuation {
         validateIdentifier(approvalId, "approvalId")
         return store.compute(approvalId) { _, current ->
-            val continuation = current ?: throw ApprovalContinuationNotFoundException(approvalId)
+            val stored = current ?: throw ApprovalContinuationNotFoundException(approvalId)
+            val continuation = stored.continuation
 
             if (continuation.version != expectedVersion) throw ApprovalContinuationConflictException(approvalId)
             if (continuation.status != ApprovalContinuationStatus.PENDING) {
@@ -148,13 +179,16 @@ class InMemoryApprovalContinuationStore(
             }
 
             val now = clock.instant()
-            if (now >= continuation.expiresAt) throw ApprovalContinuationConflictException(approvalId)
+            if (now >= continuation.approvalExpiresAt) throw ApprovalContinuationConflictException(approvalId)
 
-            continuation.copy(
-                status = ApprovalContinuationStatus.CANCELLED,
-                version = incrementVersion(approvalId, continuation.version),
+            StoredApprovalContinuation(
+                continuation = continuation.copy(
+                    status = ApprovalContinuationStatus.CANCELLED,
+                    version = incrementVersion(approvalId, continuation.version),
+                ),
+                arguments = null,
             )
-        } ?: throw ApprovalContinuationConflictException(approvalId)
+        }?.continuation ?: throw ApprovalContinuationConflictException(approvalId)
     }
 
     private fun incrementVersion(approvalId: String, version: Long): Long =

@@ -43,7 +43,7 @@ class SensitiveToolArgumentsTest {
 
     @Test
     fun `raw json absent from toString`() {
-        val raw = """{"password":"p@ssw0rd"}"""
+        val raw = """{"credential":"fixture-redaction-marker"}"""
 
         assertThat(SensitiveToolArguments.of(raw).toString()).doesNotContain(raw)
     }

@@ -41,9 +41,10 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `valid PENDING continuation stored`() : Unit = runBlocking {
-        val continuation = aPendingContinuation()
+        val raw = "{}"
+        val continuation = aPendingContinuation(argumentsJson = raw)
 
-        val created = store.create(continuation)
+        val created = store.create(continuation, SensitiveToolArguments.of(raw))
 
         assertThat(created).isEqualTo(continuation)
         assertThat(store.get("cont-1")).isEqualTo(continuation)
@@ -51,10 +52,15 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `duplicate approvalId rejected`() : Unit = runBlocking {
-        store.create(aPendingContinuation())
+        createPendingContinuation()
 
         assertThatThrownBy {
-            runBlocking { store.create(aPendingContinuation(toolName = "other-tool")) }
+            runBlocking {
+                store.create(
+                    aPendingContinuation(toolName = "other-tool"),
+                    SensitiveToolArguments.of("{}"),
+                )
+            }
         }
             .isInstanceOf(ApprovalContinuationConflictException::class.java)
     }
@@ -63,7 +69,12 @@ class InMemoryApprovalContinuationStoreTest {
     fun `malformed ID rejected`() {
         assertThatIllegalArgumentException()
             .isThrownBy {
-                runBlocking { store.create(aPendingContinuation(approvalId = "  ")) }
+                runBlocking {
+                    store.create(
+                        aPendingContinuation(approvalId = "  "),
+                        SensitiveToolArguments.of("{}"),
+                    )
+                }
             }
             .withMessage("approvalId must not be blank")
     }
@@ -72,7 +83,12 @@ class InMemoryApprovalContinuationStoreTest {
     fun `control characters rejected`() {
         assertThatIllegalArgumentException()
             .isThrownBy {
-                runBlocking { store.create(aPendingContinuation(toolName = "search\n-tool")) }
+                runBlocking {
+                    store.create(
+                        aPendingContinuation(toolName = "search\n-tool"),
+                        SensitiveToolArguments.of("{}"),
+                    )
+                }
             }
             .withMessage("toolName must not contain control characters")
     }
@@ -88,6 +104,7 @@ class InMemoryApprovalContinuationStoreTest {
                             claimedBy = "runner-1",
                             claimedAt = fixedClock.instant(),
                         ),
+                        SensitiveToolArguments.of("{}"),
                     )
                 }
             }
@@ -100,9 +117,8 @@ class InMemoryApprovalContinuationStoreTest {
             .isThrownBy {
                 runBlocking {
                     store.create(
-                        aPendingContinuation(
-                            completedAt = fixedClock.instant(),
-                        ),
+                        aPendingContinuation(completedAt = fixedClock.instant()),
+                        SensitiveToolArguments.of("{}"),
                     )
                 }
             }
@@ -116,12 +132,13 @@ class InMemoryApprovalContinuationStoreTest {
                 runBlocking {
                     store.create(
                         aPendingContinuation(
-                            expiresAt = fixedClock.instant().minusSeconds(1),
+                            approvalExpiresAt = fixedClock.instant().minusSeconds(1),
                         ),
+                        SensitiveToolArguments.of("{}"),
                     )
                 }
             }
-            .withMessage("expiresAt must be in the future")
+            .withMessage("approvalExpiresAt must be in the future")
     }
 
     @Test
@@ -131,12 +148,13 @@ class InMemoryApprovalContinuationStoreTest {
                 runBlocking {
                     store.create(
                         aPendingContinuation(
-                            expiresAt = fixedClock.instant().plus(Duration.ofHours(3)),
+                            approvalExpiresAt = fixedClock.instant().plus(Duration.ofHours(3)),
                         ),
+                        SensitiveToolArguments.of("{}"),
                     )
                 }
             }
-            .withMessage("expiresAt exceeds maximum continuation TTL of PT2H")
+            .withMessage("approvalExpiresAt exceeds maximum continuation TTL of PT2H")
     }
 
     @Test
@@ -152,6 +170,7 @@ class InMemoryApprovalContinuationStoreTest {
                             "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                         ),
                     ),
+                    SensitiveToolArguments.of(raw),
                 )
             }
         }
@@ -174,6 +193,7 @@ class InMemoryApprovalContinuationStoreTest {
                             "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                         ),
                     ),
+                    SensitiveToolArguments.of(raw),
                 )
             }
         }
@@ -182,28 +202,193 @@ class InMemoryApprovalContinuationStoreTest {
     }
 
     @Test
+    fun `zero maxContinuationTtl rejected`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                InMemoryApprovalContinuationStore(
+                    clock = fixedClock,
+                    maxContinuationTtl = Duration.ZERO,
+                )
+            }
+            .withMessage("maxContinuationTtl must be positive")
+    }
+
+    @Test
+    fun `negative maxContinuationTtl rejected`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                InMemoryApprovalContinuationStore(
+                    clock = fixedClock,
+                    maxContinuationTtl = Duration.ofSeconds(-1),
+                )
+            }
+            .withMessage("maxContinuationTtl must be positive")
+    }
+
+    @Test
+    fun `future createdAt rejected`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.create(
+                        aPendingContinuation(createdAt = fixedClock.instant().plusSeconds(1)),
+                        SensitiveToolArguments.of("{}"),
+                    )
+                }
+            }
+            .withMessage("createdAt must not be in the future")
+    }
+
+    @Test
+    fun `PENDING with claimedBy rejected`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.create(
+                        aPendingContinuation(claimedBy = "runner-1"),
+                        SensitiveToolArguments.of("{}"),
+                    )
+                }
+            }
+            .withMessage("Initial continuation must not have claimedBy set")
+    }
+
+    @Test
+    fun `PENDING with claimedAt rejected`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.create(
+                        aPendingContinuation(claimedAt = fixedClock.instant()),
+                        SensitiveToolArguments.of("{}"),
+                    )
+                }
+            }
+            .withMessage("Initial continuation must not have claimedAt set")
+    }
+
+    @Test
+    fun `oversized ID rejected`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.create(
+                        aPendingContinuation(approvalId = "a".repeat(257)),
+                        SensitiveToolArguments.of("{}"),
+                    )
+                }
+            }
+            .withMessage("approvalId exceeds maximum length of 256")
+    }
+
+    @Test
+    fun `surrounding whitespace rejected`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.create(
+                        aPendingContinuation(approvalId = " cont-id "),
+                        SensitiveToolArguments.of("{}"),
+                    )
+                }
+            }
+            .withMessage("approvalId must not contain surrounding whitespace")
+    }
+
+    @Test
+    fun `control characters rejected by get`() {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking { store.get("cont\n-1") }
+            }
+            .withMessage("approvalId must not contain control characters")
+    }
+
+    @Test
+    fun `throwable trees never include raw arguments`() {
+        val raw = """{"credential":"fixture-redaction-marker"}"""
+
+        val throwable = catchThrowable {
+            runBlocking {
+                store.create(
+                    aPendingContinuation(
+                        argumentsJson = raw,
+                        argumentsDigest = Sha256Digest.of(
+                            "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                        ),
+                    ),
+                    SensitiveToolArguments.of(raw),
+                )
+            }
+        }
+
+        assertThrowableTreeDoesNotContain(throwable, raw)
+    }
+
+    @Test
+    fun `metadata toString never includes raw arguments`() {
+        val raw = """{"credential":"never-print"}"""
+        val continuation = aPendingContinuation(argumentsJson = raw)
+
+        assertThat(continuation.toString()).doesNotContain(raw)
+        assertThat(continuation.toString()).doesNotContain("arguments=")
+    }
+
+    @Test
     fun `pending continuation can be claimed`() : Unit = runBlocking {
-        store.create(aPendingContinuation())
+        createPendingContinuation()
 
         val claimed = store.claimForExecution("cont-1", 0L, "runner-1")
 
-        assertThat(claimed.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
-        assertThat(claimed.version).isEqualTo(1L)
+        assertThat(claimed.continuation.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+        assertThat(claimed.continuation.version).isEqualTo(1L)
     }
 
     @Test
     fun `claim stores claimedBy and claimedAt`() : Unit = runBlocking {
-        store.create(aPendingContinuation())
+        createPendingContinuation()
 
         val claimed = store.claimForExecution("cont-1", 0L, "runner-1")
 
-        assertThat(claimed.claimedBy).isEqualTo("runner-1")
-        assertThat(claimed.claimedAt).isEqualTo(fixedClock.instant())
+        assertThat(claimed.continuation.claimedBy).isEqualTo("runner-1")
+        assertThat(claimed.continuation.claimedAt).isEqualTo(fixedClock.instant())
+    }
+
+    @Test
+    fun `winning claim receives exact raw JSON`() : Unit = runBlocking {
+        val raw = """{"credential":"never-print"}"""
+        createPendingContinuation(argumentsJson = raw)
+
+        val claimed = store.claimForExecution("cont-1", 0L, "runner-1")
+
+        assertThat(claimed.arguments.reveal()).isEqualTo(raw)
+    }
+
+    @Test
+    fun `stored entry scrubbed after claim`() : Unit = runBlocking {
+        createPendingContinuation(argumentsJson = """{"credential":"never-print"}""")
+
+        store.claimForExecution("cont-1", 0L, "runner-1")
+
+        assertThat(readStored("cont-1")!!.arguments).isNull()
+    }
+
+    @Test
+    fun `second claim cannot retrieve arguments`() : Unit = runBlocking {
+        val raw = """{"credential":"never-print"}"""
+        createPendingContinuation(argumentsJson = raw)
+        store.claimForExecution("cont-1", 0L, "runner-1")
+
+        assertThatThrownBy {
+            runBlocking { store.claimForExecution("cont-1", 1L, "runner-2") }
+        }
+            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+        assertThat(readStored("cont-1")!!.arguments).isNull()
     }
 
     @Test
     fun `expired pending continuation cannot be claimed`() : Unit = runBlocking {
-        store.create(aPendingContinuation(expiresAt = fixedClock.instant().plusSeconds(5)))
+        createPendingContinuation(approvalExpiresAt = fixedClock.instant().plusSeconds(5))
         fixedClock.advance(Duration.ofSeconds(6))
 
         assertThatThrownBy {
@@ -214,7 +399,7 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `stale version rejected`() : Unit = runBlocking {
-        store.create(aPendingContinuation())
+        createPendingContinuation()
 
         assertThatThrownBy {
             runBlocking { store.claimForExecution("cont-1", 1L, "runner-1") }
@@ -224,7 +409,7 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `second claim rejected`() : Unit = runBlocking {
-        store.create(aPendingContinuation())
+        createPendingContinuation()
         store.claimForExecution("cont-1", 0L, "runner-1")
 
         assertThatThrownBy {
@@ -235,7 +420,7 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `concurrent claims exactly one succeeds`() : Unit = runBlocking {
-        store.create(aPendingContinuation())
+        createPendingContinuation(argumentsJson = """{"credential":"race-secret"}""")
         val latch = CountDownLatch(1)
 
         val results = listOf("runner-1", "runner-2").map { runner ->
@@ -250,8 +435,30 @@ class InMemoryApprovalContinuationStoreTest {
 
         assertThat(settled.count { it.isSuccess }).isEqualTo(1)
         assertThat(settled.count { it.isFailure }).isEqualTo(1)
-        assertThat(settled.single { it.isSuccess }.getOrThrow().status)
+        assertThat(settled.single { it.isSuccess }.getOrThrow().continuation.status)
             .isEqualTo(ApprovalContinuationStatus.CLAIMED)
+        assertThat(settled.single { it.isFailure }.exceptionOrNull())
+            .isInstanceOf(ApprovalContinuationConflictException::class.java)
+    }
+
+    @Test
+    fun `concurrent claims allow exactly one raw-payload winner`() : Unit = runBlocking {
+        val raw = """{"credential":"race-secret"}"""
+        createPendingContinuation(argumentsJson = raw)
+        val latch = CountDownLatch(1)
+
+        val results = listOf("runner-1", "runner-2").map { runner ->
+            async(Dispatchers.Default) {
+                latch.await()
+                runCatching { store.claimForExecution("cont-1", 0L, runner) }
+            }
+        }
+
+        latch.countDown()
+        val settled = results.awaitAll()
+
+        val winner = settled.single { it.isSuccess }.getOrThrow()
+        assertThat(winner.arguments.reveal()).isEqualTo(raw)
         assertThat(settled.single { it.isFailure }.exceptionOrNull())
             .isInstanceOf(ApprovalContinuationConflictException::class.java)
     }
@@ -259,10 +466,11 @@ class InMemoryApprovalContinuationStoreTest {
     @Test
     fun `overflow maps to ApprovalContinuationConflictException on claim`() : Unit = runBlocking {
         insertDirect(
-            aPendingContinuation(
+            continuation = aPendingContinuation(
                 approvalId = "overflow-claim",
                 version = Long.MAX_VALUE,
             ),
+            arguments = SensitiveToolArguments.of("{}"),
         )
 
         assertThatThrownBy {
@@ -273,7 +481,7 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `claimed continuation can complete`() : Unit = runBlocking {
-        store.create(aPendingContinuation())
+        createPendingContinuation()
         store.claimForExecution("cont-1", 0L, "runner-1")
 
         val completed = store.complete("cont-1", 1L)
@@ -283,8 +491,18 @@ class InMemoryApprovalContinuationStoreTest {
     }
 
     @Test
+    fun `completion retains no arguments`() : Unit = runBlocking {
+        createPendingContinuation(argumentsJson = """{"credential":"never-print"}""")
+        store.claimForExecution("cont-1", 0L, "runner-1")
+
+        store.complete("cont-1", 1L)
+
+        assertThat(readStored("cont-1")!!.arguments).isNull()
+    }
+
+    @Test
     fun `pending continuation cannot complete`() : Unit = runBlocking {
-        store.create(aPendingContinuation())
+        createPendingContinuation()
 
         assertThatThrownBy {
             runBlocking { store.complete("cont-1", 0L) }
@@ -294,7 +512,7 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `completed continuation cannot complete again`() : Unit = runBlocking {
-        store.create(aPendingContinuation())
+        createPendingContinuation()
         store.claimForExecution("cont-1", 0L, "runner-1")
         store.complete("cont-1", 1L)
 
@@ -306,7 +524,7 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `completion stores completedAt`() : Unit = runBlocking {
-        store.create(aPendingContinuation())
+        createPendingContinuation()
         store.claimForExecution("cont-1", 0L, "runner-1")
         fixedClock.advance(Duration.ofSeconds(7))
 
@@ -318,13 +536,14 @@ class InMemoryApprovalContinuationStoreTest {
     @Test
     fun `overflow maps to typed conflict on complete`() : Unit = runBlocking {
         insertDirect(
-            aPendingContinuation(
+            continuation = aPendingContinuation(
                 approvalId = "overflow-complete",
                 status = ApprovalContinuationStatus.CLAIMED,
                 claimedBy = "runner-1",
                 claimedAt = fixedClock.instant(),
                 version = Long.MAX_VALUE,
             ),
+            arguments = null,
         )
 
         assertThatThrownBy {
@@ -335,7 +554,7 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `pending continuation expires only after deadline`() : Unit = runBlocking {
-        store.create(aPendingContinuation(expiresAt = fixedClock.instant().plusSeconds(10)))
+        createPendingContinuation(approvalExpiresAt = fixedClock.instant().plusSeconds(10))
         fixedClock.advance(Duration.ofSeconds(10))
 
         val expired = store.expire("cont-1", 0L)
@@ -345,8 +564,22 @@ class InMemoryApprovalContinuationStoreTest {
     }
 
     @Test
+    fun `expiry scrubs arguments`() : Unit = runBlocking {
+        createPendingContinuation(
+            approvalId = "expire-scrub",
+            argumentsJson = """{"credential":"never-print"}""",
+            approvalExpiresAt = fixedClock.instant().plusSeconds(1),
+        )
+        fixedClock.advance(Duration.ofSeconds(1))
+
+        store.expire("expire-scrub", 0L)
+
+        assertThat(readStored("expire-scrub")!!.arguments).isNull()
+    }
+
+    @Test
     fun `timeout before deadline rejected`() : Unit = runBlocking {
-        store.create(aPendingContinuation(expiresAt = fixedClock.instant().plusSeconds(10)))
+        createPendingContinuation(approvalExpiresAt = fixedClock.instant().plusSeconds(10))
 
         assertThatThrownBy {
             runBlocking { store.expire("cont-1", 0L) }
@@ -356,7 +589,7 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `claimed continuation cannot expire`() : Unit = runBlocking {
-        store.create(aPendingContinuation(expiresAt = fixedClock.instant().plusSeconds(10)))
+        createPendingContinuation(approvalExpiresAt = fixedClock.instant().plusSeconds(10))
         store.claimForExecution("cont-1", 0L, "runner-1")
         fixedClock.advance(Duration.ofSeconds(11))
 
@@ -368,7 +601,7 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `completed continuation cannot expire`() : Unit = runBlocking {
-        store.create(aPendingContinuation(expiresAt = fixedClock.instant().plusSeconds(10)))
+        createPendingContinuation(approvalExpiresAt = fixedClock.instant().plusSeconds(10))
         store.claimForExecution("cont-1", 0L, "runner-1")
         store.complete("cont-1", 1L)
         fixedClock.advance(Duration.ofSeconds(11))
@@ -381,7 +614,7 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `pending continuation can cancel`() : Unit = runBlocking {
-        store.create(aPendingContinuation())
+        createPendingContinuation()
 
         val cancelled = store.cancel("cont-1", 0L)
 
@@ -390,8 +623,20 @@ class InMemoryApprovalContinuationStoreTest {
     }
 
     @Test
+    fun `cancellation scrubs arguments`() : Unit = runBlocking {
+        createPendingContinuation(
+            approvalId = "cancel-scrub",
+            argumentsJson = """{"credential":"never-print"}""",
+        )
+
+        store.cancel("cancel-scrub", 0L)
+
+        assertThat(readStored("cancel-scrub")!!.arguments).isNull()
+    }
+
+    @Test
     fun `claimed continuation cannot cancel`() : Unit = runBlocking {
-        store.create(aPendingContinuation())
+        createPendingContinuation()
         store.claimForExecution("cont-1", 0L, "runner-1")
 
         assertThatThrownBy {
@@ -402,7 +647,7 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `completed continuation cannot cancel`() : Unit = runBlocking {
-        store.create(aPendingContinuation())
+        createPendingContinuation()
         store.claimForExecution("cont-1", 0L, "runner-1")
         store.complete("cont-1", 1L)
 
@@ -414,7 +659,7 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `expired continuation cannot cancel`() : Unit = runBlocking {
-        store.create(aPendingContinuation(expiresAt = fixedClock.instant().plusSeconds(5)))
+        createPendingContinuation(approvalExpiresAt = fixedClock.instant().plusSeconds(5))
         fixedClock.advance(Duration.ofSeconds(6))
 
         assertThatThrownBy {
@@ -425,7 +670,7 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `cancelled continuation cannot cancel`() : Unit = runBlocking {
-        store.create(aPendingContinuation())
+        createPendingContinuation()
         store.cancel("cont-1", 0L)
 
         assertThatThrownBy {
@@ -467,18 +712,8 @@ class InMemoryApprovalContinuationStoreTest {
     }
 
     @Test
-    fun `stored arguments wrapper remains redacted in toString`() : Unit = runBlocking {
-        val raw = """{"token":"do-not-log"}"""
-        val continuation = aPendingContinuation(argumentsJson = raw)
-        store.create(continuation)
-
-        assertThat(store.get("cont-1").toString()).contains("arguments=[REDACTED]")
-        assertThat(store.get("cont-1").toString()).doesNotContain(raw)
-    }
-
-    @Test
     fun `no raw JSON in exception messages`() {
-        val raw = """{"password":"never-print"}"""
+        val raw = """{"credential":"never-print"}"""
 
         val throwable = catchThrowable {
             runBlocking {
@@ -489,6 +724,7 @@ class InMemoryApprovalContinuationStoreTest {
                             "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                         ),
                     ),
+                    SensitiveToolArguments.of(raw),
                 )
             }
         }
@@ -509,11 +745,40 @@ class InMemoryApprovalContinuationStoreTest {
                             "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
                         ),
                     ),
+                    SensitiveToolArguments.of(raw),
                 )
             }
         }
 
         assertThrowableTreeDoesNotContain(throwable, raw)
+    }
+
+    @Test
+    fun `get never exposes raw arguments`() : Unit = runBlocking {
+        val raw = """{"credential":"never-print"}"""
+        createPendingContinuation(argumentsJson = raw)
+
+        val fetched = store.get("cont-1")
+
+        assertThat(fetched).isNotNull()
+        assertThat(fetched!!.toString()).doesNotContain(raw)
+        assertThat(fetched.toString()).doesNotContain("arguments=")
+    }
+
+    private fun createPendingContinuation(
+        approvalId: String = "cont-1",
+        argumentsJson: String = "{}",
+        approvalExpiresAt: Instant = fixedClock.instant().plusSeconds(3600),
+    ): ApprovalContinuation {
+        val continuation = aPendingContinuation(
+            approvalId = approvalId,
+            argumentsJson = argumentsJson,
+            approvalExpiresAt = approvalExpiresAt,
+        )
+        runBlocking {
+            store.create(continuation, SensitiveToolArguments.of(argumentsJson))
+        }
+        return continuation
     }
 
     private fun aPendingContinuation(
@@ -529,7 +794,7 @@ class InMemoryApprovalContinuationStoreTest {
             "sha256:1111111111111111111111111111111111111111111111111111111111111111",
         ),
         createdAt: Instant = fixedClock.instant(),
-        expiresAt: Instant = fixedClock.instant().plusSeconds(3600),
+        approvalExpiresAt: Instant = fixedClock.instant().plusSeconds(3600),
         status: ApprovalContinuationStatus = ApprovalContinuationStatus.PENDING,
         claimedBy: String? = null,
         claimedAt: Instant? = null,
@@ -542,12 +807,11 @@ class InMemoryApprovalContinuationStoreTest {
         toolCallId = toolCallId,
         toolName = toolName,
         argumentsDigest = argumentsDigest,
-        arguments = SensitiveToolArguments.of(argumentsJson),
         policyVersion = policyVersion,
         workflowDigest = workflowDigest,
         status = status,
         createdAt = createdAt,
-        expiresAt = expiresAt,
+        approvalExpiresAt = approvalExpiresAt,
         claimedBy = claimedBy,
         claimedAt = claimedAt,
         completedAt = completedAt,
@@ -564,21 +828,37 @@ class InMemoryApprovalContinuationStoreTest {
 
     private fun assertThrowableTreeDoesNotContain(throwable: Throwable, raw: String) {
         val visited = LinkedHashSet<Throwable>()
+
         fun visit(current: Throwable?) {
             if (current == null || !visited.add(current)) return
             assertThat(current.message ?: "").doesNotContain(raw)
             current.suppressed.forEach { visit(it) }
             visit(current.cause)
         }
+
         visit(throwable)
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun insertDirect(continuation: ApprovalContinuation) {
+    private fun insertDirect(
+        continuation: ApprovalContinuation,
+        arguments: SensitiveToolArguments?,
+    ) {
         val field = store.javaClass.getDeclaredField("store")
         field.isAccessible = true
-        val map = field.get(store) as ConcurrentHashMap<String, ApprovalContinuation>
-        map[continuation.approvalId] = continuation
+        val map = field.get(store) as ConcurrentHashMap<String, StoredApprovalContinuation>
+        map[continuation.approvalId] = StoredApprovalContinuation(
+            continuation = continuation,
+            arguments = arguments,
+        )
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun readStored(approvalId: String): StoredApprovalContinuation? {
+        val field = store.javaClass.getDeclaredField("store")
+        field.isAccessible = true
+        val map = field.get(store) as ConcurrentHashMap<String, StoredApprovalContinuation>
+        return map[approvalId]
     }
 }
 

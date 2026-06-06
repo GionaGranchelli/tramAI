@@ -1161,13 +1161,21 @@ In streaming execution, `BEFORE_RESPONSE_RETURN` is evaluated as an egress prefl
 
 `ApprovalRequest` (PR #14) stores only the *digest* of tool arguments (`argumentsDigest`), not the raw arguments themselves. This is correct for the approval-facing API — a digest is sufficient for binding validation. However, to *resume* a suspended tool execution, the engine needs the exact raw arguments that were present at suspension time. These raw arguments are the only way to re-invoke the tool after approval.
 
-PR #16 introduces `SensitiveToolArguments` — an opaque redacted wrapper that stores raw JSON tool arguments in memory while guaranteeing they never appear in logs, exceptions, `toString()`, or public DTOs.
+PR #16 introduces a strict metadata/payload split:
+- `ApprovalContinuation` retains metadata only, including `approvalExpiresAt`
+- raw tool arguments are stored separately behind `SensitiveToolArguments`
+- ordinary `get()` calls never expose the raw payload
+- `claimForExecution()` is the single release path and returns the payload exactly once
+- stored payload is scrubbed on claim, expiry, and cancellation
+- terminal records retain metadata only
+- persistent stores must encrypt the sensitive payload at rest
+
+`approvalExpiresAt` is the approval challenge expiry. PR #17 must pass `ApprovalChallenge.expiresAt` through unchanged when creating the continuation; there is no independent continuation expiry that may extend raw-argument retention.
 
 ### Raw arguments stored only behind SensitiveToolArguments
 
 ```kotlin
-@JvmInline
-value class SensitiveToolArguments private constructor(
+class SensitiveToolArguments private constructor(
     private val rawValue: String,
 ) {
     fun reveal(): String = rawValue
@@ -1182,7 +1190,49 @@ value class SensitiveToolArguments private constructor(
 - `rawValue` is private — no public property exposes it
 - `reveal()` is the only escape hatch, explicitly named to discourage automatic use
 - `toString()` always returns `[REDACTED]`
-- `ApprovalContinuation.toString()` overrides the data class default to use `arguments=[REDACTED]` for the `SensitiveToolArguments` field
+- `ApprovalContinuation` no longer carries raw arguments at all
+- persistent stores must encrypt values returned by `reveal()` at rest
+
+### Metadata-only continuation record
+
+```kotlin
+data class ApprovalContinuation(
+    val approvalId: String,
+    ...
+    val argumentsDigest: Sha256Digest,
+    val createdAt: Instant,
+    val approvalExpiresAt: Instant,
+    ...
+)
+```
+
+- `approvalExpiresAt` documents that continuation expiry is bound to the approval challenge expiry
+- no second TTL is introduced for continuation payload retention
+- `ApprovalContinuation.toString()` is safe by construction because the payload is absent
+
+### Store SPI split
+
+```kotlin
+interface ApprovalContinuationStore {
+    suspend fun create(
+        continuation: ApprovalContinuation,
+        arguments: SensitiveToolArguments,
+    ): ApprovalContinuation
+
+    suspend fun get(approvalId: String): ApprovalContinuation?
+
+    suspend fun claimForExecution(
+        approvalId: String,
+        expectedVersion: Long,
+        claimedBy: String,
+    ): ClaimedApprovalContinuation
+}
+```
+
+- `create()` accepts metadata and sensitive payload separately
+- `get()` returns metadata only
+- `claimForExecution()` returns metadata plus payload exactly once
+- `complete()`, `expire()`, and `cancel()` return metadata only
 
 ### Exact UTF-8 digest behavior
 
@@ -1214,12 +1264,14 @@ PENDING ──→ CLAIMED ──→ COMPLETED
 
 ### Atomic claim semantics
 
-`claimForExecution()` uses `ConcurrentHashMap.compute()` for atomic read-modify-write:
+`claimForExecution()` uses `ConcurrentHashMap.compute()` for atomic read-modify-write and scrubbing:
 
 ```kotlin
 store.compute(approvalId) { _, current ->
-    // exists? version? status == PENDING? now < expiresAt?
-    // Set status = CLAIMED, claimedBy, claimedAt, version++
+    // exists? version? status == PENDING? now < approvalExpiresAt?
+    // capture arguments
+    // set status = CLAIMED, claimedBy, claimedAt, version++
+    // store arguments = null
 }
 ```
 
@@ -1227,6 +1279,15 @@ store.compute(approvalId) { _, current ->
 - Stale version → `ApprovalContinuationConflictException`
 - Already claimed → `ApprovalContinuationNotClaimableException`
 - Expired → `ApprovalContinuationNotClaimableException`
+- Winner receives the exact raw JSON payload
+- After the winning claim, the stored payload is gone
+
+### Scrubbing rules
+
+- Claim scrubs the stored payload atomically while returning it to the winner
+- Expire scrubs the stored payload before persisting `EXPIRED`
+- Cancel scrubs the stored payload before persisting `CANCELLED`
+- Complete requires the payload to already be scrubbed and retains metadata only
 
 ### Claimed-but-incomplete execution is an uncertain outcome
 
@@ -1266,13 +1327,7 @@ This PR (#16) provides the continuation store only. The following are explicitly
 
 - **SensitiveToolArgumentsTest (6):** toString redacted, reveal returns original, whitespace preserved, empty permitted, oversized rejected, raw JSON absent from toString
 - **Sha256ToolArgumentsDigesterTest (6):** known SHA-256 vector, deterministic output, whitespace changes digest, key-order changes digest, typed output, raw JSON absent from output
-- **InMemoryApprovalContinuationStoreTest (32+):**
-  - Create (10): valid PENDING, duplicate rejected, malformed ID, control chars, initial CLAIMED rejected, completion metadata rejected, future expiry required, bounded TTL, digest mismatch, raw args absent from exceptions
-  - Claim (7): pending claim, stores claimedBy/claimedAt, expired cannot claim, stale version, second claim rejected, concurrent claim (exactly one), overflow mapping
-  - Complete (5): CLAIMED → COMPLETED, pending cannot complete, completed cannot complete again, completion stores completedAt, overflow mapping
-  - Expire (4): pending after deadline, timeout before deadline, CLAIMED cannot expire, COMPLETED cannot expire
-  - Cancel (3): pending can cancel, CLAIMED cannot cancel, COMPLETED cannot cancel
-  - Snapshot safety (3): arguments redacted in toString, no raw JSON in exception messages, no raw JSON in cause/suppressed chains
+- **InMemoryApprovalContinuationStoreTest:** validation coverage, leakage coverage, exact-raw winner semantics, metadata-only `get()`, and scrubbing assertions for claim, complete, expire, cancel, and concurrent claim races
 
 ### Roadmap split
 
