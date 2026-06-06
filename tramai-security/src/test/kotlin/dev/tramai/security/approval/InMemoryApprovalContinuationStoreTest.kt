@@ -252,10 +252,7 @@ class InMemoryApprovalContinuationStoreTest {
         assertThat(settled.single { it.isSuccess }.getOrThrow().status)
             .isEqualTo(ApprovalContinuationStatus.CLAIMED)
         assertThat(settled.single { it.isFailure }.exceptionOrNull())
-            .isInstanceOfAny(
-                ApprovalContinuationConflictException::class.java,
-                ApprovalContinuationNotClaimableException::class.java,
-            )
+            .isInstanceOf(ApprovalContinuationConflictException::class.java)
     }
 
     @Test
@@ -353,7 +350,7 @@ class InMemoryApprovalContinuationStoreTest {
         assertThatThrownBy {
             runBlocking { store.expire("cont-1", 0L) }
         }
-            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+            .isInstanceOf(ApprovalContinuationConflictException::class.java)
     }
 
     @Test
@@ -365,7 +362,7 @@ class InMemoryApprovalContinuationStoreTest {
         assertThatThrownBy {
             runBlocking { store.expire("cont-1", 1L) }
         }
-            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+            .isInstanceOf(ApprovalContinuationConflictException::class.java)
     }
 
     @Test
@@ -378,7 +375,7 @@ class InMemoryApprovalContinuationStoreTest {
         assertThatThrownBy {
             runBlocking { store.expire("cont-1", 2L) }
         }
-            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+            .isInstanceOf(ApprovalContinuationConflictException::class.java)
     }
 
     @Test
@@ -399,7 +396,7 @@ class InMemoryApprovalContinuationStoreTest {
         assertThatThrownBy {
             runBlocking { store.cancel("cont-1", 1L) }
         }
-            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+            .isInstanceOf(ApprovalContinuationConflictException::class.java)
     }
 
     @Test
@@ -411,7 +408,7 @@ class InMemoryApprovalContinuationStoreTest {
         assertThatThrownBy {
             runBlocking { store.cancel("cont-1", 2L) }
         }
-            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+            .isInstanceOf(ApprovalContinuationConflictException::class.java)
     }
 
     @Test
