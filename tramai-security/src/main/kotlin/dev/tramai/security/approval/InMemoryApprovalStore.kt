@@ -4,11 +4,16 @@ import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTransition
-import dev.tramai.core.exception.IllegalApprovalTransitionException
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.exception.ApprovalStoreConflictException
+import dev.tramai.core.exception.ApprovalStoreNotConsumableException
+import dev.tramai.core.exception.ApprovalStoreNotFoundException
+import dev.tramai.core.exception.ApprovalStoreTokenRejectedException
+import dev.tramai.core.exception.IllegalApprovalTransitionException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
@@ -16,7 +21,14 @@ class InMemoryApprovalStore(
     private val clock: Clock = Clock.systemUTC(),
     private val maxIdLength: Int = 256,
     private val maxCommentLength: Int = 4096,
+    private val maxCreationTtl: Duration = Duration.ofMinutes(15),
 ) : ApprovalStore {
+
+    init {
+        require(maxCreationTtl > Duration.ZERO) {
+            "maxCreationTtl must be positive"
+        }
+    }
 
     private val store = ConcurrentHashMap<String, ApprovalRequest>()
 
@@ -54,9 +66,15 @@ class InMemoryApprovalStore(
         require(request.consumedBy == null) { "Initial approval must not have consumedBy set" }
         require(request.consumedAt == null) { "Initial approval must not have consumedAt set" }
 
+        // Bounded TTL: defense-in-depth layer against callers bypassing the coordinator
+        val ttl = Duration.between(request.requestedAt, request.expiresAt)
+        require(ttl <= maxCreationTtl) {
+            "expiresAt exceeds maximum creation TTL of $maxCreationTtl"
+        }
+
         // Atomically insert
         val existing = store.putIfAbsent(request.approvalId, request)
-        require(existing == null) { "Approval '${request.approvalId}' already exists" }
+        if (existing != null) throw ApprovalStoreConflictException(request.approvalId)
 
         return request
     }
@@ -95,18 +113,16 @@ class InMemoryApprovalStore(
         }
 
         val result = store.compute(approvalId) { _, current ->
-            val req = current ?: throw IllegalArgumentException("Approval '$approvalId' not found")
+            val req = current ?: throw ApprovalStoreNotFoundException(approvalId)
 
-            require(req.version == expectedVersion) {
-                "Approval '$approvalId' version mismatch: expected $expectedVersion, actual ${req.version}"
-            }
+            if (req.version != expectedVersion) throw ApprovalStoreConflictException(approvalId)
 
             val now = clock.instant()  // captured atomically with the mutation
             val nextStatus = resolveNextStatus(req, transition, now)
 
             req.copy(
                 status = nextStatus,
-                version = req.version + 1,
+                version = incrementVersion(approvalId, req.version),
                 decidedAt = when (transition) {
                     is ApprovalTransition.Approve -> now
                     is ApprovalTransition.Deny -> now
@@ -125,7 +141,7 @@ class InMemoryApprovalStore(
             )
         }
 
-        return result ?: throw IllegalArgumentException("Approval '$approvalId' not found")
+        return result ?: throw ApprovalStoreNotFoundException(approvalId)
     }
 
     override suspend fun consumeApproved(
@@ -138,40 +154,49 @@ class InMemoryApprovalStore(
         validateIdField(consumedBy, "consumedBy", maxIdLength)
 
         val result = store.compute(approvalId) { _, current ->
-            val req = current ?: throw IllegalArgumentException("Approval '$approvalId' not found")
+            val req = current ?: throw ApprovalStoreNotFoundException(approvalId)
 
-            require(req.version == expectedVersion) {
-                "Approval '$approvalId' version mismatch: expected $expectedVersion, actual ${req.version}"
-            }
+            if (req.version != expectedVersion) throw ApprovalStoreConflictException(approvalId)
 
-            require(req.status == ApprovalStatus.APPROVED) {
-                "Approval '$approvalId' cannot be consumed: status is ${req.status}, expected APPROVED"
-            }
+            if (req.status != ApprovalStatus.APPROVED) throw ApprovalStoreNotConsumableException(approvalId)
 
             val now = clock.instant()
-            require(now < req.expiresAt) {
-                "Approval '$approvalId' has expired at ${req.expiresAt}"
-            }
+            if (now >= req.expiresAt) throw ApprovalStoreNotConsumableException(approvalId)
 
-            require(req.consumedAt == null) {
-                "Approval '$approvalId' has already been consumed"
-            }
+            if (req.consumedAt != null) throw ApprovalStoreNotConsumableException(approvalId)
 
             // Constant-time comparison of token digests
-            require(MessageDigest.isEqual(
-                presentedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
-                req.binding.approvalTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
-            )) { "Approval '$approvalId' token digest does not match" }
+            if (!MessageDigest.isEqual(
+                    presentedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
+                    req.binding.approvalTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
+                )) {
+                throw ApprovalStoreTokenRejectedException(approvalId)
+            }
 
             req.copy(
                 consumedBy = consumedBy,
                 consumedAt = now,
-                version = req.version + 1,
+                version = incrementVersion(approvalId, req.version),
             )
         }
 
-        return result ?: throw IllegalArgumentException("Approval '$approvalId' not found")
+        return result ?: throw ApprovalStoreNotFoundException(approvalId)
     }
+
+    private fun incrementVersion(
+        approvalId: String,
+        version: Long,
+    ): Long =
+        try {
+            Math.addExact(
+                version,
+                1L,
+            )
+        } catch (_: ArithmeticException) {
+            throw ApprovalStoreConflictException(
+                approvalId,
+            )
+        }
 
     private fun resolveNextStatus(
         current: ApprovalRequest,

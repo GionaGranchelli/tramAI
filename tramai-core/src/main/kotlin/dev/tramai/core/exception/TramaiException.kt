@@ -12,6 +12,7 @@ sealed class TramaiException(
 
 /**
  * Base class for approval-domain exceptions.
+ * Kept for backward compatibility with [IllegalApprovalTransitionException].
  */
 open class ApprovalException(
     message: String,
@@ -129,3 +130,110 @@ class IllegalApprovalTransitionException(
 ) : ApprovalException(
     "Illegal approval transition for '$approvalId': $from -> $to - $reason"
 )
+
+// =============================================================================
+// Sealed store exceptions — internal types thrown by ApprovalStore
+// implementations. These are NOT exposed to callers; the coordinator maps them
+// to safe public exceptions below.
+// =============================================================================
+
+/**
+ * Sealed base class for store-level failures.
+ * These exceptions carry only [approvalId] — no message or cause parameter.
+ */
+sealed class ApprovalStoreException(
+    open val approvalId: String,
+) : RuntimeException()
+
+/**
+ * Raised by the store when the requested approval ID does not exist.
+ */
+class ApprovalStoreNotFoundException(
+    override val approvalId: String,
+) : ApprovalStoreException(approvalId)
+
+/**
+ * Raised by the store when the presented token digest does not match.
+ */
+class ApprovalStoreTokenRejectedException(
+    override val approvalId: String,
+) : ApprovalStoreException(approvalId)
+
+/**
+ * Raised by the store on optimistic concurrency conflicts (version mismatch)
+ * or duplicate ID on create.
+ */
+class ApprovalStoreConflictException(
+    override val approvalId: String,
+) : ApprovalStoreException(approvalId)
+
+/**
+ * Raised by the store when the approval is not in a consumable state
+ * (wrong status, expired, already consumed, etc.).
+ */
+class ApprovalStoreNotConsumableException(
+    override val approvalId: String,
+) : ApprovalStoreException(approvalId)
+
+// =============================================================================
+// Coordinator-facing (public) safe exceptions
+// These have FIXED safe messages and do NOT accept a cause parameter.
+// =============================================================================
+
+/**
+ * Raised by the coordinator when an approval ID is not found
+ * (store.get() returned null).
+ */
+class ApprovalNotFoundException(
+    val approvalId: String,
+) : ApprovalException("Approval not found: '$approvalId'")
+
+/**
+ * Raised by the coordinator when the presented approval token is rejected.
+ */
+class ApprovalTokenRejectedException(
+    val approvalId: String,
+) : ApprovalException("Approval token rejected for '$approvalId'")
+
+/**
+ * Raised by the coordinator when a binding field does not match the stored value.
+ */
+class ApprovalBindingMismatchException(
+    val approvalId: String,
+    val field: String,
+) : ApprovalException("Approval binding mismatch for '$approvalId': $field")
+
+/**
+ * Raised by the coordinator when authorization fails due to a store-level
+ * or unexpected error. Has a fixed safe message and no cause chain.
+ */
+class ApprovalAuthorizationException(
+    val approvalId: String?,
+) : ApprovalException("Approval authorization failed")
+
+/**
+ * Raised by the coordinator when approval creation fails due to a store-level
+ * or unexpected error. Has a fixed safe message and no cause chain.
+ */
+class ApprovalCreationException(
+    val approvalId: String?,
+) : ApprovalException("Approval creation failed")
+
+// =============================================================================
+// Internal diagnostic observer SPI
+// =============================================================================
+
+/**
+ * Internal observer that records original failures before they are sanitized
+ * into safe public exceptions. Implementations must NOT leak sensitive data
+ * through external channels.
+ *
+ * This is an internal diagnostic SPI — not part of the public API contract.
+ */
+fun interface ApprovalFailureObserver {
+    fun record(
+        operation: String,
+        approvalId: String?,
+        failure: RuntimeException,
+    )
+}

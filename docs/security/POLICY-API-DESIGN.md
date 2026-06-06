@@ -270,14 +270,223 @@ PENDING → APPROVED/DENIED/TIMED_OUT (all terminal). Timeout succeeds only when
 
 ### Key design decisions
 
-- Approval token (`approvalTokenDigest`) is a SHA-256 digest of a generated nonce. The raw token is provided to the requestor at creation time. PR #15 will consume and verify the raw token exactly once.
+- Approval token (`approvalTokenDigest`) is a SHA-256 digest of a generated nonce. The raw token is provided to the requestor at creation time. PR #15 consumes and verifies the raw token at the coordinator level via `consumeApproved()`. PR #16 adds TramaiEngine suspension and continuation persistence on top of this foundation.
 - `consumeApproved()` uses constant-time `MessageDigest.isEqual()` with explicit `StandardCharsets.US_ASCII` encoding to prevent digest-comparison timing attacks.
 - `consumedBy` and `consumedAt` are recorded atomically with the version increment. Second consume of the same approval fails with clear message.
 - `decidedBy` is non-nullable on `Approve`/`Deny` transitions.
 - Comments are optional on transitions.
 - Version starts at 0 and is incremented atomically. No CAS retry loop — `ConcurrentHashMap.compute()` provides the atomicity.
-- No engine integration yet. PR #15 will build workflow suspension/resume on this foundation.
-- PR #14 scope: domain model, store SPI, validation, expiry, deterministic tests. PR #15 scope: workflow suspension, raw-token engine integration, engine-level resume, auto-deny job.
+- No engine integration yet. PR #16 will build workflow suspension/resume on this foundation.
+- PR #14 scope: domain model, store SPI, validation, expiry, deterministic tests. PR #15 scope: token generation/hashing, coordinator, binding revalidation, consumed-result contract validation, non-interfering observer, recursive leakage traversal, safe exception taxonomy (all coordinator-facing exceptions extend ApprovalException). PR #16 scope: TramaiEngine suspension, continuation persistence, runtime invocation of ApprovalGateCoordinator, BEFORE_WORKFLOW_RESUME enforcement, idempotent tool execution resume, approval lifecycle audit events.
+
+---
+
+## Approval Gate Coordinator (PR #15)
+
+### ApprovalToken
+
+```kotlin
+@JvmInline
+value class ApprovalToken private constructor(
+    private val rawValue: String,
+) {
+    fun reveal(): String = rawValue
+    override fun toString(): String = "[REDACTED]"
+    companion object {
+        fun parsePresented(raw: String): ApprovalToken
+        internal fun generated(raw: String): ApprovalToken
+    }
+}
+```
+
+### SPIs
+
+```kotlin
+fun interface ApprovalTokenGenerator { fun generate(): ApprovalToken }
+fun interface ApprovalTokenDigester { fun digest(token: ApprovalToken): Sha256Digest }
+fun interface ApprovalIdGenerator { fun generate(): String }
+fun interface ApprovalDecisionValidator { fun validate(request: ApprovalRequest, consumedBy: String) }
+```
+
+### Coordinator Commands
+
+```kotlin
+data class CreateApprovalCommand(
+    val workflowRunId: String,
+    val toolName: String,
+    val argumentsDigest: Sha256Digest,
+    val policyVersion: String,
+    val workflowDigest: Sha256Digest,
+    val requestedBy: String,
+    val expiresAt: Instant,
+)
+
+data class ApprovalChallenge(
+    val approvalId: String,
+    val token: ApprovalToken,
+    val expiresAt: Instant,
+)
+
+data class AuthorizeResumeCommand(
+    val approvalId: String,
+    val expectedVersion: Long,
+    val presentedToken: ApprovalToken,
+    val consumedBy: String,
+    val workflowRunId: String,
+    val toolName: String,
+    val argumentsDigest: Sha256Digest,
+    val policyVersion: String,
+    val workflowDigest: Sha256Digest,
+)
+
+data class ApprovalAuthorization(
+    val approvalId: String,
+    val consumedBy: String,
+    val consumedAt: Instant,
+    val version: Long,
+)
+```
+
+### ApprovalGateCoordinator
+
+```kotlin
+interface ApprovalGateCoordinator {
+    suspend fun createApproval(command: CreateApprovalCommand): ApprovalChallenge
+    suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization
+}
+```
+
+### PR #15 Changes Summary
+
+**Security hardening applied in the coordinator and related SPIs:**
+
+| Area | Change |
+|------|--------|
+| Token entropy | Minimum raised from 128 to 256 bits (`tokenBytes >= 32`) |
+| Token validation | Whitespace (leading, trailing, internal) now rejected, not silently trimmed |
+| Exception mapping | Store failures caught as typed `ApprovalStoreException` subtypes, not via `message.contains()` |
+| Exception boundary hardening | Sealed store exceptions separated from safe public exceptions; cause-chain sanitized |
+| Approval lifetime | `maxApprovalTtl: Duration` parameter (default 15 min) bounds `expiresAt` |
+| AuthorizeResume validation | All 5 ID fields + `expectedVersion >= 0` validated before store interaction |
+| Exception hierarchy | Sealed `ApprovalStoreException` subtypes + safe coordinator-facing `ApprovalException` subclasses |
+| SPI boundaries | `ApprovalTokenGenerator`, `ApprovalTokenDigester`, `ApprovalDecisionValidator`, `ApprovalStore`, `ApprovalIdGenerator` documented as trusted computing-base extensions |
+| Diagnostic observer | `ApprovalFailureObserver` records original failures before sanitization; wrapped in `RuntimeException`-only try/catch for non-interference |
+| Consumed-result validation | Full 6-field contract check after `store.consumeApproved()` — approvalId, binding, status, consumedBy, consumedAt, version |
+| Recursive leakage traversal | `containsSecret()` helper traverses message, toString(), suppressed, and cause chain |
+| Bounded store TTL | `InMemoryApprovalStore` validates `maxCreationTtl` as defense-in-depth |
+| InMemoryApprovalStore init | `require(maxCreationTtl > Duration.ZERO)` added to reject zero/negative TTL at construction |
+
+### Exception Hierarchy (PR #15)
+
+**Internal store exceptions (sealed, extends RuntimeException):**
+
+```
+ApprovalStoreException (sealed)
+├── ApprovalStoreNotFoundException(approvalId)
+├── ApprovalStoreTokenRejectedException(approvalId)
+├── ApprovalStoreConflictException(approvalId)
+└── ApprovalStoreNotConsumableException(approvalId)
+```
+
+- No message or cause parameters — only `approvalId`.
+
+**Safe coordinator-facing exceptions (extend ApprovalException → TramaiException):**
+
+```
+ApprovalNotFoundException(approvalId)                          — fixed safe message
+ApprovalTokenRejectedException(approvalId)                     — fixed safe message
+ApprovalBindingMismatchException(approvalId, field)            — fixed safe message
+ApprovalAuthorizationException(approvalId?)                    — fixed safe message
+ApprovalCreationException(approvalId?)                         — fixed safe message
+```
+
+- All extend `ApprovalException` (which extends `TramaiException` → `RuntimeException`).
+- Not part of the `ApprovalStoreException` sealed hierarchy.
+- Fixed safe messages. No caller-provided message strings.
+- No `cause` parameter. Store internal details never leak.
+- No inheritance from `ApprovalStoreException`.
+
+**Separate exception table:**
+
+| Exception | Message | Cause-safe? | Contains store internals? |
+|-----------|---------|------------|--------------------------|
+| `ApprovalStoreNotFoundException` | — | ✅ (no message param) | ❌ |
+| `ApprovalStoreTokenRejectedException` | — | ✅ (no message param) | ❌ |
+| `ApprovalStoreConflictException` | — | ✅ (no message param) | ❌ |
+| `ApprovalStoreNotConsumableException` | — | ✅ (no message param) | ❌ |
+| `ApprovalNotFoundException` | `"Approval not found: '<id>'"` | ✅ (no cause param) | ❌ |
+| `ApprovalTokenRejectedException` | `"Approval token rejected for '<id>'"` | ✅ (no cause param) | ❌ |
+| `ApprovalBindingMismatchException` | `"Approval binding mismatch for '<id>': <field>"` | ✅ (no cause param) | ❌ |
+| `ApprovalAuthorizationException` | `"Approval authorization failed"` | ✅ (no cause param) | ❌ |
+| `ApprovalCreationException` | `"Approval creation failed"` | ✅ (no cause param) | ❌ |
+
+Raw tokens, token digests, arguments, and workflow payloads are NEVER included in exception messages or cause chains.
+
+### ApprovalFailureObserver (trusted diagnostic SPI)
+
+`DefaultApprovalGateCoordinator` accepts an optional `ApprovalFailureObserver`:
+
+```kotlin
+fun interface ApprovalFailureObserver {
+    fun record(operation: String, approvalId: String?, failure: RuntimeException)
+}
+```
+
+- Records the original exception before it is sanitized into a safe exception.
+- Called in every catch block: `createApproval()`, `authorizeResume()` store.get, `authorizeResume()` store.consumeApproved.
+- Trusted diagnostic SPI. Not part of the public API contract.
+
+### mapStoreError
+
+```kotlin
+private fun mapStoreError(
+    approvalId: String,
+    exception: RuntimeException,
+): RuntimeException {
+    return when (exception) {
+        is ApprovalStoreNotFoundException -> ApprovalNotFoundException(approvalId)
+        is ApprovalStoreTokenRejectedException -> ApprovalTokenRejectedException(approvalId)
+        is ApprovalStoreConflictException -> ApprovalAuthorizationException(approvalId)
+        is ApprovalStoreNotConsumableException -> ApprovalAuthorizationException(approvalId)
+        else -> ApprovalAuthorizationException(approvalId)
+    }
+}
+```
+
+No `cause` parameter passed to safe constructors. Original exception is discarded after observer recording.
+
+### Non-Interfering Diagnostic Observer (PR #15)
+
+```kotlin
+private fun observeFailure(
+    operation: String,
+    approvalId: String?,
+    failure: RuntimeException,
+) {
+    try {
+        failureObserver?.record(operation, approvalId, failure)
+    } catch (_: RuntimeException) {
+        // Diagnostic observers must not replace safe public failures.
+    }
+}
+```
+
+The `observeFailure()` helper wraps all `failureObserver?.record()` calls in `try/catch` catching only `RuntimeException`, so a throwing observer can never bypass the safe public exception boundary. If the observer throws a `RuntimeException`, it is silently swallowed and the caller always receives the safe exception. Fatal `Error` types are NOT caught — they propagate to the caller.
+
+### Consumed-Result Contract Validation (PR #15)
+
+After `store.consumeApproved()` returns, the coordinator validates the consumed result against the command and stored request:
+
+```kotlin
+if (consumed.approvalId != command.approvalId) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.binding != request.binding) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.status != ApprovalStatus.APPROVED) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.consumedBy != command.consumedBy) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.consumedAt == null) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.version != Math.addExact(command.expectedVersion, 1L)) throw ApprovalAuthorizationException(command.approvalId)
+```
+
+All 6 checks use the fixed safe message. No mismatch details are exposed to the caller. 7 fake-store tests verify each contract breach.
 
 ## Original Design (Phase 0) — Approval Request — Full Binding
 
