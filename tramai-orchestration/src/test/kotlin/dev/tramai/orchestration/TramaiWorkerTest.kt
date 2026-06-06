@@ -537,7 +537,12 @@ class TramaiWorkerTest {
         }
 
         assertThat(shutdownMillis).isLessThan(250)
-        delay(450)
+        waitUntil {
+            checkpointStore.load(workflow.name, runId) != null &&
+                checkpointStore.latestStepAttempt(runId, "blocking")?.status in
+                setOf(StepAttemptStatus.CANCELLED, StepAttemptStatus.FAILED) &&
+                leaseStore.listActiveWorkers().isEmpty()
+        }
         assertThat(checkpointStore.load(workflow.name, runId)).isNotNull()
         assertThat(checkpointStore.latestStepAttempt(runId, "blocking")?.status)
             .isIn(StepAttemptStatus.CANCELLED, StepAttemptStatus.FAILED)

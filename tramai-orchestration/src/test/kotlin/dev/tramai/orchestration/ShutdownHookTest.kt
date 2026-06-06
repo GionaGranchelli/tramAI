@@ -10,7 +10,9 @@ class ShutdownHookTest {
     @Test
     fun `shutdown fires observer events in correct order`() = runBlocking {
         val events = mutableListOf<String>()
+        val workerStarted = java.util.concurrent.CountDownLatch(1)
         val observer = object : TramaiWorkerObserver {
+            override fun onWorkerStarted(workerId: String) { workerStarted.countDown() }
             override fun onShutdownStarted(workerId: String) { events.add("started") }
             override fun onDrainProgress(workerId: String, done: Int, pending: Int) { events.add("drain") }
             override fun onShutdownComplete(workerId: String) { events.add("complete") }
@@ -25,7 +27,7 @@ class ShutdownHookTest {
         }
         val worker = makeWorker("worker-1", leaseStore, store, workflow, observability = observer)
         worker.start()
-        delay(100)
+        workerStarted.await()
         worker.shutdown()
         assertThat(events).containsExactly("started", "drain", "complete")
     }
@@ -33,7 +35,9 @@ class ShutdownHookTest {
     @Test
     fun `close fires shutdown events in correct order`() = runBlocking {
         val events = mutableListOf<String>()
+        val workerStarted = java.util.concurrent.CountDownLatch(1)
         val observer = object : TramaiWorkerObserver {
+            override fun onWorkerStarted(workerId: String) { workerStarted.countDown() }
             override fun onShutdownStarted(workerId: String) { events.add("started") }
             override fun onDrainProgress(workerId: String, done: Int, pending: Int) { events.add("drain") }
             override fun onShutdownComplete(workerId: String) { events.add("complete") }
@@ -48,7 +52,7 @@ class ShutdownHookTest {
         }
         val worker = makeWorker("worker-2", leaseStore, store, workflow, observability = observer)
         worker.start()
-        delay(100)
+        workerStarted.await()
         worker.close()
         assertThat(events).containsExactly("started", "drain", "complete")
     }
