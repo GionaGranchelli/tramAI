@@ -422,7 +422,7 @@ ApprovalCreationException(approvalId?)                         — fixed safe me
 
 Raw tokens, token digests, arguments, and workflow payloads are NEVER included in exception messages or cause chains.
 
-### ApprovalFailureObserver (internal diagnostic SPI)
+### ApprovalFailureObserver (trusted diagnostic SPI)
 
 `DefaultApprovalGateCoordinator` accepts an optional `ApprovalFailureObserver`:
 
@@ -434,7 +434,7 @@ fun interface ApprovalFailureObserver {
 
 - Records the original exception before it is sanitized into a safe exception.
 - Called in every catch block: `createApproval()`, `authorizeResume()` store.get, `authorizeResume()` store.consumeApproved.
-- Internal-only diagnostic SPI. Not part of the public API contract.
+- Trusted diagnostic SPI. Not part of the public API contract.
 
 ### mapStoreError
 
@@ -483,7 +483,7 @@ if (consumed.binding != request.binding) throw ApprovalAuthorizationException(co
 if (consumed.status != ApprovalStatus.APPROVED) throw ApprovalAuthorizationException(command.approvalId)
 if (consumed.consumedBy != command.consumedBy) throw ApprovalAuthorizationException(command.approvalId)
 if (consumed.consumedAt == null) throw ApprovalAuthorizationException(command.approvalId)
-if (consumed.version != command.expectedVersion + 1) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.version != Math.addExact(command.expectedVersion, 1L)) throw ApprovalAuthorizationException(command.approvalId)
 ```
 
 All 6 checks use the fixed safe message. No mismatch details are exposed to the caller. 7 fake-store tests verify each contract breach.

@@ -828,7 +828,7 @@ if (consumed.binding != request.binding) throw ApprovalAuthorizationException(co
 if (consumed.status != ApprovalStatus.APPROVED) throw ApprovalAuthorizationException(command.approvalId)
 if (consumed.consumedBy != command.consumedBy) throw ApprovalAuthorizationException(command.approvalId)
 if (consumed.consumedAt == null) throw ApprovalAuthorizationException(command.approvalId)
-if (consumed.version != command.expectedVersion + 1) throw ApprovalAuthorizationException(command.approvalId)
+if (consumed.version != Math.addExact(command.expectedVersion, 1L)) throw ApprovalAuthorizationException(command.approvalId)
 ```
 
 - All 6 checks use the fixed safe message `"Approval authorization failed"`.
