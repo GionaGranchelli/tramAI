@@ -15,6 +15,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -1227,5 +1228,47 @@ class InMemoryApprovalStoreTest {
         assertThatIllegalArgumentException()
             .isThrownBy { runBlocking { store.create(request) } }
             .withMessageContaining("must not contain control characters")
+    }
+
+    // -----------------------------------------------------------------------
+    // Version overflow (Math.addExact) test
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `transition with stored version at Long MAX_VALUE throws ArithmeticException`() : Unit = runBlocking {
+        store.create(aPendingRequest(approvalId = "overflow-transition"))
+        corruptVersion("overflow-transition", Long.MAX_VALUE)
+
+        assertThatThrownBy {
+            runBlocking {
+                store.transition("overflow-transition", Long.MAX_VALUE, ApprovalTransition.Approve("user-2"))
+            }
+        }.isInstanceOf(ArithmeticException::class.java)
+    }
+
+    @Test
+    fun `consumeApproved with stored version at Long MAX_VALUE throws ArithmeticException`() : Unit = runBlocking {
+        store.create(aPendingRequest(approvalId = "overflow-consume"))
+        store.transition("overflow-consume", 0L, ApprovalTransition.Approve("user-2"))
+        corruptVersion("overflow-consume", Long.MAX_VALUE)
+
+        assertThatThrownBy {
+            runBlocking {
+                store.consumeApproved(
+                    "overflow-consume", Long.MAX_VALUE,
+                    Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                    "consumer-1",
+                )
+            }
+        }.isInstanceOf(ArithmeticException::class.java)
+    }
+
+    private fun corruptVersion(approvalId: String, version: Long) {
+        val field = InMemoryApprovalStore::class.java.getDeclaredField("store")
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val map = field.get(store) as ConcurrentHashMap<String, ApprovalRequest>
+        val existing = map[approvalId]!!
+        map[approvalId] = existing.copy(version = version)
     }
 }

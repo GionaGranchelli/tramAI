@@ -31,3 +31,12 @@ jobs:
 
       - name: Run example smoke test
         run: ./gradlew -p examples/kotlin-springboot-example test
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            **/build/test-results/test/
+            **/build/reports/tests/test/

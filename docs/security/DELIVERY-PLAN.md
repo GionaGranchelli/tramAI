@@ -703,13 +703,13 @@ Any mismatch throws `ApprovalBindingMismatchException(approvalId, field)` and th
 
 ### Safe Exceptions
 
-| Exception | Properties | Secret-free? |
-|-----------|------------|-------------|
-| `ApprovalNotFoundException(approvalId)` | `approvalId` only | ✅ |
-| `ApprovalBindingMismatchException(approvalId, field)` | `approvalId`, `field` name | ✅ |
-| `ApprovalTokenRejectedException(approvalId)` | `approvalId` only | ✅ |
-| `ApprovalAuthorizationException(approvalId)` | `approvalId` (nullable), cause | ✅ |
-| `ApprovalStoreException(approvalId)` | abstract base with `approvalId` | ✅ |
+|| Exception | Properties | Secret-free? |
+||-----------|------------|-------------|
+|| `ApprovalNotFoundException(approvalId)` | `approvalId` only | ✅ |
+|| `ApprovalBindingMismatchException(approvalId, field)` | `approvalId`, `field` name | ✅ |
+|| `ApprovalTokenRejectedException(approvalId)` | `approvalId` only | ✅ |
+|| `ApprovalAuthorizationException(approvalId?)` | `approvalId?` only | ✅ |
+|| `ApprovalStoreException(approvalId)` | abstract base with `approvalId` | ✅ |
 
 Raw tokens, token digests, arguments, and workflow payloads are NEVER included in exception messages.
 
@@ -797,7 +797,7 @@ ApprovalCreationException(approvalId?)                         — fixed safe me
 
 ### Non-Interfering Diagnostic Observer (PR #15)
 
-The `observeFailure()` helper wraps all `failureObserver?.record()` calls in `runCatching {}` so a throwing observer can never bypass the safe public exception boundary:
+The `observeFailure()` helper wraps all `failureObserver?.record()` calls in `try/catch` catching only `RuntimeException`, so a throwing observer can never bypass the safe public exception boundary. Fatal `Error` types are NOT caught — they propagate to the caller:
 
 ```kotlin
 private fun observeFailure(
@@ -805,14 +805,17 @@ private fun observeFailure(
     approvalId: String?,
     failure: RuntimeException,
 ) {
-    runCatching {
+    try {
         failureObserver?.record(operation, approvalId, failure)
+    } catch (_: RuntimeException) {
+        // Diagnostic observers must not replace safe public failures.
     }
 }
 ```
 
 - Called in every catch block: `createApproval()`, `authorizeResume()` store.get, `authorizeResume()` store.consumeApproved.
-- If the observer throws, the exception is silently swallowed. The caller always receives the safe exception.
+- If the observer throws a `RuntimeException`, it is silently swallowed. The caller always receives the safe exception.
+- If the observer throws `Error`, it propagates uncaught — the coordinator call itself will throw the `Error`.
 - Tests verify that an observer throwing `RuntimeException("observer-secret-marker")` does not leak the marker into the exception message, `toString()`, or cause chain.
 
 ### Consumed-Result Contract Validation (PR #15)
@@ -851,9 +854,9 @@ private fun containsSecret(throwable: Throwable, secret: String): Boolean {
 
 - 4 tests verify that `"secret"` is absent from the full exception tree for leaky store.get(), store.create(), store.consumeApproved(), and throwing observer paths.
 
-### Test Coverage (60+ tests)
+### Test Coverage (58+ tests)
 
-**ApprovalFailureObserver (internal diagnostic SPI):**
+**ApprovalFailureObserver (trusted diagnostic SPI):**
 
 ```kotlin
 fun interface ApprovalFailureObserver {
@@ -864,7 +867,7 @@ fun interface ApprovalFailureObserver {
 - Optional `failureObserver` parameter on `DefaultApprovalGateCoordinator`.
 - Records the original exception before it is sanitized.
 - Called in every catch block in `createApproval()` and `authorizeResume()`.
-- Internal-only. Not part of the public API contract.
+- Trusted diagnostic SPI. Not part of the public API contract.
 - Implementations must not leak sensitive data through external channels.
 
 **Bounded TTL in InMemoryApprovalStore:**
@@ -872,12 +875,12 @@ fun interface ApprovalFailureObserver {
 - Added `maxCreationTtl: Duration = Duration.ofMinutes(15)` constructor parameter.
 - `create()` validates that `expiresAt - requestedAt <= maxCreationTtl`.
 - Defense-in-depth: callers that bypass the coordinator are still bounded.
-### Test Coverage (75+ tests)
 
 - **ApprovalTokenTest** (11): toString, blank, whitespace in token, leading whitespace, trailing whitespace, tab rejected, non-whitespace control char, control chars, oversized, reveal, format
 - **SecureRandomApprovalTokenGeneratorTest** (7): non-blank, 256-bit entropy, uniqueness, URL-safe, tokenBytes below 32 rejected, tokenBytes at 32 accepted, tokenBytes at 64 accepted
 - **Sha256ApprovalTokenDigesterTest** (5): known vector, deterministic, different, format, no leakage
-- **DefaultApprovalGateCoordinatorTest** (54): create (15) + authorizeResume (23) + exception taxonomy (3) + observer (2) + consumed-result contract validation (7) + recursive leakage (4)
+- **DefaultApprovalGateCoordinatorTest** (58): create (15) + authorizeResume (23) + exception taxonomy (3) + observer (5: existing 2 + RuntimeException swallowed, safe public exception visible, Error not swallowed) + consumed-result contract validation (7) + recursive leakage (4) + version overflow (1: Long.MAX_VALUE rejected)
+- **InMemoryApprovalStoreTest** (added 2 version-overflow tests)
 - **ApprovalDecisionValidatorTest** (3): AllowAny, RequireDistinct rejects same, accepts different
 
 ## Epic 4: Audit Engine

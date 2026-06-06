@@ -106,6 +106,7 @@ class DefaultApprovalGateCoordinator(
         validateIdField(command.toolName, "toolName")
         validateIdField(command.policyVersion, "policyVersion")
         require(command.expectedVersion >= 0) { "expectedVersion must be non-negative" }
+        require(command.expectedVersion < Long.MAX_VALUE) { "expectedVersion must be less than Long.MAX_VALUE" }
 
         val request = try {
             store.get(command.approvalId)
@@ -135,7 +136,7 @@ class DefaultApprovalGateCoordinator(
         if (consumed.status != ApprovalStatus.APPROVED) throw ApprovalAuthorizationException(command.approvalId)
         if (consumed.consumedBy != command.consumedBy) throw ApprovalAuthorizationException(command.approvalId)
         if (consumed.consumedAt == null) throw ApprovalAuthorizationException(command.approvalId)
-        if (consumed.version != command.expectedVersion + 1) throw ApprovalAuthorizationException(command.approvalId)
+        if (consumed.version != Math.addExact(command.expectedVersion, 1L)) throw ApprovalAuthorizationException(command.approvalId)
 
         return ApprovalAuthorization(
             approvalId = consumed.approvalId,
@@ -184,8 +185,10 @@ class DefaultApprovalGateCoordinator(
         approvalId: String?,
         failure: RuntimeException,
     ) {
-        runCatching {
+        try {
             failureObserver?.record(operation, approvalId, failure)
+        } catch (_: RuntimeException) {
+            // Diagnostic observers must not replace safe public failures.
         }
     }
 

@@ -368,10 +368,10 @@ interface ApprovalGateCoordinator {
 | Exception boundary hardening | Sealed store exceptions separated from safe public exceptions; cause-chain sanitized |
 | Approval lifetime | `maxApprovalTtl: Duration` parameter (default 15 min) bounds `expiresAt` |
 | AuthorizeResume validation | All 5 ID fields + `expectedVersion >= 0` validated before store interaction |
-| Exception hierarchy | Sealed `ApprovalStoreException` subtypes + safe coordinator-facing `ApprovalException` subclasses |
-| SPI boundaries | `ApprovalTokenGenerator`, `ApprovalTokenDigester`, `ApprovalDecisionValidator`, `ApprovalStore`, `ApprovalIdGenerator` documented as trusted computing-base extensions |
-| Diagnostic observer | `ApprovalFailureObserver` records original failures before sanitization; wrapped in `runCatching` for non-interference |
-| Consumed-result validation | Full 6-field contract check after `store.consumeApproved()` — approvalId, binding, status, consumedBy, consumedAt, version |
+|| Exception hierarchy | Sealed `ApprovalStoreException` subtypes + safe coordinator-facing `ApprovalException` subclasses |
+|| SPI boundaries | `ApprovalTokenGenerator`, `ApprovalTokenDigester`, `ApprovalDecisionValidator`, `ApprovalStore`, `ApprovalIdGenerator` documented as trusted computing-base extensions |
+|| Diagnostic observer | `ApprovalFailureObserver` records original failures before sanitization; wrapped in `RuntimeException`-only try/catch for non-interference |
+|| Consumed-result validation | Full 6-field contract check after `store.consumeApproved()` — approvalId, binding, status, consumedBy, consumedAt, version |
 | Recursive leakage traversal | `containsSecret()` helper traverses message, toString(), suppressed, and cause chain |
 | Bounded store TTL | `InMemoryApprovalStore` validates `maxCreationTtl` as defense-in-depth |
 | InMemoryApprovalStore init | `require(maxCreationTtl > Duration.ZERO)` added to reject zero/negative TTL at construction |
@@ -463,13 +463,15 @@ private fun observeFailure(
     approvalId: String?,
     failure: RuntimeException,
 ) {
-    runCatching {
+    try {
         failureObserver?.record(operation, approvalId, failure)
+    } catch (_: RuntimeException) {
+        // Diagnostic observers must not replace safe public failures.
     }
 }
 ```
 
-The `observeFailure()` helper wraps all `failureObserver?.record()` calls in `runCatching {}` so a throwing observer can never bypass the safe public exception boundary. If the observer throws, the exception is silently swallowed and the caller always receives the safe exception.
+The `observeFailure()` helper wraps all `failureObserver?.record()` calls in `try/catch` catching only `RuntimeException`, so a throwing observer can never bypass the safe public exception boundary. If the observer throws a `RuntimeException`, it is silently swallowed and the caller always receives the safe exception. Fatal `Error` types are NOT caught — they propagate to the caller.
 
 ### Consumed-Result Contract Validation (PR #15)
 

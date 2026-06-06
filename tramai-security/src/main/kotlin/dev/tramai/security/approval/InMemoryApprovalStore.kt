@@ -122,7 +122,7 @@ class InMemoryApprovalStore(
 
             req.copy(
                 status = nextStatus,
-                version = req.version + 1,
+                version = Math.addExact(req.version, 1L),
                 decidedAt = when (transition) {
                     is ApprovalTransition.Approve -> now
                     is ApprovalTransition.Deny -> now
@@ -176,7 +176,7 @@ class InMemoryApprovalStore(
             req.copy(
                 consumedBy = consumedBy,
                 consumedAt = now,
-                version = req.version + 1,
+                version = Math.addExact(req.version, 1L),
             )
         }
 

@@ -681,6 +681,96 @@ class DefaultApprovalGateCoordinatorTest {
     }
 
     @Test
+    fun `RuntimeException from observer is swallowed`() : Unit = runBlocking {
+        val throwingObserver = ApprovalFailureObserver { _, _, _ ->
+            throw RuntimeException("observer-secret-marker")
+        }
+        val leakyStore = object : ApprovalStore by store {
+            override suspend fun get(approvalId: String): ApprovalRequest? {
+                throw RuntimeException("store-secret-marker")
+            }
+        }
+        val coord = coordinator(
+            store = leakyStore,
+            failureObserver = throwingObserver,
+        )
+
+        val ex = runCatching {
+            coord.authorizeResume(authorizeCommand(approvedChallenge()))
+        }.exceptionOrNull()
+
+        assertThat(ex).isInstanceOf(ApprovalAuthorizationException::class.java)
+        assertThat(ex!!.message).doesNotContain("observer-secret-marker")
+        assertThat(ex!!.cause).isNull()
+    }
+
+    @Test
+    fun `safe public exception remains visible`() : Unit = runBlocking {
+        val safeObserver = ApprovalFailureObserver { _, _, _ -> }
+        val leakyStore = object : ApprovalStore by store {
+            override suspend fun get(approvalId: String): ApprovalRequest? {
+                throw RuntimeException("store-secret-marker")
+            }
+        }
+        val coord = coordinator(
+            store = leakyStore,
+            failureObserver = safeObserver,
+        )
+
+        assertThatThrownBy {
+            runBlocking { coord.authorizeResume(authorizeCommand(approvedChallenge())) }
+        }
+            .isInstanceOf(ApprovalAuthorizationException::class.java)
+            .hasMessage("Approval authorization failed")
+    }
+
+    @Test
+    fun `Error from observer is not swallowed`() : Unit = runBlocking {
+        val throwingObserver = ApprovalFailureObserver { _, _, _ ->
+            throw Error("fatal-error")
+        }
+        val leakyStore = object : ApprovalStore by store {
+            override suspend fun get(approvalId: String): ApprovalRequest? {
+                throw RuntimeException("store-secret-marker")
+            }
+        }
+        val coord = coordinator(
+            store = leakyStore,
+            failureObserver = throwingObserver,
+        )
+
+        assertThatThrownBy {
+            runBlocking { coord.authorizeResume(authorizeCommand(approvedChallenge())) }
+        }
+            .isInstanceOf(Error::class.java)
+            .hasMessage("fatal-error")
+    }
+
+    @Test
+    fun `Long MAX_VALUE expectedVersion rejected`() : Unit = runBlocking {
+        val challenge = approvedChallenge()
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    coordinator.authorizeResume(
+                        authorizeCommand(challenge, expectedVersion = Long.MAX_VALUE),
+                    )
+                }
+            }
+            .withMessage("expectedVersion must be less than Long.MAX_VALUE")
+    }
+
+    @Test
+    fun `normal version 0 to 1 to 2 path still succeeds`() : Unit = runBlocking {
+        val challenge = coordinator.createApproval(createCommand())
+        store.transition(fixedApprovalId, 0L, ApprovalTransition.Approve("approver", "approved"))
+
+        val auth1 = coordinator.authorizeResume(authorizeCommand(challenge, expectedVersion = 1L))
+        assertThat(auth1.version).isEqualTo(2L)
+    }
+
+    @Test
     fun `throwing failureObserver does not bypass safe exception on authorizeResume`() : Unit = runBlocking {
         val throwingObserver = ApprovalFailureObserver { _, _, _ ->
             throw RuntimeException("observer-secret-marker")
