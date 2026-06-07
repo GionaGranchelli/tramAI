@@ -1060,8 +1060,8 @@ class InMemoryApprovalContinuationStoreTest {
     }
 
     @Test
-    fun `concurrent sweep and claim allow at most one payload winner`() : Unit = runBlocking {
-        val raw = """{"sensitiveField":"race-secret"}"""
+    fun `concurrent sweep and late claim expire exactly once and never release payload`() : Unit = runBlocking {
+        val raw = """{"sensitiveField":"race-value"}"""
         createPendingContinuation(
             approvalId = "sweep-claim-race",
             argumentsJson = raw,
@@ -1076,32 +1076,26 @@ class InMemoryApprovalContinuationStoreTest {
         }
         val claimResult = async(Dispatchers.Default) {
             latch.await()
-            runCatching { store.claimForExecution("sweep-claim-race", 0L, "runner-1") }
+            runCatching {
+                store.claimForExecution("sweep-claim-race", 0L, "runner-1")
+            }
         }
 
         latch.countDown()
+
         val sweep = sweepResult.await().getOrThrow()
         val claim = claimResult.await()
-
-        val payloadWinnerCount =
-            listOf(
-                if (sweep == 1) 1 else 0,
-                if (claim.isSuccess) 1 else 0,
-            ).sum()
         val stored = readStored("sweep-claim-race")!!
 
-        assertThat(payloadWinnerCount).isIn(0, 1)
+        assertThat(sweep).isIn(0, 1)
+        assertThat(claim.exceptionOrNull())
+            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+
+        assertThat(stored.continuation.status)
+            .isEqualTo(ApprovalContinuationStatus.EXPIRED)
+        assertThat(stored.continuation.version).isEqualTo(1L)
         assertThat(stored.arguments).isNull()
         assertThat(claim.exceptionOrNull()?.message ?: "").doesNotContain(raw)
-        if (claim.isSuccess) {
-            assertThat(sweep).isEqualTo(0)
-            assertThat(claim.getOrThrow().arguments.reveal()).isEqualTo(raw)
-            assertThat(stored.continuation.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
-        } else {
-            assertThat(claim.exceptionOrNull())
-                .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
-            assertThat(stored.continuation.status).isEqualTo(ApprovalContinuationStatus.EXPIRED)
-        }
     }
 
     @Test
