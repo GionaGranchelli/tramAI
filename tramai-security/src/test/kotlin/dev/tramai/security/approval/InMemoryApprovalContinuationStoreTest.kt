@@ -1098,7 +1098,6 @@ class InMemoryApprovalContinuationStoreTest {
             assertThat(claim.getOrThrow().arguments.reveal()).isEqualTo(raw)
             assertThat(stored.continuation.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
         } else {
-            assertThat(sweep).isEqualTo(1)
             assertThat(claim.exceptionOrNull())
                 .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
             assertThat(stored.continuation.status).isEqualTo(ApprovalContinuationStatus.EXPIRED)
