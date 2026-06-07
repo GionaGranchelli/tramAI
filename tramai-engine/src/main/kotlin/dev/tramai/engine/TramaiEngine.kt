@@ -1278,7 +1278,7 @@ internal class TramaiInvocationHandler(
             val toolResult = if (tool == null) {
                 ToolResult.PermanentFailure("Tool '<unregistered>' not found")
             } else {
-                executeTool(tool, toolCall, operation, correlationId, securityContext, identity)
+                executeTool(tool, toolCall, operation, correlationId, securityContext, identity, messages)
             }
 
             // Enforce BEFORE_TOOL_RESULT_REINJECTION
@@ -1868,6 +1868,7 @@ internal class TramaiInvocationHandler(
         correlationId: String,
         securityContext: ExecutionSecurityContext,
         identity: EngineExecutionIdentity,
+        messages: List<Message>,
     ): ToolResult {
         val input = toolCall.argumentsJson
         val maxAttempts = if (tool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
@@ -1900,7 +1901,7 @@ internal class TramaiInvocationHandler(
                     input = input,
                     identity = identity,
                     toolCallIndex = -1, // single tool execution, not batch
-                    messages = emptyList(), // messages not available at this level
+                    messages = messages,
                     timeoutMillis = policyDecision.requirement.timeoutMillis,
                 )
             }
@@ -2258,7 +2259,7 @@ internal class TramaiInvocationHandler(
                 challenge = ApprovalChallenge(
                     approvalId = command.approvalId,
                     token = command.presentedToken,
-                    expiresAt = clock.instant().plus(java.time.Duration.ofHours(1)),
+                    expiresAt = clock.instant().plusMillis(resumeDecision.requirement.timeoutMillis),
                 ),
                 approvalId = command.approvalId,
                 workflowRunId = suspended.identity.workflowRunId,

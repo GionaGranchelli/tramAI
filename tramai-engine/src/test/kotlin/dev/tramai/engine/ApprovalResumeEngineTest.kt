@@ -323,7 +323,7 @@ class ApprovalResumeEngineTest {
         // Second resume fails - continuation is already COMPLETED or invocation removed
         assertThatThrownBy {
             runBlocking { engine.resumeApproval(command) }
-        }.isInstanceOf(Exception::class.java)
+        }.isInstanceOf(dev.tramai.core.exception.ApprovalNotFoundException::class.java)
     }
 
     // ── Service Interface ──────────────────────────────────────────
