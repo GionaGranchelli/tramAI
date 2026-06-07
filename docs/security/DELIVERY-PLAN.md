@@ -1148,9 +1148,14 @@ In streaming execution, `BEFORE_RESPONSE_RETURN` is evaluated as an egress prefl
 
 ---
 
-## Implementation Notes — Approval Continuation Store Foundation (PR #16) ✅
+## Implementation Notes — `feat(approval): add continuation-store foundation for resumable tool execution` (PR #16) ✅
 
 **Branch:** `feat/approval-continuation-store`
+
+**PR Description:**
+- Add approval continuation metadata/payload split so resumable tool execution can recover exact raw tool arguments without exposing them through normal reads.
+- Introduce one-time claim semantics, metadata-only reads, explicit completion/expiry/cancel transitions, and sweep-based expiry cleanup for suspended executions.
+- Harden the store contract with claimant fencing on completion, UTF-8 byte-bounded payload validation, and regression coverage for leakage and concurrency edge cases.
 
 **Where:**
 - `tramai-core/.../approval/` — SensitiveToolArguments, ToolArgumentsDigester (SPI), ApprovalContinuationStatus, ApprovalContinuation, ApprovalContinuationStore (SPI)
@@ -1206,7 +1211,7 @@ class SensitiveToolArguments private constructor(
     override fun toString(): String = "[REDACTED]"
     companion object {
         fun of(raw: String): SensitiveToolArguments
-        private const val MAX_TOOL_ARGUMENTS_LENGTH = 1_000_000
+        private const val MAX_TOOL_ARGUMENTS_BYTES = 1_000_000
     }
 }
 ```
@@ -1250,6 +1255,12 @@ interface ApprovalContinuationStore {
         expectedVersion: Long,
         claimedBy: String,
     ): ClaimedApprovalContinuation
+
+    suspend fun complete(
+        approvalId: String,
+        expectedVersion: Long,
+        completedBy: String,
+    ): ApprovalContinuation
 }
 ```
 
@@ -1317,8 +1328,10 @@ store.compute(approvalId) { _, current ->
 
 A continuation in `CLAIMED` status means a runner has claimed it but has not yet reported completion. If the runner crashes or times out between claim and completion, the continuation remains `CLAIMED` indefinitely. Future PR #17 will handle this through:
 - Claim timeout detection
-- Manual override (admin cancel + restart)
+- A separate privileged recovery transition such as `forceCancelClaimed()` or equivalent explicit recovery operation
 - Idempotency keys for safe retry
+
+PR #17 should carry an explicit acceptance criterion for claimed-continuation recovery. Broadening ordinary `cancel()` to operate on `CLAIMED` records would blur the security boundary between normal pre-claim cancellation and privileged recovery of uncertain post-claim execution state.
 
 ### No automatic retry after CLAIMED
 

@@ -17,6 +17,7 @@ interface ApprovalContinuationStore {
     suspend fun complete(
         approvalId: String,
         expectedVersion: Long,
+        completedBy: String,
     ): ApprovalContinuation
 
     suspend fun expire(

@@ -125,8 +125,13 @@ class InMemoryApprovalContinuationStore(
         return claimed ?: throw ApprovalContinuationConflictException(approvalId)
     }
 
-    override suspend fun complete(approvalId: String, expectedVersion: Long): ApprovalContinuation {
+    override suspend fun complete(
+        approvalId: String,
+        expectedVersion: Long,
+        completedBy: String,
+    ): ApprovalContinuation {
         validateIdentifier(approvalId, "approvalId")
+        validateIdentifier(completedBy, "completedBy")
         return store.compute(approvalId) { _, current ->
             val stored = current ?: throw ApprovalContinuationNotFoundException(approvalId)
             val continuation = stored.continuation
@@ -136,6 +141,9 @@ class InMemoryApprovalContinuationStore(
                 throw ApprovalContinuationNotCompletableException(approvalId)
             }
             if (continuation.claimedAt == null || continuation.claimedBy == null || continuation.completedAt != null) {
+                throw ApprovalContinuationNotCompletableException(approvalId)
+            }
+            if (continuation.claimedBy != completedBy) {
                 throw ApprovalContinuationNotCompletableException(approvalId)
             }
             if (stored.arguments != null) {
