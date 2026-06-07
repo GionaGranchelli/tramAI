@@ -1362,7 +1362,7 @@ This PR (#16) provides the continuation store only. The following are explicitly
 
 ### Test Coverage (32+ tests)
 
-- **SensitiveToolArgumentsTest (6):** toString redacted, reveal returns original, whitespace preserved, empty permitted, oversized rejected, raw JSON absent from toString
+- **SensitiveToolArgumentsTest (7):** toString redacted, reveal returns original, whitespace preserved, empty permitted, oversized rejected, multibyte UTF-8 byte-boundary accepted, raw JSON absent from toString
 - **Sha256ToolArgumentsDigesterTest (6):** known SHA-256 vector, deterministic output, whitespace changes digest, key-order changes digest, typed output, raw JSON absent from output
 - **InMemoryApprovalContinuationStoreTest:** validation coverage, leakage coverage, exact-raw winner semantics, metadata-only `get()`, and scrubbing assertions for claim, complete, expire, cancel, and concurrent claim races
 

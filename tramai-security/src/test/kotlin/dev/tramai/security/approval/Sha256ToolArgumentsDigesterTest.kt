@@ -47,7 +47,7 @@ class Sha256ToolArgumentsDigesterTest {
 
     @Test
     fun `raw json absent from digest output and exceptions`() {
-        val raw = """{"apiKey":"secret"}"""
+        val raw = """{"sensitiveField":"fixture-value"}"""
         val digest = digester.digest(SensitiveToolArguments.of(raw))
 
         assertThat(digest.value).doesNotContain(raw)

@@ -9,7 +9,7 @@ class SensitiveToolArgumentsTest {
 
     @Test
     fun `toString returns redacted`() {
-        val arguments = SensitiveToolArguments.of("""{"token":"secret"}""")
+        val arguments = SensitiveToolArguments.of("""{"sensitiveField":"fixture-value"}""")
 
         assertThat(arguments.toString()).isEqualTo("[REDACTED]")
     }
