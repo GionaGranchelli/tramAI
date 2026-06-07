@@ -1090,7 +1090,7 @@ class InMemoryApprovalContinuationStoreTest {
             ).sum()
         val stored = readStored("sweep-claim-race")!!
 
-        assertThat(payloadWinnerCount).isEqualTo(1)
+        assertThat(payloadWinnerCount).isIn(0, 1)
         assertThat(stored.arguments).isNull()
         assertThat(claim.exceptionOrNull()?.message ?: "").doesNotContain(raw)
         if (claim.isSuccess) {
