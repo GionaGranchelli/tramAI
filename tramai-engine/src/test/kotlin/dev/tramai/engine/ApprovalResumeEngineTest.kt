@@ -94,7 +94,7 @@ class ApprovalResumeEngineTest {
                 return PolicyDecision.RequireApproval(
                     ApprovalRequirement(
                         toolName = toolExecApprovalToolName,
-                        argumentsDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                        argumentsDigest = "sha256:12e49c0f5b1f1c5a753a1e98fb8e94a06c58b35c8432b77270d412d5d295e3b9",
                         reason = "testing",
                         timeoutMillis = 60_000,
                     )
@@ -131,11 +131,24 @@ class ApprovalResumeEngineTest {
     private val digester = Sha256ToolArgumentsDigester()
     private val suspendedInvocationStore = InMemorySuspendedInvocationStore()
     private val policyEngine = SelectivePolicyEngine(toolExecApprovalToolName = toolName)
-    private val provider = RecordingProvider { request ->
-        ModelResponse(
-            content = "",
-            toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
-        )
+    /**
+     * Tracks provider call count so the first call triggers suspension (via tool calls)
+     * and subsequent calls during resume return a final response without tool calls.
+     */
+    private var providerCallCount = 0
+
+    private val provider = RecordingProvider { _ ->
+        providerCallCount++
+        if (providerCallCount == 1) {
+            // First call: return tool calls to trigger suspension
+            ModelResponse(
+                content = "",
+                toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+            )
+        } else {
+            // Subsequent calls during resume: return a final content-only response
+            ModelResponse(content = "Final result: success")
+        }
     }
 
     private fun createEngine(): TramaiEngine = TramaiEngine(

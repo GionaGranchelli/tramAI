@@ -72,7 +72,7 @@ class ApprovalSuspensionEngineTest {
         private val decisionForTool: PolicyDecision = PolicyDecision.RequireApproval(
             ApprovalRequirement(
                 toolName = "test_lookup",
-                argumentsDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                argumentsDigest = "sha256:32dbb74c5960541dfc053509d44ed8b8e0471ad33d4bd7c6ab5ef8c568f45bd6",
                 reason = "testing",
                 timeoutMillis = 60_000,
             ),
@@ -182,8 +182,8 @@ class ApprovalSuspensionEngineTest {
         val suspended = runBlocking { suspendedInvocationStore.get(exception.approvalId) }
         assertThat(suspended).isNotNull
         assertThat(suspended!!.approvalId).isEqualTo(exception.approvalId)
-        assertThat(suspended.tool.name).isEqualTo(toolName)
-        assertThat(suspended.toolCall.id).isEqualTo(toolCallId)
+        assertThat(suspended.toolName).isEqualTo(toolName)
+        assertThat(suspended.toolCallId).isEqualTo(toolCallId)
     }
 
     @Test

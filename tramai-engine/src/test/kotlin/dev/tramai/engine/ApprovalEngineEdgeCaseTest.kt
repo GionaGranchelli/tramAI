@@ -88,7 +88,7 @@ class ApprovalEngineEdgeCaseTest {
         private val toolExecDecision: PolicyDecision = PolicyDecision.RequireApproval(
             ApprovalRequirement(
                 toolName = "test_tool",
-                argumentsDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                argumentsDigest = "sha256:e43abcf3375244839c012f9633f95862d232a95b00d5bc7348b3098b9fed7f32",
                 reason = "testing",
                 timeoutMillis = 60_000,
             ),
@@ -190,10 +190,10 @@ class ApprovalEngineEdgeCaseTest {
         // Tool must NOT have been executed
         assertThat(tool.invocations).isEmpty()
 
-        // Continuation stays in PENDING (it was not claimed)
+        // Continuation is CANCELLED (R4 compensation closes it on deny)
         val continuation = runBlocking { continuationStore.get(exception.approvalId) }
         assertThat(continuation).isNotNull
-        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.CANCELLED)
     }
 
     @Test
@@ -274,13 +274,16 @@ class ApprovalEngineEdgeCaseTest {
         // is created, the continuation still exists (no leak of un-tracked state)
         val fragileStore = object : SuspendedInvocationStore {
             var created = false
-            override suspend fun create(invocation: SuspendedInvocation): SuspendedInvocation {
+            override suspend fun create(
+                metadata: SuspendedInvocationMetadata,
+                sensitiveContext: SensitiveResumeContext,
+            ) {
                 if (created) throw RuntimeException("simulated store failure on second usage")
                 created = true
-                return invocation
             }
-            override suspend fun get(approvalId: String): SuspendedInvocation? = null
-            override suspend fun remove(approvalId: String): SuspendedInvocation? = null
+            override suspend fun get(approvalId: String): SuspendedInvocationMetadata? = null
+            override suspend fun revealSensitiveContext(approvalId: String): SensitiveResumeContext? = null
+            override suspend fun remove(approvalId: String): SuspendedInvocationMetadata? = null
         }
 
         val engine = TramaiEngine(

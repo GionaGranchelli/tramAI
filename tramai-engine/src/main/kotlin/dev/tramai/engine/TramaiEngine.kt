@@ -67,6 +67,7 @@ import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.ToolArgumentsDigester
+import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.exception.ApprovalSuspendedException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -1893,6 +1894,25 @@ internal class TramaiInvocationHandler(
             )
 
             if (policyDecision is dev.tramai.core.policy.PolicyDecision.RequireApproval) {
+                // R3: Validate policy-provided approval binding
+                val requirement = policyDecision.requirement
+                val requiredDigest = dev.tramai.core.approval.Sha256Digest.of(requirement.argumentsDigest)
+                require(requirement.toolName == tool.name) {
+                    "Approval requirement tool binding mismatch: expected '${tool.name}', got '${requirement.toolName}'"
+                }
+                val rawDigest = if (toolArgumentsDigester != null) {
+                    toolArgumentsDigester.digest(dev.tramai.core.approval.SensitiveToolArguments.of(input))
+                } else {
+                    throw dev.tramai.core.exception.ConfigurationException(
+                        "ToolArgumentsDigester is required for approval binding validation"
+                    )
+                }
+                require(requiredDigest == rawDigest) {
+                    "Approval requirement argument binding mismatch"
+                }
+                require(requirement.timeoutMillis > 0) {
+                    "Approval requirement timeout must be positive"
+                }
                 return suspendToolExecution(
                     tool = tool,
                     toolCall = toolCall,
@@ -1902,6 +1922,7 @@ internal class TramaiInvocationHandler(
                     identity = identity,
                     toolCallIndex = -1, // single tool execution, not batch
                     messages = messages,
+                    argumentsDigest = rawDigest,
                     timeoutMillis = policyDecision.requirement.timeoutMillis,
                 )
             }
@@ -1951,6 +1972,7 @@ internal class TramaiInvocationHandler(
         identity: EngineExecutionIdentity,
         toolCallIndex: Int,
         messages: List<Message>,
+        argumentsDigest: Sha256Digest,
         timeoutMillis: Long,
     ): Nothing {
         val approvalGateCoordinator = approvalGateCoordinator
@@ -1961,13 +1983,8 @@ internal class TramaiInvocationHandler(
             ?: throw dev.tramai.core.exception.ConfigurationException(
                 "ApprovalContinuationStore is required for tool execution suspension"
             )
-        val toolArgumentsDigester = toolArgumentsDigester
-            ?: throw dev.tramai.core.exception.ConfigurationException(
-                "ToolArgumentsDigester is required for tool execution suspension"
-            )
 
         val sensitiveArgs = SensitiveToolArguments.of(input)
-        val argumentsDigest = toolArgumentsDigester.digest(sensitiveArgs)
         val expiresAt = clock.instant().plusMillis(timeoutMillis)
 
         // Create approval challenge via coordinator
@@ -2004,30 +2021,50 @@ internal class TramaiInvocationHandler(
             arguments = sensitiveArgs,
         )
 
-        // Store safe invocation metadata
-        suspendedInvocationStore.create(
-            SuspendedInvocation(
-                approvalId = challenge.approvalId,
-                operation = operation,
-                toolCall = toolCall,
-                tool = tool,
-                messages = messages,
-                toolCallIndex = toolCallIndex,
-                correlationId = correlationId,
-                identity = identity,
+        // R6: Wrap store and audit emission in try/catch with compensation
+        try {
+            // Store safe invocation metadata with separated sensitive context
+            suspendedInvocationStore.create(
+                metadata = SuspendedInvocationMetadata(
+                    approvalId = challenge.approvalId,
+                    toolCallId = toolCall.id,
+                    toolName = tool.name,
+                    toolCallIndex = toolCallIndex,
+                    correlationId = correlationId,
+                    identity = identity,
+                ),
+                sensitiveContext = SensitiveResumeContext.of(
+                    operation = operation,
+                    tool = tool,
+                    messages = messages,
+                    toolCall = toolCall,
+                ),
             )
-        )
 
-        // Emit audit event
-        approvalLifecycleAuditEmitter.onToolExecutionSuspended(
-            approvalId = challenge.approvalId,
-            workflowRunId = identity.workflowRunId,
-            toolName = tool.name,
-            toolCallId = toolCall.id,
-            correlationId = correlationId,
-            argumentsDigest = argumentsDigest,
-            expiresAt = challenge.expiresAt,
-        )
+            // Emit audit event
+            approvalLifecycleAuditEmitter.onToolExecutionSuspended(
+                approvalId = challenge.approvalId,
+                workflowRunId = identity.workflowRunId,
+                toolName = tool.name,
+                toolCallId = toolCall.id,
+                correlationId = correlationId,
+                argumentsDigest = argumentsDigest,
+                expiresAt = challenge.expiresAt,
+            )
+        } catch (failure: RuntimeException) {
+            // Compensation: cancel the continuation
+            runCatching {
+                approvalContinuationStore.cancel(
+                    approvalId = challenge.approvalId,
+                    expectedVersion = continuation.version,
+                )
+            }
+            runCatching {
+                suspendedInvocationStore.remove(challenge.approvalId)
+            }
+            // throw the original failure — don't let compensation mask it
+            throw failure
+        }
 
         throw ApprovalSuspendedException(
             challenge = challenge,
@@ -2202,9 +2239,24 @@ internal class TramaiInvocationHandler(
      * 6. Completes the continuation
      * 7. Returns the tool result
      */
+    /**
+     * Internal resume implementation called by [TramaiEngine.resumeApproval].
+     *
+     * 1. Loads the [SuspendedInvocationMetadata] from the store
+     * 2. Authorises the resume via [ApprovalGateCoordinator]
+     * 3. Enforces [dev.tramai.core.policy.EnforcementPoint.BEFORE_WORKFLOW_RESUME]
+     *    - R4: On Deny: cancel continuation, remove invocation, emit cancellation, throw PolicyViolationException
+     *    - R5: On RequireApproval: cancel continuation, remove invocation, emit cancellation, throw ConfigurationException
+     * 4. Claims the continuation and releases raw arguments
+     * 5. Reveals sensitive resume context
+     * 6. Executes the suspended tool
+     * 7. Continues the provider loop (BEFORE_TOOL_RESULT_REINJECTION, format, append, process remaining, callProvider)
+     * 8. Completes the continuation
+     * 9. Returns the typed operation result
+     */
     suspend fun resumeApprovalInternal(command: ResumeApprovalCommand): Any? {
-        // 1. Load suspended invocation
-        val suspended = suspendedInvocationStore.get(command.approvalId)
+        // 1. Load suspended invocation metadata
+        val metadata = suspendedInvocationStore.get(command.approvalId)
             ?: throw dev.tramai.core.exception.ApprovalNotFoundException(command.approvalId)
 
         // 2. Authorise resume via approvalGateCoordinator
@@ -2215,10 +2267,6 @@ internal class TramaiInvocationHandler(
         val store = approvalContinuationStore
             ?: throw dev.tramai.core.exception.ConfigurationException(
                 "ApprovalContinuationStore is required for resume"
-            )
-        val digester = toolArgumentsDigester
-            ?: throw dev.tramai.core.exception.ConfigurationException(
-                "ToolArgumentsDigester is required for resume"
             )
 
         // Get the continuation to read the arguments digest
@@ -2231,11 +2279,11 @@ internal class TramaiInvocationHandler(
                 expectedVersion = command.approvalExpectedVersion,
                 presentedToken = command.presentedToken,
                 consumedBy = command.resumedBy,
-                workflowRunId = suspended.identity.workflowRunId,
-                toolName = suspended.tool.name,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
                 argumentsDigest = existingContinuation.argumentsDigest,
-                policyVersion = suspended.identity.policyVersion,
-                workflowDigest = suspended.identity.workflowDigest,
+                policyVersion = metadata.identity.policyVersion,
+                workflowDigest = metadata.identity.workflowDigest,
             )
         )
 
@@ -2243,29 +2291,55 @@ internal class TramaiInvocationHandler(
         val resumeDecision = policyHelper.evaluate(
             policyHelper.buildContext(
                 enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_WORKFLOW_RESUME,
-                correlationId = suspended.correlationId,
-            ).toolName(suspended.tool.name)
-                .toolSecurity(suspended.tool.security)
-                .workflowRunId(suspended.identity.workflowRunId)
-                .workflowDigest(suspended.identity.workflowDigest.value)
+                correlationId = metadata.correlationId,
+            ).toolName(metadata.toolName)
+                .workflowRunId(metadata.identity.workflowRunId)
+                .workflowDigest(metadata.identity.workflowDigest.value)
                 .actorId(command.resumedBy)
                 .build()
         )
         if (resumeDecision is dev.tramai.core.policy.PolicyDecision.Deny) {
+            // R4: Denied — close the continuation and remove invocation before throwing
+            runCatching {
+                store.cancel(
+                    approvalId = command.approvalId,
+                    expectedVersion = command.continuationExpectedVersion,
+                )
+            }
+            runCatching {
+                suspendedInvocationStore.remove(command.approvalId)
+            }
+            runCatching {
+                approvalLifecycleAuditEmitter.onSuspensionCancelled(
+                    approvalId = command.approvalId,
+                    workflowRunId = metadata.identity.workflowRunId,
+                    toolName = metadata.toolName,
+                    reason = "workflow-resume-denied: ${resumeDecision.reasonCode}",
+                )
+            }
             throw dev.tramai.core.exception.PolicyViolationException(resumeDecision)
         }
         if (resumeDecision is dev.tramai.core.policy.PolicyDecision.RequireApproval) {
-            throw ApprovalSuspendedException(
-                challenge = ApprovalChallenge(
+            // R5: Recursive approval not supported — close and throw safe error
+            runCatching {
+                store.cancel(
                     approvalId = command.approvalId,
-                    token = command.presentedToken,
-                    expiresAt = clock.instant().plusMillis(resumeDecision.requirement.timeoutMillis),
-                ),
-                approvalId = command.approvalId,
-                workflowRunId = suspended.identity.workflowRunId,
-                toolCallId = suspended.toolCall.id,
-                toolName = suspended.tool.name,
-                continuationVersion = command.continuationExpectedVersion,
+                    expectedVersion = command.continuationExpectedVersion,
+                )
+            }
+            runCatching {
+                suspendedInvocationStore.remove(command.approvalId)
+            }
+            runCatching {
+                approvalLifecycleAuditEmitter.onSuspensionCancelled(
+                    approvalId = command.approvalId,
+                    workflowRunId = metadata.identity.workflowRunId,
+                    toolName = metadata.toolName,
+                    reason = "recursive-approval-not-supported",
+                )
+            }
+            throw dev.tramai.core.exception.ConfigurationException(
+                "Recursive approval not supported: use the original approval challenge"
             )
         }
 
@@ -2276,37 +2350,65 @@ internal class TramaiInvocationHandler(
             claimedBy = command.resumedBy,
         )
 
+        // 5. Reveal sensitive resume context
+        val sensitiveContext = suspendedInvocationStore.revealSensitiveContext(command.approvalId)
+            ?: throw dev.tramai.core.exception.ConfigurationException(
+                "Sensitive resume context not found for approvalId '${command.approvalId}'"
+            )
+        val resumeContext = sensitiveContext.revealForResume()
+
         // Emit resume audit event
         approvalLifecycleAuditEmitter.onToolExecutionResumed(
             approvalId = command.approvalId,
-            workflowRunId = suspended.identity.workflowRunId,
-            toolName = suspended.tool.name,
+            workflowRunId = metadata.identity.workflowRunId,
+            toolName = metadata.toolName,
             resumedBy = command.resumedBy,
         )
 
-        // 5. Execute the suspended tool with the released arguments
+        // 6. Execute the suspended tool with the released arguments
+        val resumedInput = claimed.arguments.reveal()
         val toolResult = try {
-            val resumedInput = claimed.arguments.reveal()
             val context = ToolExecutionContext(
-                operationName = suspended.operation.method.name,
-                modelName = suspended.operation.operation.model,
+                operationName = resumeContext.operation.method.name,
+                modelName = resumeContext.operation.operation.model,
                 attemptNumber = 0,
-                timeout = java.time.Duration.ofMillis(suspended.operation.operation.timeoutMillis),
+                timeout = java.time.Duration.ofMillis(resumeContext.operation.operation.timeoutMillis),
             )
-            suspended.tool.execute(resumedInput, context)
+            resumeContext.tool.execute(resumedInput, context)
         } catch (e: Exception) {
-            // 6. Uncertain outcome — emit audit and remove invocation
+            // Uncertain outcome — emit audit and remove invocation
             approvalLifecycleAuditEmitter.onUncertainOutcome(
                 approvalId = command.approvalId,
-                workflowRunId = suspended.identity.workflowRunId,
-                toolName = suspended.tool.name,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
                 reason = "tool-execution-failed: ${e::class.simpleName ?: "unknown"}",
             )
             suspendedInvocationStore.remove(command.approvalId)
             throw e
         }
 
-        // 7. Complete the continuation
+        // 7. Continue the provider loop — enforce BEFORE_TOOL_RESULT_REINJECTION,
+        //    format/sanitize the tool result, append to messages, process remaining,
+        //    and call the provider for the next turn
+        val tokenBudgetTracker = TokenBudgetTracker(tokenBudgetSettings)
+        val securityContext = ExecutionSecurityContext(
+            dataClassification = dev.tramai.core.policy.DataClassification.INTERNAL,
+            classificationSource = dev.tramai.core.policy.ClassificationSource.RULE_BASED,
+        )
+        val messages = resumeContext.messages.toMutableList()
+        val loopResult = continueAfterToolResult(
+            operation = resumeContext.operation,
+            messages = messages,
+            toolResult = toolResult,
+            toolCallId = resumeContext.toolCall.id,
+            toolCallIndex = metadata.toolCallIndex,
+            correlationId = metadata.correlationId,
+            securityContext = securityContext,
+            identity = metadata.identity,
+            tokenBudgetTracker = tokenBudgetTracker,
+        )
+
+        // 8. Complete the continuation
         store.complete(
             approvalId = command.approvalId,
             expectedVersion = claimed.continuation.version,
@@ -2316,15 +2418,112 @@ internal class TramaiInvocationHandler(
         // Emit completion audit event
         approvalLifecycleAuditEmitter.onToolExecutionCompleted(
             approvalId = command.approvalId,
-            workflowRunId = suspended.identity.workflowRunId,
-            toolName = suspended.tool.name,
+            workflowRunId = metadata.identity.workflowRunId,
+            toolName = metadata.toolName,
             completedBy = command.resumedBy,
         )
 
         // Clean up invocation store
         suspendedInvocationStore.remove(command.approvalId)
 
-        return toolResult
+        // 9. Return the typed operation result (content string for raw operations)
+        return loopResult.response.content
+    }
+
+    /**
+     * Continues the provider loop after a suspended tool has been executed on resume.
+     *
+     * 1. Enforces BEFORE_TOOL_RESULT_REINJECTION policy
+     * 2. Formats and sanitizes the tool result message
+     * 3. Appends the tool message to the messages list
+     * 4. Processes any remaining unprocessed tool calls from the same batch
+     * 5. Continues the provider loop via [executeWithTools]
+     */
+    private suspend fun continueAfterToolResult(
+        operation: OperationDefinition,
+        messages: MutableList<Message>,
+        toolResult: ToolResult,
+        toolCallId: String,
+        toolCallIndex: Int,
+        correlationId: String,
+        securityContext: ExecutionSecurityContext,
+        identity: EngineExecutionIdentity,
+        tokenBudgetTracker: TokenBudgetTracker,
+    ): ProviderCallResult {
+        // Determine the tool name from the suspended tool call in the messages
+        val assistantMsg = messages.lastOrNull { it.role == MessageRole.ASSISTANT && it.toolCalls != null }
+        val suspendedToolName = assistantMsg?.toolCalls
+            ?.firstOrNull { it.id == toolCallId }
+            ?.name ?: ""
+
+        // 1. Enforce BEFORE_TOOL_RESULT_REINJECTION
+        val resolvedTool = toolRegistry.resolve(suspendedToolName)
+        policyHelper.enforce(
+            policyHelper.buildContext(
+                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION,
+                correlationId = correlationId,
+            ).toolName(suspendedToolName)
+                .toolSecurity(resolvedTool?.security)
+                .applySecurityContext(securityContext)
+                .build()
+        )
+
+        // 2. Format and sanitize the tool result
+        val toolMessage = formatToolResult(toolResult, toolCallId)
+        val sanitizedMessage = sanitizeToolMessageForReinjection(
+            message = toolMessage,
+            operation = operation,
+            toolName = suspendedToolName,
+            correlationId = correlationId,
+            securityContext = securityContext,
+            engineEventObserver = engineEventObserver,
+        )
+
+        // 3. Append the tool message to messages
+        messages += sanitizedMessage
+
+        // 4. Process any remaining unprocessed tool calls from the same batch
+        if (toolCallIndex >= 0) {
+            val allToolCalls = assistantMsg?.toolCalls ?: emptyList()
+            val remainingToolCalls = allToolCalls.drop(toolCallIndex + 1)
+            for (tc in remainingToolCalls) {
+                val t = toolRegistry.resolve(tc.name)
+                val tr = if (t == null) {
+                    ToolResult.PermanentFailure("Tool '<unregistered>' not found")
+                } else {
+                    executeTool(t, tc, operation, correlationId, securityContext, identity, messages)
+                }
+                // Enforce BEFORE_TOOL_RESULT_REINJECTION for each remaining tool
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION,
+                        correlationId = correlationId,
+                    ).toolName(t?.name ?: "<unregistered>")
+                        .toolSecurity(t?.security)
+                        .applySecurityContext(securityContext)
+                        .build()
+                )
+                val msg = formatToolResult(tr, tc.id)
+                messages += sanitizeToolMessageForReinjection(
+                    message = msg,
+                    operation = operation,
+                    toolName = tc.name,
+                    correlationId = correlationId,
+                    securityContext = securityContext,
+                    engineEventObserver = engineEventObserver,
+                )
+            }
+        }
+
+        // 5. Continue the provider loop
+        return executeWithTools(
+            operation = operation,
+            messages = messages,
+            tokenBudgetTracker = tokenBudgetTracker,
+            correlationId = correlationId,
+            securityContext = securityContext,
+            identity = identity,
+        )
     }
 
     private fun handleObjectMethod(
