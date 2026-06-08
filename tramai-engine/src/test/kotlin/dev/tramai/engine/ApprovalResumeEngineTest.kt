@@ -160,6 +160,22 @@ class ApprovalResumeEngineTest {
         }
     }
 
+    private class DivergentSensitiveContextStore(
+        private val delegate: SuspendedInvocationStore,
+        private val divergentArgumentsJson: String,
+    ) : SuspendedInvocationStore by delegate {
+        override suspend fun revealSensitiveContext(approvalId: String): SensitiveResumeContext? {
+            val sensitive = delegate.revealSensitiveContext(approvalId) ?: return null
+            val context = sensitive.revealForResume()
+            return SensitiveResumeContext.of(
+                operation = context.operation,
+                tool = context.tool,
+                messages = context.messages,
+                toolCall = context.toolCall.copy(argumentsJson = divergentArgumentsJson),
+            )
+        }
+    }
+
     private fun createEngine(): TramaiEngine = TramaiEngine(
         provider = provider,
         toolRegistry = toolRegistry,
@@ -243,6 +259,58 @@ class ApprovalResumeEngineTest {
     }
 
     @Test
+    fun `resumeApproval executes claimed arguments even when sensitive resume context diverges`() {
+        val divergentArguments = """{"x":5,"y":6}"""
+        val recordingTool = RecordingTool(name = toolName)
+        var localProviderCallCount = 0
+        val continuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+        val engine = TramaiEngine(
+            provider = RecordingProvider { request ->
+                localProviderCallCount++
+                if (localProviderCallCount == 1) {
+                    ModelResponse(
+                        content = "",
+                        toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                    )
+                } else {
+                    ModelResponse(content = "Final result: success")
+                }
+            },
+            toolRegistry = ToolRegistry(mapOf(recordingTool.name to recordingTool)),
+            policyEngine = SelectivePolicyEngine(toolExecApprovalToolName = toolName),
+            suspendedInvocationStore = DivergentSensitiveContextStore(
+                delegate = InMemorySuspendedInvocationStore(),
+                divergentArgumentsJson = divergentArguments,
+            ),
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            clock = fixedClock,
+        )
+
+        val exception = triggerSuspension(engine)
+        val result = runBlocking {
+            engine.resumeApproval(
+                ResumeApprovalCommand(
+                    approvalId = exception.approvalId,
+                    approvalExpectedVersion = 0L,
+                    continuationExpectedVersion = 0L,
+                    presentedToken = exception.challenge.token,
+                    resumedBy = resumedBy,
+                )
+            )
+        }
+
+        assertThat(result).isEqualTo("Final result: success")
+        assertThat(recordingTool.invocations).hasSize(1)
+        assertThat(recordingTool.invocations.single().first).isEqualTo(toolArguments)
+        // Continuation must reach COMPLETED — proves divergent context was correctly ignored
+        val continuation = runBlocking { continuationStore.get(exception.approvalId) }
+        assertThat(continuation).isNotNull
+        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.COMPLETED)
+    }
+
+    @Test
     fun `resumeApproval enforces BEFORE_WORKFLOW_RESUME`() {
         val engine = createEngine()
         val exception = triggerSuspension(engine)
@@ -263,6 +331,110 @@ class ApprovalResumeEngineTest {
         assertThat(policyEngine.evaluatedContexts.any {
             it.enforcementPoint == EnforcementPoint.BEFORE_WORKFLOW_RESUME
         }).isTrue
+    }
+
+    @Test
+    fun `renewed RequireApproval digest mismatch fails closed without executing resumed tool`() {
+        val auditEvents = mutableListOf<String>()
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+            override suspend fun onToolExecutionSuspended(
+                approvalId: String, workflowRunId: String, toolName: String,
+                toolCallId: String, correlationId: String,
+                argumentsDigest: dev.tramai.core.approval.Sha256Digest,
+                expiresAt: java.time.Instant,
+            ) = Unit
+            override suspend fun onToolExecutionResumed(
+                approvalId: String, workflowRunId: String,
+                toolName: String, resumedBy: String,
+            ) = Unit
+            override suspend fun onToolExecutionCompleted(
+                approvalId: String, workflowRunId: String,
+                toolName: String, completedBy: String,
+            ) = Unit
+            override suspend fun onUncertainOutcome(
+                approvalId: String, workflowRunId: String,
+                toolName: String, reason: String,
+            ) { auditEvents.add(reason) }
+            override suspend fun onSuspensionCancelled(
+                approvalId: String, workflowRunId: String,
+                toolName: String, reason: String,
+            ) = Unit
+        }
+        val mismatchedDigest = digester.digest(
+            dev.tramai.core.approval.SensitiveToolArguments.of("""{"account":"B","amount":10000}""")
+        ).value
+        var beforeResume = true
+        var localProviderCallCount = 0
+        val mismatchPolicyEngine = object : PolicyEngine {
+            override suspend fun evaluate(context: PolicyContext): PolicyDecision {
+                return when (context.enforcementPoint) {
+                    EnforcementPoint.BEFORE_TOOL_EXECUTION -> {
+                        val digest = if (beforeResume) {
+                            beforeResume = false
+                            "sha256:12e49c0f5b1f1c5a753a1e98fb8e94a06c58b35c8432b77270d412d5d295e3b9"
+                        } else {
+                            mismatchedDigest
+                        }
+                        PolicyDecision.RequireApproval(
+                            ApprovalRequirement(
+                                toolName = toolName,
+                                argumentsDigest = digest,
+                                reason = "testing",
+                                timeoutMillis = 60_000,
+                            )
+                        )
+                    }
+                    EnforcementPoint.BEFORE_WORKFLOW_RESUME -> PolicyDecision.Allow
+                    else -> PolicyDecision.Allow
+                }
+            }
+        }
+        val recordingTool = RecordingTool(name = toolName)
+        val continuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+        val engine = TramaiEngine(
+            provider = RecordingProvider { _ ->
+                localProviderCallCount++
+                if (localProviderCallCount == 1) {
+                    ModelResponse(
+                        content = "",
+                        toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                    )
+                } else {
+                    ModelResponse(content = "should not happen")
+                }
+            },
+            toolRegistry = ToolRegistry(mapOf(recordingTool.name to recordingTool)),
+            policyEngine = mismatchPolicyEngine,
+            suspendedInvocationStore = InMemorySuspendedInvocationStore(),
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            clock = fixedClock,
+            approvalLifecycleAuditEmitter = auditEmitter,
+        )
+
+        val exception = triggerSuspension(engine)
+
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = exception.challenge.token,
+                        resumedBy = resumedBy,
+                    )
+                )
+            }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("Renewed approval requirement digest mismatch")
+
+        assertThat(recordingTool.invocations).isEmpty()
+        val continuation = runBlocking { continuationStore.get(exception.approvalId) }
+        assertThat(continuation).isNotNull
+        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+        assertThat(auditEvents).contains("resume-failed: IllegalArgumentException")
     }
 
     @Test
@@ -1274,7 +1446,10 @@ class ApprovalResumeEngineTest {
                 return if (providerCallCount == 1) {
                     ModelResponse(
                         content = "",
-                        toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                        toolCalls = listOf(
+                            ToolCall("call-nested-0", toolName, toolArguments),
+                            ToolCall("call-nested-1", toolName, toolArguments),
+                        ),
                     )
                 } else {
                     ModelResponse(content = "Final result")
@@ -1300,22 +1475,26 @@ class ApprovalResumeEngineTest {
         val exception = triggerSuspension(engine)
         policyEngine.resumeDecision = PolicyDecision.Allow
 
-        runBlocking {
-            engine.resumeApproval(
-                ResumeApprovalCommand(
-                    approvalId = exception.approvalId,
-                    approvalExpectedVersion = 0L,
-                    continuationExpectedVersion = 0L,
-                    presentedToken = exception.challenge.token,
-                    resumedBy = resumedBy,
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = exception.challenge.token,
+                        resumedBy = resumedBy,
+                    )
                 )
-            )
-        }
+            }
+        }.isInstanceOf(dev.tramai.core.exception.NestedApprovalNotSupportedException::class.java)
 
-        // Exactly one approval challenge was created (during initial suspension)
+        // Exactly one approval challenge was created, even though resume hit a real nested approval path.
         assertThat(createCount).isEqualTo(1)
-        // Exactly one authorize was called (during resume)
         assertThat(authorizeCount).isEqualTo(1)
+        val continuation = runBlocking { freshContinuationStore.get(exception.approvalId) }
+        assertThat(continuation).isNotNull
+        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
     }
 
     // ── Test ChatMemory ────────────────────────────────────────────

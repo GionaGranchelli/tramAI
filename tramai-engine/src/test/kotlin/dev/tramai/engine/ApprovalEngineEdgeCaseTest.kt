@@ -936,7 +936,7 @@ class ApprovalEngineEdgeCaseTest {
     }
 
     @Test
-    fun `post-completion audit failure does not emit uncertain outcome`() {
+    fun `post-completion observer failure does not emit uncertain outcome or change result`() {
         val auditEvents = mutableListOf<String>()
         val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
             override suspend fun onToolExecutionSuspended(
@@ -962,6 +962,7 @@ class ApprovalEngineEdgeCaseTest {
                 toolName: String, reason: String,
             ) = Unit
         }
+        val observerEvents = mutableListOf<String>()
 
         // Provider that returns tool calls on first call, then content on subsequent calls
         var callCount = 0
@@ -990,13 +991,17 @@ class ApprovalEngineEdgeCaseTest {
             approvalGateCoordinator = coordinator,
             clock = fixedClock,
             approvalLifecycleAuditEmitter = auditEmitter,
+            engineEventObserver = EngineEventObserver { name, _ ->
+                observerEvents.add(name)
+                throw RuntimeException("observer failed")
+            },
         )
 
         val exception = triggerSuspension(engine)
         policyEngine.workflowResumeDecision = PolicyDecision.Allow
 
         // Resume should succeed — the audit failure during cleanup is caught separately
-        runBlocking {
+        val result = runBlocking {
             engine.resumeApproval(
                 ResumeApprovalCommand(
                     approvalId = exception.approvalId,
@@ -1008,6 +1013,8 @@ class ApprovalEngineEdgeCaseTest {
             )
         }
 
+        assertThat(result).isEqualTo("Final result: success")
+
         // Continuation IS COMPLETED (the authoritative transition succeeded)
         val continuation = runBlocking { continuationStore.get(exception.approvalId) }
         assertThat(continuation).isNotNull
@@ -1015,6 +1022,7 @@ class ApprovalEngineEdgeCaseTest {
 
         // No uncertain outcome was emitted
         assertThat(auditEvents.none { it.startsWith("uncertain:") }).isTrue
+        assertThat(observerEvents).containsExactly("resume-cleanup-failure")
     }
 
     // ── Helpers ────────────────────────────────────────────────────

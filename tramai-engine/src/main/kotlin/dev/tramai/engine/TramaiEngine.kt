@@ -1916,6 +1916,7 @@ internal class TramaiInvocationHandler(
         historySize: Int = 0,
         resumingApproval: Boolean = false,
         parentApprovalId: String? = null,
+        allowRenewedApprovedBindingDuringResume: Boolean = false,
     ): ToolResult {
         val input = toolCall.argumentsJson
         val maxAttempts = if (tool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
@@ -1940,48 +1941,69 @@ internal class TramaiInvocationHandler(
             )
 
             if (policyDecision is dev.tramai.core.policy.PolicyDecision.RequireApproval) {
-                // Fix 5: Nested approval not supported during resume
                 if (resumingApproval) {
-                    throw dev.tramai.core.exception.NestedApprovalNotSupportedException(
-                        approvalId = parentApprovalId ?: "unknown",
-                        message = "Nested approval not supported in v1: tool '${tool.name}' requires approval during a resumed workflow",
+                    if (!allowRenewedApprovedBindingDuringResume) {
+                        throw dev.tramai.core.exception.NestedApprovalNotSupportedException(
+                            approvalId = parentApprovalId ?: "unknown",
+                            message = "Nested approval not supported in v1: tool '${tool.name}' requires approval during a resumed workflow",
+                        )
+                    }
+                    val requirement = policyDecision.requirement
+                    val digester = this.toolArgumentsDigester
+                        ?: throw dev.tramai.core.exception.ConfigurationException(
+                            "ToolArgumentsDigester is required for renewed approval validation"
+                        )
+                    val renewedDigest = digester.digest(
+                        dev.tramai.core.approval.SensitiveToolArguments.of(input)
                     )
-                }
-                // R3: Validate policy-provided approval binding
-                val requirement = policyDecision.requirement
-                val requiredDigest = dev.tramai.core.approval.Sha256Digest.of(requirement.argumentsDigest)
-                require(requirement.toolName == tool.name) {
-                    "Approval requirement tool binding mismatch: expected '${tool.name}', got '${requirement.toolName}'"
-                }
-                val rawDigest = if (toolArgumentsDigester != null) {
-                    toolArgumentsDigester.digest(dev.tramai.core.approval.SensitiveToolArguments.of(input))
+                    require(requirement.toolName == tool.name) {
+                        "Renewed approval requirement tool name mismatch: '${requirement.toolName}' != '${tool.name}'"
+                    }
+                    require(
+                        dev.tramai.core.approval.Sha256Digest.of(requirement.argumentsDigest) == renewedDigest
+                    ) {
+                        "Renewed approval requirement digest mismatch"
+                    }
+                    require(requirement.timeoutMillis > 0) {
+                        "Renewed approval requirement must have positive timeout"
+                    }
                 } else {
-                    throw dev.tramai.core.exception.ConfigurationException(
-                        "ToolArgumentsDigester is required for approval binding validation"
+                    // R3: Validate policy-provided approval binding
+                    val requirement = policyDecision.requirement
+                    val requiredDigest = dev.tramai.core.approval.Sha256Digest.of(requirement.argumentsDigest)
+                    require(requirement.toolName == tool.name) {
+                        "Approval requirement tool binding mismatch: expected '${tool.name}', got '${requirement.toolName}'"
+                    }
+                    val rawDigest = if (toolArgumentsDigester != null) {
+                        toolArgumentsDigester.digest(dev.tramai.core.approval.SensitiveToolArguments.of(input))
+                    } else {
+                        throw dev.tramai.core.exception.ConfigurationException(
+                            "ToolArgumentsDigester is required for approval binding validation"
+                        )
+                    }
+                    require(requiredDigest == rawDigest) {
+                        "Approval requirement argument binding mismatch"
+                    }
+                    require(requirement.timeoutMillis > 0) {
+                        "Approval requirement timeout must be positive"
+                    }
+                    return suspendToolExecution(
+                        tool = tool,
+                        toolCall = toolCall,
+                        operation = operation,
+                        correlationId = correlationId,
+                        input = input,
+                        identity = identity,
+                        toolCallIndex = toolCallIndex,
+                        messages = messages,
+                        argumentsDigest = rawDigest,
+                        timeoutMillis = policyDecision.requirement.timeoutMillis,
+                        securityContext = securityContext,
+                        tokenBudgetTracker = tokenBudgetTracker,
+                        conversationId = conversationId,
+                        historySize = historySize,
                     )
                 }
-                require(requiredDigest == rawDigest) {
-                    "Approval requirement argument binding mismatch"
-                }
-                require(requirement.timeoutMillis > 0) {
-                    "Approval requirement timeout must be positive"
-                }
-                return suspendToolExecution(
-                    tool = tool,
-                    toolCall = toolCall,
-                    operation = operation,
-                    correlationId = correlationId,
-                    input = input,
-                    identity = identity,
-                    toolCallIndex = toolCallIndex,
-                    messages = messages,
-                    argumentsDigest = rawDigest,
-                    timeoutMillis = policyDecision.requirement.timeoutMillis,
-                    securityContext = securityContext,
-                    tokenBudgetTracker = tokenBudgetTracker,
-                    conversationId = conversationId,
-                    historySize = historySize,
-                )
             }
             // Deny also handled by enforce() but we already evaluated above
             if (policyDecision is dev.tramai.core.policy.PolicyDecision.Deny) {
@@ -2457,6 +2479,10 @@ internal class TramaiInvocationHandler(
                     "Claimed continuation payload integrity mismatch: digest ${actualDigest.value} != expected ${expectedDigest.value}"
                 )
             }
+            val validatedInput = claimed.arguments.reveal()
+            val validatedToolCall = resumeContext.toolCall.copy(
+                argumentsJson = validatedInput,
+            )
 
             // Emit resume audit event
             approvalLifecycleAuditEmitter.onToolExecutionResumed(
@@ -2479,7 +2505,7 @@ internal class TramaiInvocationHandler(
             val toolResult = try {
                 executeTool(
                     tool = resumeContext.tool,
-                    toolCall = resumeContext.toolCall,
+                    toolCall = validatedToolCall,
                     operation = resumeContext.operation,
                     correlationId = metadata.correlationId,
                     securityContext = metadata.securityContext,
@@ -2488,12 +2514,11 @@ internal class TramaiInvocationHandler(
                     tokenBudgetTracker = tokenBudgetTracker,
                     resumingApproval = true,
                     parentApprovalId = command.approvalId,
+                    allowRenewedApprovedBindingDuringResume = true,
                 )
             } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
-                // Primary resumed tool: policy re-requires approval (expected — it was
-                // already approved via BEFORE_WORKFLOW_RESUME + authorization).
-                // Execute directly with InvalidInput conversion and idempotent retries.
-                val resumedInput = claimed.arguments.reveal()
+                // Defensive fallback for older resume paths; use the already-validated payload.
+                val resumedInput = validatedInput
                 val maxAttempts = if (resumeContext.tool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
                 val fallbackResult = run {
                     var lastException: Exception? = null
@@ -2594,14 +2619,19 @@ internal class TramaiInvocationHandler(
                 )
             } catch (e: Exception) {
                 // Log/report through operational observer, do NOT emit uncertain outcome
-                engineEventObserver.onEngineEvent(
-                    name = "resume-cleanup-failure",
-                    attributes = mapOf(
-                        "approvalId" to command.approvalId,
-                        "toolName" to metadata.toolName,
-                        "error" to (e.message ?: e::class.simpleName ?: "unknown"),
-                    ),
-                )
+                // Use try/catch(Exception) not runCatching — fatal Error types must propagate
+                try {
+                    engineEventObserver.onEngineEvent(
+                        name = "resume-cleanup-failure",
+                        attributes = mapOf(
+                            "approvalId" to command.approvalId,
+                            "toolName" to metadata.toolName,
+                            "error" to (e.message ?: e::class.simpleName ?: "unknown"),
+                        ),
+                    )
+                } catch (_: Exception) {
+                    // Observer failure is operational — no uncertain outcome from completed state
+                }
             }
 
             result
