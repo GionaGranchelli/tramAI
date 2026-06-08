@@ -2428,6 +2428,7 @@ internal class TramaiInvocationHandler(
                 securityContext = securityContext,
                 identity = metadata.identity,
                 tokenBudgetTracker = tokenBudgetTracker,
+                suspendedToolName = metadata.toolName,
             )
 
             // 8. Complete the continuation
@@ -2479,6 +2480,17 @@ internal class TramaiInvocationHandler(
         }
     }
 
+    /**
+     * Parses the structured (typed) result from a resumed provider loop.
+     *
+     * **Single-attempt limitation (v1):** Unlike the normal flow, which retries structured
+     * parsing when the provider responds with content that cannot be parsed — feeding
+     * the error back to the provider for a corrected attempt — this resume path makes
+     * exactly one parse attempt. If parsing fails, the exception is thrown immediately
+     * without a retry cycle. This is a deliberate v1 limitation: the resume path is a
+     * linear re-entrant flow, not a multi-turn conversation, so retry-with-feedback
+     * semantics are not available here.
+     */
     private suspend fun resumeStructuredResult(
         operation: OperationDefinition,
         loopResult: ProviderCallResult,
@@ -2548,12 +2560,11 @@ internal class TramaiInvocationHandler(
         securityContext: ExecutionSecurityContext,
         identity: EngineExecutionIdentity,
         tokenBudgetTracker: TokenBudgetTracker,
+        suspendedToolName: String = "",
     ): ProviderCallResult {
-        // Determine the tool name from the suspended tool call in the messages
-        val assistantMsg = messages.lastOrNull { it.role == MessageRole.ASSISTANT && it.toolCalls != null }
-        val suspendedToolName = assistantMsg?.toolCalls
-            ?.firstOrNull { it.id == toolCallId }
-            ?.name ?: ""
+        // Tool name is provided by the caller from the stored SuspendedInvocationMetadata.toolName,
+        // which is more reliable than searching through messages by toolCallId.
+        // The caller (resumeApproval) already has the metadata and passes it through.
 
         // 1. Enforce BEFORE_TOOL_RESULT_REINJECTION
         val resolvedTool = toolRegistry.resolve(suspendedToolName)
@@ -2583,14 +2594,15 @@ internal class TramaiInvocationHandler(
 
         // 4. Process any remaining unprocessed tool calls from the same batch
         if (toolCallIndex >= 0) {
-            val allToolCalls = assistantMsg?.toolCalls ?: emptyList()
+            val allToolCalls = messages.lastOrNull { it.role == MessageRole.ASSISTANT && it.toolCalls != null }?.toolCalls ?: emptyList()
             val remainingToolCalls = allToolCalls.drop(toolCallIndex + 1)
-            for (tc in remainingToolCalls) {
+            for ((remainingIdx, tc) in remainingToolCalls.withIndex()) {
+                val actualIndex = toolCallIndex + 1 + remainingIdx
                 val t = toolRegistry.resolve(tc.name)
                 val tr = if (t == null) {
                     ToolResult.PermanentFailure("Tool '<unregistered>' not found")
                 } else {
-                    executeTool(t, tc, operation, correlationId, securityContext, identity, messages)
+                    executeTool(t, tc, operation, correlationId, securityContext, identity, messages, actualIndex)
                 }
                 // Enforce BEFORE_TOOL_RESULT_REINJECTION for each remaining tool
                 policyHelper.enforce(

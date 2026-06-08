@@ -24,6 +24,7 @@ import dev.tramai.core.policy.PolicyContext
 import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.core.policy.ApprovalRequirement
+import dev.tramai.core.structured.StructuredOutputResult
 import dev.tramai.security.approval.InMemoryApprovalContinuationStore
 import dev.tramai.security.approval.Sha256ToolArgumentsDigester
 import kotlinx.coroutines.runBlocking
@@ -337,6 +338,296 @@ class ApprovalResumeEngineTest {
         assertThatThrownBy {
             runBlocking { engine.resumeApproval(command) }
         }.isInstanceOf(dev.tramai.core.exception.ApprovalNotFoundException::class.java)
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // P0-1: Structured output resume tests
+    // ════════════════════════════════════════════════════════════════
+
+    data class StatusResult(val success: Boolean, val message: String)
+
+    @AiService
+    @SystemPrompt("You are a helpful assistant.")
+    private interface StructuredResumeTriggerService {
+        @Operation(
+            prompt = "Execute the structured tool",
+            model = "claude-sonnet-4-20250514",
+            tools = ["test_calculator"],
+        )
+        suspend fun execute(input: String): StatusResult
+    }
+
+    /** Fake StructuredOutputHandler that returns a configurable result. */
+    private class FakeStructuredOutputHandler(
+        private val parseResult: StructuredOutputResult,
+    ) : dev.tramai.core.structured.StructuredOutputHandler {
+        override fun createContract(targetType: kotlin.reflect.KType): dev.tramai.core.structured.StructuredOutputContract {
+            return dev.tramai.core.structured.StructuredOutputContract(
+                schemaJson = "{}",
+                targetType = targetType,
+            )
+        }
+        override fun analyze(
+            rawResponse: String,
+            targetType: kotlin.reflect.KType,
+        ): StructuredOutputResult = parseResult
+
+        override fun generateSchema(type: kotlin.reflect.KType): String = "{}"
+        override fun deserialize(input: Any, targetType: kotlin.reflect.KType): Any = input
+        override fun serialize(value: Any): Any = value
+    }
+
+    @Test
+    fun `resumeApproval structured happy path parses and returns typed result`() {
+        val structuredHandler = FakeStructuredOutputHandler(
+            StructuredOutputResult.Success(
+                value = StatusResult(success = true, message = "done"),
+                rawResponse = """{"success":true,"message":"done"}""",
+            ),
+        )
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+            structuredOutputHandler = structuredHandler,
+        )
+
+        // Trigger suspension using the StructuredResumeTriggerService (StatusResult return type)
+        val structuredService = engine.create<StructuredResumeTriggerService>()
+        val exception = try {
+            runBlocking { structuredService.execute("test") }
+            fail("Should have thrown ApprovalSuspendedException")
+        } catch (e: ApprovalSuspendedException) {
+            e
+        }
+
+        policyEngine.resumeDecision = PolicyDecision.Allow
+
+        val result = runBlocking {
+            engine.resumeApproval(
+                ResumeApprovalCommand(
+                    approvalId = exception.approvalId,
+                    approvalExpectedVersion = 0L,
+                    continuationExpectedVersion = 0L,
+                    presentedToken = exception.challenge.token,
+                    resumedBy = resumedBy,
+                )
+            )
+        }
+
+        // The fake handler always returns our StatusResult, so we should get it back
+        assertThat(result).isInstanceOf(StatusResult::class.java)
+        val typed = result as StatusResult
+        assertThat(typed.success).isTrue
+        assertThat(typed.message).isEqualTo("done")
+    }
+
+    @Test
+    fun `resumeApproval structured parse failure throws StructuredOutputException`() {
+        val structuredHandler = FakeStructuredOutputHandler(
+            StructuredOutputResult.Failure(
+                rawResponse = "unparseable garbage",
+                errorSummary = "failed to parse",
+                feedbackMessage = "Please provide a valid JSON response",
+            ),
+        )
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+            structuredOutputHandler = structuredHandler,
+        )
+
+        // Trigger suspension using the StructuredResumeTriggerService
+        val structuredService = engine.create<StructuredResumeTriggerService>()
+        val exception = try {
+            runBlocking { structuredService.execute("test") }
+            fail("Should have thrown ApprovalSuspendedException")
+        } catch (e: ApprovalSuspendedException) {
+            e
+        }
+
+        policyEngine.resumeDecision = PolicyDecision.Allow
+
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = exception.challenge.token,
+                        resumedBy = resumedBy,
+                    )
+                )
+            }
+        }.isInstanceOf(dev.tramai.core.exception.StructuredOutputException::class.java)
+    }
+
+    @Test
+    fun `resumeApproval structured without handler throws ConfigurationException`() {
+        // First, create a working engine with a handler to perform the suspension
+        val workingHandler = FakeStructuredOutputHandler(
+            StructuredOutputResult.Success(
+                value = StatusResult(success = true, message = "done"),
+                rawResponse = """{"success":true,"message":"done"}""",
+            ),
+        )
+        val workingEngine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+            structuredOutputHandler = workingHandler,
+        )
+
+        // Trigger suspension using the working engine
+        val structuredService = workingEngine.create<StructuredResumeTriggerService>()
+        val exception = try {
+            runBlocking { structuredService.execute("test") }
+            fail("Should have thrown ApprovalSuspendedException")
+        } catch (e: ApprovalSuspendedException) {
+            e
+        }
+
+        policyEngine.resumeDecision = PolicyDecision.Allow
+
+        // Now create a separate engine without structuredOutputHandler for resume
+        // This should throw ConfigurationException when trying to resume a structured operation
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+            // No structuredOutputHandler — will cause ConfigurationException on resume
+        )
+
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = exception.challenge.token,
+                        resumedBy = resumedBy,
+                    )
+                )
+            }
+        }.isInstanceOf(dev.tramai.core.exception.ConfigurationException::class.java)
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // P1-6: Multi-tool batch index test
+    // ════════════════════════════════════════════════════════════════
+
+    private inner class MultiToolProvider : dev.tramai.core.provider.ModelProvider {
+        val requests = mutableListOf<ModelRequest>()
+        var callCount = 0
+
+        override suspend fun complete(request: ModelRequest): ModelResponse {
+            requests += request
+            callCount++
+            return if (callCount == 1) {
+                // First call: return 2 tool calls — only the first triggers approval suspension
+                // First tool uses same args/digest as SelectivePolicyEngine expects
+                ModelResponse(
+                    content = "",
+                    toolCalls = listOf(
+                        ToolCall("call-multi-0", "test_calculator", toolArguments),
+                        ToolCall("call-multi-1", "test_calculator", """{"x":3,"y":4}"""),
+                    ),
+                )
+            } else {
+                // Subsequent calls during resume: return final content
+                ModelResponse(content = "Multi-tool resume complete")
+            }
+        }
+    }
+
+    private class MultiToolPolicyEngine : PolicyEngine {
+        var firstCall = true
+        override suspend fun evaluate(context: PolicyContext): PolicyDecision {
+            if (context.enforcementPoint == EnforcementPoint.BEFORE_TOOL_EXECUTION && firstCall) {
+                firstCall = false
+                return PolicyDecision.RequireApproval(
+                    ApprovalRequirement(
+                        toolName = "test_calculator",
+                        argumentsDigest = "sha256:12e49c0f5b1f1c5a753a1e98fb8e94a06c58b35c8432b77270d412d5d295e3b9",
+                        reason = "testing",
+                        timeoutMillis = 60_000,
+                    )
+                )
+            }
+            return PolicyDecision.Allow
+        }
+    }
+
+    @Test
+    fun `resumeApproval executes sibling tools after resumed tool in batch`() {
+        val mtTool = RecordingTool(name = "test_calculator")
+        val mtToolRegistry = ToolRegistry(mapOf(mtTool.name to mtTool))
+        val mtPolicyEngine = MultiToolPolicyEngine()
+        val mtProvider = MultiToolProvider()
+        val mtCoordinator = PermitApprovalGateCoordinator()
+
+        val engine = TramaiEngine(
+            provider = mtProvider,
+            toolRegistry = mtToolRegistry,
+            policyEngine = mtPolicyEngine,
+            suspendedInvocationStore = InMemorySuspendedInvocationStore(),
+            approvalContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock),
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = mtCoordinator,
+            clock = fixedClock,
+        )
+
+        // Trigger suspension — first tool call (index 0) triggers approval
+        val service = engine.create<SuspensionTriggerService>()
+        val exception = try {
+            runBlocking { service.execute("test") }
+            fail("Should have thrown ApprovalSuspendedException")
+        } catch (e: ApprovalSuspendedException) {
+            e
+        }
+
+        // Resume: the suspended tool (index 0) will execute, then sibling (index 1) should also execute
+        val result = runBlocking {
+            engine.resumeApproval(
+                ResumeApprovalCommand(
+                    approvalId = exception.approvalId,
+                    approvalExpectedVersion = 0L,
+                    continuationExpectedVersion = 0L,
+                    presentedToken = exception.challenge.token,
+                    resumedBy = resumedBy,
+                )
+            )
+        }
+
+        // Both tools should have been invoked
+        assertThat(mtTool.invocations).hasSize(2)
+        val (_, ctx0) = mtTool.invocations[0]
+        val (_, ctx1) = mtTool.invocations[1]
+        assertThat(ctx0.operationName).isNotBlank()
+        assertThat(ctx1.operationName).isNotBlank()
     }
 
     // ── Service Interface ──────────────────────────────────────────
