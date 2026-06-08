@@ -950,6 +950,8 @@ internal class TramaiInvocationHandler(
             correlationId = correlationId,
             securityContext = securityContext,
             identity = effectiveIdentity,
+            conversationId = conversationId,
+            historySize = history.size,
         )
 
         // DLP is already applied inside callProviderWithRetries — use the sanitized response directly
@@ -1101,6 +1103,8 @@ internal class TramaiInvocationHandler(
             correlationId = correlationId,
             securityContext = securityContext,
             identity = identity,
+            conversationId = conversationId,
+            historySize = historySize,
         )
 
         // DLP is already applied inside callProviderWithRetries — use the sanitized response directly
