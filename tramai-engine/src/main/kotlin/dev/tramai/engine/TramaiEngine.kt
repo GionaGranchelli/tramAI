@@ -69,6 +69,7 @@ import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.exception.ApprovalSuspendedException
+import dev.tramai.core.exception.ToolInvalidInputException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -2466,16 +2467,71 @@ internal class TramaiInvocationHandler(
             )
 
             // 6. Execute the suspended tool with the released arguments
-            val resumedInput = claimed.arguments.reveal()
+            //    Route through executeTool() which handles InvalidInput conversion
+            //    and idempotent retries. If the policy requires approval for the primary
+            //    resumed tool (expected — it was already approved via BEFORE_WORKFLOW_RESUME
+            //    + authorization), fall back to direct execution with safeguards.
+            val tokenBudgetTracker = TokenBudgetTracker(tokenBudgetSettings)
+            // Restore token budget snapshot if available
+            metadata.tokenBudgetSnapshot?.let { snapshot ->
+                tokenBudgetTracker.restore(snapshot)
+            }
             val toolResult = try {
-                val context = ToolExecutionContext(
-                    operationName = resumeContext.operation.method.name,
-                    modelName = resumeContext.operation.operation.model,
-                    attemptNumber = 0,
-                    timeout = java.time.Duration.ofMillis(resumeContext.operation.operation.timeoutMillis),
+                executeTool(
+                    tool = resumeContext.tool,
+                    toolCall = resumeContext.toolCall,
+                    operation = resumeContext.operation,
+                    correlationId = metadata.correlationId,
+                    securityContext = metadata.securityContext,
+                    identity = metadata.identity,
+                    messages = resumeContext.messages,
+                    tokenBudgetTracker = tokenBudgetTracker,
+                    resumingApproval = true,
+                    parentApprovalId = command.approvalId,
                 )
-                resumeContext.tool.execute(resumedInput, context)
-            } catch (e: Exception) {
+            } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
+                // Primary resumed tool: policy re-requires approval (expected — it was
+                // already approved via BEFORE_WORKFLOW_RESUME + authorization).
+                // Execute directly with InvalidInput conversion and idempotent retries.
+                val resumedInput = claimed.arguments.reveal()
+                val maxAttempts = if (resumeContext.tool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
+                val fallbackResult = run {
+                    var lastException: Exception? = null
+                    repeat(maxAttempts) { attemptIndex ->
+                        val context = ToolExecutionContext(
+                            operationName = resumeContext.operation.method.name,
+                            modelName = resumeContext.operation.operation.model,
+                            attemptNumber = attemptIndex,
+                            timeout = java.time.Duration.ofMillis(resumeContext.operation.operation.timeoutMillis),
+                        )
+                        try {
+                            return@run resumeContext.tool.execute(resumedInput, context)
+                        } catch (tie: dev.tramai.core.exception.ToolInvalidInputException) {
+                            return@run ToolResult.InvalidInput(tie.message ?: "Invalid tool input")
+                        } catch (ex: Exception) {
+                            if (resumeContext.tool.idempotent && attemptIndex < maxAttempts - 1) {
+                                lastException = ex
+                                // continue to next attempt
+                            } else {
+                                uncertainOutcomeEmitted = true
+                                approvalLifecycleAuditEmitter.onUncertainOutcome(
+                                    approvalId = command.approvalId,
+                                    workflowRunId = metadata.identity.workflowRunId,
+                                    toolName = metadata.toolName,
+                                    reason = "tool-execution-failed: ${ex::class.simpleName ?: "unknown"}",
+                                )
+                                throw ex
+                            }
+                        }
+                    }
+                    // All retries exhausted for idempotent tool
+                    ToolResult.PermanentFailure(
+                        lastException?.message ?: "Tool execution failed after $maxAttempts attempt(s)"
+                    )
+                }
+                fallbackResult
+            } catch (e: ToolInvalidInputException) {
+                // This shouldn't happen during resume (already validated), but handle safely
                 uncertainOutcomeEmitted = true
                 approvalLifecycleAuditEmitter.onUncertainOutcome(
                     approvalId = command.approvalId,
@@ -2489,11 +2545,6 @@ internal class TramaiInvocationHandler(
             // 7. Continue the provider loop — enforce BEFORE_TOOL_RESULT_REINJECTION,
             //    format/sanitize the tool result, append to messages, process remaining,
             //    and call the provider for the next turn
-            val tokenBudgetTracker = TokenBudgetTracker(tokenBudgetSettings)
-            // Restore token budget snapshot if available
-            metadata.tokenBudgetSnapshot?.let { snapshot ->
-                tokenBudgetTracker.restore(snapshot)
-            }
             val securityContext = metadata.securityContext
             val messages = resumeContext.messages.toMutableList()
             val loopResult = continueAfterToolResult(
