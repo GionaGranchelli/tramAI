@@ -2560,8 +2560,17 @@ internal class TramaiInvocationHandler(
             // The continuation remains CLAIMED or was already cancelled by the nesting handler
             throw e
         } catch (e: dev.tramai.core.exception.StructuredOutputException) {
-            // Fix 3: Structured parse failures already emit uncertain-outcome in resumeStructuredResult
-            // Re-throw without uncertain-outcome emission here
+            // ResumeStructuredResult does not emit uncertain-outcome for parse failures —
+            // emit it here before rethrowing so the continuation stays CLAIMED and auditable
+            if (!uncertainOutcomeEmitted) {
+                uncertainOutcomeEmitted = true
+                approvalLifecycleAuditEmitter.onUncertainOutcome(
+                    approvalId = command.approvalId,
+                    workflowRunId = metadata.identity.workflowRunId,
+                    toolName = metadata.toolName,
+                    reason = "structured-parse-failed: ${e::class.simpleName ?: "unknown"}",
+                )
+            }
             throw e
         } catch (e: Exception) {
             // Fix 4: Universal uncertain-outcome — any failure after claim leaves continuation CLAIMED
