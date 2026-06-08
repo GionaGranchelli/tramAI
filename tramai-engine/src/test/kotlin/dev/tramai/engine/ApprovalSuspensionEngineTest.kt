@@ -190,6 +190,12 @@ class ApprovalSuspensionEngineTest {
         assertThat(suspended!!.approvalId).isEqualTo(exception.approvalId)
         assertThat(suspended.toolName).isEqualTo(toolName)
         assertThat(suspended.toolCallId).isEqualTo(toolCallId)
+        // P1-4: Verify metadata fields are stored
+        assertThat(suspended.conversationId).isNull()
+        assertThat(suspended.historySize).isEqualTo(0)
+        // tokenBudgetSnapshot is always non-null (tracker always created with default empty settings)
+        assertThat(suspended.tokenBudgetSnapshot).isNotNull
+        assertThat(suspended.tokenBudgetSnapshot!!.totalInputTokens).isEqualTo(0)
     }
 
     @Test
@@ -286,6 +292,37 @@ class ApprovalSuspensionEngineTest {
         }.isInstanceOf(ApprovalSuspendedException::class.java)
 
         assertThat(tool.invocations).isEmpty()
+    }
+
+    @Test
+    fun `token budget snapshot is stored in suspended invocation metadata`() {
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+            tokenBudgetSettings = TokenBudgetSettings(
+                hardMaxTokensPerOperation = 10_000L,
+            ),
+        )
+        val service = engine.create<SuspensionTestService>()
+
+        val exception = try {
+            runBlocking { service.execute("test input") }
+            fail("Should have thrown")
+        } catch (e: ApprovalSuspendedException) {
+            e
+        }
+
+        val suspended = runBlocking { suspendedInvocationStore.get(exception.approvalId) }
+        assertThat(suspended).isNotNull
+        // Verify tokenBudgetSnapshot was captured
+        assertThat(suspended!!.tokenBudgetSnapshot).isNotNull
+        assertThat(suspended.tokenBudgetSnapshot!!.totalInputTokens).isGreaterThanOrEqualTo(0)
     }
 
     // ── Service Interface ──────────────────────────────────────────

@@ -321,6 +321,9 @@ class ApprovalEngineEdgeCaseTest {
         assertThat(continuation.claimedBy).isNull()
         assertThat(continuation.claimedAt).isNull()
         assertThat(continuation.completedAt).isNull()
+
+        // P1-5: Verify cancelApproval was called on the coordinator as part of saga compensation
+        assertThat(coordinator.lastCancelledApprovalId).isEqualTo(approvalId)
     }
 
     // ════════════════════════════════════════════════════════════════

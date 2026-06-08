@@ -1173,6 +1173,27 @@ internal class TramaiInvocationHandler(
         chatMemory.add(conversationId, userPrompt + toolMessages + assistantMessage)
     }
 
+    /**
+     * Persists the assistant response and this turn's non-system messages to chat memory.
+     * Shared by [finalizeResumedOperation] for STRING/UNIT paths and by
+     * [resumeStructuredResult] for the STRUCTURED path.
+     */
+    private fun persistMemory(
+        loopResult: ProviderCallResult,
+        messages: MutableList<Message>,
+        historySize: Int,
+        conversationId: String?,
+    ) {
+        if (chatMemory == null || conversationId == null) return
+        val assistantMessage = Message(
+            role = MessageRole.ASSISTANT,
+            content = loopResult.response.content,
+            toolCalls = loopResult.response.toolCalls,
+        )
+        val turnMessages = messages.drop(historySize).filter { it.role != MessageRole.SYSTEM }
+        chatMemory.add(conversationId, turnMessages + assistantMessage)
+    }
+
     private fun handleStructuredFailure(
         operation: OperationDefinition,
         analysis: StructuredOutputResult.Failure,
@@ -2547,7 +2568,7 @@ internal class TramaiInvocationHandler(
         conversationId: String?,
         historySize: Int,
     ): Any? {
-        // Enforce BEFORE_RESPONSE_RETURN for all return kinds
+        // Enforce BEFORE_RESPONSE_RETURN for all return kinds (fires exactly once)
         policyHelper.enforce(
             policyHelper.buildContext(
                 enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
@@ -2558,44 +2579,30 @@ internal class TramaiInvocationHandler(
                 .build()
         )
 
-        // Memory persistence
-        if (chatMemory != null && conversationId != null) {
-            val assistantMessage = Message(
-                role = MessageRole.ASSISTANT,
-                content = loopResult.response.content,
-                toolCalls = loopResult.response.toolCalls,
-            )
-            val turnMessages = messages.drop(historySize).filter { it.role != MessageRole.SYSTEM }
-            chatMemory.add(conversationId, turnMessages + assistantMessage)
-        }
-
-        // Observation
-        loopResult.observation.onCallCompleted(parseSuccess = null)
-
         when (operation.returnKind) {
-            ReturnKind.STRING -> return loopResult.response.content
+            ReturnKind.STRING -> {
+                // Memory persistence + observation + return (once)
+                persistMemory(loopResult, messages, historySize, conversationId)
+                loopResult.observation.onCallCompleted(parseSuccess = null)
+                return loopResult.response.content
+            }
             ReturnKind.UNIT -> {
+                persistMemory(loopResult, messages, historySize, conversationId)
+                loopResult.observation.onCallCompleted(parseSuccess = null)
                 loopResult.response.content // consume it
                 return Unit
             }
             ReturnKind.STRUCTURED -> {
-                // Structured: do memory + observation, then delegate to resumeStructuredResult
-                if (chatMemory != null && conversationId != null) {
-                    val assistantMessage = Message(
-                        role = MessageRole.ASSISTANT,
-                        content = loopResult.response.content,
-                        toolCalls = loopResult.response.toolCalls,
-                    )
-                    val turnMessages = messages.drop(historySize).filter { it.role != MessageRole.SYSTEM }
-                    chatMemory.add(conversationId, turnMessages + assistantMessage)
-                }
-                loopResult.observation.onCallCompleted(parseSuccess = null)
+                // Structured: delegate to resumeStructuredResult which handles
+                // memory, observation, and parse (no duplicates)
                 return resumeStructuredResult(
                     operation = operation,
                     loopResult = loopResult,
                     messages = messages,
                     correlationId = correlationId,
                     securityContext = securityContext,
+                    conversationId = conversationId,
+                    historySize = historySize,
                 )
             }
             ReturnKind.STREAMING -> throw ConfigurationException("Streaming approval resume not supported")
@@ -2619,7 +2626,13 @@ internal class TramaiInvocationHandler(
         messages: MutableList<Message>,
         correlationId: String,
         securityContext: ExecutionSecurityContext,
+        conversationId: String?,
+        historySize: Int,
     ): Any {
+        // Memory persistence + observation BEFORE parse (fires exactly once for structured)
+        persistMemory(loopResult, messages, historySize, conversationId)
+        loopResult.observation.onCallCompleted(parseSuccess = null)
+
         val handler = structuredOutputHandler
             ?: throw ConfigurationException(
                 "Structured return type ${operation.returnTypeDescription} requires a StructuredOutputHandler implementation from tramai-structured",
@@ -2634,16 +2647,6 @@ internal class TramaiInvocationHandler(
         )
         return when (analysis) {
             is StructuredOutputResult.Success -> {
-                policyHelper.enforce(
-                    policyHelper.buildContext(
-                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
-                        correlationId = correlationId,
-                    ).providerId(loopResult.providerId)
-                        .modelName(loopResult.modelName)
-                        .applySecurityContext(securityContext)
-                        .build()
-                )
-                loopResult.observation.onCallCompleted(parseSuccess = true)
                 analysis.value
             }
             is StructuredOutputResult.Failure -> {
@@ -2651,7 +2654,6 @@ internal class TramaiInvocationHandler(
                     rawResponse = analysis.rawResponse,
                     errorSummary = analysis.errorSummary,
                 )
-                loopResult.observation.onCallCompleted(parseSuccess = false)
                 throw dev.tramai.core.exception.StructuredOutputException(
                     message = "Structured output parsing failed after resume",
                     originalPrompt = operation.operation.prompt,

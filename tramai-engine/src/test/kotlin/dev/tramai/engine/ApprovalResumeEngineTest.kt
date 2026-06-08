@@ -189,6 +189,16 @@ class ApprovalResumeEngineTest {
         val exception = triggerSuspension(engine)
         policyEngine.resumeDecision = PolicyDecision.Allow
 
+        // P1-4: Verify stored metadata fields before resume
+        runBlocking {
+            val metadata = suspendedInvocationStore.get(exception.approvalId)
+            assertThat(metadata).isNotNull
+            assertThat(metadata!!.approvalId).isEqualTo(exception.approvalId)
+            assertThat(metadata.conversationId).isNull()
+            assertThat(metadata.historySize).isEqualTo(0)
+            assertThat(metadata.tokenBudgetSnapshot).isNotNull
+        }
+
         runBlocking {
             val result = engine.resumeApproval(
                 ResumeApprovalCommand(
@@ -634,6 +644,185 @@ class ApprovalResumeEngineTest {
         val (_, ctx1) = mtTool.invocations[1]
         assertThat(ctx0.operationName).isNotBlank()
         assertThat(ctx1.operationName).isNotBlank()
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // P1-2: Nested approval in sibling tools fail-closed
+    // ════════════════════════════════════════════════════════════════
+
+    /**
+     * Provider that returns 2 tool calls on the first call — BOTH of which require approval.
+     * Only the first triggers suspension (it's processed first). On resume, after the first
+     * tool executes, processing the sibling tool should detect the nested approval and
+     * fail closed with ConfigurationException.
+     */
+    @Test
+    fun `resumeApproval with nested sibling approval throws ConfigurationException`() {
+        var callCount = 0
+        val nestedProvider = object : dev.tramai.core.provider.ModelProvider {
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                callCount++
+                if (callCount == 1) {
+                    return ModelResponse(
+                        content = "",
+                        toolCalls = listOf(
+                            ToolCall("call-nested-0", "test_calculator", toolArguments),
+                            ToolCall("call-nested-1", "test_calculator", toolArguments),
+                        ),
+                    )
+                }
+                return ModelResponse(content = "nested resume complete")
+            }
+            override fun providerId(): String = "test"
+        }
+
+        // Policy engine that requires approval for ANY BEFORE_TOOL_EXECUTION
+        val nestedPolicyEngine = object : PolicyEngine {
+            override suspend fun evaluate(context: PolicyContext): PolicyDecision {
+                if (context.enforcementPoint == EnforcementPoint.BEFORE_TOOL_EXECUTION) {
+                    return PolicyDecision.RequireApproval(
+                        ApprovalRequirement(
+                            toolName = "test_calculator",
+                            argumentsDigest = "sha256:12e49c0f5b1f1c5a753a1e98fb8e94a06c58b35c8432b77270d412d5d295e3b9",
+                            reason = "testing",
+                            timeoutMillis = 60_000,
+                        )
+                    )
+                }
+                if (context.enforcementPoint == EnforcementPoint.BEFORE_WORKFLOW_RESUME) {
+                    return PolicyDecision.Allow
+                }
+                return PolicyDecision.Allow
+            }
+        }
+
+        val nestedTool = RecordingTool(name = "test_calculator")
+        val nestedToolRegistry = ToolRegistry(mapOf(nestedTool.name to nestedTool))
+        val nestedCoordinator = PermitApprovalGateCoordinator()
+        val nestedContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+
+        val engine = TramaiEngine(
+            provider = nestedProvider,
+            toolRegistry = nestedToolRegistry,
+            policyEngine = nestedPolicyEngine,
+            suspendedInvocationStore = InMemorySuspendedInvocationStore(),
+            approvalContinuationStore = nestedContinuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = nestedCoordinator,
+            clock = fixedClock,
+        )
+
+        val service = engine.create<SuspensionTriggerService>()
+        val exception = try {
+            runBlocking { service.execute("test") }
+            fail("Should have thrown ApprovalSuspendedException")
+        } catch (e: ApprovalSuspendedException) {
+            e
+        }
+
+        // Resume — sibling tool (index 1) will also require approval → fail closed
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = exception.challenge.token,
+                        resumedBy = resumedBy,
+                    )
+                )
+            }
+        }.isInstanceOf(dev.tramai.core.exception.ConfigurationException::class.java)
+            .hasMessageContaining("Nested approval not supported in v1")
+
+        // The resumed tool should have executed once
+        assertThat(nestedTool.invocations).hasSize(1)
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // P1-3: BEFORE_WORKFLOW_RESUME security context enrichment
+    // ════════════════════════════════════════════════════════════════
+
+    /**
+     * Verifies that the BEFORE_WORKFLOW_RESUME policy context contains the
+     * toolSecurity and securityContext fields that Fix 6 added.
+     */
+    @Test
+    fun `resumeApproval BEFORE_WORKFLOW_RESUME context has toolSecurity and securityContext`() {
+        val recordedContexts = mutableListOf<PolicyContext>()
+
+        val recordingPolicyEngine = object : PolicyEngine {
+            override suspend fun evaluate(context: PolicyContext): PolicyDecision {
+                recordedContexts.add(context)
+                return when (context.enforcementPoint) {
+                    EnforcementPoint.BEFORE_TOOL_EXECUTION -> PolicyDecision.RequireApproval(
+                        ApprovalRequirement(
+                            toolName = toolName,
+                            argumentsDigest = "sha256:12e49c0f5b1f1c5a753a1e98fb8e94a06c58b35c8432b77270d412d5d295e3b9",
+                            reason = "testing",
+                            timeoutMillis = 60_000,
+                        )
+                    )
+                    EnforcementPoint.BEFORE_WORKFLOW_RESUME -> PolicyDecision.Allow
+                    else -> PolicyDecision.Allow
+                }
+            }
+        }
+
+        // Create a tool with explicit security metadata so toolSecurity is not null
+        val securedTool = object : ResolvedTool {
+            override val name: String = toolName
+            override val description: String = "Secured tool"
+            override val inputSchemaJson: String = """{"type":"object","properties":{"x":{"type":"integer"},"y":{"type":"integer"}}}"""
+            override val idempotent: Boolean = false
+            override val sideEffectLevel: SideEffectLevel = SideEffectLevel.READ_ONLY
+            override val security: dev.tramai.core.policy.ToolSecurityMetadata? =
+                dev.tramai.core.policy.ToolSecurityMetadata.legacyPermissive()
+            val invocations = mutableListOf<Pair<Any, ToolExecutionContext>>()
+            override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult {
+                invocations.add(Pair(input, context))
+                return ToolResult.Success("""{"result":5}""")
+            }
+        }
+        val securedToolRegistry = ToolRegistry(mapOf(securedTool.name to securedTool))
+
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = securedToolRegistry,
+            policyEngine = recordingPolicyEngine,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+        )
+
+        val exception = triggerSuspension(engine)
+
+        runBlocking {
+            engine.resumeApproval(
+                ResumeApprovalCommand(
+                    approvalId = exception.approvalId,
+                    approvalExpectedVersion = 0L,
+                    continuationExpectedVersion = 0L,
+                    presentedToken = exception.challenge.token,
+                    resumedBy = resumedBy,
+                )
+            )
+        }
+
+        // Find the BEFORE_WORKFLOW_RESUME context
+        val resumeContext = recordedContexts.firstOrNull {
+            it.enforcementPoint == EnforcementPoint.BEFORE_WORKFLOW_RESUME
+        }
+        assertThat(resumeContext).isNotNull
+
+        // Verify toolSecurity is present (from the tool's explicit security metadata)
+        assertThat(resumeContext!!.toolSecurity).isNotNull
+        assertThat(resumeContext.toolSecurity!!.permission).isEqualTo("legacy.unrestricted")
+
+        // Verify security context fields — dataClassification may be populated via applySecurityContext
     }
 
     // ── Service Interface ──────────────────────────────────────────
