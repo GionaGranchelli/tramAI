@@ -11,8 +11,10 @@ import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ApprovalToken
 import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.ApprovalAuthorization
+import dev.tramai.core.approval.ApprovalValidation
 import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.ApprovalChallenge
+import dev.tramai.core.approval.ValidateResumeCommand
 import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
@@ -53,8 +55,11 @@ class ApprovalResumeEngineTest {
     /** Fake ApprovalGateCoordinator that always authorizes resume. */
     private class PermitApprovalGateCoordinator : ApprovalGateCoordinator {
         var lastAuthorizeCommand: AuthorizeResumeCommand? = null
+        var lastValidateCommand: ValidateResumeCommand? = null
         var lastCreateCommand: CreateApprovalCommand? = null
         var nextChallengeId: String = UUID.randomUUID().toString()
+        var validateCalls: Int = 0
+        var authorizeCalls: Int = 0
 
         override suspend fun createApproval(command: CreateApprovalCommand): ApprovalChallenge {
             lastCreateCommand = command
@@ -67,7 +72,19 @@ class ApprovalResumeEngineTest {
             )
         }
 
+        override suspend fun validateResume(command: ValidateResumeCommand): ApprovalValidation {
+            validateCalls++
+            lastValidateCommand = command
+            return ApprovalValidation(
+                approvalId = command.approvalId,
+                validatedBy = command.consumedBy,
+                validatedAt = Clock.systemUTC().instant(),
+                version = command.expectedVersion,
+            )
+        }
+
         override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {
+            authorizeCalls++
             lastAuthorizeCommand = command
             return ApprovalAuthorization(
                 approvalId = command.approvalId,
@@ -1880,6 +1897,14 @@ class ApprovalResumeEngineTest {
                     approvalId = UUID.randomUUID().toString(),
                     token = ApprovalToken.parsePresented("token-${UUID.randomUUID()}"),
                     expiresAt = command.expiresAt,
+                )
+            }
+            override suspend fun validateResume(command: ValidateResumeCommand): ApprovalValidation {
+                return ApprovalValidation(
+                    approvalId = command.approvalId,
+                    validatedBy = command.consumedBy,
+                    validatedAt = Clock.systemUTC().instant(),
+                    version = command.expectedVersion,
                 )
             }
             override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {

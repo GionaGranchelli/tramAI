@@ -13,6 +13,7 @@ data class TokenBudgetSnapshot(
     val totalOutputTokens: Long,
     val totalInputCost: Double,
     val totalOutputCost: Double,
+    val warnIfExceeded: Boolean,
 )
 
 /**

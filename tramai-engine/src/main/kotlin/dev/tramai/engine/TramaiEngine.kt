@@ -64,6 +64,7 @@ import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.ApprovalToken
 import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.AuthorizeResumeCommand
+import dev.tramai.core.approval.ValidateResumeCommand
 import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.ToolArgumentsDigester
@@ -2167,7 +2168,13 @@ internal class TramaiInvocationHandler(
             val approvalId = createdChallengeId
             if (approvalId != null) {
                 // 1. Remove suspended state
-                runCatching { suspendedInvocationStore.remove(approvalId) }
+                try {
+                    suspendedInvocationStore.remove(approvalId)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // best-effort cleanup
+                }
                 // 2. Cancel continuation
                 runCatching {
                     approvalContinuationStore.cancel(
@@ -2348,10 +2355,10 @@ internal class TramaiInvocationHandler(
      * 1. Loads metadata + resolves continuation (read-only validation)
      * 2. Validates continuation is PENDING and version matches
      * 3. Resolves digester and other non-side-effecting dependencies
-     * 4. Calls authorizeResume() — validates the token
+     * 4. Calls validateResume() — validates token and binding without consuming
      * 5. Evaluates BEFORE_WORKFLOW_RESUME
-     * 6. IF Allow: claimForExecution() and continue
-     * 7. IF Deny/RequireApproval: cancel continuation, remove suspended state, emit audit
+     * 6. IF Deny/RequireApproval: cancel continuation, remove suspended state, emit audit
+     * 7. IF Allow: authorizeResume(), claimForExecution(), and continue
      */
     suspend fun resumeApprovalInternal(command: ResumeApprovalCommand): Any? {
         // 1. Load suspended invocation metadata (read-only)
@@ -2389,9 +2396,9 @@ internal class TramaiInvocationHandler(
             "ToolArgumentsDigester is required for payload integrity verification"
         }
 
-        // 4. THEN authorize (this consumes the token) — only after all validations passed
-        val authorization = coordinator.authorizeResume(
-            AuthorizeResumeCommand(
+        // 4. Validate token and approval binding WITHOUT consuming
+        coordinator.validateResume(
+            ValidateResumeCommand(
                 approvalId = command.approvalId,
                 expectedVersion = command.approvalExpectedVersion,
                 presentedToken = command.presentedToken,
@@ -2404,7 +2411,7 @@ internal class TramaiInvocationHandler(
             )
         )
 
-        // 5. Evaluate BEFORE_WORKFLOW_RESUME — NOW safe because token was already validated
+        // 5. Evaluate BEFORE_WORKFLOW_RESUME before consuming the one-time token
         val resumeDecision = policyHelper.evaluate(
             policyHelper.buildContext(
                 enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_WORKFLOW_RESUME,
@@ -2418,9 +2425,6 @@ internal class TramaiInvocationHandler(
                 .build()
         )
         if (resumeDecision is dev.tramai.core.policy.PolicyDecision.Deny) {
-            // R4: Denied — close the continuation and remove invocation.
-            // Token was already validated, so these side effects are safe.
-            // If cancel fails, let the exception propagate (Fix 2: atomic cancellation)
             store.cancel(
                 approvalId = command.approvalId,
                 expectedVersion = command.continuationExpectedVersion,
@@ -2435,7 +2439,6 @@ internal class TramaiInvocationHandler(
             throw dev.tramai.core.exception.PolicyViolationException(resumeDecision)
         }
         if (resumeDecision is dev.tramai.core.policy.PolicyDecision.RequireApproval) {
-            // R5: Nested approval not supported — close and throw
             store.cancel(
                 approvalId = command.approvalId,
                 expectedVersion = command.continuationExpectedVersion,
@@ -2453,7 +2456,22 @@ internal class TramaiInvocationHandler(
             )
         }
 
-        // 6. Claim continuation (only Allow reaches here)
+        // 6. Token was validated above; now consume it atomically before claiming
+        coordinator.authorizeResume(
+            AuthorizeResumeCommand(
+                approvalId = command.approvalId,
+                expectedVersion = command.approvalExpectedVersion,
+                presentedToken = command.presentedToken,
+                consumedBy = command.resumedBy,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
+                argumentsDigest = existingContinuation.argumentsDigest,
+                policyVersion = metadata.identity.policyVersion,
+                workflowDigest = metadata.identity.workflowDigest,
+            )
+        )
+
+        // 7. Claim continuation (only Allow reaches here)
         val claimed = store.claimForExecution(
             approvalId = command.approvalId,
             expectedVersion = command.continuationExpectedVersion,
@@ -2504,11 +2522,7 @@ internal class TramaiInvocationHandler(
                 resumedBy = command.resumedBy,
             )
 
-            // 6. Execute the suspended tool with the released arguments
-            //    Route through executeTool() which handles InvalidInput conversion
-            //    and idempotent retries. If the policy requires approval for the primary
-            //    resumed tool (expected — it was already approved via BEFORE_WORKFLOW_RESUME
-            //    + authorization), fall back to direct execution with safeguards.
+            // 8. Execute the suspended tool with the released arguments.
             val tokenBudgetTracker = TokenBudgetTracker(tokenBudgetSettings)
             // Restore token budget snapshot if available
             metadata.tokenBudgetSnapshot?.let { snapshot ->
@@ -2529,44 +2543,7 @@ internal class TramaiInvocationHandler(
                     allowRenewedApprovedBindingDuringResume = true,
                 )
             } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
-                // Defensive fallback for older resume paths; use the already-validated payload.
-                val resumedInput = validatedInput
-                val maxAttempts = if (validatedTool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
-                val fallbackResult = run {
-                    var lastException: Exception? = null
-                    repeat(maxAttempts) { attemptIndex ->
-                        val context = ToolExecutionContext(
-                            operationName = resumeContext.operation.method.name,
-                            modelName = resumeContext.operation.operation.model,
-                            attemptNumber = attemptIndex,
-                            timeout = java.time.Duration.ofMillis(resumeContext.operation.operation.timeoutMillis),
-                        )
-                        try {
-                            return@run validatedTool.execute(resumedInput, context)
-                        } catch (tie: dev.tramai.core.exception.ToolInvalidInputException) {
-                            return@run ToolResult.InvalidInput(tie.message ?: "Invalid tool input")
-                        } catch (ex: Exception) {
-                            if (validatedTool.idempotent && attemptIndex < maxAttempts - 1) {
-                                lastException = ex
-                                // continue to next attempt
-                            } else {
-                                uncertainOutcomeEmitted = true
-                                approvalLifecycleAuditEmitter.onUncertainOutcome(
-                                    approvalId = command.approvalId,
-                                    workflowRunId = metadata.identity.workflowRunId,
-                                    toolName = metadata.toolName,
-                                    reason = "tool-execution-failed: ${ex::class.simpleName ?: "unknown"}",
-                                )
-                                throw ex
-                            }
-                        }
-                    }
-                    // All retries exhausted for idempotent tool
-                    ToolResult.PermanentFailure(
-                        lastException?.message ?: "Tool execution failed after $maxAttempts attempt(s)"
-                    )
-                }
-                fallbackResult
+                throw e
             } catch (e: ToolInvalidInputException) {
                 // This shouldn't happen during resume (already validated), but handle safely
                 uncertainOutcomeEmitted = true
@@ -3631,24 +3608,32 @@ internal class ProviderRetryDelayPolicy(
 private class TokenBudgetTracker(
     private val settings: TokenBudgetSettings,
 ) {
-    private var totalTokensObserved: Long = 0
+    private var totalInputTokensObserved: Long = 0
+    private var totalOutputTokensObserved: Long = 0
+    private var totalInputCostObserved: Double = 0.0
+    private var totalOutputCostObserved: Double = 0.0
     private var softLimitReported: Boolean = false
 
     /**
      * Capture a snapshot of the current budget state for suspension.
      */
     fun snapshot(): TokenBudgetSnapshot = TokenBudgetSnapshot(
-        totalInputTokens = totalTokensObserved,
-        totalOutputTokens = 0L,
-        totalInputCost = 0.0,
-        totalOutputCost = 0.0,
+        totalInputTokens = totalInputTokensObserved,
+        totalOutputTokens = totalOutputTokensObserved,
+        totalInputCost = totalInputCostObserved,
+        totalOutputCost = totalOutputCostObserved,
+        warnIfExceeded = !softLimitReported,
     )
 
     /**
      * Restore budget state from a snapshot taken at suspension time.
      */
     fun restore(snapshot: TokenBudgetSnapshot) {
-        totalTokensObserved = snapshot.totalInputTokens
+        totalInputTokensObserved = snapshot.totalInputTokens
+        totalOutputTokensObserved = snapshot.totalOutputTokens
+        totalInputCostObserved = snapshot.totalInputCost
+        totalOutputCostObserved = snapshot.totalOutputCost
+        softLimitReported = !snapshot.warnIfExceeded
     }
 
     fun observe(response: ModelResponse): TokenBudgetCheckResult {
@@ -3656,8 +3641,11 @@ private class TokenBudgetTracker(
             return TokenBudgetCheckResult.Ok
         }
 
-        val attemptTokens = response.totalTokens()?.toLong() ?: return TokenBudgetCheckResult.UsageUnavailable
-        totalTokensObserved += attemptTokens
+        val attemptInputTokens = response.inputTokens?.toLong() ?: return TokenBudgetCheckResult.UsageUnavailable
+        val attemptOutputTokens = response.outputTokens?.toLong() ?: return TokenBudgetCheckResult.UsageUnavailable
+        val attemptTokens = attemptInputTokens + attemptOutputTokens
+        totalInputTokensObserved += attemptInputTokens
+        totalOutputTokensObserved += attemptOutputTokens
 
         settings.hardMaxTokensPerAttempt?.let { limit ->
             if (attemptTokens > limit) {
@@ -3670,6 +3658,7 @@ private class TokenBudgetTracker(
         }
 
         settings.hardMaxTokensPerOperation?.let { limit ->
+            val totalTokensObserved = totalInputTokensObserved + totalOutputTokensObserved
             if (totalTokensObserved > limit) {
                 return TokenBudgetCheckResult.HardLimitExceeded(
                     scope = "operation",
@@ -3680,6 +3669,7 @@ private class TokenBudgetTracker(
         }
 
         settings.softMaxTokensPerOperation?.let { limit ->
+            val totalTokensObserved = totalInputTokensObserved + totalOutputTokensObserved
             if (!softLimitReported && totalTokensObserved > limit) {
                 softLimitReported = true
                 return TokenBudgetCheckResult.SoftLimitExceeded(

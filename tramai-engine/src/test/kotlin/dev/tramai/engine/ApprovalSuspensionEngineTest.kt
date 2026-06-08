@@ -10,10 +10,12 @@ import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ApprovalToken
 import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.ApprovalAuthorization
+import dev.tramai.core.approval.ApprovalValidation
 import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.ApprovalChallenge
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.ToolArgumentsDigester
+import dev.tramai.core.approval.ValidateResumeCommand
 import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
@@ -63,6 +65,10 @@ class ApprovalSuspensionEngineTest {
         }
 
         override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {
+            error("not expected in suspension test")
+        }
+
+        override suspend fun validateResume(command: ValidateResumeCommand): ApprovalValidation {
             error("not expected in suspension test")
         }
 

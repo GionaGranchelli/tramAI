@@ -9,8 +9,10 @@ import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ApprovalToken
 import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.ApprovalAuthorization
+import dev.tramai.core.approval.ApprovalValidation
 import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.ApprovalChallenge
+import dev.tramai.core.approval.ValidateResumeCommand
 import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
@@ -50,7 +52,9 @@ class ApprovalEngineEdgeCaseTest {
     private class ConfigurableApprovalGateCoordinator : ApprovalGateCoordinator {
         var failCreate: Boolean = false
         var failAuthorize: Boolean = false
+        var failValidate: Boolean = false
         var lastCreateCommand: CreateApprovalCommand? = null
+        var lastValidateCommand: ValidateResumeCommand? = null
         var lastAuthorizeCommand: AuthorizeResumeCommand? = null
         var lastCreatedApprovalId: String? = null
         var lastCancelledApprovalId: String? = null
@@ -66,6 +70,17 @@ class ApprovalEngineEdgeCaseTest {
             )
             lastCreatedApprovalId = challenge.approvalId
             return challenge
+        }
+
+        override suspend fun validateResume(command: ValidateResumeCommand): ApprovalValidation {
+            lastValidateCommand = command
+            if (failValidate) throw RuntimeException("coordinator validate failed")
+            return ApprovalValidation(
+                approvalId = command.approvalId,
+                validatedBy = command.consumedBy,
+                validatedAt = Clock.systemUTC().instant(),
+                version = command.expectedVersion,
+            )
         }
 
         override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {
@@ -720,6 +735,11 @@ class ApprovalEngineEdgeCaseTest {
                     approvalId = id,
                     token = ApprovalToken.parsePresented("token-$id"),
                     expiresAt = command.expiresAt,
+                )
+            }
+            override suspend fun validateResume(command: ValidateResumeCommand): ApprovalValidation {
+                throw dev.tramai.core.exception.ApprovalTokenRejectedException(
+                    approvalId = command.approvalId,
                 )
             }
             override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {
