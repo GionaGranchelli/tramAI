@@ -11,8 +11,11 @@ import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTokenDigester
 import dev.tramai.core.approval.ApprovalTokenGenerator
+import dev.tramai.core.approval.ApprovalTransition
+import dev.tramai.core.approval.ApprovalValidation
 import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.CreateApprovalCommand
+import dev.tramai.core.approval.ValidateResumeCommand
 import dev.tramai.core.exception.ApprovalAuthorizationException
 import dev.tramai.core.exception.ApprovalBindingMismatchException
 import dev.tramai.core.exception.ApprovalCreationException
@@ -99,25 +102,44 @@ class DefaultApprovalGateCoordinator(
         )
     }
 
-    override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {
-        validateIdField(command.approvalId, "approvalId")
-        validateIdField(command.consumedBy, "consumedBy")
-        validateIdField(command.workflowRunId, "workflowRunId")
-        validateIdField(command.toolName, "toolName")
-        validateIdField(command.policyVersion, "policyVersion")
-        require(command.expectedVersion >= 0) { "expectedVersion must be non-negative" }
-        require(command.expectedVersion < Long.MAX_VALUE) { "expectedVersion must be less than Long.MAX_VALUE" }
+    override suspend fun cancelApproval(
+        approvalId: String,
+        expectedVersion: Long,
+        reason: String,
+    ) {
+        validateIdField(approvalId, "approvalId")
+        require(expectedVersion >= 0) { "expectedVersion must be non-negative" }
+        require(expectedVersion < Long.MAX_VALUE) { "expectedVersion must be less than Long.MAX_VALUE" }
+        validateIdField(reason, "reason")
 
-        val request = try {
-            store.get(command.approvalId)
+        try {
+            store.transition(
+                approvalId = approvalId,
+                expectedVersion = expectedVersion,
+                transition = ApprovalTransition.Deny(
+                    decidedBy = "system",
+                    comment = "cancelled: $reason",
+                ),
+            )
         } catch (e: RuntimeException) {
-            observeFailure("authorizeResume.get", command.approvalId, e)
-            throw mapStoreError(command.approvalId, e)
-        } ?: throw ApprovalNotFoundException(command.approvalId)
+            observeFailure("cancelApproval", approvalId, e)
+            throw mapStoreError(approvalId, e)
+        }
+    }
 
-        revalidateBinding(request, command)
-        val presentedTokenDigest = approvalTokenDigester.digest(command.presentedToken)
-        decisionValidator.validate(request, command.consumedBy)
+    override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {
+        val (request, presentedTokenDigest) = prepareResumeAuthorization(
+            approvalId = command.approvalId,
+            expectedVersion = command.expectedVersion,
+            presentedToken = command.presentedToken,
+            consumedBy = command.consumedBy,
+            workflowRunId = command.workflowRunId,
+            toolName = command.toolName,
+            argumentsDigest = command.argumentsDigest,
+            policyVersion = command.policyVersion,
+            workflowDigest = command.workflowDigest,
+            operationName = "authorizeResume",
+        )
 
         val consumed = try {
             store.consumeApproved(
@@ -146,25 +168,94 @@ class DefaultApprovalGateCoordinator(
         )
     }
 
+    override suspend fun validateResume(command: ValidateResumeCommand): ApprovalValidation {
+        val (request, _) = prepareResumeAuthorization(
+            approvalId = command.approvalId,
+            expectedVersion = command.expectedVersion,
+            presentedToken = command.presentedToken,
+            consumedBy = command.consumedBy,
+            workflowRunId = command.workflowRunId,
+            toolName = command.toolName,
+            argumentsDigest = command.argumentsDigest,
+            policyVersion = command.policyVersion,
+            workflowDigest = command.workflowDigest,
+            operationName = "validateResume",
+        )
+
+        return ApprovalValidation(
+            approvalId = request.approvalId,
+            validatedBy = command.consumedBy,
+            validatedAt = clock.instant(),
+            version = command.expectedVersion,
+        )
+    }
+
     private fun revalidateBinding(
         request: ApprovalRequest,
-        command: AuthorizeResumeCommand,
+        approvalId: String,
+        workflowRunId: String,
+        toolName: String,
+        argumentsDigest: dev.tramai.core.approval.Sha256Digest,
+        policyVersion: String,
+        workflowDigest: dev.tramai.core.approval.Sha256Digest,
     ) {
-        if (request.binding.workflowRunId != command.workflowRunId) {
-            throw ApprovalBindingMismatchException(command.approvalId, "workflowRunId")
+        if (request.binding.workflowRunId != workflowRunId) {
+            throw ApprovalBindingMismatchException(approvalId, "workflowRunId")
         }
-        if (request.binding.toolName != command.toolName) {
-            throw ApprovalBindingMismatchException(command.approvalId, "toolName")
+        if (request.binding.toolName != toolName) {
+            throw ApprovalBindingMismatchException(approvalId, "toolName")
         }
-        if (request.binding.argumentsDigest != command.argumentsDigest) {
-            throw ApprovalBindingMismatchException(command.approvalId, "argumentsDigest")
+        if (request.binding.argumentsDigest != argumentsDigest) {
+            throw ApprovalBindingMismatchException(approvalId, "argumentsDigest")
         }
-        if (request.binding.policyVersion != command.policyVersion) {
-            throw ApprovalBindingMismatchException(command.approvalId, "policyVersion")
+        if (request.binding.policyVersion != policyVersion) {
+            throw ApprovalBindingMismatchException(approvalId, "policyVersion")
         }
-        if (request.binding.workflowDigest != command.workflowDigest) {
-            throw ApprovalBindingMismatchException(command.approvalId, "workflowDigest")
+        if (request.binding.workflowDigest != workflowDigest) {
+            throw ApprovalBindingMismatchException(approvalId, "workflowDigest")
         }
+    }
+
+    private suspend fun prepareResumeAuthorization(
+        approvalId: String,
+        expectedVersion: Long,
+        presentedToken: dev.tramai.core.approval.ApprovalToken,
+        consumedBy: String,
+        workflowRunId: String,
+        toolName: String,
+        argumentsDigest: dev.tramai.core.approval.Sha256Digest,
+        policyVersion: String,
+        workflowDigest: dev.tramai.core.approval.Sha256Digest,
+        operationName: String,
+    ): Pair<ApprovalRequest, dev.tramai.core.approval.Sha256Digest> {
+        validateIdField(approvalId, "approvalId")
+        validateIdField(consumedBy, "consumedBy")
+        validateIdField(workflowRunId, "workflowRunId")
+        validateIdField(toolName, "toolName")
+        validateIdField(policyVersion, "policyVersion")
+        validateIdField(workflowDigest.value, "workflowDigest")
+        require(expectedVersion >= 0) { "expectedVersion must be non-negative" }
+        require(expectedVersion < Long.MAX_VALUE) { "expectedVersion must be less than Long.MAX_VALUE" }
+
+        val request = try {
+            store.get(approvalId)
+        } catch (e: RuntimeException) {
+            observeFailure("$operationName.get", approvalId, e)
+            throw mapStoreError(approvalId, e)
+        } ?: throw ApprovalNotFoundException(approvalId)
+
+        revalidateBinding(
+            request = request,
+            approvalId = approvalId,
+            workflowRunId = workflowRunId,
+            toolName = toolName,
+            argumentsDigest = argumentsDigest,
+            policyVersion = policyVersion,
+            workflowDigest = workflowDigest,
+        )
+        val presentedTokenDigest = approvalTokenDigester.digest(presentedToken)
+        decisionValidator.validate(request, consumedBy)
+        return request to presentedTokenDigest
     }
 
     private fun mapStoreError(

@@ -36,7 +36,10 @@ internal val ClassificationSource.authorityRank: Int
         ClassificationSource.LOCAL_MODEL_ASSISTED -> 0
     }
 
-internal data class ExecutionSecurityContext(
+// Exposed by SuspendedInvocationStore SPI — SuspendedInvocationMetadata.securityContext
+// is part of the public API. A stable DTO for external consumers can be introduced
+// when the SPI use cases are better understood.
+data class ExecutionSecurityContext(
     val dataClassification: DataClassification? = null,
     val classificationSource: ClassificationSource? = null,
 ) {

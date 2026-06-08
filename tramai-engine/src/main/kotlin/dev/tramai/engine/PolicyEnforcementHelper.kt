@@ -33,16 +33,23 @@ internal class PolicyEnforcementHelper(
     private val logger = Logger.getLogger(PolicyEnforcementHelper::class.java.name)
 
     /**
-     * Evaluates policy at the given [enforcementPoint].
+     * Evaluates policy at the given [enforcementPoint] and returns the [PolicyDecision]
+     * without throwing. Callers that support suspension should use this and handle
+     * [PolicyDecision.RequireApproval] explicitly.
+     */
+    suspend fun evaluate(context: PolicyContext): PolicyDecision {
+        logMigrationWarningOnce()
+        val decision = policyEngine.evaluate(context)
+        auditEmitter.emit(context.enforcementPoint, context, decision)
+        return decision
+    }
+
+    /**
+     * Evaluates policy at the given [enforcementPoint] and enforces the decision
+     * by throwing on Deny or RequireApproval.
      */
     suspend fun enforce(context: PolicyContext) {
-        logMigrationWarningOnce()
-
-        val decision = policyEngine.evaluate(context)
-        // Audit BEFORE enforcement — synchronously persist the event
-        auditEmitter.emit(context.enforcementPoint, context, decision)
-        // Then enforce
-        when (decision) {
+        when (val decision = evaluate(context)) {
             is PolicyDecision.Allow -> { /* continue */ }
             is PolicyDecision.Deny -> throw PolicyViolationException(decision)
             is PolicyDecision.RequireApproval -> throw ApprovalRequiredException(decision.requirement)
@@ -68,6 +75,8 @@ internal class PolicyEnforcementHelper(
         correlationId: String = UUID.randomUUID().toString(),
         base: ContextDefaults = ContextDefaults(),
     ): PolicyContextBuilder = PolicyContextBuilder(enforcementPoint, correlationId, policyVersion, base)
+
+    fun getPolicyVersion(): String = policyVersion
 
     data class ContextDefaults(
         val workflowId: String? = null,
