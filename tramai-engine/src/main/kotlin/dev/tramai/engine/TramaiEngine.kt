@@ -2373,6 +2373,12 @@ internal class TramaiInvocationHandler(
         require(existingContinuation.version == command.continuationExpectedVersion) {
             "Continuation version mismatch: expected ${command.continuationExpectedVersion}, got ${existingContinuation.version}"
         }
+        require(existingContinuation.toolName == metadata.toolName) {
+            "Continuation tool name mismatch: '${existingContinuation.toolName}' != '${metadata.toolName}'"
+        }
+        require(existingContinuation.toolCallId == metadata.toolCallId) {
+            "Continuation tool-call ID mismatch: '${existingContinuation.toolCallId}' != '${metadata.toolCallId}'"
+        }
 
         // 3. Resolve non-side-effecting dependencies BEFORE token consumption
         val coordinator = approvalGateCoordinator
@@ -2480,7 +2486,13 @@ internal class TramaiInvocationHandler(
                 )
             }
             val validatedInput = claimed.arguments.reveal()
+            val validatedTool = toolRegistry.resolve(metadata.toolName)
+                ?: throw dev.tramai.core.exception.ConfigurationException(
+                    "Approved tool '${metadata.toolName}' is no longer registered"
+                )
             val validatedToolCall = resumeContext.toolCall.copy(
+                id = metadata.toolCallId,
+                name = metadata.toolName,
                 argumentsJson = validatedInput,
             )
 
@@ -2504,7 +2516,7 @@ internal class TramaiInvocationHandler(
             }
             val toolResult = try {
                 executeTool(
-                    tool = resumeContext.tool,
+                    tool = validatedTool,
                     toolCall = validatedToolCall,
                     operation = resumeContext.operation,
                     correlationId = metadata.correlationId,
@@ -2519,7 +2531,7 @@ internal class TramaiInvocationHandler(
             } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
                 // Defensive fallback for older resume paths; use the already-validated payload.
                 val resumedInput = validatedInput
-                val maxAttempts = if (resumeContext.tool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
+                val maxAttempts = if (validatedTool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
                 val fallbackResult = run {
                     var lastException: Exception? = null
                     repeat(maxAttempts) { attemptIndex ->
@@ -2530,11 +2542,11 @@ internal class TramaiInvocationHandler(
                             timeout = java.time.Duration.ofMillis(resumeContext.operation.operation.timeoutMillis),
                         )
                         try {
-                            return@run resumeContext.tool.execute(resumedInput, context)
+                            return@run validatedTool.execute(resumedInput, context)
                         } catch (tie: dev.tramai.core.exception.ToolInvalidInputException) {
                             return@run ToolResult.InvalidInput(tie.message ?: "Invalid tool input")
                         } catch (ex: Exception) {
-                            if (resumeContext.tool.idempotent && attemptIndex < maxAttempts - 1) {
+                            if (validatedTool.idempotent && attemptIndex < maxAttempts - 1) {
                                 lastException = ex
                                 // continue to next attempt
                             } else {
@@ -2576,7 +2588,7 @@ internal class TramaiInvocationHandler(
                 operation = resumeContext.operation,
                 messages = messages,
                 toolResult = toolResult,
-                toolCallId = resumeContext.toolCall.id,
+                toolCallId = metadata.toolCallId,
                 toolCallIndex = metadata.toolCallIndex,
                 correlationId = metadata.correlationId,
                 securityContext = securityContext,

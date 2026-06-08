@@ -160,8 +160,11 @@ class ApprovalResumeEngineTest {
         }
     }
 
-    private class DivergentSensitiveContextStore(
+    private class DivergentToolStore(
         private val delegate: SuspendedInvocationStore,
+        private val divergentTool: ResolvedTool,
+        private val divergentToolCallId: String,
+        private val divergentToolName: String,
         private val divergentArgumentsJson: String,
     ) : SuspendedInvocationStore by delegate {
         override suspend fun revealSensitiveContext(approvalId: String): SensitiveResumeContext? {
@@ -169,9 +172,13 @@ class ApprovalResumeEngineTest {
             val context = sensitive.revealForResume()
             return SensitiveResumeContext.of(
                 operation = context.operation,
-                tool = context.tool,
+                tool = divergentTool,
                 messages = context.messages,
-                toolCall = context.toolCall.copy(argumentsJson = divergentArgumentsJson),
+                toolCall = context.toolCall.copy(
+                    id = divergentToolCallId,
+                    name = divergentToolName,
+                    argumentsJson = divergentArgumentsJson,
+                ),
             )
         }
     }
@@ -278,8 +285,11 @@ class ApprovalResumeEngineTest {
             },
             toolRegistry = ToolRegistry(mapOf(recordingTool.name to recordingTool)),
             policyEngine = SelectivePolicyEngine(toolExecApprovalToolName = toolName),
-            suspendedInvocationStore = DivergentSensitiveContextStore(
+            suspendedInvocationStore = DivergentToolStore(
                 delegate = InMemorySuspendedInvocationStore(),
+                divergentTool = recordingTool,
+                divergentToolCallId = toolCallId,
+                divergentToolName = toolName,
                 divergentArgumentsJson = divergentArguments,
             ),
             approvalContinuationStore = continuationStore,
@@ -308,6 +318,351 @@ class ApprovalResumeEngineTest {
         val continuation = runBlocking { continuationStore.get(exception.approvalId) }
         assertThat(continuation).isNotNull
         assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.COMPLETED)
+    }
+
+    @Test
+    fun `resumeApproval executes registry validated tool when sensitive resume context tool diverges`() {
+        val trustedTool = RecordingTool(name = toolName)
+        val divergentTool = RecordingTool(name = toolName, result = ToolResult.Success("""{"result":999}"""))
+        var localProviderCallCount = 0
+        val continuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+        val engine = TramaiEngine(
+            provider = RecordingProvider { _ ->
+                localProviderCallCount++
+                if (localProviderCallCount == 1) {
+                    ModelResponse(
+                        content = "",
+                        toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                    )
+                } else {
+                    ModelResponse(content = "Final result: success")
+                }
+            },
+            toolRegistry = ToolRegistry(mapOf(trustedTool.name to trustedTool)),
+            policyEngine = SelectivePolicyEngine(toolExecApprovalToolName = toolName),
+            suspendedInvocationStore = DivergentToolStore(
+                delegate = InMemorySuspendedInvocationStore(),
+                divergentTool = divergentTool,
+                divergentToolCallId = toolCallId,
+                divergentToolName = toolName,
+                divergentArgumentsJson = toolArguments,
+            ),
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            clock = fixedClock,
+        )
+
+        val exception = triggerSuspension(engine)
+        val result = runBlocking {
+            engine.resumeApproval(
+                ResumeApprovalCommand(
+                    approvalId = exception.approvalId,
+                    approvalExpectedVersion = 0L,
+                    continuationExpectedVersion = 0L,
+                    presentedToken = exception.challenge.token,
+                    resumedBy = resumedBy,
+                )
+            )
+        }
+
+        assertThat(result).isEqualTo("Final result: success")
+        assertThat(trustedTool.invocations).hasSize(1)
+        assertThat(divergentTool.invocations).isEmpty()
+        val continuation = runBlocking { continuationStore.get(exception.approvalId) }
+        assertThat(continuation).isNotNull
+        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.COMPLETED)
+    }
+
+    @Test
+    fun `resumeApproval fails closed when continuation toolName differs from metadata toolName`() {
+        val recordingTool = RecordingTool(name = toolName)
+        var localProviderCallCount = 0
+        val realContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+        // Wrapper that returns a continuation with a DIFFERENT toolName than the one stored during suspension
+        val divergentContinuationStore = object : dev.tramai.core.approval.ApprovalContinuationStore {
+            override suspend fun create(
+                continuation: dev.tramai.core.approval.ApprovalContinuation,
+                arguments: dev.tramai.core.approval.SensitiveToolArguments,
+            ) = realContinuationStore.create(continuation, arguments)
+            override suspend fun get(approvalId: String): dev.tramai.core.approval.ApprovalContinuation? {
+                val real = realContinuationStore.get(approvalId) ?: return null
+                return real.copy(toolName = "different-tool")
+            }
+            override suspend fun claimForExecution(
+                approvalId: String, expectedVersion: Long, claimedBy: String,
+            ) = realContinuationStore.claimForExecution(approvalId, expectedVersion, claimedBy)
+            override suspend fun complete(
+                approvalId: String, expectedVersion: Long, completedBy: String,
+            ) = realContinuationStore.complete(approvalId, expectedVersion, completedBy)
+            override suspend fun expire(
+                approvalId: String, expectedVersion: Long,
+            ) = realContinuationStore.expire(approvalId, expectedVersion)
+            override suspend fun cancel(
+                approvalId: String, expectedVersion: Long,
+            ) = realContinuationStore.cancel(approvalId, expectedVersion)
+            override suspend fun sweepExpired() = realContinuationStore.sweepExpired()
+        }
+        val engine = TramaiEngine(
+            provider = RecordingProvider { _ ->
+                localProviderCallCount++
+                if (localProviderCallCount == 1) {
+                    ModelResponse(
+                        content = "",
+                        toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                    )
+                } else {
+                    ModelResponse(content = "should not happen")
+                }
+            },
+            toolRegistry = ToolRegistry(mapOf(recordingTool.name to recordingTool)),
+            policyEngine = SelectivePolicyEngine(toolExecApprovalToolName = toolName),
+            suspendedInvocationStore = InMemorySuspendedInvocationStore(),
+            approvalContinuationStore = divergentContinuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            clock = fixedClock,
+        )
+
+        val exception = triggerSuspension(engine)
+
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = exception.challenge.token,
+                        resumedBy = resumedBy,
+                    )
+                )
+            }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("Continuation tool name mismatch")
+
+        assertThat(recordingTool.invocations).isEmpty()
+    }
+
+    @Test
+    fun `resumeApproval fails closed when continuation toolCallId differs from metadata toolCallId`() {
+        val recordingTool = RecordingTool(name = toolName)
+        var localProviderCallCount = 0
+        val realContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+        val divergentContinuationStore = object : dev.tramai.core.approval.ApprovalContinuationStore {
+            override suspend fun create(
+                continuation: dev.tramai.core.approval.ApprovalContinuation,
+                arguments: dev.tramai.core.approval.SensitiveToolArguments,
+            ) = realContinuationStore.create(continuation, arguments)
+            override suspend fun get(approvalId: String): dev.tramai.core.approval.ApprovalContinuation? {
+                val real = realContinuationStore.get(approvalId) ?: return null
+                return real.copy(toolCallId = "different-call-id")
+            }
+            override suspend fun claimForExecution(
+                approvalId: String, expectedVersion: Long, claimedBy: String,
+            ) = realContinuationStore.claimForExecution(approvalId, expectedVersion, claimedBy)
+            override suspend fun complete(
+                approvalId: String, expectedVersion: Long, completedBy: String,
+            ) = realContinuationStore.complete(approvalId, expectedVersion, completedBy)
+            override suspend fun expire(
+                approvalId: String, expectedVersion: Long,
+            ) = realContinuationStore.expire(approvalId, expectedVersion)
+            override suspend fun cancel(
+                approvalId: String, expectedVersion: Long,
+            ) = realContinuationStore.cancel(approvalId, expectedVersion)
+            override suspend fun sweepExpired() = realContinuationStore.sweepExpired()
+        }
+        val engine = TramaiEngine(
+            provider = RecordingProvider { _ ->
+                localProviderCallCount++
+                if (localProviderCallCount == 1) {
+                    ModelResponse(
+                        content = "",
+                        toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                    )
+                } else {
+                    ModelResponse(content = "should not happen")
+                }
+            },
+            toolRegistry = ToolRegistry(mapOf(recordingTool.name to recordingTool)),
+            policyEngine = SelectivePolicyEngine(toolExecApprovalToolName = toolName),
+            suspendedInvocationStore = InMemorySuspendedInvocationStore(),
+            approvalContinuationStore = divergentContinuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            clock = fixedClock,
+        )
+
+        val exception = triggerSuspension(engine)
+
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = exception.challenge.token,
+                        resumedBy = resumedBy,
+                    )
+                )
+            }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("Continuation tool-call ID mismatch")
+
+        assertThat(recordingTool.invocations).isEmpty()
+    }
+
+    @Test
+    fun `resumeApproval reinjects tool result with metadata toolCallId when sensitive context toolCall diverges`() {
+        val divergentToolCallId = "call-divergent-99"
+        val divergentToolName = "tool-divergent-name"
+        val trustedTool = RecordingTool(name = toolName)
+        val providerRequests = mutableListOf<ModelRequest>()
+        var localProviderCallCount = 0
+        val continuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+        val engine = TramaiEngine(
+            provider = RecordingProvider { request ->
+                providerRequests += request
+                localProviderCallCount++
+                if (localProviderCallCount == 1) {
+                    ModelResponse(
+                        content = "",
+                        toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                    )
+                } else {
+                    ModelResponse(content = "Final result: success")
+                }
+            },
+            toolRegistry = ToolRegistry(mapOf(trustedTool.name to trustedTool)),
+            policyEngine = SelectivePolicyEngine(toolExecApprovalToolName = toolName),
+            suspendedInvocationStore = DivergentToolStore(
+                delegate = InMemorySuspendedInvocationStore(),
+                divergentTool = trustedTool,
+                divergentToolCallId = divergentToolCallId,
+                divergentToolName = divergentToolName,
+                divergentArgumentsJson = toolArguments,
+            ),
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            clock = fixedClock,
+        )
+
+        val exception = triggerSuspension(engine)
+        val result = runBlocking {
+            engine.resumeApproval(
+                ResumeApprovalCommand(
+                    approvalId = exception.approvalId,
+                    approvalExpectedVersion = 0L,
+                    continuationExpectedVersion = 0L,
+                    presentedToken = exception.challenge.token,
+                    resumedBy = resumedBy,
+                )
+            )
+        }
+
+        assertThat(result).isEqualTo("Final result: success")
+        assertThat(providerRequests).hasSize(2)
+        val resumedRequest = providerRequests.last()
+        val toolMessage = resumedRequest.messages.lastOrNull {
+            it.role == dev.tramai.core.model.MessageRole.TOOL
+        }
+        assertThat(toolMessage).isNotNull
+        assertThat(toolMessage!!.toolCallId).isEqualTo(toolCallId)
+        assertThat(toolMessage.toolCallId).isNotEqualTo(divergentToolCallId)
+        val continuation = runBlocking { continuationStore.get(exception.approvalId) }
+        assertThat(continuation).isNotNull
+        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.COMPLETED)
+    }
+
+    @Test
+    fun `resumeApproval fails closed when approved tool is no longer registered`() {
+        val auditEvents = mutableListOf<String>()
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+            override suspend fun onToolExecutionSuspended(
+                approvalId: String, workflowRunId: String, toolName: String,
+                toolCallId: String, correlationId: String,
+                argumentsDigest: dev.tramai.core.approval.Sha256Digest,
+                expiresAt: java.time.Instant,
+            ) = Unit
+            override suspend fun onToolExecutionResumed(
+                approvalId: String, workflowRunId: String,
+                toolName: String, resumedBy: String,
+            ) = Unit
+            override suspend fun onToolExecutionCompleted(
+                approvalId: String, workflowRunId: String,
+                toolName: String, completedBy: String,
+            ) = Unit
+            override suspend fun onUncertainOutcome(
+                approvalId: String, workflowRunId: String,
+                toolName: String, reason: String,
+            ) { auditEvents += reason }
+            override suspend fun onSuspensionCancelled(
+                approvalId: String, workflowRunId: String,
+                toolName: String, reason: String,
+            ) = Unit
+        }
+
+        val continuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+        val suspendedStore = InMemorySuspendedInvocationStore()
+        var localProviderCallCount = 0
+        val suspendingEngine = TramaiEngine(
+            provider = RecordingProvider { _ ->
+                localProviderCallCount++
+                if (localProviderCallCount == 1) {
+                    ModelResponse(
+                        content = "",
+                        toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                    )
+                } else {
+                    ModelResponse(content = "Final result: success")
+                }
+            },
+            toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+            policyEngine = SelectivePolicyEngine(toolExecApprovalToolName = toolName),
+            suspendedInvocationStore = suspendedStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            clock = fixedClock,
+            approvalLifecycleAuditEmitter = auditEmitter,
+        )
+
+        val exception = triggerSuspension(suspendingEngine)
+
+        val resumingEngine = TramaiEngine(
+            provider = RecordingProvider { ModelResponse(content = "should not happen") },
+            toolRegistry = ToolRegistry(emptyMap()),
+            policyEngine = SelectivePolicyEngine(toolExecApprovalToolName = toolName),
+            suspendedInvocationStore = suspendedStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            clock = fixedClock,
+            approvalLifecycleAuditEmitter = auditEmitter,
+        )
+        resumingEngine.create<ResumeBootstrapService>()
+
+        assertThatThrownBy {
+            runBlocking {
+                resumingEngine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = exception.challenge.token,
+                        resumedBy = resumedBy,
+                    )
+                )
+            }
+        }.isInstanceOf(dev.tramai.core.exception.ConfigurationException::class.java)
+            .hasMessageContaining("Approved tool '$toolName' is no longer registered")
+
+        val continuation = runBlocking { continuationStore.get(exception.approvalId) }
+        assertThat(continuation).isNotNull
+        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+        assertThat(auditEvents).singleElement().isEqualTo("resume-failed: ConfigurationException")
     }
 
     @Test
@@ -429,6 +784,108 @@ class ApprovalResumeEngineTest {
             }
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("Renewed approval requirement digest mismatch")
+
+        assertThat(recordingTool.invocations).isEmpty()
+        val continuation = runBlocking { continuationStore.get(exception.approvalId) }
+        assertThat(continuation).isNotNull
+        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+        assertThat(auditEvents).contains("resume-failed: IllegalArgumentException")
+    }
+
+    @Test
+    fun `renewed RequireApproval tool name mismatch fails closed without executing tool`() {
+        val auditEvents = mutableListOf<String>()
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+            override suspend fun onToolExecutionSuspended(
+                approvalId: String, workflowRunId: String, toolName: String,
+                toolCallId: String, correlationId: String,
+                argumentsDigest: dev.tramai.core.approval.Sha256Digest,
+                expiresAt: java.time.Instant,
+            ) = Unit
+            override suspend fun onToolExecutionResumed(
+                approvalId: String, workflowRunId: String,
+                toolName: String, resumedBy: String,
+            ) = Unit
+            override suspend fun onToolExecutionCompleted(
+                approvalId: String, workflowRunId: String,
+                toolName: String, completedBy: String,
+            ) = Unit
+            override suspend fun onUncertainOutcome(
+                approvalId: String, workflowRunId: String,
+                toolName: String, reason: String,
+            ) { auditEvents.add(reason) }
+            override suspend fun onSuspensionCancelled(
+                approvalId: String, workflowRunId: String,
+                toolName: String, reason: String,
+            ) = Unit
+        }
+        var beforeResume = true
+        var localProviderCallCount = 0
+        val mismatchPolicyEngine = object : PolicyEngine {
+            override suspend fun evaluate(context: PolicyContext): PolicyDecision {
+                return when (context.enforcementPoint) {
+                    EnforcementPoint.BEFORE_TOOL_EXECUTION -> {
+                        val toolNameForThisCall = if (beforeResume) {
+                            beforeResume = false
+                            toolName
+                        } else {
+                            "different-tool"
+                        }
+                        val digest = "sha256:12e49c0f5b1f1c5a753a1e98fb8e94a06c58b35c8432b77270d412d5d295e3b9"
+                        PolicyDecision.RequireApproval(
+                            ApprovalRequirement(
+                                toolName = toolNameForThisCall,
+                                argumentsDigest = digest,
+                                reason = "testing",
+                                timeoutMillis = 60_000,
+                            )
+                        )
+                    }
+                    EnforcementPoint.BEFORE_WORKFLOW_RESUME -> PolicyDecision.Allow
+                    else -> PolicyDecision.Allow
+                }
+            }
+        }
+        val recordingTool = RecordingTool(name = toolName)
+        val continuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+        val engine = TramaiEngine(
+            provider = RecordingProvider { _ ->
+                localProviderCallCount++
+                if (localProviderCallCount == 1) {
+                    ModelResponse(
+                        content = "",
+                        toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                    )
+                } else {
+                    ModelResponse(content = "should not happen")
+                }
+            },
+            toolRegistry = ToolRegistry(mapOf(recordingTool.name to recordingTool)),
+            policyEngine = mismatchPolicyEngine,
+            suspendedInvocationStore = InMemorySuspendedInvocationStore(),
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            clock = fixedClock,
+            approvalLifecycleAuditEmitter = auditEmitter,
+        )
+
+        val exception = triggerSuspension(engine)
+
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = exception.challenge.token,
+                        resumedBy = resumedBy,
+                    )
+                )
+            }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("Renewed approval requirement tool name mismatch")
 
         assertThat(recordingTool.invocations).isEmpty()
         val continuation = runBlocking { continuationStore.get(exception.approvalId) }
@@ -1547,6 +2004,16 @@ class ApprovalResumeEngineTest {
             tools = ["unit_tool"],
         )
         suspend fun execute(input: String)
+    }
+
+    @AiService
+    @SystemPrompt("You are a helpful assistant.")
+    private interface ResumeBootstrapService {
+        @Operation(
+            prompt = "Bootstrap resume handler",
+            model = "claude-sonnet-4-20250514",
+        )
+        suspend fun execute(input: String): String
     }
 
     // ── Test Provider ──────────────────────────────────────────────

@@ -1,0 +1,182 @@
+[
+  {
+    "title": "MiMo-v2.5-Pro-UltraSpeed: 1T model with 1000 tokens per second",
+    "url": "https://mimo.xiaomi.com/blog/mimo-tilert-1000tps",
+    "points": 267,
+    "timestamp": 1780932453
+  },
+  {
+    "title": "Show HN: Performative-UI \u2013 a react component library of design tropes",
+    "url": "https://vorpus.github.io/performativeUI/",
+    "points": 438,
+    "timestamp": 1780927516
+  },
+  {
+    "title": "Stop the Apple Music app from launching",
+    "url": "https://lowtechguys.com/musicdecoy/",
+    "points": 95,
+    "timestamp": 1780938103
+  },
+  {
+    "title": "Anti-social: It's fads, not friends, which now dominate social media feeds",
+    "url": "https://www.bbc.com/worklife/article/20260520-how-social-media-ceased-to-be-social",
+    "points": 349,
+    "timestamp": 1780919882
+  },
+  {
+    "title": "Full Reverse Engineering of the TI-84 Plus Operating System",
+    "url": "https://siraben.github.io/ti84p-re/",
+    "points": 18,
+    "timestamp": 1780940493
+  },
+  {
+    "title": "Apple WWDC 2026 Livestream",
+    "url": "https://www.apple.com/apple-events/event-stream/",
+    "points": 95,
+    "timestamp": 1780938864
+  },
+  {
+    "title": "xAI is looking more like a datacentre REIT than a frontier lab",
+    "url": "https://martinalderson.com/posts/xais-new-rental-business/",
+    "points": 57,
+    "timestamp": 1780931623
+  },
+  {
+    "title": "OCaml Onboarding: Introduction to the Dune build system",
+    "url": "https://ocamlpro.com/blog/2025_07_29_ocaml_onboarding_introduction_to_dune/",
+    "points": 63,
+    "timestamp": 1780595549
+  },
+  {
+    "title": "Launch HN: Intuned (YC S22) \u2013 Build and run reliable browser automations as code",
+    "url": "https://intunedhq.com",
+    "points": 83,
+    "timestamp": 1780925727
+  },
+  {
+    "title": "A Farmer Donated Land to Turn into a Park. The City Is Building a Data Center",
+    "url": "https://www.404media.co/a-farmer-donated-land-to-turn-into-a-park-the-city-is-building-a-massive-data-center-instead/",
+    "points": 269,
+    "timestamp": 1780931669
+  },
+  {
+    "title": "Zig by Example",
+    "url": "https://github.com/boringcollege/zig-by-example",
+    "points": 185,
+    "timestamp": 1780923979
+  },
+  {
+    "title": "The Cypherpunk Library",
+    "url": "https://www.cypherpunkbooks.com",
+    "points": 269,
+    "timestamp": 1780907572
+  },
+  {
+    "title": "How much of Thermo Fisher's antibody data has been manipulated?",
+    "url": "https://reeserichardson.blog/2026/05/28/how-much-of-thermo-fishers-antibody-data-has-been-manipulated/",
+    "points": 322,
+    "timestamp": 1780901766
+  },
+  {
+    "title": "Dopamine Fracking",
+    "url": "https://igerman.cc/blog/dopamine-fracking/",
+    "points": 684,
+    "timestamp": 1780886544
+  },
+  {
+    "title": "Life is too short for a slow terminal",
+    "url": "https://mijndertstuij.nl/posts/life-is-too-short-for-a-slow-terminal/",
+    "points": 53,
+    "timestamp": 1780749888
+  },
+  {
+    "title": "Are you expected to run five Python type-checkers now?",
+    "url": "https://pyrefly.org/blog/too-many-type-checkers/",
+    "points": 80,
+    "timestamp": 1780921450
+  },
+  {
+    "title": "Mutation Testing in Haskell",
+    "url": "https://cs-syd.eu/posts/2026-06-03-mutation-testing-in-haskell",
+    "points": 20,
+    "timestamp": 1780496942
+  },
+  {
+    "title": "Why are so many young people getting cancer?",
+    "url": "https://www.nature.com/articles/d41586-026-01780-6",
+    "points": 90,
+    "timestamp": 1780933680
+  },
+  {
+    "title": "Thunderbird Littering My Home",
+    "url": "https://thefoggiest.dev/2026/06/04/thunderbird-littering-my-home",
+    "points": 5,
+    "timestamp": 1780939894
+  },
+  {
+    "title": "Massachusetts bans sale of precise location data in new privacy rights bill",
+    "url": "https://techcrunch.com/2026/06/08/massachusetts-votes-to-pass-new-privacy-rights-bill-that-bans-sale-of-precise-location-data/",
+    "points": 31,
+    "timestamp": 1780938453
+  },
+  {
+    "title": "Spanish traders set the standard for GnuCash database design",
+    "url": "https://handson.money/blog/2026-06-06-horse-arse-and-design/",
+    "points": 54,
+    "timestamp": 1780923474
+  },
+  {
+    "title": "Zig Structs of Arrays (2024)",
+    "url": "https://andreashohmann.com/zig-struct-of-arrays/",
+    "points": 103,
+    "timestamp": 1780554516
+  },
+  {
+    "title": "Building from zero after addiction, prison, and a felony",
+    "url": "https://gavinray97.github.io/blog/building-from-zero-after-addiction-prison-felony",
+    "points": 849,
+    "timestamp": 1780857187
+  },
+  {
+    "title": "NEC PC Engine LT Recap and LCD Bias Fix (Necromancy)",
+    "url": "https://hitmanmcc.com/entry/pc-engine-lt-necromancy",
+    "points": 5,
+    "timestamp": 1780866842
+  },
+  {
+    "title": "1k Data Breaches Later, the Disclosure Lag Is Worse",
+    "url": "https://www.troyhunt.com/1000-data-breaches-later-the-disclosure-lag-is-worse-than-ever/",
+    "points": 277,
+    "timestamp": 1780888630
+  },
+  {
+    "title": "I replaced Spotify with a homemade FM radio station",
+    "url": "https://old.reddit.com/r/digitalminimalism/comments/1tes8yu/i_replaced_spotify_with_a_homemade_fm_radio/",
+    "points": 92,
+    "timestamp": 1780932340
+  },
+  {
+    "title": "Italy's Bending Spoons, Owner of AOL and Vimeo, Files for Nasdaq IPO",
+    "url": "https://www.reuters.com/legal/transactional/italys-bending-spoons-files-us-ipo-2026-06-08/",
+    "points": 76,
+    "timestamp": 1780931057
+  },
+  {
+    "title": "Replies to comments on my \"LLMs are eroding my career\" post",
+    "url": "https://human-in-the-loop.bearblog.dev/replies-to-comments-on-my-llms-are-eroding-my-career-post/",
+    "points": 85,
+    "timestamp": 1780912323
+  },
+  {
+    "title": "Spherical Voronoi Diagram",
+    "url": "https://www.jasondavies.com/maps/voronoi/",
+    "points": 114,
+    "timestamp": 1780500732
+  },
+  {
+    "title": "EU-banned pesticides found in rice, tea and spices",
+    "url": "https://www.foodwatch.org/en/eu-banned-pesticides-found-in-rice-tea-and-spices",
+    "points": 6,
+    "timestamp": 1780934344
+  }
+]
