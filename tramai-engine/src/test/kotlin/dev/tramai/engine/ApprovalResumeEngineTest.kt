@@ -419,6 +419,8 @@ class ApprovalResumeEngineTest {
                 approvalId: String, expectedVersion: Long,
             ) = realContinuationStore.cancel(approvalId, expectedVersion)
             override suspend fun sweepExpired() = realContinuationStore.sweepExpired()
+            override suspend fun findStaleClaimed(claimedBefore: java.time.Instant, limit: Int) = realContinuationStore.findStaleClaimed(claimedBefore, limit)
+            override suspend fun forceCancelClaimed(approvalId: String, expectedVersion: Long, cancelledBy: String, reasonCode: String) = realContinuationStore.forceCancelClaimed(approvalId, expectedVersion, cancelledBy, reasonCode)
         }
         val engine = TramaiEngine(
             provider = RecordingProvider { _ ->
@@ -488,6 +490,8 @@ class ApprovalResumeEngineTest {
                 approvalId: String, expectedVersion: Long,
             ) = realContinuationStore.cancel(approvalId, expectedVersion)
             override suspend fun sweepExpired() = realContinuationStore.sweepExpired()
+            override suspend fun findStaleClaimed(claimedBefore: java.time.Instant, limit: Int) = realContinuationStore.findStaleClaimed(claimedBefore, limit)
+            override suspend fun forceCancelClaimed(approvalId: String, expectedVersion: Long, cancelledBy: String, reasonCode: String) = realContinuationStore.forceCancelClaimed(approvalId, expectedVersion, cancelledBy, reasonCode)
         }
         val engine = TramaiEngine(
             provider = RecordingProvider { _ ->
@@ -596,7 +600,7 @@ class ApprovalResumeEngineTest {
     @Test
     fun `resumeApproval fails closed when approved tool is no longer registered`() {
         val auditEvents = mutableListOf<String>()
-        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter {
             override suspend fun onToolExecutionSuspended(
                 approvalId: String, workflowRunId: String, toolName: String,
                 toolCallId: String, correlationId: String,
@@ -708,7 +712,7 @@ class ApprovalResumeEngineTest {
     @Test
     fun `renewed RequireApproval digest mismatch fails closed without executing resumed tool`() {
         val auditEvents = mutableListOf<String>()
-        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter {
             override suspend fun onToolExecutionSuspended(
                 approvalId: String, workflowRunId: String, toolName: String,
                 toolCallId: String, correlationId: String,
@@ -812,7 +816,7 @@ class ApprovalResumeEngineTest {
     @Test
     fun `renewed RequireApproval tool name mismatch fails closed without executing tool`() {
         val auditEvents = mutableListOf<String>()
-        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter {
             override suspend fun onToolExecutionSuspended(
                 approvalId: String, workflowRunId: String, toolName: String,
                 toolCallId: String, correlationId: String,
@@ -1480,7 +1484,7 @@ class ApprovalResumeEngineTest {
     @Test
     fun `later provider-turn nested approval fails closed without child state`() {
         val auditEvents = mutableListOf<String>()
-        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter {
             override suspend fun onToolExecutionSuspended(
                 approvalId: String, workflowRunId: String, toolName: String,
                 toolCallId: String, correlationId: String,
@@ -1585,7 +1589,7 @@ class ApprovalResumeEngineTest {
         val freshContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
         val freshSuspendedStore = InMemorySuspendedInvocationStore()
         val auditEvents = mutableListOf<String>()
-        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter {
             override suspend fun onToolExecutionSuspended(
                 approvalId: String, workflowRunId: String, toolName: String,
                 toolCallId: String, correlationId: String,

@@ -5,5 +5,6 @@ enum class ApprovalContinuationStatus {
     CLAIMED,
     COMPLETED,
     EXPIRED,
+    CANCELLED_UNCERTAIN,
     CANCELLED,
 }

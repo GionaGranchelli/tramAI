@@ -89,6 +89,21 @@ interface ApprovalLifecycleAuditEmitter {
         toolName: String,
         reason: String,
     )
+
+    suspend fun onStaleClaimDetected(
+        approvalId: String,
+        workflowRunId: String,
+        toolName: String,
+        claimedAt: java.time.Instant,
+    )
+
+    suspend fun onClaimedContinuationForceCancelled(
+        approvalId: String,
+        workflowRunId: String,
+        toolName: String,
+        cancelledBy: String,
+        reasonCode: String,
+    )
 }
 
 /** No-op implementation of [ApprovalLifecycleAuditEmitter]. */
@@ -129,5 +144,20 @@ object NoOpApprovalLifecycleAuditEmitter : ApprovalLifecycleAuditEmitter {
         workflowRunId: String,
         toolName: String,
         reason: String,
+    ) = Unit
+
+    override suspend fun onStaleClaimDetected(
+        approvalId: String,
+        workflowRunId: String,
+        toolName: String,
+        claimedAt: java.time.Instant,
+    ) = Unit
+
+    override suspend fun onClaimedContinuationForceCancelled(
+        approvalId: String,
+        workflowRunId: String,
+        toolName: String,
+        cancelledBy: String,
+        reasonCode: String,
     ) = Unit
 }

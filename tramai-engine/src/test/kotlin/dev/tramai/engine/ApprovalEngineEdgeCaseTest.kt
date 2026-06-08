@@ -363,7 +363,7 @@ class ApprovalEngineEdgeCaseTest {
         }
 
         val auditEvents = mutableListOf<String>()
-        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter {
             override suspend fun onToolExecutionSuspended(
                 approvalId: String, workflowRunId: String, toolName: String,
                 toolCallId: String, correlationId: String,
@@ -456,7 +456,7 @@ class ApprovalEngineEdgeCaseTest {
     fun `payload integrity mismatch on resume throws ConfigurationException and keeps CLAIMED`() {
         val tamperingStore = TamperingContinuationStoreWrapper(continuationStore)
         val auditEvents = mutableListOf<String>()
-        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter {
             override suspend fun onToolExecutionSuspended(
                 approvalId: String, workflowRunId: String, toolName: String,
                 toolCallId: String, correlationId: String,
@@ -527,7 +527,7 @@ class ApprovalEngineEdgeCaseTest {
     @Test
     fun `BEFORE_WORKFLOW_RESUME RequireApproval throws ConfigurationException with recursive-approval-not-supported`() {
         val auditEvents = mutableListOf<String>()
-        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter {
             override suspend fun onToolExecutionSuspended(
                 approvalId: String, workflowRunId: String, toolName: String,
                 toolCallId: String, correlationId: String,
@@ -606,7 +606,7 @@ class ApprovalEngineEdgeCaseTest {
     @Test
     fun `missing sensitive context after claim emits uncertain outcome once`() {
         val auditEvents = mutableListOf<String>()
-        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter {
             override suspend fun onToolExecutionSuspended(
                 approvalId: String, workflowRunId: String, toolName: String,
                 toolCallId: String, correlationId: String,
@@ -702,7 +702,7 @@ class ApprovalEngineEdgeCaseTest {
     @Test
     fun `invalid token cannot cancel or scrub continuation`() {
         val auditEvents = mutableListOf<String>()
-        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter {
             override suspend fun onToolExecutionSuspended(
                 approvalId: String, workflowRunId: String, toolName: String,
                 toolCallId: String, correlationId: String,
@@ -802,7 +802,7 @@ class ApprovalEngineEdgeCaseTest {
     @Test
     fun `cancellation conflict preserves suspended context`() {
         val auditEvents = mutableListOf<String>()
-        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter {
             override suspend fun onToolExecutionSuspended(
                 approvalId: String, workflowRunId: String, toolName: String,
                 toolCallId: String, correlationId: String,
@@ -845,6 +845,8 @@ class ApprovalEngineEdgeCaseTest {
                 )
             }
             override suspend fun sweepExpired(): Int = delegate.sweepExpired()
+            override suspend fun findStaleClaimed(claimedBefore: java.time.Instant, limit: Int): List<ApprovalContinuation> = delegate.findStaleClaimed(claimedBefore, limit)
+            override suspend fun forceCancelClaimed(approvalId: String, expectedVersion: Long, cancelledBy: String, reasonCode: String): ApprovalContinuation = delegate.forceCancelClaimed(approvalId, expectedVersion, cancelledBy, reasonCode)
         }
 
         val engine = TramaiEngine(
@@ -958,7 +960,7 @@ class ApprovalEngineEdgeCaseTest {
     @Test
     fun `post-completion observer failure does not emit uncertain outcome or change result`() {
         val auditEvents = mutableListOf<String>()
-        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter {
             override suspend fun onToolExecutionSuspended(
                 approvalId: String, workflowRunId: String, toolName: String,
                 toolCallId: String, correlationId: String,

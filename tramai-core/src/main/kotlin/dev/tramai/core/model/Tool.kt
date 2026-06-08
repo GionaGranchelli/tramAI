@@ -17,6 +17,7 @@ data class ToolExecutionContext(
     val modelName: String,
     val attemptNumber: Int,
     val conversationId: String? = null,
+    val idempotencyKey: String? = null,
     val timeout: Duration,
     val attributes: Map<String, Any> = emptyMap()
 )
