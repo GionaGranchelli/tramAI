@@ -4,6 +4,7 @@ import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ClaimedApprovalContinuation
+import dev.tramai.core.approval.SAFE_REASON_CODE_PATTERN
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.exception.ApprovalContinuationConflictException
@@ -337,6 +338,6 @@ class InMemoryApprovalContinuationStore(
     private companion object {
         private const val MAX_ID_LENGTH = 256
         private const val MAX_STALE_LIMIT = 100
-        private val SAFE_REASON_CODE = Regex(dev.tramai.core.approval.SAFE_REASON_CODE_PATTERN)
+        private val SAFE_REASON_CODE = Regex(SAFE_REASON_CODE_PATTERN)
     }
 }

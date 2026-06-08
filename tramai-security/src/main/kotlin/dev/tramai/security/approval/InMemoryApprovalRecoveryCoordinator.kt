@@ -26,8 +26,6 @@ class InMemoryApprovalRecoveryCoordinator(
     private val clock: Clock = Clock.systemUTC(),
 ) : ApprovalRecoveryCoordinator {
 
-    private val SAFE_REASON_CODE = Regex(SAFE_REASON_CODE_PATTERN)
-
     override suspend fun findStaleClaims(
         claimedBefore: Instant,
         limit: Int,
@@ -52,7 +50,7 @@ class InMemoryApprovalRecoveryCoordinator(
     override suspend fun forceCancelClaimed(
         command: ForceCancelClaimedCommand,
     ): ApprovalContinuation {
-        require(SAFE_REASON_CODE.matches(command.reasonCode)) {
+        require(Regex(SAFE_REASON_CODE_PATTERN).matches(command.reasonCode)) {
             "reasonCode must match [a-z0-9][a-z0-9._:-]{0,63}"
         }
 
