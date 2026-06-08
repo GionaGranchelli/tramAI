@@ -3,6 +3,7 @@ package dev.tramai.engine
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ResolvedTool
+import dev.tramai.core.policy.ToolSecurityMetadata
 
 /**
  * Snapshot of token budget tracker state at the point of suspension.
@@ -33,6 +34,7 @@ data class TokenBudgetSnapshot(
  * @property conversationId The conversation ID for memory persistence, if any.
  * @property historySize The number of history messages at the point of suspension.
  * @property tokenBudgetSnapshot Snapshot of token budget tracker state, if available.
+ * @property toolSecurity Security metadata for the suspended tool, used for policy context during resume.
  */
 data class SuspendedInvocationMetadata(
     val approvalId: String,
@@ -45,6 +47,7 @@ data class SuspendedInvocationMetadata(
     val conversationId: String? = null,
     val historySize: Int = 0,
     val tokenBudgetSnapshot: TokenBudgetSnapshot? = null,
+    val toolSecurity: ToolSecurityMetadata? = null,
 )
 
 /**

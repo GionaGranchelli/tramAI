@@ -733,7 +733,7 @@ class ApprovalResumeEngineTest {
                     )
                 )
             }
-        }.isInstanceOf(dev.tramai.core.exception.ConfigurationException::class.java)
+        }.isInstanceOf(dev.tramai.core.exception.NestedApprovalNotSupportedException::class.java)
             .hasMessageContaining("Nested approval not supported in v1")
 
         // The resumed tool should have executed once

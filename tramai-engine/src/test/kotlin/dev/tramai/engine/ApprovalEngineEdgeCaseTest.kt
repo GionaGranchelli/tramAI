@@ -572,16 +572,16 @@ class ApprovalEngineEdgeCaseTest {
                     )
                 )
             }
-        }.isInstanceOf(dev.tramai.core.exception.ConfigurationException::class.java)
-            .hasMessage("Recursive approval not supported: use the original approval challenge")
+        }.isInstanceOf(dev.tramai.core.exception.NestedApprovalNotSupportedException::class.java)
+            .hasMessage("Nested approval not supported: use the original approval challenge")
 
         // Continuation is CANCELLED
         val continuation = runBlocking { continuationStore.get(exception.approvalId) }
         assertThat(continuation).isNotNull
         assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.CANCELLED)
 
-        // onSuspensionCancelled audit emitted with recursive-approval-not-supported reason
-        assertThat(auditEvents.any { it.contains("recursive-approval-not-supported") }).isTrue
+        // onSuspensionCancelled audit emitted with nested-approval-not-supported reason
+        assertThat(auditEvents.any { it.contains("nested-approval-not-supported") }).isTrue
     }
 
     // ── Helpers ────────────────────────────────────────────────────

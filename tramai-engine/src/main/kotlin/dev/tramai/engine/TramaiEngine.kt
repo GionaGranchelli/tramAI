@@ -1229,6 +1229,9 @@ internal class TramaiInvocationHandler(
         correlationId: String,
         securityContext: ExecutionSecurityContext,
         identity: EngineExecutionIdentity,
+        conversationId: String? = null,
+        historySize: Int = 0,
+        resumingApproval: Boolean = false,
     ): ProviderCallResult {
         val maxToolLoops = 5 // Guard against infinite tool loops
         val attemptCounter = AttemptCounter()
@@ -1283,6 +1286,9 @@ internal class TramaiInvocationHandler(
                 securityContext = securityContext,
                 identity = identity,
                 tokenBudgetTracker = tokenBudgetTracker,
+                conversationId = conversationId,
+                historySize = historySize,
+                resumingApproval = resumingApproval,
             )
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
@@ -1296,13 +1302,16 @@ internal class TramaiInvocationHandler(
         securityContext: ExecutionSecurityContext,
         identity: EngineExecutionIdentity,
         tokenBudgetTracker: TokenBudgetTracker,
+        conversationId: String? = null,
+        historySize: Int = 0,
+        resumingApproval: Boolean = false,
     ) {
         for ((index, toolCall) in toolCalls.withIndex()) {
             val tool = toolRegistry.resolve(toolCall.name)
             val toolResult = if (tool == null) {
                 ToolResult.PermanentFailure("Tool '<unregistered>' not found")
             } else {
-                executeTool(tool, toolCall, operation, correlationId, securityContext, identity, messages, index, tokenBudgetTracker)
+                executeTool(tool, toolCall, operation, correlationId, securityContext, identity, messages, index, tokenBudgetTracker, conversationId, historySize, resumingApproval)
             }
 
             // Enforce BEFORE_TOOL_RESULT_REINJECTION
@@ -1895,6 +1904,9 @@ internal class TramaiInvocationHandler(
         messages: List<Message>,
         toolCallIndex: Int = -1,
         tokenBudgetTracker: TokenBudgetTracker? = null,
+        conversationId: String? = null,
+        historySize: Int = 0,
+        resumingApproval: Boolean = false,
     ): ToolResult {
         val input = toolCall.argumentsJson
         val maxAttempts = if (tool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
@@ -1919,6 +1931,13 @@ internal class TramaiInvocationHandler(
             )
 
             if (policyDecision is dev.tramai.core.policy.PolicyDecision.RequireApproval) {
+                // Fix 5: Nested approval not supported during resume
+                if (resumingApproval) {
+                    throw dev.tramai.core.exception.NestedApprovalNotSupportedException(
+                        approvalId = "nested",
+                        message = "Nested approval not supported in v1: tool '${tool.name}' requires approval during a resumed workflow",
+                    )
+                }
                 // R3: Validate policy-provided approval binding
                 val requirement = policyDecision.requirement
                 val requiredDigest = dev.tramai.core.approval.Sha256Digest.of(requirement.argumentsDigest)
@@ -1951,6 +1970,8 @@ internal class TramaiInvocationHandler(
                     timeoutMillis = policyDecision.requirement.timeoutMillis,
                     securityContext = securityContext,
                     tokenBudgetTracker = tokenBudgetTracker,
+                    conversationId = conversationId,
+                    historySize = historySize,
                 )
             }
             // Deny also handled by enforce() but we already evaluated above
@@ -2003,6 +2024,8 @@ internal class TramaiInvocationHandler(
         timeoutMillis: Long,
         securityContext: ExecutionSecurityContext,
         tokenBudgetTracker: TokenBudgetTracker? = null,
+        conversationId: String? = null,
+        historySize: Int = 0,
     ): Nothing {
         val approvalGateCoordinator = approvalGateCoordinator
             ?: throw dev.tramai.core.exception.ConfigurationException(
@@ -2062,11 +2085,7 @@ internal class TramaiInvocationHandler(
             val budgetSnapshot = tokenBudgetTracker?.snapshot()
 
             // Store safe invocation metadata with separated sensitive context
-            val historySize = if (chatMemory != null) {
-                val (history, _) = injectMemoryMessages(operation.initialMessages(emptyList()), null)
-                    ?: (emptyList<Message>() to emptyList())
-                history.size
-            } else 0
+            // historySize is passed in from the caller (computed at the initial suspension point)
 
             suspendedInvocationStore.create(
                 metadata = SuspendedInvocationMetadata(
@@ -2077,9 +2096,10 @@ internal class TramaiInvocationHandler(
                     correlationId = correlationId,
                     identity = identity,
                     securityContext = securityContext,
-                    conversationId = null,
+                    conversationId = conversationId,
                     historySize = historySize,
                     tokenBudgetSnapshot = budgetSnapshot,
+                    toolSecurity = tool.security,
                 ),
                 sensitiveContext = SensitiveResumeContext.of(
                     operation = operation,
@@ -2349,20 +2369,16 @@ internal class TramaiInvocationHandler(
             )
         )
 
-        // Reveal sensitive context early for BEFORE_WORKFLOW_RESUME policy context (Fix 6)
-        val sensitiveContext = suspendedInvocationStore.revealSensitiveContext(command.approvalId)
-            ?: throw dev.tramai.core.exception.ConfigurationException(
-                "Sensitive resume context not found for approvalId '${command.approvalId}'"
-            )
-        val resumeContext = sensitiveContext.revealForResume()
+        // Use metadata.toolSecurity for BEFORE_WORKFLOW_RESUME policy context (Fix 2)
+        // Sensitive context is revealed AFTER claimForExecution, not before
 
-        // 3. Enforce BEFORE_WORKFLOW_RESUME policy with full context (Fix 6)
+        // 3. Enforce BEFORE_WORKFLOW_RESUME policy with safe metadata only (Fix 2 & 6)
         val resumeDecision = policyHelper.evaluate(
             policyHelper.buildContext(
                 enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_WORKFLOW_RESUME,
                 correlationId = metadata.correlationId,
             ).toolName(metadata.toolName)
-                .toolSecurity(resumeContext.tool.security)
+                .toolSecurity(metadata.toolSecurity)
                 .applySecurityContext(metadata.securityContext)
                 .workflowRunId(metadata.identity.workflowRunId)
                 .workflowDigest(metadata.identity.workflowDigest.value)
@@ -2391,7 +2407,7 @@ internal class TramaiInvocationHandler(
             throw dev.tramai.core.exception.PolicyViolationException(resumeDecision)
         }
         if (resumeDecision is dev.tramai.core.policy.PolicyDecision.RequireApproval) {
-            // R5: Recursive approval not supported — close and throw safe error
+            // R5: Nested approval not supported — close and throw NestedApprovalNotSupportedException (Fix 5)
             runCatching {
                 store.cancel(
                     approvalId = command.approvalId,
@@ -2406,15 +2422,16 @@ internal class TramaiInvocationHandler(
                     approvalId = command.approvalId,
                     workflowRunId = metadata.identity.workflowRunId,
                     toolName = metadata.toolName,
-                    reason = "recursive-approval-not-supported",
+                    reason = "nested-approval-not-supported",
                 )
             }
-            throw dev.tramai.core.exception.ConfigurationException(
-                "Recursive approval not supported: use the original approval challenge"
+            throw dev.tramai.core.exception.NestedApprovalNotSupportedException(
+                approvalId = command.approvalId,
+                message = "Nested approval not supported: use the original approval challenge",
             )
         }
 
-        // Fix 3: Before claim — validate mandatory dependencies
+        // Before claim — validate mandatory dependencies
         val digester = requireNotNull(toolArgumentsDigester) {
             "ToolArgumentsDigester is required for payload integrity verification"
         }
@@ -2426,7 +2443,14 @@ internal class TramaiInvocationHandler(
             claimedBy = command.resumedBy,
         )
 
-        // Fix 3: Wrap everything after claim in try/catch with uncertain-outcome handling
+        // 5. Reveal sensitive resume context — AFTER claimForExecution (Fix 2)
+        val sensitiveContext = suspendedInvocationStore.revealSensitiveContext(command.approvalId)
+            ?: throw dev.tramai.core.exception.ConfigurationException(
+                "Sensitive resume context not found for approvalId '${command.approvalId}'"
+            )
+        val resumeContext = sensitiveContext.revealForResume()
+
+        // Fix 4: Universal uncertain-outbound boundary — wrap everything after claim in try/catch
         var uncertainOutcomeEmitted = false
         return try {
             // R7: Verify payload integrity after claim — re-digest and compare
@@ -2478,7 +2502,7 @@ internal class TramaiInvocationHandler(
             //    format/sanitize the tool result, append to messages, process remaining,
             //    and call the provider for the next turn
             val tokenBudgetTracker = TokenBudgetTracker(tokenBudgetSettings)
-            // Fix 7: Restore token budget snapshot if available
+            // Restore token budget snapshot if available
             metadata.tokenBudgetSnapshot?.let { snapshot ->
                 tokenBudgetTracker.restore(snapshot)
             }
@@ -2496,9 +2520,12 @@ internal class TramaiInvocationHandler(
                 tokenBudgetTracker = tokenBudgetTracker,
                 suspendedToolName = metadata.toolName,
                 approvalId = command.approvalId,
+                conversationId = metadata.conversationId,
+                historySize = metadata.historySize,
+                resumingApproval = true,
             )
 
-            // Fix 1 & 2: Finalize result BEFORE completing continuation (handles String, Unit, Structured)
+            // Finalize result BEFORE completing continuation (handles String, Unit, Structured)
             val result = finalizeResumedOperation(
                 operation = resumeContext.operation,
                 loopResult = loopResult,
@@ -2509,7 +2536,7 @@ internal class TramaiInvocationHandler(
                 historySize = metadata.historySize,
             )
 
-            // 8. Complete continuation (Fix 2: moved AFTER finalization)
+            // 8. Complete continuation (moved AFTER finalization)
             store.complete(
                 approvalId = command.approvalId,
                 expectedVersion = claimed.continuation.version,
@@ -2528,15 +2555,16 @@ internal class TramaiInvocationHandler(
             suspendedInvocationStore.remove(command.approvalId)
 
             result
-        } catch (e: dev.tramai.core.exception.ConfigurationException) {
-            // ConfigurationExceptions include integrity-mismatch which already emits
-            // onUncertainOutcome — rethrow without secondary emission
+        } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
+            // Nested approval is a known failure mode — rethrow without uncertain-outcome
+            // The continuation remains CLAIMED or was already cancelled by the nesting handler
             throw e
         } catch (e: dev.tramai.core.exception.StructuredOutputException) {
-            // Structured parse failures are a known outcome, not uncertain — rethrow
+            // Fix 3: Structured parse failures already emit uncertain-outcome in resumeStructuredResult
+            // Re-throw without uncertain-outcome emission here
             throw e
         } catch (e: Exception) {
-            // Broad catch: any failure after claim leaves continuation CLAIMED
+            // Fix 4: Universal uncertain-outcome — any failure after claim leaves continuation CLAIMED
             if (!uncertainOutcomeEmitted) {
                 approvalLifecycleAuditEmitter.onUncertainOutcome(
                     approvalId = command.approvalId,
@@ -2629,10 +2657,6 @@ internal class TramaiInvocationHandler(
         conversationId: String?,
         historySize: Int,
     ): Any {
-        // Memory persistence + observation BEFORE parse (fires exactly once for structured)
-        persistMemory(loopResult, messages, historySize, conversationId)
-        loopResult.observation.onCallCompleted(parseSuccess = null)
-
         val handler = structuredOutputHandler
             ?: throw ConfigurationException(
                 "Structured return type ${operation.returnTypeDescription} requires a StructuredOutputHandler implementation from tramai-structured",
@@ -2641,19 +2665,27 @@ internal class TramaiInvocationHandler(
             ?: throw ConfigurationException(
                 "Structured return type ${operation.returnTypeDescription} could not be inspected without Kotlin reflection metadata",
             )
+
+        // Fix 3: Parse FIRST before memory persistence
         val analysis = handler.analyze(
             rawResponse = loopResult.response.content,
             targetType = targetType,
         )
         return when (analysis) {
             is StructuredOutputResult.Success -> {
+                // On success: enforce policy, persist memory, complete observation, return value
+                persistMemory(loopResult, messages, historySize, conversationId)
+                loopResult.observation.onCallCompleted(parseSuccess = true)
                 analysis.value
             }
             is StructuredOutputResult.Failure -> {
+                // On failure: record parse failure, emit uncertain-outcome,
+                // do NOT persist invalid data, leave continuation CLAIMED
                 loopResult.observation.onStructuredParseFailure(
                     rawResponse = analysis.rawResponse,
                     errorSummary = analysis.errorSummary,
                 )
+                loopResult.observation.onCallCompleted(parseSuccess = false)
                 throw dev.tramai.core.exception.StructuredOutputException(
                     message = "Structured output parsing failed after resume",
                     originalPrompt = operation.operation.prompt,
@@ -2686,6 +2718,9 @@ internal class TramaiInvocationHandler(
         tokenBudgetTracker: TokenBudgetTracker,
         suspendedToolName: String = "",
         approvalId: String = "",
+        conversationId: String? = null,
+        historySize: Int = 0,
+        resumingApproval: Boolean = false,
     ): ProviderCallResult {
         // Tool name is provided by the caller from the stored SuspendedInvocationMetadata.toolName,
         // which is more reliable than searching through messages by toolCallId.
@@ -2728,9 +2763,21 @@ internal class TramaiInvocationHandler(
                     ToolResult.PermanentFailure("Tool '<unregistered>' not found")
                 } else {
                     try {
-                        executeTool(t, tc, operation, correlationId, securityContext, identity, messages, actualIndex, tokenBudgetTracker)
+                        executeTool(t, tc, operation, correlationId, securityContext, identity, messages, actualIndex, tokenBudgetTracker, conversationId, historySize, resumingApproval)
+                    } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
+                        // Fix 5: Nested approval not supported during resume — fail closed
+                        approvalLifecycleAuditEmitter.onUncertainOutcome(
+                            approvalId = approvalId,
+                            workflowRunId = identity.workflowRunId,
+                            toolName = t.name,
+                            reason = "nested-approval-not-supported: sibling tool ${tc.name} requires approval",
+                        )
+                        throw dev.tramai.core.exception.NestedApprovalNotSupportedException(
+                            approvalId = approvalId,
+                            message = "Nested approval not supported in v1: sibling tool ${tc.name} requires approval",
+                        )
                     } catch (e: ApprovalSuspendedException) {
-                        // Fix 8: Nested approval not supported in v1 — fail closed
+                        // Fix 8: Nested approval not supported in v1 — fail closed (backward compat for non-resume path)
                         approvalLifecycleAuditEmitter.onUncertainOutcome(
                             approvalId = approvalId,
                             workflowRunId = identity.workflowRunId,
@@ -2770,6 +2817,9 @@ internal class TramaiInvocationHandler(
             correlationId = correlationId,
             securityContext = securityContext,
             identity = identity,
+            conversationId = conversationId,
+            historySize = historySize,
+            resumingApproval = resumingApproval,
         )
     }
 
