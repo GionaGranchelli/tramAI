@@ -584,6 +584,102 @@ class ApprovalEngineEdgeCaseTest {
         assertThat(auditEvents.any { it.contains("nested-approval-not-supported") }).isTrue
     }
 
+    // ════════════════════════════════════════════════════════════════
+    // Fix 4: Missing sensitive context after claim
+    // ════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `missing sensitive context after claim emits uncertain outcome once`() {
+        val auditEvents = mutableListOf<String>()
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+            override suspend fun onToolExecutionSuspended(
+                approvalId: String, workflowRunId: String, toolName: String,
+                toolCallId: String, correlationId: String,
+                argumentsDigest: dev.tramai.core.approval.Sha256Digest,
+                expiresAt: java.time.Instant,
+            ) = Unit
+            override suspend fun onToolExecutionResumed(
+                approvalId: String, workflowRunId: String,
+                toolName: String, resumedBy: String,
+            ) = Unit
+            override suspend fun onToolExecutionCompleted(
+                approvalId: String, workflowRunId: String,
+                toolName: String, completedBy: String,
+            ) = Unit
+            override suspend fun onUncertainOutcome(
+                approvalId: String, workflowRunId: String,
+                toolName: String, reason: String,
+            ) { auditEvents.add("uncertain:$reason") }
+            override suspend fun onSuspensionCancelled(
+                approvalId: String, workflowRunId: String,
+                toolName: String, reason: String,
+            ) = Unit
+        }
+
+        // Store that returns null from revealSensitiveContext after a successful create
+        val fragileStore = object : SuspendedInvocationStore {
+            private var created = false
+            override suspend fun create(
+                metadata: SuspendedInvocationMetadata,
+                sensitiveContext: SensitiveResumeContext,
+            ) {
+                created = true
+                suspendedInvocationStore.create(metadata, sensitiveContext)
+            }
+            override suspend fun get(approvalId: String): SuspendedInvocationMetadata? =
+                suspendedInvocationStore.get(approvalId).also {
+                    if (created && it != null) {
+                        // After creation, return the metadata normally for get()
+                    }
+                }
+            override suspend fun revealSensitiveContext(approvalId: String): SensitiveResumeContext? {
+                // Always return null to simulate missing sensitive context after claim
+                return null
+            }
+            override suspend fun remove(approvalId: String): SuspendedInvocationMetadata? =
+                suspendedInvocationStore.remove(approvalId)
+        }
+
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = fragileStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+            approvalLifecycleAuditEmitter = auditEmitter,
+        )
+
+        val exception = triggerSuspension(engine)
+        policyEngine.workflowResumeDecision = PolicyDecision.Allow
+
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = exception.challenge.token,
+                        resumedBy = "admin",
+                    )
+                )
+            }
+        }.isInstanceOf(dev.tramai.core.exception.ConfigurationException::class.java)
+            .hasMessageContaining("Sensitive resume context not found")
+
+        // Continuation stays CLAIMED
+        val continuation = runBlocking { continuationStore.get(exception.approvalId) }
+        assertThat(continuation).isNotNull
+        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+
+        // onUncertainOutcome was emitted exactly once
+        assertThat(auditEvents).hasSize(1)
+        assertThat(auditEvents.single()).startsWith("uncertain:")
+    }
+
     // ── Helpers ────────────────────────────────────────────────────
 
     private fun triggerSuspension(engine: TramaiEngine): ApprovalSuspendedException {

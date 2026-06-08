@@ -1236,6 +1236,7 @@ internal class TramaiInvocationHandler(
         conversationId: String? = null,
         historySize: Int = 0,
         resumingApproval: Boolean = false,
+        parentApprovalId: String? = null,
     ): ProviderCallResult {
         val maxToolLoops = 5 // Guard against infinite tool loops
         val attemptCounter = AttemptCounter()
@@ -1293,6 +1294,7 @@ internal class TramaiInvocationHandler(
                 conversationId = conversationId,
                 historySize = historySize,
                 resumingApproval = resumingApproval,
+                parentApprovalId = parentApprovalId,
             )
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
@@ -1309,13 +1311,14 @@ internal class TramaiInvocationHandler(
         conversationId: String? = null,
         historySize: Int = 0,
         resumingApproval: Boolean = false,
+        parentApprovalId: String? = null,
     ) {
         for ((index, toolCall) in toolCalls.withIndex()) {
             val tool = toolRegistry.resolve(toolCall.name)
             val toolResult = if (tool == null) {
                 ToolResult.PermanentFailure("Tool '<unregistered>' not found")
             } else {
-                executeTool(tool, toolCall, operation, correlationId, securityContext, identity, messages, index, tokenBudgetTracker, conversationId, historySize, resumingApproval)
+                executeTool(tool, toolCall, operation, correlationId, securityContext, identity, messages, index, tokenBudgetTracker, conversationId, historySize, resumingApproval, parentApprovalId = parentApprovalId)
             }
 
             // Enforce BEFORE_TOOL_RESULT_REINJECTION
@@ -1911,6 +1914,7 @@ internal class TramaiInvocationHandler(
         conversationId: String? = null,
         historySize: Int = 0,
         resumingApproval: Boolean = false,
+        parentApprovalId: String? = null,
     ): ToolResult {
         val input = toolCall.argumentsJson
         val maxAttempts = if (tool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
@@ -1938,7 +1942,7 @@ internal class TramaiInvocationHandler(
                 // Fix 5: Nested approval not supported during resume
                 if (resumingApproval) {
                     throw dev.tramai.core.exception.NestedApprovalNotSupportedException(
-                        approvalId = "nested",
+                        approvalId = parentApprovalId ?: "unknown",
                         message = "Nested approval not supported in v1: tool '${tool.name}' requires approval during a resumed workflow",
                     )
                 }
@@ -2447,16 +2451,16 @@ internal class TramaiInvocationHandler(
             claimedBy = command.resumedBy,
         )
 
-        // 5. Reveal sensitive resume context — AFTER claimForExecution (Fix 2)
-        val sensitiveContext = suspendedInvocationStore.revealSensitiveContext(command.approvalId)
-            ?: throw dev.tramai.core.exception.ConfigurationException(
-                "Sensitive resume context not found for approvalId '${command.approvalId}'"
-            )
-        val resumeContext = sensitiveContext.revealForResume()
-
         // Fix 4: Universal uncertain-outbound boundary — wrap everything after claim in try/catch
         var uncertainOutcomeEmitted = false
         return try {
+            // 5. Reveal sensitive resume context — INSIDE try/catch, AFTER claimForExecution (Fix 1)
+            val sensitiveContext = suspendedInvocationStore.revealSensitiveContext(command.approvalId)
+                ?: throw dev.tramai.core.exception.ConfigurationException(
+                    "Sensitive resume context not found for approvalId '${command.approvalId}'"
+                )
+            val resumeContext = sensitiveContext.revealForResume()
+
             // R7: Verify payload integrity after claim — re-digest and compare
             val actualDigest = digester.digest(claimed.arguments)
             val expectedDigest = claimed.continuation.argumentsDigest
@@ -2560,8 +2564,16 @@ internal class TramaiInvocationHandler(
 
             result
         } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
-            // Nested approval is a known failure mode — rethrow without uncertain-outcome
-            // The continuation remains CLAIMED or was already cancelled by the nesting handler
+            // Fix 2: Nested approval — emit uncertain outcome with parent approvalId, leave CLAIMED
+            if (!uncertainOutcomeEmitted) {
+                uncertainOutcomeEmitted = true
+                approvalLifecycleAuditEmitter.onUncertainOutcome(
+                    approvalId = e.approvalId,
+                    workflowRunId = metadata.identity.workflowRunId,
+                    toolName = metadata.toolName,
+                    reason = "nested-approval-not-supported",
+                )
+            }
             throw e
         } catch (e: dev.tramai.core.exception.StructuredOutputException) {
             // ResumeStructuredResult does not emit uncertain-outcome for parse failures —
@@ -2609,25 +2621,34 @@ internal class TramaiInvocationHandler(
         conversationId: String?,
         historySize: Int,
     ): Any? {
-        // Enforce BEFORE_RESPONSE_RETURN for all return kinds (fires exactly once)
-        policyHelper.enforce(
-            policyHelper.buildContext(
-                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
-                correlationId = correlationId,
-            ).providerId(loopResult.providerId)
-                .modelName(loopResult.modelName)
-                .applySecurityContext(securityContext)
-                .build()
-        )
-
         when (operation.returnKind) {
             ReturnKind.STRING -> {
+                // Enforce BEFORE_RESPONSE_RETURN (Fix 3: per-return-kind, not before dispatch)
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                        correlationId = correlationId,
+                    ).providerId(loopResult.providerId)
+                        .modelName(loopResult.modelName)
+                        .applySecurityContext(securityContext)
+                        .build()
+                )
                 // Memory persistence + observation + return (once)
                 persistMemory(loopResult, messages, historySize, conversationId)
                 loopResult.observation.onCallCompleted(parseSuccess = null)
                 return loopResult.response.content
             }
             ReturnKind.UNIT -> {
+                // Enforce BEFORE_RESPONSE_RETURN (Fix 3: per-return-kind, not before dispatch)
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                        correlationId = correlationId,
+                    ).providerId(loopResult.providerId)
+                        .modelName(loopResult.modelName)
+                        .applySecurityContext(securityContext)
+                        .build()
+                )
                 persistMemory(loopResult, messages, historySize, conversationId)
                 loopResult.observation.onCallCompleted(parseSuccess = null)
                 loopResult.response.content // consume it
@@ -2635,7 +2656,7 @@ internal class TramaiInvocationHandler(
             }
             ReturnKind.STRUCTURED -> {
                 // Structured: delegate to resumeStructuredResult which handles
-                // memory, observation, and parse (no duplicates)
+                // BEFORE_RESPONSE_RETURN (on success only), memory, observation, and parse
                 return resumeStructuredResult(
                     operation = operation,
                     loopResult = loopResult,
@@ -2679,20 +2700,31 @@ internal class TramaiInvocationHandler(
                 "Structured return type ${operation.returnTypeDescription} could not be inspected without Kotlin reflection metadata",
             )
 
-        // Fix 3: Parse FIRST before memory persistence
+        // Fix 3: Parse FIRST before memory persistence and BEFORE_RESPONSE_RETURN
         val analysis = handler.analyze(
             rawResponse = loopResult.response.content,
             targetType = targetType,
         )
         return when (analysis) {
             is StructuredOutputResult.Success -> {
-                // On success: enforce policy, persist memory, complete observation, return value
+                // On success: enforce BEFORE_RESPONSE_RETURN, persist memory, complete observation, return value
+                // BEFORE_RESPONSE_RETURN is enforced HERE (not in finalizeResumedOperation) per Fix 3
+                // so that parse failure does not trip BEFORE_RESPONSE_RETURN
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                        correlationId = correlationId,
+                    ).providerId(loopResult.providerId)
+                        .modelName(loopResult.modelName)
+                        .applySecurityContext(securityContext)
+                        .build()
+                )
                 persistMemory(loopResult, messages, historySize, conversationId)
                 loopResult.observation.onCallCompleted(parseSuccess = true)
                 analysis.value
             }
             is StructuredOutputResult.Failure -> {
-                // On failure: record parse failure, emit uncertain-outcome,
+                // On failure: record parse failure, do NOT enforce BEFORE_RESPONSE_RETURN,
                 // do NOT persist invalid data, leave continuation CLAIMED
                 loopResult.observation.onStructuredParseFailure(
                     rawResponse = analysis.rawResponse,
@@ -2776,7 +2808,7 @@ internal class TramaiInvocationHandler(
                     ToolResult.PermanentFailure("Tool '<unregistered>' not found")
                 } else {
                     try {
-                        executeTool(t, tc, operation, correlationId, securityContext, identity, messages, actualIndex, tokenBudgetTracker, conversationId, historySize, resumingApproval)
+                        executeTool(t, tc, operation, correlationId, securityContext, identity, messages, actualIndex, tokenBudgetTracker, conversationId, historySize, resumingApproval, parentApprovalId = approvalId)
                     } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
                         // Fix 5: Nested approval not supported during resume — fail closed
                         approvalLifecycleAuditEmitter.onUncertainOutcome(
@@ -2833,6 +2865,7 @@ internal class TramaiInvocationHandler(
             conversationId = conversationId,
             historySize = historySize,
             resumingApproval = resumingApproval,
+            parentApprovalId = approvalId,
         )
     }
 
