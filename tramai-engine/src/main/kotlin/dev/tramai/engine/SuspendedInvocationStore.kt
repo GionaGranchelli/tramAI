@@ -117,6 +117,12 @@ data class ResumeContext(
  * - NOT expose raw tool arguments, approval tokens, or sensitive tool payloads via [get]
  * - Be thread-safe (concurrent create/get/remove)
  * - Not persist beyond the JVM lifecycle (resume after restart is out of scope for v1)
+ *
+ * ⚠️ Expiry / sweep is a legitimate lifecycle concern but is deferred.
+ *    Entries created here have no automatic TTL — they must be explicitly
+ *    removed via [remove]. A background sweep or TTL-based eviction is
+ *    tracked as future work and is out of scope for the current PR
+ *    (which is explicitly limited to process-local stores).
  */
 interface SuspendedInvocationStore {
     /**

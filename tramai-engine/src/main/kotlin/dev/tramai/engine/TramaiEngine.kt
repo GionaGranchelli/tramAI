@@ -2136,7 +2136,7 @@ internal class TramaiInvocationHandler(
                 toolName = tool.name,
                 continuationVersion = continuation.version,
             )
-        } catch (failure: RuntimeException) {
+        } catch (failure: Exception) {
             // Do NOT compensate for successful suspension — ApprovalSuspendedException is the intended result
             if (failure is ApprovalSuspendedException) throw failure
 
@@ -2551,6 +2551,9 @@ internal class TramaiInvocationHandler(
                 completedBy = command.resumedBy,
             )
 
+            // Clean up invocation store BEFORE audit (Fix 2: audit completion ordering)
+            suspendedInvocationStore.remove(command.approvalId)
+
             // Emit completion audit event
             approvalLifecycleAuditEmitter.onToolExecutionCompleted(
                 approvalId = command.approvalId,
@@ -2558,9 +2561,6 @@ internal class TramaiInvocationHandler(
                 toolName = metadata.toolName,
                 completedBy = command.resumedBy,
             )
-
-            // Clean up invocation store (only on success)
-            suspendedInvocationStore.remove(command.approvalId)
 
             result
         } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
