@@ -2349,38 +2349,21 @@ internal class TramaiInvocationHandler(
         val metadata = suspendedInvocationStore.get(command.approvalId)
             ?: throw dev.tramai.core.exception.ApprovalNotFoundException(command.approvalId)
 
-        // 2. Authorise resume via approvalGateCoordinator
-        val coordinator = approvalGateCoordinator
-            ?: throw dev.tramai.core.exception.ConfigurationException(
-                "ApprovalGateCoordinator is required for resume"
-            )
+        // 2. Validate continuation exists and is claimable before authorizing
         val store = approvalContinuationStore
             ?: throw dev.tramai.core.exception.ConfigurationException(
                 "ApprovalContinuationStore is required for resume"
             )
-
-        // Get the continuation to read the arguments digest
         val existingContinuation = store.get(command.approvalId)
             ?: throw dev.tramai.core.exception.ApprovalNotFoundException(command.approvalId)
 
-        val authorization = coordinator.authorizeResume(
-            AuthorizeResumeCommand(
-                approvalId = command.approvalId,
-                expectedVersion = command.approvalExpectedVersion,
-                presentedToken = command.presentedToken,
-                consumedBy = command.resumedBy,
-                workflowRunId = metadata.identity.workflowRunId,
-                toolName = metadata.toolName,
-                argumentsDigest = existingContinuation.argumentsDigest,
-                policyVersion = metadata.identity.policyVersion,
-                workflowDigest = metadata.identity.workflowDigest,
+        val coordinator = approvalGateCoordinator
+            ?: throw dev.tramai.core.exception.ConfigurationException(
+                "ApprovalGateCoordinator is required for resume"
             )
-        )
 
-        // Use metadata.toolSecurity for BEFORE_WORKFLOW_RESUME policy context (Fix 2)
-        // Sensitive context is revealed AFTER claimForExecution, not before
-
-        // 3. Enforce BEFORE_WORKFLOW_RESUME policy with safe metadata only (Fix 2 & 6)
+        // 3. Enforce BEFORE_WORKFLOW_RESUME policy BEFORE authorizeResume (Fix 1: P1)
+        //    This prevents token consumption if the policy denies or requires nested approval.
         val resumeDecision = policyHelper.evaluate(
             policyHelper.buildContext(
                 enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_WORKFLOW_RESUME,
@@ -2439,12 +2422,27 @@ internal class TramaiInvocationHandler(
             )
         }
 
-        // Before claim — validate mandatory dependencies
+        // 4. THEN authorize (this consumes the token) — only after policy cleared
+        val authorization = coordinator.authorizeResume(
+            AuthorizeResumeCommand(
+                approvalId = command.approvalId,
+                expectedVersion = command.approvalExpectedVersion,
+                presentedToken = command.presentedToken,
+                consumedBy = command.resumedBy,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
+                argumentsDigest = existingContinuation.argumentsDigest,
+                policyVersion = metadata.identity.policyVersion,
+                workflowDigest = metadata.identity.workflowDigest,
+            )
+        )
+
+        // Validate mandatory dependencies before claim
         val digester = requireNotNull(toolArgumentsDigester) {
             "ToolArgumentsDigester is required for payload integrity verification"
         }
 
-        // 4. Claim continuation and release raw arguments
+        // 5. THEN claim continuation immediately after authorize (Fix 1: P1)
         val claimed = store.claimForExecution(
             approvalId = command.approvalId,
             expectedVersion = command.continuationExpectedVersion,
@@ -2454,7 +2452,7 @@ internal class TramaiInvocationHandler(
         // Fix 4: Universal uncertain-outbound boundary — wrap everything after claim in try/catch
         var uncertainOutcomeEmitted = false
         return try {
-            // 5. Reveal sensitive resume context — INSIDE try/catch, AFTER claimForExecution (Fix 1)
+            // 6. Reveal sensitive resume context — INSIDE try/catch, AFTER claimForExecution (Fix 1)
             val sensitiveContext = suspendedInvocationStore.revealSensitiveContext(command.approvalId)
                 ?: throw dev.tramai.core.exception.ConfigurationException(
                     "Sensitive resume context not found for approvalId '${command.approvalId}'"
@@ -2564,7 +2562,8 @@ internal class TramaiInvocationHandler(
 
             result
         } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
-            // Fix 2: Nested approval — emit uncertain outcome with parent approvalId, leave CLAIMED
+            // Fix 2 (P2): Nested approval — emit uncertain outcome (not duplicated from
+            // continueAfterToolResult anymore since step-4 catch also defers to here)
             if (!uncertainOutcomeEmitted) {
                 uncertainOutcomeEmitted = true
                 approvalLifecycleAuditEmitter.onUncertainOutcome(
@@ -2810,13 +2809,7 @@ internal class TramaiInvocationHandler(
                     try {
                         executeTool(t, tc, operation, correlationId, securityContext, identity, messages, actualIndex, tokenBudgetTracker, conversationId, historySize, resumingApproval, parentApprovalId = approvalId)
                     } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
-                        // Fix 5: Nested approval not supported during resume — fail closed
-                        approvalLifecycleAuditEmitter.onUncertainOutcome(
-                            approvalId = approvalId,
-                            workflowRunId = identity.workflowRunId,
-                            toolName = t.name,
-                            reason = "nested-approval-not-supported: sibling tool ${tc.name} requires approval",
-                        )
+                        // Uncertain-outcome already emitted by executeTool — re-throw for outer handling
                         throw dev.tramai.core.exception.NestedApprovalNotSupportedException(
                             approvalId = approvalId,
                             message = "Nested approval not supported in v1: sibling tool ${tc.name} requires approval",
