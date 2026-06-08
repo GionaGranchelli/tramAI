@@ -2,6 +2,13 @@ package dev.tramai.core.approval
 
 import java.time.Instant
 
+/**
+ * Safe reason-code pattern for privileged recovery operations.
+ * Matches lowercase alphanumeric start, then lowercase alphanumeric,
+ * underscore, colon, period, or hyphen, up to 63 characters total.
+ */
+const val SAFE_REASON_CODE_PATTERN = "[a-z0-9][a-z0-9._:-]{0,63}"
+
 data class ForceCancelClaimedCommand(
     val approvalId: String,
     val expectedVersion: Long,

@@ -337,6 +337,6 @@ class InMemoryApprovalContinuationStore(
     private companion object {
         private const val MAX_ID_LENGTH = 256
         private const val MAX_STALE_LIMIT = 100
-        private val SAFE_REASON_CODE = Regex("[a-z0-9][a-z0-9._:-]{0,63}")
+        private val SAFE_REASON_CODE = Regex(dev.tramai.core.approval.SAFE_REASON_CODE_PATTERN)
     }
 }

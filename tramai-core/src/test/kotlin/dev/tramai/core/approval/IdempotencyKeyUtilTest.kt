@@ -1,7 +1,5 @@
-package dev.tramai.engine
+package dev.tramai.core.approval
 
-import dev.tramai.core.approval.IdempotencyKeyUtil
-import dev.tramai.core.approval.Sha256Digest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
