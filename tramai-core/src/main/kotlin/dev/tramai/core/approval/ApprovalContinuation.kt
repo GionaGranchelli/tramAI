@@ -17,5 +17,8 @@ data class ApprovalContinuation(
     val claimedBy: String?,
     val claimedAt: Instant?,
     val completedAt: Instant?,
+    val recoveryResolvedBy: String? = null,
+    val recoveryResolvedAt: Instant? = null,
+    val recoveryReasonCode: String? = null,
     val version: Long,
 )

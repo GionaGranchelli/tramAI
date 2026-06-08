@@ -1119,6 +1119,194 @@ class InMemoryApprovalContinuationStoreTest {
         sweepResult.exceptionOrNull()?.let { assertThrowableTreeDoesNotContain(it, raw) }
     }
 
+    @Test
+    fun `findStaleClaimed returns stale CLAIMED records only in deterministic order`() : Unit = runBlocking {
+        insertDirect(
+            continuation = aPendingContinuation(
+                approvalId = "stale-b",
+                status = ApprovalContinuationStatus.CLAIMED,
+                claimedBy = "runner-1",
+                claimedAt = fixedClock.instant().minusSeconds(60),
+                version = 1L,
+            ),
+            arguments = null,
+        )
+        insertDirect(
+            continuation = aPendingContinuation(
+                approvalId = "fresh-claimed",
+                status = ApprovalContinuationStatus.CLAIMED,
+                claimedBy = "runner-1",
+                claimedAt = fixedClock.instant().minusSeconds(5),
+                version = 1L,
+            ),
+            arguments = null,
+        )
+        insertDirect(
+            continuation = aPendingContinuation(
+                approvalId = "stale-a",
+                status = ApprovalContinuationStatus.CLAIMED,
+                claimedBy = "runner-2",
+                claimedAt = fixedClock.instant().minusSeconds(60),
+                version = 1L,
+            ),
+            arguments = null,
+        )
+        insertDirect(
+            continuation = aPendingContinuation(
+                approvalId = "pending",
+                status = ApprovalContinuationStatus.PENDING,
+            ),
+            arguments = SensitiveToolArguments.of("""{"sensitiveField":"pending"}"""),
+        )
+        insertDirect(
+            continuation = aPendingContinuation(
+                approvalId = "completed",
+                status = ApprovalContinuationStatus.COMPLETED,
+                claimedBy = "runner-3",
+                claimedAt = fixedClock.instant().minusSeconds(80),
+                completedAt = fixedClock.instant().minusSeconds(70),
+                version = 2L,
+            ),
+            arguments = null,
+        )
+        insertDirect(
+            continuation = aPendingContinuation(
+                approvalId = "expired",
+                status = ApprovalContinuationStatus.EXPIRED,
+                version = 1L,
+            ),
+            arguments = null,
+        )
+        insertDirect(
+            continuation = aPendingContinuation(
+                approvalId = "cancelled",
+                status = ApprovalContinuationStatus.CANCELLED,
+                version = 1L,
+            ),
+            arguments = null,
+        )
+        insertDirect(
+            continuation = aPendingContinuation(
+                approvalId = "cancelled-uncertain",
+                status = ApprovalContinuationStatus.CANCELLED_UNCERTAIN,
+                claimedBy = "runner-4",
+                claimedAt = fixedClock.instant().minusSeconds(90),
+                recoveryResolvedBy = "operator-1",
+                recoveryResolvedAt = fixedClock.instant().minusSeconds(30),
+                recoveryReasonCode = "worker-lost",
+                version = 2L,
+            ),
+            arguments = null,
+        )
+
+        val stale = store.findStaleClaimed(
+            claimedBefore = fixedClock.instant().minusSeconds(30),
+            limit = 10,
+        )
+
+        assertThat(stale.map { it.approvalId }).containsExactly("stale-a", "stale-b")
+        assertThat(stale).allMatch { it.status == ApprovalContinuationStatus.CLAIMED }
+    }
+
+    @Test
+    fun `findStaleClaimed enforces bounds and never leaks raw arguments`() : Unit = runBlocking {
+        val raw = """{"sensitiveField":"find-stale-redaction"}"""
+        insertDirect(
+            continuation = aPendingContinuation(
+                approvalId = "stale-redacted",
+                status = ApprovalContinuationStatus.CLAIMED,
+                claimedBy = "runner-1",
+                claimedAt = fixedClock.instant().minusSeconds(45),
+                version = 1L,
+            ),
+            arguments = null,
+        )
+
+        val stale = store.findStaleClaimed(
+            claimedBefore = fixedClock.instant().minusSeconds(30),
+            limit = 1,
+        )
+
+        assertThat(stale.single().toString()).doesNotContain(raw)
+        assertThat(stale.single().toString()).doesNotContain("arguments=")
+
+        assertThatIllegalArgumentException()
+            .isThrownBy { runBlocking { store.findStaleClaimed(fixedClock.instant(), 0) } }
+            .withMessage("limit must be between 1 and 100")
+        assertThatIllegalArgumentException()
+            .isThrownBy { runBlocking { store.findStaleClaimed(fixedClock.instant(), 101) } }
+            .withMessage("limit must be between 1 and 100")
+    }
+
+    @Test
+    fun `forceCancelClaimed transitions CLAIMED to CANCELLED_UNCERTAIN with recovery metadata`() : Unit = runBlocking {
+        createPendingContinuation(argumentsJson = """{"sensitiveField":"claim"}""")
+        store.claimForExecution("cont-1", 0L, "runner-1")
+        fixedClock.advance(Duration.ofSeconds(15))
+
+        val cancelled = store.forceCancelClaimed("cont-1", 1L, "operator-7", "worker-lost")
+
+        assertThat(cancelled.status).isEqualTo(ApprovalContinuationStatus.CANCELLED_UNCERTAIN)
+        assertThat(cancelled.version).isEqualTo(2L)
+        assertThat(cancelled.recoveryResolvedBy).isEqualTo("operator-7")
+        assertThat(cancelled.recoveryResolvedAt).isEqualTo(fixedClock.instant())
+        assertThat(cancelled.recoveryReasonCode).isEqualTo("worker-lost")
+        assertThat(readStored("cont-1")!!.arguments).isNull()
+    }
+
+    @Test
+    fun `forceCancelClaimed rejects stale version and repeated force cancellation`() : Unit = runBlocking {
+        createPendingContinuation()
+        store.claimForExecution("cont-1", 0L, "runner-1")
+
+        assertThatThrownBy {
+            runBlocking { store.forceCancelClaimed("cont-1", 0L, "operator-1", "worker-lost") }
+        }
+            .isInstanceOf(ApprovalContinuationConflictException::class.java)
+
+        store.forceCancelClaimed("cont-1", 1L, "operator-1", "worker-lost")
+
+        assertThatThrownBy {
+            runBlocking { store.forceCancelClaimed("cont-1", 2L, "operator-2", "worker-lost") }
+        }
+            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+    }
+
+    @Test
+    fun `forceCancelClaimed rejects PENDING and COMPLETED continuations`() : Unit = runBlocking {
+        createPendingContinuation(approvalId = "pending-force-cancel")
+        createPendingContinuation(approvalId = "completed-force-cancel")
+        store.claimForExecution("completed-force-cancel", 0L, "runner-1")
+        store.complete("completed-force-cancel", 1L, "runner-1")
+
+        assertThatThrownBy {
+            runBlocking { store.forceCancelClaimed("pending-force-cancel", 0L, "operator-1", "worker-lost") }
+        }
+            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+
+        assertThatThrownBy {
+            runBlocking { store.forceCancelClaimed("completed-force-cancel", 2L, "operator-1", "worker-lost") }
+        }
+            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+    }
+
+    @Test
+    fun `CANCELLED_UNCERTAIN cannot be claimed or completed`() : Unit = runBlocking {
+        createPendingContinuation()
+        store.claimForExecution("cont-1", 0L, "runner-1")
+        store.forceCancelClaimed("cont-1", 1L, "operator-1", "worker-lost")
+
+        assertThatThrownBy {
+            runBlocking { store.claimForExecution("cont-1", 2L, "runner-2") }
+        }
+            .isInstanceOf(ApprovalContinuationNotClaimableException::class.java)
+
+        assertThatThrownBy {
+            runBlocking { store.complete("cont-1", 2L, "runner-1") }
+        }
+            .isInstanceOf(ApprovalContinuationNotCompletableException::class.java)
+    }
+
     private fun createPendingContinuation(
         approvalId: String = "cont-1",
         argumentsJson: String = "{}",
@@ -1153,6 +1341,9 @@ class InMemoryApprovalContinuationStoreTest {
         claimedBy: String? = null,
         claimedAt: Instant? = null,
         completedAt: Instant? = null,
+        recoveryResolvedBy: String? = null,
+        recoveryResolvedAt: Instant? = null,
+        recoveryReasonCode: String? = null,
         version: Long = 0L,
     ): ApprovalContinuation = ApprovalContinuation(
         approvalId = approvalId,
@@ -1169,6 +1360,9 @@ class InMemoryApprovalContinuationStoreTest {
         claimedBy = claimedBy,
         claimedAt = claimedAt,
         completedAt = completedAt,
+        recoveryResolvedBy = recoveryResolvedBy,
+        recoveryResolvedAt = recoveryResolvedAt,
+        recoveryReasonCode = recoveryReasonCode,
         version = version,
     )
 

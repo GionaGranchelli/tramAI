@@ -17,6 +17,13 @@ data class ToolExecutionContext(
     val modelName: String,
     val attemptNumber: Int,
     val conversationId: String? = null,
+    /**
+     * Derived stable idempotency key for approval-gated tool executions.
+     * Set only when the tool was suspended for approval and is being resumed.
+     * Null for normal (non-approved) tool calls. When present, downstream
+     * systems SHOULD use this key for deduplication.
+     */
+    val idempotencyKey: String? = null,
     val timeout: Duration,
     val attributes: Map<String, Any> = emptyMap()
 )

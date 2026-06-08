@@ -4,6 +4,7 @@ import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ClaimedApprovalContinuation
+import dev.tramai.core.approval.SAFE_REASON_CODE_PATTERN
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.exception.ApprovalContinuationConflictException
@@ -12,6 +13,7 @@ import dev.tramai.core.exception.ApprovalContinuationNotCompletableException
 import dev.tramai.core.exception.ApprovalContinuationNotFoundException
 import java.time.Clock
 import java.time.Duration
+import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -46,6 +48,9 @@ class InMemoryApprovalContinuationStore(
         require(continuation.claimedBy == null) { "Initial continuation must not have claimedBy set" }
         require(continuation.claimedAt == null) { "Initial continuation must not have claimedAt set" }
         require(continuation.completedAt == null) { "Initial continuation must not have completedAt set" }
+        require(continuation.recoveryResolvedBy == null) { "Initial continuation must not have recoveryResolvedBy set" }
+        require(continuation.recoveryResolvedAt == null) { "Initial continuation must not have recoveryResolvedAt set" }
+        require(continuation.recoveryReasonCode == null) { "Initial continuation must not have recoveryReasonCode set" }
 
         val now = clock.instant()
         require(continuation.createdAt <= now) { "createdAt must not be in the future" }
@@ -210,6 +215,65 @@ class InMemoryApprovalContinuationStore(
         } ?: throw ApprovalContinuationConflictException(approvalId)
     }
 
+    override suspend fun findStaleClaimed(
+        claimedBefore: Instant,
+        limit: Int,
+    ): List<ApprovalContinuation> {
+        require(limit in 1..MAX_STALE_LIMIT) { "limit must be between 1 and $MAX_STALE_LIMIT" }
+
+        return store.values
+            .mapNotNull { stored ->
+                val continuation = stored.continuation
+                val isClaimed = continuation.status == ApprovalContinuationStatus.CLAIMED
+                val claimedAt = continuation.claimedAt
+                if (
+                    isClaimed &&
+                    claimedAt != null &&
+                    !claimedAt.isAfter(claimedBefore)
+                ) {
+                    continuation
+                } else {
+                    null
+                }
+            }
+            .sortedWith(compareBy<ApprovalContinuation> { it.claimedAt!! }.thenBy { it.approvalId })
+            .take(limit)
+    }
+
+    override suspend fun forceCancelClaimed(
+        approvalId: String,
+        expectedVersion: Long,
+        cancelledBy: String,
+        reasonCode: String,
+    ): ApprovalContinuation {
+        validateIdentifier(approvalId, "approvalId")
+        validateIdentifier(cancelledBy, "cancelledBy")
+        validateReasonCode(reasonCode)
+
+        return store.compute(approvalId) { _, current ->
+            val stored = current ?: throw ApprovalContinuationNotFoundException(approvalId)
+            val continuation = stored.continuation
+
+            if (continuation.version != expectedVersion) throw ApprovalContinuationConflictException(approvalId)
+            if (continuation.status != ApprovalContinuationStatus.CLAIMED) {
+                throw ApprovalContinuationNotClaimableException(approvalId)
+            }
+
+            val now = clock.instant()
+            val incremented = incrementVersion(approvalId, continuation.version)
+            StoredApprovalContinuation(
+                continuation = continuation.copy(
+                    status = ApprovalContinuationStatus.CANCELLED_UNCERTAIN,
+                    version = incremented,
+                    recoveryResolvedBy = cancelledBy,
+                    recoveryResolvedAt = now,
+                    recoveryReasonCode = reasonCode,
+                ),
+                arguments = null,
+            )
+        }?.continuation ?: throw ApprovalContinuationConflictException(approvalId)
+    }
+
     override suspend fun sweepExpired(): Int {
         val now = clock.instant()
         val expiredCount = AtomicInteger()
@@ -265,7 +329,15 @@ class InMemoryApprovalContinuationStore(
         return trimmed
     }
 
+    private fun validateReasonCode(value: String) {
+        require(SAFE_REASON_CODE.matches(value)) {
+            "reasonCode must match [a-z0-9][a-z0-9._:-]{0,63}"
+        }
+    }
+
     private companion object {
         private const val MAX_ID_LENGTH = 256
+        private const val MAX_STALE_LIMIT = 100
+        private val SAFE_REASON_CODE = Regex(SAFE_REASON_CODE_PATTERN)
     }
 }
