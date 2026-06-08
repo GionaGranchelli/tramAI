@@ -55,6 +55,21 @@ import dev.tramai.core.security.NoOpDlpRedactionAuditEmitter
 import dev.tramai.core.security.PromptSanitizer
 import dev.tramai.core.structured.StructuredOutputHandler
 import dev.tramai.core.structured.StructuredOutputResult
+import dev.tramai.core.approval.ApprovalContinuation
+import dev.tramai.core.approval.ApprovalContinuationStatus
+import dev.tramai.core.approval.ApprovalContinuationStore
+import dev.tramai.core.approval.ApprovalChallenge
+import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.ApprovalToken
+import dev.tramai.core.approval.CreateApprovalCommand
+import dev.tramai.core.approval.AuthorizeResumeCommand
+import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.SensitiveToolArguments
+import dev.tramai.core.approval.ToolArgumentsDigester
+import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.exception.ApprovalSuspendedException
+import dev.tramai.core.exception.ToolInvalidInputException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,6 +88,8 @@ import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.time.Clock
+import java.time.Instant
 import java.util.Base64
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
@@ -108,6 +125,13 @@ class TramaiEngine(
     private val toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
     private val engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
     private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
+    // Approval suspension dependencies
+    private val suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
+    private val approvalContinuationStore: ApprovalContinuationStore? = null,
+    private val toolArgumentsDigester: ToolArgumentsDigester? = null,
+    private val approvalGateCoordinator: ApprovalGateCoordinator? = null,
+    private val approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+    private val clock: Clock = Clock.systemUTC(),
 ) : AutoCloseable {
     private val circuitBreaker = ProviderCircuitBreaker(circuitBreakerSettings)
     private val retryDelayPolicy = ProviderRetryDelayPolicy(retryPolicySettings)
@@ -115,6 +139,8 @@ class TramaiEngine(
     private val resolvedPolicyEngine: PolicyEngine = policyEngine
         ?: LegacyPermissivePolicyEngine
     private val isLegacyFallback: Boolean = policyEngine == null
+    /** Internal handler reference used by [resumeApproval] and [resumeApprovalTyped]. */
+    private var resumeHandler: TramaiInvocationHandler? = null
 
     /**
      * Creates an engine backed by a single provider.
@@ -140,6 +166,12 @@ class TramaiEngine(
         toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
         engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
         policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
+        suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
+        approvalContinuationStore: ApprovalContinuationStore? = null,
+        toolArgumentsDigester: ToolArgumentsDigester? = null,
+        approvalGateCoordinator: ApprovalGateCoordinator? = null,
+        approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+        clock: Clock = Clock.systemUTC(),
     ) : this(
         providerRegistry = ProviderRegistry.singleProvider(provider),
         structuredOutputHandler = structuredOutputHandler,
@@ -161,6 +193,12 @@ class TramaiEngine(
         toolResultFilteringSettings = toolResultFilteringSettings,
         engineEventObserver = engineEventObserver,
         policyDecisionAuditEmitter = policyDecisionAuditEmitter,
+        suspendedInvocationStore = suspendedInvocationStore,
+        approvalContinuationStore = approvalContinuationStore,
+        toolArgumentsDigester = toolArgumentsDigester,
+        approvalGateCoordinator = approvalGateCoordinator,
+        approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
+        clock = clock,
     )
 
     /**
@@ -195,15 +233,50 @@ class TramaiEngine(
             toolResultFilteringSettings = toolResultFilteringSettings,
             engineEventObserver = engineEventObserver,
             policyDecisionAuditEmitter = policyDecisionAuditEmitter,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = approvalContinuationStore,
+            toolArgumentsDigester = toolArgumentsDigester,
+            approvalGateCoordinator = approvalGateCoordinator,
+            approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
+            clock = clock,
         )
 
         @Suppress("UNCHECKED_CAST")
-        return Proxy.newProxyInstance(
+        return (Proxy.newProxyInstance(
             serviceType.java.classLoader,
             arrayOf(serviceType.java),
             handler,
-        ) as T
+        ) as T).also {
+            resumeHandler = handler
+        }
     }
+
+    /**
+     * Resume an approval-suspended tool execution and return the operation result.
+     *
+     * Validates the approval, authorises the resume, claims the continuation,
+     * executes the suspended tool, and continues the provider loop.
+     *
+     * @throws ApprovalSuspendedException if workflow resume policy requires approval.
+     * @throws dev.tramai.core.exception.ApprovalNotFoundException if the approval does not exist.
+     * @throws dev.tramai.core.exception.ApprovalTokenRejectedException if the presented token is invalid.
+     * @throws dev.tramai.core.exception.ApprovalBindingMismatchException if binding metadata does not match.
+     * @throws dev.tramai.core.exception.ApprovalAuthorizationException on store-level failures.
+     */
+    suspend fun resumeApproval(command: ResumeApprovalCommand): Any? {
+        val handler = resumeHandler
+            ?: throw dev.tramai.core.exception.ConfigurationException(
+                "No service proxy created yet. Call create() before resumeApproval()."
+            )
+        return handler.resumeApprovalInternal(command)
+    }
+
+    /**
+     * Typed convenience overload for [resumeApproval].
+     */
+    @Suppress("UNCHECKED_CAST")
+    suspend inline fun <reified R> resumeApprovalTyped(command: ResumeApprovalCommand): R =
+        resumeApproval(command) as R
 
     /**
      * Cancels the engine-owned coroutine job hierarchy.
@@ -218,7 +291,24 @@ class TramaiEngine(
  */
 inline fun <reified T : Any> TramaiEngine.create(): T = create(T::class)
 
-private class TramaiInvocationHandler(
+/**
+ * Command to resume an approval-suspended tool execution.
+ *
+ * @property approvalId The approval ID of the suspended execution.
+ * @property approvalExpectedVersion The expected version of the approval.
+ * @property continuationExpectedVersion The expected version of the continuation.
+ * @property presentedToken The approval token presented for authorization.
+ * @property resumedBy The identity initiating the resume.
+ */
+data class ResumeApprovalCommand(
+    val approvalId: String,
+    val approvalExpectedVersion: Long,
+    val continuationExpectedVersion: Long,
+    val presentedToken: ApprovalToken,
+    val resumedBy: String,
+)
+
+internal class TramaiInvocationHandler(
     private val providerRegistry: ProviderRegistry,
     private val structuredOutputHandler: StructuredOutputHandler?,
     private val toolRegistry: ToolRegistry,
@@ -241,6 +331,13 @@ private class TramaiInvocationHandler(
     private val toolResultFilteringSettings: ToolResultFilteringSettings,
     private val engineEventObserver: EngineEventObserver,
     private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter,
+    // Approval suspension dependencies
+    private val suspendedInvocationStore: SuspendedInvocationStore,
+    private val approvalContinuationStore: ApprovalContinuationStore?,
+    private val toolArgumentsDigester: ToolArgumentsDigester?,
+    private val approvalGateCoordinator: ApprovalGateCoordinator?,
+    private val approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter,
+    private val clock: Clock,
 ) : InvocationHandler {
 
     private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard, isLegacyFallback = isLegacyFallback, auditEmitter = policyDecisionAuditEmitter)
@@ -288,13 +385,22 @@ private class TramaiInvocationHandler(
         conversationId: String?,
     ): Any? {
         val tokenBudgetTracker = TokenBudgetTracker(tokenBudgetSettings)
+        val workflowRunId = java.util.UUID.randomUUID().toString()
+        val workflowDigest = WorkflowDigestHelper.compute(operation, serviceDefinition)
+        val identity = EngineExecutionIdentity(
+            workflowRunId = workflowRunId,
+            correlationId = "", // Will be set in executeRaw/executeStructured
+            workflowDigest = workflowDigest,
+            policyVersion = policyHelper.getPolicyVersion(),
+            actorId = PolicyEnforcementHelper.ACTOR_ANONYMOUS,
+        )
         return when (operation.returnKind) {
-            ReturnKind.STRING -> executeRaw(operation, arguments, tokenBudgetTracker, conversationId)
+            ReturnKind.STRING -> executeRaw(operation, arguments, tokenBudgetTracker, conversationId, identity)
             ReturnKind.UNIT -> {
-                executeRaw(operation, arguments, tokenBudgetTracker, conversationId)
+                executeRaw(operation, arguments, tokenBudgetTracker, conversationId, identity)
                 Unit
             }
-            ReturnKind.STRUCTURED -> executeStructured(operation, arguments, tokenBudgetTracker, conversationId)
+            ReturnKind.STRUCTURED -> executeStructured(operation, arguments, tokenBudgetTracker, conversationId, identity)
             ReturnKind.STREAMING -> executeStreaming(operation, arguments, tokenBudgetTracker, conversationId)
         }
     }
@@ -811,9 +917,11 @@ private class TramaiInvocationHandler(
         arguments: List<Any?>,
         tokenBudgetTracker: TokenBudgetTracker,
         conversationId: String?,
+        identity: EngineExecutionIdentity,
     ): String {
         val securityContext = ExecutionSecurityContext.fromArguments(arguments.toTypedArray())
         val correlationId = java.util.UUID.randomUUID().toString()
+        val effectiveIdentity = identity.copy(correlationId = correlationId)
         val initialMessages = operation.initialMessages(arguments)
         val (history, effectiveMessages) = injectMemoryMessages(initialMessages, conversationId)
             ?: (emptyList<Message>() to initialMessages)
@@ -842,6 +950,9 @@ private class TramaiInvocationHandler(
             tokenBudgetTracker = tokenBudgetTracker,
             correlationId = correlationId,
             securityContext = securityContext,
+            identity = effectiveIdentity,
+            conversationId = conversationId,
+            historySize = history.size,
         )
 
         // DLP is already applied inside callProviderWithRetries — use the sanitized response directly
@@ -882,6 +993,7 @@ private class TramaiInvocationHandler(
         arguments: List<Any?>,
         tokenBudgetTracker: TokenBudgetTracker,
         conversationId: String?,
+        identity: EngineExecutionIdentity,
     ): Any {
         val securityContext = ExecutionSecurityContext.fromArguments(arguments.toTypedArray())
         val handler = structuredOutputHandler ?: throw ConfigurationException(
@@ -889,6 +1001,7 @@ private class TramaiInvocationHandler(
         )
         val contract = operation.structuredContract(handler)
         val correlationId = java.util.UUID.randomUUID().toString()
+        val effectiveIdentity = identity.copy(correlationId = correlationId)
         val initialMessages = operation.initialMessages(arguments, contract.schemaJson)
         val (history, effectiveMessages) = injectMemoryMessages(initialMessages, conversationId)
             ?: (emptyList<Message>() to initialMessages)
@@ -923,6 +1036,7 @@ private class TramaiInvocationHandler(
             conversationId = conversationId,
             correlationId = correlationId,
             securityContext = securityContext,
+            identity = effectiveIdentity,
         )
     }
 
@@ -936,6 +1050,7 @@ private class TramaiInvocationHandler(
         conversationId: String?,
         correlationId: String,
         securityContext: ExecutionSecurityContext,
+        identity: EngineExecutionIdentity,
     ): Any {
         val maxAttempts = operation.operation.maxRetries + 1
         val targetType = requireNotNull(operation.returnType) {
@@ -956,6 +1071,7 @@ private class TramaiInvocationHandler(
                 maxAttempts = maxAttempts,
                 correlationId = correlationId,
                 securityContext = securityContext,
+                identity = identity,
             )
             if (value != null) {
                 return value
@@ -978,6 +1094,7 @@ private class TramaiInvocationHandler(
         maxAttempts: Int,
         correlationId: String,
         securityContext: ExecutionSecurityContext,
+        identity: EngineExecutionIdentity,
     ): Any? {
         val messagesBeforeCall = messages.size
         val result = executeWithTools(
@@ -986,6 +1103,9 @@ private class TramaiInvocationHandler(
             tokenBudgetTracker = tokenBudgetTracker,
             correlationId = correlationId,
             securityContext = securityContext,
+            identity = identity,
+            conversationId = conversationId,
+            historySize = historySize,
         )
 
         // DLP is already applied inside callProviderWithRetries — use the sanitized response directly
@@ -1058,6 +1178,27 @@ private class TramaiInvocationHandler(
         chatMemory.add(conversationId, userPrompt + toolMessages + assistantMessage)
     }
 
+    /**
+     * Persists the assistant response and this turn's non-system messages to chat memory.
+     * Shared by [finalizeResumedOperation] for STRING/UNIT paths and by
+     * [resumeStructuredResult] for the STRUCTURED path.
+     */
+    private fun persistMemory(
+        loopResult: ProviderCallResult,
+        messages: MutableList<Message>,
+        historySize: Int,
+        conversationId: String?,
+    ) {
+        if (chatMemory == null || conversationId == null) return
+        val assistantMessage = Message(
+            role = MessageRole.ASSISTANT,
+            content = loopResult.response.content,
+            toolCalls = loopResult.response.toolCalls,
+        )
+        val turnMessages = messages.drop(historySize).filter { it.role != MessageRole.SYSTEM }
+        chatMemory.add(conversationId, turnMessages + assistantMessage)
+    }
+
     private fun handleStructuredFailure(
         operation: OperationDefinition,
         analysis: StructuredOutputResult.Failure,
@@ -1092,6 +1233,11 @@ private class TramaiInvocationHandler(
         tokenBudgetTracker: TokenBudgetTracker,
         correlationId: String,
         securityContext: ExecutionSecurityContext,
+        identity: EngineExecutionIdentity,
+        conversationId: String? = null,
+        historySize: Int = 0,
+        resumingApproval: Boolean = false,
+        parentApprovalId: String? = null,
     ): ProviderCallResult {
         val maxToolLoops = 5 // Guard against infinite tool loops
         val attemptCounter = AttemptCounter()
@@ -1144,6 +1290,12 @@ private class TramaiInvocationHandler(
                 messages = messages,
                 correlationId = correlationId,
                 securityContext = securityContext,
+                identity = identity,
+                tokenBudgetTracker = tokenBudgetTracker,
+                conversationId = conversationId,
+                historySize = historySize,
+                resumingApproval = resumingApproval,
+                parentApprovalId = parentApprovalId,
             )
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
@@ -1155,13 +1307,19 @@ private class TramaiInvocationHandler(
         messages: MutableList<Message>,
         correlationId: String,
         securityContext: ExecutionSecurityContext,
+        identity: EngineExecutionIdentity,
+        tokenBudgetTracker: TokenBudgetTracker,
+        conversationId: String? = null,
+        historySize: Int = 0,
+        resumingApproval: Boolean = false,
+        parentApprovalId: String? = null,
     ) {
-        for (toolCall in toolCalls) {
+        for ((index, toolCall) in toolCalls.withIndex()) {
             val tool = toolRegistry.resolve(toolCall.name)
             val toolResult = if (tool == null) {
                 ToolResult.PermanentFailure("Tool '<unregistered>' not found")
             } else {
-                executeTool(tool, toolCall, operation, correlationId, securityContext)
+                executeTool(tool, toolCall, operation, correlationId, securityContext, identity, messages, index, tokenBudgetTracker, conversationId, historySize, resumingApproval, parentApprovalId = parentApprovalId)
             }
 
             // Enforce BEFORE_TOOL_RESULT_REINJECTION
@@ -1750,6 +1908,15 @@ private class TramaiInvocationHandler(
         operation: OperationDefinition,
         correlationId: String,
         securityContext: ExecutionSecurityContext,
+        identity: EngineExecutionIdentity,
+        messages: List<Message>,
+        toolCallIndex: Int = -1,
+        tokenBudgetTracker: TokenBudgetTracker? = null,
+        conversationId: String? = null,
+        historySize: Int = 0,
+        resumingApproval: Boolean = false,
+        parentApprovalId: String? = null,
+        allowRenewedApprovedBindingDuringResume: Boolean = false,
     ): ToolResult {
         val input = toolCall.argumentsJson
         val maxAttempts = if (tool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
@@ -1762,8 +1929,8 @@ private class TramaiInvocationHandler(
                 timeout = java.time.Duration.ofMillis(operation.operation.timeoutMillis),
             )
 
-            // Enforce BEFORE_TOOL_EXECUTION
-            policyHelper.enforce(
+            // Evaluate BEFORE_TOOL_EXECUTION — supports suspension
+            val policyDecision = policyHelper.evaluate(
                 policyHelper.buildContext(
                     enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_EXECUTION,
                     correlationId = correlationId,
@@ -1772,6 +1939,76 @@ private class TramaiInvocationHandler(
                     .applySecurityContext(securityContext)
                     .build()
             )
+
+            if (policyDecision is dev.tramai.core.policy.PolicyDecision.RequireApproval) {
+                if (resumingApproval) {
+                    if (!allowRenewedApprovedBindingDuringResume) {
+                        throw dev.tramai.core.exception.NestedApprovalNotSupportedException(
+                            approvalId = parentApprovalId ?: "unknown",
+                            message = "Nested approval not supported in v1: tool '${tool.name}' requires approval during a resumed workflow",
+                        )
+                    }
+                    val requirement = policyDecision.requirement
+                    val digester = this.toolArgumentsDigester
+                        ?: throw dev.tramai.core.exception.ConfigurationException(
+                            "ToolArgumentsDigester is required for renewed approval validation"
+                        )
+                    val renewedDigest = digester.digest(
+                        dev.tramai.core.approval.SensitiveToolArguments.of(input)
+                    )
+                    require(requirement.toolName == tool.name) {
+                        "Renewed approval requirement tool name mismatch: '${requirement.toolName}' != '${tool.name}'"
+                    }
+                    require(
+                        dev.tramai.core.approval.Sha256Digest.of(requirement.argumentsDigest) == renewedDigest
+                    ) {
+                        "Renewed approval requirement digest mismatch"
+                    }
+                    require(requirement.timeoutMillis > 0) {
+                        "Renewed approval requirement must have positive timeout"
+                    }
+                } else {
+                    // R3: Validate policy-provided approval binding
+                    val requirement = policyDecision.requirement
+                    val requiredDigest = dev.tramai.core.approval.Sha256Digest.of(requirement.argumentsDigest)
+                    require(requirement.toolName == tool.name) {
+                        "Approval requirement tool binding mismatch: expected '${tool.name}', got '${requirement.toolName}'"
+                    }
+                    val rawDigest = if (toolArgumentsDigester != null) {
+                        toolArgumentsDigester.digest(dev.tramai.core.approval.SensitiveToolArguments.of(input))
+                    } else {
+                        throw dev.tramai.core.exception.ConfigurationException(
+                            "ToolArgumentsDigester is required for approval binding validation"
+                        )
+                    }
+                    require(requiredDigest == rawDigest) {
+                        "Approval requirement argument binding mismatch"
+                    }
+                    require(requirement.timeoutMillis > 0) {
+                        "Approval requirement timeout must be positive"
+                    }
+                    return suspendToolExecution(
+                        tool = tool,
+                        toolCall = toolCall,
+                        operation = operation,
+                        correlationId = correlationId,
+                        input = input,
+                        identity = identity,
+                        toolCallIndex = toolCallIndex,
+                        messages = messages,
+                        argumentsDigest = rawDigest,
+                        timeoutMillis = policyDecision.requirement.timeoutMillis,
+                        securityContext = securityContext,
+                        tokenBudgetTracker = tokenBudgetTracker,
+                        conversationId = conversationId,
+                        historySize = historySize,
+                    )
+                }
+            }
+            // Deny also handled by enforce() but we already evaluated above
+            if (policyDecision is dev.tramai.core.policy.PolicyDecision.Deny) {
+                throw dev.tramai.core.exception.PolicyViolationException(policyDecision)
+            }
 
             val result = try {
                 tool.execute(input, context)
@@ -1799,6 +2036,157 @@ private class TramaiInvocationHandler(
         }
 
         error("Tool retry loop exited without returning")
+    }
+
+    /**
+     * Suspends tool execution by creating an approval challenge, persisting
+     * the continuation and suspended invocation, then throwing [ApprovalSuspendedException].
+     */
+    private suspend fun suspendToolExecution(
+        tool: ResolvedTool,
+        toolCall: ToolCall,
+        operation: OperationDefinition,
+        correlationId: String,
+        input: String,
+        identity: EngineExecutionIdentity,
+        toolCallIndex: Int,
+        messages: List<Message>,
+        argumentsDigest: Sha256Digest,
+        timeoutMillis: Long,
+        securityContext: ExecutionSecurityContext,
+        tokenBudgetTracker: TokenBudgetTracker? = null,
+        conversationId: String? = null,
+        historySize: Int = 0,
+    ): Nothing {
+        val approvalGateCoordinator = approvalGateCoordinator
+            ?: throw dev.tramai.core.exception.ConfigurationException(
+                "ApprovalGateCoordinator is required for tool execution suspension"
+            )
+        val approvalContinuationStore = approvalContinuationStore
+            ?: throw dev.tramai.core.exception.ConfigurationException(
+                "ApprovalContinuationStore is required for tool execution suspension"
+            )
+
+        val sensitiveArgs = SensitiveToolArguments.of(input)
+        val expiresAt = clock.instant().plusMillis(timeoutMillis)
+
+        // Track IDs for compensation (accessible in catch block)
+        var createdChallengeId: String? = null
+        var createdContinuationVersion: Long = 0L
+
+        // Phase 1: Create approval, continuation, and suspended state
+        try {
+            // Create approval challenge via coordinator
+            val createCommand = CreateApprovalCommand(
+                workflowRunId = identity.workflowRunId,
+                toolName = tool.name,
+                argumentsDigest = argumentsDigest,
+                policyVersion = identity.policyVersion,
+                workflowDigest = identity.workflowDigest,
+                requestedBy = identity.actorId,
+                expiresAt = expiresAt,
+            )
+            val challenge = approvalGateCoordinator.createApproval(createCommand)
+            createdChallengeId = challenge.approvalId
+
+            // Persist continuation with sensitive arguments
+            val continuation = approvalContinuationStore.create(
+                continuation = ApprovalContinuation(
+                    approvalId = challenge.approvalId,
+                    workflowRunId = identity.workflowRunId,
+                    correlationId = correlationId,
+                    toolCallId = toolCall.id,
+                    toolName = tool.name,
+                    argumentsDigest = argumentsDigest,
+                    policyVersion = identity.policyVersion,
+                    workflowDigest = identity.workflowDigest,
+                    status = dev.tramai.core.approval.ApprovalContinuationStatus.PENDING,
+                    createdAt = clock.instant(),
+                    approvalExpiresAt = challenge.expiresAt,
+                    claimedBy = null,
+                    claimedAt = null,
+                    completedAt = null,
+                    version = 0L,
+                ),
+                arguments = sensitiveArgs,
+            )
+            createdContinuationVersion = continuation.version
+
+            // Fix 7: Capture token budget snapshot if available
+            val budgetSnapshot = tokenBudgetTracker?.snapshot()
+
+            // Store safe invocation metadata with separated sensitive context
+            // historySize is passed in from the caller (computed at the initial suspension point)
+
+            suspendedInvocationStore.create(
+                metadata = SuspendedInvocationMetadata(
+                    approvalId = challenge.approvalId,
+                    toolCallId = toolCall.id,
+                    toolName = tool.name,
+                    toolCallIndex = toolCallIndex,
+                    correlationId = correlationId,
+                    identity = identity,
+                    securityContext = securityContext,
+                    conversationId = conversationId,
+                    historySize = historySize,
+                    tokenBudgetSnapshot = budgetSnapshot,
+                    toolSecurity = tool.security,
+                ),
+                sensitiveContext = SensitiveResumeContext.of(
+                    operation = operation,
+                    tool = tool,
+                    messages = messages,
+                    toolCall = toolCall,
+                ),
+            )
+
+            // Emit audit event
+            approvalLifecycleAuditEmitter.onToolExecutionSuspended(
+                approvalId = challenge.approvalId,
+                workflowRunId = identity.workflowRunId,
+                toolName = tool.name,
+                toolCallId = toolCall.id,
+                correlationId = correlationId,
+                argumentsDigest = argumentsDigest,
+                expiresAt = challenge.expiresAt,
+            )
+
+            throw ApprovalSuspendedException(
+                challenge = challenge,
+                approvalId = challenge.approvalId,
+                workflowRunId = identity.workflowRunId,
+                toolCallId = toolCall.id,
+                toolName = tool.name,
+                continuationVersion = continuation.version,
+            )
+        } catch (failure: Exception) {
+            // Do NOT compensate for successful suspension — ApprovalSuspendedException is the intended result
+            if (failure is ApprovalSuspendedException) throw failure
+
+            // Phase 2: Full saga compensation in reverse order
+            val approvalId = createdChallengeId
+            if (approvalId != null) {
+                // 1. Remove suspended state
+                runCatching { suspendedInvocationStore.remove(approvalId) }
+                // 2. Cancel continuation
+                runCatching {
+                    approvalContinuationStore.cancel(
+                        approvalId = approvalId,
+                        expectedVersion = createdContinuationVersion,
+                    )
+                }
+                // 3. Cancel approval
+                runCatching {
+                    approvalGateCoordinator.cancelApproval(
+                        approvalId = approvalId,
+                        expectedVersion = 0L,
+                        reason = "suspension-compensation",
+                    )
+                }
+            }
+            // throw the original failure — don't let compensation mask it
+            throw failure
+        }
     }
 
     private suspend fun callProviderOnce(
@@ -1953,6 +2341,613 @@ private class TramaiInvocationHandler(
         ATTR_IS_FALLBACK to (routeIndex > 0),
     )
 
+    /**
+     * Internal resume implementation called by [TramaiEngine.resumeApproval].
+     *
+     * Ordering guarantees (Fix 1-3):
+     * 1. Loads metadata + resolves continuation (read-only validation)
+     * 2. Validates continuation is PENDING and version matches
+     * 3. Resolves digester and other non-side-effecting dependencies
+     * 4. Calls authorizeResume() — validates the token
+     * 5. Evaluates BEFORE_WORKFLOW_RESUME
+     * 6. IF Allow: claimForExecution() and continue
+     * 7. IF Deny/RequireApproval: cancel continuation, remove suspended state, emit audit
+     */
+    suspend fun resumeApprovalInternal(command: ResumeApprovalCommand): Any? {
+        // 1. Load suspended invocation metadata (read-only)
+        val metadata = suspendedInvocationStore.get(command.approvalId)
+            ?: throw dev.tramai.core.exception.ApprovalNotFoundException(command.approvalId)
+
+        // 2a. Validate continuation exists before authorizing
+        val store = approvalContinuationStore
+            ?: throw dev.tramai.core.exception.ConfigurationException(
+                "ApprovalContinuationStore is required for resume"
+            )
+        val existingContinuation = store.get(command.approvalId)
+            ?: throw dev.tramai.core.exception.ApprovalNotFoundException(command.approvalId)
+
+        // 2b. Validate continuation is PENDING and version matches (read-only checks)
+        require(existingContinuation.status == ApprovalContinuationStatus.PENDING) {
+            "Continuation '${command.approvalId}' is not PENDING (status=${existingContinuation.status})"
+        }
+        require(existingContinuation.version == command.continuationExpectedVersion) {
+            "Continuation version mismatch: expected ${command.continuationExpectedVersion}, got ${existingContinuation.version}"
+        }
+        require(existingContinuation.toolName == metadata.toolName) {
+            "Continuation tool name mismatch: '${existingContinuation.toolName}' != '${metadata.toolName}'"
+        }
+        require(existingContinuation.toolCallId == metadata.toolCallId) {
+            "Continuation tool-call ID mismatch: '${existingContinuation.toolCallId}' != '${metadata.toolCallId}'"
+        }
+
+        // 3. Resolve non-side-effecting dependencies BEFORE token consumption
+        val coordinator = approvalGateCoordinator
+            ?: throw dev.tramai.core.exception.ConfigurationException(
+                "ApprovalGateCoordinator is required for resume"
+            )
+        val digester = requireNotNull(toolArgumentsDigester) {
+            "ToolArgumentsDigester is required for payload integrity verification"
+        }
+
+        // 4. THEN authorize (this consumes the token) — only after all validations passed
+        val authorization = coordinator.authorizeResume(
+            AuthorizeResumeCommand(
+                approvalId = command.approvalId,
+                expectedVersion = command.approvalExpectedVersion,
+                presentedToken = command.presentedToken,
+                consumedBy = command.resumedBy,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
+                argumentsDigest = existingContinuation.argumentsDigest,
+                policyVersion = metadata.identity.policyVersion,
+                workflowDigest = metadata.identity.workflowDigest,
+            )
+        )
+
+        // 5. Evaluate BEFORE_WORKFLOW_RESUME — NOW safe because token was already validated
+        val resumeDecision = policyHelper.evaluate(
+            policyHelper.buildContext(
+                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_WORKFLOW_RESUME,
+                correlationId = metadata.correlationId,
+            ).toolName(metadata.toolName)
+                .toolSecurity(metadata.toolSecurity)
+                .applySecurityContext(metadata.securityContext)
+                .workflowRunId(metadata.identity.workflowRunId)
+                .workflowDigest(metadata.identity.workflowDigest.value)
+                .actorId(command.resumedBy)
+                .build()
+        )
+        if (resumeDecision is dev.tramai.core.policy.PolicyDecision.Deny) {
+            // R4: Denied — close the continuation and remove invocation.
+            // Token was already validated, so these side effects are safe.
+            // If cancel fails, let the exception propagate (Fix 2: atomic cancellation)
+            store.cancel(
+                approvalId = command.approvalId,
+                expectedVersion = command.continuationExpectedVersion,
+            )
+            suspendedInvocationStore.remove(command.approvalId)
+            approvalLifecycleAuditEmitter.onSuspensionCancelled(
+                approvalId = command.approvalId,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
+                reason = "workflow-resume-denied: ${resumeDecision.reasonCode}",
+            )
+            throw dev.tramai.core.exception.PolicyViolationException(resumeDecision)
+        }
+        if (resumeDecision is dev.tramai.core.policy.PolicyDecision.RequireApproval) {
+            // R5: Nested approval not supported — close and throw
+            store.cancel(
+                approvalId = command.approvalId,
+                expectedVersion = command.continuationExpectedVersion,
+            )
+            suspendedInvocationStore.remove(command.approvalId)
+            approvalLifecycleAuditEmitter.onSuspensionCancelled(
+                approvalId = command.approvalId,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
+                reason = "nested-approval-not-supported",
+            )
+            throw dev.tramai.core.exception.NestedApprovalNotSupportedException(
+                approvalId = command.approvalId,
+                message = "Nested approval not supported: use the original approval challenge",
+            )
+        }
+
+        // 6. Claim continuation (only Allow reaches here)
+        val claimed = store.claimForExecution(
+            approvalId = command.approvalId,
+            expectedVersion = command.continuationExpectedVersion,
+            claimedBy = command.resumedBy,
+        )
+
+        // Fix 4: Universal uncertain-outbound boundary — wrap everything after claim in try/catch
+        var uncertainOutcomeEmitted = false
+        return try {
+            // 6. Reveal sensitive resume context — INSIDE try/catch, AFTER claimForExecution (Fix 1)
+            val sensitiveContext = suspendedInvocationStore.revealSensitiveContext(command.approvalId)
+                ?: throw dev.tramai.core.exception.ConfigurationException(
+                    "Sensitive resume context not found for approvalId '${command.approvalId}'"
+                )
+            val resumeContext = sensitiveContext.revealForResume()
+
+            // R7: Verify payload integrity after claim — re-digest and compare
+            val actualDigest = digester.digest(claimed.arguments)
+            val expectedDigest = claimed.continuation.argumentsDigest
+            if (actualDigest != expectedDigest) {
+                uncertainOutcomeEmitted = true
+                approvalLifecycleAuditEmitter.onUncertainOutcome(
+                    approvalId = command.approvalId,
+                    workflowRunId = metadata.identity.workflowRunId,
+                    toolName = metadata.toolName,
+                    reason = "payload-integrity-mismatch",
+                )
+                throw dev.tramai.core.exception.ConfigurationException(
+                    "Claimed continuation payload integrity mismatch: digest ${actualDigest.value} != expected ${expectedDigest.value}"
+                )
+            }
+            val validatedInput = claimed.arguments.reveal()
+            val validatedTool = toolRegistry.resolve(metadata.toolName)
+                ?: throw dev.tramai.core.exception.ConfigurationException(
+                    "Approved tool '${metadata.toolName}' is no longer registered"
+                )
+            val validatedToolCall = resumeContext.toolCall.copy(
+                id = metadata.toolCallId,
+                name = metadata.toolName,
+                argumentsJson = validatedInput,
+            )
+
+            // Emit resume audit event
+            approvalLifecycleAuditEmitter.onToolExecutionResumed(
+                approvalId = command.approvalId,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
+                resumedBy = command.resumedBy,
+            )
+
+            // 6. Execute the suspended tool with the released arguments
+            //    Route through executeTool() which handles InvalidInput conversion
+            //    and idempotent retries. If the policy requires approval for the primary
+            //    resumed tool (expected — it was already approved via BEFORE_WORKFLOW_RESUME
+            //    + authorization), fall back to direct execution with safeguards.
+            val tokenBudgetTracker = TokenBudgetTracker(tokenBudgetSettings)
+            // Restore token budget snapshot if available
+            metadata.tokenBudgetSnapshot?.let { snapshot ->
+                tokenBudgetTracker.restore(snapshot)
+            }
+            val toolResult = try {
+                executeTool(
+                    tool = validatedTool,
+                    toolCall = validatedToolCall,
+                    operation = resumeContext.operation,
+                    correlationId = metadata.correlationId,
+                    securityContext = metadata.securityContext,
+                    identity = metadata.identity,
+                    messages = resumeContext.messages,
+                    tokenBudgetTracker = tokenBudgetTracker,
+                    resumingApproval = true,
+                    parentApprovalId = command.approvalId,
+                    allowRenewedApprovedBindingDuringResume = true,
+                )
+            } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
+                // Defensive fallback for older resume paths; use the already-validated payload.
+                val resumedInput = validatedInput
+                val maxAttempts = if (validatedTool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
+                val fallbackResult = run {
+                    var lastException: Exception? = null
+                    repeat(maxAttempts) { attemptIndex ->
+                        val context = ToolExecutionContext(
+                            operationName = resumeContext.operation.method.name,
+                            modelName = resumeContext.operation.operation.model,
+                            attemptNumber = attemptIndex,
+                            timeout = java.time.Duration.ofMillis(resumeContext.operation.operation.timeoutMillis),
+                        )
+                        try {
+                            return@run validatedTool.execute(resumedInput, context)
+                        } catch (tie: dev.tramai.core.exception.ToolInvalidInputException) {
+                            return@run ToolResult.InvalidInput(tie.message ?: "Invalid tool input")
+                        } catch (ex: Exception) {
+                            if (validatedTool.idempotent && attemptIndex < maxAttempts - 1) {
+                                lastException = ex
+                                // continue to next attempt
+                            } else {
+                                uncertainOutcomeEmitted = true
+                                approvalLifecycleAuditEmitter.onUncertainOutcome(
+                                    approvalId = command.approvalId,
+                                    workflowRunId = metadata.identity.workflowRunId,
+                                    toolName = metadata.toolName,
+                                    reason = "tool-execution-failed: ${ex::class.simpleName ?: "unknown"}",
+                                )
+                                throw ex
+                            }
+                        }
+                    }
+                    // All retries exhausted for idempotent tool
+                    ToolResult.PermanentFailure(
+                        lastException?.message ?: "Tool execution failed after $maxAttempts attempt(s)"
+                    )
+                }
+                fallbackResult
+            } catch (e: ToolInvalidInputException) {
+                // This shouldn't happen during resume (already validated), but handle safely
+                uncertainOutcomeEmitted = true
+                approvalLifecycleAuditEmitter.onUncertainOutcome(
+                    approvalId = command.approvalId,
+                    workflowRunId = metadata.identity.workflowRunId,
+                    toolName = metadata.toolName,
+                    reason = "tool-execution-failed: ${e::class.simpleName ?: "unknown"}",
+                )
+                throw e
+            }
+
+            // 7. Continue the provider loop — enforce BEFORE_TOOL_RESULT_REINJECTION,
+            //    format/sanitize the tool result, append to messages, process remaining,
+            //    and call the provider for the next turn
+            val securityContext = metadata.securityContext
+            val messages = resumeContext.messages.toMutableList()
+            val loopResult = continueAfterToolResult(
+                operation = resumeContext.operation,
+                messages = messages,
+                toolResult = toolResult,
+                toolCallId = metadata.toolCallId,
+                toolCallIndex = metadata.toolCallIndex,
+                correlationId = metadata.correlationId,
+                securityContext = securityContext,
+                identity = metadata.identity,
+                tokenBudgetTracker = tokenBudgetTracker,
+                suspendedToolName = metadata.toolName,
+                approvalId = command.approvalId,
+                conversationId = metadata.conversationId,
+                historySize = metadata.historySize,
+                resumingApproval = true,
+            )
+
+            // Finalize result BEFORE completing continuation (handles String, Unit, Structured)
+            val result = finalizeResumedOperation(
+                operation = resumeContext.operation,
+                loopResult = loopResult,
+                messages = messages,
+                correlationId = metadata.correlationId,
+                securityContext = securityContext,
+                conversationId = metadata.conversationId,
+                historySize = metadata.historySize,
+            )
+
+            // 8. Complete continuation — this is the authoritative transition
+            store.complete(
+                approvalId = command.approvalId,
+                expectedVersion = claimed.continuation.version,
+                completedBy = command.resumedBy,
+            )
+
+            // Post-completion cleanup — failures here are operational, not uncertain outcomes.
+            // The continuation is irrevocably COMPLETED and the tool executed successfully.
+            try {
+                suspendedInvocationStore.remove(command.approvalId)
+                approvalLifecycleAuditEmitter.onToolExecutionCompleted(
+                    approvalId = command.approvalId,
+                    workflowRunId = metadata.identity.workflowRunId,
+                    toolName = metadata.toolName,
+                    completedBy = command.resumedBy,
+                )
+            } catch (e: Exception) {
+                // Log/report through operational observer, do NOT emit uncertain outcome
+                // Use try/catch(Exception) not runCatching — fatal Error types must propagate
+                try {
+                    engineEventObserver.onEngineEvent(
+                        name = "resume-cleanup-failure",
+                        attributes = mapOf(
+                            "approvalId" to command.approvalId,
+                            "toolName" to metadata.toolName,
+                            "error" to (e.message ?: e::class.simpleName ?: "unknown"),
+                        ),
+                    )
+                } catch (_: Exception) {
+                    // Observer failure is operational — no uncertain outcome from completed state
+                }
+            }
+
+            result
+        } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
+            // Fix 2 (P2): Nested approval — emit uncertain outcome (not duplicated from
+            // continueAfterToolResult anymore since step-4 catch also defers to here)
+            if (!uncertainOutcomeEmitted) {
+                uncertainOutcomeEmitted = true
+                approvalLifecycleAuditEmitter.onUncertainOutcome(
+                    approvalId = e.approvalId,
+                    workflowRunId = metadata.identity.workflowRunId,
+                    toolName = metadata.toolName,
+                    reason = "nested-approval-not-supported",
+                )
+            }
+            throw e
+        } catch (e: dev.tramai.core.exception.StructuredOutputException) {
+            // ResumeStructuredResult does not emit uncertain-outcome for parse failures —
+            // emit it here before rethrowing so the continuation stays CLAIMED and auditable
+            if (!uncertainOutcomeEmitted) {
+                uncertainOutcomeEmitted = true
+                approvalLifecycleAuditEmitter.onUncertainOutcome(
+                    approvalId = command.approvalId,
+                    workflowRunId = metadata.identity.workflowRunId,
+                    toolName = metadata.toolName,
+                    reason = "structured-parse-failed: ${e::class.simpleName ?: "unknown"}",
+                )
+            }
+            throw e
+        } catch (e: Exception) {
+            // Fix 4: Universal uncertain-outcome — any failure after claim leaves continuation CLAIMED
+            if (!uncertainOutcomeEmitted) {
+                approvalLifecycleAuditEmitter.onUncertainOutcome(
+                    approvalId = command.approvalId,
+                    workflowRunId = metadata.identity.workflowRunId,
+                    toolName = metadata.toolName,
+                    reason = "resume-failed: ${e::class.simpleName ?: "unknown"}",
+                )
+            }
+            throw e
+        }
+    }
+
+    /**
+     * Finalizes a resumed operation for all return kinds that don't need
+     * structured parsing. Enforces BEFORE_RESPONSE_RETURN, persists conversation
+     * memory, completes the observation, and returns the appropriate result.
+     *
+     * For [ReturnKind.STRUCTURED] callers must handle parsing separately via
+     * [resumeStructuredResult] — this method enforces only the shared parts
+     * (BEFORE_RESPONSE_RETURN, memory, observation) and then throws so the
+     * caller knows to use the structured path instead.
+     */
+    private suspend fun finalizeResumedOperation(
+        operation: OperationDefinition,
+        loopResult: ProviderCallResult,
+        messages: MutableList<Message>,
+        correlationId: String,
+        securityContext: ExecutionSecurityContext,
+        conversationId: String?,
+        historySize: Int,
+    ): Any? {
+        when (operation.returnKind) {
+            ReturnKind.STRING -> {
+                // Enforce BEFORE_RESPONSE_RETURN (Fix 3: per-return-kind, not before dispatch)
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                        correlationId = correlationId,
+                    ).providerId(loopResult.providerId)
+                        .modelName(loopResult.modelName)
+                        .applySecurityContext(securityContext)
+                        .build()
+                )
+                // Memory persistence + observation + return (once)
+                persistMemory(loopResult, messages, historySize, conversationId)
+                loopResult.observation.onCallCompleted(parseSuccess = null)
+                return loopResult.response.content
+            }
+            ReturnKind.UNIT -> {
+                // Enforce BEFORE_RESPONSE_RETURN (Fix 3: per-return-kind, not before dispatch)
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                        correlationId = correlationId,
+                    ).providerId(loopResult.providerId)
+                        .modelName(loopResult.modelName)
+                        .applySecurityContext(securityContext)
+                        .build()
+                )
+                persistMemory(loopResult, messages, historySize, conversationId)
+                loopResult.observation.onCallCompleted(parseSuccess = null)
+                loopResult.response.content // consume it
+                return Unit
+            }
+            ReturnKind.STRUCTURED -> {
+                // Structured: delegate to resumeStructuredResult which handles
+                // BEFORE_RESPONSE_RETURN (on success only), memory, observation, and parse
+                return resumeStructuredResult(
+                    operation = operation,
+                    loopResult = loopResult,
+                    messages = messages,
+                    correlationId = correlationId,
+                    securityContext = securityContext,
+                    conversationId = conversationId,
+                    historySize = historySize,
+                )
+            }
+            ReturnKind.STREAMING -> throw ConfigurationException("Streaming approval resume not supported")
+        }
+    }
+
+    /**
+     * Parses the structured (typed) result from a resumed provider loop.
+     *
+     * **Single-attempt limitation (v1):** Unlike the normal flow, which retries structured
+     * parsing when the provider responds with content that cannot be parsed — feeding
+     * the error back to the provider for a corrected attempt — this resume path makes
+     * exactly one parse attempt. If parsing fails, the exception is thrown immediately
+     * without a retry cycle. This is a deliberate v1 limitation: the resume path is a
+     * linear re-entrant flow, not a multi-turn conversation, so retry-with-feedback
+     * semantics are not available here.
+     */
+    private suspend fun resumeStructuredResult(
+        operation: OperationDefinition,
+        loopResult: ProviderCallResult,
+        messages: MutableList<Message>,
+        correlationId: String,
+        securityContext: ExecutionSecurityContext,
+        conversationId: String?,
+        historySize: Int,
+    ): Any {
+        val handler = structuredOutputHandler
+            ?: throw ConfigurationException(
+                "Structured return type ${operation.returnTypeDescription} requires a StructuredOutputHandler implementation from tramai-structured",
+            )
+        val targetType = operation.returnType
+            ?: throw ConfigurationException(
+                "Structured return type ${operation.returnTypeDescription} could not be inspected without Kotlin reflection metadata",
+            )
+
+        // Fix 3: Parse FIRST before memory persistence and BEFORE_RESPONSE_RETURN
+        val analysis = handler.analyze(
+            rawResponse = loopResult.response.content,
+            targetType = targetType,
+        )
+        return when (analysis) {
+            is StructuredOutputResult.Success -> {
+                // On success: enforce BEFORE_RESPONSE_RETURN, persist memory, complete observation, return value
+                // BEFORE_RESPONSE_RETURN is enforced HERE (not in finalizeResumedOperation) per Fix 3
+                // so that parse failure does not trip BEFORE_RESPONSE_RETURN
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                        correlationId = correlationId,
+                    ).providerId(loopResult.providerId)
+                        .modelName(loopResult.modelName)
+                        .applySecurityContext(securityContext)
+                        .build()
+                )
+                persistMemory(loopResult, messages, historySize, conversationId)
+                loopResult.observation.onCallCompleted(parseSuccess = true)
+                analysis.value
+            }
+            is StructuredOutputResult.Failure -> {
+                // On failure: record parse failure, do NOT enforce BEFORE_RESPONSE_RETURN,
+                // do NOT persist invalid data, leave continuation CLAIMED
+                loopResult.observation.onStructuredParseFailure(
+                    rawResponse = analysis.rawResponse,
+                    errorSummary = analysis.errorSummary,
+                )
+                loopResult.observation.onCallCompleted(parseSuccess = false)
+                throw dev.tramai.core.exception.StructuredOutputException(
+                    message = "Structured output parsing failed after resume",
+                    originalPrompt = operation.operation.prompt,
+                    lastRawResponse = analysis.rawResponse,
+                    validationError = analysis.errorSummary,
+                    attemptCount = 1,
+                )
+            }
+        }
+    }
+
+    /**
+     * Continues the provider loop after a suspended tool has been executed on resume.
+     *
+     * 1. Enforces BEFORE_TOOL_RESULT_REINJECTION policy
+     * 2. Formats and sanitizes the tool result message
+     * 3. Appends the tool message to the messages list
+     * 4. Processes any remaining unprocessed tool calls from the same batch
+     * 5. Continues the provider loop via [executeWithTools]
+     */
+    private suspend fun continueAfterToolResult(
+        operation: OperationDefinition,
+        messages: MutableList<Message>,
+        toolResult: ToolResult,
+        toolCallId: String,
+        toolCallIndex: Int,
+        correlationId: String,
+        securityContext: ExecutionSecurityContext,
+        identity: EngineExecutionIdentity,
+        tokenBudgetTracker: TokenBudgetTracker,
+        suspendedToolName: String = "",
+        approvalId: String = "",
+        conversationId: String? = null,
+        historySize: Int = 0,
+        resumingApproval: Boolean = false,
+    ): ProviderCallResult {
+        // Tool name is provided by the caller from the stored SuspendedInvocationMetadata.toolName,
+        // which is more reliable than searching through messages by toolCallId.
+        // The caller (resumeApproval) already has the metadata and passes it through.
+
+        // 1. Enforce BEFORE_TOOL_RESULT_REINJECTION
+        val resolvedTool = toolRegistry.resolve(suspendedToolName)
+        policyHelper.enforce(
+            policyHelper.buildContext(
+                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION,
+                correlationId = correlationId,
+            ).toolName(suspendedToolName)
+                .toolSecurity(resolvedTool?.security)
+                .applySecurityContext(securityContext)
+                .build()
+        )
+
+        // 2. Format and sanitize the tool result
+        val toolMessage = formatToolResult(toolResult, toolCallId)
+        val sanitizedMessage = sanitizeToolMessageForReinjection(
+            message = toolMessage,
+            operation = operation,
+            toolName = suspendedToolName,
+            correlationId = correlationId,
+            securityContext = securityContext,
+            engineEventObserver = engineEventObserver,
+        )
+
+        // 3. Append the tool message to messages
+        messages += sanitizedMessage
+
+        // 4. Process any remaining unprocessed tool calls from the same batch
+        if (toolCallIndex >= 0) {
+            val allToolCalls = messages.lastOrNull { it.role == MessageRole.ASSISTANT && it.toolCalls != null }?.toolCalls ?: emptyList()
+            val remainingToolCalls = allToolCalls.drop(toolCallIndex + 1)
+            for ((remainingIdx, tc) in remainingToolCalls.withIndex()) {
+                val actualIndex = toolCallIndex + 1 + remainingIdx
+                val t = toolRegistry.resolve(tc.name)
+                val tr = if (t == null) {
+                    ToolResult.PermanentFailure("Tool '<unregistered>' not found")
+                } else {
+                    try {
+                        executeTool(t, tc, operation, correlationId, securityContext, identity, messages, actualIndex, tokenBudgetTracker, conversationId, historySize, resumingApproval, parentApprovalId = approvalId)
+                    } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
+                        // Uncertain-outcome already emitted by executeTool — re-throw for outer handling
+                        throw dev.tramai.core.exception.NestedApprovalNotSupportedException(
+                            approvalId = approvalId,
+                            message = "Nested approval not supported in v1: sibling tool ${tc.name} requires approval",
+                        )
+                    } catch (e: ApprovalSuspendedException) {
+                        // Fix 8: Nested approval not supported in v1 — fail closed (backward compat for non-resume path)
+                        approvalLifecycleAuditEmitter.onUncertainOutcome(
+                            approvalId = approvalId,
+                            workflowRunId = identity.workflowRunId,
+                            toolName = t.name,
+                            reason = "nested-approval-not-supported: sibling tool ${tc.name} requires approval",
+                        )
+                        throw ConfigurationException("Nested approval not supported in v1: sibling tool ${tc.name} requires approval")
+                    }
+                }
+                // Enforce BEFORE_TOOL_RESULT_REINJECTION for each remaining tool
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION,
+                        correlationId = correlationId,
+                    ).toolName(t?.name ?: "<unregistered>")
+                        .toolSecurity(t?.security)
+                        .applySecurityContext(securityContext)
+                        .build()
+                )
+                val msg = formatToolResult(tr, tc.id)
+                messages += sanitizeToolMessageForReinjection(
+                    message = msg,
+                    operation = operation,
+                    toolName = tc.name,
+                    correlationId = correlationId,
+                    securityContext = securityContext,
+                    engineEventObserver = engineEventObserver,
+                )
+            }
+        }
+
+        // 5. Continue the provider loop
+        return executeWithTools(
+            operation = operation,
+            messages = messages,
+            tokenBudgetTracker = tokenBudgetTracker,
+            correlationId = correlationId,
+            securityContext = securityContext,
+            identity = identity,
+            conversationId = conversationId,
+            historySize = historySize,
+            resumingApproval = resumingApproval,
+            parentApprovalId = approvalId,
+        )
+    }
+
     private fun handleObjectMethod(
         proxy: Any,
         method: Method,
@@ -2092,7 +3087,7 @@ private class TramaiInvocationHandler(
             dlpInterceptor === NoOpDlpInterceptor
 }
 
-private data class ServiceDefinition(
+internal data class ServiceDefinition(
     val serviceType: KClass<*>,
     val systemPrompt: String?,
     val operations: Map<Method, OperationDefinition>,
@@ -2147,7 +3142,7 @@ private data class ServiceDefinition(
     }
 }
 
-private data class OperationDefinition(
+data class OperationDefinition(
     val method: Method,
     val operation: Operation,
     val classLevelSystemPrompt: String?,
@@ -2533,7 +3528,7 @@ private class AttemptCounter {
     fun next(): Int = attempt++
 }
 
-private class ProviderCircuitBreaker(
+internal class ProviderCircuitBreaker(
     private val settings: CircuitBreakerSettings,
     private val clockMillis: () -> Long = System::currentTimeMillis,
 ) {
@@ -2608,7 +3603,7 @@ private data class ProviderCircuitState(
     var openUntilMillis: Long? = null,
 )
 
-private class ProviderRetryDelayPolicy(
+internal class ProviderRetryDelayPolicy(
     private val settings: RetryPolicySettings,
     private val randomDouble: () -> Double = { kotlin.random.Random.nextDouble() },
 ) {
@@ -2638,6 +3633,23 @@ private class TokenBudgetTracker(
 ) {
     private var totalTokensObserved: Long = 0
     private var softLimitReported: Boolean = false
+
+    /**
+     * Capture a snapshot of the current budget state for suspension.
+     */
+    fun snapshot(): TokenBudgetSnapshot = TokenBudgetSnapshot(
+        totalInputTokens = totalTokensObserved,
+        totalOutputTokens = 0L,
+        totalInputCost = 0.0,
+        totalOutputCost = 0.0,
+    )
+
+    /**
+     * Restore budget state from a snapshot taken at suspension time.
+     */
+    fun restore(snapshot: TokenBudgetSnapshot) {
+        totalTokensObserved = snapshot.totalInputTokens
+    }
 
     fun observe(response: ModelResponse): TokenBudgetCheckResult {
         if (!isEnabled()) {
@@ -2703,7 +3715,7 @@ private sealed class TokenBudgetCheckResult {
     ) : TokenBudgetCheckResult()
 }
 
-private enum class ReturnKind {
+enum class ReturnKind {
     STRING,
     UNIT,
     STRUCTURED,

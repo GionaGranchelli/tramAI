@@ -36,7 +36,7 @@ internal val ClassificationSource.authorityRank: Int
         ClassificationSource.LOCAL_MODEL_ASSISTED -> 0
     }
 
-internal data class ExecutionSecurityContext(
+data class ExecutionSecurityContext(
     val dataClassification: DataClassification? = null,
     val classificationSource: ClassificationSource? = null,
 ) {

@@ -11,6 +11,7 @@ import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTokenDigester
 import dev.tramai.core.approval.ApprovalTokenGenerator
+import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.exception.ApprovalAuthorizationException
@@ -97,6 +98,31 @@ class DefaultApprovalGateCoordinator(
             token = token,
             expiresAt = command.expiresAt,
         )
+    }
+
+    override suspend fun cancelApproval(
+        approvalId: String,
+        expectedVersion: Long,
+        reason: String,
+    ) {
+        validateIdField(approvalId, "approvalId")
+        require(expectedVersion >= 0) { "expectedVersion must be non-negative" }
+        require(expectedVersion < Long.MAX_VALUE) { "expectedVersion must be less than Long.MAX_VALUE" }
+        validateIdField(reason, "reason")
+
+        try {
+            store.transition(
+                approvalId = approvalId,
+                expectedVersion = expectedVersion,
+                transition = ApprovalTransition.Deny(
+                    decidedBy = "system",
+                    comment = "cancelled: $reason",
+                ),
+            )
+        } catch (e: RuntimeException) {
+            observeFailure("cancelApproval", approvalId, e)
+            throw mapStoreError(approvalId, e)
+        }
     }
 
     override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {
