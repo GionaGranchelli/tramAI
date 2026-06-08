@@ -1274,12 +1274,12 @@ internal class TramaiInvocationHandler(
         securityContext: ExecutionSecurityContext,
         identity: EngineExecutionIdentity,
     ) {
-        for (toolCall in toolCalls) {
+        for ((index, toolCall) in toolCalls.withIndex()) {
             val tool = toolRegistry.resolve(toolCall.name)
             val toolResult = if (tool == null) {
                 ToolResult.PermanentFailure("Tool '<unregistered>' not found")
             } else {
-                executeTool(tool, toolCall, operation, correlationId, securityContext, identity, messages)
+                executeTool(tool, toolCall, operation, correlationId, securityContext, identity, messages, index)
             }
 
             // Enforce BEFORE_TOOL_RESULT_REINJECTION
@@ -1870,6 +1870,7 @@ internal class TramaiInvocationHandler(
         securityContext: ExecutionSecurityContext,
         identity: EngineExecutionIdentity,
         messages: List<Message>,
+        toolCallIndex: Int = -1,
     ): ToolResult {
         val input = toolCall.argumentsJson
         val maxAttempts = if (tool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
@@ -1920,10 +1921,11 @@ internal class TramaiInvocationHandler(
                     correlationId = correlationId,
                     input = input,
                     identity = identity,
-                    toolCallIndex = -1, // single tool execution, not batch
+                    toolCallIndex = toolCallIndex,
                     messages = messages,
                     argumentsDigest = rawDigest,
                     timeoutMillis = policyDecision.requirement.timeoutMillis,
+                    securityContext = securityContext,
                 )
             }
             // Deny also handled by enforce() but we already evaluated above
@@ -1974,6 +1976,7 @@ internal class TramaiInvocationHandler(
         messages: List<Message>,
         argumentsDigest: Sha256Digest,
         timeoutMillis: Long,
+        securityContext: ExecutionSecurityContext,
     ): Nothing {
         val approvalGateCoordinator = approvalGateCoordinator
             ?: throw dev.tramai.core.exception.ConfigurationException(
@@ -2032,6 +2035,7 @@ internal class TramaiInvocationHandler(
                     toolCallIndex = toolCallIndex,
                     correlationId = correlationId,
                     identity = identity,
+                    securityContext = securityContext,
                 ),
                 sensitiveContext = SensitiveResumeContext.of(
                     operation = operation,
@@ -2350,84 +2354,179 @@ internal class TramaiInvocationHandler(
             claimedBy = command.resumedBy,
         )
 
-        // 5. Reveal sensitive resume context
-        val sensitiveContext = suspendedInvocationStore.revealSensitiveContext(command.approvalId)
+        // R7: Verify payload integrity after claim — re-digest and compare
+        val digester = toolArgumentsDigester
             ?: throw dev.tramai.core.exception.ConfigurationException(
-                "Sensitive resume context not found for approvalId '${command.approvalId}'"
+                "ToolArgumentsDigester is required for payload integrity verification"
             )
-        val resumeContext = sensitiveContext.revealForResume()
-
-        // Emit resume audit event
-        approvalLifecycleAuditEmitter.onToolExecutionResumed(
-            approvalId = command.approvalId,
-            workflowRunId = metadata.identity.workflowRunId,
-            toolName = metadata.toolName,
-            resumedBy = command.resumedBy,
-        )
-
-        // 6. Execute the suspended tool with the released arguments
-        val resumedInput = claimed.arguments.reveal()
-        val toolResult = try {
-            val context = ToolExecutionContext(
-                operationName = resumeContext.operation.method.name,
-                modelName = resumeContext.operation.operation.model,
-                attemptNumber = 0,
-                timeout = java.time.Duration.ofMillis(resumeContext.operation.operation.timeoutMillis),
-            )
-            resumeContext.tool.execute(resumedInput, context)
-        } catch (e: Exception) {
-            // Uncertain outcome — emit audit and remove invocation
+        val actualDigest = digester.digest(claimed.arguments)
+        val expectedDigest = claimed.continuation.argumentsDigest
+        if (actualDigest != expectedDigest) {
             approvalLifecycleAuditEmitter.onUncertainOutcome(
                 approvalId = command.approvalId,
                 workflowRunId = metadata.identity.workflowRunId,
                 toolName = metadata.toolName,
-                reason = "tool-execution-failed: ${e::class.simpleName ?: "unknown"}",
+                reason = "payload-integrity-mismatch",
             )
-            suspendedInvocationStore.remove(command.approvalId)
-            throw e
+            throw dev.tramai.core.exception.ConfigurationException(
+                "Claimed continuation payload integrity mismatch: digest ${actualDigest.value} != expected ${expectedDigest.value}"
+            )
         }
 
-        // 7. Continue the provider loop — enforce BEFORE_TOOL_RESULT_REINJECTION,
-        //    format/sanitize the tool result, append to messages, process remaining,
-        //    and call the provider for the next turn
-        val tokenBudgetTracker = TokenBudgetTracker(tokenBudgetSettings)
-        val securityContext = ExecutionSecurityContext(
-            dataClassification = dev.tramai.core.policy.DataClassification.INTERNAL,
-            classificationSource = dev.tramai.core.policy.ClassificationSource.RULE_BASED,
-        )
-        val messages = resumeContext.messages.toMutableList()
-        val loopResult = continueAfterToolResult(
-            operation = resumeContext.operation,
-            messages = messages,
-            toolResult = toolResult,
-            toolCallId = resumeContext.toolCall.id,
-            toolCallIndex = metadata.toolCallIndex,
-            correlationId = metadata.correlationId,
-            securityContext = securityContext,
-            identity = metadata.identity,
-            tokenBudgetTracker = tokenBudgetTracker,
-        )
+        // 5-9: Everything after claim is inside an uncertain-outcome boundary.
+        // Any failure keeps the continuation CLAIMED and emits an uncertain outcome.
+        try {
+            // 5. Reveal sensitive resume context
+            val sensitiveContext = suspendedInvocationStore.revealSensitiveContext(command.approvalId)
+                ?: throw dev.tramai.core.exception.ConfigurationException(
+                    "Sensitive resume context not found for approvalId '${command.approvalId}'"
+                )
+            val resumeContext = sensitiveContext.revealForResume()
 
-        // 8. Complete the continuation
-        store.complete(
-            approvalId = command.approvalId,
-            expectedVersion = claimed.continuation.version,
-            completedBy = command.resumedBy,
+            // Emit resume audit event
+            approvalLifecycleAuditEmitter.onToolExecutionResumed(
+                approvalId = command.approvalId,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
+                resumedBy = command.resumedBy,
+            )
+
+            // 6. Execute the suspended tool with the released arguments
+            val resumedInput = claimed.arguments.reveal()
+            val toolResult = try {
+                val context = ToolExecutionContext(
+                    operationName = resumeContext.operation.method.name,
+                    modelName = resumeContext.operation.operation.model,
+                    attemptNumber = 0,
+                    timeout = java.time.Duration.ofMillis(resumeContext.operation.operation.timeoutMillis),
+                )
+                resumeContext.tool.execute(resumedInput, context)
+            } catch (e: Exception) {
+                // Uncertain outcome — emit audit
+                approvalLifecycleAuditEmitter.onUncertainOutcome(
+                    approvalId = command.approvalId,
+                    workflowRunId = metadata.identity.workflowRunId,
+                    toolName = metadata.toolName,
+                    reason = "tool-execution-failed: ${e::class.simpleName ?: "unknown"}",
+                )
+                throw e
+            }
+
+            // 7. Continue the provider loop — enforce BEFORE_TOOL_RESULT_REINJECTION,
+            //    format/sanitize the tool result, append to messages, process remaining,
+            //    and call the provider for the next turn
+            val tokenBudgetTracker = TokenBudgetTracker(tokenBudgetSettings)
+            val securityContext = metadata.securityContext
+            val messages = resumeContext.messages.toMutableList()
+            val loopResult = continueAfterToolResult(
+                operation = resumeContext.operation,
+                messages = messages,
+                toolResult = toolResult,
+                toolCallId = resumeContext.toolCall.id,
+                toolCallIndex = metadata.toolCallIndex,
+                correlationId = metadata.correlationId,
+                securityContext = securityContext,
+                identity = metadata.identity,
+                tokenBudgetTracker = tokenBudgetTracker,
+            )
+
+            // 8. Complete the continuation
+            store.complete(
+                approvalId = command.approvalId,
+                expectedVersion = claimed.continuation.version,
+                completedBy = command.resumedBy,
+            )
+
+            // Emit completion audit event
+            approvalLifecycleAuditEmitter.onToolExecutionCompleted(
+                approvalId = command.approvalId,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
+                completedBy = command.resumedBy,
+            )
+
+            // Clean up invocation store (only on success)
+            suspendedInvocationStore.remove(command.approvalId)
+
+            // 9. Return the typed operation result
+            return if (resumeContext.operation.returnKind == ReturnKind.STRUCTURED) {
+                resumeStructuredResult(
+                    operation = resumeContext.operation,
+                    loopResult = loopResult,
+                    messages = messages,
+                    correlationId = metadata.correlationId,
+                    securityContext = securityContext,
+                )
+            } else {
+                loopResult.response.content
+            }
+        } catch (e: dev.tramai.core.exception.ConfigurationException) {
+            // ConfigurationExceptions include integrity-mismatch which already emits
+            // onUncertainOutcome — rethrow without secondary emission
+            throw e
+        } catch (e: dev.tramai.core.exception.StructuredOutputException) {
+            // Structured parse failures are a known outcome, not uncertain — rethrow
+            throw e
+        } catch (e: Exception) {
+            // Broad catch: any failure after claim leaves continuation CLAIMED
+            approvalLifecycleAuditEmitter.onUncertainOutcome(
+                approvalId = command.approvalId,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
+                reason = "resume-failed: ${e::class.simpleName ?: "unknown"}",
+            )
+            throw e
+        }
+    }
+
+    private suspend fun resumeStructuredResult(
+        operation: OperationDefinition,
+        loopResult: ProviderCallResult,
+        messages: MutableList<Message>,
+        correlationId: String,
+        securityContext: ExecutionSecurityContext,
+    ): Any {
+        val handler = structuredOutputHandler
+            ?: throw ConfigurationException(
+                "Structured return type ${operation.returnTypeDescription} requires a StructuredOutputHandler implementation from tramai-structured",
+            )
+        val targetType = operation.returnType
+            ?: throw ConfigurationException(
+                "Structured return type ${operation.returnTypeDescription} could not be inspected without Kotlin reflection metadata",
+            )
+        val analysis = handler.analyze(
+            rawResponse = loopResult.response.content,
+            targetType = targetType,
         )
-
-        // Emit completion audit event
-        approvalLifecycleAuditEmitter.onToolExecutionCompleted(
-            approvalId = command.approvalId,
-            workflowRunId = metadata.identity.workflowRunId,
-            toolName = metadata.toolName,
-            completedBy = command.resumedBy,
-        )
-
-        // Clean up invocation store
-        suspendedInvocationStore.remove(command.approvalId)
-
-        // 9. Return the typed operation result (content string for raw operations)
-        return loopResult.response.content
+        return when (analysis) {
+            is StructuredOutputResult.Success -> {
+                policyHelper.enforce(
+                    policyHelper.buildContext(
+                        enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
+                        correlationId = correlationId,
+                    ).providerId(loopResult.providerId)
+                        .modelName(loopResult.modelName)
+                        .applySecurityContext(securityContext)
+                        .build()
+                )
+                loopResult.observation.onCallCompleted(parseSuccess = true)
+                analysis.value
+            }
+            is StructuredOutputResult.Failure -> {
+                loopResult.observation.onStructuredParseFailure(
+                    rawResponse = analysis.rawResponse,
+                    errorSummary = analysis.errorSummary,
+                )
+                loopResult.observation.onCallCompleted(parseSuccess = false)
+                throw dev.tramai.core.exception.StructuredOutputException(
+                    message = "Structured output parsing failed after resume",
+                    originalPrompt = operation.operation.prompt,
+                    lastRawResponse = analysis.rawResponse,
+                    validationError = analysis.errorSummary,
+                    attemptCount = 1,
+                )
+            }
+        }
     }
 
     /**

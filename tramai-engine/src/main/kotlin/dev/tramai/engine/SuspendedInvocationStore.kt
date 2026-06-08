@@ -19,6 +19,7 @@ import dev.tramai.core.model.ResolvedTool
  * @property toolCallIndex The index of this tool call within the batch.
  * @property correlationId The correlation ID of the suspended invocation.
  * @property identity The engine execution identity at suspension point.
+ * @property securityContext The execution security context (classification and source) at suspension point.
  */
 data class SuspendedInvocationMetadata(
     val approvalId: String,
@@ -27,6 +28,7 @@ data class SuspendedInvocationMetadata(
     val toolCallIndex: Int,
     val correlationId: String,
     val identity: EngineExecutionIdentity,
+    val securityContext: ExecutionSecurityContext,
 )
 
 /**
