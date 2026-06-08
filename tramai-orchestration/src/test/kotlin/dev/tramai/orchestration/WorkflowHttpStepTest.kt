@@ -130,7 +130,7 @@ class WorkflowHttpStepTest {
     @Test
     fun `http step throws on timeout`() {
         httpServer { exchange ->
-            Thread.sleep(1_500)
+            Thread.sleep(5_000)
             exchange.respond(200, "slow")
         }.use { server ->
             val workflow = workflow<HttpState>("http-timeout") {

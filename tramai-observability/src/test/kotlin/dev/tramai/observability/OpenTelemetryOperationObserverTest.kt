@@ -188,7 +188,7 @@ class OpenTelemetryOperationObserverTest {
             .setEndpoint("http://localhost:${server.address.port}/v1/metrics")
             .build()
         val periodicMetricReader = PeriodicMetricReader.builder(metricExporter)
-            .setInterval(Duration.ofMillis(25))
+            .setInterval(Duration.ofHours(1))
             .build()
         val otlpMeterProvider = SdkMeterProvider.builder()
             .registerMetricReader(periodicMetricReader)

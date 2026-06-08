@@ -270,14 +270,16 @@ PENDING → APPROVED/DENIED/TIMED_OUT (all terminal). Timeout succeeds only when
 
 ### Key design decisions
 
-- Approval token (`approvalTokenDigest`) is a SHA-256 digest of a generated nonce. The raw token is provided to the requestor at creation time. PR #15 consumes and verifies the raw token at the coordinator level via `consumeApproved()`. PR #16 adds TramaiEngine suspension and continuation persistence on top of this foundation.
+- Approval token (`approvalTokenDigest`) is a SHA-256 digest of a generated nonce. The raw token is provided to the requestor at creation time. PR #15 consumes and verifies the raw token at the coordinator level via `consumeApproved()`.
 - `consumeApproved()` uses constant-time `MessageDigest.isEqual()` with explicit `StandardCharsets.US_ASCII` encoding to prevent digest-comparison timing attacks.
 - `consumedBy` and `consumedAt` are recorded atomically with the version increment. Second consume of the same approval fails with clear message.
 - `decidedBy` is non-nullable on `Approve`/`Deny` transitions.
 - Comments are optional on transitions.
 - Version starts at 0 and is incremented atomically. No CAS retry loop — `ConcurrentHashMap.compute()` provides the atomicity.
-- No engine integration yet. PR #16 will build workflow suspension/resume on this foundation.
-- PR #14 scope: domain model, store SPI, validation, expiry, deterministic tests. PR #15 scope: token generation/hashing, coordinator, binding revalidation, consumed-result contract validation, non-interfering observer, recursive leakage traversal, safe exception taxonomy (all coordinator-facing exceptions extend ApprovalException). PR #16 scope: TramaiEngine suspension, continuation persistence, runtime invocation of ApprovalGateCoordinator, BEFORE_WORKFLOW_RESUME enforcement, idempotent tool execution resume, approval lifecycle audit events.
+- PR #14 scope: domain model, store SPI, validation, expiry, deterministic tests.
+- PR #15 scope: token generation/hashing, coordinator, binding revalidation, consumed-result contract validation, non-interfering observer, recursive leakage traversal, safe exception taxonomy (all coordinator-facing exceptions extend ApprovalException).
+- PR #16 `feat(approval): add continuation-store foundation for resumable tool execution` scope: continuation metadata/payload split, metadata-only `ApprovalContinuation`, `ApprovalContinuationStore` SPI including `sweepExpired()` and claimant-fenced `complete(completedBy)`, `ClaimedApprovalContinuation`, `InMemoryApprovalContinuationStore`, `SensitiveToolArguments` wrapper, `Sha256ToolArgumentsDigester`, approval-expiry binding via `approvalExpiresAt`, lazy expiry on touch paths, explicit sweep-based idle expiry cleanup, atomic one-time payload release and scrubbing semantics, completion/expiry/cancel metadata retention, UTF-8 byte-bounded payload validation, strict validation, and leakage tests.
+- PR #17 scope: TramaiEngine suspension, `ApprovalRequiredException` replacement, create `ApprovalChallenge` at `BEFORE_TOOL_EXECUTION`, persist continuation, expose engine resume API, call `ApprovalGateCoordinator.authorizeResume()`, call `ApprovalContinuationStore.claimForExecution()`, enforce `BEFORE_WORKFLOW_RESUME`, execute tool once, complete continuation, reinject result into provider loop, lifecycle audit events, idempotency strategy for uncertain outcomes.
 
 ---
 

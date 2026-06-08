@@ -1146,4 +1146,231 @@ In streaming execution, `BEFORE_RESPONSE_RETURN` is evaluated as an egress prefl
 - **Engine Integration:** Separates authoritative (affects context, audits) from detection-only (e.g. projection matching checks, does not audit) scans. DLP audit emission failure propagates as `DlpInspectionException`, executing fail-closed behavior immediately to bypass retry/fallback loops and prevent circuit poisoning.
 - **Wiring:** Programmatic standalone builder support via `.dlpRedactionAudit(emitter)` and Spring Boot auto-configuration support with ObjectProvider resolution (zero/one/multi resolution).
 
+---
+
+## Implementation Notes — `feat(approval): add continuation-store foundation for resumable tool execution` (PR #16) ✅
+
+**Branch:** `feat/approval-continuation-store`
+
+**PR Description:**
+- Add approval continuation metadata/payload split so resumable tool execution can recover exact raw tool arguments without exposing them through normal reads.
+- Introduce one-time claim semantics, metadata-only reads, explicit completion/expiry/cancel transitions, and sweep-based expiry cleanup for suspended executions.
+- Harden the store contract with claimant fencing on completion, UTF-8 byte-bounded payload validation, and regression coverage for leakage and concurrency edge cases.
+
+**Where:**
+- `tramai-core/.../approval/` — SensitiveToolArguments, ToolArgumentsDigester (SPI), ApprovalContinuationStatus, ApprovalContinuation, ApprovalContinuationStore (SPI)
+- `tramai-core/.../exception/` — ApprovalContinuationStoreException (sealed hierarchy)
+- `tramai-security/.../approval/` — Sha256ToolArgumentsDigester, InMemoryApprovalContinuationStore
+
+### Why the approval record alone is insufficient for resume
+
+`ApprovalRequest` (PR #14) stores only the *digest* of tool arguments (`argumentsDigest`), not the raw arguments themselves. This is correct for the approval-facing API — a digest is sufficient for binding validation. However, to *resume* a suspended tool execution, the engine needs the exact raw arguments that were present at suspension time. These raw arguments are the only way to re-invoke the tool after approval.
+
+PR #16 introduces a strict metadata/payload split:
+- `ApprovalContinuation` retains metadata only, including `approvalExpiresAt`
+- raw tool arguments are stored separately behind `SensitiveToolArguments`
+- ordinary `get()` calls never expose the raw payload
+- `claimForExecution()` is the single release path and returns the payload exactly once
+- stored payload is scrubbed on claim, expiry, and cancellation
+- terminal records retain metadata only
+- persistent stores must encrypt the sensitive payload at rest
+
+`approvalExpiresAt` is the approval challenge expiry. PR #17 must pass `ApprovalChallenge.expiresAt` through unchanged when creating the continuation; there is no independent continuation expiry that may extend raw-argument retention.
+
+### Lazy expiry semantics
+
+- Any touch of an elapsed PENDING continuation lazily transitions it to EXPIRED
+- Lazy expiration scrubs payload immediately
+- No background scheduler required for safe touch-path cleanup
+- `get()`, `claimForExecution()`, and `cancel()` all apply lazy expiry before mutation
+- Explicit `expire()` also scrubs payload
+
+### `sweepExpired()` primitive
+
+- `sweepExpired()` iterates all stored continuations and applies `expireIfElapsed()`
+- Only elapsed `PENDING` records transition to `EXPIRED`
+- Scrubs arguments atomically
+- Ignores `CLAIMED`, `COMPLETED`, `EXPIRED`, `CANCELLED` records
+- Idempotent: second sweep won't increment version again
+- Returns count of transitions
+- No scheduling — PR #17 owns scheduler or invocation policy
+
+### Approval-expiry binding
+
+- `continuation.approvalExpiresAt` matches the `ApprovalChallenge.expiresAt`
+- No independent continuation expiry extends raw-argument retention
+- PR #17 must pass `ApprovalChallenge.expiresAt` unchanged
+
+### Raw arguments stored only behind SensitiveToolArguments
+
+```kotlin
+class SensitiveToolArguments private constructor(
+    private val rawValue: String,
+) {
+    fun reveal(): String = rawValue
+    override fun toString(): String = "[REDACTED]"
+    companion object {
+        fun of(raw: String): SensitiveToolArguments
+        private const val MAX_TOOL_ARGUMENTS_BYTES = 1_000_000
+    }
+}
+```
+
+- `rawValue` is private — no public property exposes it
+- `reveal()` is the only escape hatch, explicitly named to discourage automatic use
+- `toString()` always returns `[REDACTED]`
+- `ApprovalContinuation` no longer carries raw arguments at all
+- persistent stores must encrypt values returned by `reveal()` at rest
+
+### Metadata-only continuation record
+
+```kotlin
+data class ApprovalContinuation(
+    val approvalId: String,
+    ...
+    val argumentsDigest: Sha256Digest,
+    val createdAt: Instant,
+    val approvalExpiresAt: Instant,
+    ...
+)
+```
+
+- `approvalExpiresAt` documents that continuation expiry is bound to the approval challenge expiry
+- no second TTL is introduced for continuation payload retention
+- `ApprovalContinuation.toString()` is safe by construction because the payload is absent
+
+### Store SPI split
+
+```kotlin
+interface ApprovalContinuationStore {
+    suspend fun create(
+        continuation: ApprovalContinuation,
+        arguments: SensitiveToolArguments,
+    ): ApprovalContinuation
+
+    suspend fun get(approvalId: String): ApprovalContinuation?
+
+    suspend fun claimForExecution(
+        approvalId: String,
+        expectedVersion: Long,
+        claimedBy: String,
+    ): ClaimedApprovalContinuation
+
+    suspend fun complete(
+        approvalId: String,
+        expectedVersion: Long,
+        completedBy: String,
+    ): ApprovalContinuation
+}
+```
+
+- `create()` accepts metadata and sensitive payload separately
+- `get()` returns metadata only
+- `claimForExecution()` returns metadata plus payload exactly once
+- `complete()`, `expire()`, and `cancel()` return metadata only
+
+### Exact UTF-8 digest behavior
+
+`Sha256ToolArgumentsDigester` computes SHA-256 over `arguments.reveal().toByteArray(StandardCharsets.UTF_8)` using `java.security.MessageDigest.getInstance("SHA-256")`, producing lowercase hex output in `sha256:<64 hex chars>` format.
+
+Key properties:
+- **Deterministic**: same input → same output
+- **Whitespace-sensitive**: `"abc"` and `"abc "` produce different digests
+- **Key-order-sensitive**: `{"a":1,"b":2}` and `{"b":2,"a":1}` produce different digests
+- No normalization or trimming — exact byte-for-byte hashing
+
+### Continuation lifecycle
+
+```
+PENDING ──→ CLAIMED ──→ COMPLETED
+  │                        │
+  ├──→ EXPIRED             │
+  └──→ CANCELLED           │
+                           └── (terminal)
+```
+
+- **PENDING**: initial state, awaiting claim
+- **CLAIMED**: claimed by a specific runner for execution
+- **COMPLETED**: tool execution finished successfully
+- **EXPIRED**: deadline passed, no claim was made
+- **CANCELLED**: manually cancelled before claim
+
+`CLAIMED` cannot return to `PENDING`.
+
+### Atomic claim semantics
+
+`claimForExecution()` uses `ConcurrentHashMap.compute()` for atomic read-modify-write and scrubbing:
+
+```kotlin
+store.compute(approvalId) { _, current ->
+    // exists? version? status == PENDING? now < approvalExpiresAt?
+    // capture arguments
+    // set status = CLAIMED, claimedBy, claimedAt, version++
+    // store arguments = null
+}
+```
+
+- Single winner under concurrent claims (CAS via `compute()`)
+- Stale version → `ApprovalContinuationConflictException`
+- Already claimed → `ApprovalContinuationNotClaimableException`
+- Expired → `ApprovalContinuationNotClaimableException`
+- Winner receives the exact raw JSON payload
+- After the winning claim, the stored payload is gone
+
+### Scrubbing rules
+
+- Claim scrubs the stored payload atomically while returning it to the winner
+- Expire scrubs the stored payload before persisting `EXPIRED`
+- Cancel scrubs the stored payload before persisting `CANCELLED`
+- Complete requires the payload to already be scrubbed and retains metadata only
+
+### Claimed-but-incomplete execution is an uncertain outcome
+
+A continuation in `CLAIMED` status means a runner has claimed it but has not yet reported completion. If the runner crashes or times out between claim and completion, the continuation remains `CLAIMED` indefinitely. Future PR #17 will handle this through:
+- Claim timeout detection
+- A separate privileged recovery transition such as `forceCancelClaimed()` or equivalent explicit recovery operation
+- Idempotency keys for safe retry
+
+PR #17 should carry an explicit acceptance criterion for claimed-continuation recovery. Broadening ordinary `cancel()` to operate on `CLAIMED` records would blur the security boundary between normal pre-claim cancellation and privileged recovery of uncertain post-claim execution state.
+
+### No automatic retry after CLAIMED
+
+Once claimed, a continuation is not automatically retried. The engine integration (PR #17) must explicitly handle:
+- Claim timeout → manual intervention or policy-driven re-claim
+- No `retry(continuation)` logic exists in this PR
+
+### PR #17 owns engine integration
+
+This PR (#16) provides the continuation store only. The following are explicitly deferred to PR #17:
+- TramaiEngine suspension
+- `ApprovalRequiredException` replacement
+- Create `ApprovalChallenge` at `BEFORE_TOOL_EXECUTION`
+- Persist continuation
+- Expose engine resume API
+- Call `ApprovalGateCoordinator.authorizeResume()`
+- Call `ApprovalContinuationStore.claimForExecution()`
+- Enforce `BEFORE_WORKFLOW_RESUME`
+- Execute tool once
+- Complete continuation
+- Reinject result into provider loop
+- Lifecycle audit events
+- Idempotency strategy for uncertain outcomes
+
+### BEFORE_WORKFLOW_RESUME remains deferred to PR #17
+
+`BEFORE_WORKFLOW_RESUME` is enumerated in `EnforcementPoint` but has no runtime call site in this PR.
+
+### Test Coverage (32+ tests)
+
+- **SensitiveToolArgumentsTest (7):** toString redacted, reveal returns original, whitespace preserved, empty permitted, oversized rejected, multibyte UTF-8 byte-boundary accepted, raw JSON absent from toString
+- **Sha256ToolArgumentsDigesterTest (6):** known SHA-256 vector, deterministic output, whitespace changes digest, key-order changes digest, typed output, raw JSON absent from output
+- **InMemoryApprovalContinuationStoreTest:** validation coverage, leakage coverage, exact-raw winner semantics, metadata-only `get()`, and scrubbing assertions for claim, complete, expire, cancel, and concurrent claim races
+
+### Roadmap split
+
+| PR | Scope |
+|----|-------|
+| **#16** | Continuation domain model, store SPI, in-memory implementation, sensitive argument wrapper, exact argument digester, atomic claim and completion semantics |
+| **#17** | TramaiEngine suspension, ApprovalRequiredException replacement, create ApprovalChallenge at BEFORE_TOOL_EXECUTION, persist continuation, expose engine resume API, call ApprovalGateCoordinator.authorizeResume(), call ApprovalContinuationStore.claimForExecution(), enforce BEFORE_WORKFLOW_RESUME, execute tool once, complete continuation, reinject result into provider loop, lifecycle audit events, idempotency strategy for uncertain outcomes |
+
 *Phase 0 delivery plan. Issues created in GitHub with labels: `phase-1`, `epic-{n}`. See ROADMAP.md for Phase 1 exit criteria.*

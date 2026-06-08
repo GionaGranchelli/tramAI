@@ -537,7 +537,12 @@ class TramaiWorkerTest {
         }
 
         assertThat(shutdownMillis).isLessThan(250)
-        delay(450)
+        waitUntil {
+            checkpointStore.load(workflow.name, runId) != null &&
+                checkpointStore.latestStepAttempt(runId, "blocking")?.status in
+                setOf(StepAttemptStatus.CANCELLED, StepAttemptStatus.FAILED) &&
+                leaseStore.listActiveWorkers().isEmpty()
+        }
         assertThat(checkpointStore.load(workflow.name, runId)).isNotNull()
         assertThat(checkpointStore.latestStepAttempt(runId, "blocking")?.status)
             .isIn(StepAttemptStatus.CANCELLED, StepAttemptStatus.FAILED)
@@ -555,15 +560,22 @@ class TramaiWorkerTest {
             )
         }
         val runIds = (0 until 12).map { index -> "partition-run-$index" }
-        runIds.forEach { runId ->
-            seedCheckpoint(checkpointStore, workflow, runId, WorkerState(runId))
-        }
 
         val worker0 = worker("worker-0", leaseStore, checkpointStore, workflow, workerCount = 2, partitionEnabled = true, pollIntervalMillis = 20)
         val worker1 = worker("worker-1", leaseStore, checkpointStore, workflow, workerCount = 2, partitionEnabled = true, pollIntervalMillis = 20)
         worker0.start()
         worker1.start()
         try {
+            waitUntil {
+                leaseStore.listActiveWorkers()
+                    .map { it.workerId }
+                    .toSet() == setOf("worker-0", "worker-1")
+            }
+
+            runIds.forEach { runId ->
+                seedCheckpoint(checkpointStore, workflow, runId, WorkerState(runId))
+            }
+
             waitUntil {
                 runIds.all { checkpointStore.load(workflow.name, it) == null }
             }
