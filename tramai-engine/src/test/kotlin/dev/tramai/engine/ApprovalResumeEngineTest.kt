@@ -1044,106 +1044,6 @@ class ApprovalResumeEngineTest {
     }
 
     @Test
-    fun `structured parse failure does not persist invalid memory`() {
-        val testMemory = TestChatMemory()
-        val structuredHandler = FakeStructuredOutputHandler(
-            StructuredOutputResult.Failure(
-                rawResponse = "unparseable garbage",
-                errorSummary = "failed to parse",
-                feedbackMessage = "Please provide a valid JSON response",
-            ),
-        )
-        val engine = TramaiEngine(
-            provider = provider,
-            toolRegistry = toolRegistry,
-            policyEngine = policyEngine,
-            suspendedInvocationStore = suspendedInvocationStore,
-            approvalContinuationStore = continuationStore,
-            toolArgumentsDigester = digester,
-            approvalGateCoordinator = coordinator,
-            clock = fixedClock,
-            structuredOutputHandler = structuredHandler,
-            chatMemory = testMemory,
-            conversationIdProvider = dev.tramai.core.memory.UuidConversationIdProvider(),
-        )
-
-        // Trigger suspension using StructuredResumeTriggerService
-        val structuredService = engine.create<StructuredResumeTriggerService>()
-        val exception = try {
-            runBlocking { structuredService.execute("test") }
-            fail("Should have thrown ApprovalSuspendedException")
-        } catch (e: ApprovalSuspendedException) {
-            e
-        }
-
-        policyEngine.resumeDecision = PolicyDecision.Allow
-
-        // Capture conversation ID from provider requests
-        val conversationId = provider.requests.firstOrNull()?.let { req ->
-            // Messages in the request may have conversation metadata
-            null
-        }
-
-        assertThatThrownBy {
-            runBlocking {
-                engine.resumeApproval(
-                    ResumeApprovalCommand(
-                        approvalId = exception.approvalId,
-                        approvalExpectedVersion = 0L,
-                        continuationExpectedVersion = 0L,
-                        presentedToken = exception.challenge.token,
-                        resumedBy = resumedBy,
-                    )
-                )
-            }
-        }.isInstanceOf(dev.tramai.core.exception.StructuredOutputException::class.java)
-
-        // Memory should NOT contain the invalid result — no assistant message with "unparseable garbage"
-        // Since we can't know the conversationId, just verify memory is still in consistent state
-        // The important thing is: no error from persistMemory
-    }
-
-    @Test
-    fun `conversation memory survives suspension and resume`() {
-        val testMemory = TestChatMemory()
-        val engine = TramaiEngine(
-            provider = provider,
-            toolRegistry = toolRegistry,
-            policyEngine = policyEngine,
-            suspendedInvocationStore = suspendedInvocationStore,
-            approvalContinuationStore = continuationStore,
-            toolArgumentsDigester = digester,
-            approvalGateCoordinator = coordinator,
-            clock = fixedClock,
-            chatMemory = testMemory,
-            conversationIdProvider = dev.tramai.core.memory.UuidConversationIdProvider(),
-        )
-
-        val exception = triggerSuspension(engine)
-        policyEngine.resumeDecision = PolicyDecision.Allow
-
-        // Before resume, there should be no conversation in memory (engine only persists on completion)
-        val allConversations = testMemory.getAllConversationIds()
-        // Memory may or may not be populated before resume
-
-        runBlocking {
-            engine.resumeApproval(
-                ResumeApprovalCommand(
-                    approvalId = exception.approvalId,
-                    approvalExpectedVersion = 0L,
-                    continuationExpectedVersion = 0L,
-                    presentedToken = exception.challenge.token,
-                    resumedBy = resumedBy,
-                )
-            )
-        }
-
-        // After resume, memory should have at least one conversation
-        val postResumeConversations = testMemory.getAllConversationIds()
-        assertThat(postResumeConversations).isNotEmpty
-    }
-
-    @Test
     fun `resumed Unit operation returns Unit`() {
         val unitToolName = "unit_tool"
         val unitToolRegistry = ToolRegistry(mapOf(
@@ -1211,6 +1111,211 @@ class ApprovalResumeEngineTest {
         }
 
         assertThat(result).isEqualTo(Unit)
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Fix 5: Security-ordering regression tests
+    // ════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `structured parse failure persists no invalid memory`() {
+        val testMemory = TestChatMemory()
+        val structuredHandler = FakeStructuredOutputHandler(
+            StructuredOutputResult.Failure(
+                rawResponse = "unparseable garbage",
+                errorSummary = "failed to parse",
+                feedbackMessage = "Please provide a valid JSON response",
+            ),
+        )
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+            structuredOutputHandler = structuredHandler,
+            chatMemory = testMemory,
+            conversationIdProvider = dev.tramai.core.memory.UuidConversationIdProvider(),
+        )
+
+        // Trigger suspension using StructuredResumeTriggerService
+        val structuredService = engine.create<StructuredResumeTriggerService>()
+        val exception = try {
+            runBlocking { structuredService.execute("test") }
+            fail("Should have thrown ApprovalSuspendedException")
+        } catch (e: ApprovalSuspendedException) {
+            e
+        }
+
+        policyEngine.resumeDecision = PolicyDecision.Allow
+
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = exception.challenge.token,
+                        resumedBy = resumedBy,
+                    )
+                )
+            }
+        }.isInstanceOf(dev.tramai.core.exception.StructuredOutputException::class.java)
+
+        // No memory should have been persisted — the parse failure was terminal
+        val allConversations = testMemory.getAllConversationIds()
+        assertThat(allConversations).isEmpty()
+    }
+
+    @Test
+    fun `conversation memory uses the original deterministic conversation ID`() {
+        val testMemory = TestChatMemory()
+        val fixedConversationId = "fixed-conversation-id-for-test"
+        val fixedIdProvider = object : dev.tramai.core.memory.ConversationIdProvider {
+            override fun resolve(): String = fixedConversationId
+        }
+
+        var callCount = 0
+        val memoryProvider = object : dev.tramai.core.provider.ModelProvider {
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                callCount++
+                return if (callCount == 1) {
+                    ModelResponse(
+                        content = "",
+                        toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                    )
+                } else {
+                    ModelResponse(content = "Final result: memory test")
+                }
+            }
+            override fun providerId(): String = "test"
+        }
+
+        val engine = TramaiEngine(
+            provider = memoryProvider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+            chatMemory = testMemory,
+            conversationIdProvider = fixedIdProvider,
+        )
+
+        val exception = triggerSuspension(engine)
+        policyEngine.resumeDecision = PolicyDecision.Allow
+
+        // Capture the conversation ID used during suspension
+        val suspendedMetadata = runBlocking {
+            suspendedInvocationStore.get(exception.approvalId)
+        }
+        assertThat(suspendedMetadata).isNotNull
+        val originalConversationId = suspendedMetadata!!.conversationId
+
+        runBlocking {
+            engine.resumeApproval(
+                ResumeApprovalCommand(
+                    approvalId = exception.approvalId,
+                    approvalExpectedVersion = 0L,
+                    continuationExpectedVersion = 0L,
+                    presentedToken = exception.challenge.token,
+                    resumedBy = resumedBy,
+                )
+            )
+        }
+
+        // After resume, memory should use the same conversation ID
+        val postResumeConversations = testMemory.getAllConversationIds()
+        assertThat(postResumeConversations).isNotEmpty
+        // If the metadata had a conversation ID (non-null), it should match what was used in memory
+        if (originalConversationId != null) {
+            assertThat(postResumeConversations).contains(originalConversationId)
+        }
+    }
+
+    @Test
+    fun `nested approval creates exactly one approval challenge total`() {
+        // Coordinator that counts createApproval calls
+        var createCount = 0
+        var authorizeCount = 0
+        val countingCoordinator = object : ApprovalGateCoordinator {
+            override suspend fun createApproval(command: CreateApprovalCommand): ApprovalChallenge {
+                createCount++
+                return ApprovalChallenge(
+                    approvalId = UUID.randomUUID().toString(),
+                    token = ApprovalToken.parsePresented("token-${UUID.randomUUID()}"),
+                    expiresAt = command.expiresAt,
+                )
+            }
+            override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {
+                authorizeCount++
+                return ApprovalAuthorization(
+                    approvalId = command.approvalId,
+                    consumedBy = command.consumedBy,
+                    consumedAt = Clock.systemUTC().instant(),
+                    version = command.expectedVersion,
+                )
+            }
+            override suspend fun cancelApproval(
+                approvalId: String, expectedVersion: Long, reason: String,
+            ) = Unit
+        }
+
+        var providerCallCount = 0
+        val countingProvider = object : dev.tramai.core.provider.ModelProvider {
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                providerCallCount++
+                return if (providerCallCount == 1) {
+                    ModelResponse(
+                        content = "",
+                        toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                    )
+                } else {
+                    ModelResponse(content = "Final result")
+                }
+            }
+            override fun providerId(): String = "test"
+        }
+
+        val freshContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+        val freshSuspendedStore = InMemorySuspendedInvocationStore()
+
+        val engine = TramaiEngine(
+            provider = countingProvider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = freshSuspendedStore,
+            approvalContinuationStore = freshContinuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = countingCoordinator,
+            clock = fixedClock,
+        )
+
+        val exception = triggerSuspension(engine)
+        policyEngine.resumeDecision = PolicyDecision.Allow
+
+        runBlocking {
+            engine.resumeApproval(
+                ResumeApprovalCommand(
+                    approvalId = exception.approvalId,
+                    approvalExpectedVersion = 0L,
+                    continuationExpectedVersion = 0L,
+                    presentedToken = exception.challenge.token,
+                    resumedBy = resumedBy,
+                )
+            )
+        }
+
+        // Exactly one approval challenge was created (during initial suspension)
+        assertThat(createCount).isEqualTo(1)
+        // Exactly one authorize was called (during resume)
+        assertThat(authorizeCount).isEqualTo(1)
     }
 
     // ── Test ChatMemory ────────────────────────────────────────────

@@ -680,6 +680,343 @@ class ApprovalEngineEdgeCaseTest {
         assertThat(auditEvents.single()).startsWith("uncertain:")
     }
 
+    // ════════════════════════════════════════════════════════════════
+    // Fix 5: Security-ordering regression tests
+    // ════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `invalid token cannot cancel or scrub continuation`() {
+        val auditEvents = mutableListOf<String>()
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+            override suspend fun onToolExecutionSuspended(
+                approvalId: String, workflowRunId: String, toolName: String,
+                toolCallId: String, correlationId: String,
+                argumentsDigest: dev.tramai.core.approval.Sha256Digest,
+                expiresAt: java.time.Instant,
+            ) = Unit
+            override suspend fun onToolExecutionResumed(
+                approvalId: String, workflowRunId: String,
+                toolName: String, resumedBy: String,
+            ) = Unit
+            override suspend fun onToolExecutionCompleted(
+                approvalId: String, workflowRunId: String,
+                toolName: String, completedBy: String,
+            ) = Unit
+            override suspend fun onUncertainOutcome(
+                approvalId: String, workflowRunId: String,
+                toolName: String, reason: String,
+            ) { auditEvents.add("uncertain:$reason") }
+            override suspend fun onSuspensionCancelled(
+                approvalId: String, workflowRunId: String,
+                toolName: String, reason: String,
+            ) { auditEvents.add("cancelled:$reason") }
+        }
+
+        // Coordinator that throws on invalid token — simulates a real invalid token
+        val rejectingCoordinator = object : ApprovalGateCoordinator {
+            override suspend fun createApproval(command: CreateApprovalCommand): ApprovalChallenge {
+                val id = UUID.randomUUID().toString()
+                return ApprovalChallenge(
+                    approvalId = id,
+                    token = ApprovalToken.parsePresented("token-$id"),
+                    expiresAt = command.expiresAt,
+                )
+            }
+            override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {
+                throw dev.tramai.core.exception.ApprovalTokenRejectedException(
+                    approvalId = command.approvalId,
+                )
+            }
+            override suspend fun cancelApproval(
+                approvalId: String, expectedVersion: Long, reason: String,
+            ) { auditEvents.add("coordinator-cancelled:$approvalId") }
+        }
+
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = rejectingCoordinator,
+            clock = fixedClock,
+            approvalLifecycleAuditEmitter = auditEmitter,
+        )
+
+        val exception = triggerSuspension(engine)
+        policyEngine.workflowResumeDecision = PolicyDecision.Allow
+
+        // Capture continuation state before resume attempt
+        val preContinuation = runBlocking { continuationStore.get(exception.approvalId) }
+        assertThat(preContinuation).isNotNull
+        assertThat(preContinuation!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = ApprovalToken.parsePresented("invalid-token"),
+                        resumedBy = "admin",
+                    )
+                )
+            }
+        }.isInstanceOf(dev.tramai.core.exception.ApprovalTokenRejectedException::class.java)
+
+        // Continuation was NOT cancelled (still PENDING)
+        val postContinuation = runBlocking { continuationStore.get(exception.approvalId) }
+        assertThat(postContinuation).isNotNull
+        assertThat(postContinuation!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+
+        // Suspended invocation was NOT removed
+        val metadata = runBlocking { suspendedInvocationStore.get(exception.approvalId) }
+        assertThat(metadata).isNotNull
+
+        // No cancellation audit was emitted
+        assertThat(auditEvents.none { it.startsWith("cancelled:") }).isTrue
+    }
+
+    @Test
+    fun `cancellation conflict preserves suspended context`() {
+        val auditEvents = mutableListOf<String>()
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+            override suspend fun onToolExecutionSuspended(
+                approvalId: String, workflowRunId: String, toolName: String,
+                toolCallId: String, correlationId: String,
+                argumentsDigest: dev.tramai.core.approval.Sha256Digest,
+                expiresAt: java.time.Instant,
+            ) = Unit
+            override suspend fun onToolExecutionResumed(
+                approvalId: String, workflowRunId: String,
+                toolName: String, resumedBy: String,
+            ) = Unit
+            override suspend fun onToolExecutionCompleted(
+                approvalId: String, workflowRunId: String,
+                toolName: String, completedBy: String,
+            ) = Unit
+            override suspend fun onUncertainOutcome(
+                approvalId: String, workflowRunId: String,
+                toolName: String, reason: String,
+            ) { auditEvents.add("uncertain:$reason") }
+            override suspend fun onSuspensionCancelled(
+                approvalId: String, workflowRunId: String,
+                toolName: String, reason: String,
+            ) { auditEvents.add("cancelled:$reason") }
+        }
+
+        // Continuation store that throws on cancel (stale version conflict)
+        val fragileContinuationStore = object : dev.tramai.core.approval.ApprovalContinuationStore {
+            private val delegate = InMemoryApprovalContinuationStore(clock = fixedClock)
+            override suspend fun create(continuation: ApprovalContinuation, arguments: dev.tramai.core.approval.SensitiveToolArguments): ApprovalContinuation =
+                delegate.create(continuation, arguments)
+            override suspend fun get(approvalId: String): ApprovalContinuation? = delegate.get(approvalId)
+            override suspend fun claimForExecution(approvalId: String, expectedVersion: Long, claimedBy: String): dev.tramai.core.approval.ClaimedApprovalContinuation =
+                delegate.claimForExecution(approvalId, expectedVersion, claimedBy)
+            override suspend fun complete(approvalId: String, expectedVersion: Long, completedBy: String): ApprovalContinuation =
+                delegate.complete(approvalId, expectedVersion, completedBy)
+            override suspend fun expire(approvalId: String, expectedVersion: Long): ApprovalContinuation =
+                delegate.expire(approvalId, expectedVersion)
+            override suspend fun cancel(approvalId: String, expectedVersion: Long): ApprovalContinuation {
+                throw dev.tramai.core.exception.ApprovalAuthorizationException(
+                    approvalId = approvalId,
+                )
+            }
+            override suspend fun sweepExpired(): Int = delegate.sweepExpired()
+        }
+
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = fragileContinuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+            approvalLifecycleAuditEmitter = auditEmitter,
+        )
+
+        val exception = triggerSuspension(engine)
+        // BEFORE_WORKFLOW_RESUME returns Deny → triggers cancel path
+        policyEngine.workflowResumeDecision = PolicyDecision.Deny(
+            reason = "denied",
+            reasonCode = "POLICY_DENIED",
+        )
+
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 0L,
+                        presentedToken = exception.challenge.token,
+                        resumedBy = "admin",
+                    )
+                )
+            }
+        }.isInstanceOf(dev.tramai.core.exception.ApprovalAuthorizationException::class.java)
+
+        // Suspended context was NOT removed (cancel failed, so remove was never called)
+        val metadata = runBlocking { suspendedInvocationStore.get(exception.approvalId) }
+        assertThat(metadata).isNotNull
+
+        // No cancellation audit was emitted
+        assertThat(auditEvents.none { it.startsWith("cancelled:") }).isTrue
+    }
+
+    @Test
+    fun `missing digester does not consume token`() {
+        // Engine without digester — suspension will fail early because
+        // tool execution requires a digester for approval binding validation.
+        val coordinator = ConfigurableApprovalGateCoordinator()
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            // No digester
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+        )
+
+        val service = engine.create<TriggerService>()
+
+        // The initial tool execution should fail with ConfigurationException
+        // because the digester is required for approval binding validation.
+        assertThatThrownBy {
+            runBlocking { service.execute("input") }
+        }.isInstanceOf(dev.tramai.core.exception.ConfigurationException::class.java)
+            .hasMessageContaining("ToolArgumentsDigester")
+
+        // Coordinator was NEVER called — suspension failed before any approval
+        assertThat(coordinator.lastCreateCommand).isNull()
+        assertThat(coordinator.lastAuthorizeCommand).isNull()
+    }
+
+    @Test
+    fun `stale version does not consume token`() {
+        val coordinator = ConfigurableApprovalGateCoordinator()
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+        )
+
+        val exception = triggerSuspension(engine)
+        policyEngine.workflowResumeDecision = PolicyDecision.Allow
+
+        // Use wrong continuationExpectedVersion (999 instead of 0)
+        assertThatThrownBy {
+            runBlocking {
+                engine.resumeApproval(
+                    ResumeApprovalCommand(
+                        approvalId = exception.approvalId,
+                        approvalExpectedVersion = 0L,
+                        continuationExpectedVersion = 999L,
+                        presentedToken = exception.challenge.token,
+                        resumedBy = "admin",
+                    )
+                )
+            }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("version mismatch")
+
+        // Coordinator was NOT called — failure happened before authorizeResume
+        assertThat(coordinator.lastAuthorizeCommand).isNull()
+    }
+
+    @Test
+    fun `post-completion audit failure does not emit uncertain outcome`() {
+        val auditEvents = mutableListOf<String>()
+        val auditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+            override suspend fun onToolExecutionSuspended(
+                approvalId: String, workflowRunId: String, toolName: String,
+                toolCallId: String, correlationId: String,
+                argumentsDigest: dev.tramai.core.approval.Sha256Digest,
+                expiresAt: java.time.Instant,
+            ) = Unit
+            override suspend fun onToolExecutionResumed(
+                approvalId: String, workflowRunId: String,
+                toolName: String, resumedBy: String,
+            ) = Unit
+            override suspend fun onToolExecutionCompleted(
+                approvalId: String, workflowRunId: String,
+                toolName: String, completedBy: String,
+            ) { throw RuntimeException("audit emitter failed") }
+            override suspend fun onUncertainOutcome(
+                approvalId: String, workflowRunId: String,
+                toolName: String, reason: String,
+            ) { auditEvents.add("uncertain:$reason") }
+            override suspend fun onSuspensionCancelled(
+                approvalId: String, workflowRunId: String,
+                toolName: String, reason: String,
+            ) = Unit
+        }
+
+        // Provider that returns tool calls on first call, then content on subsequent calls
+        var callCount = 0
+        val resumingProvider = object : dev.tramai.core.provider.ModelProvider {
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                callCount++
+                return if (callCount == 1) {
+                    ModelResponse(
+                        content = "",
+                        toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                    )
+                } else {
+                    ModelResponse(content = "Final result: success")
+                }
+            }
+            override fun providerId(): String = "test"
+        }
+
+        val engine = TramaiEngine(
+            provider = resumingProvider,
+            toolRegistry = toolRegistry,
+            policyEngine = policyEngine,
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+            approvalLifecycleAuditEmitter = auditEmitter,
+        )
+
+        val exception = triggerSuspension(engine)
+        policyEngine.workflowResumeDecision = PolicyDecision.Allow
+
+        // Resume should succeed — the audit failure during cleanup is caught separately
+        runBlocking {
+            engine.resumeApproval(
+                ResumeApprovalCommand(
+                    approvalId = exception.approvalId,
+                    approvalExpectedVersion = 0L,
+                    continuationExpectedVersion = 0L,
+                    presentedToken = exception.challenge.token,
+                    resumedBy = "admin",
+                )
+            )
+        }
+
+        // Continuation IS COMPLETED (the authoritative transition succeeded)
+        val continuation = runBlocking { continuationStore.get(exception.approvalId) }
+        assertThat(continuation).isNotNull
+        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.COMPLETED)
+
+        // No uncertain outcome was emitted
+        assertThat(auditEvents.none { it.startsWith("uncertain:") }).isTrue
+    }
+
     // ── Helpers ────────────────────────────────────────────────────
 
     private fun triggerSuspension(engine: TramaiEngine): ApprovalSuspendedException {

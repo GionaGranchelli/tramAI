@@ -141,17 +141,15 @@ PR #17 delivers:
 - **Chained approval**: Nested approval (approval during a resumed workflow) is not supported. Any policy decision of RequireApproval during a resumed workflow throws NestedApprovalNotSupportedException.
 - **Metadata-only**: `SuspendedInvocationMetadata` does not carry raw tool arguments, approval tokens, or messages — those are split into `ApprovalContinuationStore` and `SensitiveResumeContext`.
 
-## Tasks
+## Final Ordering Guarantee (PR #17 Final)
 
-| ID | Task | Spec § | Deps | Effort |
-|----|------|--------|------|--------|
-| T1 | Add EngineExecutionIdentity + thread through engine | §5.2 | — | M |
-| T2 | Add SuspendedInvocationStore SPI + InMemory impl | §5.1 | T1 | M |
-| T3 | Add evaluate() to PolicyEnforcementHelper | §5.3 | — | S |
-| T4 | Replace ApprovalRequiredException with suspension flow | §5.4-5.5 | T1, T2, T3 | L |
-| T5 | Add resumeApproval() to TramaiEngine | §5.7-5.8 | T4 | L |
-| T6 | Add lifecycle audit events | §6 | T4 | S |
-| T7 | Add workflow digest helper | §5.2 | — | S |
-| T8 | Tests: suspension happy path | — | T4 | M |
-| T9 | Tests: resume happy path | — | T5 | M |
-| T10 | Tests: uncertain outcomes, failures, edge cases | — | T5 | M |
+The resume approval flow enforces this ordering to prevent token-free destructive mutations:
+
+1. Load metadata (read-only)
+2. Validate continuation: status == PENDING, version matches expectedVersion
+3. Resolve non-side-effecting dependencies (digester, coordinator)
+4. **authorizeResume()** — validates and consumes the approval token
+5. Evaluate BEFORE_WORKFLOW_RESUME:
+   - Deny/RequireApproval: atomic cancellation (cancel → remove → audit) — safe because token was already validated
+   - Allow: claimForExecution → execute tool → provider loop → finalize → complete
+6. Post-completion cleanup is non-authoritative: failures do NOT emit uncertain outcome

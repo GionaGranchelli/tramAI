@@ -2321,35 +2321,21 @@ internal class TramaiInvocationHandler(
     /**
      * Internal resume implementation called by [TramaiEngine.resumeApproval].
      *
-     * 1. Loads the [SuspendedInvocation] from the store
-     * 2. Authorises the resume via [ApprovalGateCoordinator]
-     * 3. Enforces [dev.tramai.core.policy.EnforcementPoint.BEFORE_WORKFLOW_RESUME]
-     * 4. Claims the continuation and releases raw arguments
-     * 5. Executes the suspended tool
-     * 6. Completes the continuation
-     * 7. Returns the tool result
-     */
-    /**
-     * Internal resume implementation called by [TramaiEngine.resumeApproval].
-     *
-     * 1. Loads the [SuspendedInvocationMetadata] from the store
-     * 2. Authorises the resume via [ApprovalGateCoordinator]
-     * 3. Enforces [dev.tramai.core.policy.EnforcementPoint.BEFORE_WORKFLOW_RESUME]
-     *    - R4: On Deny: cancel continuation, remove invocation, emit cancellation, throw PolicyViolationException
-     *    - R5: On RequireApproval: cancel continuation, remove invocation, emit cancellation, throw ConfigurationException
-     * 4. Claims the continuation and releases raw arguments
-     * 5. Reveals sensitive resume context
-     * 6. Executes the suspended tool
-     * 7. Continues the provider loop (BEFORE_TOOL_RESULT_REINJECTION, format, append, process remaining, callProvider)
-     * 8. Completes the continuation
-     * 9. Returns the typed operation result
+     * Ordering guarantees (Fix 1-3):
+     * 1. Loads metadata + resolves continuation (read-only validation)
+     * 2. Validates continuation is PENDING and version matches
+     * 3. Resolves digester and other non-side-effecting dependencies
+     * 4. Calls authorizeResume() — validates the token
+     * 5. Evaluates BEFORE_WORKFLOW_RESUME
+     * 6. IF Allow: claimForExecution() and continue
+     * 7. IF Deny/RequireApproval: cancel continuation, remove suspended state, emit audit
      */
     suspend fun resumeApprovalInternal(command: ResumeApprovalCommand): Any? {
-        // 1. Load suspended invocation metadata
+        // 1. Load suspended invocation metadata (read-only)
         val metadata = suspendedInvocationStore.get(command.approvalId)
             ?: throw dev.tramai.core.exception.ApprovalNotFoundException(command.approvalId)
 
-        // 2. Validate continuation exists and is claimable before authorizing
+        // 2a. Validate continuation exists before authorizing
         val store = approvalContinuationStore
             ?: throw dev.tramai.core.exception.ConfigurationException(
                 "ApprovalContinuationStore is required for resume"
@@ -2357,72 +2343,24 @@ internal class TramaiInvocationHandler(
         val existingContinuation = store.get(command.approvalId)
             ?: throw dev.tramai.core.exception.ApprovalNotFoundException(command.approvalId)
 
+        // 2b. Validate continuation is PENDING and version matches (read-only checks)
+        require(existingContinuation.status == ApprovalContinuationStatus.PENDING) {
+            "Continuation '${command.approvalId}' is not PENDING (status=${existingContinuation.status})"
+        }
+        require(existingContinuation.version == command.continuationExpectedVersion) {
+            "Continuation version mismatch: expected ${command.continuationExpectedVersion}, got ${existingContinuation.version}"
+        }
+
+        // 3. Resolve non-side-effecting dependencies BEFORE token consumption
         val coordinator = approvalGateCoordinator
             ?: throw dev.tramai.core.exception.ConfigurationException(
                 "ApprovalGateCoordinator is required for resume"
             )
-
-        // 3. Enforce BEFORE_WORKFLOW_RESUME policy BEFORE authorizeResume (Fix 1: P1)
-        //    This prevents token consumption if the policy denies or requires nested approval.
-        val resumeDecision = policyHelper.evaluate(
-            policyHelper.buildContext(
-                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_WORKFLOW_RESUME,
-                correlationId = metadata.correlationId,
-            ).toolName(metadata.toolName)
-                .toolSecurity(metadata.toolSecurity)
-                .applySecurityContext(metadata.securityContext)
-                .workflowRunId(metadata.identity.workflowRunId)
-                .workflowDigest(metadata.identity.workflowDigest.value)
-                .actorId(command.resumedBy)
-                .build()
-        )
-        if (resumeDecision is dev.tramai.core.policy.PolicyDecision.Deny) {
-            // R4: Denied — close the continuation and remove invocation before throwing
-            runCatching {
-                store.cancel(
-                    approvalId = command.approvalId,
-                    expectedVersion = command.continuationExpectedVersion,
-                )
-            }
-            runCatching {
-                suspendedInvocationStore.remove(command.approvalId)
-            }
-            runCatching {
-                approvalLifecycleAuditEmitter.onSuspensionCancelled(
-                    approvalId = command.approvalId,
-                    workflowRunId = metadata.identity.workflowRunId,
-                    toolName = metadata.toolName,
-                    reason = "workflow-resume-denied: ${resumeDecision.reasonCode}",
-                )
-            }
-            throw dev.tramai.core.exception.PolicyViolationException(resumeDecision)
-        }
-        if (resumeDecision is dev.tramai.core.policy.PolicyDecision.RequireApproval) {
-            // R5: Nested approval not supported — close and throw NestedApprovalNotSupportedException (Fix 5)
-            runCatching {
-                store.cancel(
-                    approvalId = command.approvalId,
-                    expectedVersion = command.continuationExpectedVersion,
-                )
-            }
-            runCatching {
-                suspendedInvocationStore.remove(command.approvalId)
-            }
-            runCatching {
-                approvalLifecycleAuditEmitter.onSuspensionCancelled(
-                    approvalId = command.approvalId,
-                    workflowRunId = metadata.identity.workflowRunId,
-                    toolName = metadata.toolName,
-                    reason = "nested-approval-not-supported",
-                )
-            }
-            throw dev.tramai.core.exception.NestedApprovalNotSupportedException(
-                approvalId = command.approvalId,
-                message = "Nested approval not supported: use the original approval challenge",
-            )
+        val digester = requireNotNull(toolArgumentsDigester) {
+            "ToolArgumentsDigester is required for payload integrity verification"
         }
 
-        // 4. THEN authorize (this consumes the token) — only after policy cleared
+        // 4. THEN authorize (this consumes the token) — only after all validations passed
         val authorization = coordinator.authorizeResume(
             AuthorizeResumeCommand(
                 approvalId = command.approvalId,
@@ -2437,12 +2375,56 @@ internal class TramaiInvocationHandler(
             )
         )
 
-        // Validate mandatory dependencies before claim
-        val digester = requireNotNull(toolArgumentsDigester) {
-            "ToolArgumentsDigester is required for payload integrity verification"
+        // 5. Evaluate BEFORE_WORKFLOW_RESUME — NOW safe because token was already validated
+        val resumeDecision = policyHelper.evaluate(
+            policyHelper.buildContext(
+                enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_WORKFLOW_RESUME,
+                correlationId = metadata.correlationId,
+            ).toolName(metadata.toolName)
+                .toolSecurity(metadata.toolSecurity)
+                .applySecurityContext(metadata.securityContext)
+                .workflowRunId(metadata.identity.workflowRunId)
+                .workflowDigest(metadata.identity.workflowDigest.value)
+                .actorId(command.resumedBy)
+                .build()
+        )
+        if (resumeDecision is dev.tramai.core.policy.PolicyDecision.Deny) {
+            // R4: Denied — close the continuation and remove invocation.
+            // Token was already validated, so these side effects are safe.
+            // If cancel fails, let the exception propagate (Fix 2: atomic cancellation)
+            store.cancel(
+                approvalId = command.approvalId,
+                expectedVersion = command.continuationExpectedVersion,
+            )
+            suspendedInvocationStore.remove(command.approvalId)
+            approvalLifecycleAuditEmitter.onSuspensionCancelled(
+                approvalId = command.approvalId,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
+                reason = "workflow-resume-denied: ${resumeDecision.reasonCode}",
+            )
+            throw dev.tramai.core.exception.PolicyViolationException(resumeDecision)
+        }
+        if (resumeDecision is dev.tramai.core.policy.PolicyDecision.RequireApproval) {
+            // R5: Nested approval not supported — close and throw
+            store.cancel(
+                approvalId = command.approvalId,
+                expectedVersion = command.continuationExpectedVersion,
+            )
+            suspendedInvocationStore.remove(command.approvalId)
+            approvalLifecycleAuditEmitter.onSuspensionCancelled(
+                approvalId = command.approvalId,
+                workflowRunId = metadata.identity.workflowRunId,
+                toolName = metadata.toolName,
+                reason = "nested-approval-not-supported",
+            )
+            throw dev.tramai.core.exception.NestedApprovalNotSupportedException(
+                approvalId = command.approvalId,
+                message = "Nested approval not supported: use the original approval challenge",
+            )
         }
 
-        // 5. THEN claim continuation immediately after authorize (Fix 1: P1)
+        // 6. Claim continuation (only Allow reaches here)
         val claimed = store.claimForExecution(
             approvalId = command.approvalId,
             expectedVersion = command.continuationExpectedVersion,
@@ -2542,23 +2524,34 @@ internal class TramaiInvocationHandler(
                 historySize = metadata.historySize,
             )
 
-            // 8. Complete continuation (moved AFTER finalization)
+            // 8. Complete continuation — this is the authoritative transition
             store.complete(
                 approvalId = command.approvalId,
                 expectedVersion = claimed.continuation.version,
                 completedBy = command.resumedBy,
             )
 
-            // Clean up invocation store BEFORE audit (Fix 2: audit completion ordering)
-            suspendedInvocationStore.remove(command.approvalId)
-
-            // Emit completion audit event
-            approvalLifecycleAuditEmitter.onToolExecutionCompleted(
-                approvalId = command.approvalId,
-                workflowRunId = metadata.identity.workflowRunId,
-                toolName = metadata.toolName,
-                completedBy = command.resumedBy,
-            )
+            // Post-completion cleanup — failures here are operational, not uncertain outcomes.
+            // The continuation is irrevocably COMPLETED and the tool executed successfully.
+            try {
+                suspendedInvocationStore.remove(command.approvalId)
+                approvalLifecycleAuditEmitter.onToolExecutionCompleted(
+                    approvalId = command.approvalId,
+                    workflowRunId = metadata.identity.workflowRunId,
+                    toolName = metadata.toolName,
+                    completedBy = command.resumedBy,
+                )
+            } catch (e: Exception) {
+                // Log/report through operational observer, do NOT emit uncertain outcome
+                engineEventObserver.onEngineEvent(
+                    name = "resume-cleanup-failure",
+                    attributes = mapOf(
+                        "approvalId" to command.approvalId,
+                        "toolName" to metadata.toolName,
+                        "error" to (e.message ?: e::class.simpleName ?: "unknown"),
+                    ),
+                )
+            }
 
             result
         } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
