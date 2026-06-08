@@ -53,6 +53,7 @@ class ApprovalEngineEdgeCaseTest {
         var lastCreateCommand: CreateApprovalCommand? = null
         var lastAuthorizeCommand: AuthorizeResumeCommand? = null
         var lastCreatedApprovalId: String? = null
+        var lastCancelledApprovalId: String? = null
 
         override suspend fun createApproval(command: CreateApprovalCommand): ApprovalChallenge {
             lastCreateCommand = command
@@ -76,6 +77,14 @@ class ApprovalEngineEdgeCaseTest {
                 consumedAt = Clock.systemUTC().instant(),
                 version = command.expectedVersion,
             )
+        }
+
+        override suspend fun cancelApproval(
+            approvalId: String,
+            expectedVersion: Long,
+            reason: String,
+        ) {
+            lastCancelledApprovalId = approvalId
         }
     }
 

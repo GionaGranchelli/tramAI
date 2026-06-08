@@ -5,6 +5,16 @@ import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ResolvedTool
 
 /**
+ * Snapshot of token budget tracker state at the point of suspension.
+ */
+data class TokenBudgetSnapshot(
+    val totalInputTokens: Long,
+    val totalOutputTokens: Long,
+    val totalInputCost: Double,
+    val totalOutputCost: Double,
+)
+
+/**
  * Safe metadata stored when a tool execution is suspended pending approval.
  *
  * Holds only safe state needed to resume the provider loop:
@@ -20,6 +30,9 @@ import dev.tramai.core.model.ResolvedTool
  * @property correlationId The correlation ID of the suspended invocation.
  * @property identity The engine execution identity at suspension point.
  * @property securityContext The execution security context (classification and source) at suspension point.
+ * @property conversationId The conversation ID for memory persistence, if any.
+ * @property historySize The number of history messages at the point of suspension.
+ * @property tokenBudgetSnapshot Snapshot of token budget tracker state, if available.
  */
 data class SuspendedInvocationMetadata(
     val approvalId: String,
@@ -29,6 +42,9 @@ data class SuspendedInvocationMetadata(
     val correlationId: String,
     val identity: EngineExecutionIdentity,
     val securityContext: ExecutionSecurityContext,
+    val conversationId: String? = null,
+    val historySize: Int = 0,
+    val tokenBudgetSnapshot: TokenBudgetSnapshot? = null,
 )
 
 /**

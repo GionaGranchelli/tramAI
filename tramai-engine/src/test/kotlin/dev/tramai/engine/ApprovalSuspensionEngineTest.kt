@@ -65,6 +65,12 @@ class ApprovalSuspensionEngineTest {
         override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {
             error("not expected in suspension test")
         }
+
+        override suspend fun cancelApproval(
+            approvalId: String,
+            expectedVersion: Long,
+            reason: String,
+        ) = Unit
     }
 
     /** Fake PolicyEngine that returns RequireApproval for BEFORE_TOOL_EXECUTION, Allow otherwise. */

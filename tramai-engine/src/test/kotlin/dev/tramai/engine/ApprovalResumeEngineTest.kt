@@ -74,6 +74,12 @@ class ApprovalResumeEngineTest {
                 version = command.expectedVersion,
             )
         }
+
+        override suspend fun cancelApproval(
+            approvalId: String,
+            expectedVersion: Long,
+            reason: String,
+        ) = Unit
     }
 
     /**

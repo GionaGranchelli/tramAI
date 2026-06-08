@@ -41,4 +41,21 @@ interface ApprovalGateCoordinator {
     suspend fun createApproval(command: CreateApprovalCommand): ApprovalChallenge
 
     suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization
+
+    /**
+     * Cancel an existing approval request.
+     *
+     * Transitions the approval to DENIED status. Safe to call on approvals
+     * that have already been consumed or completed — the underlying store
+     * validates the transition legality.
+     *
+     * @param approvalId The approval to cancel.
+     * @param expectedVersion The version the caller expects.
+     * @param reason A safe reason string for audit purposes.
+     */
+    suspend fun cancelApproval(
+        approvalId: String,
+        expectedVersion: Long,
+        reason: String,
+    )
 }
