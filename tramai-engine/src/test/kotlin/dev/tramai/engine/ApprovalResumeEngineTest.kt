@@ -12,6 +12,7 @@ import dev.tramai.core.approval.ForceCancelClaimedCommand
 import dev.tramai.core.approval.IdempotencyKeyUtil
 import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.SensitiveToolArguments
+import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.ApprovalToken
 import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.ApprovalAuthorization
@@ -1251,6 +1252,113 @@ class ApprovalResumeEngineTest {
                 )
             }
         }.isSameAs(mutationCancellation)
+    }
+
+    @Test
+    fun `cancellation before claim leaves continuation pending`() {
+        val rawArgs = "{}"
+        val argsDigest = digester.digest(SensitiveToolArguments.of(rawArgs))
+        runBlocking {
+            continuationStore.create(
+                ApprovalContinuation(
+                    approvalId = "cancel-before-claim",
+                    workflowRunId = "wf-run-1",
+                    correlationId = "corr-1",
+                    toolCallId = "tc-1",
+                    toolName = "test-tool",
+                    argumentsDigest = argsDigest,
+                    policyVersion = "v1",
+                    workflowDigest = Sha256Digest.of("sha256:1111111111111111111111111111111111111111111111111111111111111111"),
+                    status = ApprovalContinuationStatus.PENDING,
+                    createdAt = fixedClock.instant(),
+                    approvalExpiresAt = fixedClock.instant().plusSeconds(600),
+                    claimedBy = null,
+                    claimedAt = null,
+                    completedAt = null,
+                    version = 0L,
+                ),
+                SensitiveToolArguments.of(rawArgs),
+            )
+        }
+        // Cancel via store — this simulates cancellation before claim
+        runBlocking { continuationStore.cancel("cancel-before-claim", 0L) }
+        val cont = runBlocking { continuationStore.get("cancel-before-claim") }
+        assertThat(cont).isNotNull
+        assertThat(cont!!.status).isEqualTo(ApprovalContinuationStatus.CANCELLED)
+    }
+
+    @Test
+    fun `cancellation after claim leaves continuation claimed`() {
+        val rawArgs = "{}"
+        val argsDigest = digester.digest(SensitiveToolArguments.of(rawArgs))
+        runBlocking {
+            continuationStore.create(
+                ApprovalContinuation(
+                    approvalId = "cancel-after-claim",
+                    workflowRunId = "wf-run-1",
+                    correlationId = "corr-1",
+                    toolCallId = "tc-1",
+                    toolName = "test-tool",
+                    argumentsDigest = argsDigest,
+                    policyVersion = "v1",
+                    workflowDigest = Sha256Digest.of("sha256:1111111111111111111111111111111111111111111111111111111111111111"),
+                    status = ApprovalContinuationStatus.PENDING,
+                    createdAt = fixedClock.instant(),
+                    approvalExpiresAt = fixedClock.instant().plusSeconds(600),
+                    claimedBy = null,
+                    claimedAt = null,
+                    completedAt = null,
+                    version = 0L,
+                ),
+                SensitiveToolArguments.of(rawArgs),
+            )
+        }
+        runBlocking { continuationStore.claimForExecution("cancel-after-claim", 0L, "runner") }
+        // Continuation is CLAIMED — engine-level CancellationException would leave it CLAIMED,
+        // not reset it to PENDING. Verify it's CLAIMED and cannot be claimed again.
+        assertThatThrownBy {
+            runBlocking { continuationStore.claimForExecution("cancel-after-claim", 1L, "runner2") }
+        }.isInstanceOf(dev.tramai.core.exception.ApprovalContinuationNotClaimableException::class.java)
+        val cont = runBlocking { continuationStore.get("cancel-after-claim") }
+        assertThat(cont).isNotNull
+        assertThat(cont!!.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+    }
+
+    @Test
+    fun `cancellation after completion leaves continuation completed`() {
+        val rawArgs = "{}"
+        val argsDigest = digester.digest(SensitiveToolArguments.of(rawArgs))
+        runBlocking {
+            continuationStore.create(
+                ApprovalContinuation(
+                    approvalId = "cancel-after-complete",
+                    workflowRunId = "wf-run-1",
+                    correlationId = "corr-1",
+                    toolCallId = "tc-1",
+                    toolName = "test-tool",
+                    argumentsDigest = argsDigest,
+                    policyVersion = "v1",
+                    workflowDigest = Sha256Digest.of("sha256:1111111111111111111111111111111111111111111111111111111111111111"),
+                    status = ApprovalContinuationStatus.PENDING,
+                    createdAt = fixedClock.instant(),
+                    approvalExpiresAt = fixedClock.instant().plusSeconds(600),
+                    claimedBy = null,
+                    claimedAt = null,
+                    completedAt = null,
+                    version = 0L,
+                ),
+                SensitiveToolArguments.of(rawArgs),
+            )
+        }
+        runBlocking {
+            continuationStore.claimForExecution("cancel-after-complete", 0L, "runner")
+            continuationStore.complete("cancel-after-complete", 1L, "runner")
+        }
+        // Continuation is COMPLETED — engine-level CancellationException during cleanup
+        // does not roll back to CLAIMED or PENDING.
+        val cont = runBlocking { continuationStore.get("cancel-after-complete") }
+        assertThat(cont).isNotNull
+        assertThat(cont!!.status).isEqualTo(ApprovalContinuationStatus.COMPLETED)
     }
 
     @Test
