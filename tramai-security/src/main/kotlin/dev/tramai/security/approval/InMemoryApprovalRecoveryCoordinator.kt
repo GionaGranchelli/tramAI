@@ -75,7 +75,7 @@ class InMemoryApprovalRecoveryCoordinator(
             store.findStaleClaimed(claimedBefore, limit)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (e: RuntimeException) {
             throw ApprovalRecoveryUnavailableException(e)
         }
 
