@@ -31,9 +31,22 @@ object IdempotencyKeyUtil {
         toolCallId: String,
         argumentsDigest: Sha256Digest,
     ): String {
-        val raw = "$approvalId:$toolCallId:${argumentsDigest.value}"
+        val encoded = buildString {
+            append("v1:")
+            append(approvalId.length)
+            append(':')
+            append(approvalId)
+            append(':')
+            append(toolCallId.length)
+            append(':')
+            append(toolCallId)
+            append(':')
+            append(argumentsDigest.value.length)
+            append(':')
+            append(argumentsDigest.value)
+        }
         val bytes = MessageDigest.getInstance("SHA-256")
-            .digest(raw.toByteArray(StandardCharsets.UTF_8))
+            .digest(encoded.toByteArray(StandardCharsets.UTF_8))
         return bytes.joinToString("") { "%02x".format(it) }
     }
 

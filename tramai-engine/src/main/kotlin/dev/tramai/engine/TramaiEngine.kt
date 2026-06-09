@@ -64,6 +64,7 @@ import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.ApprovalToken
 import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.AuthorizeResumeCommand
+import dev.tramai.core.approval.IdempotencyKeyUtil
 import dev.tramai.core.approval.ValidateResumeCommand
 import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.SensitiveToolArguments
@@ -1917,6 +1918,7 @@ internal class TramaiInvocationHandler(
         historySize: Int = 0,
         resumingApproval: Boolean = false,
         parentApprovalId: String? = null,
+        idempotencyKey: String? = null,
         allowRenewedApprovedBindingDuringResume: Boolean = false,
     ): ToolResult {
         val input = toolCall.argumentsJson
@@ -1927,6 +1929,8 @@ internal class TramaiInvocationHandler(
                 operationName = operation.method.name,
                 modelName = operation.operation.model,
                 attemptNumber = attemptIndex,
+                conversationId = conversationId,
+                idempotencyKey = idempotencyKey,
                 timeout = java.time.Duration.ofMillis(operation.operation.timeoutMillis),
             )
 
@@ -2508,6 +2512,11 @@ internal class TramaiInvocationHandler(
                 ?: throw dev.tramai.core.exception.ConfigurationException(
                     "Approved tool '${metadata.toolName}' is no longer registered"
                 )
+            val idempotencyKey = IdempotencyKeyUtil.deriveApprovalKey(
+                command.approvalId,
+                metadata.toolCallId,
+                expectedDigest,
+            )
             val validatedToolCall = resumeContext.toolCall.copy(
                 id = metadata.toolCallId,
                 name = metadata.toolName,
@@ -2538,8 +2547,11 @@ internal class TramaiInvocationHandler(
                     identity = metadata.identity,
                     messages = resumeContext.messages,
                     tokenBudgetTracker = tokenBudgetTracker,
+                    conversationId = metadata.conversationId,
+                    historySize = metadata.historySize,
                     resumingApproval = true,
                     parentApprovalId = command.approvalId,
+                    idempotencyKey = idempotencyKey,
                     allowRenewedApprovedBindingDuringResume = true,
                 )
             } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
