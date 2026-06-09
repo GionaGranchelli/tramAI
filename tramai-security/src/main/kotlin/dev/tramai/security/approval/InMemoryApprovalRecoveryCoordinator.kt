@@ -100,7 +100,8 @@ class InMemoryApprovalRecoveryCoordinator(
         } catch (e: IllegalArgumentException) {
             throw e
         } catch (e: ApprovalContinuationNotFoundException) {
-            throw e
+            // Sanitize: wrap in new exception with only the coordinator's approvalId
+            throw ApprovalContinuationNotFoundException(command.approvalId)
         } catch (e: RuntimeException) {
             throw ApprovalAuthorizationException(command.approvalId)
         } ?: throw ApprovalContinuationNotFoundException(command.approvalId)
