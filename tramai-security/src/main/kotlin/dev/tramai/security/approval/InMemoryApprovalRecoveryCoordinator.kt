@@ -75,7 +75,7 @@ class InMemoryApprovalRecoveryCoordinator(
             store.findStaleClaimed(claimedBefore, limit)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: RuntimeException) {
+        } catch (e: Exception) {
             throw ApprovalRecoveryUnavailableException(e)
         }
 
@@ -117,7 +117,7 @@ class InMemoryApprovalRecoveryCoordinator(
             throw e
         } catch (e: ApprovalContinuationNotFoundException) {
             throw ApprovalContinuationNotFoundException(command.approvalId)
-        } catch (e: RuntimeException) {
+        } catch (e: Exception) {
             throw ApprovalAuthorizationException(command.approvalId)
         } ?: throw ApprovalContinuationNotFoundException(command.approvalId)
 
@@ -146,7 +146,7 @@ class InMemoryApprovalRecoveryCoordinator(
             )
         } catch (e: CancellationException) {
             throw e
-        } catch (e: RuntimeException) {
+        } catch (e: Exception) {
             throw mapStoreError(e, command.approvalId)
         }
 
@@ -168,7 +168,7 @@ class InMemoryApprovalRecoveryCoordinator(
         return continuation
     }
 
-    private fun mapStoreError(e: RuntimeException, approvalId: String): RuntimeException = when (e) {
+    private fun mapStoreError(e: Exception, approvalId: String): RuntimeException = when (e) {
         is ApprovalContinuationNotFoundException -> ApprovalContinuationNotFoundException(approvalId)
         else -> ApprovalAuthorizationException(approvalId)
     }

@@ -16,6 +16,7 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -571,6 +572,94 @@ class ApprovalRecoveryCoordinatorTest {
         assertThat(throwable.message).contains("cont-1")
         assertThat(throwable.toString()).doesNotContain("internal-secret-record-id")
         assertThat(throwable.cause).isNull()
+    }
+
+    @Test
+    fun `findStaleClaimed IOException is sanitized to ApprovalRecoveryUnavailableException`() {
+        val leakyStore = object : ApprovalContinuationStore by store {
+            override suspend fun findStaleClaimed(claimedBefore: Instant, limit: Int): List<ApprovalContinuation> {
+                throw IOException("""db connection: {"conn_string":"jdbc:postgresql://secret-db.internal:5432/prod"}""")
+            }
+        }
+        val coordinator = InMemoryApprovalRecoveryCoordinator(
+            store = leakyStore,
+            lifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+        )
+        val throwable = catchThrowable {
+            runBlocking {
+                coordinator.findStaleClaims(
+                    claimedBefore = Instant.parse("2026-06-06T10:00:00Z"),
+                    limit = 10,
+                )
+            }
+        }
+        assertThat(throwable).isInstanceOf(ApprovalRecoveryUnavailableException::class.java)
+        assertThat(throwable.message).isEqualTo("Approval recovery is unavailable")
+        assertThat(throwable.cause).isNull()
+    }
+
+    @Test
+    fun `get IOException with fake secret is sanitized`() {
+        val leakyStore = object : ApprovalContinuationStore by store {
+            override suspend fun get(approvalId: String): ApprovalContinuation? {
+                throw IOException("""backend secret: {"token":"sk-fake-secret-value"}""")
+            }
+        }
+        val coordinator = InMemoryApprovalRecoveryCoordinator(
+            store = leakyStore,
+            lifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+        )
+        val throwable = catchThrowable {
+            runBlocking {
+                coordinator.forceCancelClaimed(
+                    ForceCancelClaimedCommand(
+                        approvalId = "cont-1",
+                        expectedVersion = 1L,
+                        operatorId = "operator-1",
+                        reasonCode = "worker-lost",
+                    ),
+                )
+            }
+        }
+        assertThat(throwable).isInstanceOf(ApprovalAuthorizationException::class.java)
+        assertThat(throwable.message).isEqualTo("Approval authorization failed")
+        assertThat(throwable.cause).isNull()
+        assertThat(throwable.toString()).doesNotContain("sk-fake-secret-value")
+    }
+
+    @Test
+    fun `forceCancelClaimed IOException with fake secret is sanitized`() {
+        createClaimedContinuation()
+        val leakyStore = object : ApprovalContinuationStore by store {
+            override suspend fun forceCancelClaimed(
+                approvalId: String,
+                expectedVersion: Long,
+                cancelledBy: String,
+                reasonCode: String,
+            ): ApprovalContinuation {
+                throw IOException("""backend secret: {"token":"sk-another-secret"}""")
+            }
+        }
+        val coordinator = InMemoryApprovalRecoveryCoordinator(
+            store = leakyStore,
+            lifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+        )
+        val throwable = catchThrowable {
+            runBlocking {
+                coordinator.forceCancelClaimed(
+                    ForceCancelClaimedCommand(
+                        approvalId = "cont-1",
+                        expectedVersion = 1L,
+                        operatorId = "operator-1",
+                        reasonCode = "worker-lost",
+                    ),
+                )
+            }
+        }
+        assertThat(throwable).isInstanceOf(ApprovalAuthorizationException::class.java)
+        assertThat(throwable.message).isEqualTo("Approval authorization failed")
+        assertThat(throwable.cause).isNull()
+        assertThat(throwable.toString()).doesNotContain("sk-another-secret")
     }
 
     private fun createClaimedContinuation(
