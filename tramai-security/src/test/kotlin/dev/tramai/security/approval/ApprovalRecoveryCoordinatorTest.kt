@@ -10,6 +10,7 @@ import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.exception.ApprovalAuthorizationException
 import dev.tramai.core.exception.ApprovalRecoveryAuditUnavailableException
+import dev.tramai.core.exception.ApprovalRecoveryUnavailableException
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -43,7 +44,6 @@ class ApprovalRecoveryCoordinatorTest {
         val coordinator = InMemoryApprovalRecoveryCoordinator(
             store = store,
             lifecycleAuditEmitter = audit,
-            clock = clock,
         )
         createClaimedContinuation(argumentsJson = """{"secret":"never-log"}""")
 
@@ -73,7 +73,6 @@ class ApprovalRecoveryCoordinatorTest {
         val coordinator = InMemoryApprovalRecoveryCoordinator(
             store = store,
             lifecycleAuditEmitter = audit,
-            clock = clock,
         )
         createClaimedContinuation(approvalId = "stale-1", claimedAt = clock.instant().minusSeconds(120))
         createClaimedContinuation(approvalId = "fresh-1", claimedAt = clock.instant().minusSeconds(5))
@@ -105,7 +104,7 @@ class ApprovalRecoveryCoordinatorTest {
 
     @Test
     fun `invalid reason code rejected`() {
-        val coordinator = InMemoryApprovalRecoveryCoordinator(store = store, lifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter, clock = clock)
+        val coordinator = InMemoryApprovalRecoveryCoordinator(store = store, lifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter)
 
         assertThatIllegalArgumentException()
             .isThrownBy {
@@ -139,7 +138,6 @@ class ApprovalRecoveryCoordinatorTest {
                     error("audit-down")
                 }
             },
-            clock = clock,
         )
 
         assertThatThrownBy {
@@ -176,7 +174,6 @@ class ApprovalRecoveryCoordinatorTest {
                     error("notify-down")
                 }
             },
-            clock = clock,
         )
 
         val cancelled = coordinator.forceCancelClaimed(
@@ -207,7 +204,6 @@ class ApprovalRecoveryCoordinatorTest {
                 }
             },
             lifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
-            clock = clock,
         )
 
         val throwable = catchThrowable {
@@ -244,7 +240,6 @@ class ApprovalRecoveryCoordinatorTest {
                     throw cancellation
                 }
             },
-            clock = clock,
         )
 
         val thrown = catchThrowable {
@@ -275,7 +270,6 @@ class ApprovalRecoveryCoordinatorTest {
                 }
             },
             lifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
-            clock = clock,
         )
 
         val thrown = catchThrowable {
@@ -311,7 +305,6 @@ class ApprovalRecoveryCoordinatorTest {
                     throw cancellation
                 }
             },
-            clock = clock,
         )
 
         val thrown = catchThrowable {
@@ -340,7 +333,6 @@ class ApprovalRecoveryCoordinatorTest {
         val coordinator = InMemoryApprovalRecoveryCoordinator(
             store = leakyStore,
             lifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
-            clock = clock,
         )
         val throwable = catchThrowable {
             runBlocking {
@@ -378,7 +370,6 @@ class ApprovalRecoveryCoordinatorTest {
                     throw RuntimeException("""sink secret: {"api_key":"sk-abc123"}""")
                 }
             },
-            clock = clock,
         )
         val throwable = catchThrowable {
             runBlocking {
@@ -399,6 +390,158 @@ class ApprovalRecoveryCoordinatorTest {
         assertThat(throwable.toString()).doesNotContain("sk-abc123")
         // Verify continuation stays CLAIMED
         assertThat(runBlocking { store.get("cont-1") }!!.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+    }
+
+    @Test
+    fun `store get IllegalArgumentException with secret text is sanitized`() {
+        val leakyStore = object : ApprovalContinuationStore by store {
+            override suspend fun get(approvalId: String): ApprovalContinuation? {
+                throw IllegalArgumentException("""database secret: {"password":"hunter2"}""")
+            }
+        }
+        val coordinator = InMemoryApprovalRecoveryCoordinator(
+            store = leakyStore,
+            lifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+        )
+        val throwable = catchThrowable {
+            runBlocking {
+                coordinator.forceCancelClaimed(
+                    ForceCancelClaimedCommand(
+                        approvalId = "cont-1",
+                        expectedVersion = 1L,
+                        operatorId = "operator-1",
+                        reasonCode = "worker-lost",
+                    ),
+                )
+            }
+        }
+        assertThat(throwable).isInstanceOf(ApprovalAuthorizationException::class.java)
+        assertThat(throwable.message).isEqualTo("Approval authorization failed")
+        assertThat(throwable.cause).isNull()
+        assertThat(throwable.toString()).doesNotContain("password")
+        assertThat(throwable.toString()).doesNotContain("hunter2")
+        assertThat(throwable.toString()).doesNotContain("database")
+    }
+
+    @Test
+    fun `store forceCancelClaimed IllegalArgumentException with secret text is sanitized`() {
+        createClaimedContinuation()
+        val leakyStore = object : ApprovalContinuationStore by store {
+            override suspend fun forceCancelClaimed(
+                approvalId: String,
+                expectedVersion: Long,
+                cancelledBy: String,
+                reasonCode: String,
+            ): ApprovalContinuation {
+                throw IllegalArgumentException("""backend config: {"api_key":"sk-1234"}""")
+            }
+        }
+        val coordinator = InMemoryApprovalRecoveryCoordinator(
+            store = leakyStore,
+            lifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+        )
+        val throwable = catchThrowable {
+            runBlocking {
+                coordinator.forceCancelClaimed(
+                    ForceCancelClaimedCommand(
+                        approvalId = "cont-1",
+                        expectedVersion = 1L,
+                        operatorId = "operator-1",
+                        reasonCode = "worker-lost",
+                    ),
+                )
+            }
+        }
+        assertThat(throwable).isInstanceOf(ApprovalAuthorizationException::class.java)
+        assertThat(throwable.message).isEqualTo("Approval authorization failed")
+        assertThat(throwable.cause).isNull()
+        assertThat(throwable.toString()).doesNotContain("api_key")
+        assertThat(throwable.toString()).doesNotContain("sk-1234")
+    }
+
+    @Test
+    fun `store findStaleClaimed failure exposes only safe exception`() {
+        val leakyStore = object : ApprovalContinuationStore by store {
+            override suspend fun findStaleClaimed(claimedBefore: Instant, limit: Int): List<ApprovalContinuation> {
+                throw RuntimeException("""db secret: {"conn_string":"jdbc:postgres://secret@host/db"}""")
+            }
+        }
+        val coordinator = InMemoryApprovalRecoveryCoordinator(
+            store = leakyStore,
+            lifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+        )
+        val throwable = catchThrowable {
+            runBlocking {
+                coordinator.findStaleClaims(
+                    claimedBefore = Instant.parse("2026-06-06T10:00:00Z"),
+                    limit = 10,
+                )
+            }
+        }
+        assertThat(throwable).isInstanceOf(ApprovalRecoveryUnavailableException::class.java)
+        assertThat(throwable.message).isEqualTo("Approval recovery is unavailable")
+        assertThat(throwable.cause).isNull()
+        assertThat(throwable.toString()).doesNotContain("conn_string")
+        assertThat(throwable.toString()).doesNotContain("secret@host")
+        assertThat(throwable.toString()).doesNotContain("db secret")
+    }
+
+    @Test
+    fun `stale detection audit IllegalArgumentException does not fail discovery`() {
+        createClaimedContinuation(approvalId = "stale-1", claimedAt = Instant.parse("2026-06-06T09:50:00Z"))
+        val coordinator = InMemoryApprovalRecoveryCoordinator(
+            store = store,
+            lifecycleAuditEmitter = object : ApprovalLifecycleAuditEmitter by NoOpApprovalLifecycleAuditEmitter {
+                override suspend fun onStaleClaimDetected(
+                    approvalId: String,
+                    workflowRunId: String,
+                    toolName: String,
+                    claimedAt: Instant,
+                ) {
+                    throw IllegalArgumentException("""audit secret: {"token":"sk-5678"}""")
+                }
+            },
+        )
+        val stale = runBlocking {
+            coordinator.findStaleClaims(
+                claimedBefore = Instant.parse("2026-06-06T10:00:00Z"),
+                limit = 10,
+            )
+        }
+        // Discovery succeeds even though audit emission fails
+        assertThat(stale.map { it.approvalId }).contains("stale-1")
+    }
+
+    @Test
+    fun `post-mutation audit IllegalArgumentException does not undo cancellation`() {
+        createClaimedContinuation()
+        val coordinator = InMemoryApprovalRecoveryCoordinator(
+            store = store,
+            lifecycleAuditEmitter = object : ApprovalLifecycleAuditEmitter by NoOpApprovalLifecycleAuditEmitter {
+                override suspend fun onClaimedContinuationForceCancelled(
+                    approvalId: String,
+                    workflowRunId: String,
+                    toolName: String,
+                    cancelledBy: String,
+                    reasonCode: String,
+                ) {
+                    throw IllegalArgumentException("""post-audit secret: {"token":"sk-9012"}""")
+                }
+            },
+        )
+        val cancelled = runBlocking {
+            coordinator.forceCancelClaimed(
+                ForceCancelClaimedCommand(
+                    approvalId = "cont-1",
+                    expectedVersion = 1L,
+                    operatorId = "operator-1",
+                    reasonCode = "worker-lost",
+                ),
+            )
+        }
+        // Force cancellation succeeds despite post-mutation audit failure
+        assertThat(cancelled.status).isEqualTo(ApprovalContinuationStatus.CANCELLED_UNCERTAIN)
+        assertThat(runBlocking { store.get("cont-1") }!!.status).isEqualTo(ApprovalContinuationStatus.CANCELLED_UNCERTAIN)
     }
 
     private fun createClaimedContinuation(

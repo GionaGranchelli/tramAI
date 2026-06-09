@@ -7,11 +7,9 @@ import dev.tramai.core.approval.ApprovalRecoveryCoordinator
 import dev.tramai.core.approval.ForceCancelClaimedCommand
 import dev.tramai.core.approval.SAFE_REASON_CODE_PATTERN
 import dev.tramai.core.exception.ApprovalAuthorizationException
-import dev.tramai.core.exception.ApprovalContinuationConflictException
 import dev.tramai.core.exception.ApprovalContinuationNotFoundException
-import dev.tramai.core.exception.ApprovalContinuationNotClaimableException
 import dev.tramai.core.exception.ApprovalRecoveryAuditUnavailableException
-import java.time.Clock
+import dev.tramai.core.exception.ApprovalRecoveryUnavailableException
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
 
@@ -27,6 +25,16 @@ import kotlinx.coroutines.CancellationException
  * `PENDING -> EXPIRED`
  * `PENDING -> CANCELLED`
  * `CLAIMED -> CANCELLED_UNCERTAIN` (via [forceCancelClaimed])
+ *
+ * ## Exception boundary policy
+ *
+ * Only locally generated, demonstrably safe command-validation
+ * [IllegalArgumentException] instances (e.g. [reasonCode] validation)
+ * propagate unchanged. ALL dependency-originated exceptions, including
+ * [IllegalArgumentException] from store or audit-emitter calls,
+ * are sanitized into framework-level exceptions with fixed messages
+ * and no cause chain. [CancellationException] always propagates
+ * unchanged.
  *
  * ## Two-phase recovery audit
  *
@@ -53,7 +61,6 @@ import kotlinx.coroutines.CancellationException
 class InMemoryApprovalRecoveryCoordinator(
     private val store: ApprovalContinuationStore,
     private val lifecycleAuditEmitter: ApprovalLifecycleAuditEmitter,
-    private val clock: Clock = Clock.systemUTC(),
 ) : ApprovalRecoveryCoordinator {
 
     private companion object {
@@ -64,12 +71,21 @@ class InMemoryApprovalRecoveryCoordinator(
         claimedBefore: Instant,
         limit: Int,
     ): List<ApprovalContinuation> {
-        val stale = store.findStaleClaimed(claimedBefore, limit)
+        val stale = try {
+            store.findStaleClaimed(claimedBefore, limit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw ApprovalRecoveryUnavailableException(e)
+        }
 
         // Emit detection audit events — best-effort, does not fail the operation
         stale.forEach { cont ->
             try {
-                val claimedAt = cont.claimedAt ?: return@forEach
+                val claimedAt = cont.claimedAt
+                    ?: return@forEach // Silently skip corrupted records without claimedAt.
+                    // A durable implementation should report this as an invariant violation
+                    // through an operational observer.
                 lifecycleAuditEmitter.onStaleClaimDetected(
                     approvalId = cont.approvalId,
                     workflowRunId = cont.workflowRunId,
@@ -89,22 +105,23 @@ class InMemoryApprovalRecoveryCoordinator(
     override suspend fun forceCancelClaimed(
         command: ForceCancelClaimedCommand,
     ): ApprovalContinuation {
+        // Locally generated safe validation — propagates unchanged.
         require(SAFE_REASON_CODE.matches(command.reasonCode)) {
             "reasonCode must match [a-z0-9][a-z0-9._:-]{0,63}"
         }
 
+        // Step 1: Pre-read — sanitize dependency exceptions.
         val existing = try {
             store.get(command.approvalId)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: IllegalArgumentException) {
-            throw e
         } catch (e: ApprovalContinuationNotFoundException) {
-            // Sanitize: wrap in new exception with only the coordinator's approvalId
-            throw ApprovalContinuationNotFoundException(command.approvalId)
+            throw e
         } catch (e: RuntimeException) {
             throw ApprovalAuthorizationException(command.approvalId)
         } ?: throw ApprovalContinuationNotFoundException(command.approvalId)
+
+        // Step 2: Pre-mutation audit — sanitize dependency exceptions.
         try {
             lifecycleAuditEmitter.onClaimedContinuationForceCancellationRequested(
                 approvalId = command.approvalId,
@@ -119,6 +136,7 @@ class InMemoryApprovalRecoveryCoordinator(
             throw ApprovalRecoveryAuditUnavailableException(e)
         }
 
+        // Step 3: Store mutation — sanitize dependency exceptions.
         val continuation = try {
             store.forceCancelClaimed(
                 approvalId = command.approvalId,
@@ -128,12 +146,11 @@ class InMemoryApprovalRecoveryCoordinator(
             )
         } catch (e: CancellationException) {
             throw e
-        } catch (e: IllegalArgumentException) {
-            throw e
         } catch (e: RuntimeException) {
             throw mapStoreError(e, command.approvalId)
         }
 
+        // Step 4: Post-mutation audit — best-effort, non-fatal.
         try {
             lifecycleAuditEmitter.onClaimedContinuationForceCancelled(
                 approvalId = command.approvalId,
@@ -153,8 +170,6 @@ class InMemoryApprovalRecoveryCoordinator(
 
     private fun mapStoreError(e: RuntimeException, approvalId: String): RuntimeException = when (e) {
         is ApprovalContinuationNotFoundException -> ApprovalContinuationNotFoundException(approvalId)
-        is ApprovalContinuationConflictException -> ApprovalAuthorizationException(approvalId)
-        is ApprovalContinuationNotClaimableException -> ApprovalAuthorizationException(approvalId)
         else -> ApprovalAuthorizationException(approvalId)
     }
 }

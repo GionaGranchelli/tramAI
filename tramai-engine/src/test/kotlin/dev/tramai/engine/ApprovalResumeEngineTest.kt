@@ -1151,7 +1151,6 @@ class ApprovalResumeEngineTest {
                     error("audit-down")
                 }
             },
-            clock = fixedClock,
         )
 
         assertThatThrownBy {
@@ -1215,7 +1214,6 @@ class ApprovalResumeEngineTest {
                     throw detectionCancellation
                 }
             },
-            clock = fixedClock,
         )
         val staleContinuation = runBlocking { recoveryStore.get("recovery-2") }!!
         assertThatThrownBy {
@@ -1240,7 +1238,6 @@ class ApprovalResumeEngineTest {
                 }
             },
             lifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
-            clock = fixedClock,
         )
         assertThatThrownBy {
             runBlocking {
