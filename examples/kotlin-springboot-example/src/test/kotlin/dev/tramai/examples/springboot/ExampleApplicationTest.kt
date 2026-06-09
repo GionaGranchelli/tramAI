@@ -412,6 +412,50 @@ class ExampleApplicationTest {
     }
 
     @Test
+    fun `immediate cancellation before workflow execution persists CANCELLED`() {
+        val workflowId = "wf-cancel-immediate-8001"
+        val cancellableInvoice = "[[CANCEL_ME]] Vendor: Northwind Power\nInvoice: INV-1042"
+        val cancellableInvoiceJson = cancellableInvoice.replace("\n", "\\\\n")
+
+        // Start the workflow
+        mockMvc.perform(
+            post("/invoice/workflow/start")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                        {
+                          "workflowId": "$workflowId",
+                          "invoiceText": "$cancellableInvoiceJson"
+                        }
+                    """.trimIndent(),
+                ),
+        )
+            .andExpect(status().isAccepted)
+
+        // Cancel immediately — before execution can start
+        asyncJson(post("/invoice/workflow/cancel/$workflowId"))
+            .andExpect(status().isAccepted)
+            .andExpect(jsonPath("$.workflowId").value(workflowId))
+            .andExpect(jsonPath("$.status").value("CANCELLED"))
+
+        // Result endpoint must expose CANCELLED immediately
+        asyncJson(get("/invoice/workflow/result/$workflowId"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.status").value("CANCELLED"))
+
+        // Second cancel is idempotent
+        asyncJson(post("/invoice/workflow/cancel/$workflowId"))
+            .andExpect(status().isAccepted)
+            .andExpect(jsonPath("$.workflowId").value(workflowId))
+            .andExpect(jsonPath("$.status").value("CANCELLED"))
+
+        // Checkpoint metadata confirms CANCELLED
+        asyncJson(get("/invoice/workflow/checkpoint/$workflowId"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.metadata.workflow_status").value("CANCELLED"))
+    }
+
+    @Test
     fun `workflow events endpoint returns lifecycle events for async run`() {
         val workflowId = "wf-events-7001"
 

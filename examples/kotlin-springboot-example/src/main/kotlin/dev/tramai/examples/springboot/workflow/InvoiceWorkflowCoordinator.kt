@@ -17,6 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
@@ -269,6 +270,38 @@ class InvoiceWorkflowCoordinator(
                 message = "Cancellation requested via API",
             )
             activeJob.cancel(CancellationException("Workflow cancelled via API"))
+
+            // Persist CANCELLED status immediately so result lookup finds it
+            // even if the coroutine body never started.
+            withContext(NonCancellable) {
+                val existing = persistence.checkpointStore.load(WORKFLOW_NAME, workflowId)
+                if (existing != null) {
+                    val updated = existing.copy(
+                        metadata = existing.metadata + mapOf(
+                            METADATA_STATUS to WorkflowExecutionStatus.CANCELLED.name,
+                            METADATA_UPDATED_AT to Instant.now().toString(),
+                        ),
+                    )
+                    persistence.checkpointStore.save(updated, expectedRevision = existing.revision)
+                } else {
+                    persistence.checkpointStore.save(
+                        WorkflowCheckpoint(
+                            workflowName = WORKFLOW_NAME,
+                            workflowId = workflowId,
+                            nextStepIndex = 0,
+                            stepExecutions = 0,
+                            lastCompletedStepName = null,
+                            statePayload = "",
+                            metadata = linkedMapOf(
+                                METADATA_STATUS to WorkflowExecutionStatus.CANCELLED.name,
+                                METADATA_UPDATED_AT to Instant.now().toString(),
+                            ),
+                        ),
+                        expectedRevision = null,
+                    )
+                }
+            }
+
             return InvoiceWorkflowCancelResponse(
                 workflowId = workflowId,
                 status = WorkflowExecutionStatus.CANCELLED,
