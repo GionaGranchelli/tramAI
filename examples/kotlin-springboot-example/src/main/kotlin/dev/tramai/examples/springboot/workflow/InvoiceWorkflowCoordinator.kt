@@ -17,7 +17,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
@@ -273,33 +272,10 @@ class InvoiceWorkflowCoordinator(
 
             // Persist CANCELLED status immediately so result lookup finds it
             // even if the coroutine body never started.
+            // Retry on optimistic concurrency or file lock conflicts from a
+            // concurrently executing workflow that saves a checkpoint in parallel.
             withContext(NonCancellable) {
-                val existing = persistence.checkpointStore.load(WORKFLOW_NAME, workflowId)
-                if (existing != null) {
-                    val updated = existing.copy(
-                        metadata = existing.metadata + mapOf(
-                            METADATA_STATUS to WorkflowExecutionStatus.CANCELLED.name,
-                            METADATA_UPDATED_AT to Instant.now().toString(),
-                        ),
-                    )
-                    persistence.checkpointStore.save(updated, expectedRevision = existing.revision)
-                } else {
-                    persistence.checkpointStore.save(
-                        WorkflowCheckpoint(
-                            workflowName = WORKFLOW_NAME,
-                            workflowId = workflowId,
-                            nextStepIndex = 0,
-                            stepExecutions = 0,
-                            lastCompletedStepName = null,
-                            statePayload = "",
-                            metadata = linkedMapOf(
-                                METADATA_STATUS to WorkflowExecutionStatus.CANCELLED.name,
-                                METADATA_UPDATED_AT to Instant.now().toString(),
-                            ),
-                        ),
-                        expectedRevision = null,
-                    )
-                }
+                persistCancelledCheckpoint(workflowId)
             }
 
             return InvoiceWorkflowCancelResponse(
@@ -489,6 +465,65 @@ class InvoiceWorkflowCoordinator(
             } catch (_: OverlappingFileLockException) {
                 if (attempt < 79) {
                     delay(10)
+                }
+            }
+        }
+    }
+
+    private suspend fun persistCancelledCheckpoint(workflowId: String) {
+        repeat(80) { attempt ->
+            val existing = try {
+                persistence.checkpointStore.load(WORKFLOW_NAME, workflowId)
+            } catch (_: OverlappingFileLockException) {
+                if (attempt < 79) {
+                    delay(10)
+                }
+                return@repeat
+            }
+            if (existing != null) {
+                val updated = existing.copy(
+                    metadata = existing.metadata + mapOf(
+                        METADATA_STATUS to WorkflowExecutionStatus.CANCELLED.name,
+                        METADATA_UPDATED_AT to Instant.now().toString(),
+                    ),
+                )
+                try {
+                    persistence.checkpointStore.save(updated, expectedRevision = existing.revision)
+                    return
+                } catch (_: WorkflowCheckpointConflictException) {
+                    if (attempt < 79) {
+                        delay(10)
+                    }
+                } catch (_: OverlappingFileLockException) {
+                    if (attempt < 79) {
+                        delay(10)
+                    }
+                }
+            } else {
+                val terminal = WorkflowCheckpoint(
+                    workflowName = WORKFLOW_NAME,
+                    workflowId = workflowId,
+                    nextStepIndex = 0,
+                    stepExecutions = 0,
+                    lastCompletedStepName = null,
+                    statePayload = "",
+                    metadata = linkedMapOf(
+                        METADATA_STATUS to WorkflowExecutionStatus.CANCELLED.name,
+                        METADATA_UPDATED_AT to Instant.now().toString(),
+                    ),
+                )
+                try {
+                    persistence.checkpointStore.save(terminal, expectedRevision = null)
+                    return
+                } catch (_: WorkflowCheckpointConflictException) {
+                    // Checkpoint was created concurrently — retry to load and update it
+                    if (attempt < 79) {
+                        delay(10)
+                    }
+                } catch (_: OverlappingFileLockException) {
+                    if (attempt < 79) {
+                        delay(10)
+                    }
                 }
             }
         }
