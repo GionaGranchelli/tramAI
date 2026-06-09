@@ -10,3 +10,5 @@ gradle-app.setting
 .env
 graphify-out.kotlin/
 graphify-out/
+# Hermes agent prompt files
+.hermes-*

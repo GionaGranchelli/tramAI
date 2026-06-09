@@ -1210,25 +1210,30 @@ class InMemoryApprovalContinuationStoreTest {
 
     @Test
     fun `findStaleClaimed enforces bounds and never leaks raw arguments`() : Unit = runBlocking {
-        val raw = """{"sensitiveField":"find-stale-redaction"}"""
-        insertDirect(
-            continuation = aPendingContinuation(
+        val raw = """{"secret":"sensitive-value","password":"hunter2"}"""
+        val continuation = store.create(
+            aPendingContinuation(
                 approvalId = "stale-redacted",
-                status = ApprovalContinuationStatus.CLAIMED,
-                claimedBy = "runner-1",
-                claimedAt = fixedClock.instant().minusSeconds(45),
-                version = 1L,
+                argumentsJson = raw,
             ),
-            arguments = null,
+            SensitiveToolArguments.of(raw),
         )
+        store.claimForExecution(continuation.approvalId, 0L, "runner-1")
+        fixedClock.advance(Duration.ofMinutes(30))
 
         val stale = store.findStaleClaimed(
             claimedBefore = fixedClock.instant().minusSeconds(30),
             limit = 1,
         )
 
-        assertThat(stale.single().toString()).doesNotContain(raw)
-        assertThat(stale.single().toString()).doesNotContain("arguments=")
+        val found = stale.find { it.approvalId == continuation.approvalId }
+        assertThat(found).isNotNull
+        assertThat(found!!.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+        assertThat(found.toString()).doesNotContain("secret")
+        assertThat(found.toString()).doesNotContain("password")
+        assertThat(found.toString()).doesNotContain("hunter2")
+        assertThat(found.toString()).doesNotContain("sensitive-value")
+        assertThat(found.toString()).doesNotContain("arguments=")
 
         assertThatIllegalArgumentException()
             .isThrownBy { runBlocking { store.findStaleClaimed(fixedClock.instant(), 0) } }

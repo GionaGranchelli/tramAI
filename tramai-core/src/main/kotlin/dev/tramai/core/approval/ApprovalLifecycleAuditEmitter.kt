@@ -97,6 +97,25 @@ interface ApprovalLifecycleAuditEmitter {
         claimedAt: java.time.Instant,
     )
 
+    /**
+     * Called BEFORE a CLAIMED continuation is force-cancelled.
+     * This is the durable privileged-action audit boundary.
+     * If this event fails, the mutation MUST NOT proceed.
+     * In database-backed implementations, this maps to a transactional outbox.
+     */
+    suspend fun onClaimedContinuationForceCancellationRequested(
+        approvalId: String,
+        workflowRunId: String,
+        toolName: String,
+        cancelledBy: String,
+        reasonCode: String,
+    )
+
+    /**
+     * Called AFTER a CLAIMED continuation has been successfully
+     * force-cancelled. This is best-effort notification — the
+     * durable audit record is the Requested event.
+     */
     suspend fun onClaimedContinuationForceCancelled(
         approvalId: String,
         workflowRunId: String,
@@ -151,6 +170,14 @@ object NoOpApprovalLifecycleAuditEmitter : ApprovalLifecycleAuditEmitter {
         workflowRunId: String,
         toolName: String,
         claimedAt: java.time.Instant,
+    ) = Unit
+
+    override suspend fun onClaimedContinuationForceCancellationRequested(
+        approvalId: String,
+        workflowRunId: String,
+        toolName: String,
+        cancelledBy: String,
+        reasonCode: String,
     ) = Unit
 
     override suspend fun onClaimedContinuationForceCancelled(

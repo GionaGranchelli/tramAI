@@ -46,12 +46,29 @@ class IdempotencyKeyUtilTest {
     }
 
     @Test
+    fun `length-prefixed encoding prevents ambiguous concatenation`() {
+        val digest = Sha256Digest.of("sha256:1111111111111111111111111111111111111111111111111111111111111111")
+
+        val first = IdempotencyKeyUtil.deriveApprovalKey("a:b", "c", digest)
+        val second = IdempotencyKeyUtil.deriveApprovalKey("a", "b:c", digest)
+
+        assertThat(first).isNotEqualTo(second)
+    }
+
+    @Test
     fun `raw arguments never appear in key output`() {
         val rawArguments = """{"secret":"never-in-key"}"""
+        val digester = ToolArgumentsDigester { args ->
+            val bytes = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(args.reveal().toByteArray(java.nio.charset.StandardCharsets.UTF_8))
+            val hex = bytes.joinToString("") { "%02x".format(it) }
+            Sha256Digest.of("sha256:$hex")
+        }
+        val digest = digester.digest(SensitiveToolArguments.of(rawArguments))
         val key = IdempotencyKeyUtil.deriveApprovalKey(
             "approval-1",
             "tool-call-1",
-            Sha256Digest.of("sha256:3333333333333333333333333333333333333333333333333333333333333333"),
+            digest,
         )
 
         assertThat(key).doesNotContain(rawArguments)

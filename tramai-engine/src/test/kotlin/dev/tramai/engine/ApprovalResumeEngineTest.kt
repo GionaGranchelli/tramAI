@@ -8,6 +8,11 @@ import org.assertj.core.api.Assertions.catchThrowableOfType
 import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.ForceCancelClaimedCommand
+import dev.tramai.core.approval.IdempotencyKeyUtil
+import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.SensitiveToolArguments
+import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.ApprovalToken
 import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.ApprovalAuthorization
@@ -16,6 +21,7 @@ import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.ApprovalChallenge
 import dev.tramai.core.approval.ValidateResumeCommand
 import dev.tramai.core.exception.ApprovalSuspendedException
+import dev.tramai.core.exception.ApprovalRecoveryAuditUnavailableException
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.ResolvedTool
@@ -30,7 +36,9 @@ import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.core.policy.ApprovalRequirement
 import dev.tramai.core.structured.StructuredOutputResult
 import dev.tramai.security.approval.InMemoryApprovalContinuationStore
+import dev.tramai.security.approval.InMemoryApprovalRecoveryCoordinator
 import dev.tramai.security.approval.Sha256ToolArgumentsDigester
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -962,6 +970,288 @@ class ApprovalResumeEngineTest {
         assertThat(tool.invocations).hasSize(1)
         val (_, context) = tool.invocations.single()
         assertThat(context.operationName).isNotBlank()
+    }
+
+    @Test
+    fun `normal tool execution receives null idempotency key`() {
+        val localTool = RecordingTool(name = toolName)
+        var localProviderCallCount = 0
+        val engine = TramaiEngine(
+            provider = RecordingProvider { _ ->
+                localProviderCallCount++
+                if (localProviderCallCount == 1) {
+                    ModelResponse(
+                        content = "",
+                        toolCalls = listOf(ToolCall("call-normal-1", toolName, toolArguments)),
+                    )
+                } else {
+                    ModelResponse(content = "Final result: success")
+                }
+            },
+            toolRegistry = ToolRegistry(mapOf(localTool.name to localTool)),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+            clock = fixedClock,
+        )
+
+        val service = engine.create<SuspensionTriggerService>()
+        val result = runBlocking { service.execute("test input") }
+
+        assertThat(result).isEqualTo("Final result: success")
+        assertThat(localTool.invocations).hasSize(1)
+        assertThat(localTool.invocations.single().second.idempotencyKey).isNull()
+    }
+
+    @Test
+    fun `resumed approved execution receives derived idempotency key`() {
+        val engine = createEngine()
+        val exception = triggerSuspension(engine)
+        policyEngine.resumeDecision = PolicyDecision.Allow
+
+        runBlocking {
+            engine.resumeApproval(
+                ResumeApprovalCommand(
+                    approvalId = exception.approvalId,
+                    approvalExpectedVersion = 0L,
+                    continuationExpectedVersion = 0L,
+                    presentedToken = exception.challenge.token,
+                    resumedBy = resumedBy,
+                ),
+            )
+        }
+
+        val expectedKey = IdempotencyKeyUtil.deriveApprovalKey(
+            exception.approvalId,
+            toolCallId,
+            digester.digest(SensitiveToolArguments.of(toolArguments)),
+        )
+        assertThat(tool.invocations).hasSize(1)
+        assertThat(tool.invocations.single().second.idempotencyKey).isEqualTo(expectedKey)
+    }
+
+    @Test
+    fun `idempotent resumed tool retries with identical idempotency key on every attempt`() {
+        val retryingTool = object : ResolvedTool {
+            override val name: String = toolName
+            override val description: String = "Retrying tool"
+            override val inputSchemaJson: String =
+                """{"type":"object","properties":{"x":{"type":"integer"},"y":{"type":"integer"}}}"""
+            override val idempotent: Boolean = true
+            override val sideEffectLevel: SideEffectLevel = SideEffectLevel.WRITE
+            val contexts = mutableListOf<ToolExecutionContext>()
+            var calls = 0
+
+            override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult {
+                contexts += context
+                calls++
+                if (calls == 1) {
+                    throw IllegalStateException("transient")
+                }
+                return ToolResult.Success("""{"result":5}""")
+            }
+        }
+        var localProviderCallCount = 0
+        val engine = TramaiEngine(
+            provider = RecordingProvider { _ ->
+                localProviderCallCount++
+                if (localProviderCallCount == 1) {
+                    ModelResponse(
+                        content = "",
+                        toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                    )
+                } else {
+                    ModelResponse(content = "Final result: success")
+                }
+            },
+            toolRegistry = ToolRegistry(mapOf(retryingTool.name to retryingTool)),
+            policyEngine = SelectivePolicyEngine(toolExecApprovalToolName = toolName),
+            suspendedInvocationStore = InMemorySuspendedInvocationStore(),
+            approvalContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock),
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            clock = fixedClock,
+        )
+
+        val exception = triggerSuspension(engine)
+        runBlocking {
+            engine.resumeApproval(
+                ResumeApprovalCommand(
+                    approvalId = exception.approvalId,
+                    approvalExpectedVersion = 0L,
+                    continuationExpectedVersion = 0L,
+                    presentedToken = exception.challenge.token,
+                    resumedBy = resumedBy,
+                ),
+            )
+        }
+
+        val expectedKey = IdempotencyKeyUtil.deriveApprovalKey(
+            exception.approvalId,
+            toolCallId,
+            digester.digest(SensitiveToolArguments.of(toolArguments)),
+        )
+        assertThat(retryingTool.contexts).hasSize(2)
+        assertThat(retryingTool.contexts.map { it.idempotencyKey }).containsOnly(expectedKey)
+        assertThat(retryingTool.contexts.map { it.attemptNumber }).containsExactly(0, 1)
+    }
+
+    @Test
+    fun `different approvalId toolCallId and digest values generate different keys`() {
+        val digestA = digester.digest(SensitiveToolArguments.of(toolArguments))
+        val digestB = digester.digest(SensitiveToolArguments.of("""{"x":9,"y":9}"""))
+
+        val keyA = IdempotencyKeyUtil.deriveApprovalKey("approval-a", "call-a", digestA)
+        val keyB = IdempotencyKeyUtil.deriveApprovalKey("approval-b", "call-a", digestA)
+        val keyC = IdempotencyKeyUtil.deriveApprovalKey("approval-a", "call-b", digestA)
+        val keyD = IdempotencyKeyUtil.deriveApprovalKey("approval-a", "call-a", digestB)
+
+        assertThat(keyA).isNotEqualTo(keyB)
+        assertThat(keyA).isNotEqualTo(keyC)
+        assertThat(keyA).isNotEqualTo(keyD)
+    }
+
+    @Test
+    fun `audit request failure leaves status claimed`() {
+        val recoveryStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+        runBlocking {
+            recoveryStore.create(
+                ApprovalContinuation(
+                    approvalId = "recovery-1",
+                    workflowRunId = "wf-run-1",
+                    correlationId = "corr-1",
+                    toolCallId = "tc-1",
+                    toolName = toolName,
+                    argumentsDigest = digester.digest(SensitiveToolArguments.of(toolArguments)),
+                    policyVersion = "v1",
+                    workflowDigest = dev.tramai.core.approval.Sha256Digest.of(
+                        "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                    ),
+                    status = ApprovalContinuationStatus.PENDING,
+                    createdAt = fixedClock.instant(),
+                    approvalExpiresAt = fixedClock.instant().plusSeconds(600),
+                    claimedBy = null,
+                    claimedAt = null,
+                    completedAt = null,
+                    version = 0L,
+                ),
+                SensitiveToolArguments.of(toolArguments),
+            )
+            recoveryStore.claimForExecution("recovery-1", 0L, "runner-1")
+        }
+        val coordinator = InMemoryApprovalRecoveryCoordinator(
+            store = recoveryStore,
+            lifecycleAuditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by NoOpApprovalLifecycleAuditEmitter {
+                override suspend fun onClaimedContinuationForceCancellationRequested(
+                    approvalId: String,
+                    workflowRunId: String,
+                    toolName: String,
+                    cancelledBy: String,
+                    reasonCode: String,
+                ) {
+                    error("audit-down")
+                }
+            },
+        )
+
+        assertThatThrownBy {
+            runBlocking {
+                coordinator.forceCancelClaimed(
+                    ForceCancelClaimedCommand(
+                        approvalId = "recovery-1",
+                        expectedVersion = 1L,
+                        operatorId = "operator-1",
+                        reasonCode = "worker-lost",
+                    ),
+                )
+            }
+        }.isInstanceOf(ApprovalRecoveryAuditUnavailableException::class.java)
+            .hasMessage("Approval recovery audit is unavailable")
+
+        val continuation = runBlocking { recoveryStore.get("recovery-1") }
+        assertThat(continuation).isNotNull
+        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+    }
+
+    @Test
+    fun `cancellation exception from detection audit and store mutation propagates unchanged`() {
+        val recoveryStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+        runBlocking {
+            recoveryStore.create(
+                ApprovalContinuation(
+                    approvalId = "recovery-2",
+                    workflowRunId = "wf-run-1",
+                    correlationId = "corr-1",
+                    toolCallId = "tc-1",
+                    toolName = toolName,
+                    argumentsDigest = digester.digest(SensitiveToolArguments.of(toolArguments)),
+                    policyVersion = "v1",
+                    workflowDigest = dev.tramai.core.approval.Sha256Digest.of(
+                        "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                    ),
+                    status = ApprovalContinuationStatus.PENDING,
+                    createdAt = fixedClock.instant(),
+                    approvalExpiresAt = fixedClock.instant().plusSeconds(600),
+                    claimedBy = null,
+                    claimedAt = null,
+                    completedAt = null,
+                    version = 0L,
+                ),
+                SensitiveToolArguments.of(toolArguments),
+            )
+            recoveryStore.claimForExecution("recovery-2", 0L, "runner-1")
+        }
+
+        val detectionCancellation = CancellationException("stop-detection")
+        val detectionCoordinator = InMemoryApprovalRecoveryCoordinator(
+            store = recoveryStore,
+            lifecycleAuditEmitter = object : dev.tramai.core.approval.ApprovalLifecycleAuditEmitter by NoOpApprovalLifecycleAuditEmitter {
+                override suspend fun onStaleClaimDetected(
+                    approvalId: String,
+                    workflowRunId: String,
+                    toolName: String,
+                    claimedAt: Instant,
+                ) {
+                    throw detectionCancellation
+                }
+            },
+        )
+        val staleContinuation = runBlocking { recoveryStore.get("recovery-2") }!!
+        assertThatThrownBy {
+            runBlocking {
+                detectionCoordinator.findStaleClaims(
+                    claimedBefore = staleContinuation.claimedAt!!.plusSeconds(1),
+                    limit = 10,
+                )
+            }
+        }.isSameAs(detectionCancellation)
+
+        val mutationCancellation = CancellationException("stop-mutation")
+        val mutationCoordinator = InMemoryApprovalRecoveryCoordinator(
+            store = object : dev.tramai.core.approval.ApprovalContinuationStore by recoveryStore {
+                override suspend fun forceCancelClaimed(
+                    approvalId: String,
+                    expectedVersion: Long,
+                    cancelledBy: String,
+                    reasonCode: String,
+                ): ApprovalContinuation {
+                    throw mutationCancellation
+                }
+            },
+            lifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+        )
+        assertThatThrownBy {
+            runBlocking {
+                mutationCoordinator.forceCancelClaimed(
+                    ForceCancelClaimedCommand(
+                        approvalId = "recovery-2",
+                        expectedVersion = 1L,
+                        operatorId = "operator-1",
+                        reasonCode = "worker-lost",
+                    ),
+                )
+            }
+        }.isSameAs(mutationCancellation)
     }
 
     @Test

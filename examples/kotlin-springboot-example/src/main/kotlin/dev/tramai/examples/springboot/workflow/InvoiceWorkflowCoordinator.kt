@@ -12,10 +12,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.nio.channels.OverlappingFileLockException
@@ -202,6 +204,9 @@ class InvoiceWorkflowCoordinator(
         val persistedStatus = checkpoint?.metadata?.get(METADATA_STATUS)
             ?.let { raw -> runCatching { WorkflowExecutionStatus.valueOf(raw) }.getOrNull() }
         val status = when {
+            persistedStatus == WorkflowExecutionStatus.CANCELLED -> persistedStatus
+            persistedStatus == WorkflowExecutionStatus.FAILED -> persistedStatus
+            persistedStatus == WorkflowExecutionStatus.COMPLETED -> persistedStatus
             isActive && checkpoint == null -> WorkflowExecutionStatus.PENDING
             isActive -> WorkflowExecutionStatus.RUNNING
             persistedStatus != null -> persistedStatus
@@ -357,26 +362,28 @@ class InvoiceWorkflowCoordinator(
             } else {
                 WorkflowExecutionStatus.FAILED
             }
-            persistStatusMetadata(
-                workflowId = workflowId,
-                status = status,
-                errorMessage = if (cancelled) {
-                    "Workflow cancelled via API"
-                } else {
-                    error.message ?: (error::class.simpleName ?: "Workflow failed")
-                },
-                waitForCheckpoint = true,
-            )
-            recordEvent(
-                workflowId = workflowId,
-                type = if (cancelled) WorkflowEventType.RUN_CANCELLED else WorkflowEventType.RUN_FAILED,
-                status = status,
-                message = if (cancelled) {
-                    "Workflow cancelled"
-                } else {
-                    error.message ?: (error::class.simpleName ?: "Workflow failed")
-                },
-            )
+            withContext(NonCancellable) {
+                persistStatusMetadata(
+                    workflowId = workflowId,
+                    status = status,
+                    errorMessage = if (cancelled) {
+                        "Workflow cancelled via API"
+                    } else {
+                        error.message ?: (error::class.simpleName ?: "Workflow failed")
+                    },
+                    waitForCheckpoint = true,
+                )
+                recordEvent(
+                    workflowId = workflowId,
+                    type = if (cancelled) WorkflowEventType.RUN_CANCELLED else WorkflowEventType.RUN_FAILED,
+                    status = status,
+                    message = if (cancelled) {
+                        "Workflow cancelled"
+                    } else {
+                        error.message ?: (error::class.simpleName ?: "Workflow failed")
+                    },
+                )
+            }
             throw error
         } finally {
             cancellationRequests.remove(workflowId)
