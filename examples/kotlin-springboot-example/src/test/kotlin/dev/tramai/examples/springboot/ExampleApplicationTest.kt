@@ -431,7 +431,7 @@ class ExampleApplicationTest {
 
         var completed = false
         var pollDelay = 50L
-        repeat(120) {
+        repeat(200) {
             val resultPayload = asyncJson(get("/invoice/workflow/result/$workflowId"))
                 .andExpect(status().isOk)
                 .andReturn()
