@@ -9,6 +9,7 @@ import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.exception.ApprovalAuthorizationException
+import dev.tramai.core.exception.ApprovalContinuationNotFoundException
 import dev.tramai.core.exception.ApprovalRecoveryAuditUnavailableException
 import dev.tramai.core.exception.ApprovalRecoveryUnavailableException
 import java.time.Clock
@@ -542,6 +543,34 @@ class ApprovalRecoveryCoordinatorTest {
         // Force cancellation succeeds despite post-mutation audit failure
         assertThat(cancelled.status).isEqualTo(ApprovalContinuationStatus.CANCELLED_UNCERTAIN)
         assertThat(runBlocking { store.get("cont-1") }!!.status).isEqualTo(ApprovalContinuationStatus.CANCELLED_UNCERTAIN)
+    }
+
+    @Test
+    fun `pre-read ApprovalContinuationNotFoundException with internal id is rebuilt with command approvalId`() {
+        val coordinator = InMemoryApprovalRecoveryCoordinator(
+            store = object : ApprovalContinuationStore by store {
+                override suspend fun get(approvalId: String): ApprovalContinuation? {
+                    throw ApprovalContinuationNotFoundException("internal-secret-record-id")
+                }
+            },
+            lifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+        )
+        val throwable = catchThrowable {
+            runBlocking {
+                coordinator.forceCancelClaimed(
+                    ForceCancelClaimedCommand(
+                        approvalId = "cont-1",
+                        expectedVersion = 1L,
+                        operatorId = "operator-1",
+                        reasonCode = "worker-lost",
+                    ),
+                )
+            }
+        }
+        assertThat(throwable).isInstanceOf(ApprovalContinuationNotFoundException::class.java)
+        assertThat(throwable.message).contains("cont-1")
+        assertThat(throwable.toString()).doesNotContain("internal-secret-record-id")
+        assertThat(throwable.cause).isNull()
     }
 
     private fun createClaimedContinuation(

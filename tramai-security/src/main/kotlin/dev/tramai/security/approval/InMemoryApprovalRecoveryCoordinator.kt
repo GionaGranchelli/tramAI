@@ -116,7 +116,7 @@ class InMemoryApprovalRecoveryCoordinator(
         } catch (e: CancellationException) {
             throw e
         } catch (e: ApprovalContinuationNotFoundException) {
-            throw e
+            throw ApprovalContinuationNotFoundException(command.approvalId)
         } catch (e: RuntimeException) {
             throw ApprovalAuthorizationException(command.approvalId)
         } ?: throw ApprovalContinuationNotFoundException(command.approvalId)
