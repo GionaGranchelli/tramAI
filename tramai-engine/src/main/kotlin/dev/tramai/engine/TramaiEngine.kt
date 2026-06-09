@@ -2019,6 +2019,8 @@ internal class TramaiInvocationHandler(
                 tool.execute(input, context)
             } catch (e: dev.tramai.core.exception.ToolInvalidInputException) {
                 ToolResult.InvalidInput(e.message ?: "Invalid tool input")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (tool.idempotent) {
                     ToolResult.TransientFailure(e)
@@ -2618,6 +2620,8 @@ internal class TramaiInvocationHandler(
                     toolName = metadata.toolName,
                     completedBy = command.resumedBy,
                 )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 // Log/report through operational observer, do NOT emit uncertain outcome
                 // Use try/catch(Exception) not runCatching — fatal Error types must propagate
@@ -2661,6 +2665,9 @@ internal class TramaiInvocationHandler(
                     reason = "structured-parse-failed: ${e::class.simpleName ?: "unknown"}",
                 )
             }
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Propagate coroutine cancellation immediately without audit side effects.
             throw e
         } catch (e: Exception) {
             // Fix 4: Universal uncertain-outcome — any failure after claim leaves continuation CLAIMED
