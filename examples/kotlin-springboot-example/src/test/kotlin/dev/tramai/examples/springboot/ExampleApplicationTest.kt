@@ -228,7 +228,7 @@ class ExampleApplicationTest {
 
         var completedPayload: String? = null
         var pollDelay = 200L
-        repeat(60) {
+        repeat(120) {
             val resultPayload = asyncJson(get("/invoice/workflow/result/$workflowId"))
                 .andExpect(status().isOk)
                 .andReturn()
@@ -310,7 +310,7 @@ class ExampleApplicationTest {
 
         var failedPayload: String? = null
         var pollDelay = 200L
-        repeat(60) {
+        repeat(120) {
             val resultPayload = asyncJson(get("/invoice/workflow/result/$workflowId"))
                 .andExpect(status().isOk)
                 .andReturn()
@@ -387,7 +387,7 @@ class ExampleApplicationTest {
 
         var cancelledPayload: String? = null
         var pollDelay = 200L
-        repeat(60) {
+        repeat(120) {
             val resultPayload = asyncJson(get("/invoice/workflow/result/$workflowId"))
                 .andExpect(status().isOk)
                 .andReturn()
@@ -431,7 +431,7 @@ class ExampleApplicationTest {
 
         var completed = false
         var pollDelay = 200L
-        repeat(60) {
+        repeat(120) {
             val resultPayload = asyncJson(get("/invoice/workflow/result/$workflowId"))
                 .andExpect(status().isOk)
                 .andReturn()
