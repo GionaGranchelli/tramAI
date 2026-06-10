@@ -158,6 +158,7 @@ class InvoiceWorkflowCoordinator(
                 message = "Workflow accepted for asynchronous execution",
             )
             job.invokeOnCompletion {
+                cancellationRequests.remove(workflowId)
                 activeRuns.remove(workflowId, job)
                 activeRunStartedAtMillis.remove(workflowId)
             }
@@ -468,6 +469,11 @@ class InvoiceWorkflowCoordinator(
                 }
             }
         }
+        // Retry exhaustion — fail closed
+        throw WorkflowCheckpointConflictException(
+            "Failed to persist status '$status' for workflow " +
+                "'$WORKFLOW_NAME' with workflowId='$workflowId' after 80 attempts",
+        )
     }
 
     private suspend fun persistCancelledCheckpoint(workflowId: String) {
@@ -481,12 +487,27 @@ class InvoiceWorkflowCoordinator(
                 return@repeat
             }
             if (existing != null) {
-                val updated = existing.copy(
-                    metadata = existing.metadata + mapOf(
-                        METADATA_STATUS to WorkflowExecutionStatus.CANCELLED.name,
-                        METADATA_UPDATED_AT to Instant.now().toString(),
-                    ),
-                )
+                val existingStatus = existing.metadata[METADATA_STATUS]
+                // Already CANCELLED — idempotent
+                if (existingStatus == WorkflowExecutionStatus.CANCELLED.name) {
+                    return
+                }
+                // Terminal states COMPLETED or FAILED — never overwrite
+                if (existingStatus == WorkflowExecutionStatus.COMPLETED.name ||
+                    existingStatus == WorkflowExecutionStatus.FAILED.name
+                ) {
+                    throw WorkflowNotRunningException(
+                        "Workflow '$WORKFLOW_NAME' with workflowId " +
+                            "'$workflowId' is already in terminal state '$existingStatus'",
+                    )
+                }
+                // Update to CANCELLED and clear stale error metadata
+                val updatedMetadata = linkedMapOf<String, String>()
+                updatedMetadata.putAll(existing.metadata)
+                updatedMetadata[METADATA_STATUS] = WorkflowExecutionStatus.CANCELLED.name
+                updatedMetadata[METADATA_UPDATED_AT] = Instant.now().toString()
+                updatedMetadata.remove(METADATA_ERROR)
+                val updated = existing.copy(metadata = updatedMetadata)
                 try {
                     persistence.checkpointStore.save(updated, expectedRevision = existing.revision)
                     return
@@ -527,6 +548,11 @@ class InvoiceWorkflowCoordinator(
                 }
             }
         }
+        // Retry exhaustion — fail closed
+        throw WorkflowCheckpointConflictException(
+            "Failed to persist CANCELLED status for workflow " +
+                "'$WORKFLOW_NAME' with workflowId='$workflowId' after 80 attempts",
+        )
     }
 
     private suspend fun execute(
