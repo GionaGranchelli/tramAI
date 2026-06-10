@@ -45,26 +45,47 @@ interface ApprovalStore {
     ): ApprovalRequest
 
     /**
-     * Consume an approved approval request exactly once.
+     * Consume an approved approval request, or return the durable receipt for an exact replay.
      *
-     * Validates that the presented token digest matches the stored [ApprovalBinding.approvalTokenDigest]
-     * using constant-time comparison. On success, marks the request as consumed by persisting
-     * [consumedBy] and [consumedAt] and incrementing the version.
+     * This method intentionally replaces the previous `consumeApproved(...)` SPI and is therefore
+     * a pre-release SPI break for downstream implementers.
      *
-     * @param approvalId The approval to consume.
-     * @param expectedVersion The version the caller expects.
-     * @param presentedTokenDigest The SHA-256 digest of the approval token presented by the caller.
-     * @param consumedBy Identifier of the consuming actor. Must not be blank, must not exceed
-     *                    the maximum ID length, must not contain control characters,
-     *                    and must not have surrounding whitespace.
-     * @return The updated [ApprovalRequest] with consumption fields set.
-     * @throws IllegalArgumentException if the approval does not exist, version mismatch,
-     *         status is not APPROVED, already consumed, expired, or token digest does not match.
+     * Fresh consumption succeeds only when all of the following hold:
+     * - status == APPROVED
+     * - request.version == expectedVersion
+     * - consumedAt == null
+     * - consumedBy == null
+     * - now < expiresAt
+     * - presentedTokenDigest matches the stored [ApprovalBinding.approvalTokenDigest] using
+     *   constant-time comparison
+     *
+     * On fresh success, implementations persist [consumedBy], persist consumedAt, increment the
+     * version by exactly one, and return [ApprovalConsumptionReceipt.replayed] = false.
+     *
+     * Exact replay succeeds only when all of the following hold:
+     * - status == APPROVED
+     * - consumedAt != null
+     * - stored consumedBy == command consumedBy
+     * - stored version == expectedVersion + 1
+     * - presentedTokenDigest matches the stored digest using constant-time comparison
+     *
+     * On exact replay success, implementations MUST return the existing durable request unchanged,
+     * without incrementing version or replacing consumedAt, and set
+     * [ApprovalConsumptionReceipt.replayed] = true.
+     *
+     * Implementations must reject every non-exact replay safely. Exact replay receipts may be
+     * returned after approval expiry; the continuation store remains authoritative for execution
+     * expiry.
      */
-    suspend fun consumeApproved(
+    suspend fun consumeApprovedOrReplay(
         approvalId: String,
         expectedVersion: Long,
         presentedTokenDigest: Sha256Digest,
         consumedBy: String,
-    ): ApprovalRequest
+    ): ApprovalConsumptionReceipt
 }
+
+data class ApprovalConsumptionReceipt(
+    val request: ApprovalRequest,
+    val replayed: Boolean,
+)

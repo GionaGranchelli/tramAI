@@ -3,6 +3,7 @@ package dev.tramai.security.approval
 import dev.tramai.core.approval.ApprovalAuthorization
 import dev.tramai.core.approval.ApprovalBinding
 import dev.tramai.core.approval.ApprovalChallenge
+import dev.tramai.core.approval.ApprovalConsumptionReceipt
 import dev.tramai.core.approval.ApprovalDecisionValidator
 import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ApprovalIdGenerator
@@ -26,8 +27,12 @@ import dev.tramai.core.exception.ApprovalStoreNotConsumableException
 import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.ApprovalStoreTokenRejectedException
 import dev.tramai.core.exception.ApprovalTokenRejectedException
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.time.Clock
 import java.time.Duration
+import java.time.Instant
+import kotlinx.coroutines.CancellationException
 
 class DefaultApprovalGateCoordinator(
     private val store: ApprovalStore,
@@ -87,7 +92,9 @@ class DefaultApprovalGateCoordinator(
 
         try {
             store.create(request)
-        } catch (e: RuntimeException) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             observeFailure("createApproval", approvalId, e)
             throw when (e) {
                 is ApprovalStoreConflictException -> ApprovalCreationException(approvalId)
@@ -121,7 +128,9 @@ class DefaultApprovalGateCoordinator(
                     comment = "cancelled: $reason",
                 ),
             )
-        } catch (e: RuntimeException) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             observeFailure("cancelApproval", approvalId, e)
             throw mapStoreError(approvalId, e)
         }
@@ -141,30 +150,39 @@ class DefaultApprovalGateCoordinator(
             operationName = "authorizeResume",
         )
 
-        val consumed = try {
-            store.consumeApproved(
+        val receipt = try {
+            store.consumeApprovedOrReplay(
                 approvalId = command.approvalId,
                 expectedVersion = command.expectedVersion,
                 presentedTokenDigest = presentedTokenDigest,
                 consumedBy = command.consumedBy,
             )
-        } catch (e: RuntimeException) {
-            observeFailure("authorizeResume.consumeApproved", command.approvalId, e)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            observeFailure("authorizeResume.consumeApprovedOrReplay", command.approvalId, e)
             throw mapStoreError(command.approvalId, e)
         }
+        val consumed = receipt.request
 
         if (consumed.approvalId != command.approvalId) throw ApprovalAuthorizationException(command.approvalId)
         if (consumed.binding != request.binding) throw ApprovalAuthorizationException(command.approvalId)
         if (consumed.status != ApprovalStatus.APPROVED) throw ApprovalAuthorizationException(command.approvalId)
         if (consumed.consumedBy != command.consumedBy) throw ApprovalAuthorizationException(command.approvalId)
         if (consumed.consumedAt == null) throw ApprovalAuthorizationException(command.approvalId)
-        if (consumed.version != Math.addExact(command.expectedVersion, 1L)) throw ApprovalAuthorizationException(command.approvalId)
+        val expectedConsumedVersion = try {
+            Math.addExact(command.expectedVersion, 1L)
+        } catch (_: ArithmeticException) {
+            throw ApprovalAuthorizationException(command.approvalId)
+        }
+        if (consumed.version != expectedConsumedVersion) throw ApprovalAuthorizationException(command.approvalId)
 
         return ApprovalAuthorization(
             approvalId = consumed.approvalId,
             consumedBy = consumed.consumedBy!!,
             consumedAt = consumed.consumedAt!!,
             version = consumed.version,
+            replayed = receipt.replayed,
         )
     }
 
@@ -239,7 +257,9 @@ class DefaultApprovalGateCoordinator(
 
         val request = try {
             store.get(approvalId)
-        } catch (e: RuntimeException) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             observeFailure("$operationName.get", approvalId, e)
             throw mapStoreError(approvalId, e)
         } ?: throw ApprovalNotFoundException(approvalId)
@@ -254,13 +274,60 @@ class DefaultApprovalGateCoordinator(
             workflowDigest = workflowDigest,
         )
         val presentedTokenDigest = approvalTokenDigester.digest(presentedToken)
+        validateAuthorizationCandidate(
+            request = request,
+            approvalId = approvalId,
+            expectedVersion = expectedVersion,
+            presentedTokenDigest = presentedTokenDigest,
+            consumedBy = consumedBy,
+        )
         decisionValidator.validate(request, consumedBy)
         return request to presentedTokenDigest
     }
 
+    private fun validateAuthorizationCandidate(
+        request: ApprovalRequest,
+        approvalId: String,
+        expectedVersion: Long,
+        presentedTokenDigest: dev.tramai.core.approval.Sha256Digest,
+        consumedBy: String,
+    ) {
+        if (!tokenDigestsMatch(presentedTokenDigest, request.binding.approvalTokenDigest)) {
+            throw ApprovalTokenRejectedException(approvalId)
+        }
+        if (request.status != ApprovalStatus.APPROVED) {
+            throw ApprovalAuthorizationException(approvalId)
+        }
+
+        if (request.consumedAt == null && request.consumedBy == null) {
+            if (request.version != expectedVersion) {
+                throw ApprovalAuthorizationException(approvalId)
+            }
+            if (!clock.instant().isBefore(request.expiresAt)) {
+                throw ApprovalAuthorizationException(approvalId)
+            }
+            return
+        }
+
+        if (request.consumedAt == null || request.consumedBy == null) {
+            throw ApprovalAuthorizationException(approvalId)
+        }
+        if (request.consumedBy != consumedBy) {
+            throw ApprovalAuthorizationException(approvalId)
+        }
+        val replayVersion = try {
+            Math.addExact(expectedVersion, 1L)
+        } catch (_: ArithmeticException) {
+            throw ApprovalAuthorizationException(approvalId)
+        }
+        if (request.version != replayVersion) {
+            throw ApprovalAuthorizationException(approvalId)
+        }
+    }
+
     private fun mapStoreError(
         approvalId: String,
-        exception: RuntimeException,
+        exception: Exception,
     ): RuntimeException {
         return when (exception) {
             is ApprovalStoreNotFoundException -> ApprovalNotFoundException(approvalId)
@@ -274,10 +341,10 @@ class DefaultApprovalGateCoordinator(
     private fun observeFailure(
         operation: String,
         approvalId: String?,
-        failure: RuntimeException,
+        failure: Exception,
     ) {
         try {
-            failureObserver?.record(operation, approvalId, failure)
+            failureObserver?.record(operation, approvalId, failure as? RuntimeException ?: RuntimeException(failure))
         } catch (_: RuntimeException) {
             // Diagnostic observers must not replace safe public failures.
         }
@@ -291,4 +358,13 @@ class DefaultApprovalGateCoordinator(
         require(trimmed == value) { "$fieldName must not contain surrounding whitespace" }
         return trimmed
     }
+
+    private fun tokenDigestsMatch(
+        presentedTokenDigest: dev.tramai.core.approval.Sha256Digest,
+        storedTokenDigest: dev.tramai.core.approval.Sha256Digest,
+    ): Boolean =
+        MessageDigest.isEqual(
+            presentedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
+            storedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
+        )
 }

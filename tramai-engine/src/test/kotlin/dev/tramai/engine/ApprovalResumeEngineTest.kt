@@ -47,6 +47,9 @@ import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.io.IOException
 import kotlin.test.Test
 
 class ApprovalResumeEngineTest {
@@ -107,6 +110,93 @@ class ApprovalResumeEngineTest {
             expectedVersion: Long,
             reason: String,
         ) = Unit
+    }
+
+    private class ReplaySafeApprovalGateCoordinator(
+        private val mode: Mode = Mode.NORMAL,
+    ) : ApprovalGateCoordinator {
+        enum class Mode {
+            NORMAL,
+            THROW_AFTER_DURABLE_CONSUME_ONCE,
+        }
+
+        private val durableReceipts = linkedMapOf<String, ApprovalAuthorization>()
+        var validateCalls: Int = 0
+        var authorizeCalls: Int = 0
+
+        override suspend fun createApproval(command: CreateApprovalCommand): ApprovalChallenge {
+            error("Not used in resume tests")
+        }
+
+        override suspend fun validateResume(command: ValidateResumeCommand): ApprovalValidation {
+            validateCalls++
+            if (command.presentedToken.reveal() == "wrong-token") {
+                throw dev.tramai.core.exception.ApprovalTokenRejectedException(command.approvalId)
+            }
+            return ApprovalValidation(
+                approvalId = command.approvalId,
+                validatedBy = command.consumedBy,
+                validatedAt = Clock.systemUTC().instant(),
+                version = command.expectedVersion,
+            )
+        }
+
+        override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {
+            authorizeCalls++
+            val existing = durableReceipts[command.approvalId]
+            if (existing != null) {
+                if (existing.consumedBy != command.consumedBy || command.expectedVersion + 1 != existing.version) {
+                    throw dev.tramai.core.exception.ApprovalAuthorizationException(command.approvalId)
+                }
+                return existing.copy(replayed = true)
+            }
+
+            val authorization = ApprovalAuthorization(
+                approvalId = command.approvalId,
+                consumedBy = command.consumedBy,
+                consumedAt = Clock.systemUTC().instant(),
+                version = command.expectedVersion + 1,
+            )
+            durableReceipts[command.approvalId] = authorization
+            if (mode == Mode.THROW_AFTER_DURABLE_CONSUME_ONCE) {
+                throw IOException("adapter-secret-marker")
+            }
+            return authorization
+        }
+
+        override suspend fun cancelApproval(
+            approvalId: String,
+            expectedVersion: Long,
+            reason: String,
+        ) = Unit
+    }
+
+    private class ThrowingOnceClaimStore(
+        private val delegate: InMemoryApprovalContinuationStore,
+    ) : dev.tramai.core.approval.ApprovalContinuationStore by delegate {
+        private val failed = AtomicBoolean(false)
+
+        override suspend fun claimForExecution(
+            approvalId: String,
+            expectedVersion: Long,
+            claimedBy: String,
+        ): dev.tramai.core.approval.ClaimedApprovalContinuation {
+            if (failed.compareAndSet(false, true)) {
+                throw RuntimeException("claim-before-mutation")
+            }
+            return delegate.claimForExecution(approvalId, expectedVersion, claimedBy)
+        }
+    }
+
+    private class RecordingEngineEventObserver : EngineEventObserver {
+        val events = mutableListOf<Pair<String, Map<String, Any?>>>()
+
+        override fun onEngineEvent(
+            name: String,
+            attributes: Map<String, Any?>,
+        ) {
+            events += name to attributes
+        }
     }
 
     /**

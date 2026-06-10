@@ -47,6 +47,7 @@ data class ApprovalAuthorization(
     val consumedBy: String,
     val consumedAt: Instant,
     val version: Long,
+    val replayed: Boolean = false,
 )
 
 data class ApprovalValidation(
