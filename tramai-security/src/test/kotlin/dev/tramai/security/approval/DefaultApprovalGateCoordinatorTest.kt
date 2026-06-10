@@ -1369,7 +1369,7 @@ class DefaultApprovalGateCoordinatorTest {
 }
 
 private class CoordinatorMutableClock(
-    private var now: Instant,
+    @Volatile private var now: Instant,
     private val zone: ZoneId = ZoneId.of("UTC"),
 ) : Clock() {
     override fun instant(): Instant = now

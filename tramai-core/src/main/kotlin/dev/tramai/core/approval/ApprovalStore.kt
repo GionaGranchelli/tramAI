@@ -5,6 +5,10 @@ package dev.tramai.core.approval
  *
  * Implementations must be thread-safe and provide atomic
  * read-modify-write semantics for [transition].
+ *
+ * Implementations must rethrow [kotlinx.coroutines.CancellationException]
+ * unchanged. All other exceptions are domain-specific and must extend
+ * [RuntimeException] or [dev.tramai.core.exception.TramaiException].
  */
 interface ApprovalStore {
 
@@ -76,6 +80,9 @@ interface ApprovalStore {
      * Implementations must reject every non-exact replay safely. Exact replay receipts may be
      * returned after approval expiry; the continuation store remains authoritative for execution
      * expiry.
+     *
+     * @throws kotlinx.coroutines.CancellationException thrown unchanged if the
+     *   coroutine is cancelled during execution.
      */
     suspend fun consumeApprovedOrReplay(
         approvalId: String,

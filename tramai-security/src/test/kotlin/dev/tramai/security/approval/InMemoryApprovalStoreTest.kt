@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test
  * Used to test time-dependent behavior without reflection.
  */
 class MutableClock(
-    private var now: Instant,
+    @Volatile private var now: Instant,
     private val zone: ZoneId = ZoneId.of("UTC"),
 ) : Clock() {
     override fun instant(): Instant = now

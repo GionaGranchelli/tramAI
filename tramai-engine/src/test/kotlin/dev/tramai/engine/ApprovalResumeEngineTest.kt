@@ -43,6 +43,8 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.assertj.core.api.Assertions.fail
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
@@ -64,13 +66,16 @@ class ApprovalResumeEngineTest {
     private val resumedBy = "admin"
 
     /** Fake ApprovalGateCoordinator that always authorizes resume. */
-    private class PermitApprovalGateCoordinator : ApprovalGateCoordinator {
+    private class PermitApprovalGateCoordinator(
+        private val clock: Clock,
+    ) : ApprovalGateCoordinator {
         var lastAuthorizeCommand: AuthorizeResumeCommand? = null
         var lastValidateCommand: ValidateResumeCommand? = null
         var lastCreateCommand: CreateApprovalCommand? = null
         var nextChallengeId: String = UUID.randomUUID().toString()
         var validateCalls: Int = 0
         var authorizeCalls: Int = 0
+        private val replayedApprovalIds = linkedSetOf<String>()
 
         override suspend fun createApproval(command: CreateApprovalCommand): ApprovalChallenge {
             lastCreateCommand = command
@@ -89,7 +94,7 @@ class ApprovalResumeEngineTest {
             return ApprovalValidation(
                 approvalId = command.approvalId,
                 validatedBy = command.consumedBy,
-                validatedAt = Clock.systemUTC().instant(),
+                validatedAt = clock.instant(),
                 version = command.expectedVersion,
             )
         }
@@ -97,11 +102,13 @@ class ApprovalResumeEngineTest {
         override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {
             authorizeCalls++
             lastAuthorizeCommand = command
+            val replayed = !replayedApprovalIds.add(command.approvalId)
             return ApprovalAuthorization(
                 approvalId = command.approvalId,
                 consumedBy = command.consumedBy,
-                consumedAt = Clock.systemUTC().instant(),
-                version = command.expectedVersion,
+                consumedAt = clock.instant(),
+                version = command.expectedVersion + 1,
+                replayed = replayed,
             )
         }
 
@@ -113,6 +120,7 @@ class ApprovalResumeEngineTest {
     }
 
     private class ReplaySafeApprovalGateCoordinator(
+        private val clock: Clock,
         private val mode: Mode = Mode.NORMAL,
     ) : ApprovalGateCoordinator {
         enum class Mode {
@@ -121,6 +129,8 @@ class ApprovalResumeEngineTest {
         }
 
         private val durableReceipts = linkedMapOf<String, ApprovalAuthorization>()
+        private val durableTokenDigests = linkedMapOf<String, Sha256Digest>()
+        private val threwAfterDurableConsume = AtomicBoolean(false)
         var validateCalls: Int = 0
         var authorizeCalls: Int = 0
 
@@ -136,7 +146,7 @@ class ApprovalResumeEngineTest {
             return ApprovalValidation(
                 approvalId = command.approvalId,
                 validatedBy = command.consumedBy,
-                validatedAt = Clock.systemUTC().instant(),
+                validatedAt = clock.instant(),
                 version = command.expectedVersion,
             )
         }
@@ -145,7 +155,20 @@ class ApprovalResumeEngineTest {
             authorizeCalls++
             val existing = durableReceipts[command.approvalId]
             if (existing != null) {
-                if (existing.consumedBy != command.consumedBy || command.expectedVersion + 1 != existing.version) {
+                val storedTokenDigest = requireNotNull(durableTokenDigests[command.approvalId]) {
+                    "Missing durable token digest for replayed approval '${command.approvalId}'"
+                }
+                val presentedTokenDigest = tokenDigest(command.presentedToken)
+                // Defense in depth: these post-consume checks protect against test-store contract
+                // violations after the durable consume already happened.
+                if (
+                    existing.consumedBy != command.consumedBy ||
+                    command.expectedVersion + 1 != existing.version ||
+                    !MessageDigest.isEqual(
+                        storedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
+                        presentedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
+                    )
+                ) {
                     throw dev.tramai.core.exception.ApprovalAuthorizationException(command.approvalId)
                 }
                 return existing.copy(replayed = true)
@@ -154,11 +177,15 @@ class ApprovalResumeEngineTest {
             val authorization = ApprovalAuthorization(
                 approvalId = command.approvalId,
                 consumedBy = command.consumedBy,
-                consumedAt = Clock.systemUTC().instant(),
+                consumedAt = clock.instant(),
                 version = command.expectedVersion + 1,
             )
             durableReceipts[command.approvalId] = authorization
-            if (mode == Mode.THROW_AFTER_DURABLE_CONSUME_ONCE) {
+            durableTokenDigests[command.approvalId] = tokenDigest(command.presentedToken)
+            if (
+                mode == Mode.THROW_AFTER_DURABLE_CONSUME_ONCE &&
+                threwAfterDurableConsume.compareAndSet(false, true)
+            ) {
                 throw IOException("adapter-secret-marker")
             }
             return authorization
@@ -169,6 +196,13 @@ class ApprovalResumeEngineTest {
             expectedVersion: Long,
             reason: String,
         ) = Unit
+
+        private fun tokenDigest(token: ApprovalToken): Sha256Digest {
+            val bytes = MessageDigest.getInstance("SHA-256")
+                .digest(token.reveal().toByteArray(StandardCharsets.UTF_8))
+            val hex = bytes.joinToString(separator = "") { byte -> "%02x".format(byte) }
+            return Sha256Digest.of("sha256:$hex")
+        }
     }
 
     private class ThrowingOnceClaimStore(
@@ -250,7 +284,7 @@ class ApprovalResumeEngineTest {
 
     private val tool = RecordingTool()
     private val toolRegistry = ToolRegistry(mapOf(tool.name to tool))
-    private val coordinator = PermitApprovalGateCoordinator()
+    private val coordinator = PermitApprovalGateCoordinator(fixedClock)
     private val continuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
     private val digester = Sha256ToolArgumentsDigester()
     private val suspendedInvocationStore = InMemorySuspendedInvocationStore()
@@ -298,14 +332,25 @@ class ApprovalResumeEngineTest {
         }
     }
 
-    private fun createEngine(): TramaiEngine = TramaiEngine(
+    private fun createEngine(
+        provider: dev.tramai.core.provider.ModelProvider = this.provider,
+        toolRegistry: ToolRegistry = this.toolRegistry,
+        policyEngine: PolicyEngine = this.policyEngine,
+        suspendedInvocationStore: SuspendedInvocationStore = this.suspendedInvocationStore,
+        approvalContinuationStore: dev.tramai.core.approval.ApprovalContinuationStore = continuationStore,
+        approvalGateCoordinator: ApprovalGateCoordinator = coordinator,
+        engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
+        approvalLifecycleAuditEmitter: dev.tramai.core.approval.ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+    ): TramaiEngine = TramaiEngine(
         provider = provider,
         toolRegistry = toolRegistry,
         policyEngine = policyEngine,
         suspendedInvocationStore = suspendedInvocationStore,
-        approvalContinuationStore = continuationStore,
+        approvalContinuationStore = approvalContinuationStore,
         toolArgumentsDigester = digester,
-        approvalGateCoordinator = coordinator,
+        approvalGateCoordinator = approvalGateCoordinator,
+        engineEventObserver = engineEventObserver,
+        approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
         clock = fixedClock,
     )
 
@@ -409,7 +454,7 @@ class ApprovalResumeEngineTest {
             ),
             approvalContinuationStore = continuationStore,
             toolArgumentsDigester = digester,
-            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
             clock = fixedClock,
         )
 
@@ -464,7 +509,7 @@ class ApprovalResumeEngineTest {
             ),
             approvalContinuationStore = continuationStore,
             toolArgumentsDigester = digester,
-            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
             clock = fixedClock,
         )
 
@@ -537,7 +582,7 @@ class ApprovalResumeEngineTest {
             suspendedInvocationStore = InMemorySuspendedInvocationStore(),
             approvalContinuationStore = divergentContinuationStore,
             toolArgumentsDigester = digester,
-            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
             clock = fixedClock,
         )
 
@@ -608,7 +653,7 @@ class ApprovalResumeEngineTest {
             suspendedInvocationStore = InMemorySuspendedInvocationStore(),
             approvalContinuationStore = divergentContinuationStore,
             toolArgumentsDigester = digester,
-            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
             clock = fixedClock,
         )
 
@@ -664,7 +709,7 @@ class ApprovalResumeEngineTest {
             ),
             approvalContinuationStore = continuationStore,
             toolArgumentsDigester = digester,
-            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
             clock = fixedClock,
         )
 
@@ -743,7 +788,7 @@ class ApprovalResumeEngineTest {
             suspendedInvocationStore = suspendedStore,
             approvalContinuationStore = continuationStore,
             toolArgumentsDigester = digester,
-            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
             clock = fixedClock,
             approvalLifecycleAuditEmitter = auditEmitter,
         )
@@ -757,7 +802,7 @@ class ApprovalResumeEngineTest {
             suspendedInvocationStore = suspendedStore,
             approvalContinuationStore = continuationStore,
             toolArgumentsDigester = digester,
-            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
             clock = fixedClock,
             approvalLifecycleAuditEmitter = auditEmitter,
         )
@@ -882,7 +927,7 @@ class ApprovalResumeEngineTest {
             suspendedInvocationStore = InMemorySuspendedInvocationStore(),
             approvalContinuationStore = continuationStore,
             toolArgumentsDigester = digester,
-            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
             clock = fixedClock,
             approvalLifecycleAuditEmitter = auditEmitter,
         )
@@ -984,7 +1029,7 @@ class ApprovalResumeEngineTest {
             suspendedInvocationStore = InMemorySuspendedInvocationStore(),
             approvalContinuationStore = continuationStore,
             toolArgumentsDigester = digester,
-            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
             clock = fixedClock,
             approvalLifecycleAuditEmitter = auditEmitter,
         )
@@ -1159,7 +1204,7 @@ class ApprovalResumeEngineTest {
             suspendedInvocationStore = InMemorySuspendedInvocationStore(),
             approvalContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock),
             toolArgumentsDigester = digester,
-            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
             clock = fixedClock,
         )
 
@@ -1386,6 +1431,129 @@ class ApprovalResumeEngineTest {
         assertThatThrownBy {
             runBlocking { engine.resumeApproval(command) }
         }.isInstanceOf(dev.tramai.core.exception.ApprovalNotFoundException::class.java)
+    }
+
+    @Test
+    fun `resumeApproval retries exact same command after durable consume adapter failure and emits replay event`() {
+        val engineEventObserver = RecordingEngineEventObserver()
+        val replayCoordinator = ReplaySafeApprovalGateCoordinator(
+            clock = fixedClock,
+            mode = ReplaySafeApprovalGateCoordinator.Mode.THROW_AFTER_DURABLE_CONSUME_ONCE,
+        )
+        val localSuspendedStore = InMemorySuspendedInvocationStore()
+        val localContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+        var localProviderCallCount = 0
+        val provider = RecordingProvider { _ ->
+            localProviderCallCount++
+            if (localProviderCallCount == 1) {
+                ModelResponse(
+                    content = "",
+                    toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                )
+            } else {
+                ModelResponse(content = "Final result: success")
+            }
+        }
+        val suspendingEngine = createEngine(
+            provider = provider,
+            suspendedInvocationStore = localSuspendedStore,
+            approvalContinuationStore = localContinuationStore,
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
+        )
+        val exception = triggerSuspension(suspendingEngine)
+        val engine = createEngine(
+            provider = provider,
+            suspendedInvocationStore = localSuspendedStore,
+            approvalContinuationStore = localContinuationStore,
+            approvalGateCoordinator = replayCoordinator,
+            engineEventObserver = engineEventObserver,
+        )
+        engine.create<ResumeBootstrapService>()
+        val command = ResumeApprovalCommand(
+            approvalId = exception.approvalId,
+            approvalExpectedVersion = 0L,
+            continuationExpectedVersion = 0L,
+            presentedToken = exception.challenge.token,
+            resumedBy = resumedBy,
+        )
+
+        val firstFailure = catchThrowableOfType(
+            { runBlocking { engine.resumeApproval(command) } },
+            IOException::class.java,
+        )
+        assertThat(firstFailure).isNotNull
+        assertThat(firstFailure).hasMessage("adapter-secret-marker")
+
+        val result = runBlocking { engine.resumeApproval(command) }
+
+        assertThat(result).isEqualTo("Final result: success")
+        assertThat(replayCoordinator.authorizeCalls).isEqualTo(2)
+        val replayEvent = engineEventObserver.events.single { it.first == "tramai.approval.authorization_replayed" }
+        assertThat(replayEvent.second).containsEntry("approvalId", exception.approvalId)
+        assertThat(replayEvent.second).containsEntry("toolName", toolName)
+        assertThat(replayEvent.second.keys).containsExactlyInAnyOrder("approvalId", "workflowRunId", "toolName")
+        assertThat(replayEvent.second.values.map { it?.toString() }).doesNotContain(exception.challenge.token.reveal())
+    }
+
+    @Test
+    fun `resumeApproval retries exact same command after claim failure once and emits replay event`() {
+        val engineEventObserver = RecordingEngineEventObserver()
+        val replayCoordinator = ReplaySafeApprovalGateCoordinator(clock = fixedClock)
+        val localSuspendedStore = InMemorySuspendedInvocationStore()
+        val localContinuationStore = ThrowingOnceClaimStore(
+            delegate = InMemoryApprovalContinuationStore(clock = fixedClock),
+        )
+        var localProviderCallCount = 0
+        val provider = RecordingProvider { _ ->
+            localProviderCallCount++
+            if (localProviderCallCount == 1) {
+                ModelResponse(
+                    content = "",
+                    toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                )
+            } else {
+                ModelResponse(content = "Final result: success")
+            }
+        }
+        val suspendingEngine = createEngine(
+            provider = provider,
+            suspendedInvocationStore = localSuspendedStore,
+            approvalContinuationStore = localContinuationStore,
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
+        )
+        val exception = triggerSuspension(suspendingEngine)
+        val engine = createEngine(
+            provider = provider,
+            suspendedInvocationStore = localSuspendedStore,
+            approvalContinuationStore = localContinuationStore,
+            approvalGateCoordinator = replayCoordinator,
+            engineEventObserver = engineEventObserver,
+        )
+        engine.create<ResumeBootstrapService>()
+        val command = ResumeApprovalCommand(
+            approvalId = exception.approvalId,
+            approvalExpectedVersion = 0L,
+            continuationExpectedVersion = 0L,
+            presentedToken = exception.challenge.token,
+            resumedBy = resumedBy,
+        )
+
+        val firstFailure = catchThrowableOfType(
+            { runBlocking { engine.resumeApproval(command) } },
+            RuntimeException::class.java,
+        )
+        assertThat(firstFailure).isNotNull
+        assertThat(firstFailure).hasMessage("claim-before-mutation")
+
+        val result = runBlocking { engine.resumeApproval(command) }
+
+        assertThat(result).isEqualTo("Final result: success")
+        assertThat(replayCoordinator.authorizeCalls).isEqualTo(2)
+        val replayEvent = engineEventObserver.events.single { it.first == "tramai.approval.authorization_replayed" }
+        assertThat(replayEvent.second).containsEntry("approvalId", exception.approvalId)
+        assertThat(replayEvent.second).containsEntry("toolName", toolName)
+        assertThat(replayEvent.second.keys).containsExactlyInAnyOrder("approvalId", "workflowRunId", "toolName")
+        assertThat(replayEvent.second.values.map { it?.toString() }).doesNotContain(exception.challenge.token.reveal())
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -1635,7 +1803,7 @@ class ApprovalResumeEngineTest {
         val mtToolRegistry = ToolRegistry(mapOf(mtTool.name to mtTool))
         val mtPolicyEngine = MultiToolPolicyEngine()
         val mtProvider = MultiToolProvider()
-        val mtCoordinator = PermitApprovalGateCoordinator()
+        val mtCoordinator = PermitApprovalGateCoordinator(fixedClock)
 
         val engine = TramaiEngine(
             provider = mtProvider,
@@ -1730,7 +1898,7 @@ class ApprovalResumeEngineTest {
 
         val nestedTool = RecordingTool(name = "test_calculator")
         val nestedToolRegistry = ToolRegistry(mapOf(nestedTool.name to nestedTool))
-        val nestedCoordinator = PermitApprovalGateCoordinator()
+        val nestedCoordinator = PermitApprovalGateCoordinator(fixedClock)
         val nestedContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
 
         val engine = TramaiEngine(
@@ -1926,7 +2094,7 @@ class ApprovalResumeEngineTest {
             suspendedInvocationStore = freshSuspendedStore,
             approvalContinuationStore = freshContinuationStore,
             toolArgumentsDigester = digester,
-            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
             clock = fixedClock,
             approvalLifecycleAuditEmitter = auditEmitter,
         )
@@ -2027,7 +2195,7 @@ class ApprovalResumeEngineTest {
             suspendedInvocationStore = freshSuspendedStore,
             approvalContinuationStore = freshContinuationStore,
             toolArgumentsDigester = digester,
-            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
             clock = fixedClock,
             approvalLifecycleAuditEmitter = auditEmitter,
         )
@@ -2116,7 +2284,7 @@ class ApprovalResumeEngineTest {
             suspendedInvocationStore = freshSuspendedStore,
             approvalContinuationStore = freshContinuationStore,
             toolArgumentsDigester = Sha256ToolArgumentsDigester(),
-            approvalGateCoordinator = PermitApprovalGateCoordinator(),
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
             clock = fixedClock,
         )
 
