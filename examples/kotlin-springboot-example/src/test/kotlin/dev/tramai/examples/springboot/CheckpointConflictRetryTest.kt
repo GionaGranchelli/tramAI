@@ -2,6 +2,7 @@ package dev.tramai.examples.springboot
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.JsonNode
+import dev.tramai.examples.springboot.workflow.InvoiceWorkflowCoordinator
 import dev.tramai.examples.springboot.workflow.InvoiceWorkflowStateCodec
 import dev.tramai.examples.springboot.workflow.InvoiceWorkflowState
 import dev.tramai.orchestration.InMemoryWorkflowCheckpointStore
@@ -34,7 +35,9 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.runBlocking
 import java.util.Comparator
 import kotlin.io.path.createTempDirectory
 
@@ -65,7 +68,9 @@ class CheckpointConflictRetryTest {
         checkpointStore.reset()
     }
 
-    // --- existing tests (keep passing) ---
+    // ================================================================
+    // Retry-success tests
+    // ================================================================
 
     @Test
     fun `cancellation retries on WorkflowCheckpointConflictException for first CANCELLED save`() {
@@ -79,6 +84,8 @@ class CheckpointConflictRetryTest {
         verifyCancelledImmediately(workflowId)
         verifySecondCancelIdempotent(workflowId)
         verifyCheckpointStatusCancelled(workflowId)
+
+        assertThat(checkpointStore.matchedSaveAttempts()).isGreaterThanOrEqualTo(2)
     }
 
     @Test
@@ -93,16 +100,31 @@ class CheckpointConflictRetryTest {
         verifyCancelledImmediately(workflowId)
         verifySecondCancelIdempotent(workflowId)
         verifyCheckpointStatusCancelled(workflowId)
+
+        assertThat(checkpointStore.matchedSaveAttempts()).isGreaterThanOrEqualTo(2)
     }
 
-    // --- new tests ---
+    @Test
+    fun `load OverlappingFileLockException retries successfully`() {
+        checkpointStore.failLoadWith = OverlappingFileLockException::class.java
+        checkpointStore.failLoadOnWorkflowId = "wf-load-ole-2005"
+
+        val workflowId = "wf-load-ole-2005"
+        startAndCancel(workflowId)
+
+        verifyCancelledImmediately(workflowId)
+        verifyCheckpointStatusCancelled(workflowId)
+    }
+
+    // ================================================================
+    // Retry-exhaustion test
+    // ================================================================
 
     @Test
     fun `80 concurrent conflicts during cancellation returns HTTP conflict`() {
-        // Every CANCELLED save fails — always throws
         checkpointStore.failWith = WorkflowCheckpointConflictException::class.java
         checkpointStore.failOnSaveOfMetadataStatus = "CANCELLED"
-        checkpointStore.failOnAttempt = -1 // -1 = always fail
+        checkpointStore.failOnAttempt = -1 // always fail
 
         val workflowId = "wf-cancel-exhaust-2001"
 
@@ -120,25 +142,149 @@ class CheckpointConflictRetryTest {
         )
             .andExpect(status().isAccepted)
 
-        // Cancel returns conflict because the checkpoint persistence ran out of retries
         asyncJson(post("/invoice/workflow/cancel/$workflowId"))
             .andExpect(status().isConflict)
             .andExpect(jsonPath("$.error").value("workflow_conflict"))
 
-        // The in-memory run may still think it was cancelled (via CancellationException),
-        // but the checkpoint never persisted CANCELLED — the test proves retry exhaustion
-        // was surfaced as an error instead of silently returning CANCELLED.
+        assertThat(checkpointStore.matchedSaveAttempts()).isGreaterThanOrEqualTo(80)
+    }
+
+    // ================================================================
+    // Terminal-state race guard tests  (deterministic via beforeSaveHook)
+    // ================================================================
+
+    @Test
+    fun `concurrent COMPLETED transition during cancellation throws WorkflowNotRunningException`() {
+        val workflowId = "wf-race-completed-3001"
+
+        startWorkflowOnly(workflowId)
+        Thread.sleep(200)
+
+        checkpointStore.beforeSaveHook = { checkpoint, expectedRev ->
+            if (checkpoint.metadata["workflow_status"] == "CANCELLED") {
+                val current = checkpointStore.load(
+                    checkpoint.workflowName, checkpoint.workflowId,
+                )
+                if (current != null) {
+                    checkpointStore.saveDirect(
+                        current.copy(
+                            metadata = linkedMapOf(
+                                "workflow_status" to "COMPLETED",
+                                "workflow_updated_at" to "2026-06-10T00:00:00Z",
+                            ),
+                        ),
+                        expectedRevision = current.revision,
+                    )
+                }
+            }
+        }
+        // No failWith — the hook injects COMPLETED on EVERY CANCELLED save,
+        // causing delegate.save() to conflict on revision mismatch.
+        // persistStatusMetadata also hits the hook, so it cannot silently
+        // overwrite the race condition.
+
+        asyncJson(post("/invoice/workflow/cancel/$workflowId"))
+            .andExpect(status().isConflict)
+            .andExpect(jsonPath("$.error").value("workflow_not_running"))
     }
 
     @Test
-    fun `COMPLETED checkpoint is never overwritten by cancellation`() {
+    fun `concurrent FAILED transition during cancellation throws WorkflowNotRunningException`() {
+        val workflowId = "wf-race-failed-3002"
+
+        startWorkflowOnly(workflowId)
+        Thread.sleep(200)
+
+        checkpointStore.beforeSaveHook = { checkpoint, expectedRev ->
+            if (checkpoint.metadata["workflow_status"] == "CANCELLED") {
+                val current = checkpointStore.load(
+                    checkpoint.workflowName, checkpoint.workflowId,
+                )
+                if (current != null) {
+                    checkpointStore.saveDirect(
+                        current.copy(
+                            metadata = linkedMapOf(
+                                "workflow_status" to "FAILED",
+                                "workflow_updated_at" to "2026-06-10T00:00:00Z",
+                                "workflow_error" to "Worker crashed",
+                            ),
+                        ),
+                        expectedRevision = current.revision,
+                    )
+                }
+            }
+        }
+        // No failWith — hook on every CANCELLED save keeps the race condition
+        // from being silently overwritten by persistStatusMetadata.
+
+        asyncJson(post("/invoice/workflow/cancel/$workflowId"))
+            .andExpect(status().isConflict)
+            .andExpect(jsonPath("$.error").value("workflow_not_running"))
+    }
+
+    // ================================================================
+    // Stale-error cleanup test
+    // ================================================================
+
+    @Test
+    fun `stale workflow_error is cleared by persistCancelledCheckpoint`() {
+        val workflowId = "wf-stale-error-4001"
+
+        // Start the workflow so it creates its own initial checkpoint.
+        startWorkflowOnly(workflowId)
+        Thread.sleep(200)
+
+        // Stamp a stale workflow_error onto the existing checkpoint by saving
+        // a copy with the stale error at the current revision. The revision
+        // bump causes the workflow's next save to retry, which reloads and
+        // preserves the error. persistCancelledCheckpoint then clears it.
+        runBlocking {
+            val current = checkpointStore.load(
+                InvoiceWorkflowCoordinator.WORKFLOW_NAME, workflowId,
+            )
+            if (current != null) {
+                checkpointStore.saveDirect(
+                    current.copy(
+                        metadata = current.metadata + mapOf(
+                            "workflow_error" to "stale-error-must-be-cleared",
+                        ),
+                    ),
+                    expectedRevision = current.revision,
+                )
+            }
+        }
+
+        asyncJson(post("/invoice/workflow/cancel/$workflowId"))
+            .andExpect(status().isAccepted)
+
+        val checkpointJson = asyncJson(get("/invoice/workflow/checkpoint/$workflowId"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.metadata.workflow_status").value("CANCELLED"))
+            .andReturn()
+            .response
+            .contentAsString
+
+        val metadata = objectMapper.readTree(checkpointJson)["metadata"]
+        val errorValue = metadata.get("workflow_error")
+        if (errorValue != null) {
+            assertThat(errorValue.asText())
+                .describedAs("stale workflow_error must not survive cancellation")
+                .isNotEqualTo("stale-error-must-be-cleared")
+        }
+    }
+
+    // ================================================================
+    // Post-terminal public fallback tests
+    // ================================================================
+
+    @Test
+    fun `COMPLETED checkpoint is never overwritten by cancellation via public path`() {
         checkpointStore.failWith = null
 
         val workflowId = "wf-completed-no-overwrite-2002"
         val invoiceText = "Vendor: Northwind Power\\nInvoice: INV-1042\\nAmount due: 4820 USD\\nDue date: 2026-04-30\\nStatus: 12 days overdue"
         val invoiceJson = invoiceText.replace("\\n", "\\\\n")
 
-        // Start async workflow
         mockMvc.perform(
             post("/invoice/workflow/start")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -153,22 +299,19 @@ class CheckpointConflictRetryTest {
         )
             .andExpect(status().isAccepted)
 
-        // Wait for completion
         pollForStatus(workflowId, "COMPLETED")
 
-        // Cancel after completion — should not overwrite COMPLETED
         asyncJson(post("/invoice/workflow/cancel/$workflowId"))
             .andExpect(status().isConflict)
             .andExpect(jsonPath("$.error").value("workflow_not_running"))
 
-        // Checkpoint is still COMPLETED
         asyncJson(get("/invoice/workflow/checkpoint/$workflowId"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.metadata.workflow_status").value("COMPLETED"))
     }
 
     @Test
-    fun `FAILED checkpoint is never overwritten by cancellation`() {
+    fun `FAILED checkpoint is never overwritten by cancellation via public path`() {
         checkpointStore.failWith = null
 
         val workflowId = "wf-failed-no-overwrite-2003"
@@ -189,99 +332,47 @@ class CheckpointConflictRetryTest {
         )
             .andExpect(status().isAccepted)
 
-        // Wait for failure
         pollForStatus(workflowId, "FAILED")
 
-        // Cancel after failure — should not overwrite FAILED
         asyncJson(post("/invoice/workflow/cancel/$workflowId"))
             .andExpect(status().isConflict)
             .andExpect(jsonPath("$.error").value("workflow_not_running"))
 
-        // Checkpoint is still FAILED
         asyncJson(get("/invoice/workflow/checkpoint/$workflowId"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.metadata.workflow_status").value("FAILED"))
     }
 
-    @Test
-    fun `previous workflow_error is removed after valid cancellation`() {
-        checkpointStore.failWith = WorkflowCheckpointConflictException::class.java
-        checkpointStore.failOnSaveOfMetadataStatus = "CANCELLED"
-        checkpointStore.failOnAttempt = 1
-
-        val workflowId = "wf-error-cleared-2004"
-        val invoiceText = "[[CANCEL_ME]] Vendor: Northwind Power\\nInvoice: INV-1042"
-        val invoiceJson = invoiceText.replace("\\n", "\\\\n")
-
-        // Start, cancel immediately — persistCancelledCheckpoint removes METADATA_ERROR
-        mockMvc.perform(
-            post("/invoice/workflow/start")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    """
-                    {
-                      "workflowId": "$workflowId",
-                      "invoiceText": "$invoiceJson"
-                    }
-                    """.trimIndent(),
-                ),
-        )
-            .andExpect(status().isAccepted)
-
-        asyncJson(post("/invoice/workflow/cancel/$workflowId"))
-            .andExpect(status().isAccepted)
-
-        // Verify checkpoint is CANCELLED
-        // Note: persistStatusMetadata in the coroutine's catch block runs concurrently
-        // and may re-add workflow_error="Workflow cancelled via API". We verify the
-        // status is CANCELLED and if an error is present, it's the cancellation message.
-        val checkpointJson = asyncJson(get("/invoice/workflow/checkpoint/$workflowId"))
-            .andExpect(status().isOk)
-            .andExpect(jsonPath("$.metadata.workflow_status").value("CANCELLED"))
-            .andReturn()
-            .response
-            .contentAsString
-
-        val tree = objectMapper.readTree(checkpointJson)
-        val metadata = tree["metadata"]
-        if (metadata.has("workflow_error")) {
-            assertThat(metadata["workflow_error"].asText()).isEqualTo("Workflow cancelled via API")
-        }
-    }
+    // ================================================================
+    // Idempotent / immediate tests
+    // ================================================================
 
     @Test
-    fun `load OverlappingFileLockException retries successfully`() {
-        // Make load() throw on first call for this workflow ID
-        checkpointStore.failLoadWith = OverlappingFileLockException::class.java
-        checkpointStore.failLoadOnWorkflowId = "wf-load-ole-2005"
+    fun `immediate cancellation still exposes CANCELLED immediately`() {
+        checkpointStore.failWith = null
 
-        val workflowId = "wf-load-ole-2005"
+        val workflowId = "wf-cancel-immediate-retry-1003"
         startAndCancel(workflowId)
 
         verifyCancelledImmediately(workflowId)
-        verifyCheckpointStatusCancelled(workflowId)
     }
 
     @Test
-    fun `retry failures actually occurred before eventual success`() {
-        checkpointStore.failWith = WorkflowCheckpointConflictException::class.java
-        checkpointStore.failOnSaveOfMetadataStatus = "CANCELLED"
-        checkpointStore.failOnAttempt = 1
+    fun `second cancellation request remains idempotent`() {
+        checkpointStore.failWith = null
 
-        val workflowId = "wf-assert-retries-2006"
+        val workflowId = "wf-cancel-idempotent-retry-1004"
         startAndCancel(workflowId)
 
-        // The store should have attempted at least one CANCELLED save that failed,
-        // then another that succeeded: total >= 2 matched-save attempts
-        assertThat(checkpointStore.matchedSaveAttempts()).isGreaterThanOrEqualTo(2)
-
-        verifyCancelledImmediately(workflowId)
-        verifyCheckpointStatusCancelled(workflowId)
+        verifySecondCancelIdempotent(workflowId)
     }
 
-    // -- helper methods -------------------------------------------------
+    // ================================================================
+    // Helper methods
+    // ================================================================
 
-    private fun startAndCancel(workflowId: String) {
+    /** Start a workflow but do NOT cancel it. The coroutine runs in background with [[CANCEL_ME]]. */
+    private fun startWorkflowOnly(workflowId: String) {
         mockMvc.perform(
             post("/invoice/workflow/start")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -295,6 +386,10 @@ class CheckpointConflictRetryTest {
                 ),
         )
             .andExpect(status().isAccepted)
+    }
+
+    private fun startAndCancel(workflowId: String) {
+        startWorkflowOnly(workflowId)
 
         asyncJson(post("/invoice/workflow/cancel/$workflowId"))
             .andExpect(status().isAccepted)
@@ -321,7 +416,6 @@ class CheckpointConflictRetryTest {
             .andExpect(jsonPath("$.metadata.workflow_status").value("CANCELLED"))
     }
 
-    /** Poll result endpoint until [expectedStatus] or timeout. */
     private fun pollForStatus(workflowId: String, expectedStatus: String): JsonNode {
         var pollDelay = 200L
         repeat(120) {
@@ -368,6 +462,10 @@ class CheckpointConflictRetryTest {
     }
 }
 
+// ====================================================================
+// CheckpointConflictRetryStore — injectable failure wrapper
+// ====================================================================
+
 /**
  * A [WorkflowCheckpointStore] wrapper that can be configured to throw
  * on a specific save of a checkpoint containing a specific metadata status,
@@ -402,16 +500,62 @@ class CheckpointConflictRetryStore(
     /** Load will fail once for this workflow ID. */
     var failLoadOnWorkflowId: String? = null
 
+    /**
+     * Optional callback invoked before every save().
+     * Receives (checkpoint, expectedRevision). Can mutate state on the delegate
+     * store to simulate concurrent transitions.
+     */
+    var beforeSaveHook: (suspend (WorkflowCheckpoint, Long?) -> Unit)? = null
+
     private val matchedSaveAttempts = AtomicInteger(0)
     private val loadFailuresConsumed = AtomicInteger(0)
 
     fun reset() {
         matchedSaveAttempts.set(0)
         loadFailuresConsumed.set(0)
+
+        failWith = null
+        failOnSaveOfMetadataStatus = "CANCELLED"
+        failOnAttempt = 1
+
+        failLoadWith = null
+        failLoadOnWorkflowId = null
+
+        beforeSaveHook = null
     }
 
     /** Returns the number of CANCELLED save attempts (successful + failed). */
     fun matchedSaveAttempts(): Int = matchedSaveAttempts.get()
+
+    /**
+     * Seed a synthetic checkpoint directly on the delegate store.
+     * Useful for pre-seeding state before cancellation.
+     */
+    fun seedCheckpoint(workflowName: String, workflowId: String, metadata: Map<String, String>) {
+        runBlocking {
+            delegate.save(
+                WorkflowCheckpoint(
+                    workflowName = workflowName,
+                    workflowId = workflowId,
+                    nextStepIndex = 0,
+                    stepExecutions = 0,
+                    lastCompletedStepName = null,
+                    statePayload = "",
+                    metadata = metadata,
+                ),
+                expectedRevision = null,
+            )
+        }
+    }
+
+    /**
+     * Save directly on the delegate, bypassing all hooks and failure injection.
+     * Used by [beforeSaveHook] to simulate concurrent transitions.
+     */
+    suspend fun saveDirect(
+        checkpoint: WorkflowCheckpoint,
+        expectedRevision: Long?,
+    ): WorkflowCheckpoint = delegate.save(checkpoint, expectedRevision)
 
     override suspend fun load(workflowName: String, workflowId: String): WorkflowCheckpoint? {
         val failClass = failLoadWith
@@ -431,6 +575,9 @@ class CheckpointConflictRetryStore(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
     ): WorkflowCheckpoint {
+        // Run the before-hook first so it can mutate delegate state
+        beforeSaveHook?.invoke(checkpoint, expectedRevision)
+
         val targetStatus = failOnSaveOfMetadataStatus
         val shouldCount = targetStatus == null ||
             checkpoint.metadata["workflow_status"] == targetStatus
