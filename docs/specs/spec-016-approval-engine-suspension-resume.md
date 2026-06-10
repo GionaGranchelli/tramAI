@@ -133,6 +133,51 @@ PR #17 delivers:
 - Lifecycle audit events (suspended, resumed, completed, cancelled, uncertain outcome)
 - Edge case test coverage for all failure paths
 
+## PR #22 — Replay-Safe Authorization Receipt
+
+Implemented in PR #22.
+
+### Problem
+
+The original resume authorization flow called `consumeApproved()` (a one-time, destructive consume) before `claimForExecution()`. If `consumeApproved()` succeeded but `claimForExecution()` failed before mutating the continuation store, the one-time token was consumed but the continuation remained PENDING. The caller had no way to recover — retrying the exact same resume command would fail because the token was already consumed.
+
+### Solution: `consumeApprovedOrReplay()`
+
+Replace `consumeApproved()` with `consumeApprovedOrReplay()` that returns `ApprovalConsumptionReceipt(request, replayed)`.
+
+**Fresh consumption semantics:**
+- status == APPROVED
+- request.version == expectedVersion
+- consumedAt == null, consumedBy == null
+- now < expiresAt
+- Token digest matches (constant-time)
+- Persists consumedBy, consumedAt, version + 1
+- Returns replayed=false
+
+**Exact-replay semantics:**
+- status == APPROVED
+- consumedAt != null
+- stored consumedBy == command consumedBy
+- stored version == expectedVersion + 1
+- Token digest matches (constant-time)
+- Returns existing request UNCHANGED (no version increment, no consumedAt replacement)
+- Returns replayed=true
+
+### Engine Integration
+
+`TramaiEngine.authorizeResume()` captures the `replayed` flag. When `replayed == true`, the engine emits `tramai.approval.authorization_replayed` with safe attributes only (approvalId, workflowRunId, toolName). The emitter failure never blocks execution.
+
+### Guarantees
+
+- Wrong tokens fail BEFORE policy evaluation
+- Exact replay never mutates consumedAt or version
+- CLAIMED continuations are never automatically retried
+- Concurrent exact replays: one fresh consume, remaining replays
+- Concurrent different actors: only original consumer accepted
+- Replay after approval expiry returns same receipt (continuation store is authoritative for execution expiry)
+- CancellationException propagates unchanged
+- Checked adapter failures sanitized without secret leakage
+
 ## v1 Limitations
 
 - **conversationId threading**: conversationId is threaded through the execution chain but the initial suspension must have been triggered by a path that has it. The normal `executeRaw`/`executeStructured` paths pass it; direct `suspendToolExecution` callers that don't supply it will get null.

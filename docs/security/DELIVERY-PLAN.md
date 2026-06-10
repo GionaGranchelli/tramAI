@@ -609,21 +609,22 @@ PENDING ──┬── Approve ──→ APPROVED (terminal)
 
 ### Simplified Optimistic Concurrency
 
-`transition()` and `consumeApproved()` use `ConcurrentHashMap.compute()` for atomic read-modify-write:
+`transition()` and `consumeApprovedOrReplay()` use `ConcurrentHashMap.compute()` for atomic read-modify-write:
 - No CAS retry loop or `maxCasRetries` parameter
 - Version check inside the compute lambda (atomic with the update)
 - `compute()` returns `null` when the key is absent, detected as "not found"
 
 ### consumeApproved — Atomic Single-Use Consumption
 
-`InMemoryApprovalStore.consumeApproved()` implements single-use consumption:
-- Version-gated via `ConcurrentHashMap.compute()` (same atomicity model as transition)
-- Requires `status = APPROVED`, `consumedAt == null`, and `now < expiresAt`
+`InMemoryApprovalStore.consumeApprovedOrReplay()` implements replay-safe consumption:
+- Fresh consumption (replayed=false): version-gated via `ConcurrentHashMap.compute()`, requires `status = APPROVED`, `consumedAt == null`, and `now < expiresAt`
+- Exact replay (replayed=true): requires `status = APPROVED`, `consumedAt != null`, same `consumedBy`, version matches `expectedVersion + 1`
 - Constant-time token-digest comparison via `MessageDigest.isEqual()` to prevent timing attacks
-- Records `consumedBy` and `consumedAt` atomically with the version increment
-- Second consume of the same approval fails with clear message
+- Records `consumedBy` and `consumedAt` atomically with the version increment (fresh only)
+- Replay never increments version or replaces consumedAt
+- Second consume of the same approval with different consumer or wrong version fails with clear message
 
-This is a **store-level atomic primitive**. Raw-token presentation (matching a raw bearer token against `approvalTokenDigest`) is handled at the coordinator level in PR #15 via `DefaultApprovalGateCoordinator.authorizeResume()`. Engine-level resume flow is deferred to PR #16.
+This is a **store-level atomic primitive**. Raw-token presentation (matching a raw bearer token against `approvalTokenDigest`) is handled at the coordinator level in PR #15 via `DefaultApprovalGateCoordinator.authorizeResume()`. PR #22 makes authorizeResume() replay-safe by returning `ApprovalConsumptionReceipt(request, replayed)`.
 
 ### No Engine Integration Yet
 
@@ -666,7 +667,7 @@ AuthorizeResumeCommand
   → ApprovalGateCoordinator.authorizeResume()
     → store.get() → revalidate exact binding (5 fields)
     → validate decision → digest presented token
-    → store.consumeApproved() → return safe ApprovalAuthorization
+    → store.consumeApprovedOrReplay() → return ApprovalAuthorization(replayed)
 ```
 
 ### ApprovalToken Security
@@ -692,7 +693,7 @@ AuthorizeResumeCommand
 
 ### Binding Revalidation
 
-`authorizeResume()` checks all 5 binding fields **before** calling `consumeApproved()`:
+`authorizeResume()` checks all 5 binding fields **before** calling `consumeApprovedOrReplay()`:
 1. workflowRunId
 2. toolName
 3. argumentsDigest
@@ -750,7 +751,7 @@ for security properties. Default implementations in `tramai-security` meet all i
 
 ### Decision Validator Extension Point
 
-`ApprovalDecisionValidator.validate(request, consumedBy)` is invoked immediately before `store.consumeApproved()`:
+`ApprovalDecisionValidator.validate(request, consumedBy)` is invoked immediately before `store.consumeApprovedOrReplay()`:
 
 - `AllowAnyApprovalDecisionValidator` — default, preserves backward compatibility
 - `RequireDistinctRequesterAndConsumer` — enforces separation of duties
@@ -813,14 +814,14 @@ private fun observeFailure(
 }
 ```
 
-- Called in every catch block: `createApproval()`, `authorizeResume()` store.get, `authorizeResume()` store.consumeApproved.
+- Called in every catch block: `createApproval()`, `authorizeResume()` store.get, `authorizeResume()` store.consumeApprovedOrReplay.
 - If the observer throws a `RuntimeException`, it is silently swallowed. The caller always receives the safe exception.
 - If the observer throws `Error`, it propagates uncaught — the coordinator call itself will throw the `Error`.
 - Tests verify that an observer throwing `RuntimeException("observer-secret-marker")` does not leak the marker into the exception message, `toString()`, or cause chain.
 
-### Consumed-Result Contract Validation (PR #15)
+### Consumed-Result Contract Validation (PR #15, PR #22)
 
-After `store.consumeApproved()` returns, the coordinator performs a full contract validation against the command and the stored request:
+After `store.consumeApprovedOrReplay()` returns, the coordinator performs a full contract validation against the command and the stored request:
 
 ```kotlin
 if (consumed.approvalId != command.approvalId) throw ApprovalAuthorizationException(command.approvalId)
@@ -852,7 +853,7 @@ private fun containsSecret(throwable: Throwable, secret: String): Boolean {
 }
 ```
 
-- 4 tests verify that `"secret"` is absent from the full exception tree for leaky store.get(), store.create(), store.consumeApproved(), and throwing observer paths.
+- 4 tests verify that `"secret"` is absent from the full exception tree for leaky store.get(), store.create(), store.consumeApprovedOrReplay(), and throwing observer paths.
 
 ### Test Coverage (58+ tests)
 
