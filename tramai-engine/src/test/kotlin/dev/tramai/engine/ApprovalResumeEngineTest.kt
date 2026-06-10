@@ -3,11 +3,10 @@ package dev.tramai.engine
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.annotations.SystemPrompt
-import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.catchThrowableOfType
 import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.ForceCancelClaimedCommand
 import dev.tramai.core.approval.IdempotencyKeyUtil
 import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
@@ -35,12 +34,18 @@ import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.core.policy.ApprovalRequirement
 import dev.tramai.core.structured.StructuredOutputResult
+import dev.tramai.security.approval.DefaultApprovalGateCoordinator
 import dev.tramai.security.approval.InMemoryApprovalContinuationStore
+import dev.tramai.security.approval.InMemoryApprovalStore
 import dev.tramai.security.approval.InMemoryApprovalRecoveryCoordinator
+import dev.tramai.security.approval.SecureRandomApprovalTokenGenerator
 import dev.tramai.security.approval.Sha256ToolArgumentsDigester
+import dev.tramai.security.approval.Sha256ApprovalTokenDigester
+import dev.tramai.security.approval.UuidApprovalIdGenerator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.catchThrowableOfType
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.assertj.core.api.Assertions.fail
 import java.nio.charset.StandardCharsets
@@ -50,7 +55,6 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.io.IOException
 import kotlin.test.Test
 
@@ -230,6 +234,17 @@ class ApprovalResumeEngineTest {
             attributes: Map<String, Any?>,
         ) {
             events += name to attributes
+        }
+    }
+
+    private class ThrowingEngineEventObserver(
+        private val exception: CancellationException,
+    ) : EngineEventObserver {
+        override fun onEngineEvent(
+            name: String,
+            attributes: Map<String, Any?>,
+        ) {
+            throw exception
         }
     }
 
@@ -1554,6 +1569,188 @@ class ApprovalResumeEngineTest {
         assertThat(replayEvent.second).containsEntry("toolName", toolName)
         assertThat(replayEvent.second.keys).containsExactlyInAnyOrder("approvalId", "workflowRunId", "toolName")
         assertThat(replayEvent.second.values.map { it?.toString() }).doesNotContain(exception.challenge.token.reveal())
+    }
+
+    @Test
+    fun `resumeApproval rethrows cancellation from replay telemetry and recovers on later retry`() {
+        val replayCoordinator = ReplaySafeApprovalGateCoordinator(clock = fixedClock)
+        val localSuspendedStore = InMemorySuspendedInvocationStore()
+        val localContinuationStore = ThrowingOnceClaimStore(
+            delegate = InMemoryApprovalContinuationStore(clock = fixedClock),
+        )
+        val localTool = RecordingTool(name = toolName)
+        var localProviderCallCount = 0
+        val provider = RecordingProvider { _ ->
+            localProviderCallCount++
+            if (localProviderCallCount == 1) {
+                ModelResponse(
+                    content = "",
+                    toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                )
+            } else {
+                ModelResponse(content = "Final result: success")
+            }
+        }
+        val suspendingEngine = createEngine(
+            provider = provider,
+            toolRegistry = ToolRegistry(mapOf(localTool.name to localTool)),
+            suspendedInvocationStore = localSuspendedStore,
+            approvalContinuationStore = localContinuationStore,
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
+        )
+        val exception = triggerSuspension(suspendingEngine)
+        val command = ResumeApprovalCommand(
+            approvalId = exception.approvalId,
+            approvalExpectedVersion = 0L,
+            continuationExpectedVersion = 0L,
+            presentedToken = exception.challenge.token,
+            resumedBy = resumedBy,
+        )
+
+        val firstAttemptEngine = createEngine(
+            provider = provider,
+            toolRegistry = ToolRegistry(mapOf(localTool.name to localTool)),
+            suspendedInvocationStore = localSuspendedStore,
+            approvalContinuationStore = localContinuationStore,
+            approvalGateCoordinator = replayCoordinator,
+        )
+        firstAttemptEngine.create<ResumeBootstrapService>()
+
+        val firstFailure = catchThrowableOfType(
+            { runBlocking { firstAttemptEngine.resumeApproval(command) } },
+            RuntimeException::class.java,
+        )
+        assertThat(firstFailure).isNotNull
+        assertThat(firstFailure).hasMessage("claim-before-mutation")
+        assertThat(localTool.invocations).isEmpty()
+        assertThat(runBlocking { localContinuationStore.get(exception.approvalId) }!!.status)
+            .isEqualTo(ApprovalContinuationStatus.PENDING)
+
+        val cancellation = CancellationException("replay-event-cancelled")
+        val secondAttemptEngine = createEngine(
+            provider = provider,
+            toolRegistry = ToolRegistry(mapOf(localTool.name to localTool)),
+            suspendedInvocationStore = localSuspendedStore,
+            approvalContinuationStore = localContinuationStore,
+            approvalGateCoordinator = replayCoordinator,
+            engineEventObserver = ThrowingEngineEventObserver(cancellation),
+        )
+        secondAttemptEngine.create<ResumeBootstrapService>()
+
+        val secondFailure = catchThrowableOfType(
+            { runBlocking { secondAttemptEngine.resumeApproval(command) } },
+            CancellationException::class.java,
+        )
+        assertThat(secondFailure).isSameAs(cancellation)
+        assertThat(localTool.invocations).isEmpty()
+        val pendingContinuationAfterCancellation = runBlocking { localContinuationStore.get(exception.approvalId) }
+        assertThat(pendingContinuationAfterCancellation).isNotNull
+        assertThat(pendingContinuationAfterCancellation!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+
+        val recordingObserver = RecordingEngineEventObserver()
+        val recoveryEngine = createEngine(
+            provider = provider,
+            toolRegistry = ToolRegistry(mapOf(localTool.name to localTool)),
+            suspendedInvocationStore = localSuspendedStore,
+            approvalContinuationStore = localContinuationStore,
+            approvalGateCoordinator = replayCoordinator,
+            engineEventObserver = recordingObserver,
+        )
+        recoveryEngine.create<ResumeBootstrapService>()
+
+        val result = runBlocking { recoveryEngine.resumeApproval(command) }
+
+        assertThat(result).isEqualTo("Final result: success")
+        assertThat(localTool.invocations).hasSize(1)
+        assertThat(runBlocking { localContinuationStore.get(exception.approvalId) }!!.status)
+            .isEqualTo(ApprovalContinuationStatus.COMPLETED)
+        assertThat(replayCoordinator.authorizeCalls).isEqualTo(3)
+        val replayEvent = recordingObserver.events.single { it.first == "tramai.approval.authorization_replayed" }
+        assertThat(replayEvent.second).containsEntry("approvalId", exception.approvalId)
+        assertThat(replayEvent.second).containsEntry("toolName", toolName)
+    }
+
+    @Test
+    fun `resumeApproval recovers from first claim failure using real approval coordinator and stores`() {
+        val approvalStore = InMemoryApprovalStore(clock = fixedClock)
+        val realContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+        val wrappedContinuationStore = ThrowingOnceClaimStore(delegate = realContinuationStore)
+        val approvalCoordinator = DefaultApprovalGateCoordinator(
+            store = approvalStore,
+            approvalIdGenerator = UuidApprovalIdGenerator(),
+            approvalTokenGenerator = SecureRandomApprovalTokenGenerator(),
+            approvalTokenDigester = Sha256ApprovalTokenDigester(),
+            clock = fixedClock,
+        )
+        val recordingObserver = RecordingEngineEventObserver()
+        val localTool = RecordingTool(name = toolName)
+        var localProviderCallCount = 0
+        val provider = RecordingProvider { _ ->
+            localProviderCallCount++
+            if (localProviderCallCount == 1) {
+                ModelResponse(
+                    content = "",
+                    toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                )
+            } else {
+                ModelResponse(content = "Final result: success")
+            }
+        }
+        val suspendedStore = InMemorySuspendedInvocationStore()
+        val engine = createEngine(
+            provider = provider,
+            toolRegistry = ToolRegistry(mapOf(localTool.name to localTool)),
+            suspendedInvocationStore = suspendedStore,
+            approvalContinuationStore = wrappedContinuationStore,
+            approvalGateCoordinator = approvalCoordinator,
+            engineEventObserver = recordingObserver,
+        )
+
+        val exception = triggerSuspension(engine)
+        runBlocking {
+            approvalStore.transition(
+                approvalId = exception.approvalId,
+                expectedVersion = 0L,
+                transition = ApprovalTransition.Approve(
+                    decidedBy = "approver",
+                    comment = "approved",
+                ),
+            )
+        }
+        val command = ResumeApprovalCommand(
+            approvalId = exception.approvalId,
+            approvalExpectedVersion = 1L,
+            continuationExpectedVersion = 0L,
+            presentedToken = exception.challenge.token,
+            resumedBy = resumedBy,
+        )
+        engine.create<ResumeBootstrapService>()
+
+        val firstFailure = catchThrowableOfType(
+            { runBlocking { engine.resumeApproval(command) } },
+            RuntimeException::class.java,
+        )
+        assertThat(firstFailure).isNotNull
+        assertThat(firstFailure).hasMessage("claim-before-mutation")
+
+        val consumedApproval = runBlocking { approvalStore.get(exception.approvalId) }
+        assertThat(consumedApproval).isNotNull
+        assertThat(consumedApproval!!.consumedBy).isEqualTo(resumedBy)
+        assertThat(consumedApproval.version).isEqualTo(2L)
+        val pendingContinuation = runBlocking { realContinuationStore.get(exception.approvalId) }
+        assertThat(pendingContinuation).isNotNull
+        assertThat(pendingContinuation!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+        assertThat(localTool.invocations).isEmpty()
+
+        val result = runBlocking { engine.resumeApproval(command) }
+
+        assertThat(result).isEqualTo("Final result: success")
+        assertThat(localTool.invocations).hasSize(1)
+        assertThat(runBlocking { realContinuationStore.get(exception.approvalId) }!!.status)
+            .isEqualTo(ApprovalContinuationStatus.COMPLETED)
+        val replayEvents = recordingObserver.events.filter { it.first == "tramai.approval.authorization_replayed" }
+        assertThat(replayEvents).hasSize(1)
+        assertThat(replayEvents.single().second).containsEntry("approvalId", exception.approvalId)
     }
 
     // ════════════════════════════════════════════════════════════════

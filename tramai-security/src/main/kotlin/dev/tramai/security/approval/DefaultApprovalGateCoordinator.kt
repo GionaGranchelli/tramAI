@@ -3,7 +3,6 @@ package dev.tramai.security.approval
 import dev.tramai.core.approval.ApprovalAuthorization
 import dev.tramai.core.approval.ApprovalBinding
 import dev.tramai.core.approval.ApprovalChallenge
-import dev.tramai.core.approval.ApprovalConsumptionReceipt
 import dev.tramai.core.approval.ApprovalDecisionValidator
 import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ApprovalIdGenerator
@@ -31,7 +30,6 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Clock
 import java.time.Duration
-import java.time.Instant
 import kotlinx.coroutines.CancellationException
 
 class DefaultApprovalGateCoordinator(

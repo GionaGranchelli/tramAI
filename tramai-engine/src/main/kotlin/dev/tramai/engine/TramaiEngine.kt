@@ -2486,6 +2486,8 @@ internal class TramaiInvocationHandler(
                         "toolName" to metadata.toolName,
                     ),
                 )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (_: Exception) {
                 // Replay telemetry must not affect resume execution.
             }
