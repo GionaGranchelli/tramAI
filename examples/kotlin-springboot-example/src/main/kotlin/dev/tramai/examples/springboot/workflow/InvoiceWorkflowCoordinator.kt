@@ -17,7 +17,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
@@ -159,6 +158,7 @@ class InvoiceWorkflowCoordinator(
                 message = "Workflow accepted for asynchronous execution",
             )
             job.invokeOnCompletion {
+                cancellationRequests.remove(workflowId)
                 activeRuns.remove(workflowId, job)
                 activeRunStartedAtMillis.remove(workflowId)
             }
@@ -273,33 +273,10 @@ class InvoiceWorkflowCoordinator(
 
             // Persist CANCELLED status immediately so result lookup finds it
             // even if the coroutine body never started.
+            // Retry on optimistic concurrency or file lock conflicts from a
+            // concurrently executing workflow that saves a checkpoint in parallel.
             withContext(NonCancellable) {
-                val existing = persistence.checkpointStore.load(WORKFLOW_NAME, workflowId)
-                if (existing != null) {
-                    val updated = existing.copy(
-                        metadata = existing.metadata + mapOf(
-                            METADATA_STATUS to WorkflowExecutionStatus.CANCELLED.name,
-                            METADATA_UPDATED_AT to Instant.now().toString(),
-                        ),
-                    )
-                    persistence.checkpointStore.save(updated, expectedRevision = existing.revision)
-                } else {
-                    persistence.checkpointStore.save(
-                        WorkflowCheckpoint(
-                            workflowName = WORKFLOW_NAME,
-                            workflowId = workflowId,
-                            nextStepIndex = 0,
-                            stepExecutions = 0,
-                            lastCompletedStepName = null,
-                            statePayload = "",
-                            metadata = linkedMapOf(
-                                METADATA_STATUS to WorkflowExecutionStatus.CANCELLED.name,
-                                METADATA_UPDATED_AT to Instant.now().toString(),
-                            ),
-                        ),
-                        expectedRevision = null,
-                    )
-                }
+                persistCancelledCheckpoint(workflowId)
             }
 
             return InvoiceWorkflowCancelResponse(
@@ -377,6 +354,11 @@ class InvoiceWorkflowCoordinator(
                 context = context,
                 persistence = persistence,
             )
+            // Narrow the completion-race window: if cancellation was requested
+            // while the workflow was running, refuse to persist COMPLETED.
+            if (cancellationRequests.contains(workflowId)) {
+                throw CancellationException("Workflow cancelled via API")
+            }
             persistStatusMetadata(
                 workflowId = workflowId,
                 status = WorkflowExecutionStatus.COMPLETED,
@@ -466,6 +448,15 @@ class InvoiceWorkflowCoordinator(
                 return
             }
 
+            val existingStatus = checkpoint.metadata[METADATA_STATUS]
+                ?.let { raw -> runCatching { WorkflowExecutionStatus.valueOf(raw) }.getOrNull() }
+            if (existingStatus != null && existingStatus.isTerminal() && existingStatus != status) {
+                throw WorkflowNotRunningException(
+                    "Workflow '$WORKFLOW_NAME' with workflowId '$workflowId' " +
+                        "is already in terminal state '${existingStatus.name}'",
+                )
+            }
+
             val updatedMetadata = linkedMapOf<String, String>()
             updatedMetadata.putAll(checkpoint.metadata)
             updatedMetadata[METADATA_STATUS] = status.name
@@ -492,6 +483,89 @@ class InvoiceWorkflowCoordinator(
                 }
             }
         }
+        // Retry exhaustion — fail closed
+        throw WorkflowCheckpointConflictException(
+            "Failed to persist status '$status' for workflow " +
+                "'$WORKFLOW_NAME' with workflowId='$workflowId' after 80 attempts",
+        )
+    }
+
+    private suspend fun persistCancelledCheckpoint(workflowId: String) {
+        repeat(80) { attempt ->
+            val existing = try {
+                persistence.checkpointStore.load(WORKFLOW_NAME, workflowId)
+            } catch (_: OverlappingFileLockException) {
+                if (attempt < 79) {
+                    delay(10)
+                }
+                return@repeat
+            }
+            if (existing != null) {
+                val existingStatus = existing.metadata[METADATA_STATUS]
+                    ?.let { raw -> runCatching { WorkflowExecutionStatus.valueOf(raw) }.getOrNull() }
+                // Already CANCELLED — idempotent
+                if (existingStatus == WorkflowExecutionStatus.CANCELLED) {
+                    return
+                }
+                // Terminal states — never overwrite
+                if (existingStatus != null && existingStatus.isTerminal()) {
+                    throw WorkflowNotRunningException(
+                        "Workflow '$WORKFLOW_NAME' with workflowId " +
+                            "'$workflowId' is already in terminal state '${existingStatus.name}'",
+                    )
+                }
+                // Update to CANCELLED and clear stale error metadata
+                val updatedMetadata = linkedMapOf<String, String>()
+                updatedMetadata.putAll(existing.metadata)
+                updatedMetadata[METADATA_STATUS] = WorkflowExecutionStatus.CANCELLED.name
+                updatedMetadata[METADATA_UPDATED_AT] = Instant.now().toString()
+                updatedMetadata.remove(METADATA_ERROR)
+                val updated = existing.copy(metadata = updatedMetadata)
+                try {
+                    persistence.checkpointStore.save(updated, expectedRevision = existing.revision)
+                    return
+                } catch (_: WorkflowCheckpointConflictException) {
+                    if (attempt < 79) {
+                        delay(10)
+                    }
+                } catch (_: OverlappingFileLockException) {
+                    if (attempt < 79) {
+                        delay(10)
+                    }
+                }
+            } else {
+                val terminal = WorkflowCheckpoint(
+                    workflowName = WORKFLOW_NAME,
+                    workflowId = workflowId,
+                    nextStepIndex = 0,
+                    stepExecutions = 0,
+                    lastCompletedStepName = null,
+                    statePayload = "",
+                    metadata = linkedMapOf(
+                        METADATA_STATUS to WorkflowExecutionStatus.CANCELLED.name,
+                        METADATA_UPDATED_AT to Instant.now().toString(),
+                    ),
+                )
+                try {
+                    persistence.checkpointStore.save(terminal, expectedRevision = null)
+                    return
+                } catch (_: WorkflowCheckpointConflictException) {
+                    // Checkpoint was created concurrently — retry to load and update it
+                    if (attempt < 79) {
+                        delay(10)
+                    }
+                } catch (_: OverlappingFileLockException) {
+                    if (attempt < 79) {
+                        delay(10)
+                    }
+                }
+            }
+        }
+        // Retry exhaustion — fail closed
+        throw WorkflowCheckpointConflictException(
+            "Failed to persist CANCELLED status for workflow " +
+                "'$WORKFLOW_NAME' with workflowId='$workflowId' after 80 attempts",
+        )
     }
 
     private suspend fun execute(
@@ -533,6 +607,17 @@ class InvoiceWorkflowCoordinator(
         private const val METADATA_STATUS: String = "workflow_status"
         private const val METADATA_UPDATED_AT: String = "workflow_updated_at"
         private const val METADATA_ERROR: String = "workflow_error"
+
+        private fun WorkflowExecutionStatus.isTerminal(): Boolean = when (this) {
+            WorkflowExecutionStatus.COMPLETED,
+            WorkflowExecutionStatus.FAILED,
+            WorkflowExecutionStatus.CANCELLED,
+            -> true
+
+            WorkflowExecutionStatus.PENDING,
+            WorkflowExecutionStatus.RUNNING,
+            -> false
+        }
     }
 }
 
