@@ -976,9 +976,9 @@ class InMemoryApprovalStoreTest {
         assertThatThrownBy {
                 runBlocking {
                     store.consumeApprovedOrReplay(
-                        "req-1", 2L,
+                        "req-1", 3L,
                         Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
-                        "consumer-2",
+                        "consumer-1",
                     )
                 }
             }
