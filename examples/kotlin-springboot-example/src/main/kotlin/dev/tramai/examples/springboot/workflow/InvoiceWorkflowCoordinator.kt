@@ -354,6 +354,11 @@ class InvoiceWorkflowCoordinator(
                 context = context,
                 persistence = persistence,
             )
+            // Narrow the completion-race window: if cancellation was requested
+            // while the workflow was running, refuse to persist COMPLETED.
+            if (cancellationRequests.contains(workflowId)) {
+                throw CancellationException("Workflow cancelled via API")
+            }
             persistStatusMetadata(
                 workflowId = workflowId,
                 status = WorkflowExecutionStatus.COMPLETED,
@@ -443,6 +448,15 @@ class InvoiceWorkflowCoordinator(
                 return
             }
 
+            val existingStatus = checkpoint.metadata[METADATA_STATUS]
+                ?.let { raw -> runCatching { WorkflowExecutionStatus.valueOf(raw) }.getOrNull() }
+            if (existingStatus != null && existingStatus.isTerminal() && existingStatus != status) {
+                throw WorkflowNotRunningException(
+                    "Workflow '$WORKFLOW_NAME' with workflowId '$workflowId' " +
+                        "is already in terminal state '${existingStatus.name}'",
+                )
+            }
+
             val updatedMetadata = linkedMapOf<String, String>()
             updatedMetadata.putAll(checkpoint.metadata)
             updatedMetadata[METADATA_STATUS] = status.name
@@ -488,17 +502,16 @@ class InvoiceWorkflowCoordinator(
             }
             if (existing != null) {
                 val existingStatus = existing.metadata[METADATA_STATUS]
+                    ?.let { raw -> runCatching { WorkflowExecutionStatus.valueOf(raw) }.getOrNull() }
                 // Already CANCELLED — idempotent
-                if (existingStatus == WorkflowExecutionStatus.CANCELLED.name) {
+                if (existingStatus == WorkflowExecutionStatus.CANCELLED) {
                     return
                 }
-                // Terminal states COMPLETED or FAILED — never overwrite
-                if (existingStatus == WorkflowExecutionStatus.COMPLETED.name ||
-                    existingStatus == WorkflowExecutionStatus.FAILED.name
-                ) {
+                // Terminal states — never overwrite
+                if (existingStatus != null && existingStatus.isTerminal()) {
                     throw WorkflowNotRunningException(
                         "Workflow '$WORKFLOW_NAME' with workflowId " +
-                            "'$workflowId' is already in terminal state '$existingStatus'",
+                            "'$workflowId' is already in terminal state '${existingStatus.name}'",
                     )
                 }
                 // Update to CANCELLED and clear stale error metadata
@@ -594,6 +607,17 @@ class InvoiceWorkflowCoordinator(
         private const val METADATA_STATUS: String = "workflow_status"
         private const val METADATA_UPDATED_AT: String = "workflow_updated_at"
         private const val METADATA_ERROR: String = "workflow_error"
+
+        private fun WorkflowExecutionStatus.isTerminal(): Boolean = when (this) {
+            WorkflowExecutionStatus.COMPLETED,
+            WorkflowExecutionStatus.FAILED,
+            WorkflowExecutionStatus.CANCELLED,
+            -> true
+
+            WorkflowExecutionStatus.PENDING,
+            WorkflowExecutionStatus.RUNNING,
+            -> false
+        }
     }
 }
 

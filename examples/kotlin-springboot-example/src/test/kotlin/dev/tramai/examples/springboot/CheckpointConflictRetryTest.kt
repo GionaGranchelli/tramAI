@@ -186,6 +186,14 @@ class CheckpointConflictRetryTest {
         asyncJson(post("/invoice/workflow/cancel/$workflowId"))
             .andExpect(status().isConflict)
             .andExpect(jsonPath("$.error").value("workflow_not_running"))
+
+        assertThat(checkpointStore.matchedSaveAttempts())
+            .describedAs("at least one CANCELLED save must have been attempted")
+            .isGreaterThanOrEqualTo(1)
+
+        asyncJson(get("/invoice/workflow/checkpoint/$workflowId"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.metadata.workflow_status").value("COMPLETED"))
     }
 
     @Test
@@ -220,6 +228,14 @@ class CheckpointConflictRetryTest {
         asyncJson(post("/invoice/workflow/cancel/$workflowId"))
             .andExpect(status().isConflict)
             .andExpect(jsonPath("$.error").value("workflow_not_running"))
+
+        assertThat(checkpointStore.matchedSaveAttempts())
+            .describedAs("at least one CANCELLED save must have been attempted")
+            .isGreaterThanOrEqualTo(1)
+
+        asyncJson(get("/invoice/workflow/checkpoint/$workflowId"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.metadata.workflow_status").value("FAILED"))
     }
 
     // ================================================================
@@ -253,6 +269,14 @@ class CheckpointConflictRetryTest {
                 )
             }
         }
+
+        // Verify stale error was actually set before cancellation
+        val preCancelCheckpoint = runBlocking {
+            checkpointStore.load(InvoiceWorkflowCoordinator.WORKFLOW_NAME, workflowId)
+        }
+        requireNotNull(preCancelCheckpoint) { "checkpoint must exist before cancellation" }
+        assertThat(preCancelCheckpoint.metadata["workflow_error"])
+            .isEqualTo("stale-error-must-be-cleared")
 
         asyncJson(post("/invoice/workflow/cancel/$workflowId"))
             .andExpect(status().isAccepted)
@@ -341,6 +365,81 @@ class CheckpointConflictRetryTest {
         asyncJson(get("/invoice/workflow/checkpoint/$workflowId"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.metadata.workflow_status").value("FAILED"))
+    }
+
+    @Test
+    fun `concurrent CANCELLED transition during COMPLETED persistence stays CANCELLED`() {
+        val workflowId = "wf-inverse-race-3003"
+        val invoiceText = "Vendor: Northwind Power\\nInvoice: INV-1042\\nAmount due: 4820 USD\\nDue date: 2026-04-30\\nStatus: 12 days overdue"
+        val invoiceJson = invoiceText.replace("\\n", "\\\\n")
+
+        // Hook on COMPLETED saves: inject CANCELLED before the save,
+        // causing a concurrent-cancellation race instead of a normal COMPLETED.
+        val hookFired = AtomicBoolean(false)
+        checkpointStore.beforeSaveHook = { checkpoint, expectedRev ->
+            if (checkpoint.metadata["workflow_status"] == "COMPLETED" && hookFired.compareAndSet(false, true)) {
+                val current = checkpointStore.load(
+                    checkpoint.workflowName, checkpoint.workflowId,
+                )
+                if (current != null) {
+                    checkpointStore.saveDirect(
+                        current.copy(
+                            metadata = linkedMapOf(
+                                "workflow_status" to "CANCELLED",
+                                "workflow_updated_at" to "2026-06-10T00:00:00Z",
+                            ),
+                        ),
+                        expectedRevision = current.revision,
+                    )
+                }
+            }
+        }
+
+        // Start a normal workflow that will complete successfully
+        mockMvc.perform(
+            post("/invoice/workflow/start")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "workflowId": "$workflowId",
+                      "invoiceText": "$invoiceJson"
+                    }
+                    """.trimIndent(),
+                ),
+        )
+            .andExpect(status().isAccepted)
+
+        // Wait for completion + guard to fire
+        // Poll the checkpoint endpoint (not result — loadRun hides CANCELLED
+        // as long as the coroutine is still active)
+        var pollDelay = 200L
+        var checkpointCancelled = false
+        repeat(240) {
+            val json = asyncJson(get("/invoice/workflow/checkpoint/$workflowId"))
+                .andExpect(status().isOk)
+                .andReturn()
+                .response
+                .contentAsString
+            val node = objectMapper.readTree(json)
+            val metadata = node["metadata"]
+            if (metadata != null && metadata["workflow_status"]?.asText() == "CANCELLED") {
+                checkpointCancelled = true
+                return@repeat
+            }
+            Thread.sleep(pollDelay)
+            pollDelay = (pollDelay * 1.5).toLong().coerceAtMost(1000)
+        }
+        assertThat(checkpointCancelled)
+            .describedAs("checkpoint should eventually show CANCELLED")
+            .isTrue()
+
+        assertThat(hookFired.get()).isTrue()
+
+        // Final durable checkpoint must be CANCELLED
+        asyncJson(get("/invoice/workflow/checkpoint/$workflowId"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.metadata.workflow_status").value("CANCELLED"))
     }
 
     // ================================================================
