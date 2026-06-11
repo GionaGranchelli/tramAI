@@ -2,6 +2,7 @@ package dev.tramai.engine
 
 import dev.tramai.core.exception.ModelDisabledException
 import dev.tramai.core.exception.ModelNotRegisteredException
+import dev.tramai.core.exception.ModelRegistryUnavailableException
 import dev.tramai.core.model.ModelArtifactDigest
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
@@ -73,6 +74,31 @@ class ModelRegistryEnforcerTest {
         assertThatThrownBy {
             runBlocking { enforcer.authorize("provider-1", "model-1") }
         }.isInstanceOf(CancellationException::class.java)
+    }
+
+    @Test
+    fun `adapter exception is fully sanitized`() : Unit = runBlocking {
+        val enforcer = ModelRegistryEnforcer(
+            registry = object : ModelRegistry {
+                override suspend fun findApprovedModel(
+                    providerId: String,
+                    modelName: String,
+                ): RegisteredModel? {
+                    throw IllegalStateException(
+                        "token=secret-value url=http://internal-registry.local",
+                    )
+                }
+            },
+            settings = ModelRegistrySettings(enabled = true),
+        )
+
+        assertThatThrownBy {
+            runBlocking { enforcer.authorize("provider-1", "model-1") }
+        }.isInstanceOf(ModelRegistryUnavailableException::class.java)
+            .hasMessage("Model registry is unavailable")
+            .hasNoCause()
+            .hasMessageNotContaining("secret-value")
+            .hasMessageNotContaining("internal-registry")
     }
 
     private fun registeredModel(
