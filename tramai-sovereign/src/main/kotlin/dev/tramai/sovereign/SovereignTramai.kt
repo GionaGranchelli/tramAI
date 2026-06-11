@@ -2,8 +2,6 @@ package dev.tramai.sovereign
 
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalGateCoordinator
-import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
-import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
@@ -40,8 +38,14 @@ import kotlin.reflect.KClass
  * - Approved-model registry enforcement (always enabled, non-disableable)
  * - Classification-aware provider routing (always enabled)
  * - Hash-chained policy-decision audit emission
+ * - Approval lifecycle audit emission wired to the sovereign audit engine
  * - Explicit provider trust zones
  * - Fail-fast build-time provider and route validation
+ *
+ * `BEFORE_WORKFLOW_RESUME` is intentionally allowed by the sovereign policy
+ * engine because resume authorization is enforced earlier by the configured
+ * [ApprovalGateCoordinator], which validates token binding and expected-version
+ * checks before the workflow can resume.
  *
  * Builder requires a [SovereignProfileConfiguration], [ModelRegistry], [AuditStore],
  * and at least one provider with a trust zone.
@@ -270,16 +274,6 @@ class SovereignTramai private constructor(
             coordinator: ApprovalGateCoordinator,
         ): Builder = apply {
             standaloneBuilder.approvalGateCoordinator(coordinator)
-        }
-
-        /**
-         * Configures the audit emitter for approval lifecycle events.
-         * Defaults to [NoOpApprovalLifecycleAuditEmitter].
-         */
-        fun approvalLifecycleAudit(
-            emitter: ApprovalLifecycleAuditEmitter,
-        ): Builder = apply {
-            standaloneBuilder.approvalLifecycleAudit(emitter)
         }
 
         /**

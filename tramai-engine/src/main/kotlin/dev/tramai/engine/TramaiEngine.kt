@@ -2433,19 +2433,31 @@ internal class TramaiInvocationHandler(
      * 7. IF Allow: authorizeResume(), claimForExecution(), and continue
      */
     suspend fun resumeApprovalInternal(command: ResumeApprovalCommand): Any? {
-        // 1. Load suspended invocation metadata (read-only)
-        val metadata = suspendedInvocationStore.get(command.approvalId)
-            ?: throw dev.tramai.core.exception.ApprovalNotFoundException(command.approvalId)
-
-        // 2a. Validate continuation exists before authorizing
         val store = approvalContinuationStore
             ?: throw dev.tramai.core.exception.ConfigurationException(
                 "ApprovalContinuationStore is required for resume"
             )
+
+        // 1. Check for a completed continuation before loading metadata.
+        // Post-success cleanup removes suspended metadata, but the consumed token
+        // must still reject duplicate resume attempts explicitly.
+        val continuationSnapshot = store.get(command.approvalId)
+        if (
+            continuationSnapshot != null &&
+            continuationSnapshot.status == ApprovalContinuationStatus.COMPLETED
+        ) {
+            throw dev.tramai.core.exception.ApprovalTokenRejectedException(command.approvalId)
+        }
+
+        // 2. Load suspended invocation metadata (read-only)
+        val metadata = suspendedInvocationStore.get(command.approvalId)
+            ?: throw dev.tramai.core.exception.ApprovalNotFoundException(command.approvalId)
+
+        // 3a. Validate continuation exists before authorizing
         val existingContinuation = store.get(command.approvalId)
             ?: throw dev.tramai.core.exception.ApprovalNotFoundException(command.approvalId)
 
-        // 2b. Validate continuation is PENDING and version matches (read-only checks)
+        // 3b. Validate continuation is PENDING and version matches (read-only checks)
         require(existingContinuation.status == ApprovalContinuationStatus.PENDING) {
             "Continuation '${command.approvalId}' is not PENDING (status=${existingContinuation.status})"
         }
@@ -2459,7 +2471,7 @@ internal class TramaiInvocationHandler(
             "Continuation tool-call ID mismatch: '${existingContinuation.toolCallId}' != '${metadata.toolCallId}'"
         }
 
-        // 3. Resolve non-side-effecting dependencies BEFORE token consumption
+        // 4. Resolve non-side-effecting dependencies BEFORE token consumption
         val coordinator = approvalGateCoordinator
             ?: throw dev.tramai.core.exception.ConfigurationException(
                 "ApprovalGateCoordinator is required for resume"
@@ -2468,7 +2480,7 @@ internal class TramaiInvocationHandler(
             "ToolArgumentsDigester is required for payload integrity verification"
         }
 
-        // 4. Validate token and approval binding WITHOUT consuming
+        // 5. Validate token and approval binding WITHOUT consuming
         coordinator.validateResume(
             ValidateResumeCommand(
                 approvalId = command.approvalId,
@@ -2483,7 +2495,7 @@ internal class TramaiInvocationHandler(
             )
         )
 
-        // 5. Evaluate BEFORE_WORKFLOW_RESUME before consuming the one-time token
+        // 6. Evaluate BEFORE_WORKFLOW_RESUME before consuming the one-time token
         val resumeDecision = policyHelper.evaluate(
             policyHelper.buildContext(
                 enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_WORKFLOW_RESUME,
@@ -2528,7 +2540,7 @@ internal class TramaiInvocationHandler(
             )
         }
 
-        // 6. Token was validated above; now consume it atomically before claiming
+        // 7. Token was validated above; now consume it atomically before claiming
         val authorization = coordinator.authorizeResume(
             AuthorizeResumeCommand(
                 approvalId = command.approvalId,
@@ -2559,7 +2571,7 @@ internal class TramaiInvocationHandler(
             }
         }
 
-        // 7. Claim continuation (only Allow reaches here)
+        // 8. Claim continuation (only Allow reaches here)
         val claimed = store.claimForExecution(
             approvalId = command.approvalId,
             expectedVersion = command.continuationExpectedVersion,

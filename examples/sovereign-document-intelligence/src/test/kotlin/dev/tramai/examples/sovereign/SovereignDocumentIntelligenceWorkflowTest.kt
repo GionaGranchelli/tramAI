@@ -270,4 +270,45 @@ class SovereignDocumentIntelligenceWorkflowTest {
         assertEquals(0, provider.capturedRequests.size)
         runtime.close()
     }
+
+    @Test
+    fun `restricted invoice allows exactly one payment after duplicate resume attempt`() {
+        val runtime = buildRuntime()
+        val service = runtime.create(InvoiceAnalysisService::class)
+        val suspension = triggerSuspension(service)
+
+        val stored = runBlocking { approvalStore.get(suspension.approvalId) }
+        assertNotNull(stored)
+        val approved = runBlocking {
+            approvalStore.transition(
+                suspension.approvalId,
+                stored.version,
+                ApprovalTransition.Approve(decidedBy = "human-operator", comment = "Approved"),
+            )
+        }
+
+        val command = ResumeApprovalCommand(
+            approvalId = suspension.approvalId,
+            approvalExpectedVersion = approved.version,
+            continuationExpectedVersion = suspension.continuationVersion,
+            presentedToken = suspension.challenge.token,
+            resumedBy = "human-operator",
+        )
+
+        val assessment = runBlocking {
+            runtime.resumeApprovalTyped<InvoiceAssessment>(command)
+        }
+        assertEquals("INV-001", assessment.invoiceId)
+        assertEquals(1, ledger.executionCount())
+
+        try {
+            runBlocking { runtime.resumeApproval(command) }
+            fail("Should have thrown ApprovalTokenRejectedException")
+        } catch (_: ApprovalTokenRejectedException) {
+            // Success — token was consumed by the first resume.
+        }
+
+        assertEquals(1, ledger.executionCount())
+        runtime.close()
+    }
 }
