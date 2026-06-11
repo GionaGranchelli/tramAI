@@ -15,6 +15,7 @@ import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.ApprovalValidation
 import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.CreateApprovalCommand
+import dev.tramai.core.approval.SafeActorIdPolicy
 import dev.tramai.core.approval.ValidateResumeCommand
 import dev.tramai.core.exception.ApprovalAuthorizationException
 import dev.tramai.core.exception.ApprovalBindingMismatchException
@@ -31,8 +32,6 @@ import java.security.MessageDigest
 import java.time.Clock
 import java.time.Duration
 import kotlinx.coroutines.CancellationException
-
-private val SAFE_ACTOR_ID = Regex("[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}")
 
 class DefaultApprovalGateCoordinator(
     private val store: ApprovalStore,
@@ -360,10 +359,7 @@ class DefaultApprovalGateCoordinator(
     }
 
     private fun validateActorId(value: String) {
-        validateIdField(value, "actorId")
-        require(SAFE_ACTOR_ID.matches(value)) {
-            "actorId must match safe pattern: alphanumeric start, alphanumeric + ._:@+- allowed"
-        }
+        SafeActorIdPolicy.validateActorId(value)
     }
 
     private fun tokenDigestsMatch(

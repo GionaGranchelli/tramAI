@@ -1390,6 +1390,45 @@ class DefaultApprovalGateCoordinatorTest {
 
     private fun workflowDigest(): Sha256Digest =
         Sha256Digest.of("sha256:1111111111111111111111111111111111111111111111111111111111111111")
+
+    @Test
+    fun `store-level transition rejects unsafe decidedBy`() : Unit = runBlocking {
+        val challenge = coordinator.createApproval(createCommand())
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.transition(challenge.approvalId, 0L, ApprovalTransition.Approve(
+                        decidedBy = "password=supersecret",
+                        comment = "approved",
+                    ))
+                }
+            }
+            .withMessageContaining("must match safe pattern")
+    }
+
+    @Test
+    fun `store-level consume rejects unsafe consumedBy`() : Unit = runBlocking {
+        val challenge = coordinator.createApproval(createCommand())
+        store.transition(challenge.approvalId, 0L, ApprovalTransition.Approve("approver", "approved"))
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    coordinator.authorizeResume(authorizeCommand(challenge, consumedBy = "api_key=DE89370400440532013000"))
+                }
+            }
+            .withMessageContaining("actorId must match safe pattern")
+    }
+
+    @Test
+    fun `store-level approval-store create rejects unsafe actor values`() : Unit = runBlocking {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    coordinator.createApproval(createCommand(requestedBy = "password=123"))
+                }
+            }
+            .withMessageContaining("actorId must match safe pattern")
+    }
 }
 
 private class CoordinatorMutableClock(

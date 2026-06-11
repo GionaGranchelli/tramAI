@@ -1,7 +1,9 @@
 package dev.tramai.security.audit
 
 import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.SafeActorIdPolicy
 import dev.tramai.core.approval.Sha256Digest
+import java.security.MessageDigest
 import java.time.Instant
 
 /**
@@ -32,7 +34,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         val metadata = mutableMapOf(
             "approvalId" to bounded(approvalId),
             "toolName" to bounded(toolName),
-            "toolCallId" to bounded(toolCallId),
+            "toolCallIdDigest" to sha256Digest("tool-call-id:$toolCallId"),
             "argumentsDigest" to bounded(argumentsDigest.value),
             "expiresAt" to expiresAt.toString(),
         )
@@ -56,7 +58,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         toolName: String,
         resumedBy: String,
     ) {
-        val safeActor = safeActorId(resumedBy)
+        val safeActor = SafeActorIdPolicy.safeActorId(resumedBy)
         val metadata = mutableMapOf(
             "approvalId" to bounded(approvalId),
             "toolName" to bounded(toolName),
@@ -82,7 +84,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         toolName: String,
         completedBy: String,
     ) {
-        val safeActor = safeActorId(completedBy)
+        val safeActor = SafeActorIdPolicy.safeActorId(completedBy)
         val metadata = mutableMapOf(
             "approvalId" to bounded(approvalId),
             "toolName" to bounded(toolName),
@@ -184,7 +186,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         cancelledBy: String,
         reasonCode: String,
     ) {
-        val safeActor = safeActorId(cancelledBy)
+        val safeActor = SafeActorIdPolicy.safeActorId(cancelledBy)
         val metadata = mapOf(
             "approvalId" to bounded(approvalId),
             "toolName" to bounded(toolName),
@@ -212,7 +214,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         cancelledBy: String,
         reasonCode: String,
     ) {
-        val safeActor = safeActorId(cancelledBy)
+        val safeActor = SafeActorIdPolicy.safeActorId(cancelledBy)
         val metadata = mapOf(
             "approvalId" to bounded(approvalId),
             "toolName" to bounded(toolName),
@@ -238,13 +240,6 @@ class AuditEngineApprovalLifecycleAuditEmitter(
 
         private val SAFE_REASON_CODE = Regex("[a-z0-9][a-z0-9._:-]{0,127}")
 
-        /**
-         * Safe actor identity pattern. Allows opaque user IDs, service-account IDs,
-         * email-like identifiers, UUIDs, and bounded token-shaped values.
-         * Rejects free-form comments, secrets, spaces, line breaks, key-value payloads.
-         */
-        private val SAFE_ACTOR_ID = Regex("[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}")
-
         private fun bounded(value: String): String =
             if (value.length <= MAX_VALUE_LENGTH) value
             else value.take(MAX_VALUE_LENGTH)
@@ -259,12 +254,10 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         private fun safeReasonCode(raw: String): String =
             raw.takeIf(SAFE_REASON_CODE::matches) ?: "approval_reason_redacted"
 
-        /**
-         * Defense-in-depth normalization for actor identifiers entering durable audit evidence.
-         * Valid values pass through unchanged. Invalid values are redacted to a sentinel.
-         */
-        private fun safeActorId(raw: String): String =
-            raw.takeIf { it.length <= MAX_VALUE_LENGTH && SAFE_ACTOR_ID.matches(it) }
-                ?: "approval_actor_redacted"
+        private fun sha256Digest(input: String): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            return digest.digest(input.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+        }
     }
 }

@@ -1,5 +1,6 @@
 package dev.tramai.core.approval
 
+import dev.tramai.core.approval.SafeActorIdPolicy
 import java.time.Instant
 
 /**
@@ -17,7 +18,7 @@ data class ForceCancelClaimedCommand(
 ) {
     init {
         require(approvalId.isNotBlank()) { "approvalId must not be blank" }
-        require(operatorId.isNotBlank()) { "operatorId must not be blank" }
+        SafeActorIdPolicy.validateActorId(operatorId, "operatorId")
         require(reasonCode.isNotBlank()) { "reasonCode must not be blank" }
         require(expectedVersion >= 0) { "expectedVersion must be non-negative" }
     }

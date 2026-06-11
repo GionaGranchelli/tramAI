@@ -2719,7 +2719,7 @@ internal class TramaiInvocationHandler(
                         attributes = mapOf(
                             "approvalId" to command.approvalId,
                             "toolName" to metadata.toolName,
-                            "error" to (e.message ?: e::class.simpleName ?: "unknown"),
+                            "errorType" to (e::class.simpleName ?: "unknown"),
                         ),
                     )
                 } catch (_: Exception) {
@@ -2742,7 +2742,7 @@ internal class TramaiInvocationHandler(
                         attributes = mapOf(
                             "approvalId" to command.approvalId,
                             "toolName" to metadata.toolName,
-                            "error" to (e.message ?: e::class.simpleName ?: "unknown"),
+                            "errorType" to (e::class.simpleName ?: "unknown"),
                         ),
                     )
                 } catch (_: Exception) {
