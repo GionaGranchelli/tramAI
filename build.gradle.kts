@@ -63,12 +63,14 @@ val publishableProjectNames = listOf(
     "tramai-platform",
     "tramai-spring",
     "tramai-standalone",
+    "tramai-sovereign",
     "tramai-structured",
     "tramai-testing",
     "tramai-vectorstore-spi",
     "tramai-vectorstore-chroma",
     "tramai-vectorstore-pgvector",
     "tramai-rag",
+    "tramai-security",
 )
 val jarPublishingProjectNames = publishableProjectNames - "tramai-bom"
 
@@ -222,6 +224,7 @@ fun projectDescription(projectName: String): String = when (projectName) {
     "tramai-orchestration" -> "Typed workflow orchestration and coordination layer for Tramai."
     "tramai-platform" -> "Platform services for plugins, tenancy, API keys, rate limiting, and audit logging."
     "tramai-standalone" -> "Minimal standalone runtime bundle for Tramai."
+    "tramai-sovereign" -> "Secure embedded runtime profile for sovereign TramAI deployments."
     "tramai-spring" -> "Spring Boot auto-configuration and integration support for Tramai."
     "tramai-testing" -> "Testing utilities and deterministic assertion support for Tramai."
     "tramai-bom" -> "Bill of materials for aligning Tramai module versions."

@@ -24,6 +24,7 @@ dependencies {
         api(project(":tramai-observability"))
         api(project(":tramai-orchestration"))
         api(project(":tramai-standalone"))
+        api(project(":tramai-sovereign"))
         api(project(":tramai-spring"))
         api(project(":tramai-security"))
         api(project(":tramai-testing"))
