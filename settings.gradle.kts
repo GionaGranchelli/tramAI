@@ -21,6 +21,7 @@ include(
     "tramai-spring",
     "tramai-scheduler",
     "tramai-security",
+    "tramai-sovereign",
     "tramai-server",
     "tramai-standalone",
     "tramai-structured",
