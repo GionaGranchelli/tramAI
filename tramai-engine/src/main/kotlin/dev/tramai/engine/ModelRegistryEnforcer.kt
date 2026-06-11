@@ -25,16 +25,14 @@ internal class ModelRegistryEnforcer(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            throw ModelRegistryUnavailableException(cause = e)
+            throw ModelRegistryUnavailableException()
         }
 
         if (!approved.enabled) {
             throw ModelDisabledException()
         }
         if (approved.providerId != providerId || approved.modelName != modelName) {
-            throw ModelRegistryContractViolationException(
-                "Returned descriptor does not match requested provider-model",
-            )
+            throw ModelRegistryContractViolationException()
         }
 
         return approved

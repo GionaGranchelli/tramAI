@@ -50,7 +50,19 @@ class InMemoryModelRegistryTest {
                 .register(registeredModel(registryEntryId = "entry-2"))
                 .build()
         }.isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("provider-1:model-1")
+            .hasMessageContaining("already registered")
+    }
+
+    @Test
+    fun `duplicate error does not expose identifiers`() {
+        assertThatThrownBy {
+            InMemoryModelRegistry.builder()
+                .register(registeredModel(providerId = "secret-provider", modelName = "secret-model"))
+                .register(registeredModel(providerId = "secret-provider", modelName = "secret-model"))
+                .build()
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageNotContaining("secret-provider")
+            .hasMessageNotContaining("secret-model")
     }
 
     @Test
@@ -74,14 +86,10 @@ class InMemoryModelRegistryTest {
         val field = InMemoryModelRegistry::class.java.getDeclaredField("modelsByKey")
         field.isAccessible = true
         @Suppress("UNCHECKED_CAST")
-        val map = field.get(registry) as MutableMap<String, RegisteredModel>
+        val map = field.get(registry) as Map<*, *>
 
         assertFails {
-            map["provider-2:model-2"] = registeredModel(
-                providerId = "provider-2",
-                modelName = "model-2",
-                registryEntryId = "entry-2",
-            )
+            (map as MutableMap<Any, Any>)[Any()] = registeredModel()
         }
     }
 
@@ -101,6 +109,33 @@ class InMemoryModelRegistryTest {
         }
 
         assertThat(results).allSatisfy { result -> assertThat(result).isEqualTo(model) }
+    }
+
+    @Test
+    fun `delimiter collision is impossible with typed keys`() : Unit = runBlocking {
+        val a = registeredModel(providerId = "a:b", modelName = "c", registryEntryId = "entry-a")
+        val b = registeredModel(providerId = "a", modelName = "b:c", registryEntryId = "entry-b")
+        val registry = InMemoryModelRegistry.builder()
+            .register(a)
+            .register(b)
+            .build()
+
+        assertThat(registry.findApprovedModel("a:b", "c")).isEqualTo(a)
+        assertThat(registry.findApprovedModel("a", "b:c")).isEqualTo(b)
+    }
+
+    @Test
+    fun `failed duplicate does not mutate previous entry`() {
+        val builder = InMemoryModelRegistry.builder()
+            .register(registeredModel(registryEntryId = "entry-1"))
+        assertThatThrownBy {
+            builder.register(registeredModel(registryEntryId = "entry-2"))
+        }.isInstanceOf(IllegalArgumentException::class.java)
+        // Build should still succeed with the original entry
+        val registry = builder.build()
+        runBlocking {
+            assertThat(registry.findApprovedModel("provider-1", "model-1")).isNotNull
+        }
     }
 
     private fun registeredModel(

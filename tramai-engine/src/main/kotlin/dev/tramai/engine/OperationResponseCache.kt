@@ -10,7 +10,15 @@ import dev.tramai.core.policy.DataClassification
 interface OperationResponseCache {
     fun get(key: OperationCacheKey): CachedOperationResult?
 
-    fun invalidate(key: OperationCacheKey)
+    /**
+     * Invalidates a cache entry by its key.
+     *
+     * Default implementation is a no-op for backward compatibility.
+     * Custom implementations should override to provide actual eviction.
+     * Security-sensitive callers must not rely on this for confidentiality
+     * — provenance revalidation is the authoritative access control.
+     */
+    fun invalidate(key: OperationCacheKey) = Unit
 
     fun put(
         key: OperationCacheKey,
@@ -59,8 +67,6 @@ data class CacheSecurityPartition(
 
 object NoOpOperationResponseCache : OperationResponseCache {
     override fun get(key: OperationCacheKey): CachedOperationResult? = null
-
-    override fun invalidate(key: OperationCacheKey) = Unit
 
     override fun put(
         key: OperationCacheKey,

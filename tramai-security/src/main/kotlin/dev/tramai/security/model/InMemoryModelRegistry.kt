@@ -22,7 +22,7 @@ class InMemoryModelRegistry private constructor(
         fun register(model: RegisteredModel): Builder = apply {
             val key = ModelKey(model.providerId, model.modelName)
             require(key !in modelsByKey) {
-                "Registered model '${model.providerId}:${model.modelName}' is already registered"
+                "Provider-model pair is already registered"
             }
             modelsByKey[key] = model
         }

@@ -41,6 +41,7 @@ class InMemoryOperationResponseCache(
         value: CachedOperationResult,
         ttlMillis: Long,
     ) {
+        require(ttlMillis > 0) { "Cache TTL must be greater than zero" }
         entries[key] = CacheEntry(
             value = value.value,
             expiresAtMillis = clockMillis() + ttlMillis,

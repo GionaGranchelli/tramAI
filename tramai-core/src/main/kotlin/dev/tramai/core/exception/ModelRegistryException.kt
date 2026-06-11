@@ -13,13 +13,11 @@ class ModelNotRegisteredException :
 class ModelDisabledException :
     ModelRegistryException("Requested model is disabled")
 
-class ModelRegistryUnavailableException(
-    cause: Throwable? = null,
-) : ModelRegistryException("Model registry is unavailable", cause)
+class ModelRegistryUnavailableException :
+    ModelRegistryException("Model registry is unavailable")
 
-class ModelRegistryContractViolationException(
-    reason: String,
-) : ModelRegistryException("Model registry contract violation: $reason")
+class ModelRegistryContractViolationException :
+    ModelRegistryException("Model registry contract violation")
 
 class CachedModelProvenanceMismatchException :
     ModelRegistryException("Cached response provenance does not match current model registry")
