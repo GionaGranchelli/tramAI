@@ -31,6 +31,11 @@ class InMemoryOperationResponseCache(
     }
 
     @Synchronized
+    override fun invalidate(key: OperationCacheKey) {
+        entries.remove(key)
+    }
+
+    @Synchronized
     override fun put(
         key: OperationCacheKey,
         value: CachedOperationResult,

@@ -1,5 +1,6 @@
 package dev.tramai.engine
 
+import dev.tramai.core.model.ModelArtifactDigest
 import dev.tramai.core.policy.ClassificationSource
 import dev.tramai.core.policy.DataClassification
 
@@ -8,6 +9,16 @@ import dev.tramai.core.policy.DataClassification
  */
 interface OperationResponseCache {
     fun get(key: OperationCacheKey): CachedOperationResult?
+
+    /**
+     * Invalidates a cache entry by its key.
+     *
+     * Default implementation is a no-op for backward compatibility.
+     * Custom implementations should override to provide actual eviction.
+     * Security-sensitive callers must not rely on this for confidentiality
+     * — provenance revalidation is the authoritative access control.
+     */
+    fun invalidate(key: OperationCacheKey) = Unit
 
     fun put(
         key: OperationCacheKey,
@@ -39,6 +50,9 @@ data class CachedResponseProvenance(
     val modelName: String,
     val dataClassification: DataClassification?,
     val classificationSource: ClassificationSource?,
+    val modelRegistryEntryId: String? = null,
+    val modelRevision: String? = null,
+    val modelArtifactDigest: ModelArtifactDigest? = null,
 )
 
 data class CachedOperationResult(

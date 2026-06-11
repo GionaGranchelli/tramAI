@@ -110,3 +110,4 @@ This board is the execution view for specs-driven development in Tramai.
 | `TASK-022` | `SPEC-012` |
 | `TASK-023` | `SPEC-012` |
 | `TASK-024` | `SPEC-012` |
+| `PR #23` | `SPEC-017` |

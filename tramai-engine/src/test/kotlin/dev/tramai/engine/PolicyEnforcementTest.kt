@@ -5,6 +5,8 @@ import dev.tramai.core.annotations.ConversationId
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.annotations.User as UserMessage
 import dev.tramai.core.exception.ApprovalRequiredException
+import dev.tramai.core.exception.ModelNotRegisteredException
+import dev.tramai.core.exception.ModelRegistryUnavailableException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.memory.ChatMemory
@@ -12,8 +14,11 @@ import dev.tramai.core.model.ClassifiedDocument
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
+import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.model.ModelRegistrySettings
+import dev.tramai.core.model.RegisteredModel
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ToolExecutionContext
@@ -175,6 +180,12 @@ class PolicyEnforcementTest {
     }
 
     @AiService
+    interface RetryTestService {
+        @Operation(prompt = "test", model = "test-model", providerRetries = 1)
+        suspend fun analyze(input: String): String
+    }
+
+    @AiService
     interface CachedToolTestService {
         @Operation(prompt = "test", model = "test-model", tools = ["echo"], cacheable = true, cacheTtlMillis = 60_000)
         suspend fun cachedCall(input: String): String
@@ -314,6 +325,74 @@ class PolicyEnforcementTest {
         val service = allowEngine.create<TestService>()
         val result = service.analyze("test")
         assertThat(result).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `registry enabled fails closed when model is not registered`() = runBlocking {
+        val engine = TramaiEngine(
+            provider = CountingProvider(),
+            modelRegistry = object : ModelRegistry {
+                override suspend fun findApprovedModel(providerId: String, modelName: String) = null
+            },
+            modelRegistrySettings = ModelRegistrySettings(enabled = true),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+        )
+        val service = engine.create<TestService>()
+
+        assertThatThrownBy { runBlocking { service.analyze("test") } }
+            .isInstanceOf(ModelNotRegisteredException::class.java)
+    }
+
+    @Test
+    fun `cache provenance mismatch is treated as cache miss and invalidates stale entry`() = runBlocking {
+        val provider = CountingProvider(content = "fresh")
+        var cached: CachedOperationResult? = CachedOperationResult(
+            value = "stale",
+            provenance = CachedResponseProvenance(
+                providerId = "test-provider",
+                modelName = "test-model",
+                dataClassification = null,
+                classificationSource = null,
+                modelRegistryEntryId = null,
+                modelRevision = null,
+                modelArtifactDigest = null,
+            ),
+        )
+        var invalidated = false
+        val cache = object : OperationResponseCache {
+            override fun get(key: OperationCacheKey): CachedOperationResult? = cached
+
+            override fun invalidate(key: OperationCacheKey) {
+                invalidated = true
+                cached = null
+            }
+
+            override fun put(key: OperationCacheKey, value: CachedOperationResult, ttlMillis: Long) = Unit
+        }
+        val engine = TramaiEngine(
+            provider = provider,
+            responseCache = cache,
+            modelRegistry = object : ModelRegistry {
+                override suspend fun findApprovedModel(providerId: String, modelName: String): RegisteredModel? =
+                    RegisteredModel(
+                        registryEntryId = "entry-1",
+                        providerId = providerId,
+                        modelName = modelName,
+                        revision = "rev-1",
+                    )
+            },
+            modelRegistrySettings = ModelRegistrySettings(enabled = true),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+        )
+        val service = engine.create<CachedTestService>()
+
+        assertThat(service.cachedCall("test")).isEqualTo("fresh")
+        assertThat(invalidated).isTrue()
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
 
@@ -1395,6 +1474,8 @@ class PolicyEnforcementTest {
                 ),
             )
 
+            override fun invalidate(key: OperationCacheKey) = Unit
+
             override fun put(key: OperationCacheKey, value: CachedOperationResult, ttlMillis: Long) = Unit
         }
         val engine = TramaiEngine(
@@ -1660,6 +1741,7 @@ class PolicyEnforcementTest {
 
         val cache = object : OperationResponseCache {
             override fun get(key: OperationCacheKey): CachedOperationResult? = null
+            override fun invalidate(key: OperationCacheKey) = Unit
             override fun put(key: OperationCacheKey, value: CachedOperationResult, ttlMillis: Long) {
                 cachePutCalled = true
             }
@@ -2182,5 +2264,115 @@ class PolicyEnforcementTest {
 
         // Provider should NOT have been invoked again (cache hit denied by policy)
         assertThat(provider.callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `registry revocation between retries blocks second attempt`() = runBlocking {
+        val provider = object : ModelProvider {
+            val callCount = AtomicInteger(0)
+            override fun providerId() = "test-provider"
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                callCount.incrementAndGet()
+                throw ProviderException("transient failure", retryable = true)
+            }
+        }
+        val registry = object : ModelRegistry {
+            private var firstCall = true
+            override suspend fun findApprovedModel(providerId: String, modelName: String): RegisteredModel? {
+                return if (firstCall) {
+                    firstCall = false
+                    RegisteredModel(
+                        registryEntryId = "entry-1",
+                        providerId = "test-provider",
+                        modelName = "test-model",
+                        revision = "rev-1",
+                    )
+                } else {
+                    null
+                }
+            }
+        }
+        val engine = TramaiEngine(
+            providerRegistry = ProviderRegistry.builder()
+                .provider("test-provider", provider, default = true)
+                .model("test-model", "test-provider")
+                .build(),
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.preview().copy(
+                    allowedModels = setOf("*"),
+                    allowedProviders = setOf("*"),
+                ),
+            ),
+            modelRegistry = registry,
+            modelRegistrySettings = ModelRegistrySettings(enabled = true),
+        )
+        val service = engine.create<RetryTestService>()
+
+        assertThatThrownBy {
+            runBlocking { service.analyze("test") }
+        }.isInstanceOf(ModelNotRegisteredException::class.java)
+        assertThat(provider.callCount.get()).isEqualTo(0)
+    }
+
+    @Test
+    fun `cache outage fails closed without invalidating entry`() = runBlocking {
+        val provider = CountingProvider(id = "test-provider")
+        val cache = InMemoryOperationResponseCache(maxEntries = 10)
+        val registry = object : ModelRegistry {
+            override suspend fun findApprovedModel(providerId: String, modelName: String): RegisteredModel? =
+                RegisteredModel(
+                    registryEntryId = "entry-1",
+                    providerId = "test-provider",
+                    modelName = "test-model",
+                    revision = "rev-1",
+                )
+        }
+
+        val engine = TramaiEngine(
+            providerRegistry = ProviderRegistry.builder()
+                .provider("test-provider", provider, default = true)
+                .model("test-model", "test-provider")
+                .build(),
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.preview().copy(
+                    allowedModels = setOf("*"),
+                    allowedProviders = setOf("*"),
+                ),
+            ),
+            modelRegistry = registry,
+            modelRegistrySettings = ModelRegistrySettings(enabled = true),
+            responseCache = cache,
+        )
+        val service = engine.create<CachedTestService>()
+        runBlocking { service.cachedCall("test") }
+        assertThat(provider.callCount.get()).isEqualTo(1)
+
+        val failingRegistry = object : ModelRegistry {
+            override suspend fun findApprovedModel(providerId: String, modelName: String): RegisteredModel? {
+                throw IllegalStateException("registry-down")
+            }
+        }
+        val engine2 = TramaiEngine(
+            providerRegistry = ProviderRegistry.builder()
+                .provider("test-provider", provider, default = true)
+                .model("test-model", "test-provider")
+                .build(),
+            policyEngine = DefaultPolicyEngine(
+                PolicyConfiguration.preview().copy(
+                    allowedModels = setOf("*"),
+                    allowedProviders = setOf("*"),
+                ),
+            ),
+            modelRegistry = failingRegistry,
+            modelRegistrySettings = ModelRegistrySettings(enabled = true),
+            responseCache = cache,
+        )
+        val service2 = engine2.create<CachedTestService>()
+
+        assertThatThrownBy {
+            runBlocking { service2.cachedCall("test") }
+        }.isInstanceOf(ModelRegistryUnavailableException::class.java)
+        assertThat(provider.callCount.get()).isEqualTo(1)
+        assertThat(cache.snapshotKeys()).isNotEmpty
     }
 }

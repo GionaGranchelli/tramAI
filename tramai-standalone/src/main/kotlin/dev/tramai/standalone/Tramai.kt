@@ -22,6 +22,9 @@ import dev.tramai.core.security.PromptSanitizer
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
 import dev.tramai.core.policy.PolicyEngine
+import dev.tramai.core.model.ModelRegistry
+import dev.tramai.core.model.ModelRegistrySettings
+import dev.tramai.core.model.NoOpModelRegistry
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.NoOpOperationResponseCache
 import dev.tramai.engine.OperationResponseCache
@@ -56,6 +59,8 @@ class Tramai private constructor(
     private val chatMemory: ChatMemory?,
     private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
     private val policyEngine: PolicyEngine? = null,
+    private val modelRegistry: ModelRegistry = NoOpModelRegistry,
+    private val modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings(),
 ) {
     /**
      * Creates a service proxy using the built-in Jackson structured output handler.
@@ -78,6 +83,8 @@ class Tramai private constructor(
         chatMemory = chatMemory,
         policyDecisionAuditEmitter = policyDecisionAuditEmitter,
         policyEngine = policyEngine,
+        modelRegistry = modelRegistry,
+        modelRegistrySettings = modelRegistrySettings,
     ).create(serviceType)
 
     companion object {
@@ -109,6 +116,8 @@ class Tramai private constructor(
         private var chatMemory: ChatMemory? = null
         private var policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter
         private var policyEngine: PolicyEngine? = null
+        private var modelRegistry: ModelRegistry = NoOpModelRegistry
+        private var modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings()
 
         /**
          * Registers a provider with an optional explicit [name].
@@ -290,6 +299,20 @@ class Tramai private constructor(
         }
 
         /**
+         * Configures the approved model registry for this runtime.
+         */
+        fun modelRegistry(registry: ModelRegistry): Builder = apply {
+            this.modelRegistry = registry
+        }
+
+        /**
+         * Configures model registry enforcement settings.
+         */
+        fun modelRegistrySettings(settings: ModelRegistrySettings): Builder = apply {
+            this.modelRegistrySettings = settings
+        }
+
+        /**
          * Builds an immutable standalone Tramai instance.
          */
         fun build(): Tramai = Tramai(
@@ -309,6 +332,8 @@ class Tramai private constructor(
             chatMemory = chatMemory,
             policyDecisionAuditEmitter = policyDecisionAuditEmitter,
             policyEngine = policyEngine,
+            modelRegistry = modelRegistry,
+            modelRegistrySettings = modelRegistrySettings,
         )
     }
 }

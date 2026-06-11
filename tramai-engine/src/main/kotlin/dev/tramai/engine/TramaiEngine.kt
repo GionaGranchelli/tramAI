@@ -9,7 +9,9 @@ import dev.tramai.core.annotations.User as UserMessage
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider
 import dev.tramai.core.memory.UuidConversationIdProvider
+import dev.tramai.core.exception.ModelRegistryException
 import dev.tramai.core.exception.CircuitBreakerOpenException
+import dev.tramai.core.exception.CachedModelProvenanceMismatchException
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.ProviderCapabilityException
 import dev.tramai.core.exception.ProviderException
@@ -72,6 +74,7 @@ import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.exception.ToolInvalidInputException
+import dev.tramai.core.model.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -113,6 +116,8 @@ class TramaiEngine(
     private val operationObserver: OperationObserver = NoOpOperationObserver,
     private val operationInterceptor: OperationInterceptor = NoOpOperationInterceptor,
     private val responseCache: OperationResponseCache = NoOpOperationResponseCache,
+    private val modelRegistry: ModelRegistry = NoOpModelRegistry,
+    private val modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings(),
     private val circuitBreakerSettings: CircuitBreakerSettings = CircuitBreakerSettings(),
     private val retryPolicySettings: RetryPolicySettings = RetryPolicySettings(),
     private val tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings(),
@@ -154,6 +159,8 @@ class TramaiEngine(
         operationObserver: OperationObserver = NoOpOperationObserver,
         operationInterceptor: OperationInterceptor = NoOpOperationInterceptor,
         responseCache: OperationResponseCache = NoOpOperationResponseCache,
+        modelRegistry: ModelRegistry = NoOpModelRegistry,
+        modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings(),
         circuitBreakerSettings: CircuitBreakerSettings = CircuitBreakerSettings(),
         retryPolicySettings: RetryPolicySettings = RetryPolicySettings(),
         tokenBudgetSettings: TokenBudgetSettings = TokenBudgetSettings(),
@@ -181,6 +188,8 @@ class TramaiEngine(
         operationObserver = operationObserver,
         operationInterceptor = operationInterceptor,
         responseCache = responseCache,
+        modelRegistry = modelRegistry,
+        modelRegistrySettings = modelRegistrySettings,
         circuitBreakerSettings = circuitBreakerSettings,
         retryPolicySettings = retryPolicySettings,
         tokenBudgetSettings = tokenBudgetSettings,
@@ -219,6 +228,8 @@ class TramaiEngine(
             operationObserver = operationObserver,
             operationInterceptor = operationInterceptor,
             responseCache = responseCache,
+            modelRegistry = modelRegistry,
+            modelRegistrySettings = modelRegistrySettings,
             circuitBreaker = circuitBreaker,
             retryDelayPolicy = retryDelayPolicy,
             tokenBudgetSettings = tokenBudgetSettings,
@@ -317,6 +328,8 @@ internal class TramaiInvocationHandler(
     private val operationObserver: OperationObserver,
     private val operationInterceptor: OperationInterceptor,
     private val responseCache: OperationResponseCache,
+    private val modelRegistry: ModelRegistry,
+    private val modelRegistrySettings: ModelRegistrySettings,
     private val circuitBreaker: ProviderCircuitBreaker,
     private val retryDelayPolicy: ProviderRetryDelayPolicy,
     private val tokenBudgetSettings: TokenBudgetSettings,
@@ -343,6 +356,7 @@ internal class TramaiInvocationHandler(
 ) : InvocationHandler {
 
     private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard, isLegacyFallback = isLegacyFallback, auditEmitter = policyDecisionAuditEmitter)
+    private val modelRegistryEnforcer = ModelRegistryEnforcer(modelRegistry, modelRegistrySettings)
 
     override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
         if (method.declaringClass == Any::class.java) {
@@ -457,12 +471,24 @@ internal class TramaiInvocationHandler(
                             policyError.addSuppressed(lastCircuitOpen)
                             throw policyError
                         }
-                    }
-                    continue
                 }
+                continue
+            }
 
-                // Enforce BEFORE_RESPONSE_RETURN per-route before any token emission
-                policyHelper.enforce(
+            val attempt = attemptCounter.next()
+            val observation = startStreamingObservation(route, operation, attempt, routeIndex)
+
+            try {
+                modelRegistryEnforcer.authorize(route.providerName, route.effectiveModelName)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: ModelRegistryException) {
+                observation.onCallCompleted(parseSuccess = null)
+                throw e
+            }
+
+            // Enforce BEFORE_RESPONSE_RETURN per-route before any token emission
+            policyHelper.enforce(
                     policyHelper.buildContext(
                         enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_RESPONSE_RETURN,
                         correlationId = correlationId,
@@ -512,8 +538,9 @@ internal class TramaiInvocationHandler(
                         request = memoryInjectedRequest,
                         operation = operation,
                         route = route,
-                        attempt = attemptCounter.next(),
+                        attempt = attempt,
                         routeIndex = routeIndex,
+                        observation = observation,
                         tokenBudgetTracker = tokenBudgetTracker,
                         emitChunk = { emit(it) },
                     )
@@ -576,6 +603,7 @@ internal class TramaiInvocationHandler(
         route: ResolvedProviderRoute,
         attempt: Int,
         routeIndex: Int,
+        observation: OperationObservation,
         tokenBudgetTracker: TokenBudgetTracker,
         emitChunk: suspend (StreamChunk) -> Unit,
     ): StreamingRouteResult {
@@ -584,7 +612,6 @@ internal class TramaiInvocationHandler(
         val interceptedRequest = request.copy(
             messages = operationInterceptor.interceptRequest(callContext, request.messages),
         )
-        val observation = startStreamingObservation(route, operation, attempt, routeIndex)
 
         return try {
             collectStreamingRouteChunks(
@@ -934,13 +961,17 @@ internal class TramaiInvocationHandler(
 
         cacheKey?.let { key ->
             operation.cachedValue(key, conversationId)?.let { cached ->
-                authorizeCachedResult(
-                    cacheKey = key,
-                    cached = cached,
-                    securityContext = securityContext,
-                    correlationId = correlationId,
-                )
-                return cached.value as String
+                try {
+                    authorizeCachedResult(
+                        cacheKey = key,
+                        cached = cached,
+                        securityContext = securityContext,
+                        correlationId = correlationId,
+                    )
+                    return cached.value as String
+                } catch (_: CachedModelProvenanceMismatchException) {
+                    responseCache.invalidate(key)
+                }
             }
         }
 
@@ -985,7 +1016,15 @@ internal class TramaiInvocationHandler(
         result.observation.onCallCompleted(parseSuccess = null)
         return result.response.content.also {
             cacheKey?.let { key ->
-                operation.cacheValue(key, it, result.providerId, result.modelName, securityContext, conversationId)
+                operation.cacheValue(
+                    key = key,
+                    value = it,
+                    providerId = result.providerId,
+                    modelName = result.modelName,
+                    securityContext = securityContext,
+                    conversationId = conversationId,
+                    approvedModel = result.approvedModel,
+                )
             }
         }
     }
@@ -1014,13 +1053,17 @@ internal class TramaiInvocationHandler(
 
         cacheKey?.let { key ->
             operation.cachedValue(key, conversationId)?.let { cached ->
-                authorizeCachedResult(
-                    cacheKey = key,
-                    cached = cached,
-                    securityContext = securityContext,
-                    correlationId = correlationId,
-                )
-                return cached.value
+                try {
+                    authorizeCachedResult(
+                        cacheKey = key,
+                        cached = cached,
+                        securityContext = securityContext,
+                        correlationId = correlationId,
+                    )
+                    return cached.value
+                } catch (_: CachedModelProvenanceMismatchException) {
+                    responseCache.invalidate(key)
+                }
             }
         }
 
@@ -1141,7 +1184,15 @@ internal class TramaiInvocationHandler(
                     messagesBeforeCall = messagesBeforeCall,
                 )
                 cacheKey?.let { key ->
-                    operation.cacheValue(key, analysis.value, result.providerId, result.modelName, securityContext, conversationId)
+                    operation.cacheValue(
+                        key = key,
+                        value = analysis.value,
+                        providerId = result.providerId,
+                        modelName = result.modelName,
+                        securityContext = securityContext,
+                        conversationId = conversationId,
+                        approvedModel = result.approvedModel,
+                    )
                 }
 
                 analysis.value
@@ -1795,8 +1846,17 @@ internal class TramaiInvocationHandler(
                         effectiveModelName = request.model,
                     ),
                     routeIndex = routeIndex,
-                ),
+                    ),
             )
+
+            val approvedModel = try {
+                modelRegistryEnforcer.authorize(providerId, request.model)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ModelRegistryException) {
+                observation.onCallCompleted(parseSuccess = null)
+                throw e
+            }
 
             try {
                 // Enforce BEFORE_PROVIDER_INVOCATION
@@ -1863,6 +1923,7 @@ internal class TramaiInvocationHandler(
                     observation = observation,
                     providerId = providerId,
                     modelName = request.model,
+                    approvedModel = approvedModel,
                 )
             } catch (error: dev.tramai.core.security.DlpInspectionException) {
                 // DLP failures propagate directly — NOT a provider failure.
@@ -2990,6 +3051,23 @@ internal class TramaiInvocationHandler(
         correlationId: String,
     ) {
         validateCachedEntry(cacheKey, cached)
+        if (modelRegistrySettings.enabled) {
+            val provenance = cached.provenance
+            try {
+                val current = modelRegistryEnforcer.authorize(provenance.providerId, provenance.modelName)
+                    ?: error("ModelRegistryEnforcer.authorize returned null when registry is enabled")
+                if (current.registryEntryId != provenance.modelRegistryEntryId ||
+                    current.revision != provenance.modelRevision ||
+                    current.artifactDigest != provenance.modelArtifactDigest
+                ) {
+                    throw CachedModelProvenanceMismatchException()
+                }
+            } catch (e: CachedModelProvenanceMismatchException) {
+                throw e
+            } catch (e: ModelRegistryException) {
+                throw e
+            }
+        }
         policyHelper.enforce(
             policyHelper.buildContext(
                 enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_PROVIDER_RESOLUTION,
@@ -3055,6 +3133,7 @@ internal class TramaiInvocationHandler(
         modelName: String,
         securityContext: ExecutionSecurityContext,
         conversationId: String?,
+        approvedModel: RegisteredModel?,
     ) {
         if (!isSafeCacheEligible(this, conversationId)) {
             return
@@ -3068,6 +3147,9 @@ internal class TramaiInvocationHandler(
                     modelName = modelName,
                     dataClassification = securityContext.dataClassification,
                     classificationSource = securityContext.classificationSource,
+                    modelRegistryEntryId = approvedModel?.registryEntryId,
+                    modelRevision = approvedModel?.revision,
+                    modelArtifactDigest = approvedModel?.artifactDigest,
                 ),
             ),
             ttlMillis = operation.cacheTtlMillis,
@@ -3514,6 +3596,7 @@ private data class ProviderCallResult(
     val observation: OperationObservation,
     val providerId: String,
     val modelName: String,
+    val approvedModel: RegisteredModel?,
 )
 
 private sealed class StreamingRouteResult {

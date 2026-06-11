@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
+import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.exception.TokenBudgetExceededException
 import dev.tramai.core.model.Message
@@ -609,6 +610,69 @@ class TramaiAutoConfigurationTest {
             val service = tramai.create(TestInvoiceAnalyzer::class)
             val result = runBlocking { service.analyze("test") }
             assertThat(result).isEqualTo("spring hello")
+        }
+    }
+
+    @Test
+    fun `zero ModelRegistrySettings beans uses property backed default`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+
+        contextRunner.run { context ->
+            val tramai = context.getBean(Tramai::class.java)
+            val service = tramai.create(TestInvoiceAnalyzer::class)
+            val result = runBlocking { service.analyze("test") }
+            assertThat(result).isEqualTo("spring hello")
+        }
+    }
+
+    @Test
+    fun `single ModelRegistrySettings bean is wired`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+            .withBean("modelRegistrySettings", ModelRegistrySettings::class.java, Supplier {
+                ModelRegistrySettings(enabled = false)
+            })
+
+        contextRunner.run { context ->
+            assertThat(context).hasSingleBean(ModelRegistrySettings::class.java)
+            val tramai = context.getBean(Tramai::class.java)
+            val service = tramai.create(TestInvoiceAnalyzer::class)
+            val result = runBlocking { service.analyze("test") }
+            assertThat(result).isEqualTo("spring hello")
+        }
+    }
+
+    @Test
+    fun `multiple ModelRegistrySettings beans fail fast`() {
+        val contextRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(TramaiAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
+            .withPropertyValues("tramai.default-provider=stub")
+            .withBean("firstModelRegistrySettings", ModelRegistrySettings::class.java, Supplier {
+                ModelRegistrySettings(enabled = false)
+            })
+            .withBean("secondModelRegistrySettings", ModelRegistrySettings::class.java, Supplier {
+                ModelRegistrySettings(enabled = true)
+            })
+
+        contextRunner.run { context ->
+            assertThat(context).hasFailed()
+            assertThat(context).getFailure()
+                .hasRootCauseInstanceOf(IllegalArgumentException::class.java)
+                .hasRootCauseMessage(
+                    "Multiple ModelRegistrySettings beans found (2). Define at most one.",
+                )
         }
     }
 
