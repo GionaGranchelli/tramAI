@@ -1,5 +1,6 @@
 package dev.tramai.security
 
+import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.policy.*
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -64,6 +65,25 @@ class DefaultPolicyEngineTest {
                 ctx(EnforcementPoint.BEFORE_FALLBACK, fallbackProviderId = "unknown-fallback")
             )
             assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+        }
+    }
+
+    @Test
+    fun `provider invocation requires model name when model registry is enabled`() {
+        runBlocking {
+            val engine = DefaultPolicyEngine(
+                PolicyConfiguration.preview().copy(
+                    modelRegistrySettings = ModelRegistrySettings(enabled = true),
+                )
+            )
+            val decision = engine.evaluate(
+                ctx(
+                    EnforcementPoint.BEFORE_PROVIDER_INVOCATION,
+                    providerId = "ollama",
+                )
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("model-name-missing")
         }
     }
 

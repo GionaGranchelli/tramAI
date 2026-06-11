@@ -139,6 +139,11 @@ data class TramaiProperties(
 
     data class Security(
         var classification: Classification = Classification(),
+        var modelRegistry: ModelRegistryProperties = ModelRegistryProperties(),
+    )
+
+    data class ModelRegistryProperties(
+        var enabled: Boolean = false,
     )
 
     data class ClassificationRuleProperties(

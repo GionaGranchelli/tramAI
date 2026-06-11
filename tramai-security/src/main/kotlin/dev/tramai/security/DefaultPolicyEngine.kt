@@ -1,5 +1,6 @@
 package dev.tramai.security
 
+import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.policy.*
 
 /**
@@ -81,6 +82,7 @@ class DefaultPolicyEngine(
                     "unknown-provider",
                 )
             }
+            enforceModelNameWhenRegistryEnabled(config.modelRegistrySettings, ctx.modelName)?.let { return it }
             return PolicyDecision.Allow
         }
 
@@ -102,6 +104,7 @@ class DefaultPolicyEngine(
             providerId = providerId,
             isFallback = false,
         )?.let { return it }
+        enforceModelNameWhenRegistryEnabled(config.modelRegistrySettings, ctx.modelName)?.let { return it }
 
         return PolicyDecision.Allow
     }
@@ -149,6 +152,16 @@ class DefaultPolicyEngine(
         )?.let { return it }
 
         return PolicyDecision.Allow
+    }
+
+    private fun enforceModelNameWhenRegistryEnabled(
+        settings: ModelRegistrySettings,
+        modelName: String?,
+    ): PolicyDecision.Deny? {
+        if (settings.enabled && modelName == null) {
+            return PolicyDecision.Deny("Model registry requires a model name", "model-name-missing")
+        }
+        return null
     }
 
     // ─── Tool exposure ─────────────────────────────────────────────────────

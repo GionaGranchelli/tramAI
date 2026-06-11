@@ -1,5 +1,6 @@
 package dev.tramai.security
 
+import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.policy.DataClassification
 import dev.tramai.core.policy.RiskLevel
 
@@ -62,6 +63,8 @@ data class PolicyConfiguration(
      * Disabled by default for backward compatibility.
      */
     val providerRouting: ProviderRoutingConfiguration = ProviderRoutingConfiguration(),
+    /** Approved-model registry enforcement settings. */
+    val modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings(),
 ) {
     companion object {
         /**
@@ -94,6 +97,7 @@ data class PolicyConfiguration(
                 ),
                 enabled = false,
             ),
+            modelRegistrySettings = ModelRegistrySettings(),
         )
 
         /** Deny-by-default with no exclusions. */

@@ -1,5 +1,6 @@
 package dev.tramai.engine
 
+import dev.tramai.core.model.ModelArtifactDigest
 import dev.tramai.core.policy.ClassificationSource
 import dev.tramai.core.policy.DataClassification
 
@@ -39,6 +40,9 @@ data class CachedResponseProvenance(
     val modelName: String,
     val dataClassification: DataClassification?,
     val classificationSource: ClassificationSource?,
+    val modelRegistryEntryId: String? = null,
+    val modelRevision: String? = null,
+    val modelArtifactDigest: ModelArtifactDigest? = null,
 )
 
 data class CachedOperationResult(

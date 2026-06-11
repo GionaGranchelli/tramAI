@@ -5,6 +5,7 @@ import dev.tramai.core.annotations.ConversationId
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.annotations.User as UserMessage
 import dev.tramai.core.exception.ApprovalRequiredException
+import dev.tramai.core.exception.ModelNotRegisteredException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.memory.ChatMemory
@@ -12,8 +13,11 @@ import dev.tramai.core.model.ClassifiedDocument
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
+import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.model.ModelRegistrySettings
+import dev.tramai.core.model.RegisteredModel
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ToolExecutionContext
@@ -314,6 +318,74 @@ class PolicyEnforcementTest {
         val service = allowEngine.create<TestService>()
         val result = service.analyze("test")
         assertThat(result).isEqualTo("ok")
+        assertThat(provider.callCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `registry enabled fails closed when model is not registered`() = runBlocking {
+        val engine = TramaiEngine(
+            provider = CountingProvider(),
+            modelRegistry = object : ModelRegistry {
+                override suspend fun findApprovedModel(providerId: String, modelName: String) = null
+            },
+            modelRegistrySettings = ModelRegistrySettings(enabled = true),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+        )
+        val service = engine.create<TestService>()
+
+        assertThatThrownBy { runBlocking { service.analyze("test") } }
+            .isInstanceOf(ModelNotRegisteredException::class.java)
+    }
+
+    @Test
+    fun `cache provenance mismatch is treated as cache miss and invalidates stale entry`() = runBlocking {
+        val provider = CountingProvider(content = "fresh")
+        var cached: CachedOperationResult? = CachedOperationResult(
+            value = "stale",
+            provenance = CachedResponseProvenance(
+                providerId = "test-provider",
+                modelName = "test-model",
+                dataClassification = null,
+                classificationSource = null,
+                modelRegistryEntryId = null,
+                modelRevision = null,
+                modelArtifactDigest = null,
+            ),
+        )
+        var invalidated = false
+        val cache = object : OperationResponseCache {
+            override fun get(key: OperationCacheKey): CachedOperationResult? = cached
+
+            override fun put(key: OperationCacheKey, value: CachedOperationResult, ttlMillis: Long) {
+                if (ttlMillis == 0L) {
+                    invalidated = true
+                    cached = null
+                }
+            }
+        }
+        val engine = TramaiEngine(
+            provider = provider,
+            responseCache = cache,
+            modelRegistry = object : ModelRegistry {
+                override suspend fun findApprovedModel(providerId: String, modelName: String): RegisteredModel? =
+                    RegisteredModel(
+                        registryEntryId = "entry-1",
+                        providerId = providerId,
+                        modelName = modelName,
+                        revision = "rev-1",
+                    )
+            },
+            modelRegistrySettings = ModelRegistrySettings(enabled = true),
+            policyEngine = object : PolicyEngine {
+                override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+            },
+        )
+        val service = engine.create<CachedTestService>()
+
+        assertThat(service.cachedCall("test")).isEqualTo("fresh")
+        assertThat(invalidated).isTrue()
         assertThat(provider.callCount.get()).isEqualTo(1)
     }
 

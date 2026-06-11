@@ -29,6 +29,8 @@ import dev.tramai.engine.EngineEventObserver
 import dev.tramai.engine.NoOpEngineEventObserver
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.core.policy.PolicyEngine
+import dev.tramai.core.model.ModelRegistry
+import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.standalone.Tramai
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory
@@ -57,6 +59,8 @@ class TramaiAutoConfiguration {
         engineEventObservers: ObjectProvider<EngineEventObserver>,
         auditEmitters: ObjectProvider<PolicyDecisionAuditEmitter>,
         policyEngines: ObjectProvider<PolicyEngine>,
+        modelRegistries: ObjectProvider<ModelRegistry>,
+        modelRegistrySettingsProvider: ObjectProvider<ModelRegistrySettings>,
         secretResolvers: ObjectProvider<SecretValueResolver>,
         applicationContext: org.springframework.context.ApplicationContext,
     ): Tramai {
@@ -113,6 +117,10 @@ class TramaiAutoConfiguration {
         resolveEngineEventObserver(engineEventObservers)?.let(builder::engineEventObserver)
         resolvePolicyDecisionAuditEmitter(auditEmitters)?.let(builder::policyDecisionAudit)
         resolvePolicyEngine(policyEngines)?.let(builder::policyEngine)
+        resolveModelRegistry(modelRegistries)?.let(builder::modelRegistry)
+        val settings = resolveModelRegistrySettings(modelRegistrySettingsProvider)
+            ?: ModelRegistrySettings(enabled = properties.security.modelRegistry.enabled)
+        builder.modelRegistrySettings(settings)
 
         // Register property-backed providers first so explicit provider beans can override them when needed.
         resolveSecret(
@@ -367,6 +375,17 @@ class TramaiAutoConfiguration {
         )
     }
 
+    private fun resolveModelRegistry(
+        registries: ObjectProvider<ModelRegistry>,
+    ): ModelRegistry? {
+        val list = registries.orderedStream().toList()
+        if (list.isEmpty()) return null
+        if (list.size == 1) return list.single()
+        throw IllegalArgumentException(
+            "Multiple ModelRegistry beans found (${list.size}). Define at most one.",
+        )
+    }
+
     private fun createVaultSecretValueResolver(
         properties: TramaiProperties.Vault,
         bootstrapSecretResolver: SecretValueResolver,
@@ -433,5 +452,16 @@ class TramaiAutoConfiguration {
             sessionToken = sessionToken,
             defaultField = properties.defaultField,
         )
+        }
     }
-}
+
+    private fun resolveModelRegistrySettings(
+        settings: ObjectProvider<ModelRegistrySettings>,
+    ): ModelRegistrySettings? {
+        val list = settings.orderedStream().toList()
+        if (list.isEmpty()) return null
+        if (list.size == 1) return list.single()
+        throw IllegalArgumentException(
+            "Multiple ModelRegistrySettings beans found (${list.size}). Define at most one.",
+        )
+    }
