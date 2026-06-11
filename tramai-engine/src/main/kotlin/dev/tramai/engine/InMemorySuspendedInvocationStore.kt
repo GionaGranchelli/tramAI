@@ -39,3 +39,6 @@ internal class InMemorySuspendedInvocationStore : SuspendedInvocationStore {
     override suspend fun remove(approvalId: String): SuspendedInvocationMetadata? =
         invocations.remove(approvalId)?.metadata
 }
+
+fun inMemorySuspendedInvocationStore(): SuspendedInvocationStore =
+    InMemorySuspendedInvocationStore()

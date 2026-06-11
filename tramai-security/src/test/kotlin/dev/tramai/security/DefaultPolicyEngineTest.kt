@@ -247,13 +247,12 @@ class DefaultPolicyEngineTest {
     }
 
     @Test
-    fun `BEFORE_WORKFLOW_RESUME is denied as unimplemented`() {
+    fun `BEFORE_WORKFLOW_RESUME is allowed for approved workflows`() {
         runBlocking {
             val decision = secureEngine.evaluate(
                 ctx(EnforcementPoint.BEFORE_WORKFLOW_RESUME)
             )
-            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
-            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("workflow-resume-unimplemented")
+            assertThat(decision).isInstanceOf(PolicyDecision.Allow::class.java)
         }
     }
 

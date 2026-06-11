@@ -65,7 +65,7 @@ class DeterministicInvoiceProvider(
                         }""".trimIndent(),
                     ),
                 ),
-                finishReason = FinishReason.TOOL_CALLS,
+                finishReason = FinishReason.OTHER,
             )
         }
 

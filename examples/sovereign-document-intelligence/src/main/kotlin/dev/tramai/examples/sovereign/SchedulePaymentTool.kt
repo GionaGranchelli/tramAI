@@ -2,6 +2,11 @@ package dev.tramai.examples.sovereign
 
 import dev.tramai.core.model.ToolExecutionContext
 import dev.tramai.core.model.TramaiTool
+import dev.tramai.core.policy.ApprovalMode
+import dev.tramai.core.policy.AuditDetail
+import dev.tramai.core.policy.ManagedNetworkEgress
+import dev.tramai.core.policy.RiskLevel
+import dev.tramai.core.policy.ToolSecurityMetadata
 import kotlin.reflect.KClass
 
 /**
@@ -53,6 +58,14 @@ class SchedulePaymentTool(
         SchedulePaymentInput::class
 
     override val idempotent: Boolean = true
+
+    override val security: ToolSecurityMetadata? = ToolSecurityMetadata(
+        permission = "payment.schedule",
+        risk = RiskLevel.HIGH,
+        approval = ApprovalMode.HUMAN_REQUIRED,
+        managedNetworkEgress = ManagedNetworkEgress.DENY,
+        audit = AuditDetail.FULL,
+    )
 
     override suspend fun execute(
         input: SchedulePaymentInput,

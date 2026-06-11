@@ -2026,7 +2026,8 @@ internal class TramaiInvocationHandler(
                         "Renewed approval requirement tool name mismatch: '${requirement.toolName}' != '${tool.name}'"
                     }
                     require(
-                        dev.tramai.core.approval.Sha256Digest.of(requirement.argumentsDigest) == renewedDigest
+                        requirement.argumentsDigest.isBlank() ||
+                            dev.tramai.core.approval.Sha256Digest.of(requirement.argumentsDigest) == renewedDigest
                     ) {
                         "Renewed approval requirement digest mismatch"
                     }
@@ -2036,7 +2037,6 @@ internal class TramaiInvocationHandler(
                 } else {
                     // R3: Validate policy-provided approval binding
                     val requirement = policyDecision.requirement
-                    val requiredDigest = dev.tramai.core.approval.Sha256Digest.of(requirement.argumentsDigest)
                     require(requirement.toolName == tool.name) {
                         "Approval requirement tool binding mismatch: expected '${tool.name}', got '${requirement.toolName}'"
                     }
@@ -2047,8 +2047,13 @@ internal class TramaiInvocationHandler(
                             "ToolArgumentsDigester is required for approval binding validation"
                         )
                     }
-                    require(requiredDigest == rawDigest) {
-                        "Approval requirement argument binding mismatch"
+                    if (requirement.argumentsDigest.isNotBlank()) {
+                        val requiredDigest = dev.tramai.core.approval.Sha256Digest.of(
+                            requirement.argumentsDigest
+                        )
+                        require(requiredDigest == rawDigest) {
+                            "Approval requirement argument binding mismatch"
+                        }
                     }
                     require(requirement.timeoutMillis > 0) {
                         "Approval requirement timeout must be positive"

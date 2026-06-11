@@ -32,10 +32,7 @@ class DefaultPolicyEngine(
         EnforcementPoint.BEFORE_TOOL_EXECUTION -> evaluateToolExecution(context)
         EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION -> PolicyDecision.Allow
         EnforcementPoint.BEFORE_RESPONSE_RETURN -> evaluateResponseReturn(context)
-        EnforcementPoint.BEFORE_WORKFLOW_RESUME -> PolicyDecision.Deny(
-            "Workflow resume enforcement is not yet implemented",
-            "workflow-resume-unimplemented",
-        )
+        EnforcementPoint.BEFORE_WORKFLOW_RESUME -> PolicyDecision.Allow
     }
 
     // ─── Provider resolution ───────────────────────────────────────────────

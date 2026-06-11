@@ -160,6 +160,42 @@ class ApprovalSuspensionEngineTest {
     }
 
     @Test
+    fun `executeTool derives approval binding when policy requirement omits arguments digest`() {
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = SuspensionPolicyEngine(
+                PolicyDecision.RequireApproval(
+                    ApprovalRequirement(
+                        toolName = toolName,
+                        argumentsDigest = "",
+                        reason = "testing",
+                        timeoutMillis = 60_000,
+                    ),
+                ),
+            ),
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+        )
+        val service = engine.create<SuspensionTestService>()
+
+        val exception = try {
+            runBlocking { service.execute("test input") }
+            fail("Should have thrown")
+        } catch (e: ApprovalSuspendedException) {
+            e
+        }
+
+        val continuation = runBlocking { continuationStore.get(exception.approvalId) }
+        assertThat(continuation).isNotNull
+        assertThat(continuation!!.argumentsDigest)
+            .isEqualTo(digester.digest(SensitiveToolArguments.of(toolArguments)))
+    }
+
+    @Test
     fun `executeTool creates continuation in store with PENDING status`() {
         val engine = createEngine()
         val service = engine.create<SuspensionTestService>()

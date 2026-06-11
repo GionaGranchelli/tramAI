@@ -23,6 +23,7 @@ import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.core.policy.PolicyEngine
+import dev.tramai.core.policy.ToolSecurityMetadata
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.security.DlpInterceptor
@@ -33,13 +34,15 @@ import dev.tramai.core.security.PromptSanitizer
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.EngineEventObserver
 import dev.tramai.engine.NoOpEngineEventObserver
+import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.engine.TramaiEngine
 import dev.tramai.engine.NoOpOperationResponseCache
 import dev.tramai.engine.OperationResponseCache
 import dev.tramai.engine.RetryPolicySettings
 import dev.tramai.engine.TokenBudgetSettings
 import dev.tramai.engine.ToolRegistry
 import dev.tramai.engine.ToolResultFilteringSettings
-import dev.tramai.engine.TramaiEngine
+import dev.tramai.engine.inMemorySuspendedInvocationStore
 import dev.tramai.structured.JacksonStructuredOutputHandler
 import java.time.Clock
 import kotlin.reflect.KClass
@@ -68,6 +71,7 @@ class Tramai private constructor(
     private val modelRegistry: ModelRegistry = NoOpModelRegistry,
     private val modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings(),
     // Approval suspension dependencies
+    private val suspendedInvocationStore: SuspendedInvocationStore?,
     private val approvalContinuationStore: ApprovalContinuationStore? = null,
     private val toolArgumentsDigester: ToolArgumentsDigester? = null,
     private val approvalGateCoordinator: ApprovalGateCoordinator? = null,
@@ -108,6 +112,7 @@ class Tramai private constructor(
         policyEngine = policyEngine,
         modelRegistry = modelRegistry,
         modelRegistrySettings = modelRegistrySettings,
+        suspendedInvocationStore = suspendedInvocationStore ?: inMemorySuspendedInvocationStore(),
         approvalContinuationStore = approvalContinuationStore,
         toolArgumentsDigester = toolArgumentsDigester,
         approvalGateCoordinator = approvalGateCoordinator,
@@ -147,6 +152,7 @@ class Tramai private constructor(
         private var modelRegistry: ModelRegistry = NoOpModelRegistry
         private var modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings()
         // Approval suspension dependencies
+        private var suspendedInvocationStore: SuspendedInvocationStore? = null
         private var approvalContinuationStore: ApprovalContinuationStore? = null
         private var toolArgumentsDigester: ToolArgumentsDigester? = null
         private var approvalGateCoordinator: ApprovalGateCoordinator? = null
@@ -349,6 +355,16 @@ class Tramai private constructor(
         // --- Approval suspension builder methods ---
 
         /**
+         * Configures the store for suspended invocation metadata and sensitive context.
+         * Defaults to the engine's in-memory implementation when not set.
+         */
+        fun suspendedInvocationStore(
+            store: SuspendedInvocationStore,
+        ): Builder = apply {
+            this.suspendedInvocationStore = store
+        }
+
+        /**
          * Configures the store for approval continuations (persistent tool arguments
          * and binding metadata).
          */
@@ -430,6 +446,7 @@ class Tramai private constructor(
                 policyEngine = policyEngine,
                 modelRegistry = modelRegistry,
                 modelRegistrySettings = modelRegistrySettings,
+                suspendedInvocationStore = suspendedInvocationStore,
                 approvalContinuationStore = approvalContinuationStore,
                 toolArgumentsDigester = toolArgumentsDigester,
                 approvalGateCoordinator = approvalGateCoordinator,
@@ -465,6 +482,7 @@ private fun createResolvedTool(
     override val inputSchemaJson: String = handler.generateSchema(tool.inputType.createType())
     override val idempotent: Boolean = tool.idempotent
     override val sideEffectLevel: SideEffectLevel = tool.sideEffectLevel
+    override val security: ToolSecurityMetadata? = tool.security
 
     override suspend fun execute(
         input: Any,

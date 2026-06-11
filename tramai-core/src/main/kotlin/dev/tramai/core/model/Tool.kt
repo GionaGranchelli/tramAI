@@ -42,6 +42,8 @@ interface TramaiTool<I : Any, O : Any> {
     val idempotent: Boolean get() = false
     /** Degree of side effects produced by the tool. */
     val sideEffectLevel: SideEffectLevel get() = SideEffectLevel.UNKNOWN
+    /** Security metadata evaluated by the policy engine at BEFORE_TOOL_EXECUTION. */
+    val security: ToolSecurityMetadata? get() = null
 
     /** Executes the tool with the given structured input. */
     suspend fun execute(input: I, context: ToolExecutionContext): O

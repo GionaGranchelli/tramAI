@@ -24,6 +24,7 @@ import dev.tramai.security.DefaultPolicyEngine
 import dev.tramai.security.PolicyConfiguration
 import dev.tramai.security.ProviderTrustZone
 import dev.tramai.security.audit.AuditEngine
+import dev.tramai.security.audit.AuditEngineApprovalLifecycleAuditEmitter
 import dev.tramai.security.audit.AuditEnginePolicyDecisionAuditEmitter
 import dev.tramai.security.audit.AuditStore
 import dev.tramai.standalone.Tramai
@@ -233,6 +234,16 @@ class SovereignTramai private constructor(
         // --- Approval suspension delegation ---
 
         /**
+         * Configures the store for suspended invocation metadata and sensitive context.
+         * Defaults to the engine's in-memory implementation when not set.
+         */
+        fun suspendedInvocationStore(
+            store: dev.tramai.engine.SuspendedInvocationStore,
+        ): Builder = apply {
+            standaloneBuilder.suspendedInvocationStore(store)
+        }
+
+        /**
          * Configures the store for approval continuations (persistent tool arguments
          * and binding metadata).
          */
@@ -374,12 +385,14 @@ class SovereignTramai private constructor(
             val policyEngine = DefaultPolicyEngine(policyConfig)
             val auditEng = AuditEngine(auditStore!!)
             val policyAuditEmitter = AuditEnginePolicyDecisionAuditEmitter(auditEng)
+            val approvalLifecycleEmitter = AuditEngineApprovalLifecycleAuditEmitter(auditEng)
 
             val tramai = standaloneBuilder
                 .policyEngine(policyEngine)
                 .policyDecisionAudit(policyAuditEmitter)
                 .modelRegistry(modelRegistry!!)
                 .modelRegistrySettings(ModelRegistrySettings(enabled = true))
+                .approvalLifecycleAudit(approvalLifecycleEmitter)
                 .build()
 
             return SovereignTramai(tramai)
