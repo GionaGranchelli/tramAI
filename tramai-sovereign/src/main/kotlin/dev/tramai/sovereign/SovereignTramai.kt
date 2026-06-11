@@ -1,5 +1,10 @@
 package dev.tramai.sovereign
 
+import dev.tramai.core.approval.ApprovalContinuationStore
+import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.model.TramaiTool
@@ -11,6 +16,7 @@ import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.EngineEventObserver
 import dev.tramai.engine.OperationResponseCache
+import dev.tramai.engine.ResumeApprovalCommand
 import dev.tramai.engine.RetryPolicySettings
 import dev.tramai.engine.TokenBudgetSettings
 import dev.tramai.engine.ToolResultFilteringSettings
@@ -21,6 +27,8 @@ import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.AuditEnginePolicyDecisionAuditEmitter
 import dev.tramai.security.audit.AuditStore
 import dev.tramai.standalone.Tramai
+import dev.tramai.standalone.TramaiRuntime
+import java.time.Clock
 import kotlin.reflect.KClass
 
 /**
@@ -55,6 +63,12 @@ class SovereignTramai private constructor(
      * Creates a service proxy for the given service type.
      */
     fun <T : Any> create(serviceType: KClass<T>): T = delegate.create(serviceType)
+
+    /**
+     * Creates a [SovereignTramaiRuntime] that owns exactly one engine and exposes
+     * both service creation and approval-resume operations.
+     */
+    fun runtime(): SovereignTramaiRuntime = SovereignTramaiRuntime(delegate.runtime())
 
     companion object {
         @JvmStatic
@@ -216,6 +230,54 @@ class SovereignTramai private constructor(
             standaloneBuilder.engineEventObserver(observer)
         }
 
+        // --- Approval suspension delegation ---
+
+        /**
+         * Configures the store for approval continuations (persistent tool arguments
+         * and binding metadata).
+         */
+        fun approvalContinuationStore(
+            store: ApprovalContinuationStore,
+        ): Builder = apply {
+            standaloneBuilder.approvalContinuationStore(store)
+        }
+
+        /**
+         * Configures the digester for tool arguments, used to compute the
+         * deterministic hash bound into the approval challenge.
+         */
+        fun toolArgumentsDigester(
+            digester: ToolArgumentsDigester,
+        ): Builder = apply {
+            standaloneBuilder.toolArgumentsDigester(digester)
+        }
+
+        /**
+         * Configures the coordinator that creates and authorizes approval requests.
+         */
+        fun approvalGateCoordinator(
+            coordinator: ApprovalGateCoordinator,
+        ): Builder = apply {
+            standaloneBuilder.approvalGateCoordinator(coordinator)
+        }
+
+        /**
+         * Configures the audit emitter for approval lifecycle events.
+         * Defaults to [NoOpApprovalLifecycleAuditEmitter].
+         */
+        fun approvalLifecycleAudit(
+            emitter: ApprovalLifecycleAuditEmitter,
+        ): Builder = apply {
+            standaloneBuilder.approvalLifecycleAudit(emitter)
+        }
+
+        /**
+         * Configures the clock used for approval expiry and audit timestamps.
+         */
+        fun clock(clock: Clock): Builder = apply {
+            standaloneBuilder.clock(clock)
+        }
+
         // --- Build ---
 
         /**
@@ -329,3 +391,43 @@ class SovereignTramai private constructor(
  * Reified convenience overload for [SovereignTramai.create].
  */
 inline fun <reified T : Any> SovereignTramai.create(): T = create(T::class)
+
+/**
+ * Runtime session owning exactly one engine for sovereign TramAI deployments.
+ *
+ * Wraps [TramaiRuntime] to prevent unsafe standalone methods from leaking
+ * into the sovereign API.
+ */
+class SovereignTramaiRuntime internal constructor(
+    private val delegate: TramaiRuntime,
+) : AutoCloseable {
+
+    /**
+     * Creates a service proxy for the given service type.
+     */
+    fun <T : Any> create(serviceType: KClass<T>): T =
+        delegate.create(serviceType)
+
+    /**
+     * Resumes an approval-suspended tool execution.
+     */
+    suspend fun resumeApproval(command: ResumeApprovalCommand): Any? =
+        delegate.resumeApproval(command)
+
+    /**
+     * Typed convenience overload for [resumeApproval].
+     */
+    @Suppress("UNCHECKED_CAST")
+    suspend inline fun <reified R> resumeApprovalTyped(
+        command: ResumeApprovalCommand,
+    ): R = resumeApproval(command) as R
+
+    override fun close() {
+        delegate.close()
+    }
+}
+
+/**
+ * Reified convenience overload for [SovereignTramaiRuntime.create].
+ */
+inline fun <reified T : Any> SovereignTramaiRuntime.create(): T = create(T::class)
