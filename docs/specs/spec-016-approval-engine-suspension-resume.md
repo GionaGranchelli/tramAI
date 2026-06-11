@@ -175,6 +175,8 @@ Replace `consumeApproved()` with `consumeApprovedOrReplay()` that returns `Appro
 - Concurrent exact replays: one fresh consume, remaining replays
 - Concurrent different actors: only original consumer accepted
 - Replay after approval expiry returns same receipt (continuation store is authoritative for execution expiry)
+- **The durable receipt guarantees authorization consumption recovery, not unconditional workflow completion.**
+  Policy, validator, and BEFORE_WORKFLOW_RESUME are re-evaluated on each retry — this is fail-closed by design.
 - CancellationException propagates unchanged
 - Checked adapter failures sanitized without secret leakage
 
