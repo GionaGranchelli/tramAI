@@ -237,6 +237,52 @@ class ApprovalResumeEngineTest {
         }
     }
 
+    private class ThrowingRemoveSuspendedInvocationStore(
+        private val delegate: InMemorySuspendedInvocationStore,
+    ) : SuspendedInvocationStore by delegate {
+        override suspend fun remove(approvalId: String): SuspendedInvocationMetadata? {
+            throw RuntimeException("simulated-remove-failure")
+        }
+    }
+
+    private class CapturingApprovalLifecycleAuditEmitter :
+        dev.tramai.core.approval.ApprovalLifecycleAuditEmitter {
+        var completedCalls = 0
+        var lastCompletedBy: String? = null
+
+        override suspend fun onToolExecutionSuspended(
+            approvalId: String, workflowRunId: String, toolName: String,
+            toolCallId: String, correlationId: String,
+            argumentsDigest: dev.tramai.core.approval.Sha256Digest, expiresAt: java.time.Instant,
+        ) = Unit
+        override suspend fun onToolExecutionResumed(
+            approvalId: String, workflowRunId: String, toolName: String, resumedBy: String,
+        ) = Unit
+        override suspend fun onToolExecutionCompleted(
+            approvalId: String, workflowRunId: String, toolName: String, completedBy: String,
+        ) {
+            completedCalls++
+            lastCompletedBy = completedBy
+        }
+        override suspend fun onUncertainOutcome(
+            approvalId: String, workflowRunId: String, toolName: String, reason: String,
+        ) = Unit
+        override suspend fun onSuspensionCancelled(
+            approvalId: String, workflowRunId: String, toolName: String, reason: String,
+        ) = Unit
+        override suspend fun onStaleClaimDetected(
+            approvalId: String, workflowRunId: String, toolName: String, claimedAt: java.time.Instant,
+        ) = Unit
+        override suspend fun onClaimedContinuationForceCancellationRequested(
+            approvalId: String, workflowRunId: String, toolName: String,
+            cancelledBy: String, reasonCode: String,
+        ) = Unit
+        override suspend fun onClaimedContinuationForceCancelled(
+            approvalId: String, workflowRunId: String, toolName: String,
+            cancelledBy: String, reasonCode: String,
+        ) = Unit
+    }
+
     private class ThrowingEngineEventObserver(
         private val exception: CancellationException,
     ) : EngineEventObserver {
@@ -2726,6 +2772,61 @@ class ApprovalResumeEngineTest {
         val continuation = runBlocking { freshContinuationStore.get(exception.approvalId) }
         assertThat(continuation).isNotNull
         assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
+    }
+
+    @Test
+    fun `completion audit is attempted when suspended-context removal fails`() {
+        val engineEventObserver = RecordingEngineEventObserver()
+        val capturingAuditEmitter = CapturingApprovalLifecycleAuditEmitter()
+        val throwingRemoveStore = ThrowingRemoveSuspendedInvocationStore(
+            delegate = InMemorySuspendedInvocationStore(),
+        )
+        val localContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock)
+        var localProviderCallCount = 0
+        val provider = RecordingProvider { _ ->
+            localProviderCallCount++
+            if (localProviderCallCount == 1) {
+                ModelResponse(
+                    content = "",
+                    toolCalls = listOf(ToolCall(toolCallId, toolName, toolArguments)),
+                )
+            } else {
+                ModelResponse(content = "Final result: success")
+            }
+        }
+        val suspendingEngine = createEngine(
+            provider = provider,
+            suspendedInvocationStore = throwingRemoveStore,
+            approvalContinuationStore = localContinuationStore,
+            approvalGateCoordinator = PermitApprovalGateCoordinator(fixedClock),
+        )
+        val exception = triggerSuspension(suspendingEngine)
+        val engine = createEngine(
+            provider = provider,
+            suspendedInvocationStore = throwingRemoveStore,
+            approvalContinuationStore = localContinuationStore,
+            approvalLifecycleAuditEmitter = capturingAuditEmitter,
+            engineEventObserver = engineEventObserver,
+        )
+        engine.create<ResumeBootstrapService>()
+        val command = ResumeApprovalCommand(
+            approvalId = exception.approvalId,
+            approvalExpectedVersion = 0L,
+            continuationExpectedVersion = 0L,
+            presentedToken = exception.challenge.token,
+            resumedBy = resumedBy,
+        )
+
+        val result = runBlocking { engine.resumeApproval(command) }
+
+        // Tool executed successfully despite removal failure
+        assertThat(result).isEqualTo("Final result: success")
+        // Completion audit was attempted even though removal failed
+        assertThat(capturingAuditEmitter.completedCalls).isEqualTo(1)
+        assertThat(capturingAuditEmitter.lastCompletedBy).isEqualTo(resumedBy)
+        // Cleanup failure was reported through the observer
+        assertThat(engineEventObserver.events.any { it.first == "resume-suspended-context-cleanup-failure" })
+            .isTrue
     }
 
     // ── Test ChatMemory ────────────────────────────────────────────

@@ -222,4 +222,68 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
         assertEquals(1, events.size)
         assertEquals("manual_cancel", events[0].metadata["reasonCode"])
     }
+
+    // ── P1: Unsafe actor identity redaction ────────────────────────────────────
+
+    @Test
+    fun `unsafe actor in resumedBy is redacted in durable audit event`() = runTest {
+        val store2 = InMemoryAuditStore()
+        val engine2 = AuditEngine(store2, clock = fixedClock)
+        val emitter2 = AuditEngineApprovalLifecycleAuditEmitter(engine2)
+
+        emitter2.onToolExecutionResumed(approvalId, "run-unsafe-actor", toolName, "api_key=super-secret")
+
+        val events = store2.readStream("run-unsafe-actor")
+        assertEquals(1, events.size)
+        val event = events[0]
+        assertEquals("approval_actor_redacted", event.actor)
+        assertEquals("approval_actor_redacted", event.metadata["resumedBy"])
+    }
+
+    @Test
+    fun `unsafe actor in completedBy is redacted in durable audit event`() = runTest {
+        val store2 = InMemoryAuditStore()
+        val engine2 = AuditEngine(store2, clock = fixedClock)
+        val emitter2 = AuditEngineApprovalLifecycleAuditEmitter(engine2)
+
+        emitter2.onToolExecutionCompleted(approvalId, "run-unsafe-actor-2", toolName, "key=value\nsecret")
+
+        val events = store2.readStream("run-unsafe-actor-2")
+        assertEquals(1, events.size)
+        val event = events[0]
+        assertEquals("approval_actor_redacted", event.actor)
+        assertEquals("approval_actor_redacted", event.metadata["completedBy"])
+    }
+
+    @Test
+    fun `unsafe actor in force-cancel is redacted in durable audit event`() = runTest {
+        val store2 = InMemoryAuditStore()
+        val engine2 = AuditEngine(store2, clock = fixedClock)
+        val emitter2 = AuditEngineApprovalLifecycleAuditEmitter(engine2)
+
+        emitter2.onClaimedContinuationForceCancelled(
+            approvalId, "run-unsafe-actor-3", toolName, "password=123", "admin_forced"
+        )
+
+        val events = store2.readStream("run-unsafe-actor-3")
+        assertEquals(1, events.size)
+        val event = events[0]
+        assertEquals("approval_actor_redacted", event.actor)
+        assertEquals("approval_actor_redacted", event.metadata["cancelledBy"])
+    }
+
+    @Test
+    fun `valid actor identity passes through unchanged`() = runTest {
+        val store2 = InMemoryAuditStore()
+        val engine2 = AuditEngine(store2, clock = fixedClock)
+        val emitter2 = AuditEngineApprovalLifecycleAuditEmitter(engine2)
+
+        emitter2.onToolExecutionResumed(approvalId, "run-valid-actor", toolName, "human-operator@example.com")
+
+        val events = store2.readStream("run-valid-actor")
+        assertEquals(1, events.size)
+        val event = events[0]
+        assertEquals("human-operator@example.com", event.actor)
+        assertEquals("human-operator@example.com", event.metadata["resumedBy"])
+    }
 }

@@ -189,18 +189,32 @@ class SovereignDocumentIntelligenceWorkflowTest {
         assertTrue(completedEvents.isNotEmpty(), "APPROVAL_COMPLETED event must exist")
         assertEquals("schedule-payment", completedEvents.first().metadata["toolName"])
 
-        // 9. No sensitive data in any audit event metadata
+        // 9. No sensitive data in any audit event field (not just metadata)
+        //    Scan the full durable representation including actor, correlationId,
+        //    workflowRunId, auditStreamId, reasonCode, and metadata keys/values.
         for (event in events) {
-            val metaValues = event.metadata.values.joinToString("")
+            val allFields = listOfNotNull(
+                event.auditStreamId,
+                event.workflowRunId,
+                event.correlationId,
+                event.actor,
+                event.enforcementPoint,
+                event.decision,
+                event.policyVersion,
+                event.workflowDigest,
+                event.reasonCode,
+            ) + event.metadata.keys + event.metadata.values
+            val allText = allFields.joinToString("")
+
             // Token values must not appear
-            assertTrue("approval-token-invoice-001" !in metaValues, "Token must not appear in audit metadata")
-            assertTrue("token-" !in metaValues, "Token prefix must not appear in audit metadata")
+            assertTrue("approval-token-invoice-001" !in allText, "Token must not appear in audit events")
+            assertTrue("token-" !in allText, "Token prefix must not appear in audit events")
             // IBAN must not appear
-            assertTrue("DE89370400440532013000" !in metaValues, "IBAN must not appear in audit metadata")
+            assertTrue("DE89370400440532013000" !in allText, "IBAN must not appear in audit events")
             assertTrue("iban" !in event.metadata.keys.map { it.lowercase() }, "IBAN key must not appear in audit metadata")
             // Raw invoice content must not appear
-            assertTrue("Acme Corp" !in metaValues, "Invoice content must not appear in audit metadata")
-            assertTrue("Enterprise license renewal" !in metaValues, "Invoice content must not appear in audit metadata")
+            assertTrue("Acme Corp" !in allText, "Invoice content must not appear in audit events")
+            assertTrue("Enterprise license renewal" !in allText, "Invoice content must not appear in audit events")
         }
 
         // 10. All audit timestamps equal fixedClock.instant()

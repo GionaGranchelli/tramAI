@@ -162,6 +162,30 @@ class DefaultApprovalGateCoordinatorTest {
     }
 
     @Test
+    fun `secret in requestedBy is rejected`() : Unit = runBlocking {
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    coordinator.createApproval(createCommand(requestedBy = "api_key=super-secret"))
+                }
+            }
+            .withMessageContaining("actorId must match safe pattern")
+    }
+
+    @Test
+    fun `secret in consumedBy is rejected during authorizeResume`() : Unit = runBlocking {
+        val challenge = approvedChallenge()
+
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    coordinator.authorizeResume(authorizeCommand(challenge, consumedBy = "password=123"))
+                }
+            }
+            .withMessageContaining("actorId must match safe pattern")
+    }
+
+    @Test
     fun `duplicate ID propagates safely`() : Unit = runBlocking {
         coordinator.createApproval(createCommand())
 

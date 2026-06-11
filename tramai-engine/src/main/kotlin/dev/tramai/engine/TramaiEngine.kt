@@ -2706,8 +2706,27 @@ internal class TramaiInvocationHandler(
 
             // Post-completion cleanup — failures here are operational, not uncertain outcomes.
             // The continuation is irrevocably COMPLETED and the tool executed successfully.
+            // Clean up suspended invocation and emit completion audit as independent attempts
+            // so one failure does not suppress the other.
             try {
                 suspendedInvocationStore.remove(command.approvalId)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                try {
+                    engineEventObserver.onEngineEvent(
+                        name = "resume-suspended-context-cleanup-failure",
+                        attributes = mapOf(
+                            "approvalId" to command.approvalId,
+                            "toolName" to metadata.toolName,
+                            "error" to (e.message ?: e::class.simpleName ?: "unknown"),
+                        ),
+                    )
+                } catch (_: Exception) {
+                    // Observer failure is operational — no uncertain outcome from completed state
+                }
+            }
+            try {
                 approvalLifecycleAuditEmitter.onToolExecutionCompleted(
                     approvalId = command.approvalId,
                     workflowRunId = metadata.identity.workflowRunId,
@@ -2717,11 +2736,9 @@ internal class TramaiInvocationHandler(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // Log/report through operational observer, do NOT emit uncertain outcome
-                // Use try/catch(Exception) not runCatching — fatal Error types must propagate
                 try {
                     engineEventObserver.onEngineEvent(
-                        name = "resume-cleanup-failure",
+                        name = "resume-completion-audit-failure",
                         attributes = mapOf(
                             "approvalId" to command.approvalId,
                             "toolName" to metadata.toolName,

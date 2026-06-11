@@ -56,16 +56,17 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         toolName: String,
         resumedBy: String,
     ) {
+        val safeActor = safeActorId(resumedBy)
         val metadata = mutableMapOf(
             "approvalId" to bounded(approvalId),
             "toolName" to bounded(toolName),
-            "resumedBy" to bounded(resumedBy),
+            "resumedBy" to bounded(safeActor),
         )
         auditEngine.emit(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
-            actor = resumedBy,
+            actor = safeActor,
             enforcementPoint = "APPROVAL_RESUMED",
             decision = "AUTHORIZED",
             policyVersion = null,
@@ -81,16 +82,17 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         toolName: String,
         completedBy: String,
     ) {
+        val safeActor = safeActorId(completedBy)
         val metadata = mutableMapOf(
             "approvalId" to bounded(approvalId),
             "toolName" to bounded(toolName),
-            "completedBy" to bounded(completedBy),
+            "completedBy" to bounded(safeActor),
         )
         auditEngine.emit(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
-            actor = completedBy,
+            actor = safeActor,
             enforcementPoint = "APPROVAL_COMPLETED",
             decision = "SUCCESS",
             policyVersion = null,
@@ -182,17 +184,18 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         cancelledBy: String,
         reasonCode: String,
     ) {
+        val safeActor = safeActorId(cancelledBy)
         val metadata = mapOf(
             "approvalId" to bounded(approvalId),
             "toolName" to bounded(toolName),
-            "cancelledBy" to bounded(cancelledBy),
+            "cancelledBy" to bounded(safeActor),
             "reasonCode" to safeReasonCode(reasonCode),
         )
         auditEngine.emit(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
-            actor = cancelledBy,
+            actor = safeActor,
             enforcementPoint = "APPROVAL_FORCE_CANCELLATION_REQUESTED",
             decision = "FORCE_CANCEL",
             policyVersion = null,
@@ -209,17 +212,18 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         cancelledBy: String,
         reasonCode: String,
     ) {
+        val safeActor = safeActorId(cancelledBy)
         val metadata = mapOf(
             "approvalId" to bounded(approvalId),
             "toolName" to bounded(toolName),
-            "cancelledBy" to bounded(cancelledBy),
+            "cancelledBy" to bounded(safeActor),
             "reasonCode" to safeReasonCode(reasonCode),
         )
         auditEngine.emit(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
-            actor = cancelledBy,
+            actor = safeActor,
             enforcementPoint = "APPROVAL_FORCE_CANCELLED",
             decision = "FORCE_CANCELLED",
             policyVersion = null,
@@ -234,6 +238,13 @@ class AuditEngineApprovalLifecycleAuditEmitter(
 
         private val SAFE_REASON_CODE = Regex("[a-z0-9][a-z0-9._:-]{0,127}")
 
+        /**
+         * Safe actor identity pattern. Allows opaque user IDs, service-account IDs,
+         * email-like identifiers, UUIDs, and bounded token-shaped values.
+         * Rejects free-form comments, secrets, spaces, line breaks, key-value payloads.
+         */
+        private val SAFE_ACTOR_ID = Regex("[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}")
+
         private fun bounded(value: String): String =
             if (value.length <= MAX_VALUE_LENGTH) value
             else value.take(MAX_VALUE_LENGTH)
@@ -247,5 +258,13 @@ class AuditEngineApprovalLifecycleAuditEmitter(
 
         private fun safeReasonCode(raw: String): String =
             raw.takeIf(SAFE_REASON_CODE::matches) ?: "approval_reason_redacted"
+
+        /**
+         * Defense-in-depth normalization for actor identifiers entering durable audit evidence.
+         * Valid values pass through unchanged. Invalid values are redacted to a sentinel.
+         */
+        private fun safeActorId(raw: String): String =
+            raw.takeIf { it.length <= MAX_VALUE_LENGTH && SAFE_ACTOR_ID.matches(it) }
+                ?: "approval_actor_redacted"
     }
 }

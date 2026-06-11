@@ -1044,7 +1044,7 @@ class ApprovalEngineEdgeCaseTest {
 
         // No uncertain outcome was emitted
         assertThat(auditEvents.none { it.startsWith("uncertain:") }).isTrue
-        assertThat(observerEvents).containsExactly("resume-cleanup-failure")
+        assertThat(observerEvents).containsExactly("resume-completion-audit-failure")
     }
 
     // ── Helpers ────────────────────────────────────────────────────

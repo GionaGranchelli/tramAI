@@ -32,6 +32,8 @@ import java.time.Clock
 import java.time.Duration
 import kotlinx.coroutines.CancellationException
 
+private val SAFE_ACTOR_ID = Regex("[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}")
+
 class DefaultApprovalGateCoordinator(
     private val store: ApprovalStore,
     private val approvalIdGenerator: ApprovalIdGenerator,
@@ -52,7 +54,7 @@ class DefaultApprovalGateCoordinator(
         validateIdField(command.workflowRunId, "workflowRunId")
         validateIdField(command.toolName, "toolName")
         validateIdField(command.policyVersion, "policyVersion")
-        validateIdField(command.requestedBy, "requestedBy")
+        validateActorId(command.requestedBy)
 
         val now = clock.instant()
         require(command.expiresAt > now) { "expiresAt must be in the future" }
@@ -245,7 +247,7 @@ class DefaultApprovalGateCoordinator(
         operationName: String,
     ): Pair<ApprovalRequest, dev.tramai.core.approval.Sha256Digest> {
         validateIdField(approvalId, "approvalId")
-        validateIdField(consumedBy, "consumedBy")
+        validateActorId(consumedBy)
         validateIdField(workflowRunId, "workflowRunId")
         validateIdField(toolName, "toolName")
         validateIdField(policyVersion, "policyVersion")
@@ -355,6 +357,13 @@ class DefaultApprovalGateCoordinator(
         require(trimmed.length <= maxIdLength) { "$fieldName exceeds maximum length of $maxIdLength" }
         require(trimmed == value) { "$fieldName must not contain surrounding whitespace" }
         return trimmed
+    }
+
+    private fun validateActorId(value: String) {
+        validateIdField(value, "actorId")
+        require(SAFE_ACTOR_ID.matches(value)) {
+            "actorId must match safe pattern: alphanumeric start, alphanumeric + ._:@+- allowed"
+        }
     }
 
     private fun tokenDigestsMatch(
