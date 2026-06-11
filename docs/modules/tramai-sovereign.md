@@ -43,7 +43,7 @@ Every sovereign deployment must provide:
 ## Secure Defaults
 
 - **Policy engine:** `DefaultPolicyEngine` with `PolicyConfiguration.secure()` (deny-by-default)
-- **Model registry enforcement:** Always enabled
+- **Model registry enforcement:** Always enabled (cannot be disabled through sovereign API)
 - **Provider routing matrix:** Always enabled (sovereign defaults)
 - **Legacy permissive mode:** Not reachable through the sovereign API
 - **Wildcard allowlists:** Rejected at construction time
@@ -101,9 +101,15 @@ val service = tramai.create<MyService>()
 - Profile configuration is present
 - Model registry is present
 - Audit store is present
-- At least one provider is registered
+- At least one registered provider
+- Every registered provider appears in `allowedProviders`
+- Every `allowedProviders` entry has a registered provider
 - Every registered provider has an explicit trust zone
-- Every configured model maps to an allowed provider
+- Every allowed model has a primary route
+- Each primary route targets a registered, allowed provider
+- Fallback providers appear in `allowedFallbackProviders`
+- Fallback models appear in `allowedModels`
+- Duplicate provider registrations are rejected
 
 ## Security Invariants
 
@@ -123,6 +129,8 @@ val service = tramai.create<MyService>()
 
 - The sovereign profile validates configured provider-model identity and declared registry metadata.
 - It does **not** verify deployed model bytes, runtime images, GPU hosts, or network-isolation boundaries.
+- The sovereign profile wires policy decisions that require approval for HIGH and CRITICAL risk tools.
+- Embedded approval suspension and resume composition (ApprovalGateCoordinator, ApprovalContinuationStore, ApprovalLifecycleAuditEmitter) is not yet exposed through SovereignTramai.Builder. That integration is added with the executable Sovereign Document Intelligence reference workflow (PR #25).
 - Artifact-byte verification is tracked as a follow-up capability (Phase 2).
 
 ## Module Source

@@ -2,27 +2,21 @@ package dev.tramai.sovereign
 
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
-import dev.tramai.core.model.NoOpModelRegistry
 import dev.tramai.core.model.TramaiTool
-import dev.tramai.core.observation.NoOpOperationInterceptor
-import dev.tramai.core.observation.NoOpOperationObserver
 import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpRedactionAuditEmitter
-import dev.tramai.core.security.NoOpDlpInterceptor
-import dev.tramai.core.security.NoOpDlpRedactionAuditEmitter
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.EngineEventObserver
-import dev.tramai.engine.NoOpEngineEventObserver
-import dev.tramai.engine.NoOpOperationResponseCache
 import dev.tramai.engine.OperationResponseCache
 import dev.tramai.engine.RetryPolicySettings
 import dev.tramai.engine.TokenBudgetSettings
 import dev.tramai.engine.ToolResultFilteringSettings
 import dev.tramai.security.DefaultPolicyEngine
 import dev.tramai.security.PolicyConfiguration
+import dev.tramai.security.ProviderTrustZone
 import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.AuditEnginePolicyDecisionAuditEmitter
 import dev.tramai.security.audit.AuditStore
@@ -34,10 +28,11 @@ import kotlin.reflect.KClass
  *
  * Wraps [Tramai] with mandatory security configuration:
  * - Deny-by-default policy engine
- * - Approved-model registry enforcement
- * - Classification-aware provider routing
+ * - Approved-model registry enforcement (always enabled, non-disableable)
+ * - Classification-aware provider routing (always enabled)
  * - Hash-chained policy-decision audit emission
  * - Explicit provider trust zones
+ * - Fail-fast build-time provider and route validation
  *
  * Builder requires a [SovereignProfileConfiguration], [ModelRegistry], [AuditStore],
  * and at least one provider with a trust zone.
@@ -66,12 +61,26 @@ class SovereignTramai private constructor(
         fun builder(): Builder = Builder()
     }
 
+    /**
+     * Describes a fallback route configured during builder assembly.
+     */
+    private data class FallbackRoute(
+        val requestedModelName: String,
+        val fallbackModelName: String,
+        val providerName: String,
+    )
+
     class Builder {
         private var profileConfiguration: SovereignProfileConfiguration? = null
         private var modelRegistry: ModelRegistry? = null
         private var auditStore: AuditStore? = null
         private val standaloneBuilder = Tramai.builder()
-        private var modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings(enabled = true)
+
+        // Tracking state for build-time validation
+        private val registeredProviders = linkedSetOf<String>()
+        private val primaryModelRoutes = linkedMapOf<String, String>()
+        private val fallbackRoutes = mutableListOf<FallbackRoute>()
+        private var defaultProviderName: String? = null
 
         // --- Required inputs ---
 
@@ -96,16 +105,24 @@ class SovereignTramai private constructor(
             this.auditStore = store
         }
 
-        // --- Delegated standalone builder methods ---
+        // --- Delegated standalone builder methods with tracking ---
 
         /**
          * Registers a provider with an optional explicit [name].
+         *
+         * @throws IllegalArgumentException if the provider name is blank,
+         *   has surrounding whitespace, or is a duplicate.
          */
         fun provider(
             provider: ModelProvider,
             name: String = provider.providerId(),
             default: Boolean = false,
         ): Builder = apply {
+            require(name.isNotBlank()) { "Provider name must not be blank" }
+            require(name == name.trim()) { "Provider name must not have surrounding whitespace" }
+            require(name !in registeredProviders) { "Duplicate provider registration: $name" }
+            registeredProviders.add(name)
+            if (default) defaultProviderName = name
             standaloneBuilder.provider(provider, name, default)
         }
 
@@ -116,6 +133,7 @@ class SovereignTramai private constructor(
             modelName: String,
             providerName: String,
         ): Builder = apply {
+            primaryModelRoutes[modelName] = providerName
             standaloneBuilder.model(modelName, providerName)
         }
 
@@ -140,6 +158,7 @@ class SovereignTramai private constructor(
             fallbackModelName: String,
             providerName: String,
         ): Builder = apply {
+            fallbackRoutes.add(FallbackRoute(requestedModelName, fallbackModelName, providerName))
             standaloneBuilder.fallbackModel(requestedModelName, fallbackModelName, providerName)
         }
 
@@ -151,6 +170,7 @@ class SovereignTramai private constructor(
         }
 
         fun defaultProvider(providerName: String): Builder = apply {
+            this.defaultProviderName = providerName
             standaloneBuilder.defaultProvider(providerName)
         }
 
@@ -200,41 +220,99 @@ class SovereignTramai private constructor(
          * Builds the [SovereignTramai] instance with fail-fast validation.
          *
          * @throws IllegalStateException if required inputs are missing.
+         * @throws IllegalArgumentException if provider or route validation fails.
          */
         fun build(): SovereignTramai {
             val profile = checkNotNull(profileConfiguration) {
                 "SovereignProfileConfiguration is required"
             }
-
-            val store = checkNotNull(auditStore) {
+            checkNotNull(auditStore) {
                 "AuditStore is required for sovereign profile"
             }
-
-            val registry = checkNotNull(modelRegistry) {
+            checkNotNull(modelRegistry) {
                 "ModelRegistry is required for sovereign profile"
+            }
+
+            // Build-time provider and route validation
+            require(registeredProviders.isNotEmpty()) {
+                "At least one provider must be registered"
+            }
+
+            // Every registered provider must be explicitly allowed
+            for (p in registeredProviders) {
+                require(p in profile.allowedProviders) {
+                    "Registered provider '$p' is not in allowedProviders"
+                }
+            }
+
+            // Every allowed provider must be registered
+            for (p in profile.allowedProviders) {
+                require(p in registeredProviders) {
+                    "Allowed provider '$p' has not been registered"
+                }
+            }
+
+            // Every registered provider must have an explicit trust zone
+            for (p in registeredProviders) {
+                require(p in profile.providerZones) {
+                    "Registered provider '$p' has no trust zone configured"
+                }
+            }
+
+            // Every allowed model must have an explicit primary route
+            for (m in profile.allowedModels) {
+                require(m in primaryModelRoutes) {
+                    "Allowed model '$m' has no primary route"
+                }
+            }
+
+            // Every primary route must target a registered allowed provider
+            for ((modelName, providerName) in primaryModelRoutes) {
+                require(providerName in registeredProviders) {
+                    "Model '$modelName' routes to unknown provider '$providerName'"
+                }
+                require(providerName in profile.allowedProviders) {
+                    "Model '$modelName' routes to non-allowed provider '$providerName'"
+                }
+            }
+
+            // Fallback routes must target registered providers
+            for (fb in fallbackRoutes) {
+                require(fb.providerName in registeredProviders) {
+                    "Fallback route for '${fb.requestedModelName}' targets unknown provider '${fb.providerName}'"
+                }
+                require(fb.providerName in profile.allowedFallbackProviders) {
+                    "Fallback provider '${fb.providerName}' is not in allowedFallbackProviders"
+                }
+                require(fb.fallbackModelName in profile.allowedModels) {
+                    "Fallback model '${fb.fallbackModelName}' is not in allowedModels"
+                }
+            }
+
+            // Default provider must be registered and allowed
+            val defaultName = defaultProviderName
+            if (defaultName != null) {
+                require(defaultName in registeredProviders) {
+                    "Default provider '$defaultName' is not registered"
+                }
+                require(defaultName in profile.allowedProviders) {
+                    "Default provider '$defaultName' is not in allowedProviders"
+                }
             }
 
             val policyConfig: PolicyConfiguration = profile.toPolicyConfiguration()
             val policyEngine = DefaultPolicyEngine(policyConfig)
-            val auditEngine = AuditEngine(store)
-            val policyAuditEmitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine)
+            val auditEng = AuditEngine(auditStore!!)
+            val policyAuditEmitter = AuditEnginePolicyDecisionAuditEmitter(auditEng)
 
             val tramai = standaloneBuilder
                 .policyEngine(policyEngine)
                 .policyDecisionAudit(policyAuditEmitter)
-                .modelRegistry(registry)
-                .modelRegistrySettings(modelRegistrySettings)
+                .modelRegistry(modelRegistry!!)
+                .modelRegistrySettings(ModelRegistrySettings(enabled = true))
                 .build()
 
             return SovereignTramai(tramai)
-        }
-
-        /**
-         * Overrides the default model registry settings.
-         * Default is [ModelRegistrySettings] with enabled=true.
-         */
-        fun modelRegistrySettings(settings: ModelRegistrySettings): Builder = apply {
-            this.modelRegistrySettings = settings
         }
     }
 }
