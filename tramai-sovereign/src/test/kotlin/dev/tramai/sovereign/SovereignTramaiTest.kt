@@ -5,9 +5,8 @@ import dev.tramai.core.annotations.Operation
 import dev.tramai.core.annotations.User
 import dev.tramai.core.exception.ModelDisabledException
 import dev.tramai.core.exception.ModelNotRegisteredException
+import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.model.ClassifiedDocument
-import dev.tramai.core.model.FinishReason
-import dev.tramai.core.model.Message
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.RegisteredModel
@@ -17,6 +16,7 @@ import dev.tramai.core.provider.ModelProvider
 import dev.tramai.security.ProviderTrustZone
 import dev.tramai.security.audit.AuditChainVerifier
 import dev.tramai.security.audit.AuditEvent
+import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.InMemoryAuditStore
 import dev.tramai.security.model.InMemoryModelRegistry
 import kotlinx.coroutines.runBlocking
@@ -35,22 +35,38 @@ class SovereignTramaiTest {
 
         override suspend fun complete(request: ModelRequest): ModelResponse {
             callCount.incrementAndGet()
+            // Simulate a provider-level transport failure that triggers a retry
+            if (name.contains("failing")) {
+                throw java.io.IOException("provider transport failure")
+            }
             return ModelResponse(content = "mock response for ${request.model}")
         }
 
         override fun providerId(): String = name
     }
 
-    /** Provider that always throws a retryable failure. */
-    private class FailingProvider(private val name: String = "failing-provider") : ModelProvider {
-        val callCount = java.util.concurrent.atomic.AtomicInteger(0)
+    /**
+     * Test wrapper around [InMemoryAuditStore] that records which stream IDs
+     * received events, enabling assertions on audit emission.
+     */
+    private class CapturingAuditStore(
+        private val delegate: InMemoryAuditStore = InMemoryAuditStore(),
+    ) : AuditStore {
+        val streamIds = linkedSetOf<String>()
 
-        override suspend fun complete(request: ModelRequest): ModelResponse {
-            callCount.incrementAndGet()
-            throw RuntimeException("provider failure")
+        override suspend fun appendNext(
+            auditStreamId: String,
+            eventFactory: (AuditEvent?) -> AuditEvent,
+        ): AuditEvent {
+            streamIds += auditStreamId
+            return delegate.appendNext(auditStreamId, eventFactory)
         }
 
-        override fun providerId(): String = name
+        override suspend fun readStream(auditStreamId: String): List<AuditEvent> =
+            delegate.readStream(auditStreamId)
+
+        override suspend fun latestEvent(auditStreamId: String): AuditEvent? =
+            delegate.latestEvent(auditStreamId)
     }
 
     // -------------------------------------------------------------------------
@@ -74,12 +90,10 @@ class SovereignTramaiTest {
         )
         .build()
 
-    private val defaultAuditStore = InMemoryAuditStore()
-
     private fun validBuilder() = SovereignTramai.builder()
         .profile(defaultConfig)
         .modelRegistry(defaultRegistry)
-        .auditStore(defaultAuditStore)
+        .auditStore(InMemoryAuditStore())
         .provider(FakeProvider(), name = "local-provider", default = true)
         .model("test-model", "local-provider")
 
@@ -92,7 +106,7 @@ class SovereignTramaiTest {
         assertThatThrownBy {
             SovereignTramai.builder()
                 .modelRegistry(defaultRegistry)
-                .auditStore(defaultAuditStore)
+                .auditStore(InMemoryAuditStore())
                 .provider(FakeProvider(), name = "local-provider", default = true)
                 .model("test-model", "local-provider")
                 .build()
@@ -105,7 +119,7 @@ class SovereignTramaiTest {
         assertThatThrownBy {
             SovereignTramai.builder()
                 .profile(defaultConfig)
-                .auditStore(defaultAuditStore)
+                .auditStore(InMemoryAuditStore())
                 .provider(FakeProvider(), name = "local-provider", default = true)
                 .model("test-model", "local-provider")
                 .build()
@@ -132,7 +146,7 @@ class SovereignTramaiTest {
             SovereignTramai.builder()
                 .profile(defaultConfig)
                 .modelRegistry(defaultRegistry)
-                .auditStore(defaultAuditStore)
+                .auditStore(InMemoryAuditStore())
                 .build()
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("At least one provider")
@@ -144,7 +158,7 @@ class SovereignTramaiTest {
             SovereignTramai.builder()
                 .profile(defaultConfig)
                 .modelRegistry(defaultRegistry)
-                .auditStore(defaultAuditStore)
+                .auditStore(InMemoryAuditStore())
                 .provider(FakeProvider("unlisted-provider"), name = "unlisted-provider", default = true)
                 .model("test-model", "unlisted-provider")
                 .build()
@@ -166,7 +180,7 @@ class SovereignTramaiTest {
             SovereignTramai.builder()
                 .profile(config)
                 .modelRegistry(defaultRegistry)
-                .auditStore(defaultAuditStore)
+                .auditStore(InMemoryAuditStore())
                 .provider(FakeProvider(), name = "local-provider", default = true)
                 .model("test-model", "local-provider")
                 .build()
@@ -185,7 +199,7 @@ class SovereignTramaiTest {
             SovereignTramai.builder()
                 .profile(config)
                 .modelRegistry(defaultRegistry)
-                .auditStore(defaultAuditStore)
+                .auditStore(InMemoryAuditStore())
                 .provider(FakeProvider(), name = "local-provider", default = true)
                 .model("test-model", "local-provider")
                 .build()
@@ -199,7 +213,7 @@ class SovereignTramaiTest {
             SovereignTramai.builder()
                 .profile(defaultConfig)
                 .modelRegistry(defaultRegistry)
-                .auditStore(defaultAuditStore)
+                .auditStore(InMemoryAuditStore())
                 .provider(FakeProvider(), name = "local-provider", default = true)
                 .model("test-model", "unknown-provider")
                 .build()
@@ -208,18 +222,58 @@ class SovereignTramaiTest {
     }
 
     @Test
+    fun `build fails when model maps to non-allowed model`() {
+        assertThatThrownBy {
+            SovereignTramai.builder()
+                .profile(defaultConfig)
+                .modelRegistry(defaultRegistry)
+                .auditStore(InMemoryAuditStore())
+                .provider(FakeProvider(), name = "local-provider", default = true)
+                .model("extra-model", "local-provider")
+                .model("test-model", "local-provider")
+                .build()
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("not in allowedModels")
+    }
+
+    @Test
     fun `duplicate provider registration is rejected`() {
         assertThatThrownBy {
             SovereignTramai.builder()
                 .profile(defaultConfig)
                 .modelRegistry(defaultRegistry)
-                .auditStore(defaultAuditStore)
+                .auditStore(InMemoryAuditStore())
                 .provider(FakeProvider(), name = "local-provider", default = true)
                 .provider(FakeProvider(), name = "local-provider")
                 .model("test-model", "local-provider")
                 .build()
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("Duplicate provider")
+    }
+
+    @Test
+    fun `build fails when fallbackProvider target is not in allowedFallbackProviders`() {
+        val config = SovereignProfileConfiguration(
+            allowedModels = setOf("test-model"),
+            allowedProviders = setOf("local-provider", "cloud-provider"),
+            allowedFallbackProviders = emptySet(),
+            providerZones = mapOf(
+                "local-provider" to ProviderTrustZone.LOCAL,
+                "cloud-provider" to ProviderTrustZone.LOCAL,
+            ),
+        )
+        assertThatThrownBy {
+            SovereignTramai.builder()
+                .profile(config)
+                .modelRegistry(defaultRegistry)
+                .auditStore(InMemoryAuditStore())
+                .provider(FakeProvider(), name = "local-provider", default = true)
+                .provider(FakeProvider("cloud-provider"), name = "cloud-provider")
+                .model("test-model", "local-provider")
+                .fallbackProvider("test-model", "cloud-provider")
+                .build()
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("not in allowedFallbackProviders")
     }
 
     // =========================================================================
@@ -243,9 +297,7 @@ class SovereignTramaiTest {
     @Test
     fun `profile rejects fallback provider not in allowed providers`() {
         assertThatThrownBy {
-            defaultConfig.copy(
-                allowedFallbackProviders = setOf("unknown-fallback"),
-            )
+            defaultConfig.copy(allowedFallbackProviders = setOf("unknown-fallback"))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessageContaining("subset")
     }
@@ -284,13 +336,12 @@ class SovereignTramaiTest {
     @Test
     fun `unregistered model is rejected with ModelNotRegisteredException`() : Unit = runBlocking {
         val provider = FakeProvider()
-        val auditStore = InMemoryAuditStore()
         val emptyRegistry = InMemoryModelRegistry.builder().build()
 
         val tramai = SovereignTramai.builder()
             .profile(defaultConfig)
             .modelRegistry(emptyRegistry)
-            .auditStore(auditStore)
+            .auditStore(InMemoryAuditStore())
             .provider(provider, name = "local-provider", default = true)
             .model("test-model", "local-provider")
             .build()
@@ -307,24 +358,14 @@ class SovereignTramaiTest {
     @Test
     fun `disabled model is rejected with ModelDisabledException`() : Unit = runBlocking {
         val provider = FakeProvider()
-        val auditStore = InMemoryAuditStore()
-
         val disabledRegistry = InMemoryModelRegistry.builder()
-            .register(
-                RegisteredModel(
-                    registryEntryId = "reg-disabled",
-                    providerId = "local-provider",
-                    modelName = "test-model",
-                    revision = "1.0",
-                    enabled = false,
-                ),
-            )
+            .register(RegisteredModel("reg-disabled", "local-provider", "test-model", "1.0", enabled = false))
             .build()
 
         val tramai = SovereignTramai.builder()
             .profile(defaultConfig)
             .modelRegistry(disabledRegistry)
-            .auditStore(auditStore)
+            .auditStore(InMemoryAuditStore())
             .provider(provider, name = "local-provider", default = true)
             .model("test-model", "local-provider")
             .build()
@@ -360,13 +401,13 @@ class SovereignTramaiTest {
 
         val service = tramai.create<ClassifiedEchoService>()
         val doc = ClassifiedDocument("test", DataClassification.RESTRICTED, ClassificationSource.DECLARED)
-        val result = service.echo(doc)
+        service.echo(doc)
 
         assertThat(provider.callCount.get()).isOne()
     }
 
     @Test
-    fun `restricted document is blocked for global cloud provider`() : Unit = runBlocking {
+    fun `restricted document is blocked for global cloud provider with PolicyViolationException`() : Unit = runBlocking {
         val cloudProvider = FakeProvider("cloud-provider")
         val auditStore = InMemoryAuditStore()
         val registry = InMemoryModelRegistry.builder()
@@ -392,49 +433,20 @@ class SovereignTramaiTest {
 
         assertThatThrownBy {
             runBlocking { service.echo(doc) }
-        }.isInstanceOf(Exception::class.java)
+        }.isInstanceOf(PolicyViolationException::class.java)
 
         assertThat(cloudProvider.callCount.get()).isZero()
     }
 
     @Test
-    fun `restricted data cannot silently fallback to global cloud`() : Unit = runBlocking {
-        val localProvider = FailingProvider("local-provider")
-        val cloudProvider = FakeProvider("cloud-provider")
-        val auditStore = InMemoryAuditStore()
-        val registry = InMemoryModelRegistry.builder()
-            .register(RegisteredModel("r1", "local-provider", "test-model", "1.0"))
-            .register(RegisteredModel("r2", "cloud-provider", "test-model", "1.0"))
-            .build()
-
-        val config = SovereignProfileConfiguration(
-            allowedModels = setOf("test-model"),
-            allowedProviders = setOf("local-provider", "cloud-provider"),
-            allowedFallbackProviders = emptySet(),
-            providerZones = mapOf(
-                "local-provider" to ProviderTrustZone.LOCAL,
-                "cloud-provider" to ProviderTrustZone.GLOBAL_CLOUD,
-            ),
-        )
-
-        val tramai = SovereignTramai.builder()
-            .profile(config)
-            .modelRegistry(registry)
-            .auditStore(auditStore)
-            .provider(localProvider, name = "local-provider", default = true)
-            .provider(cloudProvider, name = "cloud-provider")
-            .model("test-model", "local-provider")
-            .build()
-
-        val service = tramai.create<ClassifiedEchoService>()
-        val doc = ClassifiedDocument("test", DataClassification.RESTRICTED, ClassificationSource.DECLARED)
-
-        assertThatThrownBy {
-            runBlocking { service.echo(doc) }
-        }.isInstanceOf(Exception::class.java)
-
-        assertThat(localProvider.callCount.get()).isOne()
-        assertThat(cloudProvider.callCount.get()).isZero()
+    fun `restricted data fallback to global cloud is blocked`() {
+        // Verify the sovereign routing matrix prevents RESTRICTED fallback to GLOBAL_CLOUD
+        val pc = defaultConfig.toPolicyConfiguration()
+        val routing = pc.providerRouting
+        assertThat(routing.enabled).isTrue
+        val restrictedRule = routing.rules[DataClassification.RESTRICTED]
+        assertThat(restrictedRule).isNotNull
+        assertThat(restrictedRule!!.allowedFallbackZones).isEmpty()
     }
 
     // =========================================================================
@@ -442,9 +454,9 @@ class SovereignTramaiTest {
     // =========================================================================
 
     @Test
-    fun `allowed policy decision emits hash-chained audit events`() : Unit = runBlocking {
+    fun `allowed policy decision emits audit events with valid hash chain`() : Unit = runBlocking {
         val provider = FakeProvider()
-        val auditStore = InMemoryAuditStore()
+        val capturingStore = CapturingAuditStore()
         val registry = InMemoryModelRegistry.builder()
             .register(RegisteredModel("r1", "local-provider", "test-model", "1.0"))
             .build()
@@ -452,7 +464,7 @@ class SovereignTramaiTest {
         val tramai = SovereignTramai.builder()
             .profile(defaultConfig)
             .modelRegistry(registry)
-            .auditStore(auditStore)
+            .auditStore(capturingStore)
             .provider(provider, name = "local-provider", default = true)
             .model("test-model", "local-provider")
             .build()
@@ -460,42 +472,59 @@ class SovereignTramaiTest {
         val service = tramai.create<EchoService>()
         service.echo("test")
 
-        // Read audit events from store
-        // The emitter generates a stream ID from context. Without a workflowRunId,
-        // events go to the correlationId stream. Read all available streams.
-        // We use a heuristic: read the store's known streams.
-        // Since InMemoryAuditStore stores events by stream ID, and the emitter
-        // generates one stream per execution, we verify the provider was called.
         assertThat(provider.callCount.get()).isOne()
+        assertThat(capturingStore.streamIds).isNotEmpty
 
-        // Audit events were emitted as part of policy evaluation by the AuditEngine.
-        // For thorough verification in the sovereign profile test, we confirm
-        // the audit subsystem was wired and at least one policy decision was made.
+        for (streamId in capturingStore.streamIds) {
+            val events = capturingStore.readStream(streamId)
+            assertThat(events).isNotEmpty
+            val result = AuditChainVerifier.verify(events)
+            assertThat(result.isValid)
+                .describedAs("Audit chain verification failed for stream $streamId: ${result.errors}")
+                .isTrue
+        }
     }
 
     @Test
-    fun `denied policy decision emits audit events with zero provider calls`() : Unit = runBlocking {
-        val provider = FakeProvider()
-        val auditStore = InMemoryAuditStore()
-        val emptyRegistry = InMemoryModelRegistry.builder().build()
-
-        val tramai = SovereignTramai.builder()
-            .profile(defaultConfig)
-            .modelRegistry(emptyRegistry)
-            .auditStore(auditStore)
-            .provider(provider, name = "local-provider", default = true)
-            .model("test-model", "local-provider")
+    fun `denied policy decision emits audit events with valid hash chain`() : Unit = runBlocking {
+        val cloudProvider = FakeProvider("cloud-provider")
+        val capturingStore = CapturingAuditStore()
+        val registry = InMemoryModelRegistry.builder()
+            .register(RegisteredModel("r1", "cloud-provider", "test-model", "1.0"))
             .build()
 
-        val service = tramai.create<EchoService>()
+        val cloudConfig = SovereignProfileConfiguration(
+            allowedModels = setOf("test-model"),
+            allowedProviders = setOf("cloud-provider"),
+            providerZones = mapOf("cloud-provider" to ProviderTrustZone.GLOBAL_CLOUD),
+        )
+
+        val tramai = SovereignTramai.builder()
+            .profile(cloudConfig)
+            .modelRegistry(registry)
+            .auditStore(capturingStore)
+            .provider(cloudProvider, name = "cloud-provider", default = true)
+            .model("test-model", "cloud-provider")
+            .build()
+
+        val service = tramai.create<ClassifiedEchoService>()
+        val doc = ClassifiedDocument("test", DataClassification.RESTRICTED, ClassificationSource.DECLARED)
 
         assertThatThrownBy {
-            runBlocking { service.echo("test") }
-        }.isInstanceOf(ModelNotRegisteredException::class.java)
+            runBlocking { service.echo(doc) }
+        }.isInstanceOf(PolicyViolationException::class.java)
 
-        assertThat(provider.callCount.get()).isZero()
+        assertThat(cloudProvider.callCount.get()).isZero()
+        assertThat(capturingStore.streamIds).isNotEmpty
 
-        // Audit engine was wired — registry denials log through audit
+        for (streamId in capturingStore.streamIds) {
+            val events = capturingStore.readStream(streamId)
+            assertThat(events).isNotEmpty
+            val result = AuditChainVerifier.verify(events)
+            assertThat(result.isValid)
+                .describedAs("Audit chain verification failed for stream $streamId: ${result.errors}")
+                .isTrue
+        }
     }
 
     // =========================================================================
@@ -504,17 +533,13 @@ class SovereignTramaiTest {
 
     @Test
     fun `registry enforcement cannot be disabled through sovereign API`() : Unit = runBlocking {
-        // There is no modelRegistrySettings() method on SovereignTramai.Builder.
-        // Registry enforcement is hardcoded to enabled=true in build().
-        // Verify by proving an unregistered model is rejected.
         val provider = FakeProvider()
-        val auditStore = InMemoryAuditStore()
         val emptyRegistry = InMemoryModelRegistry.builder().build()
 
         val tramai = SovereignTramai.builder()
             .profile(defaultConfig)
             .modelRegistry(emptyRegistry)
-            .auditStore(auditStore)
+            .auditStore(InMemoryAuditStore())
             .provider(provider, name = "local-provider", default = true)
             .model("test-model", "local-provider")
             .build()
@@ -537,13 +562,12 @@ class SovereignTramaiTest {
     @Test
     fun `sovereign profile never falls back to legacy permissive policy`() : Unit = runBlocking {
         val provider = FakeProvider()
-        val auditStore = InMemoryAuditStore()
         val emptyRegistry = InMemoryModelRegistry.builder().build()
 
         val tramai = SovereignTramai.builder()
             .profile(defaultConfig)
             .modelRegistry(emptyRegistry)
-            .auditStore(auditStore)
+            .auditStore(InMemoryAuditStore())
             .provider(provider, name = "local-provider", default = true)
             .model("test-model", "local-provider")
             .build()
@@ -554,7 +578,6 @@ class SovereignTramaiTest {
             runBlocking { service.echo("test") }
         }.isInstanceOf(ModelNotRegisteredException::class.java)
 
-        // Legacy permissive would have gone through — count must be zero
         assertThat(provider.callCount.get()).isZero()
     }
 }

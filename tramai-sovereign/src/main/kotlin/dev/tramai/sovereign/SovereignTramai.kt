@@ -165,9 +165,11 @@ class SovereignTramai private constructor(
         fun fallbackProvider(
             modelName: String,
             providerName: String,
-        ): Builder = apply {
-            standaloneBuilder.fallbackProvider(modelName, providerName)
-        }
+        ): Builder = fallbackModel(
+            requestedModelName = modelName,
+            fallbackModelName = modelName,
+            providerName = providerName,
+        )
 
         fun defaultProvider(providerName: String): Builder = apply {
             this.defaultProviderName = providerName
@@ -268,6 +270,9 @@ class SovereignTramai private constructor(
 
             // Every primary route must target a registered allowed provider
             for ((modelName, providerName) in primaryModelRoutes) {
+                require(modelName in profile.allowedModels) {
+                    "Primary route for '$modelName' routes a model not in allowedModels"
+                }
                 require(providerName in registeredProviders) {
                     "Model '$modelName' routes to unknown provider '$providerName'"
                 }
@@ -278,6 +283,9 @@ class SovereignTramai private constructor(
 
             // Fallback routes must target registered providers
             for (fb in fallbackRoutes) {
+                require(fb.requestedModelName in profile.allowedModels) {
+                    "Fallback source model '${fb.requestedModelName}' is not in allowedModels"
+                }
                 require(fb.providerName in registeredProviders) {
                     "Fallback route for '${fb.requestedModelName}' targets unknown provider '${fb.providerName}'"
                 }
