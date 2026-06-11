@@ -7,7 +7,9 @@ import java.util.Base64
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class AesGcmFileEncryptionTest {
 
@@ -23,6 +25,7 @@ class AesGcmFileEncryptionTest {
             key = key,
             recordType = "test-record",
             recordKeyDigest = "abcd1234",
+            keyId = "test-key",
             plaintextBytes = plaintext,
         )
 
@@ -40,6 +43,7 @@ class AesGcmFileEncryptionTest {
             envelope = envelope,
             expectedRecordType = "test-record",
             expectedRecordKeyDigest = "abcd1234",
+            expectedKeyId = "test-key",
         )
 
         assertContentEquals(plaintext, decrypted)
@@ -55,6 +59,7 @@ class AesGcmFileEncryptionTest {
             key = key1,
             recordType = "test-record",
             recordKeyDigest = "digest",
+            keyId = "test-key",
             plaintextBytes = plaintext,
         )
 
@@ -73,6 +78,7 @@ class AesGcmFileEncryptionTest {
                 envelope = envelope,
                 expectedRecordType = "test-record",
                 expectedRecordKeyDigest = "digest",
+                expectedKeyId = "test-key",
             )
         }
     }
@@ -86,6 +92,7 @@ class AesGcmFileEncryptionTest {
             key = key,
             recordType = "test-record",
             recordKeyDigest = "digest",
+            keyId = "test-key",
             plaintextBytes = plaintext,
         )
 
@@ -109,6 +116,7 @@ class AesGcmFileEncryptionTest {
                 envelope = envelope,
                 expectedRecordType = "test-record",
                 expectedRecordKeyDigest = "digest",
+                expectedKeyId = "test-key",
             )
         }
     }
@@ -122,6 +130,7 @@ class AesGcmFileEncryptionTest {
             key = key,
             recordType = "test-record",
             recordKeyDigest = "digest",
+            keyId = "test-key",
             plaintextBytes = plaintext,
         )
 
@@ -145,6 +154,7 @@ class AesGcmFileEncryptionTest {
                 envelope = envelope,
                 expectedRecordType = "test-record",
                 expectedRecordKeyDigest = "digest",
+                expectedKeyId = "test-key",
             )
         }
     }
@@ -158,6 +168,7 @@ class AesGcmFileEncryptionTest {
             key = key,
             recordType = "approval-request",
             recordKeyDigest = "digest-A",
+            keyId = "test-key",
             plaintextBytes = plaintext,
         )
 
@@ -170,20 +181,27 @@ class AesGcmFileEncryptionTest {
             ciphertextBase64 = ciphertext,
         )
 
-        // Try to decrypt with wrong record type (simulating substitution attack)
-        // The require() check catches this before decryption
+        // Try to decrypt with wrong record type (the require() check catches this)
         assertThrows<IllegalArgumentException> {
             AesGcmFileEncryption.decrypt(
                 key = key,
                 envelope = envelope,
                 expectedRecordType = "audit-event",
                 expectedRecordKeyDigest = "digest-A",
+                expectedKeyId = "test-key",
             )
         }
 
-        // Record key digest mismatch is an application-level concern, not validated
-        // at the encryption layer (the AAD uses envelope values directly).
-        // Tampering with ciphertext (which would fail GCM auth) is tested separately.
+        // Record key digest mismatch is now validated at encryption layer
+        assertThrows<IllegalArgumentException> {
+            AesGcmFileEncryption.decrypt(
+                key = key,
+                envelope = envelope,
+                expectedRecordType = "approval-request",
+                expectedRecordKeyDigest = "digest-B",
+                expectedKeyId = "test-key",
+            )
+        }
     }
 
     @Test
@@ -195,12 +213,14 @@ class AesGcmFileEncryptionTest {
             key = key,
             recordType = "test",
             recordKeyDigest = "digest",
+            keyId = "test-key",
             plaintextBytes = plaintext,
         )
         val (nonce2, ciphertext2) = AesGcmFileEncryption.encrypt(
             key = key,
             recordType = "test",
             recordKeyDigest = "digest",
+            keyId = "test-key",
             plaintextBytes = plaintext,
         )
 
@@ -222,6 +242,7 @@ class AesGcmFileEncryptionTest {
                 envelope = envelope,
                 expectedRecordType = "test",
                 expectedRecordKeyDigest = "digest",
+                expectedKeyId = "test-key",
             )
             assertContentEquals(plaintext, decrypted)
         }
@@ -236,6 +257,7 @@ class AesGcmFileEncryptionTest {
             key = key,
             recordType = "test",
             recordKeyDigest = "digest",
+            keyId = "test-key",
             plaintextBytes = plaintext,
         )
 
@@ -249,9 +271,41 @@ class AesGcmFileEncryptionTest {
         ).toJson()
 
         val encodedKey = Base64.getEncoder().encodeToString(key.encoded)
-        // Key bytes should not appear verbatim in the JSON envelope
-        assertNotEquals(true, envelopeJson.contains(encodedKey))
-        // The key's base64 should also not be in there
-        assertNotEquals(true, envelopeJson.contains(key.encoded.toString(Charsets.UTF_8)))
+        assertTrue(!envelopeJson.contains(encodedKey), "Key base64 must not appear in JSON envelope")
+        assertTrue(!envelopeJson.contains(key.encoded.toString(Charsets.UTF_8)), "Key raw bytes must not appear in JSON envelope")
+    }
+
+    @Test
+    fun `wrong keyId in AAD rejected`() {
+        val key = testKey()
+        val plaintext = "sensitive".toByteArray(StandardCharsets.UTF_8)
+
+        val (nonce, ciphertext) = AesGcmFileEncryption.encrypt(
+            key = key,
+            recordType = "test",
+            recordKeyDigest = "digest",
+            keyId = "key-A",
+            plaintextBytes = plaintext,
+        )
+
+        val envelope = EncryptedFileEnvelopeV1(
+            envelopeVersion = 1,
+            recordType = "test",
+            recordKeyDigest = "digest",
+            keyId = "key-A",
+            nonceBase64 = nonce,
+            ciphertextBase64 = ciphertext,
+        )
+
+        // Wrong expected keyId triggers require() check
+        assertThrows<IllegalArgumentException> {
+            AesGcmFileEncryption.decrypt(
+                key = key,
+                envelope = envelope,
+                expectedRecordType = "test",
+                expectedRecordKeyDigest = "digest",
+                expectedKeyId = "key-B",
+            )
+        }
     }
 }

@@ -1,5 +1,7 @@
 package dev.tramai.persistence.file
 
+import com.fasterxml.jackson.annotation.JsonProperty
+
 /**
  * On-disk envelope for a single encrypted persisted record (format version 1).
  *
@@ -13,53 +15,16 @@ package dev.tramai.persistence.file
  * @property ciphertextBase64 Base64-encoded AES-256-GCM ciphertext (includes 128-bit auth tag).
  */
 data class EncryptedFileEnvelopeV1(
-    val envelopeVersion: Int,
-    val recordType: String,
-    val recordKeyDigest: String,
-    val keyId: String,
-    val nonceBase64: String,
-    val ciphertextBase64: String,
+    @JsonProperty("envelopeVersion") val envelopeVersion: Int,
+    @JsonProperty("recordType") val recordType: String,
+    @JsonProperty("recordKeyDigest") val recordKeyDigest: String,
+    @JsonProperty("keyId") val keyId: String,
+    @JsonProperty("nonceBase64") val nonceBase64: String,
+    @JsonProperty("ciphertextBase64") val ciphertextBase64: String,
 ) {
-    fun toJson(): String = buildString {
-        appendLine("{")
-        appendLine("  \"envelopeVersion\": $envelopeVersion,")
-        appendLine("  \"recordType\": \"${escapeJson(recordType)}\",")
-        appendLine("  \"recordKeyDigest\": \"${escapeJson(recordKeyDigest)}\",")
-        appendLine("  \"keyId\": \"${escapeJson(keyId)}\",")
-        appendLine("  \"nonceBase64\": \"${escapeJson(nonceBase64)}\",")
-        appendLine("  \"ciphertextBase64\": \"${escapeJson(ciphertextBase64)}\"")
-        append("}")
-    }
+    fun toJson(): String = FILE_STORE_JSON.writeValueAsString(this)
 
     companion object {
-        fun fromJson(json: String): EncryptedFileEnvelopeV1 {
-            val trimmed = json.trim()
-            require(trimmed.startsWith("{") && trimmed.endsWith("}")) {
-                "Invalid envelope JSON: must be a JSON object"
-            }
-
-            fun extractString(key: String): String {
-                val regex = Regex("\"$key\"\\s*:\\s*\"([^\"]*)\"")
-                val match = regex.find(trimmed)
-                    ?: throw IllegalArgumentException("Missing or invalid field: $key")
-                return match.groupValues[1]
-            }
-
-            fun extractInt(key: String): Int {
-                val regex = Regex("\"$key\"\\s*:\\s*(\\d+)")
-                val match = regex.find(trimmed)
-                    ?: throw IllegalArgumentException("Missing or invalid field: $key")
-                return match.groupValues[1].toInt()
-            }
-
-            return EncryptedFileEnvelopeV1(
-                envelopeVersion = extractInt("envelopeVersion"),
-                recordType = extractString("recordType"),
-                recordKeyDigest = extractString("recordKeyDigest"),
-                keyId = extractString("keyId"),
-                nonceBase64 = extractString("nonceBase64"),
-                ciphertextBase64 = extractString("ciphertextBase64"),
-            )
-        }
+        fun fromJson(json: String): EncryptedFileEnvelopeV1 = strictReadValue(json)
     }
 }

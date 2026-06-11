@@ -66,7 +66,7 @@ class FileApprovalStoreTest {
 
     @Test
     fun `create and reopen`() = runBlocking {
-        val store1 = FileApprovalStore(rootDir, testKey, createConfig(), clock)
+        val store1 = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val request = ApprovalRequest(
             approvalId = "test-create-1",
@@ -93,7 +93,7 @@ class FileApprovalStoreTest {
         store1.create(request)
 
         // Reopen with a fresh instance
-        val store2 = FileApprovalStore(rootDir, testKey, createConfig(), clock)
+        val store2 = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
         val retrieved = store2.get("test-create-1")
         assertNotNull(retrieved)
         assertEquals(request.approvalId, retrieved.approvalId)
@@ -104,7 +104,7 @@ class FileApprovalStoreTest {
 
     @Test
     fun `transition and reopen`() = runBlocking {
-        val store = FileApprovalStore(rootDir, testKey, createConfig(), clock)
+        val store = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val request = ApprovalRequest(
             approvalId = "test-transition-1",
@@ -140,7 +140,7 @@ class FileApprovalStoreTest {
         assertEquals("carol", transitioned.decidedBy)
 
         // Reopen and verify
-        val store2 = FileApprovalStore(rootDir, testKey, createConfig(), clock)
+        val store2 = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
         val retrieved = store2.get("test-transition-1")
         assertNotNull(retrieved)
         assertEquals(ApprovalStatus.APPROVED, retrieved.status)
@@ -150,7 +150,7 @@ class FileApprovalStoreTest {
 
     @Test
     fun `duplicate create rejected`() = runBlocking {
-        val store = FileApprovalStore(rootDir, testKey, createConfig(), clock)
+        val store = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val request = ApprovalRequest(
             approvalId = "test-dup-1",
@@ -182,7 +182,7 @@ class FileApprovalStoreTest {
 
     @Test
     fun `stale expected version rejected`() = runBlocking {
-        val store = FileApprovalStore(rootDir, testKey, createConfig(), clock)
+        val store = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val request = ApprovalRequest(
             approvalId = "test-stale-1",
@@ -225,7 +225,7 @@ class FileApprovalStoreTest {
 
     @Test
     fun `wrong token digest rejected`() = runBlocking {
-        val store = FileApprovalStore(rootDir, testKey, createConfig(), clock)
+        val store = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val request = ApprovalRequest(
             approvalId = "test-token-1",
@@ -269,7 +269,7 @@ class FileApprovalStoreTest {
 
     @Test
     fun `exact replay after reopen succeeds without mutation`() = runBlocking {
-        val store = FileApprovalStore(rootDir, testKey, createConfig(), clock)
+        val store = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val tokenDigest = makeDigest("f".repeat(64))
         val request = ApprovalRequest(
@@ -310,7 +310,7 @@ class FileApprovalStoreTest {
         )
         assertEquals(false, receipt1.replayed)
 
-        val store2 = FileApprovalStore(rootDir, testKey, createConfig(), clock)
+        val store2 = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         // Exact replay should succeed
         val receipt2 = store2.consumeApprovedOrReplay(
@@ -326,7 +326,7 @@ class FileApprovalStoreTest {
 
     @Test
     fun `non-exact replay after reopen rejected`() = runBlocking {
-        val store = FileApprovalStore(rootDir, testKey, createConfig(), clock)
+        val store = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val tokenDigest = makeDigest("s".repeat(64))
         val request = ApprovalRequest(
@@ -365,7 +365,7 @@ class FileApprovalStoreTest {
             consumedBy = "pat",
         )
 
-        val store2 = FileApprovalStore(rootDir, testKey, createConfig(), clock)
+        val store2 = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         // Try replaying with a different consumer - should be rejected
         assertThrows<ApprovalStoreNotConsumableException> {
@@ -380,7 +380,7 @@ class FileApprovalStoreTest {
 
     @Test
     fun `concurrent mutation has exactly one winner`() = runBlocking {
-        val store = FileApprovalStore(rootDir, testKey, createConfig(), clock)
+        val store = FileApprovalStore(rootDir, testKey, createConfig(), FileStoreLease(), clock)
 
         val request = ApprovalRequest(
             approvalId = "test-concurrent-1",

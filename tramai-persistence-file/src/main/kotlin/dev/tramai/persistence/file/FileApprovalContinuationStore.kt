@@ -23,7 +23,6 @@ import javax.crypto.SecretKey
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
-import kotlin.io.path.readText
 
 /**
  * File-backed [ApprovalContinuationStore] implementation using encrypted atomic file persistence
@@ -46,14 +45,15 @@ import kotlin.io.path.readText
  * ```
  * PENDING (arguments present)
  *   → claimForExecution → CLAIMED (arguments = null, exactly once)
- *   → expire → EXPIRED
+ *   → expire (only if elapsed) → EXPIRED
  *   → cancel → CANCELLED
  *
  * CLAIMED (arguments already released)
  *   → complete → COMPLETED
- *   → expire → EXPIRED
- *   → cancel → CANCELLED
- *   → forceCancelClaimed → CANCELLED_UNCERTAIN (with recovery metadata)
+ *   → findStaleClaimed + forceCancelClaimed → CANCELLED_UNCERTAIN (with recovery metadata)
+ *
+ * CLAIMED must NEVER lazy-expire.
+ * CLAIMED must NEVER use ordinary cancel.
  *
  * COMPLETED / EXPIRED / CANCELLED / CANCELLED_UNCERTAIN → terminal
  * ```
@@ -62,6 +62,7 @@ class FileApprovalContinuationStore internal constructor(
     root: Path,
     key: SecretKey,
     configuration: FileBackedStoreConfiguration,
+    private val lease: FileStoreLease,
     private val clock: Clock = Clock.systemUTC(),
 ) : ApprovalContinuationStore {
 
@@ -96,25 +97,31 @@ class FileApprovalContinuationStore internal constructor(
     // ── Read / write helpers ─────────────────────────────────────────
 
     private fun readCurrent(approvalId: String): PersistedApprovalContinuationRecordV1? {
+        lease.requireOpen()
         val path = storePath(approvalId)
         if (!path.exists()) return null
         val rkd = recordKeyDigest(approvalId)
         val plaintext: ByteArray = try {
-            FileStoreUtil.readAndDecrypt(path, RECORD_TYPE, rkd, encryptionKey)
+            FileStoreUtil.readAndDecrypt(path, RECORD_TYPE, rkd, encryptionKey, keyId)
         } catch (e: FileStoreCorruptionException) {
             throw FileStoreCorruptionException("continuation-record-corrupted", e)
         } catch (e: Exception) {
             throw FileStoreCorruptionException("continuation-record-corrupted", e)
         }
         val json = String(plaintext, Charsets.UTF_8)
-        return try {
+        val record = try {
             PersistedApprovalContinuationRecordV1.fromJson(json)
         } catch (e: Exception) {
             throw FileStoreCorruptionException("continuation-record-corrupted", e)
         }
+        // Bind decoded ID back to filename digest
+        val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.continuation.approvalId)
+        require(expectedDigest == rkd) { "continuation-id-filename-digest-mismatch" }
+        return record
     }
 
     private fun writeCurrent(approvalId: String, dto: PersistedApprovalContinuationRecordV1) {
+        lease.requireOpen()
         val json = dto.toJson()
         val path = storePath(approvalId)
         val rkd = recordKeyDigest(approvalId)
@@ -126,27 +133,48 @@ class FileApprovalContinuationStore internal constructor(
 
     /**
      * Verifies all existing records in the continuations subdirectory.
-     * Called during [FileBackedSovereignStores.open] when verifyOnOpen is true.
      *
-     * Reads each encrypted file, validates the envelope, and attempts decryption
-     * to confirm integrity of all stored data.
+     * Validates:
+     * - File is a regular file (not a symlink) with 0600 permissions
+     * - Filename is valid hex digest
+     * - Envelope decrypts with correct key and digest
+     * - Parsed DTO schema version is supported
+     * - DTO ID matches filename digest
+     * - Domain conversion succeeds
      *
      * @throws FileStoreCorruptionException if any record fails integrity verification.
      */
     fun verifyAll() {
         if (!continuationsDir.exists() || !continuationsDir.isDirectory()) return
         for (entry in continuationsDir.listDirectoryEntries("*$FILE_EXTENSION")) {
-            try {
-                val json = entry.readText()
-                val envelope = EncryptedFileEnvelopeV1.fromJson(json)
-                require(envelope.recordType == RECORD_TYPE) {
-                    "Unexpected record type: ${envelope.recordType}"
-                }
-                AesGcmFileEncryption.decrypt(encryptionKey, envelope, RECORD_TYPE, envelope.recordKeyDigest)
+            val fileName = entry.fileName.toString()
+            val digestHex = fileName.removeSuffix(FILE_EXTENSION)
+            require(digestHex.length == 64 && digestHex.all { it in '0'..'9' || it in 'a'..'f' }) {
+                throw FileStoreCorruptionException("continuation-invalid-filename")
+            }
+            FileStoreUtil.validateRegularFile(entry, "continuation")
+            val plaintext: ByteArray = try {
+                FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, digestHex, encryptionKey, keyId)
             } catch (e: FileStoreCorruptionException) {
                 throw FileStoreCorruptionException("continuation-record-corrupted", e)
             } catch (e: Exception) {
                 throw FileStoreCorruptionException("continuation-record-corrupted", e)
+            }
+            val record = try {
+                PersistedApprovalContinuationRecordV1.fromJson(String(plaintext, Charsets.UTF_8))
+            } catch (e: Exception) {
+                throw FileStoreCorruptionException("continuation-record-corrupted", e)
+            }
+            // Validate filename digest matches DTO ID
+            val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.continuation.approvalId)
+            require(expectedDigest == digestHex) {
+                throw FileStoreCorruptionException("continuation-id-filename-digest-mismatch")
+            }
+            // Domain conversion must succeed
+            try {
+                record.toDomain()
+            } catch (e: Exception) {
+                throw FileStoreCorruptionException("continuation-domain-conversion-failed", e)
             }
         }
     }
@@ -171,13 +199,14 @@ class FileApprovalContinuationStore internal constructor(
         return trimmed
     }
 
-    // ── Lazy expiry ──────────────────────────────────────────────────
+    // ── PENDING-only lazy expiry ─────────────────────────────────────
 
     /**
-     * Checks whether a continuation has passed its [approvalExpiresAt] and
-     * updates status to EXPIRED if so. Only applies to PENDING or CLAIMED
-     * continuations. Returns the (possibly updated) record and a boolean
-     * indicating whether expiry actually occurred.
+     * Checks whether a **PENDING** continuation has passed its [approvalExpiresAt].
+     * Only applies to PENDING — CLAIMED must never lazily expire (P1-3).
+     *
+     * Returns the (possibly updated) record and a boolean indicating whether
+     * expiry actually occurred.
      */
     private fun expireIfElapsed(
         approvalId: String,
@@ -190,7 +219,8 @@ class FileApprovalContinuationStore internal constructor(
         } catch (_: Exception) {
             return record to false
         }
-        if (status != ApprovalContinuationStatus.PENDING && status != ApprovalContinuationStatus.CLAIMED) {
+        // Only PENDING can lazy-expire — CLAIMED must not expire automatically
+        if (status != ApprovalContinuationStatus.PENDING) {
             return record to false
         }
         val expiresAt = try {
@@ -230,6 +260,7 @@ class FileApprovalContinuationStore internal constructor(
         continuation: ApprovalContinuation,
         arguments: SensitiveToolArguments,
     ): ApprovalContinuation {
+        lease.requireOpen()
         // ── Field validation ──
         validateIdField(continuation.approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(continuation.workflowRunId, "workflowRunId", MAX_ID_LENGTH)
@@ -297,6 +328,7 @@ class FileApprovalContinuationStore internal constructor(
     }
 
     override suspend fun get(approvalId: String): ApprovalContinuation? {
+        lease.requireOpen()
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
 
         val lock = getLock(approvalId)
@@ -304,7 +336,7 @@ class FileApprovalContinuationStore internal constructor(
         try {
             val record = readCurrent(approvalId) ?: return null
 
-            // Lazy expiry: if the record has passed its expiry time, persist the transition
+            // Lazy expiry: PENDING only — CLAIMED never lazily expires
             val now = clock.instant()
             val (updated, expired) = expireIfElapsed(approvalId, record, now)
             if (expired) writeCurrent(approvalId, updated)
@@ -321,6 +353,7 @@ class FileApprovalContinuationStore internal constructor(
         expectedVersion: Long,
         claimedBy: String,
     ): ClaimedApprovalContinuation {
+        lease.requireOpen()
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(claimedBy, "claimedBy", MAX_ID_LENGTH)
         SafeActorIdPolicy.validateActorId(claimedBy, "claimedBy")
@@ -331,7 +364,7 @@ class FileApprovalContinuationStore internal constructor(
             val record = readCurrent(approvalId)
                 ?: throw ApprovalContinuationNotFoundException(approvalId)
 
-            // Lazy expiry
+            // Lazy expiry for PENDING only
             val now = clock.instant()
             val (normalized, expired) = expireIfElapsed(approvalId, record, now)
             val nc = normalized.continuation
@@ -382,6 +415,7 @@ class FileApprovalContinuationStore internal constructor(
         expectedVersion: Long,
         completedBy: String,
     ): ApprovalContinuation {
+        lease.requireOpen()
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(completedBy, "completedBy", MAX_ID_LENGTH)
         SafeActorIdPolicy.validateActorId(completedBy, "completedBy")
@@ -393,16 +427,14 @@ class FileApprovalContinuationStore internal constructor(
                 ?: throw ApprovalContinuationNotFoundException(approvalId)
             val c = record.continuation
 
-            // Version check
             if (c.version != expectedVersion) throw ApprovalContinuationConflictException(approvalId)
 
-            // Status check: must be CLAIMED
+            // Must be CLAIMED
             val status = ApprovalContinuationStatus.valueOf(c.status)
             if (status != ApprovalContinuationStatus.CLAIMED) {
                 throw ApprovalContinuationNotCompletableException(approvalId)
             }
 
-            // Structural invariants
             if (c.claimedAt == null || c.claimedBy == null || c.completedAt != null) {
                 throw ApprovalContinuationNotCompletableException(approvalId)
             }
@@ -413,7 +445,6 @@ class FileApprovalContinuationStore internal constructor(
                 throw ApprovalContinuationNotCompletableException(approvalId)
             }
 
-            // Transition to COMPLETED
             val newVersion = incrementVersion(approvalId, c.version)
             val updatedContinuation = c.copy(
                 status = ApprovalContinuationStatus.COMPLETED.name,
@@ -432,6 +463,7 @@ class FileApprovalContinuationStore internal constructor(
     }
 
     override suspend fun expire(approvalId: String, expectedVersion: Long): ApprovalContinuation {
+        lease.requireOpen()
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
 
         val lock = getLock(approvalId)
@@ -441,22 +473,19 @@ class FileApprovalContinuationStore internal constructor(
                 ?: throw ApprovalContinuationNotFoundException(approvalId)
             val c = record.continuation
 
-            // Version check
             if (c.version != expectedVersion) throw ApprovalContinuationConflictException(approvalId)
 
-            // Must be PENDING or CLAIMED
+            // Must be PENDING only — CLAIMED must transition to forceCancelClaimed
             val status = ApprovalContinuationStatus.valueOf(c.status)
-            if (status != ApprovalContinuationStatus.PENDING && status != ApprovalContinuationStatus.CLAIMED) {
+            if (status != ApprovalContinuationStatus.PENDING) {
                 throw ApprovalContinuationConflictException(approvalId)
             }
 
-            // Must have actually elapsed
             val now = clock.instant()
             if (now < Instant.parse(c.approvalExpiresAt)) {
                 throw ApprovalContinuationConflictException(approvalId)
             }
 
-            // Transition to EXPIRED
             val newVersion = incrementVersion(approvalId, c.version)
             val updatedContinuation = c.copy(
                 status = ApprovalContinuationStatus.EXPIRED.name,
@@ -474,6 +503,7 @@ class FileApprovalContinuationStore internal constructor(
     }
 
     override suspend fun cancel(approvalId: String, expectedVersion: Long): ApprovalContinuation {
+        lease.requireOpen()
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
 
         val lock = getLock(approvalId)
@@ -482,7 +512,7 @@ class FileApprovalContinuationStore internal constructor(
             val record = readCurrent(approvalId)
                 ?: throw ApprovalContinuationNotFoundException(approvalId)
 
-            // Lazy expiry
+            // Lazy expiry for PENDING only
             val now = clock.instant()
             val (normalized, expired) = expireIfElapsed(approvalId, record, now)
             val nc = normalized.continuation
@@ -493,15 +523,13 @@ class FileApprovalContinuationStore internal constructor(
                 throw ApprovalContinuationConflictException(approvalId)
             }
 
-            // Version check
             if (nc.version != expectedVersion) throw ApprovalContinuationConflictException(approvalId)
 
-            // Must be PENDING or CLAIMED
-            if (status != ApprovalContinuationStatus.PENDING && status != ApprovalContinuationStatus.CLAIMED) {
+            // Must be PENDING only — CLAIMED must use forceCancelClaimed → CANCELLED_UNCERTAIN
+            if (status != ApprovalContinuationStatus.PENDING) {
                 throw ApprovalContinuationConflictException(approvalId)
             }
 
-            // Transition to CANCELLED
             val newVersion = incrementVersion(approvalId, nc.version)
             val updatedContinuation = nc.copy(
                 status = ApprovalContinuationStatus.CANCELLED.name,
@@ -522,6 +550,7 @@ class FileApprovalContinuationStore internal constructor(
         claimedBefore: Instant,
         limit: Int,
     ): List<ApprovalContinuation> {
+        lease.requireOpen()
         require(limit in 1..MAX_STALE_LIMIT) { "limit must be between 1 and $MAX_STALE_LIMIT" }
         if (!continuationsDir.exists() || !continuationsDir.isDirectory()) return emptyList()
 
@@ -529,36 +558,38 @@ class FileApprovalContinuationStore internal constructor(
 
         for (entry in continuationsDir.listDirectoryEntries("*$FILE_EXTENSION")) {
             if (result.size >= limit) break
-            try {
-                val json = entry.readText()
-                val envelope = EncryptedFileEnvelopeV1.fromJson(json)
-                val plaintext = AesGcmFileEncryption.decrypt(
-                    encryptionKey, envelope, RECORD_TYPE, envelope.recordKeyDigest,
-                )
-                val record = PersistedApprovalContinuationRecordV1.fromJson(
-                    String(plaintext, Charsets.UTF_8),
-                )
-                val c = record.continuation
-                val status = try {
-                    ApprovalContinuationStatus.valueOf(c.status)
-                } catch (_: Exception) {
-                    continue
-                }
-                val claimedAt = try {
-                    c.claimedAt?.let { Instant.parse(it) }
-                } catch (_: Exception) {
-                    null
-                }
-
-                if (
-                    status == ApprovalContinuationStatus.CLAIMED &&
-                    claimedAt != null &&
-                    !claimedAt.isAfter(claimedBefore)
-                ) {
-                    result.add(c.toDomain())
-                }
+            val plaintext = try {
+                val rkd = entry.fileName.toString().removeSuffix(FILE_EXTENSION)
+                FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, rkd, encryptionKey, keyId)
+            } catch (e: FileStoreCorruptionException) {
+                // Surface corrupted CLAIMED records — they may represent uncertain side effects
+                throw FileStoreCorruptionException("stale-claimed-corrupted-entry", e)
             } catch (_: Exception) {
-                // Skip corrupted or unreadable entries
+                continue
+            }
+            val record = try {
+                PersistedApprovalContinuationRecordV1.fromJson(String(plaintext, Charsets.UTF_8))
+            } catch (_: Exception) {
+                continue
+            }
+            val c = record.continuation
+            val status = try {
+                ApprovalContinuationStatus.valueOf(c.status)
+            } catch (_: Exception) {
+                continue
+            }
+            val claimedAt = try {
+                c.claimedAt?.let { Instant.parse(it) }
+            } catch (_: Exception) {
+                null
+            }
+
+            if (
+                status == ApprovalContinuationStatus.CLAIMED &&
+                claimedAt != null &&
+                !claimedAt.isAfter(claimedBefore)
+            ) {
+                result.add(c.toDomain())
             }
         }
 
@@ -576,6 +607,7 @@ class FileApprovalContinuationStore internal constructor(
         cancelledBy: String,
         reasonCode: String,
     ): ApprovalContinuation {
+        lease.requireOpen()
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(cancelledBy, "cancelledBy", MAX_ID_LENGTH)
         SafeActorIdPolicy.validateActorId(cancelledBy, "cancelledBy")
@@ -590,7 +622,6 @@ class FileApprovalContinuationStore internal constructor(
                 ?: throw ApprovalContinuationNotFoundException(approvalId)
             val c = record.continuation
 
-            // Version check
             if (c.version != expectedVersion) throw ApprovalContinuationConflictException(approvalId)
 
             // Must be CLAIMED specifically (force-cancel is for stuck CLAIMED records)
@@ -621,17 +652,15 @@ class FileApprovalContinuationStore internal constructor(
     }
 
     override suspend fun sweepExpired(): Int {
+        lease.requireOpen()
         if (!continuationsDir.exists() || !continuationsDir.isDirectory()) return 0
         val now = clock.instant()
         var count = 0
 
         for (entry in continuationsDir.listDirectoryEntries("*$FILE_EXTENSION")) {
             try {
-                val json = entry.readText()
-                val envelope = EncryptedFileEnvelopeV1.fromJson(json)
-                val plaintext = AesGcmFileEncryption.decrypt(
-                    encryptionKey, envelope, RECORD_TYPE, envelope.recordKeyDigest,
-                )
+                val rkd = entry.fileName.toString().removeSuffix(FILE_EXTENSION)
+                val plaintext = FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, rkd, encryptionKey, keyId)
                 val record = PersistedApprovalContinuationRecordV1.fromJson(
                     String(plaintext, Charsets.UTF_8),
                 )
@@ -644,18 +673,42 @@ class FileApprovalContinuationStore internal constructor(
                 val expiresAt = try {
                     Instant.parse(c.approvalExpiresAt)
                 } catch (_: Exception) {
-                    null
+                    continue
                 }
 
-                // Delete already-EXPIRED records whose approvalExpiresAt has passed
-                if (status == ApprovalContinuationStatus.EXPIRED &&
-                    (expiresAt == null || !expiresAt.isAfter(now))
-                ) {
-                    Files.deleteIfExists(entry)
-                    count++
+                // Only transition PENDING past expiry to EXPIRED
+                // Never delete expired records — preservation of lifecycle evidence.
+                if (status == ApprovalContinuationStatus.PENDING && now >= expiresAt) {
+                    val lock = getLock(c.approvalId)
+                    lock.lock()
+                    try {
+                        val plaintext2 = FileStoreUtil.readAndDecrypt(
+                            entry, RECORD_TYPE, rkd, encryptionKey, keyId,
+                        )
+                        val record2 = PersistedApprovalContinuationRecordV1.fromJson(
+                            String(plaintext2, Charsets.UTF_8),
+                        )
+                        val c2 = record2.continuation
+                        val status2 = ApprovalContinuationStatus.valueOf(c2.status)
+                        if (status2 == ApprovalContinuationStatus.PENDING && now >= Instant.parse(c2.approvalExpiresAt)) {
+                            val newVersion = incrementVersion(c2.approvalId, c2.version)
+                            val updatedContinuation = c2.copy(
+                                status = ApprovalContinuationStatus.EXPIRED.name,
+                                version = newVersion,
+                            )
+                            val updatedRecord = PersistedApprovalContinuationRecordV1(
+                                continuation = updatedContinuation,
+                                arguments = null,
+                            )
+                            writeCurrent(c2.approvalId, updatedRecord)
+                            count++
+                        }
+                    } finally {
+                        lock.unlock()
+                    }
                 }
             } catch (_: Exception) {
-                // Skip corrupted entries
+                // Skip corrupted entries (non-terminal — but surface during verifyAll)
             }
         }
 

@@ -22,6 +22,8 @@ dependencies {
     api(project(":tramai-security"))
 
     implementation(libs.coroutines.core)
+    implementation(libs.jackson.databind)
+    implementation(libs.jackson.module.kotlin)
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.assertj.core)

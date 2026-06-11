@@ -12,7 +12,6 @@ import dev.tramai.core.exception.ApprovalStoreNotConsumableException
 import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.ApprovalStoreTokenRejectedException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
-import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -23,9 +22,9 @@ import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 import javax.crypto.SecretKey
-import kotlin.io.path.readText
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
+import kotlin.io.path.isSymbolicLink
 import kotlin.io.path.listDirectoryEntries
 
 /**
@@ -40,6 +39,7 @@ class FileApprovalStore internal constructor(
     root: Path,
     key: SecretKey,
     configuration: FileBackedStoreConfiguration,
+    private val lease: FileStoreLease,
     private val clock: Clock = Clock.systemUTC(),
 ) : ApprovalStore {
 
@@ -73,25 +73,31 @@ class FileApprovalStore internal constructor(
     // ── Read / write helpers ──────────────────────────────────────
 
     private fun readCurrent(approvalId: String): PersistedApprovalRequestV1? {
+        lease.requireOpen()
         val path = storePath(approvalId)
         if (!path.exists()) return null
         val rkd = recordKeyDigest(approvalId)
         val plaintext: ByteArray = try {
-            FileStoreUtil.readAndDecrypt(path, RECORD_TYPE, rkd, encryptionKey)
+            FileStoreUtil.readAndDecrypt(path, RECORD_TYPE, rkd, encryptionKey, keyId)
         } catch (e: FileStoreCorruptionException) {
             throw FileStoreCorruptionException("approval-record-corrupted", e)
         } catch (e: Exception) {
             throw FileStoreCorruptionException("approval-record-corrupted", e)
         }
         val json = String(plaintext, Charsets.UTF_8)
-        return try {
+        val dto = try {
             PersistedApprovalRequestV1.fromJson(json)
         } catch (e: Exception) {
             throw FileStoreCorruptionException("approval-record-corrupted", e)
         }
+        // Bind decoded ID back to filename digest
+        val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, dto.approvalId)
+        require(expectedDigest == rkd) { "approval-id-filename-digest-mismatch" }
+        return dto
     }
 
     private fun writeCurrent(approvalId: String, dto: PersistedApprovalRequestV1) {
+        lease.requireOpen()
         val json = dto.toJson()
         val path = storePath(approvalId)
         val rkd = recordKeyDigest(approvalId)
@@ -102,25 +108,52 @@ class FileApprovalStore internal constructor(
     /**
      * Verifies all existing records in the approvals subdirectory.
      * Called during [FileBackedSovereignStores.open] when verifyOnOpen is true.
+     *
+     * Validates:
+     * - File is a regular file (not a symlink)
+     * - File has 0600 permissions
+     * - Filename digest matches pattern
+     * - Envelope decrypts with correct key and digest
+     * - Parsed DTO schema version is supported
+     * - Decoded approval ID matches filename digest
+     *
+     * @throws FileStoreCorruptionException if any record fails integrity verification.
      */
     fun verifyAll() {
         if (!approvalsDir.exists() || !approvalsDir.isDirectory()) return
         for (entry in approvalsDir.listDirectoryEntries("*$FILE_EXTENSION")) {
-            // Derive approvalId from the file name by reversing the digest
             val fileName = entry.fileName.toString()
             val digestHex = fileName.removeSuffix(FILE_EXTENSION)
-            // We cannot reverse the digest, but we can verify the envelope decrypts cleanly
-            try {
-                val json = entry.readText()
-                val envelope = EncryptedFileEnvelopeV1.fromJson(json)
-                require(envelope.recordType == RECORD_TYPE) {
-                    "Unexpected record type: ${envelope.recordType}"
-                }
-                AesGcmFileEncryption.decrypt(encryptionKey, envelope, RECORD_TYPE, envelope.recordKeyDigest)
+            require(digestHex.length == 64 && digestHex.all { it in '0'..'9' || it in 'a'..'f' }) {
+                throw FileStoreCorruptionException("approval-invalid-filename")
+            }
+            FileStoreUtil.validateRegularFile(entry, "approval")
+            val plaintext: ByteArray = try {
+                FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, digestHex, encryptionKey, keyId)
             } catch (e: FileStoreCorruptionException) {
                 throw FileStoreCorruptionException("approval-record-corrupted", e)
             } catch (e: Exception) {
                 throw FileStoreCorruptionException("approval-record-corrupted", e)
+            }
+            // Parse DTO and validate schema version + domain conversion
+            val dto = try {
+                PersistedApprovalRequestV1.fromJson(String(plaintext, Charsets.UTF_8))
+            } catch (e: Exception) {
+                throw FileStoreCorruptionException("approval-record-corrupted", e)
+            }
+            require(dto.schemaVersion == 1) {
+                throw FileStoreUnsupportedFormatException("unsupported-approval-schema-version: ${dto.schemaVersion}")
+            }
+            // Validate filename digest matches DTO ID
+            val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, dto.approvalId)
+            require(expectedDigest == digestHex) {
+                throw FileStoreCorruptionException("approval-id-filename-digest-mismatch")
+            }
+            // Domain conversion must succeed
+            try {
+                dto.toDomain()
+            } catch (e: Exception) {
+                throw FileStoreCorruptionException("approval-domain-conversion-failed", e)
             }
         }
     }
@@ -128,6 +161,7 @@ class FileApprovalStore internal constructor(
     // ── ApprovalStore SPI ─────────────────────────────────────────
 
     override suspend fun create(request: ApprovalRequest): ApprovalRequest {
+        lease.requireOpen()
         // Version
         require(request.version == 0L) { "Initial approval version must be 0, got ${request.version}" }
 
@@ -183,6 +217,7 @@ class FileApprovalStore internal constructor(
     }
 
     override suspend fun get(approvalId: String): ApprovalRequest? {
+        lease.requireOpen()
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         val lock = getLock(approvalId)
         lock.lock()
@@ -199,6 +234,7 @@ class FileApprovalStore internal constructor(
         expectedVersion: Long,
         transition: ApprovalTransition,
     ): ApprovalRequest {
+        lease.requireOpen()
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
 
         // Validate comment length
@@ -269,6 +305,7 @@ class FileApprovalStore internal constructor(
         presentedTokenDigest: Sha256Digest,
         consumedBy: String,
     ): ApprovalConsumptionReceipt {
+        lease.requireOpen()
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(consumedBy, "consumedBy", MAX_ID_LENGTH)
         SafeActorIdPolicy.validateActorId(consumedBy, "consumedBy")

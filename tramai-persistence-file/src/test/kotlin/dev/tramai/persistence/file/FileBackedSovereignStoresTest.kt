@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.Paths
 import java.nio.file.attribute.PosixFilePermissions
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -42,7 +41,6 @@ class FileBackedSovereignStoresTest {
 
     @Test
     fun `open creates root directory with 0700 permissions`() {
-        // Use a new subdirectory that doesn't exist yet
         val newRoot = rootDir.resolve("fresh-root")
         val config = createConfig(newRoot)
 
@@ -53,9 +51,10 @@ class FileBackedSovereignStoresTest {
         assertTrue(newRoot.isDirectory(), "Root must be a directory")
 
         val perms = Files.getPosixFilePermissions(newRoot)
-        assertTrue(perms.containsAll(
-            PosixFilePermissions.fromString("rwx------"),
-        ), "Permissions must be 0700")
+        assertTrue(
+            perms.containsAll(PosixFilePermissions.fromString("rwx------")),
+            "Permissions must be 0700",
+        )
     }
 
     @Test
@@ -91,8 +90,6 @@ class FileBackedSovereignStoresTest {
         val stores1 = FileBackedSovereignStores.open(config)
 
         try {
-            // On the same JVM, tryLock() on the same file throws OverlappingFileLockException
-            // rather than FileStoreLockUnavailableException
             assertThrows<Exception> {
                 FileBackedSovereignStores.open(config)
             }
@@ -107,7 +104,6 @@ class FileBackedSovereignStoresTest {
         val stores1 = FileBackedSovereignStores.open(config)
         stores1.close()
 
-        // Should succeed now that the lock is released
         val stores2 = FileBackedSovereignStores.open(config)
         stores2.close()
     }
@@ -124,6 +120,17 @@ class FileBackedSovereignStoresTest {
 
         assertThrows<IllegalArgumentException> {
             FileBackedSovereignStores.open(config)
+        }
+    }
+
+    @Test
+    fun `open rejects root with wrong permissions`() {
+        val badPermsRoot = rootDir.resolve("bad-perms-root")
+        Files.createDirectories(badPermsRoot)
+        Files.setPosixFilePermissions(badPermsRoot, PosixFilePermissions.fromString("rwxrwxrwx"))
+
+        assertThrows<IllegalArgumentException> {
+            FileBackedSovereignStores.open(createConfig(badPermsRoot))
         }
     }
 
@@ -164,7 +171,279 @@ class FileBackedSovereignStoresTest {
         val config = createConfig()
         val stores = FileBackedSovereignStores.open(config)
         stores.close()
-        // Second close should be a no-op
         stores.close()
+    }
+
+    // ── activeKeyId validation ──────────────────────────────────────────
+
+    @Test
+    fun `open rejects blank activeKeyId`() {
+        val config = FileBackedStoreConfiguration(
+            rootDirectory = rootDir.resolve("blank-keyid"),
+            encryption = FileStoreEncryptionConfiguration(
+                activeKeyId = "",
+                keyProvider = keyProvider,
+            ),
+        )
+        assertThrows<FileStoreConfigurationException> {
+            FileBackedSovereignStores.open(config)
+        }
+    }
+
+    @Test
+    fun `open rejects whitespace-only activeKeyId`() {
+        val config = FileBackedStoreConfiguration(
+            rootDirectory = rootDir.resolve("ws-keyid"),
+            encryption = FileStoreEncryptionConfiguration(
+                activeKeyId = "   ",
+                keyProvider = keyProvider,
+            ),
+        )
+        assertThrows<FileStoreConfigurationException> {
+            FileBackedSovereignStores.open(config)
+        }
+    }
+
+    @Test
+    fun `open rejects overly long activeKeyId`() {
+        val config = FileBackedStoreConfiguration(
+            rootDirectory = rootDir.resolve("long-keyid"),
+            encryption = FileStoreEncryptionConfiguration(
+                activeKeyId = "x".repeat(129),
+                keyProvider = keyProvider,
+            ),
+        )
+        assertThrows<FileStoreConfigurationException> {
+            FileBackedSovereignStores.open(config)
+        }
+    }
+
+    @Test
+    fun `open rejects activeKeyId with unsafe pattern`() {
+        val config = FileBackedStoreConfiguration(
+            rootDirectory = rootDir.resolve("unsafe-keyid"),
+            encryption = FileStoreEncryptionConfiguration(
+                activeKeyId = "-starts-with-hyphen",
+                keyProvider = keyProvider,
+            ),
+        )
+        assertThrows<FileStoreConfigurationException> {
+            FileBackedSovereignStores.open(config)
+        }
+    }
+
+    @Test
+    fun `open rejects activeKeyId containing whitespace`() {
+        val config = FileBackedStoreConfiguration(
+            rootDirectory = rootDir.resolve("space-keyid"),
+            encryption = FileStoreEncryptionConfiguration(
+                activeKeyId = "my key",
+                keyProvider = keyProvider,
+            ),
+        )
+        assertThrows<FileStoreConfigurationException> {
+            FileBackedSovereignStores.open(config)
+        }
+    }
+
+    @Test
+    fun `open accepts valid activeKeyId with allowed special characters`() {
+        val config = FileBackedStoreConfiguration(
+            rootDirectory = rootDir.resolve("valid-special-keyid"),
+            encryption = FileStoreEncryptionConfiguration(
+                activeKeyId = "k8s_prod:us-east-1@v2",
+                keyProvider = keyProvider,
+            ),
+        )
+        val stores = FileBackedSovereignStores.open(config)
+        stores.close()
+    }
+
+    // ── Encryption key validation ──────────────────────────────────────
+
+    @Test
+    fun `open rejects non-AES encryption key`() {
+        val desKey = KeyGenerator.getInstance("DES").generateKey()
+        val config = FileBackedStoreConfiguration(
+            rootDirectory = rootDir.resolve("non-aes-key"),
+            encryption = FileStoreEncryptionConfiguration(
+                activeKeyId = "test-key",
+                keyProvider = FileStoreEncryptionKeyProvider { desKey },
+            ),
+        )
+        assertThrows<FileStoreConfigurationException> {
+            FileBackedSovereignStores.open(config)
+        }
+    }
+
+    @Test
+    fun `open rejects AES key that is not 256 bit`() {
+        val aes128Key = KeyGenerator.getInstance("AES").apply { init(128) }.generateKey()
+        val config = FileBackedStoreConfiguration(
+            rootDirectory = rootDir.resolve("aes-128-key"),
+            encryption = FileStoreEncryptionConfiguration(
+                activeKeyId = "test-key",
+                keyProvider = FileStoreEncryptionKeyProvider { aes128Key },
+            ),
+        )
+        assertThrows<FileStoreConfigurationException> {
+            FileBackedSovereignStores.open(config)
+        }
+    }
+
+    // ── Symlink validation ─────────────────────────────────────────────
+
+    @Test
+    fun `open rejects symlink on tramai lock`() {
+        val setupRoot = rootDir.resolve("lock-symlink")
+        val realTarget = Files.createTempDirectory("lock-target-")
+
+        // First open to create proper structure
+        val stores = FileBackedSovereignStores.open(createConfig(setupRoot))
+        stores.close()
+
+        // Replace .tramai.lock with a symlink
+        val lockPath = setupRoot.resolve(".tramai.lock")
+        Files.delete(lockPath)
+        Files.createSymbolicLink(lockPath, realTarget)
+
+        assertThrows<FileStorePermissionException> {
+            FileBackedSovereignStores.open(createConfig(setupRoot))
+        }
+    }
+
+    @Test
+    fun `open rejects symlink on manifest json`() {
+        val setupRoot = rootDir.resolve("manifest-symlink")
+        val realTarget = rootDir.resolve("manifest-target")
+
+        // First open to create proper structure
+        val stores = FileBackedSovereignStores.open(createConfig(setupRoot))
+        stores.close()
+
+        // Replace manifest.json with a symlink
+        val manifestPath = setupRoot.resolve("manifest.json")
+        Files.delete(manifestPath)
+        Files.createSymbolicLink(manifestPath, realTarget)
+
+        assertThrows<FileStorePermissionException> {
+            FileBackedSovereignStores.open(createConfig(setupRoot))
+        }
+    }
+
+    @Test
+    fun `open rejects symlink on approvals subdirectory`() {
+        val setupRoot = rootDir.resolve("approvals-symlink")
+        val realApprovals = rootDir.resolve("real-approvals")
+        Files.createDirectories(realApprovals)
+
+        val stores = FileBackedSovereignStores.open(createConfig(setupRoot))
+        stores.close()
+
+        val approvalsDir = setupRoot.resolve("approvals")
+        approvalsDir.toFile().deleteRecursively()
+        Files.createSymbolicLink(approvalsDir, realApprovals)
+
+        assertThrows<FileStorePermissionException> {
+            FileBackedSovereignStores.open(createConfig(setupRoot))
+        }
+    }
+
+    @Test
+    fun `open rejects symlink on continuations subdirectory`() {
+        val setupRoot = rootDir.resolve("continuations-symlink")
+        val realCont = rootDir.resolve("real-continuations")
+        Files.createDirectories(realCont)
+
+        val stores = FileBackedSovereignStores.open(createConfig(setupRoot))
+        stores.close()
+
+        val contDir = setupRoot.resolve("continuations")
+        contDir.toFile().deleteRecursively()
+        Files.createSymbolicLink(contDir, realCont)
+
+        assertThrows<FileStorePermissionException> {
+            FileBackedSovereignStores.open(createConfig(setupRoot))
+        }
+    }
+
+    @Test
+    fun `open rejects symlink on audit subdirectory`() {
+        val setupRoot = rootDir.resolve("audit-symlink")
+        val realAudit = rootDir.resolve("real-audit")
+        Files.createDirectories(realAudit)
+
+        val stores = FileBackedSovereignStores.open(createConfig(setupRoot))
+        stores.close()
+
+        val auditDir = setupRoot.resolve("audit")
+        auditDir.toFile().deleteRecursively()
+        Files.createSymbolicLink(auditDir, realAudit)
+
+        assertThrows<FileStorePermissionException> {
+            FileBackedSovereignStores.open(createConfig(setupRoot))
+        }
+    }
+
+    // ── Permissions validation ─────────────────────────────────────────
+
+    @Test
+    fun `open rejects wrong permissions on manifest json`() {
+        val setupRoot = rootDir.resolve("manifest-perms")
+
+        val stores = FileBackedSovereignStores.open(createConfig(setupRoot))
+        stores.close()
+
+        val manifestPath = setupRoot.resolve("manifest.json")
+        Files.setPosixFilePermissions(manifestPath, PosixFilePermissions.fromString("rwx------"))
+
+        assertThrows<FileStorePermissionException> {
+            FileBackedSovereignStores.open(createConfig(setupRoot))
+        }
+    }
+
+    @Test
+    fun `open rejects wrong permissions on approvals subdirectory`() {
+        val setupRoot = rootDir.resolve("approvals-perms")
+
+        val stores = FileBackedSovereignStores.open(createConfig(setupRoot))
+        stores.close()
+
+        val approvalsDir = setupRoot.resolve("approvals")
+        Files.setPosixFilePermissions(approvalsDir, PosixFilePermissions.fromString("rwxrwx---"))
+
+        assertThrows<FileStorePermissionException> {
+            FileBackedSovereignStores.open(createConfig(setupRoot))
+        }
+    }
+
+    @Test
+    fun `open rejects wrong permissions on continuations subdirectory`() {
+        val setupRoot = rootDir.resolve("continuations-perms")
+
+        val stores = FileBackedSovereignStores.open(createConfig(setupRoot))
+        stores.close()
+
+        val contDir = setupRoot.resolve("continuations")
+        Files.setPosixFilePermissions(contDir, PosixFilePermissions.fromString("rwxrwx---"))
+
+        assertThrows<FileStorePermissionException> {
+            FileBackedSovereignStores.open(createConfig(setupRoot))
+        }
+    }
+
+    @Test
+    fun `open rejects wrong permissions on audit subdirectory`() {
+        val setupRoot = rootDir.resolve("audit-perms")
+
+        val stores = FileBackedSovereignStores.open(createConfig(setupRoot))
+        stores.close()
+
+        val auditDir = setupRoot.resolve("audit")
+        Files.setPosixFilePermissions(auditDir, PosixFilePermissions.fromString("rwxrwx---"))
+
+        assertThrows<FileStorePermissionException> {
+            FileBackedSovereignStores.open(createConfig(setupRoot))
+        }
     }
 }

@@ -16,9 +16,10 @@ class StoreManifestV1Test {
         )
         val json = manifest.toJson()
 
-        assertContains(json, "\"formatVersion\": 1")
-        assertContains(json, "\"module\": \"tramai-persistence-file\"")
-        assertContains(json, "\"createdAt\": \"2025-01-15T10:30:00Z\"")
+        // Jackson's writeValueAsString produces compact JSON (no spaces after colons/commas)
+        assertContains(json, "\"formatVersion\":1")
+        assertContains(json, "\"module\":\"tramai-persistence-file\"")
+        assertContains(json, "\"createdAt\":\"2025-01-15T10:30:00Z\"")
         assertContains(json, "{")
         assertContains(json, "}")
     }
@@ -51,12 +52,12 @@ class StoreManifestV1Test {
 
     @Test
     fun `fromJson rejects invalid format`() {
-        // Empty JSON
+        // Empty JSON — missing required createdAt field
         assertThrows<IllegalArgumentException> {
             StoreManifestV1.fromJson("{}")
         }
 
-        // Missing required field
+        // Missing required createdAt field
         assertThrows<IllegalArgumentException> {
             StoreManifestV1.fromJson("""{"formatVersion": 1}""")
         }
