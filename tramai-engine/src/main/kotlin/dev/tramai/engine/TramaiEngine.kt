@@ -2463,7 +2463,7 @@ internal class TramaiInvocationHandler(
         }
 
         // 6. Token was validated above; now consume it atomically before claiming
-        coordinator.authorizeResume(
+        val authorization = coordinator.authorizeResume(
             AuthorizeResumeCommand(
                 approvalId = command.approvalId,
                 expectedVersion = command.approvalExpectedVersion,
@@ -2476,6 +2476,22 @@ internal class TramaiInvocationHandler(
                 workflowDigest = metadata.identity.workflowDigest,
             )
         )
+        if (authorization.replayed) {
+            try {
+                engineEventObserver.onEngineEvent(
+                    name = "tramai.approval.authorization_replayed",
+                    attributes = mapOf(
+                        "approvalId" to command.approvalId,
+                        "workflowRunId" to metadata.identity.workflowRunId,
+                        "toolName" to metadata.toolName,
+                    ),
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Replay telemetry must not affect resume execution.
+            }
+        }
 
         // 7. Claim continuation (only Allow reaches here)
         val claimed = store.claimForExecution(

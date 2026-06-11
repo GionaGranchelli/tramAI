@@ -1,6 +1,7 @@
 package dev.tramai.security.approval
 
 import dev.tramai.core.approval.ApprovalRequest
+import dev.tramai.core.approval.ApprovalConsumptionReceipt
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTransition
@@ -16,6 +17,7 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 class InMemoryApprovalStore(
     private val clock: Clock = Clock.systemUTC(),
@@ -144,43 +146,59 @@ class InMemoryApprovalStore(
         return result ?: throw ApprovalStoreNotFoundException(approvalId)
     }
 
-    override suspend fun consumeApproved(
+    override suspend fun consumeApprovedOrReplay(
         approvalId: String,
         expectedVersion: Long,
         presentedTokenDigest: Sha256Digest,
         consumedBy: String,
-    ): ApprovalRequest {
+    ): ApprovalConsumptionReceipt {
         validateIdField(approvalId, "approvalId", maxIdLength)
         validateIdField(consumedBy, "consumedBy", maxIdLength)
 
+        val replayed = AtomicBoolean(false)
         val result = store.compute(approvalId) { _, current ->
             val req = current ?: throw ApprovalStoreNotFoundException(approvalId)
 
-            if (req.version != expectedVersion) throw ApprovalStoreConflictException(approvalId)
-
             if (req.status != ApprovalStatus.APPROVED) throw ApprovalStoreNotConsumableException(approvalId)
 
-            val now = clock.instant()
-            if (now >= req.expiresAt) throw ApprovalStoreNotConsumableException(approvalId)
-
-            if (req.consumedAt != null) throw ApprovalStoreNotConsumableException(approvalId)
-
-            // Constant-time comparison of token digests
-            if (!MessageDigest.isEqual(
-                    presentedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
-                    req.binding.approvalTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
-                )) {
+            if (!tokenDigestsMatch(presentedTokenDigest, req.binding.approvalTokenDigest)) {
                 throw ApprovalStoreTokenRejectedException(approvalId)
             }
 
-            req.copy(
-                consumedBy = consumedBy,
-                consumedAt = now,
-                version = incrementVersion(approvalId, req.version),
-            )
+            if (req.consumedAt == null && req.consumedBy == null) {
+                if (req.version != expectedVersion) throw ApprovalStoreConflictException(approvalId)
+
+                val now = clock.instant()
+                if (now >= req.expiresAt) throw ApprovalStoreNotConsumableException(approvalId)
+
+                replayed.set(false)
+                req.copy(
+                    consumedBy = consumedBy,
+                    consumedAt = now,
+                    version = incrementVersion(approvalId, req.version),
+                )
+            } else {
+                if (req.consumedAt == null || req.consumedBy == null) {
+                    throw ApprovalStoreNotConsumableException(approvalId)
+                }
+                if (req.consumedBy != consumedBy) throw ApprovalStoreNotConsumableException(approvalId)
+
+                val replayVersion = try {
+                    Math.addExact(expectedVersion, 1L)
+                } catch (_: ArithmeticException) {
+                    throw ApprovalStoreConflictException(approvalId)
+                }
+                if (req.version != replayVersion) throw ApprovalStoreConflictException(approvalId)
+
+                replayed.set(true)
+                req
+            }
         }
 
-        return result ?: throw ApprovalStoreNotFoundException(approvalId)
+        return ApprovalConsumptionReceipt(
+            request = result ?: throw ApprovalStoreNotFoundException(approvalId),
+            replayed = replayed.get(),
+        )
     }
 
     private fun incrementVersion(
@@ -197,6 +215,15 @@ class InMemoryApprovalStore(
                 approvalId,
             )
         }
+
+    private fun tokenDigestsMatch(
+        presentedTokenDigest: Sha256Digest,
+        storedTokenDigest: Sha256Digest,
+    ): Boolean =
+        MessageDigest.isEqual(
+            presentedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
+            storedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
+        )
 
     private fun resolveNextStatus(
         current: ApprovalRequest,

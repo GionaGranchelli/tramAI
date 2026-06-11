@@ -1,6 +1,7 @@
 package dev.tramai.security.approval
 
 import dev.tramai.core.approval.ApprovalBinding
+import dev.tramai.core.approval.ApprovalConsumptionReceipt
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalTransition
@@ -29,7 +30,7 @@ import org.junit.jupiter.api.Test
  * Used to test time-dependent behavior without reflection.
  */
 class MutableClock(
-    private var now: Instant,
+    @Volatile private var now: Instant,
     private val zone: ZoneId = ZoneId.of("UTC"),
 ) : Clock() {
     override fun instant(): Instant = now
@@ -91,6 +92,19 @@ class InMemoryApprovalStoreTest {
         consumedAt = null,
         version = version,
     )
+
+    private suspend fun InMemoryApprovalStore.consumeApproved(
+        approvalId: String,
+        expectedVersion: Long,
+        presentedTokenDigest: Sha256Digest,
+        consumedBy: String,
+    ): ApprovalRequest =
+        consumeApprovedOrReplay(
+            approvalId = approvalId,
+            expectedVersion = expectedVersion,
+            presentedTokenDigest = presentedTokenDigest,
+            consumedBy = consumedBy,
+        ).request
 
     // -----------------------------------------------------------------------
     // Happy path
@@ -911,11 +925,49 @@ class InMemoryApprovalStoreTest {
     }
 
     @Test
-    fun `second consume of same approval fails`() : Unit = runBlocking {
+    fun `fresh consume returns replayed false`() : Unit = runBlocking {
+        store.create(aPendingRequest(approvalId = "fresh-receipt"))
+        store.transition("fresh-receipt", 0L, ApprovalTransition.Approve("user-2"))
+
+        val receipt = store.consumeApprovedOrReplay(
+            "fresh-receipt",
+            1L,
+            Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+            "consumer-1",
+        )
+
+        assertThat(receipt.replayed).isFalse()
+        assertThat(receipt.request.version).isEqualTo(2L)
+    }
+
+    @Test
+    fun `exact replay returns replayed true without changing durable receipt`() : Unit = runBlocking {
         val request = aPendingRequest()
         store.create(request)
         store.transition("req-1", 0L, ApprovalTransition.Approve("user-2"))
-        store.consumeApproved(
+        val first = store.consumeApprovedOrReplay(
+            "req-1", 1L,
+            Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+            "consumer-1",
+        )
+        val replay = store.consumeApprovedOrReplay(
+            "req-1", 1L,
+            Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+            "consumer-1",
+        )
+
+        assertThat(first.replayed).isFalse()
+        assertThat(replay.replayed).isTrue()
+        assertThat(replay.request.version).isEqualTo(2L)
+        assertThat(replay.request.consumedAt).isEqualTo(first.request.consumedAt)
+    }
+
+    @Test
+    fun `changed expected version after consumption fails`() : Unit = runBlocking {
+        val request = aPendingRequest()
+        store.create(request)
+        store.transition("req-1", 0L, ApprovalTransition.Approve("user-2"))
+        store.consumeApprovedOrReplay(
             "req-1", 1L,
             Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
             "consumer-1",
@@ -923,14 +975,43 @@ class InMemoryApprovalStoreTest {
 
         assertThatThrownBy {
                 runBlocking {
-                    store.consumeApproved(
-                        "req-1", 2L,
+                    store.consumeApprovedOrReplay(
+                        "req-1", 3L,
                         Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
-                        "consumer-2",
+                        "consumer-1",
                     )
                 }
             }
-            .isInstanceOf(ApprovalStoreNotConsumableException::class.java)
+            .isInstanceOf(ApprovalStoreConflictException::class.java)
+    }
+
+    @Test
+    fun `replay after expiry returns same receipt`() : Unit = runBlocking {
+        val mutableClock = MutableClock(Instant.parse("2026-06-04T08:00:00Z"))
+        val store2 = InMemoryApprovalStore(clock = mutableClock, maxCreationTtl = Duration.ofHours(2))
+        store2.create(aPendingRequest(
+            approvalId = "expired-replay",
+            requestedAt = Instant.parse("2026-06-04T08:00:00Z"),
+            expiresAt = Instant.parse("2026-06-04T08:10:00Z"),
+        ))
+        store2.transition("expired-replay", 0L, ApprovalTransition.Approve("user-2"))
+        val first = store2.consumeApprovedOrReplay(
+            "expired-replay", 1L,
+            Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+            "consumer-1",
+        )
+
+        mutableClock.advance(Duration.ofMinutes(20))
+
+        val replay = store2.consumeApprovedOrReplay(
+            "expired-replay", 1L,
+            Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+            "consumer-1",
+        )
+
+        assertThat(replay.replayed).isTrue()
+        assertThat(replay.request.version).isEqualTo(first.request.version)
+        assertThat(replay.request.consumedAt).isEqualTo(first.request.consumedAt)
     }
 
     @Test
@@ -1037,13 +1118,13 @@ class InMemoryApprovalStoreTest {
     }
 
     @Test
-    fun `concurrent consume calls exactly one succeeds`() : Unit = runBlocking {
+    fun `concurrent exact calls yield one fresh receipt and remaining replay receipts`() : Unit = runBlocking {
         val concurrencyStore = InMemoryApprovalStore(clock = fixedClock, maxCreationTtl = Duration.ofHours(2))
         val request = aPendingRequest(approvalId = "concurrent-consume")
         concurrencyStore.create(request)
         concurrencyStore.transition("concurrent-consume", 0L, ApprovalTransition.Approve("user-2"))
 
-        val results = mutableListOf<Result<ApprovalRequest>>()
+        val results = mutableListOf<Result<ApprovalConsumptionReceipt>>()
         val barrier = CountDownLatch(2)
 
         val job1 = launch(kotlinx.coroutines.Dispatchers.Default) {
@@ -1051,7 +1132,7 @@ class InMemoryApprovalStoreTest {
             barrier.await()
 
             try {
-                val r = concurrencyStore.consumeApproved(
+                val r = concurrencyStore.consumeApprovedOrReplay(
                     "concurrent-consume", 1L,
                     Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
                     "consumer-a",
@@ -1067,10 +1148,10 @@ class InMemoryApprovalStoreTest {
             barrier.await()
 
             try {
-                val r = concurrencyStore.consumeApproved(
+                val r = concurrencyStore.consumeApprovedOrReplay(
                     "concurrent-consume", 1L,
                     Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
-                    "consumer-b",
+                    "consumer-a",
                 )
                 synchronized(results) { results.add(Result.success(r)) }
             } catch (e: Exception) {
@@ -1082,17 +1163,82 @@ class InMemoryApprovalStoreTest {
         job2.join()
 
         val successes = results.filter { it.isSuccess }
-        val failures = results.filter { it.isFailure }
+        assertThat(successes).hasSize(2)
+        assertThat(successes.count { !it.getOrThrow().replayed }).isEqualTo(1)
+        assertThat(successes.count { it.getOrThrow().replayed }).isEqualTo(1)
+        assertThat(successes.map { it.getOrThrow().request.version }).containsOnly(2L)
+    }
 
-        assertThat(successes).hasSize(1)
-        assertThat(failures).hasSize(1)
+    @Test
+    fun `concurrent different actors allow only original consumer`() : Unit = runBlocking {
+        val concurrencyStore = InMemoryApprovalStore(clock = fixedClock, maxCreationTtl = Duration.ofHours(2))
+        val request = aPendingRequest(approvalId = "concurrent-different-actors")
+        concurrencyStore.create(request)
+        concurrencyStore.transition("concurrent-different-actors", 0L, ApprovalTransition.Approve("user-2"))
 
-        val winner = successes.single().getOrThrow()
-        assertThat(winner.consumedBy).isIn("consumer-a", "consumer-b")
-        assertThat(winner.version).isEqualTo(2L)
+        val results = mutableListOf<Result<ApprovalConsumptionReceipt>>()
+        val barrier = CountDownLatch(2)
 
-        val loser = failures.single().exceptionOrNull()
-        assertThat(loser).isInstanceOf(ApprovalStoreConflictException::class.java)
+        val job1 = launch(kotlinx.coroutines.Dispatchers.Default) {
+            barrier.countDown()
+            barrier.await()
+            val result = runCatching {
+                concurrencyStore.consumeApprovedOrReplay(
+                    "concurrent-different-actors", 1L,
+                    Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                    "consumer-a",
+                )
+            }
+            synchronized(results) { results.add(result) }
+        }
+
+        val job2 = launch(kotlinx.coroutines.Dispatchers.Default) {
+            barrier.countDown()
+            barrier.await()
+            val result = runCatching {
+                concurrencyStore.consumeApprovedOrReplay(
+                    "concurrent-different-actors", 1L,
+                    Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                    "consumer-b",
+                )
+            }
+            synchronized(results) { results.add(result) }
+        }
+
+        job1.join()
+        job2.join()
+
+        assertThat(results.count { it.isSuccess }).isEqualTo(1)
+        assertThat(results.count { it.isFailure }).isEqualTo(1)
+    }
+
+    @Test
+    fun `overflow safe conflict on replay version validation`() : Unit = runBlocking {
+        store.create(aPendingRequest(approvalId = "overflow-replay"))
+        store.transition("overflow-replay", 0L, ApprovalTransition.Approve("user-2"))
+
+        val updated = store.get("overflow-replay")!!.copy(
+            consumedBy = "consumer-1",
+            consumedAt = fixedClock.instant(),
+            version = 5L,
+        )
+        val mapField = InMemoryApprovalStore::class.java.getDeclaredField("store")
+        mapField.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val backingMap = mapField.get(store) as java.util.concurrent.ConcurrentHashMap<String, ApprovalRequest>
+        backingMap["overflow-replay"] = updated
+
+        assertThatThrownBy {
+            runBlocking {
+                store.consumeApprovedOrReplay(
+                    "overflow-replay",
+                    Long.MAX_VALUE,
+                    Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                    "consumer-1",
+                )
+            }
+        }
+            .isInstanceOf(ApprovalStoreConflictException::class.java)
     }
 
     // -----------------------------------------------------------------------

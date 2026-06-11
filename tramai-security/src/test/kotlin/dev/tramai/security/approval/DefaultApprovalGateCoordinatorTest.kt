@@ -1,6 +1,7 @@
 package dev.tramai.security.approval
 
 import dev.tramai.core.approval.ApprovalBinding
+import dev.tramai.core.approval.ApprovalConsumptionReceipt
 import dev.tramai.core.approval.ApprovalIdGenerator
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
@@ -12,6 +13,7 @@ import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.CreateApprovalCommand
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.approval.ValidateResumeCommand
 import dev.tramai.core.exception.ApprovalAuthorizationException
 import dev.tramai.core.exception.ApprovalBindingMismatchException
 import dev.tramai.core.exception.ApprovalCreationException
@@ -28,11 +30,14 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.util.concurrent.CountDownLatch
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.catchThrowableOfType
 import org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
@@ -177,6 +182,7 @@ class DefaultApprovalGateCoordinatorTest {
         assertThat(authorization.consumedBy).isEqualTo("consumer-1")
         assertThat(authorization.consumedAt).isEqualTo(clock.instant())
         assertThat(authorization.version).isEqualTo(2L)
+        assertThat(authorization.replayed).isFalse()
     }
 
     @Test
@@ -247,12 +253,63 @@ class DefaultApprovalGateCoordinatorTest {
     }
 
     @Test
-    fun `second consume rejected`() : Unit = runBlocking {
+    fun `validateResume rejects wrong token`() : Unit = runBlocking {
+        val challenge = approvedChallenge()
+
+        assertThatThrownBy {
+            runBlocking {
+                coordinator.validateResume(
+                    validateCommand(challenge, presentedToken = ApprovalToken.parsePresented("wrong-token")),
+                )
+            }
+        }
+            .isInstanceOf(ApprovalTokenRejectedException::class.java)
+    }
+
+    @Test
+    fun `validateResume accepts exact replay candidate`() : Unit = runBlocking {
+        val challenge = approvedChallenge()
+        coordinator.authorizeResume(authorizeCommand(challenge))
+
+        val validation = coordinator.validateResume(validateCommand(challenge))
+
+        assertThat(validation.approvalId).isEqualTo(fixedApprovalId)
+        assertThat(validation.validatedBy).isEqualTo("consumer-1")
+        assertThat(validation.version).isEqualTo(1L)
+    }
+
+    @Test
+    fun `same command replay succeeds with replayed true`() : Unit = runBlocking {
+        val challenge = approvedChallenge()
+        val first = coordinator.authorizeResume(authorizeCommand(challenge))
+        val replay = coordinator.authorizeResume(authorizeCommand(challenge))
+
+        assertThat(first.replayed).isFalse()
+        assertThat(replay.replayed).isTrue()
+        assertThat(replay.version).isEqualTo(2L)
+        assertThat(replay.consumedAt).isEqualTo(first.consumedAt)
+    }
+
+    @Test
+    fun `changed expected version after consumption is rejected`() : Unit = runBlocking {
         val challenge = approvedChallenge()
         coordinator.authorizeResume(authorizeCommand(challenge))
 
         assertThatThrownBy {
             runBlocking { coordinator.authorizeResume(authorizeCommand(challenge, expectedVersion = 2L)) }
+        }
+            .isInstanceOf(ApprovalAuthorizationException::class.java)
+    }
+
+    @Test
+    fun `changed actor rejected after consumption`() : Unit = runBlocking {
+        val challenge = approvedChallenge()
+        coordinator.authorizeResume(authorizeCommand(challenge))
+
+        assertThatThrownBy {
+            runBlocking {
+                coordinator.authorizeResume(authorizeCommand(challenge, consumedBy = "consumer-2"))
+            }
         }
             .isInstanceOf(ApprovalAuthorizationException::class.java)
     }
@@ -339,6 +396,19 @@ class DefaultApprovalGateCoordinatorTest {
     }
 
     @Test
+    fun `validateResume changed binding is rejected`() : Unit = runBlocking {
+        val challenge = approvedChallenge()
+
+        assertThatThrownBy {
+            runBlocking {
+                coordinator.validateResume(validateCommand(challenge, toolName = "tool-2"))
+            }
+        }
+            .isInstanceOf(ApprovalBindingMismatchException::class.java)
+            .hasMessage("Approval binding mismatch for '$fixedApprovalId': toolName")
+    }
+
+    @Test
     fun `binding mismatch leaves unconsumed`() : Unit = runBlocking {
         val challenge = approvedChallenge()
 
@@ -365,7 +435,7 @@ class DefaultApprovalGateCoordinatorTest {
     }
 
     @Test
-    fun `concurrent calls exactly one succeeds`() : Unit = runBlocking {
+    fun `concurrent identical calls yield one fresh authorization and one replay`() : Unit = runBlocking {
         val challenge = approvedChallenge()
         val start = CountDownLatch(1)
 
@@ -383,9 +453,36 @@ class DefaultApprovalGateCoordinatorTest {
         start.countDown()
         val settled = results.awaitAll()
 
+        assertThat(settled.count { it.isSuccess }).isEqualTo(2)
+        assertThat(settled.count { it.isFailure }).isEqualTo(0)
+        val authorizations = settled.map { it.getOrThrow() }
+        assertThat(authorizations.count { !it.replayed }).isEqualTo(1)
+        assertThat(authorizations.count { it.replayed }).isEqualTo(1)
+        assertThat(store.get(fixedApprovalId)!!.consumedAt).isNotNull()
+    }
+
+    @Test
+    fun `concurrent different actors allow only original consumer`() : Unit = runBlocking {
+        val challenge = approvedChallenge()
+        val start = CountDownLatch(1)
+
+        val results = listOf(
+            async(Dispatchers.Default) {
+                start.await()
+                runCatching { coordinator.authorizeResume(authorizeCommand(challenge, consumedBy = "consumer-1")) }
+            },
+            async(Dispatchers.Default) {
+                start.await()
+                runCatching { coordinator.authorizeResume(authorizeCommand(challenge, consumedBy = "consumer-2")) }
+            },
+        )
+
+        start.countDown()
+        val settled = results.awaitAll()
+
         assertThat(settled.count { it.isSuccess }).isEqualTo(1)
         assertThat(settled.count { it.isFailure }).isEqualTo(1)
-        assertThat(store.get(fixedApprovalId)!!.consumedAt).isNotNull()
+        assertThat(settled.single { it.isSuccess }.getOrThrow().consumedBy).isIn("consumer-1", "consumer-2")
     }
 
     @Test
@@ -600,12 +697,12 @@ class DefaultApprovalGateCoordinatorTest {
             store.transition(fixedApprovalId, 0L, ApprovalTransition.Approve("approver", "approved"))
         }
         val notConsumableStore = object : ApprovalStore by store {
-            override suspend fun consumeApproved(
+            override suspend fun consumeApprovedOrReplay(
                 approvalId: String,
                 expectedVersion: Long,
                 presentedTokenDigest: Sha256Digest,
                 consumedBy: String,
-            ): ApprovalRequest {
+            ): ApprovalConsumptionReceipt {
                 throw ApprovalStoreNotConsumableException("test-id")
             }
         }
@@ -618,12 +715,12 @@ class DefaultApprovalGateCoordinatorTest {
 
         // ApprovalStoreTokenRejectedException should be mapped to ApprovalTokenRejectedException
         val tokenRejectedStore = object : ApprovalStore by store {
-            override suspend fun consumeApproved(
+            override suspend fun consumeApprovedOrReplay(
                 approvalId: String,
                 expectedVersion: Long,
                 presentedTokenDigest: Sha256Digest,
                 consumedBy: String,
-            ): ApprovalRequest {
+            ): ApprovalConsumptionReceipt {
                 throw ApprovalStoreTokenRejectedException("test-id")
             }
         }
@@ -725,6 +822,43 @@ class DefaultApprovalGateCoordinatorTest {
     }
 
     @Test
+    fun `checked IOException is sanitized without secret leakage`() : Unit = runBlocking {
+        val leakyStore = object : ApprovalStore by store {
+            override suspend fun get(approvalId: String): ApprovalRequest? {
+                throw IOException("io-secret-marker")
+            }
+        }
+        val coord = coordinator(store = leakyStore)
+
+        val ex = runCatching {
+            coord.authorizeResume(authorizeCommand(approvedChallenge()))
+        }.exceptionOrNull()
+
+        assertThat(ex).isInstanceOf(ApprovalAuthorizationException::class.java)
+        assertThat(ex).hasMessage("Approval authorization failed")
+        assertThat(ex!!.message).doesNotContain("io-secret-marker")
+        assertThat(ex.cause).isNull()
+    }
+
+    @Test
+    fun `CancellationException propagates unchanged`() : Unit = runBlocking {
+        val cancellation = CancellationException("cancel-secret")
+        val cancellingStore = object : ApprovalStore by store {
+            override suspend fun get(approvalId: String): ApprovalRequest? {
+                throw cancellation
+            }
+        }
+        val coord = coordinator(store = cancellingStore)
+
+        val ex = catchThrowableOfType(
+            { runBlocking { coord.authorizeResume(authorizeCommand(approvedChallenge())) } },
+            CancellationException::class.java,
+        )
+
+        assertThat(ex).isSameAs(cancellation)
+    }
+
+    @Test
     fun `Error from observer is not swallowed`() : Unit = runBlocking {
         val throwingObserver = ApprovalFailureObserver { _, _, _ ->
             throw Error("fatal-error")
@@ -801,12 +935,12 @@ class DefaultApprovalGateCoordinatorTest {
 
         // Also test consumeApproved path
         val leakyConsumeStore = object : ApprovalStore by store {
-            override suspend fun consumeApproved(
+            override suspend fun consumeApprovedOrReplay(
                 approvalId: String,
                 expectedVersion: Long,
                 presentedTokenDigest: Sha256Digest,
                 consumedBy: String,
-            ): ApprovalRequest {
+            ): ApprovalConsumptionReceipt {
                 throw RuntimeException("store-secret-marker")
             }
         }
@@ -843,19 +977,19 @@ class DefaultApprovalGateCoordinatorTest {
     @Test
     fun `custom store with wrong approvalId throws ApprovalAuthorizationException`() : Unit = runBlocking {
         val fakeStore = object : ApprovalStore by store {
-            override suspend fun consumeApproved(
+            override suspend fun consumeApprovedOrReplay(
                 approvalId: String,
                 expectedVersion: Long,
                 presentedTokenDigest: Sha256Digest,
                 consumedBy: String,
-            ): ApprovalRequest {
+            ): ApprovalConsumptionReceipt {
                 val stored = store.get(approvalId)!!
-                return stored.copy(
+                return receipt(stored.copy(
                     approvalId = "different-id",
                     consumedBy = consumedBy,
                     consumedAt = clock.instant(),
                     version = stored.version + 1,
-                )
+                ))
             }
         }
         val fakeCoordinator = coordinator(store = fakeStore)
@@ -871,19 +1005,19 @@ class DefaultApprovalGateCoordinatorTest {
     @Test
     fun `custom store with altered binding throws ApprovalAuthorizationException`() : Unit = runBlocking {
         val fakeStore = object : ApprovalStore by store {
-            override suspend fun consumeApproved(
+            override suspend fun consumeApprovedOrReplay(
                 approvalId: String,
                 expectedVersion: Long,
                 presentedTokenDigest: Sha256Digest,
                 consumedBy: String,
-            ): ApprovalRequest {
+            ): ApprovalConsumptionReceipt {
                 val stored = store.get(approvalId)!!
-                return stored.copy(
+                return receipt(stored.copy(
                     binding = stored.binding.copy(toolName = "hacked-tool"),
                     consumedBy = consumedBy,
                     consumedAt = clock.instant(),
                     version = stored.version + 1,
-                )
+                ))
             }
         }
         val fakeCoordinator = coordinator(store = fakeStore)
@@ -899,19 +1033,19 @@ class DefaultApprovalGateCoordinatorTest {
     @Test
     fun `custom store with PENDING status throws ApprovalAuthorizationException`() : Unit = runBlocking {
         val fakeStore = object : ApprovalStore by store {
-            override suspend fun consumeApproved(
+            override suspend fun consumeApprovedOrReplay(
                 approvalId: String,
                 expectedVersion: Long,
                 presentedTokenDigest: Sha256Digest,
                 consumedBy: String,
-            ): ApprovalRequest {
+            ): ApprovalConsumptionReceipt {
                 val stored = store.get(approvalId)!!
-                return stored.copy(
+                return receipt(stored.copy(
                     status = ApprovalStatus.PENDING,
                     consumedBy = consumedBy,
                     consumedAt = clock.instant(),
                     version = stored.version + 1,
-                )
+                ))
             }
         }
         val fakeCoordinator = coordinator(store = fakeStore)
@@ -927,18 +1061,18 @@ class DefaultApprovalGateCoordinatorTest {
     @Test
     fun `custom store with wrong consumedBy throws ApprovalAuthorizationException`() : Unit = runBlocking {
         val fakeStore = object : ApprovalStore by store {
-            override suspend fun consumeApproved(
+            override suspend fun consumeApprovedOrReplay(
                 approvalId: String,
                 expectedVersion: Long,
                 presentedTokenDigest: Sha256Digest,
                 consumedBy: String,
-            ): ApprovalRequest {
+            ): ApprovalConsumptionReceipt {
                 val stored = store.get(approvalId)!!
-                return stored.copy(
+                return receipt(stored.copy(
                     consumedBy = "wrong-consumer",
                     consumedAt = clock.instant(),
                     version = stored.version + 1,
-                )
+                ))
             }
         }
         val fakeCoordinator = coordinator(store = fakeStore)
@@ -954,18 +1088,18 @@ class DefaultApprovalGateCoordinatorTest {
     @Test
     fun `custom store with null consumedBy throws ApprovalAuthorizationException`() : Unit = runBlocking {
         val fakeStore = object : ApprovalStore by store {
-            override suspend fun consumeApproved(
+            override suspend fun consumeApprovedOrReplay(
                 approvalId: String,
                 expectedVersion: Long,
                 presentedTokenDigest: Sha256Digest,
                 consumedBy: String,
-            ): ApprovalRequest {
+            ): ApprovalConsumptionReceipt {
                 val stored = store.get(approvalId)!!
-                return stored.copy(
+                return receipt(stored.copy(
                     consumedBy = null,
                     consumedAt = clock.instant(),
                     version = stored.version + 1,
-                )
+                ))
             }
         }
         val fakeCoordinator = coordinator(store = fakeStore)
@@ -981,18 +1115,18 @@ class DefaultApprovalGateCoordinatorTest {
     @Test
     fun `custom store with null consumedAt throws ApprovalAuthorizationException`() : Unit = runBlocking {
         val fakeStore = object : ApprovalStore by store {
-            override suspend fun consumeApproved(
+            override suspend fun consumeApprovedOrReplay(
                 approvalId: String,
                 expectedVersion: Long,
                 presentedTokenDigest: Sha256Digest,
                 consumedBy: String,
-            ): ApprovalRequest {
+            ): ApprovalConsumptionReceipt {
                 val stored = store.get(approvalId)!!
-                return stored.copy(
+                return receipt(stored.copy(
                     consumedBy = consumedBy,
                     consumedAt = null,
                     version = stored.version + 1,
-                )
+                ))
             }
         }
         val fakeCoordinator = coordinator(store = fakeStore)
@@ -1008,18 +1142,18 @@ class DefaultApprovalGateCoordinatorTest {
     @Test
     fun `custom store with wrong version throws ApprovalAuthorizationException`() : Unit = runBlocking {
         val fakeStore = object : ApprovalStore by store {
-            override suspend fun consumeApproved(
+            override suspend fun consumeApprovedOrReplay(
                 approvalId: String,
                 expectedVersion: Long,
                 presentedTokenDigest: Sha256Digest,
                 consumedBy: String,
-            ): ApprovalRequest {
+            ): ApprovalConsumptionReceipt {
                 val stored = store.get(approvalId)!!
-                return stored.copy(
+                return receipt(stored.copy(
                     consumedBy = consumedBy,
                     consumedAt = clock.instant(),
                     version = stored.version, // not incremented
-                )
+                ))
             }
         }
         val fakeCoordinator = coordinator(store = fakeStore)
@@ -1088,12 +1222,12 @@ class DefaultApprovalGateCoordinatorTest {
     @Test
     fun `leaky store consumeApproved secret not in exception tree`() : Unit = runBlocking {
         val leakyStore = object : ApprovalStore by store {
-            override suspend fun consumeApproved(
+            override suspend fun consumeApprovedOrReplay(
                 approvalId: String,
                 expectedVersion: Long,
                 presentedTokenDigest: Sha256Digest,
                 consumedBy: String,
-            ): ApprovalRequest {
+            ): ApprovalConsumptionReceipt {
                 throw RuntimeException("secret-digest-value")
             }
         }
@@ -1197,6 +1331,36 @@ class DefaultApprovalGateCoordinatorTest {
         workflowDigest = workflowDigest,
     )
 
+    private fun validateCommand(
+        challenge: dev.tramai.core.approval.ApprovalChallenge,
+        expectedVersion: Long = 1L,
+        presentedToken: ApprovalToken = challenge.token,
+        consumedBy: String = "consumer-1",
+        workflowRunId: String = "wf-run-1",
+        toolName: String = "tool-1",
+        argumentsDigest: Sha256Digest = argumentsDigest(),
+        policyVersion: String = "policy-v1",
+        workflowDigest: Sha256Digest = workflowDigest(),
+    ) = ValidateResumeCommand(
+        approvalId = challenge.approvalId,
+        expectedVersion = expectedVersion,
+        presentedToken = presentedToken,
+        consumedBy = consumedBy,
+        workflowRunId = workflowRunId,
+        toolName = toolName,
+        argumentsDigest = argumentsDigest,
+        policyVersion = policyVersion,
+        workflowDigest = workflowDigest,
+    )
+
+    private fun receipt(
+        request: ApprovalRequest,
+        replayed: Boolean = false,
+    ) = ApprovalConsumptionReceipt(
+        request = request,
+        replayed = replayed,
+    )
+
     private fun argumentsDigest(): Sha256Digest =
         Sha256Digest.of("sha256:0000000000000000000000000000000000000000000000000000000000000000")
 
@@ -1205,7 +1369,7 @@ class DefaultApprovalGateCoordinatorTest {
 }
 
 private class CoordinatorMutableClock(
-    private var now: Instant,
+    @Volatile private var now: Instant,
     private val zone: ZoneId = ZoneId.of("UTC"),
 ) : Clock() {
     override fun instant(): Instant = now

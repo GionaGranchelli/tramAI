@@ -63,15 +63,38 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Nested
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.logging.Level
+import java.util.logging.Logger
 import kotlin.test.Test
 
 class TramaiEngineTest {
+
+    companion object {
+        private var originalLevel: Level? = null
+
+        @JvmStatic
+        @BeforeAll
+        fun suppressPolicyMigrationWarnings() {
+            val logger = Logger.getLogger(PolicyEnforcementHelper::class.java.name)
+            originalLevel = logger.level
+            logger.level = Level.OFF
+        }
+
+        @JvmStatic
+        @AfterAll
+        fun restoreLoggerLevel() {
+            val logger = Logger.getLogger(PolicyEnforcementHelper::class.java.name)
+            originalLevel?.let { logger.level = it }
+        }
+    }
 
     @Test
     fun `creates a suspend proxy and returns provider content`() {
