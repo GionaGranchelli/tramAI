@@ -1,5 +1,6 @@
 package dev.tramai.security.audit
 
+import dev.tramai.core.approval.SafeActorIdPolicy
 import dev.tramai.core.policy.*
 
 class AuditEnginePolicyDecisionAuditEmitter(
@@ -59,7 +60,7 @@ class AuditEnginePolicyDecisionAuditEmitter(
             auditStreamId = streamId,
             workflowRunId = context.workflowRunId,
             correlationId = context.correlationId,
-            actor = context.actorId,
+            actor = SafeActorIdPolicy.safeActorId(context.actorId),
             enforcementPoint = enforcementPoint.name,
             decision = decisionStr,
             policyVersion = context.policyVersion,

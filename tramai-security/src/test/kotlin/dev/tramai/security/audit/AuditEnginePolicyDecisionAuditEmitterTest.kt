@@ -434,4 +434,32 @@ class AuditEnginePolicyDecisionAuditEmitterTest {
         val events = store.readStream("run-1")
         Assertions.assertNull(events[0].metadata["targetDestination"])
     }
+
+    @Test
+    fun `unsafe actor identity is redacted in policy-decision audit event`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine = AuditEngine(store, clock = fixedClock)
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(engine)
+
+        val ctx = baseCtx.copy(actorId = "api_key=super-secret")
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctx, PolicyDecision.Deny(reason = "test", reasonCode = "policy_denied"))
+
+        val events = store.readStream("run-1")
+        Assertions.assertEquals(1, events.size)
+        Assertions.assertEquals("approval_actor_redacted", events[0].actor)
+    }
+
+    @Test
+    fun `valid actor identity passes through in policy-decision audit event`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine = AuditEngine(store, clock = fixedClock)
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(engine)
+
+        val ctx = baseCtx.copy(actorId = "human-operator@example.com")
+        emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctx, PolicyDecision.Deny(reason = "test", reasonCode = "policy_denied"))
+
+        val events = store.readStream("run-1")
+        Assertions.assertEquals(1, events.size)
+        Assertions.assertEquals("human-operator@example.com", events[0].actor)
+    }
 }

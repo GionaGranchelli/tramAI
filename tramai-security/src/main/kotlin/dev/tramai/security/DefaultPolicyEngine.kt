@@ -248,7 +248,7 @@ class DefaultPolicyEngine(
                 return PolicyDecision.RequireApproval(
                     ApprovalRequirement(
                         toolName = toolName,
-                        argumentsDigest = "", // TODO(phase-2): populate from actual tool arguments when approval subsystem lands
+                        argumentsDigest = "", // Engine derives and binds the actual digest before creating the approval challenge.
                         reason = "Tool '$toolName' (risk=$risk, approval=${metadata.approval}) requires human approval",
                         timeoutMillis = 30_000,
                     ),

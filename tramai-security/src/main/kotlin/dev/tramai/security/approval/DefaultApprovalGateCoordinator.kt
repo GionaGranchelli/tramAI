@@ -15,6 +15,7 @@ import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.ApprovalValidation
 import dev.tramai.core.approval.AuthorizeResumeCommand
 import dev.tramai.core.approval.CreateApprovalCommand
+import dev.tramai.core.approval.SafeActorIdPolicy
 import dev.tramai.core.approval.ValidateResumeCommand
 import dev.tramai.core.exception.ApprovalAuthorizationException
 import dev.tramai.core.exception.ApprovalBindingMismatchException
@@ -52,7 +53,7 @@ class DefaultApprovalGateCoordinator(
         validateIdField(command.workflowRunId, "workflowRunId")
         validateIdField(command.toolName, "toolName")
         validateIdField(command.policyVersion, "policyVersion")
-        validateIdField(command.requestedBy, "requestedBy")
+        validateActorId(command.requestedBy)
 
         val now = clock.instant()
         require(command.expiresAt > now) { "expiresAt must be in the future" }
@@ -245,7 +246,7 @@ class DefaultApprovalGateCoordinator(
         operationName: String,
     ): Pair<ApprovalRequest, dev.tramai.core.approval.Sha256Digest> {
         validateIdField(approvalId, "approvalId")
-        validateIdField(consumedBy, "consumedBy")
+        validateActorId(consumedBy)
         validateIdField(workflowRunId, "workflowRunId")
         validateIdField(toolName, "toolName")
         validateIdField(policyVersion, "policyVersion")
@@ -355,6 +356,10 @@ class DefaultApprovalGateCoordinator(
         require(trimmed.length <= maxIdLength) { "$fieldName exceeds maximum length of $maxIdLength" }
         require(trimmed == value) { "$fieldName must not contain surrounding whitespace" }
         return trimmed
+    }
+
+    private fun validateActorId(value: String) {
+        SafeActorIdPolicy.validateActorId(value, "actorId")
     }
 
     private fun tokenDigestsMatch(

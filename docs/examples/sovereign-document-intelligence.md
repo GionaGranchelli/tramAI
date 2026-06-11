@@ -1,8 +1,6 @@
 # Sovereign Document Intelligence — Reference Workflow
 
 > **Module:** `examples/sovereign-document-intelligence`
-> **Branch:** `feat/sovereign-document-intelligence-reference-workflow`
-> **Head SHA:** `e287206657e9ecd9eb53de9751675cf131ef2734`
 
 ## Purpose
 
@@ -184,16 +182,11 @@ metadata:
    `ApprovalSuspensionEngineTest` and
    `DefaultApprovalGateCoordinatorTest`.
 
-## Deferred Work (PR #26, #27, #28)
+## Deferred Work (PR #26, #27, #28, #29)
 
 The following items are deferred to subsequent PRs:
 
-- **PR #26**: Multi-provider fallback routing in the sovereign document
-  intelligence example. Allow registered routes with fallback providers
-  across trust zones.
-- **PR #27**: Approval timeout and expiry handling in the reference
-  workflow. Add a test proving that an expired approval challenge is
-  rejected before provider invocation.
-- **PR #28**: Concurrent access hardening. Replace `mutableListOf` in
-  `DeterministicInvoiceProvider` with `CopyOnWriteArrayList` and add
-  stress tests with concurrent resume attempts.
+- **PR #26** (this patch): Approval audit hardening — strict actor validation, split cleanup/audit emission, whole-event sensitive-data scanning.
+- **PR #27**: Encrypted file-backed sovereign stores and restart-safe recovery.
+- **PR #28**: Local-model artifact manifest and byte-level verification.
+- **PR #29**: Offline runtime profile and zero-egress verification harness.

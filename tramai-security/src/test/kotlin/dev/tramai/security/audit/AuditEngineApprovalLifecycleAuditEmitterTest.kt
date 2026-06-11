@@ -5,6 +5,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import dev.tramai.security.audit.toCanonicalJson
 import org.junit.jupiter.api.assertThrows
 import java.time.Clock
 import java.time.Instant
@@ -221,5 +222,172 @@ class AuditEngineApprovalLifecycleAuditEmitterTest {
         val events = store.readStream("run-valid-reason")
         assertEquals(1, events.size)
         assertEquals("manual_cancel", events[0].metadata["reasonCode"])
+    }
+
+    // ── P1: Unsafe actor identity redaction ────────────────────────────────────
+
+    @Test
+    fun `unsafe actor in resumedBy is redacted in durable audit event`() = runTest {
+        val store2 = InMemoryAuditStore()
+        val engine2 = AuditEngine(store2, clock = fixedClock)
+        val emitter2 = AuditEngineApprovalLifecycleAuditEmitter(engine2)
+
+        emitter2.onToolExecutionResumed(approvalId, "run-unsafe-actor", toolName, "api_key=super-secret")
+
+        val events = store2.readStream("run-unsafe-actor")
+        assertEquals(1, events.size)
+        val event = events[0]
+        assertEquals("approval_actor_redacted", event.actor)
+        assertEquals("approval_actor_redacted", event.metadata["resumedBy"])
+    }
+
+    @Test
+    fun `unsafe actor in completedBy is redacted in durable audit event`() = runTest {
+        val store2 = InMemoryAuditStore()
+        val engine2 = AuditEngine(store2, clock = fixedClock)
+        val emitter2 = AuditEngineApprovalLifecycleAuditEmitter(engine2)
+
+        emitter2.onToolExecutionCompleted(approvalId, "run-unsafe-actor-2", toolName, "key=value\nsecret")
+
+        val events = store2.readStream("run-unsafe-actor-2")
+        assertEquals(1, events.size)
+        val event = events[0]
+        assertEquals("approval_actor_redacted", event.actor)
+        assertEquals("approval_actor_redacted", event.metadata["completedBy"])
+    }
+
+    @Test
+    fun `unsafe actor in force-cancel is redacted in durable audit event`() = runTest {
+        val store2 = InMemoryAuditStore()
+        val engine2 = AuditEngine(store2, clock = fixedClock)
+        val emitter2 = AuditEngineApprovalLifecycleAuditEmitter(engine2)
+
+        emitter2.onClaimedContinuationForceCancelled(
+            approvalId, "run-unsafe-actor-3", toolName, "password=123", "admin_forced"
+        )
+
+        val events = store2.readStream("run-unsafe-actor-3")
+        assertEquals(1, events.size)
+        val event = events[0]
+        assertEquals("approval_actor_redacted", event.actor)
+        assertEquals("approval_actor_redacted", event.metadata["cancelledBy"])
+    }
+
+    @Test
+    fun `valid actor identity passes through unchanged`() = runTest {
+        val store2 = InMemoryAuditStore()
+        val engine2 = AuditEngine(store2, clock = fixedClock)
+        val emitter2 = AuditEngineApprovalLifecycleAuditEmitter(engine2)
+
+        emitter2.onToolExecutionResumed(approvalId, "run-valid-actor", toolName, "human-operator@example.com")
+
+        val events = store2.readStream("run-valid-actor")
+        assertEquals(1, events.size)
+        val event = events[0]
+        assertEquals("human-operator@example.com", event.actor)
+        assertEquals("human-operator@example.com", event.metadata["resumedBy"])
+    }
+
+    // ── P2-3: toolCallId digest tests ───────────────────────────────────────────
+
+    @Test
+    fun `raw token-shaped toolCallId is absent from serialized audit event`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine = AuditEngine(store, clock = fixedClock)
+        val emitter = AuditEngineApprovalLifecycleAuditEmitter(engine)
+
+        emitter.onToolExecutionSuspended(
+            approvalId = "a1", workflowRunId = "r1", toolName = "t1",
+            toolCallId = "sk-1234567890abcdef", correlationId = "c1",
+            argumentsDigest = Sha256Digest.of("sha256:0000000000000000000000000000000000000000000000000000000000000000"),
+            expiresAt = fixedClock.instant().plusSeconds(3600),
+        )
+
+        val events = store.readStream("r1")
+        assertEquals(1, events.size)
+        val serialized = events[0].toCanonicalJson()
+        // The raw token must not appear in the serialized event
+        assertTrue("sk-1234567890abcdef" !in serialized, "Raw toolCallId must not appear in serialized audit event")
+        // The digest must be present
+        assertTrue("toolCallIdDigest" in serialized, "toolCallIdDigest must be present in serialized audit event")
+    }
+
+    @Test
+    fun `same toolCallId produces stable digest`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine = AuditEngine(store, clock = fixedClock)
+        val emitter = AuditEngineApprovalLifecycleAuditEmitter(engine)
+
+        emitter.onToolExecutionSuspended(
+            approvalId = "a1", workflowRunId = "r2", toolName = "t1",
+            toolCallId = "call-001", correlationId = "c1",
+            argumentsDigest = Sha256Digest.of("sha256:0000000000000000000000000000000000000000000000000000000000000000"),
+            expiresAt = fixedClock.instant().plusSeconds(3600),
+        )
+        emitter.onToolExecutionSuspended(
+            approvalId = "a2", workflowRunId = "r2", toolName = "t2",
+            toolCallId = "call-001", correlationId = "c2",
+            argumentsDigest = Sha256Digest.of("sha256:0000000000000000000000000000000000000000000000000000000000000000"),
+            expiresAt = fixedClock.instant().plusSeconds(3600),
+        )
+
+        val events = store.readStream("r2")
+        assertEquals(2, events.size)
+        assertEquals(events[0].metadata["toolCallIdDigest"], events[1].metadata["toolCallIdDigest"],
+            "Same toolCallId must produce identical digests")
+    }
+
+    @Test
+    fun `different toolCallIds produce different digests`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine = AuditEngine(store, clock = fixedClock)
+        val emitter = AuditEngineApprovalLifecycleAuditEmitter(engine)
+
+        emitter.onToolExecutionSuspended(
+            approvalId = "a1", workflowRunId = "r3", toolName = "t1",
+            toolCallId = "call-001", correlationId = "c1",
+            argumentsDigest = Sha256Digest.of("sha256:0000000000000000000000000000000000000000000000000000000000000000"),
+            expiresAt = fixedClock.instant().plusSeconds(3600),
+        )
+        emitter.onToolExecutionSuspended(
+            approvalId = "a2", workflowRunId = "r3", toolName = "t2",
+            toolCallId = "call-002", correlationId = "c2",
+            argumentsDigest = Sha256Digest.of("sha256:0000000000000000000000000000000000000000000000000000000000000000"),
+            expiresAt = fixedClock.instant().plusSeconds(3600),
+        )
+
+        val events = store.readStream("r3")
+        assertEquals(2, events.size)
+        assertTrue(events[0].metadata["toolCallIdDigest"] != events[1].metadata["toolCallIdDigest"],
+            "Different toolCallIds must produce different digests")
+    }
+
+    // ── P1: Actor length boundary tests ─────────────────────────────────────────
+
+    @Test
+    fun `128-char actor passes validation`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine = AuditEngine(store, clock = fixedClock)
+        val emitter = AuditEngineApprovalLifecycleAuditEmitter(engine)
+
+        val longActor = "a".repeat(128)
+        emitter.onToolExecutionResumed(approvalId = "a1", workflowRunId = "r4", toolName = "t1", resumedBy = longActor)
+
+        val events = store.readStream("r4")
+        assertEquals(1, events.size)
+        assertEquals(longActor, events[0].actor)
+    }
+
+    @Test
+    fun `129-char actor is redacted in audit`() = runTest {
+        val store = InMemoryAuditStore()
+        val engine = AuditEngine(store, clock = fixedClock)
+        val emitter = AuditEngineApprovalLifecycleAuditEmitter(engine)
+
+        emitter.onToolExecutionResumed(approvalId = "a1", workflowRunId = "r5", toolName = "t1", resumedBy = "a".repeat(129))
+
+        val events = store.readStream("r5")
+        assertEquals(1, events.size)
+        assertEquals("approval_actor_redacted", events[0].actor)
     }
 }

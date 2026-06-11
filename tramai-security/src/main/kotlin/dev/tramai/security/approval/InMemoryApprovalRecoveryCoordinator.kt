@@ -6,6 +6,7 @@ import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.ApprovalRecoveryCoordinator
 import dev.tramai.core.approval.ForceCancelClaimedCommand
 import dev.tramai.core.approval.SAFE_REASON_CODE_PATTERN
+import dev.tramai.core.approval.SafeActorIdPolicy
 import dev.tramai.core.exception.ApprovalAuthorizationException
 import dev.tramai.core.exception.ApprovalContinuationNotFoundException
 import dev.tramai.core.exception.ApprovalRecoveryAuditUnavailableException
@@ -106,6 +107,7 @@ class InMemoryApprovalRecoveryCoordinator(
         command: ForceCancelClaimedCommand,
     ): ApprovalContinuation {
         // Locally generated safe validation — propagates unchanged.
+        SafeActorIdPolicy.validateActorId(command.operatorId, "operatorId")
         require(SAFE_REASON_CODE.matches(command.reasonCode)) {
             "reasonCode must match [a-z0-9][a-z0-9._:-]{0,63}"
         }

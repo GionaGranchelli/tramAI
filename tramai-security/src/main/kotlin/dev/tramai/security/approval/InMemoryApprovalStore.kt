@@ -1,10 +1,11 @@
 package dev.tramai.security.approval
 
-import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalConsumptionReceipt
+import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTransition
+import dev.tramai.core.approval.SafeActorIdPolicy
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.exception.ApprovalStoreConflictException
 import dev.tramai.core.exception.ApprovalStoreNotConsumableException
@@ -51,6 +52,7 @@ class InMemoryApprovalStore(
 
         // Requested by
         validateIdField(request.requestedBy, "requestedBy", maxIdLength)
+        SafeActorIdPolicy.validateActorId(request.requestedBy, "requestedBy")
 
         // Binding fields
         val binding = request.binding
@@ -107,10 +109,14 @@ class InMemoryApprovalStore(
 
         // Validate decidedBy for non-timeout transitions
         when (transition) {
-            is ApprovalTransition.Approve ->
+            is ApprovalTransition.Approve -> {
                 validateIdField(transition.decidedBy, "decidedBy", maxIdLength)
-            is ApprovalTransition.Deny ->
+                SafeActorIdPolicy.validateActorId(transition.decidedBy, "decidedBy")
+            }
+            is ApprovalTransition.Deny -> {
                 validateIdField(transition.decidedBy, "decidedBy", maxIdLength)
+                SafeActorIdPolicy.validateActorId(transition.decidedBy, "decidedBy")
+            }
             is ApprovalTransition.Timeout -> {}
         }
 
@@ -154,6 +160,7 @@ class InMemoryApprovalStore(
     ): ApprovalConsumptionReceipt {
         validateIdField(approvalId, "approvalId", maxIdLength)
         validateIdField(consumedBy, "consumedBy", maxIdLength)
+        SafeActorIdPolicy.validateActorId(consumedBy, "consumedBy")
 
         val replayed = AtomicBoolean(false)
         val result = store.compute(approvalId) { _, current ->

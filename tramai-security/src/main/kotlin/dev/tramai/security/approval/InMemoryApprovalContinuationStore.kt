@@ -5,6 +5,7 @@ import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ClaimedApprovalContinuation
 import dev.tramai.core.approval.SAFE_REASON_CODE_PATTERN
+import dev.tramai.core.approval.SafeActorIdPolicy
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.exception.ApprovalContinuationConflictException
@@ -93,6 +94,7 @@ class InMemoryApprovalContinuationStore(
     ): ClaimedApprovalContinuation {
         validateIdentifier(approvalId, "approvalId")
         validateIdentifier(claimedBy, "claimedBy")
+        SafeActorIdPolicy.validateActorId(claimedBy, "claimedBy")
 
         var claimed: ClaimedApprovalContinuation? = null
         var expired = false
@@ -137,6 +139,7 @@ class InMemoryApprovalContinuationStore(
     ): ApprovalContinuation {
         validateIdentifier(approvalId, "approvalId")
         validateIdentifier(completedBy, "completedBy")
+        SafeActorIdPolicy.validateActorId(completedBy, "completedBy")
         return store.compute(approvalId) { _, current ->
             val stored = current ?: throw ApprovalContinuationNotFoundException(approvalId)
             val continuation = stored.continuation
@@ -248,6 +251,7 @@ class InMemoryApprovalContinuationStore(
     ): ApprovalContinuation {
         validateIdentifier(approvalId, "approvalId")
         validateIdentifier(cancelledBy, "cancelledBy")
+        SafeActorIdPolicy.validateActorId(cancelledBy, "cancelledBy")
         validateReasonCode(reasonCode)
 
         return store.compute(approvalId) { _, current ->

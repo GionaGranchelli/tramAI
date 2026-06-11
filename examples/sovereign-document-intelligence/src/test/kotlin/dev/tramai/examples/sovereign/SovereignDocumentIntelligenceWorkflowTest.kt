@@ -19,6 +19,7 @@ import dev.tramai.security.model.InMemoryModelRegistry
 import dev.tramai.security.audit.InMemoryAuditStore
 import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.AuditChainVerifier
+import dev.tramai.security.audit.toCanonicalJson
 import dev.tramai.sovereign.SovereignProfileConfiguration
 import dev.tramai.sovereign.SovereignTramai
 import dev.tramai.sovereign.SovereignTramaiRuntime
@@ -189,18 +190,13 @@ class SovereignDocumentIntelligenceWorkflowTest {
         assertTrue(completedEvents.isNotEmpty(), "APPROVAL_COMPLETED event must exist")
         assertEquals("schedule-payment", completedEvents.first().metadata["toolName"])
 
-        // 9. No sensitive data in any audit event metadata
+        // 9. No sensitive data in any audit event (scan canonical serialized form)
+        val sensitiveTokens = setOf("approval-token-invoice-001", "DE89370400440532013000", "Acme Corp", "Enterprise license renewal")
         for (event in events) {
-            val metaValues = event.metadata.values.joinToString("")
-            // Token values must not appear
-            assertTrue("approval-token-invoice-001" !in metaValues, "Token must not appear in audit metadata")
-            assertTrue("token-" !in metaValues, "Token prefix must not appear in audit metadata")
-            // IBAN must not appear
-            assertTrue("DE89370400440532013000" !in metaValues, "IBAN must not appear in audit metadata")
-            assertTrue("iban" !in event.metadata.keys.map { it.lowercase() }, "IBAN key must not appear in audit metadata")
-            // Raw invoice content must not appear
-            assertTrue("Acme Corp" !in metaValues, "Invoice content must not appear in audit metadata")
-            assertTrue("Enterprise license renewal" !in metaValues, "Invoice content must not appear in audit metadata")
+            val serialized = event.toCanonicalJson()
+            for (token in sensitiveTokens) {
+                assertTrue(token !in serialized, "Sensitive value '$token' must not appear in serialized audit event")
+            }
         }
 
         // 10. All audit timestamps equal fixedClock.instant()

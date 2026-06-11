@@ -1,7 +1,9 @@
 package dev.tramai.security.audit
 
 import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.SafeActorIdPolicy
 import dev.tramai.core.approval.Sha256Digest
+import java.security.MessageDigest
 import java.time.Instant
 
 /**
@@ -13,7 +15,7 @@ import java.time.Instant
  * Never persists: approval tokens, raw tool arguments, IBAN, invoice content,
  * prompts, or sensitive tool payloads.
  *
- * Persists only: approvalId, workflowRunId, toolName, toolCallId, correlationId,
+ * Persists only: approvalId, workflowRunId, toolName, toolCallIdDigest, correlationId,
  * argumentsDigest, resumedBy, completedBy, safe reason codes.
  */
 class AuditEngineApprovalLifecycleAuditEmitter(
@@ -32,7 +34,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         val metadata = mutableMapOf(
             "approvalId" to bounded(approvalId),
             "toolName" to bounded(toolName),
-            "toolCallId" to bounded(toolCallId),
+            "toolCallIdDigest" to sha256Digest("tool-call-id:$toolCallId"),
             "argumentsDigest" to bounded(argumentsDigest.value),
             "expiresAt" to expiresAt.toString(),
         )
@@ -56,16 +58,17 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         toolName: String,
         resumedBy: String,
     ) {
+        val safeActor = SafeActorIdPolicy.safeActorId(resumedBy)
         val metadata = mutableMapOf(
             "approvalId" to bounded(approvalId),
             "toolName" to bounded(toolName),
-            "resumedBy" to bounded(resumedBy),
+            "resumedBy" to bounded(safeActor),
         )
         auditEngine.emit(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
-            actor = resumedBy,
+            actor = safeActor,
             enforcementPoint = "APPROVAL_RESUMED",
             decision = "AUTHORIZED",
             policyVersion = null,
@@ -81,16 +84,17 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         toolName: String,
         completedBy: String,
     ) {
+        val safeActor = SafeActorIdPolicy.safeActorId(completedBy)
         val metadata = mutableMapOf(
             "approvalId" to bounded(approvalId),
             "toolName" to bounded(toolName),
-            "completedBy" to bounded(completedBy),
+            "completedBy" to bounded(safeActor),
         )
         auditEngine.emit(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
-            actor = completedBy,
+            actor = safeActor,
             enforcementPoint = "APPROVAL_COMPLETED",
             decision = "SUCCESS",
             policyVersion = null,
@@ -182,17 +186,18 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         cancelledBy: String,
         reasonCode: String,
     ) {
+        val safeActor = SafeActorIdPolicy.safeActorId(cancelledBy)
         val metadata = mapOf(
             "approvalId" to bounded(approvalId),
             "toolName" to bounded(toolName),
-            "cancelledBy" to bounded(cancelledBy),
+            "cancelledBy" to bounded(safeActor),
             "reasonCode" to safeReasonCode(reasonCode),
         )
         auditEngine.emit(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
-            actor = cancelledBy,
+            actor = safeActor,
             enforcementPoint = "APPROVAL_FORCE_CANCELLATION_REQUESTED",
             decision = "FORCE_CANCEL",
             policyVersion = null,
@@ -209,17 +214,18 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         cancelledBy: String,
         reasonCode: String,
     ) {
+        val safeActor = SafeActorIdPolicy.safeActorId(cancelledBy)
         val metadata = mapOf(
             "approvalId" to bounded(approvalId),
             "toolName" to bounded(toolName),
-            "cancelledBy" to bounded(cancelledBy),
+            "cancelledBy" to bounded(safeActor),
             "reasonCode" to safeReasonCode(reasonCode),
         )
         auditEngine.emit(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
-            actor = cancelledBy,
+            actor = safeActor,
             enforcementPoint = "APPROVAL_FORCE_CANCELLED",
             decision = "FORCE_CANCELLED",
             policyVersion = null,
@@ -247,5 +253,11 @@ class AuditEngineApprovalLifecycleAuditEmitter(
 
         private fun safeReasonCode(raw: String): String =
             raw.takeIf(SAFE_REASON_CODE::matches) ?: "approval_reason_redacted"
+
+        private fun sha256Digest(input: String): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            return digest.digest(input.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+        }
     }
 }
