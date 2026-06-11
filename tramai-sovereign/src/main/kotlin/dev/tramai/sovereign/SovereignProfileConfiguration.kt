@@ -1,6 +1,5 @@
 package dev.tramai.sovereign
 
-import dev.tramai.core.policy.DataClassification
 import dev.tramai.core.policy.RiskLevel
 import dev.tramai.security.PolicyConfiguration
 import dev.tramai.security.ProviderRoutingConfiguration
@@ -65,7 +64,7 @@ data class SovereignProfileConfiguration(
     }
 
     /** Converts this sovereign configuration into a [PolicyConfiguration] for the runtime. */
-    fun toPolicyConfiguration(): PolicyConfiguration = PolicyConfiguration(
+    fun toPolicyConfiguration(): PolicyConfiguration = PolicyConfiguration.secure().copy(
         allowedTools = allowedTools,
         allowedModels = allowedModels,
         allowedProviders = allowedProviders,

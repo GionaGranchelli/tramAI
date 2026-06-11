@@ -433,7 +433,10 @@ class SovereignTramaiTest {
 
         assertThatThrownBy {
             runBlocking { service.echo(doc) }
-        }.isInstanceOf(PolicyViolationException::class.java)
+        }.isInstanceOfSatisfying(PolicyViolationException::class.java) { exception ->
+            assertThat(exception.decision.reasonCode)
+                .isEqualTo("classification-routing-blocked")
+        }
 
         assertThat(cloudProvider.callCount.get()).isZero()
     }
