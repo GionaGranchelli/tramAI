@@ -15,7 +15,7 @@ import java.time.Instant
  * Never persists: approval tokens, raw tool arguments, IBAN, invoice content,
  * prompts, or sensitive tool payloads.
  *
- * Persists only: approvalId, workflowRunId, toolName, toolCallId, correlationId,
+ * Persists only: approvalId, workflowRunId, toolName, toolCallIdDigest, correlationId,
  * argumentsDigest, resumedBy, completedBy, safe reason codes.
  */
 class AuditEngineApprovalLifecycleAuditEmitter(

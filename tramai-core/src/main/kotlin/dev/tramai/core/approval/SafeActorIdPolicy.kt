@@ -14,11 +14,11 @@ package dev.tramai.core.approval
  *   [safeActorId] — applied by lifecycle emitter before durable audit persistence.
  *
  * Allowed characters: alphanumeric, dot, underscore, colon, at-sign, plus, hyphen.
- * First character must be alphanumeric. Maximum length 256.
+ * First character must be alphanumeric. Maximum length 128.
  */
 public object SafeActorIdPolicy {
 
-    private const val MAX_ACTOR_ID_LENGTH = 256
+    private const val MAX_ACTOR_ID_LENGTH = 128
 
     public val SAFE_ACTOR_ID: Regex = Regex("[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}")
 

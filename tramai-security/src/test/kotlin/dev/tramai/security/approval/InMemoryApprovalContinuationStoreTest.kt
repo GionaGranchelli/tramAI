@@ -1312,6 +1312,48 @@ class InMemoryApprovalContinuationStoreTest {
             .isInstanceOf(ApprovalContinuationNotCompletableException::class.java)
     }
 
+    // -----------------------------------------------------------------------
+    // Actor validation (SafeActorIdPolicy)
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `claimForExecution rejects unsafe claimedBy`() : Unit = runBlocking {
+        createPendingContinuation()
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.claimForExecution("cont-1", 0L, "api_key=secret")
+                }
+            }
+            .withMessageContaining("must match safe pattern")
+    }
+
+    @Test
+    fun `complete rejects unsafe completedBy`() : Unit = runBlocking {
+        createPendingContinuation()
+        store.claimForExecution("cont-1", 0L, "runner-1")
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.complete("cont-1", 1L, "password=123")
+                }
+            }
+            .withMessageContaining("must match safe pattern")
+    }
+
+    @Test
+    fun `forceCancelClaimed rejects unsafe cancelledBy`() : Unit = runBlocking {
+        createPendingContinuation()
+        store.claimForExecution("cont-1", 0L, "runner-1")
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.forceCancelClaimed("cont-1", 1L, "password=123", "worker-lost")
+                }
+            }
+            .withMessageContaining("must match safe pattern")
+    }
+
     private fun createPendingContinuation(
         approvalId: String = "cont-1",
         argumentsJson: String = "{}",

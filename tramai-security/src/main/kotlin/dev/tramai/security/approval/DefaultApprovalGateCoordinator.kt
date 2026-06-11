@@ -359,7 +359,7 @@ class DefaultApprovalGateCoordinator(
     }
 
     private fun validateActorId(value: String) {
-        SafeActorIdPolicy.validateActorId(value)
+        SafeActorIdPolicy.validateActorId(value, "actorId")
     }
 
     private fun tokenDigestsMatch(

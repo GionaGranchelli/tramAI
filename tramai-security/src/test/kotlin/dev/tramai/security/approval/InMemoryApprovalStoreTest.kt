@@ -1409,6 +1409,58 @@ class InMemoryApprovalStoreTest {
         }.isInstanceOf(ApprovalStoreConflictException::class.java)
     }
 
+    // -----------------------------------------------------------------------
+    // Actor validation (SafeActorIdPolicy)
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `create rejects unsafe requestedBy`() : Unit = runBlocking {
+        val request = aPendingRequest(
+            approvalId = "unsafe-requested-by",
+            requestedBy = "password=123",
+        )
+        assertThatIllegalArgumentException()
+            .isThrownBy { runBlocking { store.create(request) } }
+            .withMessageContaining("must match safe pattern")
+    }
+
+    @Test
+    fun `consumeApprovedOrReplay rejects unsafe consumedBy`() : Unit = runBlocking {
+        store.create(aPendingRequest(approvalId = "unsafe-consumed-by"))
+        store.transition("unsafe-consumed-by", 0L, ApprovalTransition.Approve("approver"))
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.consumeApprovedOrReplay(
+                        "unsafe-consumed-by",
+                        1L,
+                        Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222"),
+                        "key=value",
+                    )
+                }
+            }
+            .withMessageContaining("must match safe pattern")
+    }
+
+    @Test
+    fun `transition rejects unsafe decidedBy`() : Unit = runBlocking {
+        store.create(aPendingRequest(approvalId = "unsafe-decided-by"))
+        assertThatIllegalArgumentException()
+            .isThrownBy {
+                runBlocking {
+                    store.transition(
+                        "unsafe-decided-by",
+                        0L,
+                        ApprovalTransition.Approve(
+                            decidedBy = "password=supersecret",
+                            comment = "approved",
+                        ),
+                    )
+                }
+            }
+            .withMessageContaining("must match safe pattern")
+    }
+
     private fun corruptVersion(approvalId: String, version: Long) {
         val field = InMemoryApprovalStore::class.java.getDeclaredField("store")
         field.isAccessible = true
