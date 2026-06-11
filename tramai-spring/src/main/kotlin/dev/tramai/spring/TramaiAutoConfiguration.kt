@@ -452,7 +452,6 @@ class TramaiAutoConfiguration {
             sessionToken = sessionToken,
             defaultField = properties.defaultField,
         )
-        }
     }
 
     private fun resolveModelRegistrySettings(
@@ -465,3 +464,4 @@ class TramaiAutoConfiguration {
             "Multiple ModelRegistrySettings beans found (${list.size}). Define at most one.",
         )
     }
+}

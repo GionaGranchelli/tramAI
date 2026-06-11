@@ -19,7 +19,7 @@ internal class ModelRegistryEnforcer(
 
         val approved: RegisteredModel = try {
             registry.findApprovedModel(providerId, modelName)
-                ?: throw ModelNotRegisteredException(providerId, modelName)
+                ?: throw ModelNotRegisteredException()
         } catch (e: ModelRegistryException) {
             throw e
         } catch (e: CancellationException) {
@@ -29,7 +29,7 @@ internal class ModelRegistryEnforcer(
         }
 
         if (!approved.enabled) {
-            throw ModelDisabledException(approved.registryEntryId)
+            throw ModelDisabledException()
         }
         if (approved.providerId != providerId || approved.modelName != modelName) {
             throw ModelRegistryContractViolationException(

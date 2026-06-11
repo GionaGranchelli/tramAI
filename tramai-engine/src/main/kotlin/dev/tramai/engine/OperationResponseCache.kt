@@ -10,6 +10,8 @@ import dev.tramai.core.policy.DataClassification
 interface OperationResponseCache {
     fun get(key: OperationCacheKey): CachedOperationResult?
 
+    fun invalidate(key: OperationCacheKey)
+
     fun put(
         key: OperationCacheKey,
         value: CachedOperationResult,
@@ -57,6 +59,8 @@ data class CacheSecurityPartition(
 
 object NoOpOperationResponseCache : OperationResponseCache {
     override fun get(key: OperationCacheKey): CachedOperationResult? = null
+
+    override fun invalidate(key: OperationCacheKey) = Unit
 
     override fun put(
         key: OperationCacheKey,

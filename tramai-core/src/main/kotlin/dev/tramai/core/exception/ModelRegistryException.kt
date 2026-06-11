@@ -7,14 +7,11 @@ open class ModelRegistryException(
     cause: Throwable? = null,
 ) : TramaiException(message, cause)
 
-class ModelNotRegisteredException(
-    providerId: String,
-    modelName: String,
-) : ModelRegistryException("Model '$modelName' from provider '$providerId' is not registered")
+class ModelNotRegisteredException :
+    ModelRegistryException("Requested model is not registered")
 
-class ModelDisabledException(
-    registryEntryId: String,
-) : ModelRegistryException("Registered model '$registryEntryId' is disabled")
+class ModelDisabledException :
+    ModelRegistryException("Requested model is disabled")
 
 class ModelRegistryUnavailableException(
     cause: Throwable? = null,
@@ -24,6 +21,5 @@ class ModelRegistryContractViolationException(
     reason: String,
 ) : ModelRegistryException("Model registry contract violation: $reason")
 
-class CachedModelProvenanceMismatchException : ModelRegistryException(
-    "Cached response provenance does not match current model registry",
-)
+class CachedModelProvenanceMismatchException :
+    ModelRegistryException("Cached response provenance does not match current model registry")

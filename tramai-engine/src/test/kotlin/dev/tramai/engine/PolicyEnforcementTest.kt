@@ -358,12 +358,12 @@ class PolicyEnforcementTest {
         val cache = object : OperationResponseCache {
             override fun get(key: OperationCacheKey): CachedOperationResult? = cached
 
-            override fun put(key: OperationCacheKey, value: CachedOperationResult, ttlMillis: Long) {
-                if (ttlMillis == 0L) {
-                    invalidated = true
-                    cached = null
-                }
+            override fun invalidate(key: OperationCacheKey) {
+                invalidated = true
+                cached = null
             }
+
+            override fun put(key: OperationCacheKey, value: CachedOperationResult, ttlMillis: Long) = Unit
         }
         val engine = TramaiEngine(
             provider = provider,
@@ -1467,6 +1467,8 @@ class PolicyEnforcementTest {
                 ),
             )
 
+            override fun invalidate(key: OperationCacheKey) = Unit
+
             override fun put(key: OperationCacheKey, value: CachedOperationResult, ttlMillis: Long) = Unit
         }
         val engine = TramaiEngine(
@@ -1732,6 +1734,7 @@ class PolicyEnforcementTest {
 
         val cache = object : OperationResponseCache {
             override fun get(key: OperationCacheKey): CachedOperationResult? = null
+            override fun invalidate(key: OperationCacheKey) = Unit
             override fun put(key: OperationCacheKey, value: CachedOperationResult, ttlMillis: Long) {
                 cachePutCalled = true
             }

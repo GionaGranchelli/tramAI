@@ -9,6 +9,7 @@ import dev.tramai.core.annotations.User as UserMessage
 import dev.tramai.core.memory.ChatMemory
 import dev.tramai.core.memory.ConversationIdProvider
 import dev.tramai.core.memory.UuidConversationIdProvider
+import dev.tramai.core.exception.ModelRegistryException
 import dev.tramai.core.exception.CircuitBreakerOpenException
 import dev.tramai.core.exception.CachedModelProvenanceMismatchException
 import dev.tramai.core.exception.ConfigurationException
@@ -474,17 +475,16 @@ internal class TramaiInvocationHandler(
                 continue
             }
 
+            val attempt = attemptCounter.next()
+            val observation = startStreamingObservation(route, operation, attempt, routeIndex)
+
             try {
                 modelRegistryEnforcer.authorize(route.providerName, route.effectiveModelName)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (e: dev.tramai.core.exception.ModelRegistryException) {
-                throw dev.tramai.core.exception.PolicyViolationException(
-                    dev.tramai.core.policy.PolicyDecision.Deny(
-                        "Model registry rejected provider '${route.providerName}' model '${route.effectiveModelName}'",
-                        "model-not-registered",
-                    ),
-                )
+            } catch (e: ModelRegistryException) {
+                observation.onCallCompleted(parseSuccess = null)
+                throw e
             }
 
             // Enforce BEFORE_RESPONSE_RETURN per-route before any token emission
@@ -538,8 +538,9 @@ internal class TramaiInvocationHandler(
                         request = memoryInjectedRequest,
                         operation = operation,
                         route = route,
-                        attempt = attemptCounter.next(),
+                        attempt = attempt,
                         routeIndex = routeIndex,
+                        observation = observation,
                         tokenBudgetTracker = tokenBudgetTracker,
                         emitChunk = { emit(it) },
                     )
@@ -602,6 +603,7 @@ internal class TramaiInvocationHandler(
         route: ResolvedProviderRoute,
         attempt: Int,
         routeIndex: Int,
+        observation: OperationObservation,
         tokenBudgetTracker: TokenBudgetTracker,
         emitChunk: suspend (StreamChunk) -> Unit,
     ): StreamingRouteResult {
@@ -610,7 +612,6 @@ internal class TramaiInvocationHandler(
         val interceptedRequest = request.copy(
             messages = operationInterceptor.interceptRequest(callContext, request.messages),
         )
-        val observation = startStreamingObservation(route, operation, attempt, routeIndex)
 
         return try {
             collectStreamingRouteChunks(
@@ -969,7 +970,7 @@ internal class TramaiInvocationHandler(
                     )
                     return cached.value as String
                 } catch (_: CachedModelProvenanceMismatchException) {
-                    responseCache.put(key, cached, 0)
+                    responseCache.invalidate(key)
                 }
             }
         }
@@ -1061,7 +1062,7 @@ internal class TramaiInvocationHandler(
                     )
                     return cached.value
                 } catch (_: CachedModelProvenanceMismatchException) {
-                    responseCache.put(key, cached, 0)
+                    responseCache.invalidate(key)
                 }
             }
         }
@@ -1745,8 +1746,6 @@ internal class TramaiInvocationHandler(
             }
 
             try {
-                val approvedModel = modelRegistryEnforcer.authorize(route.providerName, route.effectiveModelName)
-
                 // Enforce BEFORE_TOOL_EXPOSURE per tool definition
                 operation.toolDefinitions.forEach { toolDef ->
                     val tool = toolRegistry.resolve(toolDef.name)
@@ -1762,7 +1761,6 @@ internal class TramaiInvocationHandler(
                 }
 
                 return callProviderWithRetries(
-                    approvedModel = approvedModel,
                     providerId = route.providerName,
                     provider = route.provider,
                     request = ModelRequest(
@@ -1814,7 +1812,6 @@ internal class TramaiInvocationHandler(
     }
 
     private suspend fun callProviderWithRetries(
-        approvedModel: RegisteredModel?,
         providerId: String,
         provider: ModelProvider,
         request: ModelRequest,
@@ -1849,8 +1846,17 @@ internal class TramaiInvocationHandler(
                         effectiveModelName = request.model,
                     ),
                     routeIndex = routeIndex,
-                ),
+                    ),
             )
+
+            val approvedModel = try {
+                modelRegistryEnforcer.authorize(providerId, request.model)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ModelRegistryException) {
+                observation.onCallCompleted(parseSuccess = null)
+                throw e
+            }
 
             try {
                 // Enforce BEFORE_PROVIDER_INVOCATION
@@ -3047,19 +3053,19 @@ internal class TramaiInvocationHandler(
         validateCachedEntry(cacheKey, cached)
         if (modelRegistrySettings.enabled) {
             val provenance = cached.provenance
-            val current = try {
-                modelRegistry.findApprovedModel(provenance.providerId, provenance.modelName)
-            } catch (e: CancellationException) {
+            try {
+                val current = modelRegistryEnforcer.authorize(provenance.providerId, provenance.modelName)
+                    ?: error("ModelRegistryEnforcer.authorize returned null when registry is enabled")
+                if (current.registryEntryId != provenance.modelRegistryEntryId ||
+                    current.revision != provenance.modelRevision ||
+                    current.artifactDigest != provenance.modelArtifactDigest
+                ) {
+                    throw CachedModelProvenanceMismatchException()
+                }
+            } catch (e: CachedModelProvenanceMismatchException) {
                 throw e
-            } catch (e: Exception) {
-                null
-            }
-            if (current == null || !current.enabled ||
-                current.registryEntryId != provenance.modelRegistryEntryId ||
-                current.revision != provenance.modelRevision ||
-                current.artifactDigest != provenance.modelArtifactDigest
-            ) {
-                throw CachedModelProvenanceMismatchException()
+            } catch (e: ModelRegistryException) {
+                throw e
             }
         }
         policyHelper.enforce(

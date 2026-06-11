@@ -31,15 +31,16 @@ class InMemoryOperationResponseCache(
     }
 
     @Synchronized
+    override fun invalidate(key: OperationCacheKey) {
+        entries.remove(key)
+    }
+
+    @Synchronized
     override fun put(
         key: OperationCacheKey,
         value: CachedOperationResult,
         ttlMillis: Long,
     ) {
-        if (ttlMillis <= 0) {
-            entries.remove(key)
-            return
-        }
         entries[key] = CacheEntry(
             value = value.value,
             expiresAtMillis = clockMillis() + ttlMillis,
