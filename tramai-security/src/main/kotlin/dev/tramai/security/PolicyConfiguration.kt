@@ -61,6 +61,8 @@ data class PolicyConfiguration(
      * [allowCloudForClassifications] fields for routing decisions.
      * Disabled by default for backward compatibility.
      */
+    /** Whether workflow resume is allowed (secure default: denied). */
+    val allowWorkflowResume: Boolean = false,
     val providerRouting: ProviderRoutingConfiguration = ProviderRoutingConfiguration(),
 ) {
     companion object {

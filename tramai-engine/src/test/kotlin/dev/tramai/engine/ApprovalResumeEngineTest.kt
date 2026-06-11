@@ -1426,7 +1426,7 @@ class ApprovalResumeEngineTest {
     }
 
     @Test
-    fun `second resume on same approvalId fails`() {
+    fun `second resume on same approvalId rejects the consumed token`() {
         val engine = createEngine()
         val exception = triggerSuspension(engine)
         policyEngine.resumeDecision = PolicyDecision.Allow
@@ -1442,10 +1442,10 @@ class ApprovalResumeEngineTest {
         // First resume succeeds
         runBlocking { engine.resumeApproval(command) }
 
-        // Second resume fails - continuation is already COMPLETED or invocation removed
+        // Second resume fails - the first successful resume consumed the one-time token
         assertThatThrownBy {
             runBlocking { engine.resumeApproval(command) }
-        }.isInstanceOf(dev.tramai.core.exception.ApprovalNotFoundException::class.java)
+        }.isInstanceOf(dev.tramai.core.exception.ApprovalTokenRejectedException::class.java)
     }
 
     @Test

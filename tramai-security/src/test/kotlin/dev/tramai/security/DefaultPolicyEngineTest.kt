@@ -247,13 +247,36 @@ class DefaultPolicyEngineTest {
     }
 
     @Test
-    fun `BEFORE_WORKFLOW_RESUME is denied as unimplemented`() {
+    fun `secure policy denies workflow resume by default`() {
         runBlocking {
             val decision = secureEngine.evaluate(
                 ctx(EnforcementPoint.BEFORE_WORKFLOW_RESUME)
             )
             assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
-            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("workflow-resume-unimplemented")
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("workflow-resume-disabled")
+        }
+    }
+
+    @Test
+    fun `sovereign policy enables workflow resume explicitly`() {
+        runBlocking {
+            val config = PolicyConfiguration.secure().copy(allowWorkflowResume = true)
+            val engine = DefaultPolicyEngine(config)
+            val decision = engine.evaluate(
+                ctx(EnforcementPoint.BEFORE_WORKFLOW_RESUME)
+            )
+            assertThat(decision).isEqualTo(PolicyDecision.Allow)
+        }
+    }
+
+    @Test
+    fun `preview policy does not silently enable workflow resume`() {
+        runBlocking {
+            val decision = previewEngine.evaluate(
+                ctx(EnforcementPoint.BEFORE_WORKFLOW_RESUME)
+            )
+            assertThat(decision).isInstanceOf(PolicyDecision.Deny::class.java)
+            assertThat((decision as PolicyDecision.Deny).reasonCode).isEqualTo("workflow-resume-disabled")
         }
     }
 

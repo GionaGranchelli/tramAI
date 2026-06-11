@@ -130,7 +130,8 @@ val service = tramai.create<MyService>()
 - The sovereign profile validates configured provider-model identity and declared registry metadata.
 - It does **not** verify deployed model bytes, runtime images, GPU hosts, or network-isolation boundaries.
 - The sovereign profile wires policy decisions that require approval for HIGH and CRITICAL risk tools.
-- Embedded approval suspension and resume composition (ApprovalGateCoordinator, ApprovalContinuationStore, ApprovalLifecycleAuditEmitter) is not yet exposed through SovereignTramai.Builder. That integration is added with the executable Sovereign Document Intelligence reference workflow (PR #25).
+- Embedded approval suspension and resume composition is available through `SovereignTramai.Builder` for `ApprovalGateCoordinator`, `ApprovalContinuationStore`, and `ToolArgumentsDigester`.
+- Approval lifecycle audit emission is not configurable in the sovereign profile; it is always wired to the sovereign `AuditEngine`.
 - Artifact-byte verification is tracked as a follow-up capability (Phase 2).
 
 ## Module Source

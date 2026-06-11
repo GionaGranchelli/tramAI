@@ -1,8 +1,16 @@
 package dev.tramai.standalone
 
+import dev.tramai.core.approval.ApprovalContinuationStore
+import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
+import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.ToolInvalidInputException
 import dev.tramai.core.memory.ChatMemory
+import dev.tramai.core.model.ModelRegistry
+import dev.tramai.core.model.ModelRegistrySettings
+import dev.tramai.core.model.NoOpModelRegistry
 import dev.tramai.core.model.ResolvedTool
 import dev.tramai.core.model.SideEffectLevel
 import dev.tramai.core.model.ToolExecutionContext
@@ -12,6 +20,10 @@ import dev.tramai.core.observation.NoOpOperationInterceptor
 import dev.tramai.core.observation.NoOpOperationObserver
 import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.observation.OperationObserver
+import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
+import dev.tramai.core.policy.PolicyDecisionAuditEmitter
+import dev.tramai.core.policy.PolicyEngine
+import dev.tramai.core.policy.ToolSecurityMetadata
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.security.DlpInterceptor
@@ -19,23 +31,20 @@ import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.NoOpDlpRedactionAuditEmitter
 import dev.tramai.core.security.PromptSanitizer
-import dev.tramai.core.policy.PolicyDecisionAuditEmitter
-import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
-import dev.tramai.core.policy.PolicyEngine
-import dev.tramai.core.model.ModelRegistry
-import dev.tramai.core.model.ModelRegistrySettings
-import dev.tramai.core.model.NoOpModelRegistry
 import dev.tramai.engine.CircuitBreakerSettings
-import dev.tramai.engine.NoOpOperationResponseCache
-import dev.tramai.engine.OperationResponseCache
-import dev.tramai.engine.TokenBudgetSettings
-import dev.tramai.engine.RetryPolicySettings
-import dev.tramai.engine.ToolRegistry
-import dev.tramai.engine.ToolResultFilteringSettings
 import dev.tramai.engine.EngineEventObserver
 import dev.tramai.engine.NoOpEngineEventObserver
+import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.TramaiEngine
+import dev.tramai.engine.NoOpOperationResponseCache
+import dev.tramai.engine.OperationResponseCache
+import dev.tramai.engine.RetryPolicySettings
+import dev.tramai.engine.TokenBudgetSettings
+import dev.tramai.engine.ToolRegistry
+import dev.tramai.engine.ToolResultFilteringSettings
+import dev.tramai.engine.inMemorySuspendedInvocationStore
 import dev.tramai.structured.JacksonStructuredOutputHandler
+import java.time.Clock
 import kotlin.reflect.KClass
 import kotlin.reflect.full.createType
 
@@ -61,11 +70,29 @@ class Tramai private constructor(
     private val policyEngine: PolicyEngine? = null,
     private val modelRegistry: ModelRegistry = NoOpModelRegistry,
     private val modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings(),
+    // Approval suspension dependencies
+    private val suspendedInvocationStore: SuspendedInvocationStore?,
+    private val approvalContinuationStore: ApprovalContinuationStore? = null,
+    private val toolArgumentsDigester: ToolArgumentsDigester? = null,
+    private val approvalGateCoordinator: ApprovalGateCoordinator? = null,
+    private val approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter,
+    private val clock: Clock = Clock.systemUTC(),
 ) {
     /**
      * Creates a service proxy using the built-in Jackson structured output handler.
      */
-    fun <T : Any> create(serviceType: KClass<T>): T = TramaiEngine(
+    fun <T : Any> create(serviceType: KClass<T>): T = newEngine().create(serviceType)
+
+    /**
+     * Creates a [TramaiRuntime] that owns exactly one engine and exposes
+     * both service creation and approval-resume operations.
+     */
+    fun runtime(): TramaiRuntime = TramaiRuntime(newEngine())
+
+    /**
+     * Returns a configured [TramaiEngine] from the current builder state.
+     */
+    private fun newEngine(): TramaiEngine = TramaiEngine(
         providerRegistry = providerRegistry,
         structuredOutputHandler = JacksonStructuredOutputHandler(),
         toolRegistry = toolRegistry,
@@ -85,7 +112,13 @@ class Tramai private constructor(
         policyEngine = policyEngine,
         modelRegistry = modelRegistry,
         modelRegistrySettings = modelRegistrySettings,
-    ).create(serviceType)
+        suspendedInvocationStore = suspendedInvocationStore ?: inMemorySuspendedInvocationStore(),
+        approvalContinuationStore = approvalContinuationStore,
+        toolArgumentsDigester = toolArgumentsDigester,
+        approvalGateCoordinator = approvalGateCoordinator,
+        approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
+        clock = clock,
+    )
 
     companion object {
         @JvmStatic
@@ -118,6 +151,13 @@ class Tramai private constructor(
         private var policyEngine: PolicyEngine? = null
         private var modelRegistry: ModelRegistry = NoOpModelRegistry
         private var modelRegistrySettings: ModelRegistrySettings = ModelRegistrySettings()
+        // Approval suspension dependencies
+        private var suspendedInvocationStore: SuspendedInvocationStore? = null
+        private var approvalContinuationStore: ApprovalContinuationStore? = null
+        private var toolArgumentsDigester: ToolArgumentsDigester? = null
+        private var approvalGateCoordinator: ApprovalGateCoordinator? = null
+        private var approvalLifecycleAuditEmitter: ApprovalLifecycleAuditEmitter = NoOpApprovalLifecycleAuditEmitter
+        private var clock: Clock = Clock.systemUTC()
 
         /**
          * Registers a provider with an optional explicit [name].
@@ -312,29 +352,108 @@ class Tramai private constructor(
             this.modelRegistrySettings = settings
         }
 
+        // --- Approval suspension builder methods ---
+
+        /**
+         * Configures the store for suspended invocation metadata and sensitive context.
+         * Defaults to the engine's in-memory implementation when not set.
+         */
+        fun suspendedInvocationStore(
+            store: SuspendedInvocationStore,
+        ): Builder = apply {
+            this.suspendedInvocationStore = store
+        }
+
+        /**
+         * Configures the store for approval continuations (persistent tool arguments
+         * and binding metadata).
+         */
+        fun approvalContinuationStore(
+            store: ApprovalContinuationStore,
+        ): Builder = apply {
+            this.approvalContinuationStore = store
+        }
+
+        /**
+         * Configures the digester for tool arguments, used to compute the
+         * deterministic hash bound into the approval challenge.
+         */
+        fun toolArgumentsDigester(
+            digester: ToolArgumentsDigester,
+        ): Builder = apply {
+            this.toolArgumentsDigester = digester
+        }
+
+        /**
+         * Configures the coordinator that creates and authorizes approval requests.
+         */
+        fun approvalGateCoordinator(
+            coordinator: ApprovalGateCoordinator,
+        ): Builder = apply {
+            this.approvalGateCoordinator = coordinator
+        }
+
+        /**
+         * Configures the audit emitter for approval lifecycle events.
+         * Defaults to [NoOpApprovalLifecycleAuditEmitter].
+         */
+        fun approvalLifecycleAudit(
+            emitter: ApprovalLifecycleAuditEmitter,
+        ): Builder = apply {
+            this.approvalLifecycleAuditEmitter = emitter
+        }
+
+        /**
+         * Configures the clock used for approval expiry and audit timestamps.
+         */
+        fun clock(clock: Clock): Builder = apply {
+            this.clock = clock
+        }
+
         /**
          * Builds an immutable standalone Tramai instance.
+         *
+         * @throws IllegalStateException if approval composition is partially configured
+         *   (continuation store, digester, and coordinator must all be set or all be null).
          */
-        fun build(): Tramai = Tramai(
-            providerRegistry = registryBuilder.build(),
-            toolRegistry = ToolRegistry(tools.toMap()),
-            operationObserver = operationObserver,
-            operationInterceptor = operationInterceptor,
-            responseCache = responseCache,
-            circuitBreakerSettings = circuitBreakerSettings,
-            retryPolicySettings = retryPolicySettings,
-            tokenBudgetSettings = tokenBudgetSettings,
-            dlpInterceptor = dlpInterceptor,
-            dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
-            toolResultFilteringSettings = toolResultFilteringSettings,
-            engineEventObserver = engineEventObserver,
-            promptSanitizer = promptSanitizer,
-            chatMemory = chatMemory,
-            policyDecisionAuditEmitter = policyDecisionAuditEmitter,
-            policyEngine = policyEngine,
-            modelRegistry = modelRegistry,
-            modelRegistrySettings = modelRegistrySettings,
-        )
+        fun build(): Tramai {
+            // Approval composition must be complete or absent
+            val hasContinuation = approvalContinuationStore != null
+            val hasDigester = toolArgumentsDigester != null
+            val hasCoordinator = approvalGateCoordinator != null
+            if (hasContinuation || hasDigester || hasCoordinator) {
+                check(hasContinuation && hasDigester && hasCoordinator) {
+                    "Approval suspension requires continuation store, arguments digester, and gate coordinator"
+                }
+            }
+
+            return Tramai(
+                providerRegistry = registryBuilder.build(),
+                toolRegistry = ToolRegistry(tools.toMap()),
+                operationObserver = operationObserver,
+                operationInterceptor = operationInterceptor,
+                responseCache = responseCache,
+                circuitBreakerSettings = circuitBreakerSettings,
+                retryPolicySettings = retryPolicySettings,
+                tokenBudgetSettings = tokenBudgetSettings,
+                dlpInterceptor = dlpInterceptor,
+                dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
+                toolResultFilteringSettings = toolResultFilteringSettings,
+                engineEventObserver = engineEventObserver,
+                promptSanitizer = promptSanitizer,
+                chatMemory = chatMemory,
+                policyDecisionAuditEmitter = policyDecisionAuditEmitter,
+                policyEngine = policyEngine,
+                modelRegistry = modelRegistry,
+                modelRegistrySettings = modelRegistrySettings,
+                suspendedInvocationStore = suspendedInvocationStore,
+                approvalContinuationStore = approvalContinuationStore,
+                toolArgumentsDigester = toolArgumentsDigester,
+                approvalGateCoordinator = approvalGateCoordinator,
+                approvalLifecycleAuditEmitter = approvalLifecycleAuditEmitter,
+                clock = clock,
+            )
+        }
     }
 }
 
@@ -363,6 +482,7 @@ private fun createResolvedTool(
     override val inputSchemaJson: String = handler.generateSchema(tool.inputType.createType())
     override val idempotent: Boolean = tool.idempotent
     override val sideEffectLevel: SideEffectLevel = tool.sideEffectLevel
+    override val security: ToolSecurityMetadata? = tool.security
 
     override suspend fun execute(
         input: Any,

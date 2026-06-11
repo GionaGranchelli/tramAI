@@ -32,4 +32,5 @@ include(
     "tramai-dashboard",
     "tramai-rag",
     "examples:support-agent",
+    "examples:sovereign-document-intelligence",
 )
