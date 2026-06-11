@@ -7,6 +7,7 @@ import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.exception.ApprovalTokenRejectedException
+import dev.tramai.core.exception.ModelDisabledException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.model.RegisteredModel
 import dev.tramai.security.approval.DefaultApprovalGateCoordinator
@@ -175,6 +176,39 @@ class SovereignDocumentIntelligenceWorkflowTest {
         val result = AuditChainVerifier.verify(events)
         assertTrue(result.isValid, "Audit chain must be valid: ${result.errors.joinToString { it.message }}")
 
+        // 8. Verify approval lifecycle events contain toolName=schedule-payment
+        val suspendedEvents = events.filter { it.enforcementPoint == "APPROVAL_SUSPENDED" }
+        assertTrue(suspendedEvents.isNotEmpty(), "APPROVAL_SUSPENDED event must exist")
+        assertEquals("schedule-payment", suspendedEvents.first().metadata["toolName"])
+
+        val resumedEvents = events.filter { it.enforcementPoint == "APPROVAL_RESUMED" }
+        assertTrue(resumedEvents.isNotEmpty(), "APPROVAL_RESUMED event must exist")
+        assertEquals("schedule-payment", resumedEvents.first().metadata["toolName"])
+
+        val completedEvents = events.filter { it.enforcementPoint == "APPROVAL_COMPLETED" }
+        assertTrue(completedEvents.isNotEmpty(), "APPROVAL_COMPLETED event must exist")
+        assertEquals("schedule-payment", completedEvents.first().metadata["toolName"])
+
+        // 9. No sensitive data in any audit event metadata
+        for (event in events) {
+            val metaValues = event.metadata.values.joinToString("")
+            // Token values must not appear
+            assertTrue("approval-token-invoice-001" !in metaValues, "Token must not appear in audit metadata")
+            assertTrue("token-" !in metaValues, "Token prefix must not appear in audit metadata")
+            // IBAN must not appear
+            assertTrue("DE89370400440532013000" !in metaValues, "IBAN must not appear in audit metadata")
+            assertTrue("iban" !in event.metadata.keys.map { it.lowercase() }, "IBAN key must not appear in audit metadata")
+            // Raw invoice content must not appear
+            assertTrue("Acme Corp" !in metaValues, "Invoice content must not appear in audit metadata")
+            assertTrue("Enterprise license renewal" !in metaValues, "Invoice content must not appear in audit metadata")
+        }
+
+        // 10. All audit timestamps equal fixedClock.instant()
+        val expectedTimestamp = fixedClock.instant()
+        for (event in events) {
+            assertEquals(expectedTimestamp, event.timestamp, "All audit timestamps must equal fixed clock instant")
+        }
+
         runtime.close()
     }
 
@@ -260,14 +294,48 @@ class SovereignDocumentIntelligenceWorkflowTest {
 
         try {
             runBlocking { service.analyze(classifiedInvoice()) }
-            fail("Should have thrown exception")
-        } catch (_: PolicyViolationException) {
-            // Success
-        } catch (_: dev.tramai.core.exception.ModelRegistryException) {
-            // Also acceptable
+            fail("Should have thrown ModelDisabledException")
+        } catch (_: ModelDisabledException) {
+            // Success - only ModelDisabledException is acceptable
         }
 
         assertEquals(0, provider.capturedRequests.size)
+        runtime.close()
+    }
+
+    @Test
+    fun `unregistered model is rejected before provider invocation`() {
+        val unregisteredModelRegistry = InMemoryModelRegistry.builder()
+            .register(
+                RegisteredModel(
+                    registryEntryId = "some-other-model",
+                    providerId = "local-provider",
+                    modelName = "not-the-service-model",
+                    revision = "1.0",
+                ),
+            )
+            .build()
+
+        val tramai = SovereignTramai.builder()
+            .profile(profile)
+            .modelRegistry(unregisteredModelRegistry)
+            .auditStore(auditStore)
+            .provider(provider, name = "local-provider", default = true)
+            .model("local-invoice-model", "local-provider")
+            .tools(SchedulePaymentTool(ledger))
+            .build()
+        val runtime = tramai.runtime()
+        val service = runtime.create(InvoiceAnalysisService::class)
+
+        try {
+            runBlocking { service.analyze(classifiedInvoice()) }
+            fail("Should have thrown exception before provider invocation")
+        } catch (_: Exception) {
+            // Accept any exception - the key assertion is that provider was never called
+        }
+
+        assertEquals(0, provider.capturedRequests.size,
+            "Provider must not be invoked when model is not registered")
         runtime.close()
     }
 

@@ -31,12 +31,13 @@ class AuditEngineApprovalLifecycleAuditEmitter(
     ) {
         val metadata = mutableMapOf(
             "approvalId" to bounded(approvalId),
+            "toolName" to bounded(toolName),
             "toolCallId" to bounded(toolCallId),
             "argumentsDigest" to bounded(argumentsDigest.value),
             "expiresAt" to expiresAt.toString(),
         )
         auditEngine.emit(
-            auditStreamId = bounded(workflowRunId),
+            auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = correlationId,
             actor = null,
@@ -55,12 +56,13 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         toolName: String,
         resumedBy: String,
     ) {
-        val metadata = mapOf(
+        val metadata = mutableMapOf(
             "approvalId" to bounded(approvalId),
+            "toolName" to bounded(toolName),
             "resumedBy" to bounded(resumedBy),
         )
         auditEngine.emit(
-            auditStreamId = bounded(workflowRunId),
+            auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
             actor = resumedBy,
@@ -79,12 +81,13 @@ class AuditEngineApprovalLifecycleAuditEmitter(
         toolName: String,
         completedBy: String,
     ) {
-        val metadata = mapOf(
+        val metadata = mutableMapOf(
             "approvalId" to bounded(approvalId),
+            "toolName" to bounded(toolName),
             "completedBy" to bounded(completedBy),
         )
         auditEngine.emit(
-            auditStreamId = bounded(workflowRunId),
+            auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
             actor = completedBy,
@@ -105,10 +108,11 @@ class AuditEngineApprovalLifecycleAuditEmitter(
     ) {
         val metadata = mapOf(
             "approvalId" to bounded(approvalId),
-            "reason" to bounded(reason),
+            "toolName" to bounded(toolName),
+            "reasonCode" to safeReasonCode(reason),
         )
         auditEngine.emit(
-            auditStreamId = bounded(workflowRunId),
+            auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
             actor = null,
@@ -116,7 +120,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             decision = "CANCELLED_UNCERTAIN",
             policyVersion = null,
             workflowDigest = null,
-            reasonCode = "approval_uncertain",
+            reasonCode = safeReasonCode(reason),
             metadata = metadata,
         )
     }
@@ -129,10 +133,11 @@ class AuditEngineApprovalLifecycleAuditEmitter(
     ) {
         val metadata = mapOf(
             "approvalId" to bounded(approvalId),
-            "reason" to bounded(reason),
+            "toolName" to bounded(toolName),
+            "reasonCode" to safeReasonCode(reason),
         )
         auditEngine.emit(
-            auditStreamId = bounded(workflowRunId),
+            auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
             actor = null,
@@ -140,7 +145,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             decision = "CANCELLED",
             policyVersion = null,
             workflowDigest = null,
-            reasonCode = "approval_cancelled",
+            reasonCode = safeReasonCode(reason),
             metadata = metadata,
         )
     }
@@ -153,10 +158,11 @@ class AuditEngineApprovalLifecycleAuditEmitter(
     ) {
         val metadata = mapOf(
             "approvalId" to bounded(approvalId),
+            "toolName" to bounded(toolName),
             "claimedAt" to claimedAt.toString(),
         )
         auditEngine.emit(
-            auditStreamId = bounded(workflowRunId),
+            auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
             actor = null,
@@ -178,11 +184,12 @@ class AuditEngineApprovalLifecycleAuditEmitter(
     ) {
         val metadata = mapOf(
             "approvalId" to bounded(approvalId),
+            "toolName" to bounded(toolName),
             "cancelledBy" to bounded(cancelledBy),
-            "reasonCode" to bounded(reasonCode),
+            "reasonCode" to safeReasonCode(reasonCode),
         )
         auditEngine.emit(
-            auditStreamId = bounded(workflowRunId),
+            auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
             actor = cancelledBy,
@@ -204,11 +211,12 @@ class AuditEngineApprovalLifecycleAuditEmitter(
     ) {
         val metadata = mapOf(
             "approvalId" to bounded(approvalId),
+            "toolName" to bounded(toolName),
             "cancelledBy" to bounded(cancelledBy),
-            "reasonCode" to bounded(reasonCode),
+            "reasonCode" to safeReasonCode(reasonCode),
         )
         auditEngine.emit(
-            auditStreamId = bounded(workflowRunId),
+            auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
             actor = cancelledBy,
@@ -224,8 +232,20 @@ class AuditEngineApprovalLifecycleAuditEmitter(
     companion object {
         private const val MAX_VALUE_LENGTH = 256
 
+        private val SAFE_REASON_CODE = Regex("[a-z0-9][a-z0-9._:-]{0,127}")
+
         private fun bounded(value: String): String =
             if (value.length <= MAX_VALUE_LENGTH) value
             else value.take(MAX_VALUE_LENGTH)
+
+        private fun safeStreamId(raw: String): String {
+            require(raw.isNotBlank()) { "Audit stream ID must not be blank" }
+            require(raw == raw.trim()) { "Audit stream ID must not have surrounding whitespace" }
+            require(raw.length <= MAX_VALUE_LENGTH) { "Audit stream ID exceeds maximum length of $MAX_VALUE_LENGTH" }
+            return raw
+        }
+
+        private fun safeReasonCode(raw: String): String =
+            raw.takeIf(SAFE_REASON_CODE::matches) ?: "approval_reason_redacted"
     }
 }

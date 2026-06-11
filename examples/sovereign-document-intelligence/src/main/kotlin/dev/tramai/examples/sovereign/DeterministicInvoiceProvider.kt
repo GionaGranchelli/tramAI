@@ -15,9 +15,9 @@ import java.util.concurrent.atomic.AtomicInteger
  *   This triggers approval suspension in the engine.
  *
  * Call #2 (after tool-result reinjection): Returns a JSON response
- *   representing the final InvoiceAssessment.
+ * representing the final InvoiceAssessment.
  *
- * Thread-safe and deterministic.
+ * Deterministic for reproducible tests.
  */
 class DeterministicInvoiceProvider(
     private val invoiceAssessmentJson: String = """

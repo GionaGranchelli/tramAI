@@ -100,6 +100,7 @@ class SovereignTramai private constructor(
         private val primaryModelRoutes = linkedMapOf<String, String>()
         private val fallbackRoutes = mutableListOf<FallbackRoute>()
         private var defaultProviderName: String? = null
+        private var clock: Clock = Clock.systemUTC()
 
         // --- Required inputs ---
 
@@ -280,6 +281,7 @@ class SovereignTramai private constructor(
          * Configures the clock used for approval expiry and audit timestamps.
          */
         fun clock(clock: Clock): Builder = apply {
+            this.clock = clock
             standaloneBuilder.clock(clock)
         }
 
@@ -377,7 +379,7 @@ class SovereignTramai private constructor(
 
             val policyConfig: PolicyConfiguration = profile.toPolicyConfiguration()
             val policyEngine = DefaultPolicyEngine(policyConfig)
-            val auditEng = AuditEngine(auditStore!!)
+            val auditEng = AuditEngine(store = auditStore!!, clock = clock)
             val policyAuditEmitter = AuditEnginePolicyDecisionAuditEmitter(auditEng)
             val approvalLifecycleEmitter = AuditEngineApprovalLifecycleAuditEmitter(auditEng)
 

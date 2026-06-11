@@ -367,6 +367,98 @@ class ApprovalSuspensionEngineTest {
         assertThat(suspended.tokenBudgetSnapshot!!.totalInputTokens).isGreaterThanOrEqualTo(0)
     }
 
+    // ── P2-4: Approval digest sentinel tightening ───────────────────
+
+    @Test
+    fun `empty digest derives engine binding`() {
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = SuspensionPolicyEngine(
+                PolicyDecision.RequireApproval(
+                    ApprovalRequirement(
+                        toolName = toolName,
+                        argumentsDigest = "",
+                        reason = "testing",
+                        timeoutMillis = 60_000,
+                    ),
+                ),
+            ),
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+        )
+        val service = engine.create<SuspensionTestService>()
+
+        val exception = try {
+            runBlocking { service.execute("test input") }
+            fail("Should have thrown")
+        } catch (e: ApprovalSuspendedException) {
+            e
+        }
+
+        val continuation = runBlocking { continuationStore.get(exception.approvalId) }
+        assertThat(continuation).isNotNull
+        assertThat(continuation!!.argumentsDigest)
+            .isEqualTo(digester.digest(SensitiveToolArguments.of(toolArguments)))
+    }
+
+    @Test
+    fun `whitespace-only digest rejected`() {
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = SuspensionPolicyEngine(
+                PolicyDecision.RequireApproval(
+                    ApprovalRequirement(
+                        toolName = toolName,
+                        argumentsDigest = "   ",
+                        reason = "testing",
+                        timeoutMillis = 60_000,
+                    ),
+                ),
+            ),
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+        )
+        val service = engine.create<SuspensionTestService>()
+        assertThatThrownBy {
+            runBlocking { service.execute("test input") }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+    }
+
+    @Test
+    fun `invalid non-empty digest rejected`() {
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = toolRegistry,
+            policyEngine = SuspensionPolicyEngine(
+                PolicyDecision.RequireApproval(
+                    ApprovalRequirement(
+                        toolName = toolName,
+                        argumentsDigest = "invalid-non-empty",
+                        reason = "testing",
+                        timeoutMillis = 60_000,
+                    ),
+                ),
+            ),
+            suspendedInvocationStore = suspendedInvocationStore,
+            approvalContinuationStore = continuationStore,
+            toolArgumentsDigester = digester,
+            approvalGateCoordinator = coordinator,
+            clock = fixedClock,
+        )
+        val service = engine.create<SuspensionTestService>()
+        assertThatThrownBy {
+            runBlocking { service.execute("test input") }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+    }
+
     // ── Service Interface ──────────────────────────────────────────
 
     @AiService

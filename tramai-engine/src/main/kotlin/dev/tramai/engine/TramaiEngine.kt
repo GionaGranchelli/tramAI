@@ -2026,7 +2026,7 @@ internal class TramaiInvocationHandler(
                         "Renewed approval requirement tool name mismatch: '${requirement.toolName}' != '${tool.name}'"
                     }
                     require(
-                        requirement.argumentsDigest.isBlank() ||
+                        requirement.argumentsDigest.isEmpty() ||
                             dev.tramai.core.approval.Sha256Digest.of(requirement.argumentsDigest) == renewedDigest
                     ) {
                         "Renewed approval requirement digest mismatch"
@@ -2047,7 +2047,7 @@ internal class TramaiInvocationHandler(
                             "ToolArgumentsDigester is required for approval binding validation"
                         )
                     }
-                    if (requirement.argumentsDigest.isNotBlank()) {
+                    if (requirement.argumentsDigest.isNotEmpty()) {
                         val requiredDigest = dev.tramai.core.approval.Sha256Digest.of(
                             requirement.argumentsDigest
                         )

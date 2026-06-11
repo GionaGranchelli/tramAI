@@ -71,6 +71,7 @@ data class SovereignProfileConfiguration(
         allowedFallbackProviders = allowedFallbackProviders,
         allowedPermissions = allowedPermissions,
         allowLegacyToolsWithoutSecurityMetadata = false,
+        allowWorkflowResume = true,
         requireApprovalForRiskLevel = setOf(RiskLevel.HIGH, RiskLevel.CRITICAL),
         providerRouting = ProviderRoutingConfiguration(
             providerZones = providerZones,

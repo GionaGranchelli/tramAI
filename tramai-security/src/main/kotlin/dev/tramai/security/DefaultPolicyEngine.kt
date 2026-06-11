@@ -32,7 +32,15 @@ class DefaultPolicyEngine(
         EnforcementPoint.BEFORE_TOOL_EXECUTION -> evaluateToolExecution(context)
         EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION -> PolicyDecision.Allow
         EnforcementPoint.BEFORE_RESPONSE_RETURN -> evaluateResponseReturn(context)
-        EnforcementPoint.BEFORE_WORKFLOW_RESUME -> PolicyDecision.Allow
+        EnforcementPoint.BEFORE_WORKFLOW_RESUME ->
+            if (config.allowWorkflowResume) {
+                PolicyDecision.Allow
+            } else {
+                PolicyDecision.Deny(
+                    "Workflow resume is not enabled",
+                    "workflow-resume-disabled",
+                )
+            }
     }
 
     // ─── Provider resolution ───────────────────────────────────────────────

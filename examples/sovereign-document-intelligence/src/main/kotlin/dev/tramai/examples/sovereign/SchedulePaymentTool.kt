@@ -1,5 +1,6 @@
 package dev.tramai.examples.sovereign
 
+import dev.tramai.core.model.SideEffectLevel
 import dev.tramai.core.model.ToolExecutionContext
 import dev.tramai.core.model.TramaiTool
 import dev.tramai.core.policy.ApprovalMode
@@ -35,7 +36,7 @@ class InMemoryPaymentLedger {
 /**
  * HIGH-risk payment tool that requires human approval before execution.
  *
- * The tool carries [SecurityMetadata] with:
+ * The tool carries [ToolSecurityMetadata] with:
  * - permission = "payment.schedule"
  * - risk = HIGH (triggers approval suspension)
  * - approval = HUMAN_REQUIRED
@@ -58,6 +59,8 @@ class SchedulePaymentTool(
         SchedulePaymentInput::class
 
     override val idempotent: Boolean = true
+
+    override val sideEffectLevel: SideEffectLevel = SideEffectLevel.WRITE
 
     override val security: ToolSecurityMetadata? = ToolSecurityMetadata(
         permission = "payment.schedule",
