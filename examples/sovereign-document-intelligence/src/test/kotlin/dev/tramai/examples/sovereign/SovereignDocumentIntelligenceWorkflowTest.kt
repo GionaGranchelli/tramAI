@@ -6,6 +6,7 @@ import dev.tramai.core.approval.ApprovalTokenGenerator
 import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.exception.ApprovalSuspendedException
+import dev.tramai.core.exception.ApprovalNotFoundException
 import dev.tramai.core.exception.ApprovalTokenRejectedException
 import dev.tramai.core.exception.ModelDisabledException
 import dev.tramai.core.exception.PolicyViolationException
@@ -368,8 +369,11 @@ class SovereignDocumentIntelligenceWorkflowTest {
         try {
             runBlocking { runtime.resumeApproval(command) }
             fail("Should have thrown ApprovalTokenRejectedException")
-        } catch (_: ApprovalTokenRejectedException) {
+        } catch (e: ApprovalTokenRejectedException) {
             // Success — token was consumed by the first resume.
+        } catch (e: dev.tramai.core.exception.ApprovalNotFoundException) {
+            // Also valid — metadata removed after first successful resume;
+            // the new registry-based flow loads metadata first.
         }
 
         assertEquals(1, ledger.executionCount())

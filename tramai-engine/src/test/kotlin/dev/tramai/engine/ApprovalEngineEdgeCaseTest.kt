@@ -299,12 +299,12 @@ class ApprovalEngineEdgeCaseTest {
         val fragileStore = object : SuspendedInvocationStore {
             override suspend fun create(
                 metadata: SuspendedInvocationMetadata,
-                sensitiveContext: SensitiveResumeContext,
+                replayEnvelope: SensitiveReplayEnvelope,
             ) {
                 throw RuntimeException("simulated suspension store failure")
             }
             override suspend fun get(approvalId: String): SuspendedInvocationMetadata? = null
-            override suspend fun revealSensitiveContext(approvalId: String): SensitiveResumeContext? = null
+            override suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope? = null
             override suspend fun remove(approvalId: String): SuspendedInvocationMetadata? = null
         }
 
@@ -588,7 +588,7 @@ class ApprovalEngineEdgeCaseTest {
                 )
             }
         }.isInstanceOf(dev.tramai.core.exception.NestedApprovalNotSupportedException::class.java)
-            .hasMessage("Nested approval not supported: use the original approval challenge")
+            .hasMessage("Nested approval not supported")
 
         // Continuation is CANCELLED
         val continuation = runBlocking { continuationStore.get(exception.approvalId) }
@@ -631,15 +631,15 @@ class ApprovalEngineEdgeCaseTest {
             ) = Unit
         }
 
-        // Store that returns null from revealSensitiveContext after a successful create
+        // Store that returns null from revealReplayEnvelope after a successful create
         val fragileStore = object : SuspendedInvocationStore {
             private var created = false
             override suspend fun create(
                 metadata: SuspendedInvocationMetadata,
-                sensitiveContext: SensitiveResumeContext,
+                replayEnvelope: SensitiveReplayEnvelope,
             ) {
                 created = true
-                suspendedInvocationStore.create(metadata, sensitiveContext)
+                suspendedInvocationStore.create(metadata, replayEnvelope)
             }
             override suspend fun get(approvalId: String): SuspendedInvocationMetadata? =
                 suspendedInvocationStore.get(approvalId).also {
@@ -647,7 +647,7 @@ class ApprovalEngineEdgeCaseTest {
                         // After creation, return the metadata normally for get()
                     }
                 }
-            override suspend fun revealSensitiveContext(approvalId: String): SensitiveResumeContext? {
+            override suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope? {
                 // Always return null to simulate missing sensitive context after claim
                 return null
             }
@@ -683,7 +683,7 @@ class ApprovalEngineEdgeCaseTest {
                 )
             }
         }.isInstanceOf(dev.tramai.core.exception.ConfigurationException::class.java)
-            .hasMessageContaining("Sensitive resume context not found")
+            .hasMessageContaining("Replay envelope not found for approvalId")
 
         // Continuation stays CLAIMED
         val continuation = runBlocking { continuationStore.get(exception.approvalId) }

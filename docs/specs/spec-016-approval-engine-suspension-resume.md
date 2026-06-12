@@ -2,6 +2,7 @@
 
 ## Status
 Implemented in PR #17
+Updated in PR #28 — Trusted Replay Envelope and Operation Registry
 
 ## Executive Summary
 
@@ -34,6 +35,8 @@ data class SuspendedInvocationMetadata(
     val correlationId: String,
     val identity: EngineExecutionIdentity,
     val securityContext: ExecutionSecurityContext,
+    val operationReference: ResumeOperationReference,  // PR #28
+    val replayEnvelopeDigest: Sha256Digest,            // PR #28
     val conversationId: String? = null,
     val historySize: Int = 0,
     val tokenBudgetSnapshot: TokenBudgetSnapshot? = null,
@@ -45,18 +48,21 @@ data class SuspendedInvocationMetadata(
 - NO messages (which contain prompts and content)
 - `toolSecurity` is used for BEFORE_WORKFLOW_RESUME policy context without revealing sensitive context early
 
-**SensitiveResumeContext** — opaque wrapper stored alongside metadata, only accessible via `revealForResume()`:
+**SensitiveReplayEnvelope** (PR #28) — opaque messages-only wrapper, replaces SensitiveResumeContext:
 ```kotlin
-class SensitiveResumeContext private constructor(
-    private val operation: OperationDefinition,
-    private val tool: ResolvedTool,
+class SensitiveReplayEnvelope private constructor(
     private val messages: List<Message>,
-    private val toolCall: ToolCall,
-)
+) {
+    fun revealForResume(): ReplayPayload
+    override fun toString(): String = "[REDACTED]"
+    companion object { fun of(messages: List<Message>): SensitiveReplayEnvelope }
+}
 ```
+- Contains ONLY `List<Message>` — no OperationDefinition, no ResolvedTool, no ToolCall
 - toString returns `[REDACTED]`
 - Only revealed AFTER `claimForExecution()` succeeds
 - Never serialized
+- Defensive deep copies prevent mutation after creation
 
 ### EngineExecutionIdentity
 ```kotlin
@@ -94,12 +100,52 @@ data class ResumeApprovalCommand(
 
 ## SPIs
 
+### ResumeOperationReference (PR #28)
+
+Stable, serializable reference that identifies a resume-able operation without runtime objects:
+
+```kotlin
+data class ResumeOperationReference(
+    val serviceInterface: String,
+    val methodName: String,
+    val jvmMethodDescriptor: String,
+    val resumeDefinitionDigest: Sha256Digest,
+)
+```
+
+Computed deterministically from the `ServiceDefinition` and `OperationDefinition` via `ResumeDefinitionDigestHelper`,
+including: service interface, method name, JVM method descriptor, return kind, model, provider, timeout,
+retries, cache settings, prompts, annotations, and sorted tool definitions.
+
+### ResumeOperationRegistry (PR #28)
+
+Thread-safe runtime registry keyed by `(serviceInterface, methodName, jvmMethodDescriptor)`:
+
+```kotlin
+internal data class RegisteredResumeOperation(
+    val reference: ResumeOperationReference,
+    val serviceDefinition: ServiceDefinition,
+    val operation: OperationDefinition,
+    val handler: TramaiInvocationHandler,
+)
+```
+
+Rules:
+- Missing key → `ConfigurationException("resume-operation-not-registered")`
+- Same key + same digest → idempotent registration
+- Same key + different digest → fail closed (`ConfigurationException`)
+
+Created during `TramaiEngine.create()` and `TramaiEngine.registerService()`.
+
 ### SuspendedInvocationStore (engine-level)
 ```kotlin
 interface SuspendedInvocationStore {
-    suspend fun create(metadata: SuspendedInvocationMetadata, sensitiveContext: SensitiveResumeContext)
+    suspend fun create(
+        metadata: SuspendedInvocationMetadata,
+        replayEnvelope: SensitiveReplayEnvelope,          // PR #28: replaces SensitiveResumeContext
+    )
     suspend fun get(approvalId: String): SuspendedInvocationMetadata?
-    suspend fun revealSensitiveContext(approvalId: String): SensitiveResumeContext?
+    suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope?  // PR #28
     suspend fun remove(approvalId: String): SuspendedInvocationMetadata?
 }
 ```
@@ -133,7 +179,75 @@ PR #17 delivers:
 - Lifecycle audit events (suspended, resumed, completed, cancelled, uncertain outcome)
 - Edge case test coverage for all failure paths
 
-## PR #22 — Replay-Safe Authorization Receipt
+## PR #28 — Trusted Replay Envelope and Operation Registry
+
+Implemented in PR #28.
+
+### Motivation
+
+Previously, `SensitiveResumeContext` stored executable runtime objects (`OperationDefinition`, `ResolvedTool`, `ToolCall`). The engine resolved the correct handler via a single mutable `resumeHandler` field set to the last created proxy.
+
+This meant:
+- Runtime objects survived in opaque context across the JVM lifecycle
+- Resume relied on a single handler, not a registered service map
+- Multi-service setups were fragile (last-created proxy wins)
+- Definition drift was not detectable before token consumption
+
+### Changes
+
+**SensitiveReplayEnvelope** replaces `SensitiveResumeContext`:
+- Contains ONLY `List<Message>` — no OperationDefinition, no ResolvedTool, no ToolCall
+- ToolCall is constructed at resume time from `metadata.toolCallId`, `metadata.toolName`, and `claimed.arguments.reveal()`
+- Tool is resolved from the runtime `ToolRegistry`
+- Operation is resolved from the registry at resume time
+- Replay envelope digest verified after claim (tamper detection)
+
+**ResumeOperationRegistry** replaces `resumeHandler`:
+- Keyed by `(serviceInterface, methodName, jvmMethodDescriptor)` for unambiguous overload resolution
+- Operation registered during `create()` and `registerService()`
+- Missing key → fail before token consumption
+- Definition drift → fail before token consumption
+- Same key + same digest → idempotent (safe for service restart registration)
+
+**Cross-store integrity checks** (before token consumption):
+- workflowRunId matches across continuation, metadata, and identity
+- correlationId matches across continuation and metadata
+- workflowDigest matches across continuation and identity
+- policyVersion matches across continuation and identity
+- toolName and toolCallId match across continuation and metadata
+- resumeDefinitionDigest matches between metadata and registered operation
+
+**Pre-token-drift detection**:
+- Before `validateResume()`, verify `metadata.operationReference.resumeDefinitionDigest` == `registered.reference.resumeDefinitionDigest`
+
+**Post-claim digest verification**:
+- After `revealReplayEnvelope()`, recompute digest via `ReplayEnvelopeDigestHelper` and compare with `metadata.replayEnvelopeDigest`
+
+**registerService() API**:
+- `TramaiEngine.registerService(serviceType: KClass<*>)` — registers operations without creating a proxy
+- `TramaiRuntime.registerService()` + reified overload
+- `SovereignTramaiRuntime.registerService()` + reified overload
+- Use after restart: `runtime.registerService<MyService>()` before `runtime.resumeApproval(command)`
+
+### Resume Ordering (PR #28)
+
+1. Load metadata from `SuspendedInvocationStore` (read-only)
+2. Resolve `ResumeOperationReference` from `metadata.operationReference` via `ResumeOperationRegistry`
+3. Cross-store integrity checks (workflowRunId, correlationId, digest, policyVersion, tool name, tool call ID)
+4. Pre-token-drift check: verify `resumeDefinitionDigest`
+5. Resolve tool from runtime `ToolRegistry`
+6. Validate continuation: status == PENDING, version matches
+7. `validateResume()` — validates token and binding without consuming
+8. Evaluate BEFORE_WORKFLOW_RESUME
+9. `authorizeResume()` — consumes the one-time token
+10. `claimForExecution()` — atomically marks continuation CLAIMED
+11. `revealReplayEnvelope()` — get messages
+12. Verify replay envelope digest (tamper detection)
+13. Verify payload integrity (re-digest claimed arguments)
+14. Construct ToolCall from metadata + claimed arguments
+15. Execute tool with `registered.operation`
+16. Continue provider loop with `registered.operation` and `replayPayload.messages`
+17. Complete continuation → emit audit → cleanup
 
 Implemented in PR #22.
 
