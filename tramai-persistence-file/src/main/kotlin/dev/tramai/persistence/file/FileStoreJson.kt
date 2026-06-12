@@ -13,9 +13,9 @@ import com.fasterxml.jackson.module.kotlin.readValue
  * Configuration:
  * - Kotlin module for data class support
  * - Strict deserialisation: fail on unknown properties, null for primitives, empty strings
- * - [JsonInclude.Include.NON_ABSENT] to omit null optional fields (keeps envelope compact)
+ * - [JsonInclude.Include.NON_ABSENT] to omit null optional fields
+ * - **FAIL_ON_TRAILING_TOKENS** — reject JSON with unexpected trailing content
  * - No polymorphic typing (security requirement — never deserialise arbitrary types)
- * - 10 MB max string length (rejects oversized records)
  */
 internal val FILE_STORE_JSON: ObjectMapper = JsonMapper.builder()
     .addModule(KotlinModule.Builder().build())
@@ -23,22 +23,23 @@ internal val FILE_STORE_JSON: ObjectMapper = JsonMapper.builder()
     .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
     .configure(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, true)
     .configure(DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT, false)
+    .configure(DeserializationFeature.FAIL_ON_TRAILING_TOKENS, true)
     .build()
 
+/** Maximum accepted JSON payload size (10 MB). */
+private const val MAX_JSON_SIZE = 10_485_760
+
 /**
- * Deserialises [json] into [T] with strict size limits.
+ * Deserialises [json] into [T] with strict size limits and safe error reporting.
  *
- * @throws IllegalArgumentException if the JSON is invalid, contains unknown properties,
- *   has trailing content, or exceeds safe size limits.
+ * @throws IllegalArgumentException with a fixed safe reason code on any failure.
  */
 internal inline fun <reified T : Any> strictReadValue(json: String): T {
-    // Reject oversized payloads before trying to parse
-    require(json.length <= 10_485_760) { "JSON payload exceeds maximum size of 10 MB" }
+    require(json.length <= MAX_JSON_SIZE) { "json-payload-too-large" }
     val trimmed = json.trim()
-    val result: T = try {
+    return try {
         FILE_STORE_JSON.readValue(trimmed)
     } catch (e: Exception) {
-        throw IllegalArgumentException("Failed to deserialise ${T::class.simpleName}: ${e.message}", e)
+        throw IllegalArgumentException("json-deserialisation-failed", e)
     }
-    return result
 }

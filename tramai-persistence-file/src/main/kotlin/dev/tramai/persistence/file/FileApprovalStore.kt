@@ -73,7 +73,6 @@ class FileApprovalStore internal constructor(
     // ── Read / write helpers ──────────────────────────────────────
 
     private fun readCurrent(approvalId: String): PersistedApprovalRequestV1? {
-        lease.requireOpen()
         val path = storePath(approvalId)
         if (!path.exists()) return null
         val rkd = recordKeyDigest(approvalId)
@@ -90,6 +89,8 @@ class FileApprovalStore internal constructor(
         } catch (e: Exception) {
             throw FileStoreCorruptionException("approval-record-corrupted", e)
         }
+        // Enforce schema version on every decode
+        require(dto.schemaVersion == 1) { "unsupported-approval-schema-version" }
         // Bind decoded ID back to filename digest
         val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, dto.approvalId)
         require(expectedDigest == rkd) { "approval-id-filename-digest-mismatch" }
@@ -97,7 +98,6 @@ class FileApprovalStore internal constructor(
     }
 
     private fun writeCurrent(approvalId: String, dto: PersistedApprovalRequestV1) {
-        lease.requireOpen()
         val json = dto.toJson()
         val path = storePath(approvalId)
         val rkd = recordKeyDigest(approvalId)
@@ -160,8 +160,7 @@ class FileApprovalStore internal constructor(
 
     // ── ApprovalStore SPI ─────────────────────────────────────────
 
-    override suspend fun create(request: ApprovalRequest): ApprovalRequest {
-        lease.requireOpen()
+    override suspend fun create(request: ApprovalRequest): ApprovalRequest = lease.withOpenOperation {
         // Version
         require(request.version == 0L) { "Initial approval version must be 0, got ${request.version}" }
 
@@ -216,8 +215,7 @@ class FileApprovalStore internal constructor(
         }
     }
 
-    override suspend fun get(approvalId: String): ApprovalRequest? {
-        lease.requireOpen()
+    override suspend fun get(approvalId: String): ApprovalRequest? = lease.withOpenOperation {
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         val lock = getLock(approvalId)
         lock.lock()
@@ -233,8 +231,7 @@ class FileApprovalStore internal constructor(
         approvalId: String,
         expectedVersion: Long,
         transition: ApprovalTransition,
-    ): ApprovalRequest {
-        lease.requireOpen()
+    ): ApprovalRequest = lease.withOpenOperation {
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
 
         // Validate comment length
@@ -304,8 +301,7 @@ class FileApprovalStore internal constructor(
         expectedVersion: Long,
         presentedTokenDigest: Sha256Digest,
         consumedBy: String,
-    ): ApprovalConsumptionReceipt {
-        lease.requireOpen()
+    ): ApprovalConsumptionReceipt = lease.withOpenOperation {
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(consumedBy, "consumedBy", MAX_ID_LENGTH)
         SafeActorIdPolicy.validateActorId(consumedBy, "consumedBy")

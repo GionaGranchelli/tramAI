@@ -106,6 +106,7 @@ data class PersistedApprovalContinuationV1(
  *                     or null after the continuation has been claimed.
  */
 data class PersistedApprovalContinuationRecordV1(
+    val schemaVersion: Int = 1,
     @JsonProperty("continuation") val continuation: PersistedApprovalContinuationV1,
     @JsonProperty("arguments") val arguments: String? = null,
 ) {

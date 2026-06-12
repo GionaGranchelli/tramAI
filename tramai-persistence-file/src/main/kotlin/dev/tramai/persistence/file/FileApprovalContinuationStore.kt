@@ -97,7 +97,6 @@ class FileApprovalContinuationStore internal constructor(
     // ── Read / write helpers ─────────────────────────────────────────
 
     private fun readCurrent(approvalId: String): PersistedApprovalContinuationRecordV1? {
-        lease.requireOpen()
         val path = storePath(approvalId)
         if (!path.exists()) return null
         val rkd = recordKeyDigest(approvalId)
@@ -114,6 +113,8 @@ class FileApprovalContinuationStore internal constructor(
         } catch (e: Exception) {
             throw FileStoreCorruptionException("continuation-record-corrupted", e)
         }
+        // Enforce schema version on every decode
+        require(record.schemaVersion == 1) { "unsupported-continuation-schema-version" }
         // Bind decoded ID back to filename digest
         val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.continuation.approvalId)
         require(expectedDigest == rkd) { "continuation-id-filename-digest-mismatch" }
@@ -121,7 +122,6 @@ class FileApprovalContinuationStore internal constructor(
     }
 
     private fun writeCurrent(approvalId: String, dto: PersistedApprovalContinuationRecordV1) {
-        lease.requireOpen()
         val json = dto.toJson()
         val path = storePath(approvalId)
         val rkd = recordKeyDigest(approvalId)
@@ -259,8 +259,7 @@ class FileApprovalContinuationStore internal constructor(
     override suspend fun create(
         continuation: ApprovalContinuation,
         arguments: SensitiveToolArguments,
-    ): ApprovalContinuation {
-        lease.requireOpen()
+    ): ApprovalContinuation = lease.withOpenOperation {
         // ── Field validation ──
         validateIdField(continuation.approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(continuation.workflowRunId, "workflowRunId", MAX_ID_LENGTH)
@@ -327,8 +326,7 @@ class FileApprovalContinuationStore internal constructor(
         }
     }
 
-    override suspend fun get(approvalId: String): ApprovalContinuation? {
-        lease.requireOpen()
+    override suspend fun get(approvalId: String): ApprovalContinuation? = lease.withOpenOperation {
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
 
         val lock = getLock(approvalId)
@@ -352,8 +350,7 @@ class FileApprovalContinuationStore internal constructor(
         approvalId: String,
         expectedVersion: Long,
         claimedBy: String,
-    ): ClaimedApprovalContinuation {
-        lease.requireOpen()
+    ): ClaimedApprovalContinuation = lease.withOpenOperation {
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(claimedBy, "claimedBy", MAX_ID_LENGTH)
         SafeActorIdPolicy.validateActorId(claimedBy, "claimedBy")
@@ -414,8 +411,7 @@ class FileApprovalContinuationStore internal constructor(
         approvalId: String,
         expectedVersion: Long,
         completedBy: String,
-    ): ApprovalContinuation {
-        lease.requireOpen()
+    ): ApprovalContinuation = lease.withOpenOperation {
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(completedBy, "completedBy", MAX_ID_LENGTH)
         SafeActorIdPolicy.validateActorId(completedBy, "completedBy")
@@ -462,8 +458,7 @@ class FileApprovalContinuationStore internal constructor(
         }
     }
 
-    override suspend fun expire(approvalId: String, expectedVersion: Long): ApprovalContinuation {
-        lease.requireOpen()
+    override suspend fun expire(approvalId: String, expectedVersion: Long): ApprovalContinuation = lease.withOpenOperation {
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
 
         val lock = getLock(approvalId)
@@ -502,8 +497,7 @@ class FileApprovalContinuationStore internal constructor(
         }
     }
 
-    override suspend fun cancel(approvalId: String, expectedVersion: Long): ApprovalContinuation {
-        lease.requireOpen()
+    override suspend fun cancel(approvalId: String, expectedVersion: Long): ApprovalContinuation = lease.withOpenOperation {
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
 
         val lock = getLock(approvalId)
@@ -549,8 +543,7 @@ class FileApprovalContinuationStore internal constructor(
     override suspend fun findStaleClaimed(
         claimedBefore: Instant,
         limit: Int,
-    ): List<ApprovalContinuation> {
-        lease.requireOpen()
+    ): List<ApprovalContinuation> = lease.withOpenOperation {
         require(limit in 1..MAX_STALE_LIMIT) { "limit must be between 1 and $MAX_STALE_LIMIT" }
         if (!continuationsDir.exists() || !continuationsDir.isDirectory()) return emptyList()
 
@@ -606,8 +599,7 @@ class FileApprovalContinuationStore internal constructor(
         expectedVersion: Long,
         cancelledBy: String,
         reasonCode: String,
-    ): ApprovalContinuation {
-        lease.requireOpen()
+    ): ApprovalContinuation = lease.withOpenOperation {
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(cancelledBy, "cancelledBy", MAX_ID_LENGTH)
         SafeActorIdPolicy.validateActorId(cancelledBy, "cancelledBy")
@@ -651,8 +643,7 @@ class FileApprovalContinuationStore internal constructor(
         }
     }
 
-    override suspend fun sweepExpired(): Int {
-        lease.requireOpen()
+    override suspend fun sweepExpired(): Int = lease.withOpenOperation {
         if (!continuationsDir.exists() || !continuationsDir.isDirectory()) return 0
         val now = clock.instant()
         var count = 0

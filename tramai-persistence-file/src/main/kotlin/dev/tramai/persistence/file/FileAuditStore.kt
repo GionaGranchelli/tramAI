@@ -5,7 +5,9 @@ import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.CURRENT_AUDIT_SCHEMA_VERSION
 import dev.tramai.security.audit.calculateHash
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 import javax.crypto.SecretKey
@@ -30,6 +32,7 @@ import kotlin.io.path.notExists
  * - Filename format: `<20-digit-zero-padded-sequence>-<sha256-event-id>.tram.enc`
  * - `sha256-event-id` = `SHA-256("audit-event:" + eventId)` (also used as record key digest)
  * - Record type constant: `"audit-event"`
+ * - Audit events are **immutable**: once written, the file is never replaced (create-only)
  *
  * ## Security guarantees
  * - Stream directory binding: directory name must match SHA-256("audit-stream:" + auditStreamId)
@@ -37,10 +40,13 @@ import kotlin.io.path.notExists
  * - AAD includes recordType, recordKeyDigest, **and keyId**
  * - Full chain validation before every append
  * - Duplicate event ID detection using consistent digest comparison
+ * - Malformed committed filenames fail closed — evidence can never silently disappear
+ * - Audit stream directories are validated as strict 0700 non-symlink directories
  *
  * ## Thread safety
  * Uses per-stream [ReentrantLock] to serialize append operations within each stream.
  * Read operations do not acquire locks (immutable files are safe to read concurrently).
+ * All public methods are guarded by [FileStoreLease.withOpenOperation].
  */
 class FileAuditStore internal constructor(
     private val root: Path,
@@ -76,6 +82,24 @@ class FileAuditStore internal constructor(
     private fun streamDir(auditStreamId: String): Path =
         auditDir.resolve(streamDigest(auditStreamId))
 
+    /**
+     * Creates or validates the stream directory.
+     * Must be a non-symlink directory with 0700 permissions.
+     */
+    private fun ensureStreamDir(auditStreamId: String): Path {
+        val dir = streamDir(auditStreamId)
+        if (dir.notExists()) {
+            // Ensure the audit root directory exists first
+            if (auditDir.notExists()) {
+                Files.createDirectories(auditDir, PosixFilePermissions.asFileAttribute(FILE_PERMS_0600))
+                Files.setPosixFilePermissions(auditDir, DIR_PERMS_0700)
+            }
+            FileStoreUtil.createStrictDirectory(dir, "audit-stream")
+        }
+        FileStoreUtil.validateManagedDirectory(dir, "audit-stream")
+        return dir
+    }
+
     private fun eventFileName(sequenceNumber: Long, eventId: String): String {
         val paddedSeq = sequenceNumber.toString().padStart(SEQUENCE_PADDING, '0')
         return "$paddedSeq-${eventDigest(eventId)}$FILE_EXTENSION"
@@ -84,7 +108,7 @@ class FileAuditStore internal constructor(
     private fun eventFilePath(auditStreamId: String, sequenceNumber: Long, eventId: String): Path =
         streamDir(auditStreamId).resolve(eventFileName(sequenceNumber, eventId))
 
-    // ── Filename parsing ──
+    // ── Filename parsing (fail-closed, no mapNotNull) ──
 
     private data class AuditFileEntry(
         val sequenceNumber: Long,
@@ -92,23 +116,37 @@ class FileAuditStore internal constructor(
         val path: Path,
     )
 
+    /**
+     * Scans a stream directory and returns parsed entries sorted by sequence.
+     *
+     * **Every committed `*.tram.enc` file must match the expected format.**
+     * If a file fails to parse, the scan fails closed with [FileStoreCorruptionException]
+     * so that evidence can never silently disappear.
+     */
     private fun scanStreamEntries(auditStreamId: String): List<AuditFileEntry> {
         val dir = streamDir(auditStreamId)
         if (dir.notExists() || !dir.isDirectory()) return emptyList()
 
+        FileStoreUtil.validateManagedDirectory(dir, "audit-stream")
+
         val regex = Regex("""^(\d{$SEQUENCE_PADDING})-([a-f0-9]{64})$FILE_EXTENSION$""")
-        return dir.listDirectoryEntries("*$FILE_EXTENSION")
-            .mapNotNull { file ->
-                val name = file.fileName.toString()
-                regex.matchEntire(name)?.destructured?.let { (seq, digest) ->
-                    AuditFileEntry(
-                        sequenceNumber = seq.toLong(),
-                        eventIdDigest = digest,
-                        path = file,
-                    )
-                }
+        val entries = mutableListOf<AuditFileEntry>()
+        val seenSequences = mutableSetOf<Long>()
+
+        for (file in dir.listDirectoryEntries("*$FILE_EXTENSION")) {
+            FileStoreUtil.validateRegularFile(file, "audit-event")
+            val name = file.fileName.toString()
+            val match = regex.matchEntire(name)
+                ?: throw FileStoreCorruptionException("audit-event-invalid-filename")
+            val (seqStr, digest) = match.destructured
+            val seq = seqStr.toLong()
+            if (!seenSequences.add(seq)) {
+                throw FileStoreCorruptionException("audit-duplicate-sequence")
             }
-            .sortedBy { it.sequenceNumber }
+            entries.add(AuditFileEntry(sequenceNumber = seq, eventIdDigest = digest, path = file))
+        }
+
+        return entries.sortedBy { it.sequenceNumber }
     }
 
     // ── Read / decrypt helpers ──
@@ -121,66 +159,35 @@ class FileAuditStore internal constructor(
             key = key,
             expectedKeyId = keyId,
         )
-        return PersistedAuditEventV1.fromJson(plaintext.toString(Charsets.UTF_8)).toDomain()
+        val dto = PersistedAuditEventV1.fromJson(plaintext.toString(Charsets.UTF_8))
+        // Enforce schema version on every decode
+        require(dto.schemaVersion == 1) { "unsupported-audit-schema-version" }
+        return dto.toDomain()
     }
 
-    // ── Validation helpers ──
+    // ── Validation helpers (safe reason codes only) ──
 
-    /**
-     * Validates an event against the chain invariants, binding to the expected
-     * stream directory.
-     *
-     * @throws IllegalArgumentException on any validation failure.
-     */
     private fun validateEvent(
         event: AuditEvent,
         expectedAuditStreamId: String,
         previousEvent: AuditEvent?,
         existingEventDigests: Set<String>,
     ) {
-        // Stream binding: validate against the caller-requested stream, not the decoded event
-        require(event.auditStreamId == expectedAuditStreamId) {
-            "Event auditStreamId '${event.auditStreamId}' does not match expected '$expectedAuditStreamId'"
-        }
-
-        // Directory binding: validate stream directory name against decoded stream ID
-        val expectedDirDigest = streamDigest(event.auditStreamId)
-        require(expectedDirDigest == streamDigest(expectedAuditStreamId)) {
-            "Directory digest mismatch for stream '$expectedAuditStreamId'"
-        }
-
-        require(event.schemaVersion == CURRENT_AUDIT_SCHEMA_VERSION) {
-            "Unsupported audit schema version ${event.schemaVersion}, expected $CURRENT_AUDIT_SCHEMA_VERSION"
-        }
+        require(event.auditStreamId == expectedAuditStreamId) { "audit-stream-id-mismatch" }
+        require(event.schemaVersion == CURRENT_AUDIT_SCHEMA_VERSION) { "audit-schema-version-unsupported" }
 
         val expectedSequence = (previousEvent?.sequenceNumber ?: 0L) + 1L
-        require(event.sequenceNumber == expectedSequence) {
-            "Expected sequenceNumber $expectedSequence for stream '$expectedAuditStreamId' but got ${event.sequenceNumber}"
-        }
+        require(event.sequenceNumber == expectedSequence) { "audit-sequence-gap" }
+        require(event.previousEventHash == previousEvent?.eventHash) { "audit-hash-chain-broken" }
+        require(event.eventHash == event.calculateHash()) { "audit-event-hash-mismatch" }
 
-        require(event.previousEventHash == previousEvent?.eventHash) {
-            "previousEventHash does not match previous event's eventHash"
-        }
-
-        require(event.eventHash == event.calculateHash()) {
-            "eventHash does not match recalculated hash"
-        }
-
-        // Duplicate detection: compare event digests consistently
-        val eventDigest = eventDigest(event.eventId)
-        require(eventDigest !in existingEventDigests) {
-            "Duplicate eventId digest '${event.eventId}' in stream '$expectedAuditStreamId'"
-        }
+        val eDigest = eventDigest(event.eventId)
+        require(eDigest !in existingEventDigests) { "audit-duplicate-event-id" }
     }
 
-    /**
-     * Validates the full chain integrity of a stream's events, binding to
-     * the expected audit stream ID.
-     */
     private fun validateChain(expectedAuditStreamId: String, events: List<AuditEvent>) {
         val seenEventDigests = mutableSetOf<String>()
         var previousEvent: AuditEvent? = null
-
         for (event in events) {
             validateEvent(event, expectedAuditStreamId, previousEvent, seenEventDigests)
             seenEventDigests.add(eventDigest(event.eventId))
@@ -193,22 +200,18 @@ class FileAuditStore internal constructor(
     override suspend fun appendNext(
         auditStreamId: String,
         eventFactory: (latest: AuditEvent?) -> AuditEvent,
-    ): AuditEvent {
-        lease.requireOpen()
+    ): AuditEvent = lease.withOpenOperation {
         val sDigest = streamDigest(auditStreamId)
         val lock = streamLocks.computeIfAbsent(sDigest) { FileStoreUtil.perKeyLock() }
         lock.lock()
         try {
-            // Ensure stream directory exists
-            val dir = streamDir(auditStreamId)
-            if (dir.notExists()) {
-                Files.createDirectories(dir)
-            }
+            // Validate and/or create stream directory
+            ensureStreamDir(auditStreamId)
 
-            // Scan all existing entries
+            // Scan all existing entries (fail-closed)
             val entries = scanStreamEntries(auditStreamId)
 
-            // Decrypt all existing events and validate the full chain before appending
+            // Decrypt all existing events and validate full chain before appending
             val existingEvents = entries.map { readAuditEventFromEntry(it) }
             if (existingEvents.isNotEmpty()) {
                 validateChain(auditStreamId, existingEvents)
@@ -223,18 +226,12 @@ class FileAuditStore internal constructor(
             val existingEventDigests = entries.mapTo(mutableSetOf()) { it.eventIdDigest }
             validateEvent(rawEvent, auditStreamId, latestEvent, existingEventDigests)
 
-            // Also validate that the stream directory digest matches the decoded stream ID
-            val expectedDirDigest = streamDigest(rawEvent.auditStreamId)
-            require(expectedDirDigest == sDigest) {
-                "Stream directory digest mismatch: expected $sDigest, got $expectedDirDigest"
-            }
-
-            // Convert to persisted DTO, serialize, encrypt, write
+            // Create-only: use atomicEncryptCreate, not atomicEncryptWrite
             val persisted = rawEvent.toPersistedV1()
             val persistedJson = persisted.toJson()
             val targetPath = eventFilePath(auditStreamId, rawEvent.sequenceNumber, rawEvent.eventId)
 
-            FileStoreUtil.atomicEncryptWrite(
+            FileStoreUtil.atomicEncryptCreate(
                 targetPath = targetPath,
                 recordType = RECORD_TYPE,
                 recordKeyDigest = eventDigest(rawEvent.eventId),
@@ -243,52 +240,39 @@ class FileAuditStore internal constructor(
                 plaintextBytes = persistedJson.toByteArray(Charsets.UTF_8),
             )
 
-            return rawEvent
+            return@withOpenOperation rawEvent
         } finally {
             lock.unlock()
         }
     }
 
-    override suspend fun readStream(auditStreamId: String): List<AuditEvent> {
-        lease.requireOpen()
+    override suspend fun readStream(auditStreamId: String): List<AuditEvent> = lease.withOpenOperation {
         val entries = scanStreamEntries(auditStreamId)
-        if (entries.isEmpty()) return emptyList()
+        if (entries.isEmpty()) return@withOpenOperation emptyList()
 
         val events = entries.map { readAuditEventFromEntry(it) }
-
-        // Validate against the caller-requested stream
         validateChain(auditStreamId, events)
 
-        // Return defensive copies
-        return events.map { it.copy(metadata = java.util.Collections.unmodifiableMap(java.util.LinkedHashMap(it.metadata))) }
+        return@withOpenOperation events.map {
+            it.copy(metadata = java.util.Collections.unmodifiableMap(java.util.LinkedHashMap(it.metadata)))
+        }
     }
 
-    override suspend fun latestEvent(auditStreamId: String): AuditEvent? {
-        lease.requireOpen()
+    override suspend fun latestEvent(auditStreamId: String): AuditEvent? = lease.withOpenOperation {
         val entries = scanStreamEntries(auditStreamId)
-        if (entries.isEmpty()) return null
+        if (entries.isEmpty()) return@withOpenOperation null
 
-        // Validate full chain before returning terminal event
         val events = entries.map { readAuditEventFromEntry(it) }
         validateChain(auditStreamId, events)
 
-        return events.last()
+        return@withOpenOperation events.last()
     }
 
     // ── Verification ──
 
     /**
      * Verifies all existing audit records across all stream directories.
-     *
-     * For each stream:
-     * - Decrypts and parses every event
-     * - Validates directory name binds to decoded stream ID
-     * - Validates every event file name binds to decoded event ID
-     * - Validates the full hash chain against the caller-requested stream ID
-     * - Validates file permissions and symlinks on every file
-     *
-     * @throws IllegalArgumentException if any stream fails chain validation.
-     * @throws FileStoreCorruptionException if any file fails decryption or integrity check.
+     * Fail-closed on any malformed file or directory.
      */
     fun verifyAll() {
         if (auditDir.notExists() || !auditDir.isDirectory()) return
@@ -298,24 +282,36 @@ class FileAuditStore internal constructor(
 
         for (dir in streamDirs) {
             val streamDirName = dir.fileName.toString()
+
+            // Reject malformed stream directory names (must be 64 hex chars)
+            require(streamDirName.length == 64 && streamDirName.all { it in '0'..'9' || it in 'a'..'f' }) {
+                throw FileStoreCorruptionException("audit-invalid-stream-directory")
+            }
+
+            FileStoreUtil.validateManagedDirectory(dir, "audit-stream")
+
             val regex = Regex("""^(\d{$SEQUENCE_PADDING})-([a-f0-9]{64})$FILE_EXTENSION$""")
-            val entries = dir.listDirectoryEntries("*$FILE_EXTENSION")
-                .mapNotNull { file ->
-                    // Validate each file
-                    FileStoreUtil.validateRegularFile(file, "audit-event")
-                    val name = file.fileName.toString()
-                    regex.matchEntire(name)?.destructured?.let { (seq, digest) ->
-                        AuditFileEntry(seq.toLong(), digest, file)
-                    }
+            val entries = mutableListOf<AuditFileEntry>()
+            val seenSequences = mutableSetOf<Long>()
+
+            for (file in dir.listDirectoryEntries("*$FILE_EXTENSION")) {
+                FileStoreUtil.validateRegularFile(file, "audit-event")
+                val name = file.fileName.toString()
+                val match = regex.matchEntire(name)
+                    ?: throw FileStoreCorruptionException("audit-event-invalid-filename")
+                val (seqStr, digest) = match.destructured
+                val seq = seqStr.toLong()
+                if (!seenSequences.add(seq)) {
+                    throw FileStoreCorruptionException("audit-duplicate-sequence")
                 }
-                .sortedBy { it.sequenceNumber }
+                entries.add(AuditFileEntry(sequenceNumber = seq, eventIdDigest = digest, path = file))
+            }
 
             if (entries.isEmpty()) continue
 
             val events = entries.map { readAuditEventFromEntry(it) }
-            if (events.isEmpty()) continue
 
-            // Directory binding: validate directory name against decoded stream ID
+            // Directory binding
             val firstStreamId = events.first().auditStreamId
             val expectedDirDigest = streamDigest(firstStreamId)
             require(streamDirName == expectedDirDigest) {
@@ -330,7 +326,6 @@ class FileAuditStore internal constructor(
                 }
             }
 
-            // Validate hash chain against the decoded stream ID
             validateChain(firstStreamId, events)
         }
     }

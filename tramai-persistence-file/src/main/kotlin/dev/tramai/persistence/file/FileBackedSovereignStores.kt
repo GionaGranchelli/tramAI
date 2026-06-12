@@ -97,11 +97,28 @@ class FileBackedSovereignStores private constructor(
             require(!lockFilePath.isSymbolicLink()) {
                 throw FileStorePermissionException("lock-file-symlink-rejected")
             }
-            val lockFile = RandomAccessFile(lockFilePath.toFile(), "rw")
-            val fileLock = lockFile.channel.tryLock()
-            require(fileLock != null) {
-                throw FileStoreLockUnavailableException("tramai-lock-unavailable")
+            // Ensure .tramai.lock exists with 0600 permissions
+            if (!lockFilePath.exists()) {
+                Files.createFile(lockFilePath, PosixFilePermissions.asFileAttribute(FILE_PERMS_0600))
+            } else {
+                FileStoreUtil.validateRegularFile(lockFilePath, "lock-file")
             }
+            var lockFile: RandomAccessFile? = null
+            var fileLock: FileLock? = null
+            try {
+                lockFile = RandomAccessFile(lockFilePath.toFile(), "rw")
+                fileLock = lockFile.channel.tryLock()
+                require(fileLock != null) {
+                    throw FileStoreLockUnavailableException("tramai-lock-unavailable")
+                }
+            } catch (e: Exception) {
+                // Close the file handle on any acquisition failure
+                try { lockFile?.close() } catch (_: Exception) {}
+                throw e
+            }
+            // After successful acquisition, both are guaranteed non-null
+            val lockFileNonNull = lockFile!!
+            val fileLockNonNull = fileLock!!
 
             try {
                 // Reject symlink and validate permissions for manifest
@@ -170,15 +187,15 @@ class FileBackedSovereignStores private constructor(
                     approvalStore = fileBackedApprovalStore,
                     approvalContinuationStore = fileBackedContinuationStore,
                     auditStore = fileBackedAuditStore,
-                    lockFile = lockFile,
-                    lock = fileLock,
+                    lockFile = lockFileNonNull,
+                    lock = fileLockNonNull,
                     rootDir = root,
                     lease = lease,
                 )
             } catch (e: Exception) {
                 // Clean up lock on failure
-                try { fileLock.close() } catch (_: Exception) {}
-                try { lockFile.close() } catch (_: Exception) {}
+                try { fileLockNonNull.close() } catch (_: Exception) {}
+                try { lockFileNonNull.close() } catch (_: Exception) {}
                 throw e
             }
         }
