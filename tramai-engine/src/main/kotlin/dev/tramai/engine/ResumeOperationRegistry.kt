@@ -2,6 +2,7 @@ package dev.tramai.engine
 
 import dev.tramai.core.exception.ConfigurationException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantReadWriteLock
 
 /**
  * A registered resume-able operation in the trusted [ResumeOperationRegistry].
@@ -32,6 +33,12 @@ internal data class RegisteredResumeOperation(
 internal class ResumeOperationRegistry {
 
     private val operations = ConcurrentHashMap<RegistryKey, RegisteredResumeOperation>()
+    private val registrationLock = ReentrantReadWriteLock()
+
+    private inline fun <T> withWriteLock(action: () -> T): T {
+        registrationLock.writeLock().lock()
+        try { return action() } finally { registrationLock.writeLock().unlock() }
+    }
 
     /**
      * Register or verify an operation for resume.
@@ -42,7 +49,7 @@ internal class ResumeOperationRegistry {
         serviceDefinition: ServiceDefinition,
         operation: OperationDefinition,
         handler: TramaiInvocationHandler,
-    ): ResumeOperationReference {
+    ): ResumeOperationReference = withWriteLock {
         val key = createKey(serviceDefinition, operation)
         val reference = ResumeOperationReference(
             serviceInterface = key.serviceInterface,
@@ -67,7 +74,7 @@ internal class ResumeOperationRegistry {
             }
         }
 
-        return reference
+        reference
     }
 
     /**
@@ -81,7 +88,7 @@ internal class ResumeOperationRegistry {
     fun registerAll(
         serviceDefinition: ServiceDefinition,
         handler: TramaiInvocationHandler,
-    ) {
+    ) = withWriteLock {
         val entries = serviceDefinition.operations.entries.map { (_, operation) ->
             val key = createKey(serviceDefinition, operation)
             val reference = ResumeOperationReference(

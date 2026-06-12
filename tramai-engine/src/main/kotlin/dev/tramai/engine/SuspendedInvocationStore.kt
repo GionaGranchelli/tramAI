@@ -55,7 +55,7 @@ data class SuspendedInvocationMetadata(
     val conversationId: String? = null,
     val historySize: Int = 0,
     val tokenBudgetSnapshot: TokenBudgetSnapshot? = null,
-    val toolReference: ResumeToolReference = ResumeToolReference("", Sha256Digest.of("sha256:0000000000000000000000000000000000000000000000000000000000000000")),
+    val toolReference: ResumeToolReference,
     val toolSecurity: ToolSecurityMetadata? = null,
 )
 

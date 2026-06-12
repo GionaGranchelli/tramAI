@@ -2265,8 +2265,13 @@ internal class TramaiInvocationHandler(
                 operation = operation,
                 handler = this,
             )
-            val replayEnvelope = SensitiveReplayEnvelope.of(messages)
-            val envelopeDigest = ReplayEnvelopeDigestHelper.compute(opRef, messages)
+            val prepared = ReplayEnvelopeFactory.prepareForSuspension(
+                operationReference = opRef,
+                messages = messages,
+                toolCallId = toolCall.id,
+                toolName = tool.name,
+                toolCallIndex = toolCallIndex,
+            )
             val toolRef = ResumeToolReference(tool.name, ResumeToolDeclarationDigestHelper.compute(tool))
 
             suspendedInvocationStore.create(
@@ -2279,14 +2284,14 @@ internal class TramaiInvocationHandler(
                     identity = identity,
                     securityContext = securityContext,
                     operationReference = opRef,
-                    replayEnvelopeDigest = envelopeDigest,
+                    replayEnvelopeDigest = prepared.digest,
                     conversationId = conversationId,
                     historySize = historySize,
                     tokenBudgetSnapshot = budgetSnapshot,
                     toolReference = toolRef,
                     toolSecurity = tool.security,
                 ),
-                replayEnvelope = replayEnvelope,
+                replayEnvelope = prepared.envelope,
             )
 
             // Emit audit event
@@ -2577,10 +2582,10 @@ internal class TramaiInvocationHandler(
         // and the existing store/digester/coordinator checks
         val existingContinuation = continuationSnapshot
         require(existingContinuation.status == ApprovalContinuationStatus.PENDING) {
-            "Continuation '${command.approvalId}' is not PENDING (status=${existingContinuation.status})"
+            "continuation-not-pending"
         }
         require(existingContinuation.version == command.continuationExpectedVersion) {
-            "Continuation version mismatch: expected ${command.continuationExpectedVersion}, got ${existingContinuation.version}"
+            "continuation-version-mismatch"
         }
 
         // Resolve tool from runtime registry (not from stored context)
@@ -2598,6 +2603,10 @@ internal class TramaiInvocationHandler(
         // P2-2: Approval-ID cross-store checks
         require(metadata.approvalId == command.approvalId) { "metadata-approval-id-mismatch" }
         require(existingContinuation.approvalId == command.approvalId) { "continuation-approval-id-mismatch" }
+
+        // P1-4: Bind toolReference.toolName to active tool
+        require(metadata.toolName == resolvedTool.name) { "resume-tool-reference-name-mismatch" }
+        require(metadata.toolSecurity == resolvedTool.security) { "resume-tool-security-metadata-drift" }
 
         // 4. Resolve non-side-effecting dependencies
         val coordinator = approvalGateCoordinator
@@ -2629,7 +2638,7 @@ internal class TramaiInvocationHandler(
                 enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_WORKFLOW_RESUME,
                 correlationId = metadata.correlationId,
             ).toolName(metadata.toolName)
-                .toolSecurity(metadata.toolSecurity)
+                .toolSecurity(resolvedTool.security)
                 .applySecurityContext(metadata.securityContext)
                 .workflowRunId(metadata.identity.workflowRunId)
                 .workflowDigest(metadata.identity.workflowDigest.value)
@@ -2749,6 +2758,13 @@ internal class TramaiInvocationHandler(
 
             val validatedInput = claimed.arguments.reveal()
 
+            // Rehydrate the redacted replay envelope with the claimed arguments
+            val rehydratedPayload = ReplayEnvelopeFactory.rehydrateAfterClaim(
+                payload = replayPayload,
+                metadata = metadata,
+                claimedArgumentsJson = validatedInput,
+            )
+
             // Construct ToolCall from metadata + claimed args (NOT from stored context)
             val validatedToolCall = dev.tramai.core.model.ToolCall(
                 id = metadata.toolCallId,
@@ -2782,7 +2798,7 @@ internal class TramaiInvocationHandler(
                     correlationId = metadata.correlationId,
                     securityContext = metadata.securityContext,
                     identity = metadata.identity,
-                    messages = replayPayload.messages,
+                    messages = rehydratedPayload.messages,
                     tokenBudgetTracker = tokenBudgetTracker,
                     conversationId = metadata.conversationId,
                     historySize = metadata.historySize,
@@ -2806,7 +2822,7 @@ internal class TramaiInvocationHandler(
 
             // Continue the provider loop
             val securityContext = metadata.securityContext
-            val messages = replayPayload.messages.toMutableList()
+            val messages = rehydratedPayload.messages.toMutableList()
             val loopResult = continueAfterToolResult(
                 operation = registered.operation,
                 messages = messages,

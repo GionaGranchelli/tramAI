@@ -951,7 +951,7 @@ class ApprovalEngineEdgeCaseTest {
                 )
             }
         }.isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("version mismatch")
+            .hasMessageContaining("continuation-version-mismatch")
 
         // Coordinator was NOT called — failure happened before authorizeResume
         assertThat(coordinator.lastAuthorizeCommand).isNull()

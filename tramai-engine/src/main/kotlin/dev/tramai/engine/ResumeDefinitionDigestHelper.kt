@@ -21,16 +21,14 @@ internal object ResumeDefinitionDigestHelper {
     ): Sha256Digest {
         val canonical = buildString {
             // Service identity
-            append("service=").append(
-                serviceDefinition.serviceType.qualifiedName
-                    ?: serviceDefinition.serviceType.simpleName.orEmpty()
-            ).append('\n')
-            append("method=").append(operation.method.name).append('\n')
-            append("jvm_descriptor=").append(JvmMethodDescriptorHelper.compute(operation.method)).append('\n')
+            appendField("service", serviceDefinition.serviceType.qualifiedName
+                ?: serviceDefinition.serviceType.simpleName.orEmpty())
+            appendField("method", operation.method.name)
+            appendField("jvm_descriptor", JvmMethodDescriptorHelper.compute(operation.method))
 
             // Return kind and type description
             append("return_kind=").append(operation.returnKind.name).append('\n')
-            append("return_type_description=").append(operation.returnTypeDescription).append('\n')
+            appendField("return_type_description", operation.returnTypeDescription)
 
             // Operation settings — model and provider use appendField for UTF-8 byte length
             appendField("model", operation.operation.model)
@@ -59,10 +57,10 @@ internal object ResumeDefinitionDigestHelper {
                 appendField("user_annotation_$i", annotation)
             }
 
-            // Tool definitions with stable ordering (sorted by name for determinism)
+            // Tool definitions (no sorting — preserve declaration order)
             append("tools_count=").append(operation.toolDefinitions.size).append('\n')
-            operation.toolDefinitions.sortedBy { it.name }.forEachIndexed { index, tool ->
-                append("tool_").append(index).append("_name=").append(tool.name).append('\n')
+            operation.toolDefinitions.forEachIndexed { index, tool ->
+                appendField("tool_${index}_name", tool.name)
                 appendField("tool_${index}_description", tool.description)
                 appendField("tool_${index}_schema", tool.inputSchemaJson)
             }
