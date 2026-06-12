@@ -7,6 +7,12 @@ import dev.tramai.core.model.ToolCall
 /**
  * Opaque, non-serializable envelope containing the replayable message history.
  *
+ * Contains replayable message data, including historical data-model ToolCall values
+ * where required for provider continuity. It never contains executable runtime objects
+ * such as OperationDefinition, ResolvedTool, Method, callbacks, providers, or registries.
+ * The selected suspended ToolCall arguments are redacted and rehydrated from
+ * ApprovalContinuationStore only after claim.
+ *
  * - Contains ONLY [Message] objects — no OperationDefinition, no ResolvedTool, no ToolCall.
  * - [toString] returns [REDACTED].
  * - Only accessible via [revealForResume] inside a trusted code path after claim.

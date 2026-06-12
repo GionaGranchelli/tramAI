@@ -683,7 +683,7 @@ class ApprovalEngineEdgeCaseTest {
                 )
             }
         }.isInstanceOf(dev.tramai.core.exception.ConfigurationException::class.java)
-            .hasMessageContaining("Replay envelope not found for approvalId")
+            .hasMessageContaining("replay-envelope-not-found")
 
         // Continuation stays CLAIMED
         val continuation = runBlocking { continuationStore.get(exception.approvalId) }

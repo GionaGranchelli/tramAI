@@ -1,7 +1,10 @@
 package dev.tramai.engine
 
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.model.ResolvedTool
 import java.lang.reflect.Method
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 
 /**
  * Stable, serializable reference that identifies a resume-able operation.
@@ -20,6 +23,49 @@ data class ResumeOperationReference(
     val jvmMethodDescriptor: String,
     val resumeDefinitionDigest: Sha256Digest,
 )
+
+/**
+ * Stable, serializable reference that identifies the tool whose execution was suspended.
+ *
+ * Contains only data — no runtime objects, no reflection objects.
+ *
+ * @property toolName The name of the tool.
+ * @property declarationDigest Digest of the canonicalised tool declaration.
+ */
+data class ResumeToolReference(
+    val toolName: String,
+    val declarationDigest: Sha256Digest,
+)
+
+/**
+ * Helper for computing a deterministic digest over a tool declaration.
+ *
+ * Canonicalises all tool declaration fields so the digest can be compared
+ * at resume time to detect tool definition drift.
+ */
+internal object ResumeToolDeclarationDigestHelper {
+    fun compute(tool: ResolvedTool): Sha256Digest {
+        val canonical = buildString {
+            appendField("name", tool.name)
+            appendField("description", tool.description)
+            appendField("schema", tool.inputSchemaJson)
+            append("idempotent=").append(tool.idempotent).append('\n')
+            append("side_effect_level=").append(tool.sideEffectLevel?.name ?: "null").append('\n')
+            val sec = tool.security
+            if (sec != null) {
+                appendField("permission", sec.permission)
+                appendField("risk", sec.risk?.name)
+                appendField("approval", sec.approval?.name)
+                appendField("network_egress", sec.managedNetworkEgress?.name)
+                appendField("audit", sec.audit?.name)
+                appendField("compat_mode", sec.compatibilityMode?.name)
+            }
+        }
+        val digest = MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(StandardCharsets.UTF_8))
+        val hex = digest.joinToString("") { "%02x".format(it) }
+        return Sha256Digest.of("sha256:$hex")
+    }
+}
 
 /**
  * Helper for computing a deterministic JVM method descriptor from a [java.lang.reflect.Method].
@@ -46,6 +92,6 @@ internal object JvmMethodDescriptorHelper {
         type == java.lang.Float.TYPE -> "F"
         type == java.lang.Double.TYPE -> "D"
         type.isArray -> "[" + typeDescriptor(type.componentType)
-        else -> "L" + type.canonicalName.replace('.', '/') + ";"
+        else -> "L" + type.name.replace('.', '/') + ";"
     }
 }

@@ -261,13 +261,10 @@ class TramaiEngine(
             arrayOf(serviceType.java),
             handler,
         ) as T).also {
-            definition.operations.values.forEach { operation ->
-                resumeOperationRegistry.register(
-                    serviceDefinition = definition,
-                    operation = operation,
-                    handler = handler,
-                )
-            }
+            resumeOperationRegistry.registerAll(
+                serviceDefinition = definition,
+                handler = handler,
+            )
         }
     }
 
@@ -318,13 +315,10 @@ class TramaiEngine(
             resumeOperationRegistry = resumeOperationRegistry,
             clock = clock,
         )
-        definition.operations.values.forEach { operation ->
-            resumeOperationRegistry.register(
-                serviceDefinition = definition,
-                operation = operation,
-                handler = handler,
-            )
-        }
+        resumeOperationRegistry.registerAll(
+            serviceDefinition = definition,
+            handler = handler,
+        )
     }
 
     /**
@@ -340,6 +334,17 @@ class TramaiEngine(
      * @throws dev.tramai.core.exception.ApprovalAuthorizationException on store-level failures.
      */
     suspend fun resumeApproval(command: ResumeApprovalCommand): Any? {
+        // P1-2: Check continuation status BEFORE loading metadata
+        // (post-completion cleanup removes metadata, but continuation is authoritative)
+        val store = approvalContinuationStore
+            ?: throw dev.tramai.core.exception.ConfigurationException("ApprovalContinuationStore is required for resume")
+        val continuationSnapshot = store.get(command.approvalId)
+        if (continuationSnapshot != null &&
+            continuationSnapshot.status == dev.tramai.core.approval.ApprovalContinuationStatus.COMPLETED
+        ) {
+            throw dev.tramai.core.exception.ApprovalTokenRejectedException(command.approvalId)
+        }
+
         val metadata = suspendedInvocationStore.get(command.approvalId)
             ?: throw dev.tramai.core.exception.ApprovalNotFoundException(command.approvalId)
         val registered = resumeOperationRegistry.resolve(metadata.operationReference)
@@ -2262,6 +2267,7 @@ internal class TramaiInvocationHandler(
             )
             val replayEnvelope = SensitiveReplayEnvelope.of(messages)
             val envelopeDigest = ReplayEnvelopeDigestHelper.compute(opRef, messages)
+            val toolRef = ResumeToolReference(tool.name, ResumeToolDeclarationDigestHelper.compute(tool))
 
             suspendedInvocationStore.create(
                 metadata = SuspendedInvocationMetadata(
@@ -2277,6 +2283,7 @@ internal class TramaiInvocationHandler(
                     conversationId = conversationId,
                     historySize = historySize,
                     tokenBudgetSnapshot = budgetSnapshot,
+                    toolReference = toolRef,
                     toolSecurity = tool.security,
                 ),
                 replayEnvelope = replayEnvelope,
@@ -2579,8 +2586,18 @@ internal class TramaiInvocationHandler(
         // Resolve tool from runtime registry (not from stored context)
         val resolvedTool = toolRegistry.resolve(metadata.toolName)
             ?: throw dev.tramai.core.exception.ConfigurationException(
-                "Approved tool '${metadata.toolName}' is no longer registered"
+                "approved-tool-not-registered"
             )
+
+        // P1-4: Pre-token-drift check — active tool declaration fingerprint
+        val activeDeclDigest = ResumeToolDeclarationDigestHelper.compute(resolvedTool)
+        require(activeDeclDigest == metadata.toolReference.declarationDigest) {
+            "resume-tool-declaration-drift"
+        }
+
+        // P2-2: Approval-ID cross-store checks
+        require(metadata.approvalId == command.approvalId) { "metadata-approval-id-mismatch" }
+        require(existingContinuation.approvalId == command.approvalId) { "continuation-approval-id-mismatch" }
 
         // 4. Resolve non-side-effecting dependencies
         val coordinator = approvalGateCoordinator
@@ -2693,7 +2710,7 @@ internal class TramaiInvocationHandler(
         return try {
             val replayEnvelope = suspendedInvocationStore.revealReplayEnvelope(command.approvalId)
                 ?: throw dev.tramai.core.exception.ConfigurationException(
-                    "Replay envelope not found for approvalId '${command.approvalId}'"
+                    "replay-envelope-not-found"
                 )
             val replayPayload = replayEnvelope.revealForResume()
 
@@ -3575,7 +3592,7 @@ data class OperationDefinition(
         methodName = method.name,
         requestedModel = operation.model,
         explicitProvider = operation.provider.takeIf { it.isNotBlank() },
-        requestDigest = sha256Hex(canonicalizeMessages(digestSource)),
+        requestDigest = sha256Hex(CanonicalMessageEncoder.encode(digestSource)),
         operationFingerprint = operationFingerprint(),
         securityPartition = securityPartition,
     )
@@ -3980,62 +3997,7 @@ private fun ExecutionSecurityContext.toCacheSecurityPartition() = CacheSecurityP
     classificationSource = classificationSource,
 )
 
-/** Length-prefixed field encoding with a framed message separator. Adding a field: extend with appendField; never reuse `---` as a content marker. */
-private fun canonicalizeMessages(messages: List<Message>): String = buildString {
-    messages.forEachIndexed { index, message ->
-        if (index > 0) {
-            append("\n---\n")
-        }
-        append("role=")
-        append(message.role.name)
-        append('\n')
-        appendField("content", message.content)
-        append("parts_count=").append(message.contentParts?.size ?: 0).append('\n')
-        message.contentParts.orEmpty().forEachIndexed { partIndex, part ->
-            append("part_index=").append(partIndex).append('\n')
-            when (part) {
-                is ContentPart.TextPart -> {
-                    append("part_type=text\n")
-                    appendField("text", part.text)
-                }
-                is ContentPart.ImagePart -> {
-                    append("part_type=image\n")
-                    appendField("mime", part.mimeType)
-                    appendField("data_b64", Base64.getEncoder().encodeToString(part.data))
-                }
-                is ContentPart.ImageUrlContent -> {
-                    append("part_type=image_url\n")
-                    appendField("url", part.url)
-                    appendField("mime", part.mimeType)
-                }
-            }
-        }
-        if (message.toolCallId != null) {
-            appendField("tool_call_id", message.toolCallId)
-        }
-        message.toolCalls?.let { toolCalls ->
-            append("tool_calls_count=").append(toolCalls.size).append('\n')
-            toolCalls.forEachIndexed { toolIndex, toolCall ->
-                append("tool_call_index=").append(toolIndex).append('\n')
-                appendField("tool_call_id", toolCall.id)
-                appendField("tool_call_name", toolCall.name)
-                appendField("tool_call_args", toolCall.argumentsJson)
-            }
-        }
-    }
-}
-
-private fun StringBuilder.appendField(name: String, value: String?) {
-    if (value == null) {
-        append(name).append("_null\n")
-        return
-    }
-    val bytes = value.toByteArray(StandardCharsets.UTF_8)
-    append(name).append("_len=").append(bytes.size).append('\n')
-    append(value).append('\n')
-}
-
-internal fun buildRequestDigest(messages: List<Message>): String = sha256Hex(canonicalizeMessages(messages))
+internal fun buildRequestDigest(messages: List<Message>): String = sha256Hex(CanonicalMessageEncoder.encode(messages))
 
 private fun sha256Hex(input: String): String {
     val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(StandardCharsets.UTF_8))

@@ -371,9 +371,6 @@ class SovereignDocumentIntelligenceWorkflowTest {
             fail("Should have thrown ApprovalTokenRejectedException")
         } catch (e: ApprovalTokenRejectedException) {
             // Success — token was consumed by the first resume.
-        } catch (e: dev.tramai.core.exception.ApprovalNotFoundException) {
-            // Also valid — metadata removed after first successful resume;
-            // the new registry-based flow loads metadata first.
         }
 
         assertEquals(1, ledger.executionCount())

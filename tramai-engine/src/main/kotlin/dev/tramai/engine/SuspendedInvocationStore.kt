@@ -39,6 +39,7 @@ data class TokenBudgetSnapshot(
  * @property conversationId The conversation ID for memory persistence, if any.
  * @property historySize The number of history messages at the point of suspension.
  * @property tokenBudgetSnapshot Snapshot of token budget tracker state, if available.
+ * @property toolReference Stable reference identifying the suspended tool declaration for drift detection.
  * @property toolSecurity Security metadata for the suspended tool, used for policy context during resume.
  */
 data class SuspendedInvocationMetadata(
@@ -54,6 +55,7 @@ data class SuspendedInvocationMetadata(
     val conversationId: String? = null,
     val historySize: Int = 0,
     val tokenBudgetSnapshot: TokenBudgetSnapshot? = null,
+    val toolReference: ResumeToolReference = ResumeToolReference("", Sha256Digest.of("sha256:0000000000000000000000000000000000000000000000000000000000000000")),
     val toolSecurity: ToolSecurityMetadata? = null,
 )
 
@@ -181,9 +183,7 @@ interface SuspendedInvocationStore {
     /**
      * @deprecated Use [revealReplayEnvelope] instead.
      */
-    @Deprecated("Use revealReplayEnvelope instead", ReplaceWith("revealReplayEnvelope(approvalId)"))
+    @Deprecated("Use revealReplayEnvelope instead", level = DeprecationLevel.ERROR)
     suspend fun revealSensitiveContext(approvalId: String): SensitiveResumeContext? =
-        revealReplayEnvelope(approvalId)?.let { envelope ->
-            error("revealSensitiveContext is deprecated — the store no longer stores SensitiveResumeContext")
-        }
+        throw UnsupportedOperationException("deprecated-api: use revealReplayEnvelope")
 }

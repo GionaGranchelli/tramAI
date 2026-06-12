@@ -32,9 +32,9 @@ internal object ResumeDefinitionDigestHelper {
             append("return_kind=").append(operation.returnKind.name).append('\n')
             append("return_type_description=").append(operation.returnTypeDescription).append('\n')
 
-            // Operation settings
-            append("model=").append(operation.operation.model).append('\n')
-            append("provider=").append(operation.operation.provider).append('\n')
+            // Operation settings — model and provider use appendField for UTF-8 byte length
+            appendField("model", operation.operation.model)
+            appendField("provider", operation.operation.provider)
             append("timeout_millis=").append(operation.operation.timeoutMillis).append('\n')
             append("max_retries=").append(operation.operation.maxRetries).append('\n')
             append("provider_retries=").append(operation.operation.providerRetries).append('\n')
@@ -47,41 +47,29 @@ internal object ResumeDefinitionDigestHelper {
             // Class-level system prompt
             appendField("class_system_prompt", serviceDefinition.systemPrompt)
 
-            // Method-level @System annotations (pre-sorted for determinism)
+            // Method-level @System annotations (preserve original order — no sorting)
             append("system_annotations_count=").append(operation.systemAnnotations.size).append('\n')
-            operation.systemAnnotations.sorted().forEachIndexed { i, annotation ->
+            operation.systemAnnotations.forEachIndexed { i, annotation ->
                 appendField("system_annotation_$i", annotation)
             }
 
-            // Method-level @User annotations (pre-sorted for determinism)
+            // Method-level @User annotations (preserve original order — no sorting)
             append("user_annotations_count=").append(operation.userAnnotations.size).append('\n')
-            operation.userAnnotations.sorted().forEachIndexed { i, annotation ->
+            operation.userAnnotations.forEachIndexed { i, annotation ->
                 appendField("user_annotation_$i", annotation)
             }
 
-            // Tool definitions with stable ordering (sorted by name)
+            // Tool definitions with stable ordering (sorted by name for determinism)
             append("tools_count=").append(operation.toolDefinitions.size).append('\n')
             operation.toolDefinitions.sortedBy { it.name }.forEachIndexed { index, tool ->
                 append("tool_").append(index).append("_name=").append(tool.name).append('\n')
-                append("tool_").append(index).append("_description_len=").append(tool.description.length).append('\n')
-                append(tool.description).append('\n')
-                append("tool_").append(index).append("_schema_len=").append(tool.inputSchemaJson.length).append('\n')
-                append(tool.inputSchemaJson).append('\n')
+                appendField("tool_${index}_description", tool.description)
+                appendField("tool_${index}_schema", tool.inputSchemaJson)
             }
         }
 
         val digest = MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(StandardCharsets.UTF_8))
         val hex = digest.joinToString("") { "%02x".format(it) }
         return Sha256Digest.of("sha256:$hex")
-    }
-
-    private fun StringBuilder.appendField(name: String, value: String?) {
-        if (value == null) {
-            append(name).append("_null").append('\n')
-            return
-        }
-        val bytes = value.toByteArray(StandardCharsets.UTF_8)
-        append(name).append("_len=").append(bytes.size).append('\n')
-        append(value).append('\n')
     }
 }

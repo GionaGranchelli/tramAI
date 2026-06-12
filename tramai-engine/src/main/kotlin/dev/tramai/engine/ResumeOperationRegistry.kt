@@ -63,16 +63,51 @@ internal class ResumeOperationRegistry {
                     // Idempotent — same definition, same digest. Return existing.
                     existing
                 }
-                else -> throw ConfigurationException(
-                    "Resume operation registration conflict for " +
-                        "${key.serviceInterface}.${key.methodName}: " +
-                        "existing digest ${existing.reference.resumeDefinitionDigest.value} != " +
-                        "new digest ${reference.resumeDefinitionDigest.value}"
-                )
+                else -> throw ConfigurationException("resume-operation-registration-conflict")
             }
         }
 
         return reference
+    }
+
+    /**
+     * Atomically register all operations for a service definition.
+     *
+     * Validates all operations for conflicts first, then publishes them.
+     * This prevents partial registration when one operation conflicts.
+     *
+     * @throws ConfigurationException if any key already exists with a different digest.
+     */
+    fun registerAll(
+        serviceDefinition: ServiceDefinition,
+        handler: TramaiInvocationHandler,
+    ) {
+        val entries = serviceDefinition.operations.entries.map { (_, operation) ->
+            val key = createKey(serviceDefinition, operation)
+            val reference = ResumeOperationReference(
+                serviceInterface = key.serviceInterface,
+                methodName = key.methodName,
+                jvmMethodDescriptor = key.jvmMethodDescriptor,
+                resumeDefinitionDigest = ResumeDefinitionDigestHelper.compute(serviceDefinition, operation),
+            )
+            key to RegisteredResumeOperation(
+                reference = reference,
+                serviceDefinition = serviceDefinition,
+                operation = operation,
+                handler = handler,
+            )
+        }
+
+        // Validate all conflicts first, then publish
+        entries.forEach { (key, entry) ->
+            operations.compute(key) { _, existing ->
+                when {
+                    existing == null -> entry
+                    existing.reference.resumeDefinitionDigest == entry.reference.resumeDefinitionDigest -> existing
+                    else -> throw ConfigurationException("resume-operation-registration-conflict")
+                }
+            }
+        }
     }
 
     /**
@@ -87,14 +122,10 @@ internal class ResumeOperationRegistry {
             jvmMethodDescriptor = reference.jvmMethodDescriptor,
         )
         val registered = operations[key]
-            ?: throw ConfigurationException("resume-operation-not-registered: " +
-                "${reference.serviceInterface}.${reference.methodName}")
+            ?: throw ConfigurationException("resume-operation-not-registered")
 
         if (registered.reference.resumeDefinitionDigest != reference.resumeDefinitionDigest) {
-            throw ConfigurationException("resume-operation-definition-drift: " +
-                "${reference.serviceInterface}.${reference.methodName}: " +
-                "stored digest ${reference.resumeDefinitionDigest.value} != " +
-                "registered digest ${registered.reference.resumeDefinitionDigest.value}")
+            throw ConfigurationException("resume-operation-definition-drift")
         }
 
         return registered

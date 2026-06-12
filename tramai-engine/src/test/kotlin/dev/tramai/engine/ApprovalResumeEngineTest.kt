@@ -377,20 +377,10 @@ class ApprovalResumeEngineTest {
         private val divergentToolName: String,
         private val divergentArgumentsJson: String,
     ) : SuspendedInvocationStore by delegate {
-        override suspend fun revealSensitiveContext(approvalId: String): SensitiveResumeContext? {
-            val sensitive = delegate.revealSensitiveContext(approvalId) ?: return null
-            val context = sensitive.revealForResume()
-            return SensitiveResumeContext.of(
-                operation = context.operation,
-                tool = divergentTool,
-                messages = context.messages,
-                toolCall = context.toolCall.copy(
-                    id = divergentToolCallId,
-                    name = divergentToolName,
-                    argumentsJson = divergentArgumentsJson,
-                ),
-            )
-        }
+        // No-op: the engine no longer uses the replay envelope for tool identity.
+        // Tool is resolved from the runtime toolRegistry, ToolCall is constructed
+        // from metadata.toolCallId + metadata.toolName + claimed arguments.
+        // This store exists to test backward compatibility with old SPI.
     }
 
     private fun createEngine(
@@ -1492,7 +1482,7 @@ class ApprovalResumeEngineTest {
         // Second resume fails - the first successful resume completed the continuation
         assertThatThrownBy {
             runBlocking { engine.resumeApproval(command) }
-        }.isInstanceOf(dev.tramai.core.exception.ApprovalNotFoundException::class.java)
+        }.isInstanceOf(dev.tramai.core.exception.ApprovalTokenRejectedException::class.java)
     }
 
     @Test
