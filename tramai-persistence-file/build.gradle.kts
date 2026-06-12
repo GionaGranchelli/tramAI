@@ -19,6 +19,7 @@ kotlin {
 
 dependencies {
     api(project(":tramai-core"))
+    api(project(":tramai-engine"))
     api(project(":tramai-security"))
 
     implementation(libs.coroutines.core)
