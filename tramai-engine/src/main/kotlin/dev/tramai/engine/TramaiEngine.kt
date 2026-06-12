@@ -2605,7 +2605,8 @@ internal class TramaiInvocationHandler(
         require(existingContinuation.approvalId == command.approvalId) { "continuation-approval-id-mismatch" }
 
         // P1-4: Bind toolReference.toolName to active tool
-        require(metadata.toolName == resolvedTool.name) { "resume-tool-reference-name-mismatch" }
+        require(metadata.toolReference.toolName == metadata.toolName) { "resume-tool-reference-name-mismatch" }
+        require(metadata.toolReference.toolName == resolvedTool.name) { "resume-tool-reference-active-name-mismatch" }
         require(metadata.toolSecurity == resolvedTool.security) { "resume-tool-security-metadata-drift" }
 
         // 4. Resolve non-side-effecting dependencies

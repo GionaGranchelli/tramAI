@@ -58,11 +58,12 @@ class SensitiveReplayEnvelope private constructor(
     companion object { fun of(messages: List<Message>): SensitiveReplayEnvelope }
 }
 ```
-- Contains ONLY `List<Message>` — no OperationDefinition, no ResolvedTool, no ToolCall
-- toString returns `[REDACTED]`
-- Only revealed AFTER `claimForExecution()` succeeds
-- Never serialized
-- Defensive deep copies prevent mutation after creation
+- Contains only replayable message-model data.
+- Historical message-level ToolCall values may exist for provider continuity.
+- The selected suspended ToolCall arguments are replaced with a sentinel.
+- The selected arguments are rehydrated from ApprovalContinuationStore only after claim.
+- No executable runtime objects are stored: no OperationDefinition, ResolvedTool,
+  reflection objects, callbacks, providers, or registries.
 
 ### EngineExecutionIdentity
 ```kotlin

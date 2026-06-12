@@ -1,7 +1,6 @@
 package dev.tramai.engine
 
 import dev.tramai.core.exception.ConfigurationException
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
 /**
@@ -22,8 +21,8 @@ internal data class RegisteredResumeOperation(
 /**
  * Thread-safe, trusted registry of resume-able operations.
  *
- * Operations are registered when a service is created (via [TramaiEngine.create])
- * or explicitly registered (via [TramaiEngine.registerService]).
+ * Uses copy-on-write semantics under a write lock for atomic multi-operation
+ * registration. Readers observe the registry as one state transition.
  *
  * Rules:
  * - Missing key: ConfigurationException("resume-operation-not-registered")
@@ -32,12 +31,18 @@ internal data class RegisteredResumeOperation(
  */
 internal class ResumeOperationRegistry {
 
-    private val operations = ConcurrentHashMap<RegistryKey, RegisteredResumeOperation>()
-    private val registrationLock = ReentrantReadWriteLock()
+    @Volatile
+    private var operations: Map<RegistryKey, RegisteredResumeOperation> = emptyMap()
+    private val lock = ReentrantReadWriteLock()
+
+    private inline fun <T> withReadLock(action: () -> T): T {
+        lock.readLock().lock()
+        try { return action() } finally { lock.readLock().unlock() }
+    }
 
     private inline fun <T> withWriteLock(action: () -> T): T {
-        registrationLock.writeLock().lock()
-        try { return action() } finally { registrationLock.writeLock().unlock() }
+        lock.writeLock().lock()
+        try { return action() } finally { lock.writeLock().unlock() }
     }
 
     /**
@@ -58,20 +63,21 @@ internal class ResumeOperationRegistry {
             resumeDefinitionDigest = ResumeDefinitionDigestHelper.compute(serviceDefinition, operation),
         )
 
-        operations.compute(key) { _, existing ->
-            when {
-                existing == null -> RegisteredResumeOperation(
+        val existing = operations[key]
+        when {
+            existing == null -> {
+                val updated = operations.toMutableMap()
+                updated[key] = RegisteredResumeOperation(
                     reference = reference,
                     serviceDefinition = serviceDefinition,
                     operation = operation,
                     handler = handler,
                 )
-                existing.reference.resumeDefinitionDigest == reference.resumeDefinitionDigest -> {
-                    // Idempotent — same definition, same digest. Return existing.
-                    existing
-                }
-                else -> throw ConfigurationException("resume-operation-registration-conflict")
+                operations = updated.toMap()
             }
+            existing.reference.resumeDefinitionDigest != reference.resumeDefinitionDigest ->
+                throw ConfigurationException("resume-operation-registration-conflict")
+            // else idempotent
         }
 
         reference
@@ -80,8 +86,9 @@ internal class ResumeOperationRegistry {
     /**
      * Atomically register all operations for a service definition.
      *
-     * Validates all operations for conflicts first, then publishes them.
-     * This prevents partial registration when one operation conflicts.
+     * Validates all operations for conflicts first, then publishes all as one
+     * atomic state transition. A conflicting operation prevents the entire
+     * batch from being published.
      *
      * @throws ConfigurationException if any key already exists with a different digest.
      */
@@ -105,24 +112,31 @@ internal class ResumeOperationRegistry {
             )
         }
 
-        // Validate all conflicts first, then publish
-        entries.forEach { (key, entry) ->
-            operations.compute(key) { _, existing ->
-                when {
-                    existing == null -> entry
-                    existing.reference.resumeDefinitionDigest == entry.reference.resumeDefinitionDigest -> existing
-                    else -> throw ConfigurationException("resume-operation-registration-conflict")
-                }
-            }
+        // Phase 1: Validate all conflicts before any mutation
+        entries.forEach { (key, incoming) ->
+            val existing = operations[key]
+            require(
+                existing == null ||
+                    existing.reference.resumeDefinitionDigest == incoming.reference.resumeDefinitionDigest
+            ) { "resume-operation-registration-conflict" }
         }
+
+        // Phase 2: Atomic publish via copy-on-write
+        val updated = operations.toMutableMap()
+        entries.forEach { (key, entry) ->
+            updated.putIfAbsent(key, entry)
+        }
+        operations = updated.toMap()
     }
 
     /**
      * Resolve a [ResumeOperationReference] to its registered operation.
      *
+     * Uses a read lock to ensure visibility of a fully published registry state.
+     *
      * @throws ConfigurationException if the operation is not registered or has drifted.
      */
-    fun resolve(reference: ResumeOperationReference): RegisteredResumeOperation {
+    fun resolve(reference: ResumeOperationReference): RegisteredResumeOperation = withReadLock {
         val key = RegistryKey(
             serviceInterface = reference.serviceInterface,
             methodName = reference.methodName,
@@ -135,7 +149,7 @@ internal class ResumeOperationRegistry {
             throw ConfigurationException("resume-operation-definition-drift")
         }
 
-        return registered
+        registered
     }
 
     private fun createKey(
