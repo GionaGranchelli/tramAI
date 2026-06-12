@@ -76,18 +76,20 @@ internal object ReplayEnvelopeFactory {
         require(selectedCall.id == toolCallId) { "replay-envelope-tool-call-id-mismatch" }
         require(selectedCall.name == toolName) { "replay-envelope-tool-call-name-mismatch" }
 
-        // Full-envelope uniqueness: scan ALL slots across ALL messages
+        // Full-envelope uniqueness: toolCallId must be globally unique across ALL messages
         val allSlots = messages.flatMapIndexed { msgIdx, msg ->
             msg.toolCalls.orEmpty().mapIndexed { callIdx, tc ->
                 ReplayToolCallSlot(msgIdx, callIdx, tc)
             }
         }
 
-        val matchingSlots = allSlots.filter { it.call.id == toolCallId && it.call.name == toolName }
-        require(matchingSlots.size == 1) { "replay-envelope-duplicate-matching-calls" }
-        // Also require the sole matching slot is the selected one
-        require(matchingSlots.single().messageIndex == assistantMsgIndex &&
-            matchingSlots.single().toolCallIndex == toolCallIndex) {
+        val matchingIdSlots = allSlots.filter { it.call.id == toolCallId }
+        require(matchingIdSlots.size == 1) { "replay-envelope-duplicate-tool-call-id" }
+
+        val selectedSlot = matchingIdSlots.single()
+        require(selectedSlot.call.name == toolName) { "replay-envelope-tool-call-name-mismatch" }
+        require(selectedSlot.messageIndex == assistantMsgIndex &&
+            selectedSlot.toolCallIndex == toolCallIndex) {
             "replay-envelope-tool-call-slot-mismatch"
         }
 
@@ -132,15 +134,19 @@ internal object ReplayEnvelopeFactory {
         require(selectedCall.name == metadata.toolName) { "replay-envelope-tool-call-name-mismatch" }
         require(selectedCall.argumentsJson == REDACTED_APPROVAL_CONTINUATION_ARGUMENTS) { "replay-envelope-tool-call-not-redacted" }
 
-        // Full-envelope uniqueness: scan ALL slots across ALL messages
+        // Full-envelope uniqueness: toolCallId must be globally unique
         val allSlots = messages.flatMapIndexed { msgIdx, msg ->
             msg.toolCalls.orEmpty().mapIndexed { callIdx, tc ->
                 ReplayToolCallSlot(msgIdx, callIdx, tc)
             }
         }
 
-        val matchingSlots = allSlots.filter { it.call.id == metadata.toolCallId && it.call.name == metadata.toolName }
-        require(matchingSlots.size == 1) { "replay-envelope-duplicate-matching-calls" }
+        val matchingIdSlots = allSlots.filter { it.call.id == metadata.toolCallId }
+        require(matchingIdSlots.size == 1) { "replay-envelope-duplicate-tool-call-id" }
+
+        // Global sentinel recheck before rehydration
+        val globalSentinelCount = countSentinelOccurrences(messages)
+        require(globalSentinelCount == 1) { "replay-envelope-redaction-count-mismatch" }
 
         // Rehydrate the slot
         val rehydratedCalls = toolCalls.mapIndexed { index, tc ->
