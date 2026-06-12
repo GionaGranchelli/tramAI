@@ -1,7 +1,7 @@
 # Task PR #29 — Encrypted FileSuspendedInvocationStore and Restart-Safe Recovery
 
 ## Status
-In Progress
+**Complete** — Merged
 
 ## Branch
 feat/file-suspended-invocation-restart-recovery
