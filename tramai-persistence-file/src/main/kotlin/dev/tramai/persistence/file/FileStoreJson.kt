@@ -37,9 +37,10 @@ private const val MAX_JSON_SIZE = 10_485_760
 internal inline fun <reified T : Any> strictReadValue(json: String): T {
     require(json.length <= MAX_JSON_SIZE) { "json-payload-too-large" }
     val trimmed = json.trim()
-    return try {
-        FILE_STORE_JSON.readValue(trimmed)
+    try {
+        return FILE_STORE_JSON.readValue(trimmed)
     } catch (e: Exception) {
-        throw IllegalArgumentException("json-deserialisation-failed", e)
+        // Do NOT expose the raw Jackson cause — it may contain malformed payload fragments
+        throw IllegalArgumentException("json-deserialisation-failed")
     }
 }

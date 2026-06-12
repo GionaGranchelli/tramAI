@@ -31,9 +31,9 @@ class PersistedDtosTest {
 
     @Test
     fun `PersistedApprovalRequestV1 toJson fromJson round-trip`() {
-        val original = PersistedApprovalRequestV1(
+        val original = PersistedApprovalRequestV1(schemaVersion = 1,
             approvalId = "req-001",
-            binding = PersistedApprovalBindingV1(
+            binding = PersistedApprovalBindingV1(schemaVersion = 1,
                 workflowRunId = "wf-run-1",
                 toolName = "file-reader",
                 argumentsDigest = "sha256:aaaa",
@@ -72,9 +72,9 @@ class PersistedDtosTest {
 
     @Test
     fun `PersistedApprovalRequestV1 round-trip with all fields populated`() {
-        val original = PersistedApprovalRequestV1(
+        val original = PersistedApprovalRequestV1(schemaVersion = 1,
             approvalId = "req-002",
-            binding = PersistedApprovalBindingV1(
+            binding = PersistedApprovalBindingV1(schemaVersion = 1,
                 workflowRunId = "wf-run-2",
                 toolName = "db-query",
                 argumentsDigest = "sha256:dddd",
@@ -148,7 +148,7 @@ class PersistedDtosTest {
 
     @Test
     fun `PersistedApprovalContinuationRecordV1 toJson fromJson round-trip`() {
-        val continuation = PersistedApprovalContinuationV1(
+        val continuation = PersistedApprovalContinuationV1(schemaVersion = 1,
             approvalId = "cont-001",
             workflowRunId = "wf-run-1",
             correlationId = "corr-1",
@@ -168,7 +168,7 @@ class PersistedDtosTest {
             recoveryReasonCode = null,
             version = 0L,
         )
-        val original = PersistedApprovalContinuationRecordV1(
+        val original = PersistedApprovalContinuationRecordV1(schemaVersion = 1,
             continuation = continuation,
             arguments = "plain-text-args",
         )
@@ -185,7 +185,7 @@ class PersistedDtosTest {
 
     @Test
     fun `PersistedApprovalContinuationRecordV1 toJson fromJson with null arguments`() {
-        val continuation = PersistedApprovalContinuationV1(
+        val continuation = PersistedApprovalContinuationV1(schemaVersion = 1,
             approvalId = "cont-002",
             workflowRunId = "wf-run-2",
             correlationId = "corr-2",
@@ -205,7 +205,7 @@ class PersistedDtosTest {
             recoveryReasonCode = null,
             version = 1L,
         )
-        val original = PersistedApprovalContinuationRecordV1(
+        val original = PersistedApprovalContinuationRecordV1(schemaVersion = 1,
             continuation = continuation,
             arguments = null,
         )

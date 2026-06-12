@@ -20,7 +20,7 @@ import java.time.Instant
  * All digest fields are stored as raw strings (the "sha256:..." format).
  */
 data class PersistedApprovalBindingV1(
-    val schemaVersion: Int = 1,
+    @get:JsonProperty("schemaVersion") val schemaVersion: Int,
     @JsonProperty("workflowRunId") val workflowRunId: String,
     @JsonProperty("toolName") val toolName: String,
     @JsonProperty("argumentsDigest") val argumentsDigest: String,
@@ -40,7 +40,7 @@ data class PersistedApprovalBindingV1(
  * Timestamps are stored as ISO-8601 strings.
  */
 data class PersistedApprovalRequestV1(
-    val schemaVersion: Int = 1,
+    @get:JsonProperty("schemaVersion") val schemaVersion: Int,
     @JsonProperty("approvalId") val approvalId: String,
     @JsonProperty("binding") val binding: PersistedApprovalBindingV1,
     @JsonProperty("status") val status: String,
@@ -70,7 +70,7 @@ data class PersistedApprovalRequestV1(
  * Timestamps are stored as ISO-8601 strings.
  */
 data class PersistedApprovalContinuationV1(
-    val schemaVersion: Int = 1,
+    @get:JsonProperty("schemaVersion") val schemaVersion: Int,
     @JsonProperty("approvalId") val approvalId: String,
     @JsonProperty("workflowRunId") val workflowRunId: String,
     @JsonProperty("correlationId") val correlationId: String,
@@ -106,7 +106,7 @@ data class PersistedApprovalContinuationV1(
  *                     or null after the continuation has been claimed.
  */
 data class PersistedApprovalContinuationRecordV1(
-    val schemaVersion: Int = 1,
+    @get:JsonProperty("schemaVersion") val schemaVersion: Int,
     @JsonProperty("continuation") val continuation: PersistedApprovalContinuationV1,
     @JsonProperty("arguments") val arguments: String? = null,
 ) {
@@ -126,7 +126,7 @@ data class PersistedApprovalContinuationRecordV1(
  * Timestamps are stored as ISO-8601 strings.
  */
 data class PersistedAuditEventV1(
-    val schemaVersion: Int = 1,
+    @get:JsonProperty("schemaVersion") val schemaVersion: Int,
     @JsonProperty("hashAlgorithm") val hashAlgorithm: String,
     @JsonProperty("auditStreamId") val auditStreamId: String,
     @JsonProperty("eventId") val eventId: String,
@@ -165,6 +165,7 @@ fun PersistedApprovalBindingV1.toDomain(): ApprovalBinding = ApprovalBinding(
 )
 
 fun ApprovalBinding.toPersistedV1(): PersistedApprovalBindingV1 = PersistedApprovalBindingV1(
+    schemaVersion = 1,
     workflowRunId = workflowRunId,
     toolName = toolName,
     argumentsDigest = argumentsDigest.value,
@@ -193,6 +194,7 @@ fun PersistedApprovalRequestV1.toDomain(): ApprovalRequest = ApprovalRequest(
 )
 
 fun ApprovalRequest.toPersistedV1(): PersistedApprovalRequestV1 = PersistedApprovalRequestV1(
+    schemaVersion = 1,
     approvalId = approvalId,
     binding = binding.toPersistedV1(),
     status = status.name,
@@ -234,6 +236,7 @@ fun PersistedApprovalContinuationV1.toDomain(): ApprovalContinuation = ApprovalC
 
 fun ApprovalContinuation.toPersistedV1(): PersistedApprovalContinuationV1 =
     PersistedApprovalContinuationV1(
+        schemaVersion = 1,
         approvalId = approvalId,
         workflowRunId = workflowRunId,
         correlationId = correlationId,
@@ -287,6 +290,7 @@ fun PersistedAuditEventV1.toDomain(): AuditEvent = AuditEvent(
 )
 
 fun AuditEvent.toPersistedV1(): PersistedAuditEventV1 = PersistedAuditEventV1(
+    schemaVersion = schemaVersion,
     hashAlgorithm = hashAlgorithm.wireName,
     auditStreamId = auditStreamId,
     eventId = eventId,

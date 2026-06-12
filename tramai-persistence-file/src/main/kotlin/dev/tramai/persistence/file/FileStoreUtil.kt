@@ -85,11 +85,13 @@ internal object FileStoreUtil {
     }
 
     /**
-     * Encrypt and create a record atomically (create-only, no REPLACE).
+     * Create a record atomically and immutably (create-only, no replacement).
      *
-     * Same as [atomicEncryptWrite] but uses CREATE_NEW + NOFOLLOW_LINKS
-     * on the target path so that it fails if the target already exists.
-     * Suitable for immutable audit events.
+     * Writes the encrypted envelope directly to the target using CREATE_NEW + DSYNC,
+     * not ATOMIC_MOVE. This guarantees create-only semantics because ATOMIC_MOVE
+     * with no REPLACE_EXISTING is implementation-specific on some platforms.
+     *
+     * Suitable for immutable audit events where silent replacement is not acceptable.
      */
     fun atomicEncryptCreate(
         targetPath: Path,
@@ -111,38 +113,42 @@ internal object FileStoreUtil {
             ciphertextBase64 = ciphertextB64,
         )
         val envelopeBytes = envelope.toJson().toByteArray(Charsets.UTF_8)
-        val temp = tempSibling(targetPath)
-        try {
-            writeTempFileWith0600(temp, envelopeBytes)
-            Files.move(temp, targetPath, StandardCopyOption.ATOMIC_MOVE)
-            Files.setPosixFilePermissions(targetPath, FILE_PERMS_0600)
-            forceParentDirectory(targetPath.parent)
-        } finally {
-            try { Files.deleteIfExists(temp) } catch (_: Exception) {}
+        // Write directly to the target using CREATE_NEW (fails if target exists)
+        FileChannel.open(
+            targetPath,
+            setOf(
+                StandardOpenOption.CREATE_NEW,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.DSYNC,
+            ),
+            PosixFilePermissions.asFileAttribute(FILE_PERMS_0600),
+        ).use { channel ->
+            val buffer = ByteBuffer.wrap(envelopeBytes)
+            while (buffer.hasRemaining()) {
+                channel.write(buffer)
+            }
+            channel.force(true)
         }
+        forceParentDirectory(targetPath.parent)
     }
 
     /**
      * Write [bytes] to [path] with:
      * - CREATE_NEW + NOFOLLOW_LINKS
-     * - Immediate 0600 permissions
+     * - Atomic 0600 permissions via PosixFilePermissions file attribute
      * - Loop until all bytes written
      * - fsync via channel.force(true)
      */
     private fun writeTempFileWith0600(path: Path, bytes: ByteArray) {
         FileChannel.open(
             path,
-            StandardOpenOption.CREATE_NEW,
-            StandardOpenOption.WRITE,
-            StandardOpenOption.DSYNC,
-            LinkOption.NOFOLLOW_LINKS,
+            setOf(
+                StandardOpenOption.CREATE_NEW,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.DSYNC,
+            ),
+            PosixFilePermissions.asFileAttribute(FILE_PERMS_0600),
         ).use { channel ->
-            // Set permissions immediately after creation
-            try {
-                Files.setPosixFilePermissions(path, FILE_PERMS_0600)
-            } catch (_: Exception) {
-                // Best-effort; some platforms may not be able to set perms on open handle
-            }
             val buffer = ByteBuffer.wrap(bytes)
             while (buffer.hasRemaining()) {
                 channel.write(buffer)
@@ -237,15 +243,10 @@ internal object FileStoreUtil {
     }
 
     /**
-     * Create a single directory with strict 0700 permissions.
+     * Create a single directory with strict 0700 permissions atomically.
      * Throws if it already exists.
      */
     fun createStrictDirectory(path: Path, description: String) {
-        Files.createDirectory(path)
-        try {
-            Files.setPosixFilePermissions(path, DIR_PERMS_0700)
-        } catch (_: Exception) {
-            // Best-effort; some platforms may not support perms on newly created dirs
-        }
+        Files.createDirectory(path, PosixFilePermissions.asFileAttribute(DIR_PERMS_0700))
     }
 }

@@ -133,50 +133,89 @@ class FileApprovalContinuationStore internal constructor(
 
     /**
      * Verifies all existing records in the continuations subdirectory.
-     *
-     * Validates:
-     * - File is a regular file (not a symlink) with 0600 permissions
-     * - Filename is valid hex digest
-     * - Envelope decrypts with correct key and digest
-     * - Parsed DTO schema version is supported
-     * - DTO ID matches filename digest
-     * - Domain conversion succeeds
+     * Uses [readCommittedContinuationEntryStrict] for every entry.
      *
      * @throws FileStoreCorruptionException if any record fails integrity verification.
      */
-    fun verifyAll() {
-        if (!continuationsDir.exists() || !continuationsDir.isDirectory()) return
+    fun verifyAll() = lease.withOpenOperation {
+        if (!continuationsDir.exists() || !continuationsDir.isDirectory()) return@withOpenOperation
         for (entry in continuationsDir.listDirectoryEntries("*$FILE_EXTENSION")) {
-            val fileName = entry.fileName.toString()
-            val digestHex = fileName.removeSuffix(FILE_EXTENSION)
-            require(digestHex.length == 64 && digestHex.all { it in '0'..'9' || it in 'a'..'f' }) {
-                throw FileStoreCorruptionException("continuation-invalid-filename")
-            }
-            FileStoreUtil.validateRegularFile(entry, "continuation")
-            val plaintext: ByteArray = try {
-                FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, digestHex, encryptionKey, keyId)
-            } catch (e: FileStoreCorruptionException) {
-                throw FileStoreCorruptionException("continuation-record-corrupted", e)
-            } catch (e: Exception) {
-                throw FileStoreCorruptionException("continuation-record-corrupted", e)
-            }
-            val record = try {
-                PersistedApprovalContinuationRecordV1.fromJson(String(plaintext, Charsets.UTF_8))
-            } catch (e: Exception) {
-                throw FileStoreCorruptionException("continuation-record-corrupted", e)
-            }
-            // Validate filename digest matches DTO ID
-            val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.continuation.approvalId)
-            require(expectedDigest == digestHex) {
-                throw FileStoreCorruptionException("continuation-id-filename-digest-mismatch")
-            }
-            // Domain conversion must succeed
-            try {
-                record.toDomain()
-            } catch (e: Exception) {
-                throw FileStoreCorruptionException("continuation-domain-conversion-failed", e)
-            }
+            readCommittedContinuationEntryStrict(entry)
         }
+    }
+
+    /**
+     * Strict committed-continuation reader.
+     *
+     * Validates:
+     * - Filename format (64 hex chars + .tram.enc)
+     * - 0600 file permissions
+     * - No symlink
+     * - Envelope decryption (AAD, digest)
+     * - Root schema version
+     * - approvalId ↔ filename digest binding
+     * - Status value
+     * - Timestamp format
+     * - Domain conversion
+     *
+     * Every failure is [FileStoreCorruptionException].
+     * Used by [verifyAll], [findStaleClaimed], and [sweepExpired].
+     */
+    private fun readCommittedContinuationEntryStrict(entry: java.nio.file.Path): PersistedApprovalContinuationRecordV1 {
+        val fileName = entry.fileName.toString()
+        val digestHex = fileName.removeSuffix(FILE_EXTENSION)
+        require(digestHex.length == 64 && digestHex.all { it in '0'..'9' || it in 'a'..'f' }) {
+            throw FileStoreCorruptionException("continuation-invalid-filename")
+        }
+        FileStoreUtil.validateRegularFile(entry, "continuation")
+        val plaintext = try {
+            FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, digestHex, encryptionKey, keyId)
+        } catch (e: FileStoreCorruptionException) {
+            throw FileStoreCorruptionException("continuation-record-corrupted", e)
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException("continuation-record-corrupted", e)
+        }
+        val record = try {
+            PersistedApprovalContinuationRecordV1.fromJson(String(plaintext, Charsets.UTF_8))
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException("continuation-record-corrupted", e)
+        }
+        // Root schema version
+        require(record.schemaVersion == 1) {
+            throw FileStoreUnsupportedFormatException("unsupported-continuation-schema-version")
+        }
+        // Nested schema version
+        require(record.continuation.schemaVersion == 1) {
+            throw FileStoreUnsupportedFormatException("unsupported-continuation-metadata-schema-version")
+        }
+        // Filename digest binding
+        val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.continuation.approvalId)
+        require(expectedDigest == digestHex) {
+            throw FileStoreCorruptionException("continuation-id-filename-digest-mismatch")
+        }
+        // Validate status and timestamps
+        try {
+            ApprovalContinuationStatus.valueOf(record.continuation.status)
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException("continuation-invalid-status", e)
+        }
+        try {
+            Instant.parse(record.continuation.createdAt)
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException("continuation-invalid-created-at", e)
+        }
+        try {
+            Instant.parse(record.continuation.approvalExpiresAt)
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException("continuation-invalid-expires-at", e)
+        }
+        // Domain conversion
+        try {
+            record.toDomain()
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException("continuation-domain-conversion-failed", e)
+        }
+        return record
     }
 
     // ── Version increment ────────────────────────────────────────────
@@ -236,6 +275,7 @@ class FileApprovalContinuationStore internal constructor(
             version = newVersion,
         )
         val updatedRecord = PersistedApprovalContinuationRecordV1(
+            schemaVersion = 1,
             continuation = updatedContinuation,
             arguments = null,
         )
@@ -316,6 +356,7 @@ class FileApprovalContinuationStore internal constructor(
 
             val persistedContinuation = continuation.toPersistedV1()
             val record = PersistedApprovalContinuationRecordV1(
+                schemaVersion = 1,
                 continuation = persistedContinuation,
                 arguments = arguments.reveal(),
             )
@@ -392,7 +433,7 @@ class FileApprovalContinuationStore internal constructor(
                 claimedAt = now.toString(),
                 version = newVersion,
             )
-            val claimedRecord = PersistedApprovalContinuationRecordV1(
+            val claimedRecord = PersistedApprovalContinuationRecordV1(schemaVersion = 1,
                 continuation = claimedContinuation,
                 arguments = null,
             )
@@ -448,6 +489,7 @@ class FileApprovalContinuationStore internal constructor(
                 version = newVersion,
             )
             val updatedRecord = PersistedApprovalContinuationRecordV1(
+                schemaVersion = 1,
                 continuation = updatedContinuation,
                 arguments = null,
             )
@@ -487,6 +529,7 @@ class FileApprovalContinuationStore internal constructor(
                 version = newVersion,
             )
             val updatedRecord = PersistedApprovalContinuationRecordV1(
+                schemaVersion = 1,
                 continuation = updatedContinuation,
                 arguments = null,
             )
@@ -530,6 +573,7 @@ class FileApprovalContinuationStore internal constructor(
                 version = newVersion,
             )
             val updatedRecord = PersistedApprovalContinuationRecordV1(
+                schemaVersion = 1,
                 continuation = updatedContinuation,
                 arguments = null,
             )
@@ -551,31 +595,10 @@ class FileApprovalContinuationStore internal constructor(
 
         for (entry in continuationsDir.listDirectoryEntries("*$FILE_EXTENSION")) {
             if (result.size >= limit) break
-            val plaintext = try {
-                val rkd = entry.fileName.toString().removeSuffix(FILE_EXTENSION)
-                FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, rkd, encryptionKey, keyId)
-            } catch (e: FileStoreCorruptionException) {
-                // Surface corrupted CLAIMED records — they may represent uncertain side effects
-                throw FileStoreCorruptionException("stale-claimed-corrupted-entry", e)
-            } catch (_: Exception) {
-                continue
-            }
-            val record = try {
-                PersistedApprovalContinuationRecordV1.fromJson(String(plaintext, Charsets.UTF_8))
-            } catch (_: Exception) {
-                continue
-            }
+            val record = readCommittedContinuationEntryStrict(entry)
             val c = record.continuation
-            val status = try {
-                ApprovalContinuationStatus.valueOf(c.status)
-            } catch (_: Exception) {
-                continue
-            }
-            val claimedAt = try {
-                c.claimedAt?.let { Instant.parse(it) }
-            } catch (_: Exception) {
-                null
-            }
+            val status = ApprovalContinuationStatus.valueOf(c.status)
+            val claimedAt = c.claimedAt?.let { Instant.parse(it) }
 
             if (
                 status == ApprovalContinuationStatus.CLAIMED &&
@@ -633,6 +656,7 @@ class FileApprovalContinuationStore internal constructor(
                 recoveryReasonCode = reasonCode,
             )
             val updatedRecord = PersistedApprovalContinuationRecordV1(
+                schemaVersion = 1,
                 continuation = updatedContinuation,
                 arguments = null,
             )
@@ -649,57 +673,43 @@ class FileApprovalContinuationStore internal constructor(
         var count = 0
 
         for (entry in continuationsDir.listDirectoryEntries("*$FILE_EXTENSION")) {
-            try {
-                val rkd = entry.fileName.toString().removeSuffix(FILE_EXTENSION)
-                val plaintext = FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, rkd, encryptionKey, keyId)
-                val record = PersistedApprovalContinuationRecordV1.fromJson(
-                    String(plaintext, Charsets.UTF_8),
-                )
-                val c = record.continuation
-                val status = try {
-                    ApprovalContinuationStatus.valueOf(c.status)
-                } catch (_: Exception) {
-                    continue
-                }
-                val expiresAt = try {
-                    Instant.parse(c.approvalExpiresAt)
-                } catch (_: Exception) {
-                    continue
-                }
+            val record = readCommittedContinuationEntryStrict(entry)
+            val c = record.continuation
+            val status = ApprovalContinuationStatus.valueOf(c.status)
+            val expiresAt = Instant.parse(c.approvalExpiresAt)
 
-                // Only transition PENDING past expiry to EXPIRED
-                // Never delete expired records — preservation of lifecycle evidence.
-                if (status == ApprovalContinuationStatus.PENDING && now >= expiresAt) {
-                    val lock = getLock(c.approvalId)
-                    lock.lock()
-                    try {
-                        val plaintext2 = FileStoreUtil.readAndDecrypt(
-                            entry, RECORD_TYPE, rkd, encryptionKey, keyId,
+            // Only transition PENDING past expiry to EXPIRED
+            // Never delete expired records — preservation of lifecycle evidence.
+            if (status == ApprovalContinuationStatus.PENDING && now >= expiresAt) {
+                val rkd = entry.fileName.toString().removeSuffix(FILE_EXTENSION)
+                val lock = getLock(c.approvalId)
+                lock.lock()
+                try {
+                    val plaintext2 = FileStoreUtil.readAndDecrypt(
+                        entry, RECORD_TYPE, rkd, encryptionKey, keyId,
+                    )
+                    val record2 = PersistedApprovalContinuationRecordV1.fromJson(
+                        String(plaintext2, Charsets.UTF_8),
+                    )
+                    val c2 = record2.continuation
+                    val status2 = ApprovalContinuationStatus.valueOf(c2.status)
+                    if (status2 == ApprovalContinuationStatus.PENDING && now >= Instant.parse(c2.approvalExpiresAt)) {
+                        val newVersion = incrementVersion(c2.approvalId, c2.version)
+                        val updatedContinuation = c2.copy(
+                            status = ApprovalContinuationStatus.EXPIRED.name,
+                            version = newVersion,
                         )
-                        val record2 = PersistedApprovalContinuationRecordV1.fromJson(
-                            String(plaintext2, Charsets.UTF_8),
+                        val updatedRecord = PersistedApprovalContinuationRecordV1(
+                            schemaVersion = 1,
+                            continuation = updatedContinuation,
+                            arguments = null,
                         )
-                        val c2 = record2.continuation
-                        val status2 = ApprovalContinuationStatus.valueOf(c2.status)
-                        if (status2 == ApprovalContinuationStatus.PENDING && now >= Instant.parse(c2.approvalExpiresAt)) {
-                            val newVersion = incrementVersion(c2.approvalId, c2.version)
-                            val updatedContinuation = c2.copy(
-                                status = ApprovalContinuationStatus.EXPIRED.name,
-                                version = newVersion,
-                            )
-                            val updatedRecord = PersistedApprovalContinuationRecordV1(
-                                continuation = updatedContinuation,
-                                arguments = null,
-                            )
-                            writeCurrent(c2.approvalId, updatedRecord)
-                            count++
-                        }
-                    } finally {
-                        lock.unlock()
+                        writeCurrent(c2.approvalId, updatedRecord)
+                        count++
                     }
+                } finally {
+                    lock.unlock()
                 }
-            } catch (_: Exception) {
-                // Skip corrupted entries (non-terminal — but surface during verifyAll)
             }
         }
 

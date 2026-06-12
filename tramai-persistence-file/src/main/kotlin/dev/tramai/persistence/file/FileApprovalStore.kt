@@ -119,8 +119,8 @@ class FileApprovalStore internal constructor(
      *
      * @throws FileStoreCorruptionException if any record fails integrity verification.
      */
-    fun verifyAll() {
-        if (!approvalsDir.exists() || !approvalsDir.isDirectory()) return
+    fun verifyAll() = lease.withOpenOperation {
+        if (!approvalsDir.exists() || !approvalsDir.isDirectory()) return@withOpenOperation
         for (entry in approvalsDir.listDirectoryEntries("*$FILE_EXTENSION")) {
             val fileName = entry.fileName.toString()
             val digestHex = fileName.removeSuffix(FILE_EXTENSION)
