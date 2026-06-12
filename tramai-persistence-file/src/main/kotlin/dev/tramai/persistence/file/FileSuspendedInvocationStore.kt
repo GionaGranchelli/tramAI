@@ -62,7 +62,9 @@ class FileSuspendedInvocationStore internal constructor(
         }
         validateRecordSchemas(record)
         val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.metadata.approvalId)
-        require(expectedDigest == rkd) { "suspended-invocation-id-filename-digest-mismatch" }
+        if (expectedDigest != rkd) {
+            throw FileStoreCorruptionException("suspended-invocation-id-filename-digest-mismatch")
+        }
         return record
     }
 
@@ -76,7 +78,7 @@ class FileSuspendedInvocationStore internal constructor(
         )) {
             val fileName = entry.fileName.toString()
             val digestHex = fileName.removeSuffix(FILE_EXTENSION)
-            require(digestHex.length == 64 && digestHex.all { it in '0'..'9' || it in 'a'..'f' }) {
+            if (digestHex.length != 64 || digestHex.any { it !in '0'..'9' && it !in 'a'..'f' }) {
                 throw FileStoreCorruptionException("suspended-invocation-invalid-filename")
             }
             FileStoreUtil.validateRegularFile(entry, "suspended-invocation")
@@ -94,7 +96,7 @@ class FileSuspendedInvocationStore internal constructor(
             }
             validateRecordSchemas(record)
             val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.metadata.approvalId)
-            require(expectedDigest == digestHex) {
+            if (expectedDigest != digestHex) {
                 throw FileStoreCorruptionException("suspended-invocation-id-filename-digest-mismatch")
             }
             val metadata = try {
@@ -124,6 +126,7 @@ class FileSuspendedInvocationStore internal constructor(
         validateIdField(metadata.toolCallId, "toolCallId", MAX_ID_LENGTH)
         validateIdField(metadata.toolName, "toolName", MAX_ID_LENGTH)
         validateIdField(metadata.correlationId, "correlationId", MAX_ID_LENGTH)
+        metadata.conversationId?.let { validateIdField(it, "conversationId", MAX_ID_LENGTH) }
 
         val lock = getLock(metadata.approvalId)
         lock.lock()
@@ -163,7 +166,12 @@ class FileSuspendedInvocationStore internal constructor(
         val lock = getLock(approvalId)
         lock.lock()
         try {
-            return readCurrent(approvalId)?.metadata?.toDomain()
+            val record = readCurrent(approvalId) ?: return null
+            return try {
+                record.metadata.toDomain()
+            } catch (e: Exception) {
+                throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+            }
         } finally {
             lock.unlock()
         }
@@ -176,9 +184,13 @@ class FileSuspendedInvocationStore internal constructor(
         lock.lock()
         try {
             val record = readCurrent(approvalId) ?: return null
-            val metadata = record.metadata.toDomain()
-            val messages = record.replayEnvelope.messages.map { it.toDomain() }
-            return ReplayEnvelopePersistenceCodec.restoreFromPersistence(metadata, messages)
+            return try {
+                val metadata = record.metadata.toDomain()
+                val messages = record.replayEnvelope.messages.map { it.toDomain() }
+                ReplayEnvelopePersistenceCodec.restoreFromPersistence(metadata, messages)
+            } catch (e: Exception) {
+                throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+            }
         } finally {
             lock.unlock()
         }
@@ -200,48 +212,48 @@ class FileSuspendedInvocationStore internal constructor(
     }
 
     private fun validateRecordSchemas(record: PersistedSuspendedInvocationRecordV1) {
-        require(record.schemaVersion == 1) {
+        if (record.schemaVersion != 1) {
             throw FileStoreUnsupportedFormatException("unsupported-suspended-invocation-schema-version")
         }
-        require(record.metadata.schemaVersion == 1) {
+        if (record.metadata.schemaVersion != 1) {
             throw FileStoreUnsupportedFormatException("unsupported-suspended-invocation-metadata-schema-version")
         }
-        require(record.metadata.identity.schemaVersion == 1) {
+        if (record.metadata.identity.schemaVersion != 1) {
             throw FileStoreUnsupportedFormatException("unsupported-engine-execution-identity-schema-version")
         }
-        require(record.metadata.securityContext.schemaVersion == 1) {
+        if (record.metadata.securityContext.schemaVersion != 1) {
             throw FileStoreUnsupportedFormatException("unsupported-execution-security-context-schema-version")
         }
-        require(record.metadata.operationReference.schemaVersion == 1) {
+        if (record.metadata.operationReference.schemaVersion != 1) {
             throw FileStoreUnsupportedFormatException("unsupported-resume-operation-reference-schema-version")
         }
-        require(record.metadata.toolReference.schemaVersion == 1) {
+        if (record.metadata.toolReference.schemaVersion != 1) {
             throw FileStoreUnsupportedFormatException("unsupported-resume-tool-reference-schema-version")
         }
         record.metadata.tokenBudgetSnapshot?.let {
-            require(it.schemaVersion == 1) {
+            if (it.schemaVersion != 1) {
                 throw FileStoreUnsupportedFormatException("unsupported-token-budget-snapshot-schema-version")
             }
         }
         record.metadata.toolSecurity?.let {
-            require(it.schemaVersion == 1) {
+            if (it.schemaVersion != 1) {
                 throw FileStoreUnsupportedFormatException("unsupported-tool-security-metadata-schema-version")
             }
         }
-        require(record.replayEnvelope.schemaVersion == 1) {
+        if (record.replayEnvelope.schemaVersion != 1) {
             throw FileStoreUnsupportedFormatException("unsupported-replay-envelope-schema-version")
         }
         record.replayEnvelope.messages.forEach { message ->
-            require(message.schemaVersion == 1) {
+            if (message.schemaVersion != 1) {
                 throw FileStoreUnsupportedFormatException("unsupported-replay-message-schema-version")
             }
             message.toolCalls?.forEach { toolCall ->
-                require(toolCall.schemaVersion == 1) {
+                if (toolCall.schemaVersion != 1) {
                     throw FileStoreUnsupportedFormatException("unsupported-replay-tool-call-schema-version")
                 }
             }
             message.contentParts?.forEach { contentPart ->
-                require(contentPart.schemaVersion == 1) {
+                if (contentPart.schemaVersion != 1) {
                     throw FileStoreUnsupportedFormatException("unsupported-replay-content-part-schema-version")
                 }
             }

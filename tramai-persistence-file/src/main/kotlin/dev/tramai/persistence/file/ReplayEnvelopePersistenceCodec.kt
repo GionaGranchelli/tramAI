@@ -37,6 +37,8 @@ object ReplayEnvelopePersistenceCodec {
         metadata: SuspendedInvocationMetadata,
         messages: List<Message>,
     ) {
+        require(metadata.historySize >= 0) { "suspended-replay-envelope-history-size-negative" }
+        require(messages.size > metadata.historySize) { "suspended-replay-envelope-history-size-mismatch" }
         val allSlots = messages.flatMapIndexed { messageIndex, message ->
             message.toolCalls.orEmpty().mapIndexed { toolCallIndex, call ->
                 ReplayToolCallSlot(messageIndex, toolCallIndex, call)
@@ -49,9 +51,6 @@ object ReplayEnvelopePersistenceCodec {
         require(metadata.toolCallIndex >= 0) { "suspended-replay-envelope-tool-call-index-out-of-bounds" }
         require(selectedSlot.toolCallIndex == metadata.toolCallIndex) {
             "suspended-replay-envelope-tool-call-index-out-of-bounds"
-        }
-        require(selectedSlot.call.id == metadata.toolCallId) {
-            "suspended-replay-envelope-tool-call-id-mismatch"
         }
         require(selectedSlot.call.name == metadata.toolName) {
             "suspended-replay-envelope-tool-call-name-mismatch"
