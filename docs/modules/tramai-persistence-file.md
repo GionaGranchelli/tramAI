@@ -1,9 +1,9 @@
 # Module: `tramai-persistence-file`
 
-> **One-liner:** Encrypted-at-rest, single-node file persistence for TramAI sovereign state — `FileApprovalStore`, `FileApprovalContinuationStore`, and `FileAuditStore` backed by AES-256-GCM encrypted files on a POSIX filesystem.
+> **One-liner:** Encrypted-at-rest, single-node file persistence for TramAI sovereign state — `FileApprovalStore`, `FileApprovalContinuationStore`, `FileSuspendedInvocationStore`, and `FileAuditStore` backed by AES-256-GCM encrypted files on a POSIX filesystem.
 > **Module type:** `persistence` + `storage`
-> **Dependencies:** `tramai-core`, `tramai-security`
-> **Source files:** 13 files — `FileBackedSovereignStores.kt`, `FileApprovalStore.kt`, `FileApprovalContinuationStore.kt`, `FileAuditStore.kt`, `AesGcmFileEncryption.kt`, `EncryptedFileEnvelopeV1.kt`, `FileBackedStoreConfiguration.kt`, `FileStoreEncryptionConfiguration.kt`, `FileStoreException.kt`, `FileStoreSha256.kt`, `FileStoreUtil.kt`, `PersistedDtos.kt`, `StoreManifestV1.kt`
+> **Dependencies:** `tramai-core`, `tramai-engine`, `tramai-security`
+> **Source files:** 15 files + new files
 
 ## Purpose
 
@@ -52,6 +52,8 @@ Key ownership is the caller's responsibility. The module provides `FileStoreEncr
 │   └── <sha256-hex>.tram.enc # One encrypted file per approval request
 ├── continuations/
 │   └── <sha256-hex>.tram.enc # One encrypted file per continuation
+├── suspended/
+│   └── <sha256-hex>.tram.enc # One encrypted file per suspended invocation
 └── audit/
     └── <sha256-stream-id>/
         ├── 00000000000000000001-<sha256-event-id>.tram.enc
@@ -206,10 +208,10 @@ stores.close()
 1. Create root directory with `0700` permissions if absent.
 2. Verify root is a directory, not a symlink, with `0700` permissions.
 3. Acquire exclusive lock on `.tramai.lock` (throws `FileStoreLockUnavailableException` if held).
-4. Create subdirectories (`approvals/`, `continuations/`, `audit/`) with `0700` permissions.
+4. Create subdirectories (`approvals/`, `continuations/`, `suspended/`, `audit/`) with `0700` permissions.
 5. Validate or create `manifest.json` (format version must be 1).
 6. Resolve the encryption key.
-7. Construct and wire the three file-backed store stubs.
+7. Construct and wire the four file-backed store stubs.
 8. If `verifyOnOpen` is true, verify all existing records.
 9. On any failure, release the lock before the exception propagates.
 
@@ -221,10 +223,8 @@ stores.close()
 - No distributed locking
 - No key rotation
 - No JDBC / PostgreSQL / cloud KMS integration
-- **No full JVM-restart workflow resume** — `FileSuspendedInvocationStore` and durable replay envelopes are deferred to PR #28
 
 ## Deferred Work
 
-- **PR #28**: Durable suspended-invocation replay envelope and restart-safe workflow recovery
-- **PR #29**: Local-model artifact manifest and byte-level verification
-- **PR #30**: Offline runtime profile and zero-egress verification harness
+- **PR #30**: Local-model artifact manifest and byte-level verification
+- **PR #31**: Offline runtime profile and zero-egress verification harness

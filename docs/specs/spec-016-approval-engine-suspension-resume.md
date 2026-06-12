@@ -3,6 +3,7 @@
 ## Status
 Implemented in PR #17
 Updated in PR #28 — Trusted Replay Envelope and Operation Registry
+Updated in PR #29 — Encrypted FileSuspendedInvocationStore and restart-safe recovery
 
 ## Executive Summary
 
