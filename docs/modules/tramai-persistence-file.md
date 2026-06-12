@@ -25,7 +25,7 @@ All persisted data is authenticated-encrypted with AES-256-GCM. Ciphertext, nonc
 - **Key size**: 256 bits
 - **Nonce**: 96-bit (12 bytes), fresh `SecureRandom` per write
 - **Authentication tag**: 128 bits (16 bytes)
-- **AAD format**: `tramAI-file-store|envelope-v1|<recordType>|<recordKeyDigest>`
+- **AAD format**: `tramAI-file-store|envelope-v1|<recordType>|<recordKeyDigest>|<keyId>`
 
 ### Envelope format (v1)
 
@@ -74,16 +74,16 @@ Filenames are SHA-256 hex digests of `"<recordType>:<stableRecordId>"` — never
 
 ## Atomic Writes
 
-Every mutable write follows:
+Mutable writes (approvals, continuations) follow:
 
 1. Validate and encode the record
 2. Encrypt with AES-256-GCM (fresh nonce per write)
-3. Write to a temporary sibling file
+3. Write to a temporary sibling file with atomic 0600 permissions
 4. Flush to disk
 5. `ATOMIC_MOVE` to the committed location
 6. Best-effort cleanup of the temp file
 
-Audit events are immutable and create-only (append-only stream). Once written, an audit event file is never modified.
+**Immutable audit events** use a direct `CREATE_NEW` write instead of `ATOMIC_MOVE`. This guarantees create-only semantics even on platforms where `ATOMIC_MOVE` without `REPLACE_EXISTING` is implementation-specific. The encrypted envelope is written directly to the target path with `CREATE_NEW + DSYNC`, atomic 0600 permissions, and fsync. Silent replacement is never possible.
 
 ## Public API
 
@@ -139,7 +139,7 @@ Implements `ApprovalStore` with encrypted atomic file persistence. Each approval
 
 Implements `ApprovalContinuationStore` with exactly-once claim semantics. Raw sensitive tool arguments are stored alongside the continuation metadata. On `claimForExecution`, the arguments are atomically released exactly once — the record is re-encrypted with `arguments = null` and the raw arguments are returned via `ClaimedApprovalContinuation`.
 
-Supports lazy expiry (auto-transitions `PENDING` / `CLAIMED` records past their `approvalExpiresAt` to `EXPIRED` on read or mutation).
+Supports lazy expiry (auto-transitions `PENDING` records past their `approvalExpiresAt` to `EXPIRED` on read or mutation). `CLAIMED` records must never lazy-expire — the side effect may have started.
 
 #### State machine
 
@@ -151,12 +151,12 @@ PENDING (arguments present)
 
 CLAIMED (arguments already released)
   → complete → COMPLETED
-  → expire → EXPIRED
-  → cancel → CANCELLED
   → forceCancelClaimed → CANCELLED_UNCERTAIN (with recovery metadata)
 
 COMPLETED / EXPIRED / CANCELLED / CANCELLED_UNCERTAIN → terminal
 ```
+
+CLAIMED must never use lazy expiry or ordinary cancel — the side effect may have started.
 
 ### `FileAuditStore`
 

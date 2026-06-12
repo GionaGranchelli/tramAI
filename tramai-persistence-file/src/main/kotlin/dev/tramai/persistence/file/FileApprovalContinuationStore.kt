@@ -70,6 +70,7 @@ class FileApprovalContinuationStore internal constructor(
         private const val RECORD_TYPE = "approval-continuation"
         private const val CONTINUATIONS_DIR = "continuations"
         private const val FILE_EXTENSION = ".tram.enc"
+        private val COMMITTED_FILENAME = Regex("[a-f0-9]{64}\\.tram\\.enc")
         private const val MAX_ID_LENGTH = 256
         private const val MAX_STALE_LIMIT = 100
         private val SAFE_REASON_CODE = Regex("[a-z0-9][a-z0-9._:-]{0,63}")
@@ -115,6 +116,8 @@ class FileApprovalContinuationStore internal constructor(
         }
         // Enforce schema version on every decode
         require(record.schemaVersion == 1) { "unsupported-continuation-schema-version" }
+        // Enforce nested schema version
+        require(record.continuation.schemaVersion == 1) { "unsupported-continuation-metadata-schema-version" }
         // Bind decoded ID back to filename digest
         val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.continuation.approvalId)
         require(expectedDigest == rkd) { "continuation-id-filename-digest-mismatch" }
@@ -133,13 +136,15 @@ class FileApprovalContinuationStore internal constructor(
 
     /**
      * Verifies all existing records in the continuations subdirectory.
-     * Uses [readCommittedContinuationEntryStrict] for every entry.
+     * Uses [readCommittedContinuationEntryStrict] for every committed entry.
+     * Scans ALL entries — renamed or unexpected files fail closed.
      *
      * @throws FileStoreCorruptionException if any record fails integrity verification.
      */
     fun verifyAll() = lease.withOpenOperation {
-        if (!continuationsDir.exists() || !continuationsDir.isDirectory()) return@withOpenOperation
-        for (entry in continuationsDir.listDirectoryEntries("*$FILE_EXTENSION")) {
+        if (!continuationsDir.exists()) return@withOpenOperation
+        FileStoreUtil.validateManagedDirectory(continuationsDir, "continuations")
+        for (entry in FileStoreUtil.strictCommittedEntries(continuationsDir, COMMITTED_FILENAME, "continuation")) {
             readCommittedContinuationEntryStrict(entry)
         }
     }
@@ -193,21 +198,21 @@ class FileApprovalContinuationStore internal constructor(
         require(expectedDigest == digestHex) {
             throw FileStoreCorruptionException("continuation-id-filename-digest-mismatch")
         }
-        // Validate status and timestamps
+        // Validate status and timestamps — safe reason codes only, no parser causes exposed
         try {
             ApprovalContinuationStatus.valueOf(record.continuation.status)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("continuation-invalid-status", e)
+            throw FileStoreCorruptionException("continuation-invalid-status")
         }
         try {
             Instant.parse(record.continuation.createdAt)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("continuation-invalid-created-at", e)
+            throw FileStoreCorruptionException("continuation-invalid-created-at")
         }
         try {
             Instant.parse(record.continuation.approvalExpiresAt)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("continuation-invalid-expires-at", e)
+            throw FileStoreCorruptionException("continuation-invalid-expires-at")
         }
         // Domain conversion
         try {
@@ -300,6 +305,7 @@ class FileApprovalContinuationStore internal constructor(
         continuation: ApprovalContinuation,
         arguments: SensitiveToolArguments,
     ): ApprovalContinuation = lease.withOpenOperation {
+        FileStoreUtil.validateManagedDirectory(continuationsDir, "continuations")
         // ── Field validation ──
         validateIdField(continuation.approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(continuation.workflowRunId, "workflowRunId", MAX_ID_LENGTH)
@@ -368,6 +374,7 @@ class FileApprovalContinuationStore internal constructor(
     }
 
     override suspend fun get(approvalId: String): ApprovalContinuation? = lease.withOpenOperation {
+        FileStoreUtil.validateManagedDirectory(continuationsDir, "continuations")
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
 
         val lock = getLock(approvalId)
@@ -392,6 +399,7 @@ class FileApprovalContinuationStore internal constructor(
         expectedVersion: Long,
         claimedBy: String,
     ): ClaimedApprovalContinuation = lease.withOpenOperation {
+        FileStoreUtil.validateManagedDirectory(continuationsDir, "continuations")
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(claimedBy, "claimedBy", MAX_ID_LENGTH)
         SafeActorIdPolicy.validateActorId(claimedBy, "claimedBy")
@@ -453,6 +461,7 @@ class FileApprovalContinuationStore internal constructor(
         expectedVersion: Long,
         completedBy: String,
     ): ApprovalContinuation = lease.withOpenOperation {
+        FileStoreUtil.validateManagedDirectory(continuationsDir, "continuations")
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(completedBy, "completedBy", MAX_ID_LENGTH)
         SafeActorIdPolicy.validateActorId(completedBy, "completedBy")
@@ -501,6 +510,7 @@ class FileApprovalContinuationStore internal constructor(
     }
 
     override suspend fun expire(approvalId: String, expectedVersion: Long): ApprovalContinuation = lease.withOpenOperation {
+        FileStoreUtil.validateManagedDirectory(continuationsDir, "continuations")
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
 
         val lock = getLock(approvalId)
@@ -541,6 +551,7 @@ class FileApprovalContinuationStore internal constructor(
     }
 
     override suspend fun cancel(approvalId: String, expectedVersion: Long): ApprovalContinuation = lease.withOpenOperation {
+        FileStoreUtil.validateManagedDirectory(continuationsDir, "continuations")
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
 
         val lock = getLock(approvalId)
@@ -589,11 +600,12 @@ class FileApprovalContinuationStore internal constructor(
         limit: Int,
     ): List<ApprovalContinuation> = lease.withOpenOperation {
         require(limit in 1..MAX_STALE_LIMIT) { "limit must be between 1 and $MAX_STALE_LIMIT" }
-        if (!continuationsDir.exists() || !continuationsDir.isDirectory()) return emptyList()
+        if (!continuationsDir.exists()) return emptyList()
+        FileStoreUtil.validateManagedDirectory(continuationsDir, "continuations")
 
         val result = mutableListOf<ApprovalContinuation>()
 
-        for (entry in continuationsDir.listDirectoryEntries("*$FILE_EXTENSION")) {
+        for (entry in FileStoreUtil.strictCommittedEntries(continuationsDir, COMMITTED_FILENAME, "continuation")) {
             if (result.size >= limit) break
             val record = readCommittedContinuationEntryStrict(entry)
             val c = record.continuation
@@ -623,6 +635,7 @@ class FileApprovalContinuationStore internal constructor(
         cancelledBy: String,
         reasonCode: String,
     ): ApprovalContinuation = lease.withOpenOperation {
+        FileStoreUtil.validateManagedDirectory(continuationsDir, "continuations")
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(cancelledBy, "cancelledBy", MAX_ID_LENGTH)
         SafeActorIdPolicy.validateActorId(cancelledBy, "cancelledBy")
@@ -668,11 +681,12 @@ class FileApprovalContinuationStore internal constructor(
     }
 
     override suspend fun sweepExpired(): Int = lease.withOpenOperation {
-        if (!continuationsDir.exists() || !continuationsDir.isDirectory()) return 0
+        if (!continuationsDir.exists()) return 0
+        FileStoreUtil.validateManagedDirectory(continuationsDir, "continuations")
         val now = clock.instant()
         var count = 0
 
-        for (entry in continuationsDir.listDirectoryEntries("*$FILE_EXTENSION")) {
+        for (entry in FileStoreUtil.strictCommittedEntries(continuationsDir, COMMITTED_FILENAME, "continuation")) {
             val record = readCommittedContinuationEntryStrict(entry)
             val c = record.continuation
             val status = ApprovalContinuationStatus.valueOf(c.status)

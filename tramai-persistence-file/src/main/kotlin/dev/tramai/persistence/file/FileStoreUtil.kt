@@ -198,6 +198,39 @@ internal object FileStoreUtil {
     /** Per-key lock for concurrent access. */
     fun perKeyLock(): ReentrantLock = ReentrantLock()
 
+    /**
+     * Scans [directory] for committed records using a strict inventory strategy.
+     *
+     * Returns a list of file paths matching [filenamePattern] (e.g. `*$FILE_EXTENSION`).
+     * Any file that does not match is treated as unexpected and causes an immediate
+     * [FileStoreCorruptionException].
+     *
+     * Known temporary files (matching `.<anything>.tmp.<digits>`) are silently ignored.
+     * Subdirectories are rejected.
+     *
+     * @throws FileStoreCorruptionException if any unexpected entry is found.
+     * @throws FileStorePermissionException if a matched file fails permission validation.
+     */
+    fun strictCommittedEntries(directory: Path, filenamePattern: Regex, recordDescription: String): List<Path> {
+        val entries = mutableListOf<Path>()
+        val tempRegex = Regex("""\.[A-Za-z0-9._-]+\.tmp\.\d+""")
+        for (entry in directory.toFile().listFiles()!!) {
+            if (entry.isDirectory) {
+                throw FileStoreCorruptionException("$recordDescription-unexpected-directory-entry")
+            }
+            val path = entry.toPath()
+            val name = path.fileName.toString()
+            // Known temp files — clean or ignore explicitly
+            if (tempRegex.matches(name)) continue
+            // Must match expected committed filename
+            if (!filenamePattern.matches(name)) {
+                throw FileStoreCorruptionException("$recordDescription-unexpected-entry")
+            }
+            entries.add(path)
+        }
+        return entries
+    }
+
     /** Fsync a directory. */
     fun forceParentDirectory(dir: Path) {
         if (dir.exists()) {

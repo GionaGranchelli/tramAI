@@ -47,6 +47,7 @@ class FileApprovalStore internal constructor(
         private const val RECORD_TYPE = "approval-request"
         private const val APPROVALS_DIR = "approvals"
         private const val FILE_EXTENSION = ".tram.enc"
+        private val COMMITTED_FILENAME = Regex("[a-f0-9]{64}\\.tram\\.enc")
         private const val MAX_ID_LENGTH = 256
         private const val MAX_COMMENT_LENGTH = 4096
     }
@@ -91,6 +92,8 @@ class FileApprovalStore internal constructor(
         }
         // Enforce schema version on every decode
         require(dto.schemaVersion == 1) { "unsupported-approval-schema-version" }
+        // Enforce binding schema version
+        require(dto.binding.schemaVersion == 1) { "unsupported-approval-binding-schema-version" }
         // Bind decoded ID back to filename digest
         val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, dto.approvalId)
         require(expectedDigest == rkd) { "approval-id-filename-digest-mismatch" }
@@ -115,13 +118,18 @@ class FileApprovalStore internal constructor(
      * - Filename digest matches pattern
      * - Envelope decrypts with correct key and digest
      * - Parsed DTO schema version is supported
+     * - Binding schema version is supported
      * - Decoded approval ID matches filename digest
+     *
+     * Scans ALL entries in the approvals directory — renamed or unexpected
+     * files fail closed.
      *
      * @throws FileStoreCorruptionException if any record fails integrity verification.
      */
     fun verifyAll() = lease.withOpenOperation {
-        if (!approvalsDir.exists() || !approvalsDir.isDirectory()) return@withOpenOperation
-        for (entry in approvalsDir.listDirectoryEntries("*$FILE_EXTENSION")) {
+        if (!approvalsDir.exists()) return@withOpenOperation
+        FileStoreUtil.validateManagedDirectory(approvalsDir, "approvals")
+        for (entry in FileStoreUtil.strictCommittedEntries(approvalsDir, COMMITTED_FILENAME, "approval")) {
             val fileName = entry.fileName.toString()
             val digestHex = fileName.removeSuffix(FILE_EXTENSION)
             require(digestHex.length == 64 && digestHex.all { it in '0'..'9' || it in 'a'..'f' }) {
@@ -144,6 +152,10 @@ class FileApprovalStore internal constructor(
             require(dto.schemaVersion == 1) {
                 throw FileStoreUnsupportedFormatException("unsupported-approval-schema-version: ${dto.schemaVersion}")
             }
+            // Validate binding schema version
+            require(dto.binding.schemaVersion == 1) {
+                throw FileStoreUnsupportedFormatException("unsupported-approval-binding-schema-version: ${dto.binding.schemaVersion}")
+            }
             // Validate filename digest matches DTO ID
             val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, dto.approvalId)
             require(expectedDigest == digestHex) {
@@ -161,6 +173,7 @@ class FileApprovalStore internal constructor(
     // ── ApprovalStore SPI ─────────────────────────────────────────
 
     override suspend fun create(request: ApprovalRequest): ApprovalRequest = lease.withOpenOperation {
+        FileStoreUtil.validateManagedDirectory(approvalsDir, "approvals")
         // Version
         require(request.version == 0L) { "Initial approval version must be 0, got ${request.version}" }
 
@@ -216,6 +229,7 @@ class FileApprovalStore internal constructor(
     }
 
     override suspend fun get(approvalId: String): ApprovalRequest? = lease.withOpenOperation {
+        FileStoreUtil.validateManagedDirectory(approvalsDir, "approvals")
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         val lock = getLock(approvalId)
         lock.lock()
@@ -232,6 +246,7 @@ class FileApprovalStore internal constructor(
         expectedVersion: Long,
         transition: ApprovalTransition,
     ): ApprovalRequest = lease.withOpenOperation {
+        FileStoreUtil.validateManagedDirectory(approvalsDir, "approvals")
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
 
         // Validate comment length
@@ -302,6 +317,7 @@ class FileApprovalStore internal constructor(
         presentedTokenDigest: Sha256Digest,
         consumedBy: String,
     ): ApprovalConsumptionReceipt = lease.withOpenOperation {
+        FileStoreUtil.validateManagedDirectory(approvalsDir, "approvals")
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
         validateIdField(consumedBy, "consumedBy", MAX_ID_LENGTH)
         SafeActorIdPolicy.validateActorId(consumedBy, "consumedBy")

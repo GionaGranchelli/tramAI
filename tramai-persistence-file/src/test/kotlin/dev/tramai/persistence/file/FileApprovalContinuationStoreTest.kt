@@ -88,6 +88,10 @@ class FileApprovalContinuationStoreTest {
     @BeforeEach
     fun setup() {
         Files.createDirectories(rootDir.resolve("continuations"))
+        Files.setPosixFilePermissions(
+            rootDir.resolve("continuations"),
+            java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"),
+        )
     }
 
     @AfterEach

@@ -55,6 +55,10 @@ class FileApprovalStoreTest {
     fun setup() {
         // FileApprovalStore requires the approvals directory to exist
         Files.createDirectories(rootDir.resolve("approvals"))
+        Files.setPosixFilePermissions(
+            rootDir.resolve("approvals"),
+            java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"),
+        )
     }
 
     @AfterEach

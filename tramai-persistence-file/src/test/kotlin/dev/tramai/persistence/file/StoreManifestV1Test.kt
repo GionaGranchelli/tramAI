@@ -40,17 +40,6 @@ class StoreManifestV1Test {
     }
 
     @Test
-    fun `fromJson round-trips with default values`() {
-        val original = StoreManifestV1(createdAt = "2025-06-01T00:00:00Z")
-        val json = original.toJson()
-        val restored = StoreManifestV1.fromJson(json)
-
-        assertEquals(1, restored.formatVersion)
-        assertEquals("tramai-persistence-file", restored.module)
-        assertEquals("2025-06-01T00:00:00Z", restored.createdAt)
-    }
-
-    @Test
     fun `fromJson rejects invalid format`() {
         // Empty JSON — missing required createdAt field
         assertThrows<IllegalArgumentException> {

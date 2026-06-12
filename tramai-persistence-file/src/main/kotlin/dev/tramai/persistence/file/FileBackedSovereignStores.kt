@@ -4,18 +4,18 @@ import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.security.audit.AuditStore
 import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.PosixFilePermissions
-import java.security.SecureRandom
 import java.time.Instant
 import javax.crypto.SecretKey
 import kotlin.io.path.exists
-import kotlin.io.path.isDirectory
 import kotlin.io.path.isSymbolicLink
 import kotlin.io.path.notExists
-import kotlin.io.path.readText
 
 /**
  * Bundle of all three sovereign file-backed stores, sharing a single root directory
@@ -150,19 +150,34 @@ class FileBackedSovereignStores private constructor(
                 }
 
                 // ── 5. Validate or create manifest.json ──
-                if (manifestPath.exists()) {
-                    val manifestJson = manifestPath.readText()
+                if (Files.exists(manifestPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                    FileStoreUtil.validateRegularFile(manifestPath, "manifest")
+                    val manifestJson = FileStoreUtil.boundedReadText(manifestPath)
                     val manifest = StoreManifestV1.fromJson(manifestJson)
-                    require(manifest.formatVersion == 1) {
-                        throw FileStoreUnsupportedFormatException("unsupported-format-version")
-                    }
+                    manifest.validateManifest()
                 } else {
-                    val manifest = StoreManifestV1(createdAt = Instant.now().toString())
-                    Files.writeString(manifestPath, manifest.toJson())
-                    Files.setPosixFilePermissions(
-                        manifestPath,
-                        PosixFilePermissions.fromString("rw-------"),
+                    val manifest = StoreManifestV1(
+                        formatVersion = 1,
+                        module = "tramai-persistence-file",
+                        createdAt = Instant.now().toString(),
                     )
+                    // Atomic create with immediate 0600 permissions
+                    FileChannel.open(
+                        manifestPath,
+                        setOf(
+                            StandardOpenOption.CREATE_NEW,
+                            StandardOpenOption.WRITE,
+                            StandardOpenOption.DSYNC,
+                        ),
+                        PosixFilePermissions.asFileAttribute(FILE_PERMS_0600),
+                    ).use { channel ->
+                        val bytes = manifest.toJson().toByteArray(Charsets.UTF_8)
+                        val buffer = java.nio.ByteBuffer.wrap(bytes)
+                        while (buffer.hasRemaining()) {
+                            channel.write(buffer)
+                        }
+                        channel.force(true)
+                    }
                 }
 
                 // ── 6. Resolve and validate encryption key ──

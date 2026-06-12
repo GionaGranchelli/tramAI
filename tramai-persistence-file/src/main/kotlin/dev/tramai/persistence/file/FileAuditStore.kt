@@ -67,6 +67,8 @@ class FileAuditStore internal constructor(
         private const val EVENT_PREFIX = "audit-event:"
         private const val FILE_EXTENSION = ".tram.enc"
         private const val SEQUENCE_PADDING = 20
+        private val AUDIT_TEMP_REGEX = Regex("""\.[A-Za-z0-9._-]+\.tmp\.\d+""")
+        private val AUDIT_FILENAME_REGEX = Regex("""^(\d{$SEQUENCE_PADDING})-([a-f0-9]{64})$FILE_EXTENSION$""")
 
         /** SHA-256 hex of the stream identifier. */
         private fun streamDigest(auditStreamId: String): String =
@@ -122,6 +124,10 @@ class FileAuditStore internal constructor(
      * **Every committed entry must match the expected format.** Iterates ALL
      * directory entries (not just `*.tram.enc`), so renamed evidence without
      * the expected extension is detected and fails closed.
+     *
+     * Only known orphan temp files matching the exact `.target.tmp.<random>`
+     * pattern are silently ignored. Any other non-matching entry (including
+     * `.hidden`, symlinks, subdirectories) fails closed.
      */
     private fun scanStreamEntries(auditStreamId: String): List<AuditFileEntry> {
         val dir = streamDir(auditStreamId)
@@ -134,8 +140,9 @@ class FileAuditStore internal constructor(
         }
 
         FileStoreUtil.validateManagedDirectory(dir, "audit-stream")
+        // Also validate the parent audit directory
+        FileStoreUtil.validateManagedDirectory(auditDir, "audit")
 
-        val regex = Regex("""^(\d{$SEQUENCE_PADDING})-([a-f0-9]{64})$FILE_EXTENSION$""")
         val entries = mutableListOf<AuditFileEntry>()
         val seenSequences = mutableSetOf<Long>()
 
@@ -145,19 +152,18 @@ class FileAuditStore internal constructor(
             }
             val path = entry.toPath()
             val name = path.fileName.toString()
-            // Any non-temp file that doesn't match the expected format is a corruption
-            if (!name.startsWith(".")) {
-                val match = regex.matchEntire(name)
-                    ?: throw FileStoreCorruptionException("audit-event-invalid-filename")
-                val (seqStr, digest) = match.destructured
-                val seq = seqStr.toLong()
-                if (!seenSequences.add(seq)) {
-                    throw FileStoreCorruptionException("audit-duplicate-sequence")
-                }
-                FileStoreUtil.validateRegularFile(path, "audit-event")
-                entries.add(AuditFileEntry(sequenceNumber = seq, eventIdDigest = digest, path = path))
+            // Known orphan temp files — ignore explicitly
+            if (AUDIT_TEMP_REGEX.matches(name)) continue
+            // Every other entry must match committed format
+            val match = AUDIT_FILENAME_REGEX.matchEntire(name)
+                ?: throw FileStoreCorruptionException("audit-event-invalid-filename")
+            val (seqStr, digest) = match.destructured
+            val seq = seqStr.toLong()
+            if (!seenSequences.add(seq)) {
+                throw FileStoreCorruptionException("audit-duplicate-sequence")
             }
-            // Temp files (. prefix) are silently ignored (orphan cleanup)
+            FileStoreUtil.validateRegularFile(path, "audit-event")
+            entries.add(AuditFileEntry(sequenceNumber = seq, eventIdDigest = digest, path = path))
         }
 
         return entries.sortedBy { it.sequenceNumber }
@@ -219,8 +225,10 @@ class FileAuditStore internal constructor(
         val lock = streamLocks.computeIfAbsent(sDigest) { FileStoreUtil.perKeyLock() }
         lock.lock()
         try {
-            // Validate and/or create stream directory
+            // Create or validate stream directory (also creates audit/ parent)
             ensureStreamDir(auditStreamId)
+            // Validate parent audit directory after ensure (may not exist before first use)
+            FileStoreUtil.validateManagedDirectory(auditDir, "audit")
 
             // Scan all existing entries (fail-closed)
             val entries = scanStreamEntries(auditStreamId)
@@ -293,7 +301,8 @@ class FileAuditStore internal constructor(
      * all rejected.
      */
     fun verifyAll() = lease.withOpenOperation {
-        if (auditDir.notExists() || !auditDir.isDirectory()) return@withOpenOperation
+        if (auditDir.notExists() || !Files.isDirectory(auditDir, LinkOption.NOFOLLOW_LINKS)) return@withOpenOperation
+        FileStoreUtil.validateManagedDirectory(auditDir, "audit")
 
         // Validate all entries directly under audit/
         for (entry in auditDir.toFile().listFiles()!!) {
@@ -310,7 +319,6 @@ class FileAuditStore internal constructor(
 
             FileStoreUtil.validateManagedDirectory(path, "audit-stream")
 
-            val regex = Regex("""^(\d{$SEQUENCE_PADDING})-([a-f0-9]{64})$FILE_EXTENSION$""")
             val entries = mutableListOf<AuditFileEntry>()
             val seenSequences = mutableSetOf<Long>()
 
@@ -320,17 +328,17 @@ class FileAuditStore internal constructor(
                 }
                 val filePath = f.toPath()
                 val name = filePath.fileName.toString()
-                if (!name.startsWith(".")) {
-                    val match = regex.matchEntire(name)
-                        ?: throw FileStoreCorruptionException("audit-event-invalid-filename")
-                    val (seqStr, digest) = match.destructured
-                    val seq = seqStr.toLong()
-                    if (!seenSequences.add(seq)) {
-                        throw FileStoreCorruptionException("audit-duplicate-sequence")
-                    }
-                    FileStoreUtil.validateRegularFile(filePath, "audit-event")
-                    entries.add(AuditFileEntry(sequenceNumber = seq, eventIdDigest = digest, path = filePath))
+                // Known orphan temp files — ignore explicitly
+                if (AUDIT_TEMP_REGEX.matches(name)) continue
+                val match = AUDIT_FILENAME_REGEX.matchEntire(name)
+                    ?: throw FileStoreCorruptionException("audit-event-invalid-filename")
+                val (seqStr, digest) = match.destructured
+                val seq = seqStr.toLong()
+                if (!seenSequences.add(seq)) {
+                    throw FileStoreCorruptionException("audit-duplicate-sequence")
                 }
+                FileStoreUtil.validateRegularFile(filePath, "audit-event")
+                entries.add(AuditFileEntry(sequenceNumber = seq, eventIdDigest = digest, path = filePath))
             }
 
             if (entries.isEmpty()) continue

@@ -86,18 +86,10 @@ object AesGcmFileEncryption {
         expectedRecordKeyDigest: String,
         expectedKeyId: String = envelope.keyId,
     ): ByteArray {
-        require(envelope.envelopeVersion == 1) {
-            "Unsupported envelope version: ${envelope.envelopeVersion}"
-        }
-        require(envelope.recordType == expectedRecordType) {
-            "Record type mismatch: expected $expectedRecordType, got ${envelope.recordType}"
-        }
-        require(envelope.recordKeyDigest == expectedRecordKeyDigest) {
-            "record-key-digest-mismatch"
-        }
-        require(envelope.keyId == expectedKeyId) {
-            "key-id-mismatch"
-        }
+        require(envelope.envelopeVersion == 1) { "unsupported-envelope-version" }
+        require(envelope.recordType == expectedRecordType) { "record-type-mismatch" }
+        require(envelope.recordKeyDigest == expectedRecordKeyDigest) { "record-key-digest-mismatch" }
+        require(envelope.keyId == expectedKeyId) { "key-id-mismatch" }
 
         val nonce = Base64.getDecoder().decode(envelope.nonceBase64)
         val ciphertext = Base64.getDecoder().decode(envelope.ciphertextBase64)
