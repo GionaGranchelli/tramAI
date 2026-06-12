@@ -182,11 +182,12 @@ metadata:
    `ApprovalSuspensionEngineTest` and
    `DefaultApprovalGateCoordinatorTest`.
 
-## Deferred Work (PR #26, #27, #28, #29)
+## Deferred Work (PR #26, #27, #28, #29, #30)
 
 The following items are deferred to subsequent PRs:
 
-- **PR #26** (this patch): Approval audit hardening — strict actor validation, split cleanup/audit emission, whole-event sensitive-data scanning.
-- **PR #27**: Encrypted file-backed sovereign stores and restart-safe recovery.
-- **PR #28**: Local-model artifact manifest and byte-level verification.
-- **PR #29**: Offline runtime profile and zero-egress verification harness.
+- **PR #26** (merged): Approval audit hardening
+- **PR #27** (current): Encrypted file-backed approval, continuation, and audit stores
+- **PR #28**: Durable suspended-invocation replay envelope and restart-safe workflow recovery
+- **PR #29**: Local-model artifact manifest and byte-level verification
+- **PR #30**: Offline runtime profile and zero-egress verification harness

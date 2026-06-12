@@ -211,6 +211,7 @@ Paths from here:
 | `tramai-scheduler` **Experimental** | Cron and delay triggers | Time-based workflows |
 | `tramai-server` **Experimental** | HTTP API, webhooks, SSE | Remote workflow execution |
 | `tramai-mcp` **Experimental** | MCP server adapter | MCP ecosystem integration |
+| `tramai-persistence-file` **Experimental** | Encrypted file-backed approval, continuation, and audit stores | Sovereign single-node persistence |
 | `tramai-platform` **Experimental** | Multi-tenancy, API keys, plugins | SaaS and governed deployments |
 | `tramai-dashboard` **Experimental** | Vue 3 admin UI | Visual operations |
 
