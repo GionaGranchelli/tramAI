@@ -418,6 +418,21 @@ class SovereignTramaiRuntime internal constructor(
         delegate.create(serviceType)
 
     /**
+     * Registers a service type without creating a proxy.
+     *
+     * Delegates to [TramaiRuntime.registerService].
+     *
+     * Use after runtime restart before calling [resumeApproval]:
+     * ```
+     * runtime.registerService<InvoiceIntelligenceService>()
+     * runtime.resumeApprovalTyped<InvoiceAssessment>(command)
+     * ```
+     */
+    fun registerService(serviceType: KClass<*>) {
+        delegate.registerService(serviceType)
+    }
+
+    /**
      * Resumes an approval-suspended tool execution.
      */
     suspend fun resumeApproval(command: ResumeApprovalCommand): Any? =
@@ -440,3 +455,9 @@ class SovereignTramaiRuntime internal constructor(
  * Reified convenience overload for [SovereignTramaiRuntime.create].
  */
 inline fun <reified T : Any> SovereignTramaiRuntime.create(): T = create(T::class)
+
+/**
+ * Reified convenience overload for [SovereignTramaiRuntime.registerService].
+ */
+inline fun <reified T : Any> SovereignTramaiRuntime.registerService(): Unit =
+    registerService(T::class)

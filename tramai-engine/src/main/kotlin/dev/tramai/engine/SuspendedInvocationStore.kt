@@ -1,5 +1,6 @@
 package dev.tramai.engine
 
+import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ResolvedTool
@@ -24,6 +25,7 @@ data class TokenBudgetSnapshot(
  * - NO approval tokens
  * - NO sensitive tool payloads
  * - NO messages (which contain prompts and content)
+ * - NO runtime objects (OperationDefinition, ResolvedTool, ToolCall)
  *
  * @property approvalId The ID of the approval challenge this suspension corresponds to.
  * @property toolCallId The ID of the tool call that triggered suspension.
@@ -32,9 +34,12 @@ data class TokenBudgetSnapshot(
  * @property correlationId The correlation ID of the suspended invocation.
  * @property identity The engine execution identity at suspension point.
  * @property securityContext The execution security context (classification and source) at suspension point.
+ * @property operationReference Stable reference to the resume-able operation (service + method + digest).
+ * @property replayEnvelopeDigest Digest of the [SensitiveReplayEnvelope] content for tamper detection.
  * @property conversationId The conversation ID for memory persistence, if any.
  * @property historySize The number of history messages at the point of suspension.
  * @property tokenBudgetSnapshot Snapshot of token budget tracker state, if available.
+ * @property toolReference Stable reference identifying the suspended tool declaration for drift detection.
  * @property toolSecurity Security metadata for the suspended tool, used for policy context during resume.
  */
 data class SuspendedInvocationMetadata(
@@ -45,19 +50,30 @@ data class SuspendedInvocationMetadata(
     val correlationId: String,
     val identity: EngineExecutionIdentity,
     val securityContext: ExecutionSecurityContext,
+    val operationReference: ResumeOperationReference,
+    val replayEnvelopeDigest: Sha256Digest,
     val conversationId: String? = null,
     val historySize: Int = 0,
     val tokenBudgetSnapshot: TokenBudgetSnapshot? = null,
+    val toolReference: ResumeToolReference,
     val toolSecurity: ToolSecurityMetadata? = null,
 )
 
 /**
- * Opaque wrapper around sensitive resume context (operation, tool, messages, tool calls).
+ * Opaque wrapper around sensitive replay messages.
  *
  * - Never serialized as-is
  * - [toString] returns [REDACTED]
  * - Only accessible via [revealForResume] inside a trusted code path
+ * - Contains ONLY [Message] objects — no runtime objects, no reflection
+ *
+ * Replaces the previous [SensitiveResumeContext] which stored OperationDefinition,
+ * ResolvedTool, and ToolCall as runtime objects.
+ *
+ * @deprecated Use [SensitiveReplayEnvelope] instead. Kept for transition.
+ *   Will be removed in a future version once all consumers migrate.
  */
+@Deprecated("Use SensitiveReplayEnvelope instead", ReplaceWith("SensitiveReplayEnvelope"))
 class SensitiveResumeContext private constructor(
     private val operation: OperationDefinition,
     private val tool: ResolvedTool,
@@ -100,7 +116,11 @@ class SensitiveResumeContext private constructor(
  *
  * Returned by [SensitiveResumeContext.revealForResume] inside the trusted
  * code path after the continuation has been claimed.
+ *
+ * @deprecated Use [SensitiveReplayEnvelope] + [ResumeOperationRegistry] instead.
+ *   Kept for transition. Will be removed in a future version.
  */
+@Deprecated("Use ReplayPayload from SensitiveReplayEnvelope instead")
 data class ResumeContext(
     val operation: OperationDefinition,
     val tool: ResolvedTool,
@@ -109,7 +129,7 @@ data class ResumeContext(
 )
 
 /**
- * Engine-level store for suspended invocation metadata and sensitive resume context.
+ * Engine-level store for suspended invocation metadata and replay envelope.
  *
  * Used by [TramaiEngine] to persist and retrieve safe invocation state
  * when a tool execution is suspended pending human approval.
@@ -127,34 +147,43 @@ data class ResumeContext(
  */
 interface SuspendedInvocationStore {
     /**
-     * Persist safe invocation [metadata] and the [sensitiveContext] needed for resume.
+     * Persist safe invocation [metadata] and the [replayEnvelope] needed for resume.
      * @throws IllegalArgumentException if an invocation with the same [approvalId] already exists.
      */
     suspend fun create(
         metadata: SuspendedInvocationMetadata,
-        sensitiveContext: SensitiveResumeContext,
+        replayEnvelope: SensitiveReplayEnvelope,
     )
 
     /**
      * Retrieve only the safe metadata by [approvalId].
      * Returns null if not found.
      *
-     * The sensitive context is NOT returned here — it is released only
-     * via [revealSensitiveContext] after the continuation is claimed.
+     * The replay envelope is NOT returned here — it is released only
+     * via [revealReplayEnvelope] after the continuation is claimed.
      */
     suspend fun get(approvalId: String): SuspendedInvocationMetadata?
 
     /**
-     * Release the sensitive resume context for a claimed continuation.
+     * Release the sensitive replay envelope for a claimed continuation.
      *
      * MUST only be called after [ApprovalContinuationStore.claimForExecution] succeeds.
      * Returns null if the approval ID is not found.
      */
-    suspend fun revealSensitiveContext(approvalId: String): SensitiveResumeContext?
+    suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope?
 
     /**
-     * Remove a suspended invocation (both metadata and sensitive context) by [approvalId].
+     * Remove a suspended invocation (both metadata and replay envelope) by [approvalId].
      * Returns the safe metadata if found, null otherwise.
      */
     suspend fun remove(approvalId: String): SuspendedInvocationMetadata?
+
+    // ---- Deprecated methods (transition support) ----
+
+    /**
+     * @deprecated Use [revealReplayEnvelope] instead.
+     */
+    @Deprecated("Use revealReplayEnvelope instead", level = DeprecationLevel.ERROR)
+    suspend fun revealSensitiveContext(approvalId: String): SensitiveResumeContext? =
+        throw UnsupportedOperationException("deprecated-api: use revealReplayEnvelope")
 }

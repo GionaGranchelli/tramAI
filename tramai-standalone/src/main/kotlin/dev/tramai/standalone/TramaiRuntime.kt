@@ -22,6 +22,24 @@ class TramaiRuntime internal constructor(
         engine.create(serviceType)
 
     /**
+     * Registers a service type without creating a proxy, so that its operations
+     * are available for resume via the trusted [ResumeOperationRegistry].
+     *
+     * Repeated identical registration is allowed (idempotent).
+     * Conflicting registration (same service/method with different definition)
+     * fails closed.
+     *
+     * Use after runtime restart before calling [resumeApproval]:
+     * ```
+     * runtime.registerService<InvoiceIntelligenceService>()
+     * runtime.resumeApprovalTyped<InvoiceAssessment>(command)
+     * ```
+     */
+    fun registerService(serviceType: KClass<*>) {
+        engine.registerService(serviceType)
+    }
+
+    /**
      * Resumes an approval-suspended tool execution.
      */
     suspend fun resumeApproval(command: ResumeApprovalCommand): Any? =
@@ -44,3 +62,9 @@ class TramaiRuntime internal constructor(
  * Reified convenience overload for [TramaiRuntime.create].
  */
 inline fun <reified T : Any> TramaiRuntime.create(): T = create(T::class)
+
+/**
+ * Reified convenience overload for [TramaiRuntime.registerService].
+ */
+inline fun <reified T : Any> TramaiRuntime.registerService(): Unit =
+    registerService(T::class)

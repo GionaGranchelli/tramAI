@@ -368,7 +368,7 @@ class SovereignDocumentIntelligenceWorkflowTest {
         try {
             runBlocking { runtime.resumeApproval(command) }
             fail("Should have thrown ApprovalTokenRejectedException")
-        } catch (_: ApprovalTokenRejectedException) {
+        } catch (e: ApprovalTokenRejectedException) {
             // Success — token was consumed by the first resume.
         }
 

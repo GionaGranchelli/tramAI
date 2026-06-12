@@ -377,20 +377,10 @@ class ApprovalResumeEngineTest {
         private val divergentToolName: String,
         private val divergentArgumentsJson: String,
     ) : SuspendedInvocationStore by delegate {
-        override suspend fun revealSensitiveContext(approvalId: String): SensitiveResumeContext? {
-            val sensitive = delegate.revealSensitiveContext(approvalId) ?: return null
-            val context = sensitive.revealForResume()
-            return SensitiveResumeContext.of(
-                operation = context.operation,
-                tool = divergentTool,
-                messages = context.messages,
-                toolCall = context.toolCall.copy(
-                    id = divergentToolCallId,
-                    name = divergentToolName,
-                    argumentsJson = divergentArgumentsJson,
-                ),
-            )
-        }
+        // No-op: the engine no longer uses the replay envelope for tool identity.
+        // Tool is resolved from the runtime toolRegistry, ToolCall is constructed
+        // from metadata.toolCallId + metadata.toolName + claimed arguments.
+        // This store exists to test backward compatibility with old SPI.
     }
 
     private fun createEngine(
@@ -662,7 +652,7 @@ class ApprovalResumeEngineTest {
                 )
             }
         }.isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("Continuation tool name mismatch")
+            .hasMessageContaining("continuation-tool-name-mismatch")
 
         assertThat(recordingTool.invocations).isEmpty()
     }
@@ -733,7 +723,7 @@ class ApprovalResumeEngineTest {
                 )
             }
         }.isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("Continuation tool-call ID mismatch")
+            .hasMessageContaining("continuation-tool-call-id-mismatch")
 
         assertThat(recordingTool.invocations).isEmpty()
     }
@@ -867,7 +857,8 @@ class ApprovalResumeEngineTest {
             clock = fixedClock,
             approvalLifecycleAuditEmitter = auditEmitter,
         )
-        resumingEngine.create<ResumeBootstrapService>()
+        // No SuspensionTriggerService created on the resuming engine — the operation is not
+        // registered in the new runtime, so resume fails before reaching tool resolution.
 
         assertThatThrownBy {
             runBlocking {
@@ -882,12 +873,12 @@ class ApprovalResumeEngineTest {
                 )
             }
         }.isInstanceOf(dev.tramai.core.exception.ConfigurationException::class.java)
-            .hasMessageContaining("Approved tool '$toolName' is no longer registered")
+            .hasMessageContaining("resume-operation-not-registered")
 
         val continuation = runBlocking { continuationStore.get(exception.approvalId) }
         assertThat(continuation).isNotNull
-        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.CLAIMED)
-        assertThat(auditEvents).singleElement().isEqualTo("resume-failed: ConfigurationException")
+        assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+        assertThat(auditEvents).isEmpty()
     }
 
     @Test
@@ -1488,7 +1479,7 @@ class ApprovalResumeEngineTest {
         // First resume succeeds
         runBlocking { engine.resumeApproval(command) }
 
-        // Second resume fails - the first successful resume consumed the one-time token
+        // Second resume fails - the first successful resume completed the continuation
         assertThatThrownBy {
             runBlocking { engine.resumeApproval(command) }
         }.isInstanceOf(dev.tramai.core.exception.ApprovalTokenRejectedException::class.java)
@@ -1529,7 +1520,7 @@ class ApprovalResumeEngineTest {
             approvalGateCoordinator = replayCoordinator,
             engineEventObserver = engineEventObserver,
         )
-        engine.create<ResumeBootstrapService>()
+        engine.create<SuspensionTriggerService>()
         val command = ResumeApprovalCommand(
             approvalId = exception.approvalId,
             approvalExpectedVersion = 0L,
@@ -1590,7 +1581,7 @@ class ApprovalResumeEngineTest {
             approvalGateCoordinator = replayCoordinator,
             engineEventObserver = engineEventObserver,
         )
-        engine.create<ResumeBootstrapService>()
+        engine.create<SuspensionTriggerService>()
         val command = ResumeApprovalCommand(
             approvalId = exception.approvalId,
             approvalExpectedVersion = 0L,
@@ -1660,7 +1651,7 @@ class ApprovalResumeEngineTest {
             approvalContinuationStore = localContinuationStore,
             approvalGateCoordinator = replayCoordinator,
         )
-        firstAttemptEngine.create<ResumeBootstrapService>()
+        firstAttemptEngine.create<SuspensionTriggerService>()
 
         val firstFailure = catchThrowableOfType(
             { runBlocking { firstAttemptEngine.resumeApproval(command) } },
@@ -1681,7 +1672,7 @@ class ApprovalResumeEngineTest {
             approvalGateCoordinator = replayCoordinator,
             engineEventObserver = ThrowingEngineEventObserver(cancellation),
         )
-        secondAttemptEngine.create<ResumeBootstrapService>()
+        secondAttemptEngine.create<SuspensionTriggerService>()
 
         val secondFailure = catchThrowableOfType(
             { runBlocking { secondAttemptEngine.resumeApproval(command) } },
@@ -1702,7 +1693,7 @@ class ApprovalResumeEngineTest {
             approvalGateCoordinator = replayCoordinator,
             engineEventObserver = recordingObserver,
         )
-        recoveryEngine.create<ResumeBootstrapService>()
+        recoveryEngine.create<SuspensionTriggerService>()
 
         val result = runBlocking { recoveryEngine.resumeApproval(command) }
 
@@ -2808,7 +2799,7 @@ class ApprovalResumeEngineTest {
             approvalLifecycleAuditEmitter = capturingAuditEmitter,
             engineEventObserver = engineEventObserver,
         )
-        engine.create<ResumeBootstrapService>()
+        engine.create<SuspensionTriggerService>()
         val command = ResumeApprovalCommand(
             approvalId = exception.approvalId,
             approvalExpectedVersion = 0L,
