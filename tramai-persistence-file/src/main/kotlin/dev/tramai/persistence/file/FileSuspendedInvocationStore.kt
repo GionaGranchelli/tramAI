@@ -205,7 +205,11 @@ class FileSuspendedInvocationStore internal constructor(
             val record = readCurrent(approvalId) ?: return null
             Files.delete(storePath(approvalId))
             FileStoreUtil.forceParentDirectory(suspendedDir)
-            return record.metadata.toDomain()
+            return try {
+                record.metadata.toDomain()
+            } catch (e: Exception) {
+                throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+            }
         } finally {
             lock.unlock()
         }

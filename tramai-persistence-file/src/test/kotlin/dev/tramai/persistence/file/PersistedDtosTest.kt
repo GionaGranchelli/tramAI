@@ -432,7 +432,7 @@ class PersistedDtosTest {
                 "sha256:2222222222222222222222222222222222222222222222222222222222222222",
             ),
             conversationId = "conversation-1",
-            historySize = 7,
+            historySize = 0,
             tokenBudgetSnapshot = TokenBudgetSnapshot(
                 totalInputTokens = 10,
                 totalOutputTokens = 20,

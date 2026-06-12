@@ -56,6 +56,15 @@ object ReplayEnvelopePersistenceCodec {
             "suspended-replay-envelope-tool-call-name-mismatch"
         }
 
+        // The redacted slot must be in the latest assistant message with tool calls
+        val latestAssistantIdx = messages.indexOfLast {
+            it.role == dev.tramai.core.model.MessageRole.ASSISTANT && it.toolCalls != null
+        }
+        require(latestAssistantIdx >= 0) { "suspended-replay-envelope-assistant-batch-not-found" }
+        require(selectedSlot.messageIndex == latestAssistantIdx) {
+            "suspended-replay-envelope-tool-call-slot-mismatch"
+        }
+
         val sentinelSlots = allSlots.filter {
             it.call.argumentsJson == REDACTED_APPROVAL_CONTINUATION_ARGUMENTS
         }
