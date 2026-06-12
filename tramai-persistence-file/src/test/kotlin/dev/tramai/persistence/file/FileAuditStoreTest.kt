@@ -8,6 +8,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.nio.file.Files
@@ -82,6 +83,15 @@ class FileAuditStoreTest {
         )
         // Compute the correct hash
         raw.copy(eventHash = raw.copy(eventHash = "").calculateHash())
+    }
+
+    @BeforeEach
+    fun setup() {
+        Files.createDirectories(rootDir.resolve("audit"))
+        Files.setPosixFilePermissions(
+            rootDir.resolve("audit"),
+            java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"),
+        )
     }
 
     @AfterEach

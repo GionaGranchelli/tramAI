@@ -7,13 +7,9 @@ import dev.tramai.security.audit.calculateHash
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
-import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 import javax.crypto.SecretKey
-import kotlin.io.path.exists
-import kotlin.io.path.isDirectory
-import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.notExists
 
 /**
@@ -67,7 +63,6 @@ class FileAuditStore internal constructor(
         private const val EVENT_PREFIX = "audit-event:"
         private const val FILE_EXTENSION = ".tram.enc"
         private const val SEQUENCE_PADDING = 20
-        private val AUDIT_TEMP_REGEX = Regex("""\.[A-Za-z0-9._-]+\.tmp\.\d+""")
         private val AUDIT_FILENAME_REGEX = Regex("""^(\d{$SEQUENCE_PADDING})-([a-f0-9]{64})$FILE_EXTENSION$""")
 
         /** SHA-256 hex of the stream identifier. */
@@ -87,15 +82,13 @@ class FileAuditStore internal constructor(
     /**
      * Creates or validates the stream directory.
      * Must be a non-symlink directory with 0700 permissions.
+     * The audit/ root must already exist (created by [FileBackedSovereignStores.open]).
      */
     private fun ensureStreamDir(auditStreamId: String): Path {
         val dir = streamDir(auditStreamId)
+        // Validate that audit/ root exists before creating a new stream directory
+        FileStoreUtil.validateManagedDirectory(auditDir, "audit")
         if (dir.notExists()) {
-            // Ensure the audit root directory exists first
-            if (auditDir.notExists()) {
-                Files.createDirectories(auditDir, PosixFilePermissions.asFileAttribute(FILE_PERMS_0600))
-                Files.setPosixFilePermissions(auditDir, DIR_PERMS_0700)
-            }
             FileStoreUtil.createStrictDirectory(dir, "audit-stream")
         }
         FileStoreUtil.validateManagedDirectory(dir, "audit-stream")
@@ -122,21 +115,19 @@ class FileAuditStore internal constructor(
      * Scans a stream directory and returns parsed entries sorted by sequence.
      *
      * **Every committed entry must match the expected format.** Iterates ALL
-     * directory entries (not just `*.tram.enc`), so renamed evidence without
-     * the expected extension is detected and fails closed.
-     *
-     * Only known orphan temp files matching the exact `.target.tmp.<random>`
-     * pattern are silently ignored. Any other non-matching entry (including
-     * `.hidden`, symlinks, subdirectories) fails closed.
+     * directory entries, so renamed evidence without the expected extension
+     * is detected and fails closed. Subdirectories, orphan temps, and symlinks
+     * are all rejected — no files are silently ignored.
      */
     private fun scanStreamEntries(auditStreamId: String): List<AuditFileEntry> {
         val dir = streamDir(auditStreamId)
-        if (dir.notExists() || !Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS)) {
-            // Path exists but is not a directory — fail closed
-            if (dir.exists() && !Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS)) {
-                throw FileStoreCorruptionException("audit-stream-path-not-directory")
-            }
+        // Use NOFOLLOW_LINKS to detect dangling symlinks
+        if (!Files.exists(dir, LinkOption.NOFOLLOW_LINKS)) {
             return emptyList()
+        }
+        // Path exists — must be a valid managed directory
+        if (!Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS)) {
+            throw FileStoreCorruptionException("audit-stream-path-not-directory")
         }
 
         FileStoreUtil.validateManagedDirectory(dir, "audit-stream")
@@ -152,9 +143,6 @@ class FileAuditStore internal constructor(
             }
             val path = entry.toPath()
             val name = path.fileName.toString()
-            // Known orphan temp files — ignore explicitly
-            if (AUDIT_TEMP_REGEX.matches(name)) continue
-            // Every other entry must match committed format
             val match = AUDIT_FILENAME_REGEX.matchEntire(name)
                 ?: throw FileStoreCorruptionException("audit-event-invalid-filename")
             val (seqStr, digest) = match.destructured
@@ -297,11 +285,12 @@ class FileAuditStore internal constructor(
      * Fail-closed on any malformed file or directory.
      *
      * Scans ALL entries under the audit root — unexpected files, renamed
-     * events, symlinks, and non-directory paths at the stream level are
-     * all rejected.
+     * events, orphan temps, symlinks, and non-directory paths at the stream
+     * level are all rejected.
      */
     fun verifyAll() = lease.withOpenOperation {
-        if (auditDir.notExists() || !Files.isDirectory(auditDir, LinkOption.NOFOLLOW_LINKS)) return@withOpenOperation
+        // Use NOFOLLOW_LINKS to detect dangling symlinks at the audit root
+        if (!Files.exists(auditDir, LinkOption.NOFOLLOW_LINKS)) return@withOpenOperation
         FileStoreUtil.validateManagedDirectory(auditDir, "audit")
 
         // Validate all entries directly under audit/
@@ -328,8 +317,6 @@ class FileAuditStore internal constructor(
                 }
                 val filePath = f.toPath()
                 val name = filePath.fileName.toString()
-                // Known orphan temp files — ignore explicitly
-                if (AUDIT_TEMP_REGEX.matches(name)) continue
                 val match = AUDIT_FILENAME_REGEX.matchEntire(name)
                     ?: throw FileStoreCorruptionException("audit-event-invalid-filename")
                 val (seqStr, digest) = match.destructured

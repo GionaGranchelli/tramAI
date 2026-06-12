@@ -14,6 +14,7 @@ import dev.tramai.core.exception.ApprovalStoreTokenRejectedException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.security.MessageDigest
 import java.time.Clock
@@ -75,7 +76,8 @@ class FileApprovalStore internal constructor(
 
     private fun readCurrent(approvalId: String): PersistedApprovalRequestV1? {
         val path = storePath(approvalId)
-        if (!path.exists()) return null
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return null
+        FileStoreUtil.validateRegularFile(path, "approval")
         val rkd = recordKeyDigest(approvalId)
         val plaintext: ByteArray = try {
             FileStoreUtil.readAndDecrypt(path, RECORD_TYPE, rkd, encryptionKey, keyId)

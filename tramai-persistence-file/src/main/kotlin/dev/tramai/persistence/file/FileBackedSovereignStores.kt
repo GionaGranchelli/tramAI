@@ -82,14 +82,12 @@ class FileBackedSovereignStores private constructor(
             }
 
             // ── 2. Validate root directory ──
-            require(Files.isDirectory(root)) { "Root path is not a directory: $root" }
-            require(!Files.isSymbolicLink(root)) { "Root path must not be a symlink: $root" }
+            require(Files.isDirectory(root)) { "root-not-directory" }
+            require(!Files.isSymbolicLink(root)) { "root-symlink-rejected" }
 
             val rootPerms = Files.getPosixFilePermissions(root)
             val expectedRootPerms = PosixFilePermissions.fromString("rwx------")
-            require(rootPerms == expectedRootPerms) {
-                "Root directory permissions must be 0700: $root"
-            }
+            require(rootPerms == expectedRootPerms) { "root-permission-denied" }
 
             // ── 3. Acquire exclusive lock on .tramai.lock ──
             val lockFilePath = root.resolve(".tramai.lock")
@@ -221,10 +219,10 @@ class FileBackedSovereignStores private constructor(
          */
         private fun validateEncryptionKey(key: SecretKey) {
             require(key.algorithm == "AES") {
-                throw FileStoreConfigurationException("key-algorithm-mismatch: expected AES, got ${key.algorithm}")
+                throw FileStoreConfigurationException("key-algorithm-mismatch")
             }
             require(key.encoded.size == 32) {
-                throw FileStoreConfigurationException("key-size-mismatch: expected 256-bit AES key, got ${key.encoded.size * 8}-bit")
+                throw FileStoreConfigurationException("key-size-mismatch")
             }
         }
 
