@@ -1,7 +1,7 @@
 # Task PR #29 — Encrypted FileSuspendedInvocationStore and Restart-Safe Recovery
 
 ## Status
-**Complete** — Pending merge
+**Merged** — 13 files, +2,493 / -16, commit ce12d0f → master
 
 ## Branch
 feat/file-suspended-invocation-restart-recovery
