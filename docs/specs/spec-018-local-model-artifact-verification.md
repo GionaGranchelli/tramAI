@@ -130,6 +130,7 @@ data class LocalModelArtifactFileV1(
 data class VerifiedLocalModelArtifact(
     val registryEntryId: String,
     val manifestDigest: ModelArtifactDigest,
+    val modelName: String,
     val verifiedAt: Instant,
     val artifactCount: Int,
     val totalSizeBytes: Long,  // computed with Math.addExact() to prevent overflow
@@ -147,18 +148,13 @@ interface ModelArtifactVerifier {
      * @throws IllegalArgumentException / IllegalStateException with fixed
      *   reason codes on any verification failure.
      */
-    suspend fun verify(registeredModel: RegisteredModel): VerifiedLocalModelArtifact
+    suspend fun verify(registeredModel: RegisteredModel): VerifiedLocalModelArtifact?
 }
-```
 
-### NoOpModelArtifactVerifier (matches NoOpModelRegistry pattern)
-
-```kotlin
 object NoOpModelArtifactVerifier : ModelArtifactVerifier {
     override suspend fun verify(registeredModel: RegisteredModel): VerifiedLocalModelArtifact? = null
 }
 ```
-
 Returns `null` to match the `NoOpModelRegistry.findApprovedModel()` returning `null` pattern. The `verify()` method has a nullable return type on the `NoOp` path.
 
 ### ModelArtifactVerificationSettings
@@ -166,11 +162,11 @@ Returns `null` to match the `NoOpModelRegistry.findApprovedModel()` returning `n
 ```kotlin
 data class ModelArtifactVerificationSettings(
     val enabled: Boolean = false,
-    val requireDigestForLocalModels: Boolean = false,
+    val requireDigestForLocalModels: Boolean = true,
 )
 ```
 
-`requireDigestForLocalModels` defaults to `false` to avoid breaking existing LOCAL providers that lack digest values. When both `enabled=true` and the verifier is configured, operators should set this to `true` for defense-in-depth.
+`requireDigestForLocalModels` defaults to `true` for secure default. Once an operator opts into verification (`enabled = true`), the secure default provides registry-pinned verification. Set to `false` for transitional mode: per-file bytes verified against the supplied manifest, but the registry does not cryptographically pin that manifest.
 
 ## RegisteredModel.artifactDigest Canonical Meaning
 
@@ -245,13 +241,11 @@ For each `verify(registeredModel)` call:
 
 ### Symlink Policy
 
-Allow symlinks whose resolved target is within an allowed root directory.
-Reject symlinks whose resolved target escapes all allowed roots.
+Strict policy: **reject all symlinks** in the artifact path or parent chain.
 
-Implementation: `Files.isSymbolicLink()` for direct symlink detection,
-`path.toRealPath() != path.toAbsolutePath().normalize()` for parent-chain
-symlink detection. TOCTOU: file replaced between symlink check and read
-is a known limitation (startup-only verification).
+Implementation: `path.toRealPath() != path.toAbsolutePath().normalize()` detects symlinks anywhere in the path chain without distinguishing file-level from parent-directory symlinks.
+
+A relaxed symlink mode (allow symlinks whose resolved target is within an allowed root) may be added later if a real deployment requires it.
 
 ### Streaming Hashing
 
@@ -272,7 +266,7 @@ Files.newInputStream(path).use { input ->
 | Threat | Defense |
 |--------|---------|
 | Path traversal | Reject absolute paths and paths escaping an allowed root |
-| Symlink substitution | Resolve symlinks; reject if resolved path escapes allowed roots |
+| Symlink substitution | Reject all symlinks (strict policy) |
 | Missing file | Reject |
 | Directory substituted for file | Reject |
 | Unexpected file size | Reject before and after hashing |
@@ -299,6 +293,7 @@ Fixed safe codes only:
 - `artifact-traversal-rejected`
 - `artifact-directory-substituted-for-file`
 - `artifact-not-a-regular-file`
+- `artifact-total-size-overflow`
 - `artifact-verification-not-configured`
 
 ## Sovereign Runtime Binding
