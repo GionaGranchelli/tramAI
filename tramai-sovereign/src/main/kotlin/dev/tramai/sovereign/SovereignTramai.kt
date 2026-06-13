@@ -472,6 +472,11 @@ class SovereignTramai private constructor(
             return runBlocking {
                 val receipts = mutableListOf<VerifiedLocalModelArtifact>()
                 for ((providerName, modelName) in verificationTargets) {
+                    val trustZone = profile.providerZones.getValue(providerName)
+                    if (trustZone != ProviderTrustZone.LOCAL) {
+                        continue
+                    }
+
                     val registeredModel = try {
                         modelRegistry.findApprovedModel(providerName, modelName)
                     } catch (exception: kotlinx.coroutines.CancellationException) {
@@ -481,11 +486,6 @@ class SovereignTramai private constructor(
                             "artifact-approved-model-lookup-failed",
                         )
                     } ?: throw IllegalStateException("artifact-approved-model-not-found")
-
-                    val trustZone = profile.providerZones.getValue(providerName)
-                    if (trustZone != ProviderTrustZone.LOCAL) {
-                        continue
-                    }
 
                     if (
                         verificationSettings.requireDigestForLocalModels &&

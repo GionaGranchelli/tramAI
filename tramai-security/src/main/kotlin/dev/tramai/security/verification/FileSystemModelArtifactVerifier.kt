@@ -124,20 +124,19 @@ class FileSystemModelArtifactVerifier(
 
     private fun hashFile(path: Path): ModelArtifactDigest {
         val digest = MessageDigest.getInstance("SHA-256")
-        val stream = try {
-            Files.newInputStream(path)
+        try {
+            Files.newInputStream(path).use { input ->
+                val buffer = ByteArray(HASH_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) {
+                        break
+                    }
+                    digest.update(buffer, 0, read)
+                }
+            }
         } catch (_: Exception) {
             error("artifact-file-access-failed")
-        }
-        stream.use { input ->
-            val buffer = ByteArray(HASH_BUFFER_SIZE)
-            while (true) {
-                val read = input.read(buffer)
-                if (read < 0) {
-                    break
-                }
-                digest.update(buffer, 0, read)
-            }
         }
         return ModelArtifactDigest.of("sha256:${digest.digest().toHexString()}")
     }

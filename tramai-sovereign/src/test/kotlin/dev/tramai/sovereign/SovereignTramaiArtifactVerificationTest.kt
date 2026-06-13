@@ -466,6 +466,40 @@ class SovereignTramaiArtifactVerificationTest {
         assertThat(tramai.verificationReceipts()).hasSize(1)
     }
 
+    @Test
+    fun `GLOBAL_CLOUD route does not call registry when verification is enabled`() {
+        val verifier = RecordingVerifier { error("verifier should not be invoked") }
+
+        val tramai = SovereignTramai.builder()
+            .profile(
+                SovereignProfileConfiguration(
+                    allowedModels = setOf("test-model"),
+                    allowedProviders = setOf("cloud-provider"),
+                    providerZones = mapOf("cloud-provider" to ProviderTrustZone.GLOBAL_CLOUD),
+                ),
+            )
+            .modelRegistry(object : ModelRegistry {
+                override suspend fun findApprovedModel(
+                    providerId: String,
+                    modelName: String,
+                ): RegisteredModel {
+                    error("Registry should not be called for CLOUD routes")
+                }
+            })
+            .auditStore(InMemoryAuditStore())
+            .provider(FakeProvider("cloud-provider"), name = "cloud-provider", default = true)
+            .model("test-model", "cloud-provider")
+            .clock(fixedClock)
+            .modelArtifactVerifier(verifier)
+            .modelArtifactVerificationSettings(
+                ModelArtifactVerificationSettings(enabled = true),
+            )
+            .build()
+
+        assertThat(tramai.verificationReceipts()).isEmpty()
+        assertThat(verifier.seenModels).isEmpty()
+    }
+
     private fun localBuilder(registeredModel: RegisteredModel): SovereignTramai.Builder {
         val registry = InMemoryModelRegistry.builder()
             .register(registeredModel)

@@ -50,7 +50,7 @@ Implement a local-model artifact verification layer that proves declared local a
 - [ ] `VerifiedLocalModelArtifact` data class with registryEntryId, manifestDigest, verifiedAt, artifactCount, totalSizeBytes
 - [ ] `ModelArtifactVerifier` interface with `suspend fun verify(RegisteredModel): VerifiedLocalModelArtifact?`
 - [ ] `NoOpModelArtifactVerifier` object (returns `null`, matching NoOpModelRegistry pattern)
-- [ ] `ModelArtifactVerificationSettings` data class with `enabled=false`, `requireDigestForLocalModels=false`
+- [ ] `ModelArtifactVerificationSettings` data class with `enabled=false`, `requireDigestForLocalModels=true`
 - [ ] Manifest unit tests pass (10+ scenarios including canonicalBytes, empty artifacts, duplicate paths)
 - [ ] `./gradlew :tramai-core:test --rerun-tasks` green
 
@@ -84,9 +84,9 @@ Implement a local-model artifact verification layer that proves declared local a
 - [ ] Defaults: `null`, `ModelArtifactVerificationSettings(enabled = false)`
 - [ ] `build()`: when enabled + verifier configured → use `runBlocking` to:
   - Iterate `primaryModelRoutes`
-  - Lookup each via `modelRegistry.findApprovedModel(providerName, modelName)`
-  - Check trust zone from `profile.providerZones`
-  - For LOCAL zone: call `modelArtifactVerifier.verify(registeredModel)`, reject on failure
+  - Lookup each via `modelRegistry.findApprovedModel(providerName, modelName)` *only after* trust zone confirms LOCAL
+  - Check trust zone from `profile.providerZones` first; skip CLOUD-zone providers without any registry access
+  - For LOCAL zone: call `modelRegistry.findApprovedModel(...)`, then `modelArtifactVerifier.verify(registeredModel)`, reject on failure
 - [ ] `requireDigestForLocalModels=true`: rejects LOCAL models without `artifactDigest`
 - [ ] CLOUD-zone models: skipped (existing behavior preserved)
 - [ ] Verification receipts stored on `SovereignTramai`, exposed via `verificationReceipts(): List<VerifiedLocalModelArtifact>`

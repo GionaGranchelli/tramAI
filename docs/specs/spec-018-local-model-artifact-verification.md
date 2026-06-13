@@ -266,14 +266,18 @@ A relaxed symlink mode (allow symlinks whose resolved target is within an allowe
 ### Streaming Hashing
 
 ```kotlin
-Files.newInputStream(path).use { input ->
-    val digest = MessageDigest.getInstance("SHA-256")
-    val buffer = ByteArray(65536) // 64KB
-    while (true) {
-        val read = input.read(buffer)
-        if (read < 0) break
-        digest.update(buffer, 0, read)
+try {
+    Files.newInputStream(path).use { input ->
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(65536) // 64KB
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            digest.update(buffer, 0, read)
+        }
     }
+} catch (_: Exception) {
+    error("artifact-file-access-failed")
 }
 ```
 
@@ -339,16 +343,14 @@ In `SovereignTramai.Builder.build()`:
 When `verificationSettings.enabled`:
 - `checkNotNull(modelArtifactVerifier)` — fail closed if verifier is missing
 - Use `runBlocking` (single blocking call at startup) to iterate **unique** (providerName, modelName) targets from primary AND fallback routes
-- For each: `modelRegistry.findApprovedModel(providerName, modelName)`
-- Check the provider's trust zone from `profile.providerZones`
-- For LOCAL-zone providers with `requireDigestForLocalModels == true`:
-  - Require `registeredModel.artifactDigest != null` (``IllegalStateException`` if missing)
-- For LOCAL-zone providers (any):
+- For each: check trust zone from `profile.providerZones` first
+- For CLOUD-zone providers: skip without touching the model registry
+- For LOCAL-zone providers: `modelRegistry.findApprovedModel(providerName, modelName)` then verify
+  - If `requireDigestForLocalModels == true`: require `registeredModel.artifactDigest != null` (``IllegalStateException`` if missing)
   - Call `modelArtifactVerifier.verify(registeredModel)`
   - Sanitize SPI exceptions through a fixed-code allowlist; drop arbitrary ModelRegistry SPI cause
   - If returns `null` or throws: fail `build()` with `IllegalStateException`
   - Collect receipts
-- For CLOUD-zone providers: skip artifact verification
 - Store receipts on `SovereignTramai` for the runtime lifetime
 
 ```kotlin
@@ -464,5 +466,5 @@ No `verifyAll()` on `SovereignTramaiRuntime` — it's on `SovereignTramai` only,
 | PR | Scope |
 |----|-------|
 | PR #29 | ✅ Encrypted suspended invocation store and restart-safe recovery |
-| PR #30 | 🔄 Local-model artifact manifest and byte-level verification |
+| PR #30 | ✅ Completed — local-model artifact manifest and byte-level verification |
 | PR #31 | Offline runtime profile and zero-egress verification harness |
