@@ -58,7 +58,7 @@ internal object ReplayEnvelopePersistenceCodec {
 
         // The redacted slot must be in the latest assistant message with tool calls
         val latestAssistantIdx = messages.indexOfLast {
-            it.role == dev.tramai.core.model.MessageRole.ASSISTANT && it.toolCalls != null
+            it.role == dev.tramai.core.model.MessageRole.ASSISTANT && !it.toolCalls.isNullOrEmpty()
         }
         require(latestAssistantIdx >= 0) { "suspended-replay-envelope-assistant-batch-not-found" }
         require(selectedSlot.messageIndex == latestAssistantIdx) {
@@ -85,7 +85,7 @@ internal object ReplayEnvelopePersistenceCodec {
         }
     }
 
-    private fun computeReplayEnvelopeDigest(
+    internal fun computeReplayEnvelopeDigest(
         operationReference: ResumeOperationReference,
         messages: List<Message>,
     ): Sha256Digest {

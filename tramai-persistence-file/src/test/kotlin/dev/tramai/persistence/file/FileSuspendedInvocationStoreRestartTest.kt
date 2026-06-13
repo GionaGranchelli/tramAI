@@ -444,6 +444,117 @@ class FileSuspendedInvocationStoreRestartTest {
         }
     }
 
+    @Test
+    fun `malformed authenticated replay record rejects resume before token consumption`() {
+        val config = createConfig()
+        val toolA = RestartCalculatorTool()
+
+        val suspension = FileBackedSovereignStores.open(config).use { storesA ->
+            createEngine(
+                provider = RestartTestProvider(),
+                toolRegistry = toolRegistryFor(toolA),
+                stores = storesA,
+            ).use { engineA ->
+                val exception = triggerSuspension(engineA)
+                val approved = approve(storesA, exception.approvalId)
+                val approvalId = exception.approvalId
+
+                // Corrupt the suspended record: replace the redacted argument
+                // with a non-sentinel value so replay-envelope validation fails
+                val path = rootDir.resolve(
+                    "suspended/${dev.tramai.persistence.file.FileStoreSha256.digest("suspended-invocation", approvalId)}.tram.enc",
+                )
+                val envelopeJson = java.nio.file.Files.readString(path)
+                val envelope = dev.tramai.persistence.file.EncryptedFileEnvelopeV1.fromJson(envelopeJson)
+                val plaintext = dev.tramai.persistence.file.AesGcmFileEncryption.decrypt(
+                    secretKey, envelope, "suspended-invocation",
+                    dev.tramai.persistence.file.FileStoreSha256.digest("suspended-invocation", approvalId),
+                    "restart-test-key",
+                )
+                val record = dev.tramai.persistence.file.PersistedSuspendedInvocationRecordV1.fromJson(
+                    plaintext.decodeToString(),
+                )
+                // Make the tool call's argumentsJson non-redacted (remove sentinel)
+                val corruptedMessages = record.replayEnvelope.messages.map { message ->
+                    message.copy(
+                        toolCalls = message.toolCalls?.map { tc ->
+                            tc.copy(argumentsJson = """{"x":99,"y":100}""")
+                        },
+                    )
+                }
+                val corruptedRecord = record.copy(
+                    replayEnvelope = record.replayEnvelope.copy(messages = corruptedMessages),
+                )
+                val (newNonce, newCiphertext) = dev.tramai.persistence.file.AesGcmFileEncryption.encrypt(
+                    secretKey, "suspended-invocation",
+                    dev.tramai.persistence.file.FileStoreSha256.digest("suspended-invocation", approvalId),
+                    "restart-test-key",
+                    corruptedRecord.toJson().toByteArray(),
+                )
+                java.nio.file.Files.writeString(
+                    path,
+                    dev.tramai.persistence.file.EncryptedFileEnvelopeV1(
+                        envelopeVersion = 1,
+                        recordType = "suspended-invocation",
+                        recordKeyDigest = dev.tramai.persistence.file.FileStoreSha256.digest(
+                            "suspended-invocation", approvalId,
+                        ),
+                        keyId = "restart-test-key",
+                        nonceBase64 = newNonce,
+                        ciphertextBase64 = newCiphertext,
+                    ).toJson(),
+                )
+                java.nio.file.Files.setPosixFilePermissions(
+                    path, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"),
+                )
+
+                SuspendedWorkflow(
+                    approvalId = approvalId,
+                    approvalVersion = approved.version,
+                    continuationVersion = exception.continuationVersion,
+                    approvalToken = exception.challenge.token,
+                    workflowRunId = exception.workflowRunId,
+                )
+            }
+        }
+
+        val toolB = RestartCalculatorTool()
+
+        FileBackedSovereignStores.open(config).use { storesB ->
+            createEngine(
+                provider = RestartTestProvider(),
+                toolRegistry = toolRegistryFor(toolB),
+                stores = storesB,
+            ).use { engineB ->
+                engineB.registerService(RestartTestService::class)
+
+                assertThatThrownBy {
+                    runBlocking {
+                        engineB.resumeApproval(
+                            ResumeApprovalCommand(
+                                approvalId = suspension.approvalId,
+                                approvalExpectedVersion = suspension.approvalVersion,
+                                continuationExpectedVersion = suspension.continuationVersion,
+                                presentedToken = suspension.approvalToken,
+                                resumedBy = "admin",
+                            ),
+                        )
+                    }
+                }.isInstanceOf(dev.tramai.persistence.file.FileStoreCorruptionException::class.java)
+                    .hasMessageContaining("suspended-invocation-replay-envelope-invalid")
+
+                val continuation = runBlocking { storesB.approvalContinuationStore.get(suspension.approvalId) }
+                assertThat(continuation).isNotNull
+                assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+                assertThat(toolB.executeCount.get()).isEqualTo(0)
+                assertThatThrownBy {
+                    runBlocking { storesB.suspendedInvocationStore.get(suspension.approvalId) }
+                }.isInstanceOf(dev.tramai.persistence.file.FileStoreCorruptionException::class.java)
+                    .hasMessageContaining("suspended-invocation-replay-envelope-invalid")
+            }
+        }
+    }
+
     private fun createConfig() = FileBackedStoreConfiguration(
         rootDirectory = rootDir,
         encryption = FileStoreEncryptionConfiguration(

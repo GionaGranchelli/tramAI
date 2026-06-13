@@ -26,12 +26,9 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
-import java.security.MessageDigest
-import java.util.Base64
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import kotlin.io.path.exists
@@ -394,7 +391,9 @@ class FileSuspendedInvocationStoreTest {
         assertEquals(createdMessages, revealedMessages)
         assertEquals(
             metadata.replayEnvelopeDigest,
-            computeReplayEnvelopeDigest(metadata.operationReference, revealedMessages),
+            ReplayEnvelopePersistenceCodec.computeReplayEnvelopeDigest(
+                metadata.operationReference, revealedMessages,
+            ),
         )
     }
 
@@ -454,7 +453,7 @@ class FileSuspendedInvocationStoreTest {
                 classificationSource = ClassificationSource.RULE_BASED,
             ),
             operationReference = operationReference,
-            replayEnvelopeDigest = computeReplayEnvelopeDigest(operationReference, messages),
+            replayEnvelopeDigest = ReplayEnvelopePersistenceCodec.computeReplayEnvelopeDigest(operationReference, messages),
             conversationId = "conversation-1",
             historySize = 1,
             tokenBudgetSnapshot = TokenBudgetSnapshot(
@@ -522,72 +521,5 @@ class FileSuspendedInvocationStoreTest {
             ).toJson(),
         )
         Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-------"))
-    }
-
-    private fun computeReplayEnvelopeDigest(
-        operationReference: ResumeOperationReference,
-        messages: List<Message>,
-    ): Sha256Digest {
-        val canonical = buildString {
-            appendField("service_interface", operationReference.serviceInterface)
-            append("method=").append(operationReference.methodName).append('\n')
-            append("jvm_descriptor=").append(operationReference.jvmMethodDescriptor).append('\n')
-            append("digest=").append(operationReference.resumeDefinitionDigest.value).append('\n')
-            append(encodeCanonicalMessages(messages))
-        }
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest(canonical.toByteArray(StandardCharsets.UTF_8))
-        val hex = digest.joinToString("") { "%02x".format(it) }
-        return Sha256Digest.of("sha256:$hex")
-    }
-
-    private fun encodeCanonicalMessages(messages: List<Message>): String = buildString {
-        messages.forEachIndexed { index, message ->
-            if (index > 0) append("\n---\n")
-            append("role=").append(message.role.name).append('\n')
-            appendField("content", message.content)
-            append("parts_count=").append(message.contentParts?.size ?: 0).append('\n')
-            message.contentParts.orEmpty().forEachIndexed { partIndex, part ->
-                append("part_index=").append(partIndex).append('\n')
-                when (part) {
-                    is dev.tramai.core.model.ContentPart.TextPart -> {
-                        append("part_type=text\n")
-                        appendField("text", part.text)
-                    }
-                    is dev.tramai.core.model.ContentPart.ImagePart -> {
-                        append("part_type=image\n")
-                        appendField("mime", part.mimeType)
-                        appendField("data_b64", java.util.Base64.getEncoder().encodeToString(part.data))
-                    }
-                    is dev.tramai.core.model.ContentPart.ImageUrlContent -> {
-                        append("part_type=image_url\n")
-                        appendField("url", part.url)
-                        appendField("mime", part.mimeType)
-                    }
-                }
-            }
-            if (message.toolCallId != null) {
-                appendField("tool_call_id", message.toolCallId)
-            }
-            message.toolCalls?.let { toolCalls ->
-                append("tool_calls_count=").append(toolCalls.size).append('\n')
-                toolCalls.forEachIndexed { toolIndex, toolCall ->
-                    append("tool_call_index=").append(toolIndex).append('\n')
-                    appendField("tool_call_id", toolCall.id)
-                    appendField("tool_call_name", toolCall.name)
-                    appendField("tool_call_args", toolCall.argumentsJson)
-                }
-            }
-        }
-    }
-
-    private fun StringBuilder.appendField(name: String, value: String?) {
-        if (value == null) {
-            append(name).append("_null\n")
-            return
-        }
-        val bytes = value.toByteArray(StandardCharsets.UTF_8)
-        append(name).append("_len=").append(bytes.size).append('\n')
-        append(value).append('\n')
     }
 }
