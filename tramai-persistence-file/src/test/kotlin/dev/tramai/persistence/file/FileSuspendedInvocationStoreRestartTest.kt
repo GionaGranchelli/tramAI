@@ -192,58 +192,60 @@ class FileSuspendedInvocationStoreRestartTest {
         val toolA = RestartCalculatorTool()
 
         val suspension = FileBackedSovereignStores.open(config).use { storesA ->
-            val engineA = createEngine(
+            createEngine(
                 provider = providerA,
                 toolRegistry = toolRegistryFor(toolA),
                 stores = storesA,
-            )
-            val exception = triggerSuspension(engineA)
-            val approved = approve(storesA, exception.approvalId)
+            ).use { engineA ->
+                val exception = triggerSuspension(engineA)
+                val approved = approve(storesA, exception.approvalId)
 
-            SuspendedWorkflow(
-                approvalId = exception.approvalId,
-                approvalVersion = approved.version,
-                continuationVersion = exception.continuationVersion,
-                approvalToken = exception.challenge.token,
-                workflowRunId = exception.workflowRunId,
-            )
+                SuspendedWorkflow(
+                    approvalId = exception.approvalId,
+                    approvalVersion = approved.version,
+                    continuationVersion = exception.continuationVersion,
+                    approvalToken = exception.challenge.token,
+                    workflowRunId = exception.workflowRunId,
+                )
+            }
         }
 
         val providerB = RestartTestProvider(startingCallCount = 1)
         val toolB = RestartCalculatorTool()
 
         FileBackedSovereignStores.open(config).use { storesB ->
-            val engineB = createEngine(
+            createEngine(
                 provider = providerB,
                 toolRegistry = toolRegistryFor(toolB),
                 stores = storesB,
-            )
-            engineB.registerService(RestartTestService::class)
+            ).use { engineB ->
+                engineB.registerService(RestartTestService::class)
 
-            val result = runBlocking {
-                engineB.resumeApproval(
-                    ResumeApprovalCommand(
-                        approvalId = suspension.approvalId,
-                        approvalExpectedVersion = suspension.approvalVersion,
-                        continuationExpectedVersion = suspension.continuationVersion,
-                        presentedToken = suspension.approvalToken,
-                        resumedBy = "admin",
-                    ),
-                )
+                val result = runBlocking {
+                    engineB.resumeApproval(
+                        ResumeApprovalCommand(
+                            approvalId = suspension.approvalId,
+                            approvalExpectedVersion = suspension.approvalVersion,
+                            continuationExpectedVersion = suspension.continuationVersion,
+                            presentedToken = suspension.approvalToken,
+                            resumedBy = "admin",
+                        ),
+                    )
+                }
+
+                assertThat(result).isEqualTo("Final result: success")
+                assertThat(toolB.executeCount.get()).isEqualTo(1)
+
+                val continuation = runBlocking { storesB.approvalContinuationStore.get(suspension.approvalId) }
+                assertThat(continuation).isNotNull
+                assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.COMPLETED)
+
+                val suspended = runBlocking { storesB.suspendedInvocationStore.get(suspension.approvalId) }
+                assertThat(suspended).isNull()
+
+                val auditEvents = runBlocking { storesB.auditStore.readStream(suspension.workflowRunId) }
+                assertThat(auditEvents).isNotEmpty
             }
-
-            assertThat(result).isEqualTo("Final result: success")
-            assertThat(toolB.executeCount.get()).isEqualTo(1)
-
-            val continuation = runBlocking { storesB.approvalContinuationStore.get(suspension.approvalId) }
-            assertThat(continuation).isNotNull
-            assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.COMPLETED)
-
-            val suspended = runBlocking { storesB.suspendedInvocationStore.get(suspension.approvalId) }
-            assertThat(suspended).isNull()
-
-            val auditEvents = runBlocking { storesB.auditStore.readStream(suspension.workflowRunId) }
-            assertThat(auditEvents).isNotEmpty
         }
     }
 
@@ -253,33 +255,55 @@ class FileSuspendedInvocationStoreRestartTest {
         val toolA = RestartCalculatorTool()
 
         val suspension = FileBackedSovereignStores.open(config).use { storesA ->
-            val engineA = createEngine(
+            createEngine(
                 provider = RestartTestProvider(),
                 toolRegistry = toolRegistryFor(toolA),
                 stores = storesA,
-            )
-            val exception = triggerSuspension(engineA)
-            val approved = approve(storesA, exception.approvalId)
-            SuspendedWorkflow(
-                approvalId = exception.approvalId,
-                approvalVersion = approved.version,
-                continuationVersion = exception.continuationVersion,
-                approvalToken = exception.challenge.token,
-                workflowRunId = exception.workflowRunId,
-            )
+            ).use { engineA ->
+                val exception = triggerSuspension(engineA)
+                val approved = approve(storesA, exception.approvalId)
+                SuspendedWorkflow(
+                    approvalId = exception.approvalId,
+                    approvalVersion = approved.version,
+                    continuationVersion = exception.continuationVersion,
+                    approvalToken = exception.challenge.token,
+                    workflowRunId = exception.workflowRunId,
+                )
+            }
         }
 
         val toolB = RestartCalculatorTool()
 
         FileBackedSovereignStores.open(config).use { storesB ->
-            val engineB = createEngine(
+            createEngine(
                 provider = RestartTestProvider(startingCallCount = 1),
                 toolRegistry = toolRegistryFor(toolB),
                 stores = storesB,
-            )
+            ).use { engineB ->
+                assertThatThrownBy {
+                    runBlocking {
+                        engineB.resumeApproval(
+                            ResumeApprovalCommand(
+                                approvalId = suspension.approvalId,
+                                approvalExpectedVersion = suspension.approvalVersion,
+                                continuationExpectedVersion = suspension.continuationVersion,
+                                presentedToken = suspension.approvalToken,
+                                resumedBy = "admin",
+                            ),
+                        )
+                    }
+                }.isInstanceOf(ConfigurationException::class.java)
+                    .hasMessageContaining("resume-operation-not-registered")
 
-            assertThatThrownBy {
-                runBlocking {
+                val pending = runBlocking { storesB.approvalContinuationStore.get(suspension.approvalId) }
+                assertThat(pending).isNotNull
+                assertThat(pending!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+                assertThat(toolB.executeCount.get()).isEqualTo(0)
+                assertThat(runBlocking { storesB.suspendedInvocationStore.get(suspension.approvalId) }).isNotNull
+
+                engineB.registerService(RestartTestService::class)
+
+                val result = runBlocking {
                     engineB.resumeApproval(
                         ResumeApprovalCommand(
                             approvalId = suspension.approvalId,
@@ -290,31 +314,10 @@ class FileSuspendedInvocationStoreRestartTest {
                         ),
                     )
                 }
-            }.isInstanceOf(ConfigurationException::class.java)
-                .hasMessageContaining("resume-operation-not-registered")
 
-            val pending = runBlocking { storesB.approvalContinuationStore.get(suspension.approvalId) }
-            assertThat(pending).isNotNull
-            assertThat(pending!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
-            assertThat(toolB.executeCount.get()).isEqualTo(0)
-            assertThat(runBlocking { storesB.suspendedInvocationStore.get(suspension.approvalId) }).isNotNull
-
-            engineB.registerService(RestartTestService::class)
-
-            val result = runBlocking {
-                engineB.resumeApproval(
-                    ResumeApprovalCommand(
-                        approvalId = suspension.approvalId,
-                        approvalExpectedVersion = suspension.approvalVersion,
-                        continuationExpectedVersion = suspension.continuationVersion,
-                        presentedToken = suspension.approvalToken,
-                        resumedBy = "admin",
-                    ),
-                )
+                assertThat(result).isEqualTo("Final result: success")
+                assertThat(toolB.executeCount.get()).isEqualTo(1)
             }
-
-            assertThat(result).isEqualTo("Final result: success")
-            assertThat(toolB.executeCount.get()).isEqualTo(1)
         }
     }
 
@@ -324,52 +327,54 @@ class FileSuspendedInvocationStoreRestartTest {
         val toolA = RestartCalculatorTool()
 
         val suspension = FileBackedSovereignStores.open(config).use { storesA ->
-            val engineA = createEngine(
+            createEngine(
                 provider = RestartTestProvider(),
                 toolRegistry = toolRegistryFor(toolA),
                 stores = storesA,
-            )
-            val exception = triggerSuspension(engineA)
-            val approved = approve(storesA, exception.approvalId)
-            SuspendedWorkflow(
-                approvalId = exception.approvalId,
-                approvalVersion = approved.version,
-                continuationVersion = exception.continuationVersion,
-                approvalToken = exception.challenge.token,
-                workflowRunId = exception.workflowRunId,
-            )
+            ).use { engineA ->
+                val exception = triggerSuspension(engineA)
+                val approved = approve(storesA, exception.approvalId)
+                SuspendedWorkflow(
+                    approvalId = exception.approvalId,
+                    approvalVersion = approved.version,
+                    continuationVersion = exception.continuationVersion,
+                    approvalToken = exception.challenge.token,
+                    workflowRunId = exception.workflowRunId,
+                )
+            }
         }
 
         val driftedTool = RestartCalculatorTool(permission = "different.execute")
 
         FileBackedSovereignStores.open(config).use { storesB ->
-            val engineB = createEngine(
+            createEngine(
                 provider = RestartTestProvider(),
                 toolRegistry = toolRegistryFor(driftedTool),
                 stores = storesB,
-            )
-            engineB.registerService(RestartTestService::class)
+            ).use { engineB ->
+                engineB.registerService(RestartTestService::class)
 
-            assertThatThrownBy {
-                runBlocking {
-                    engineB.resumeApproval(
-                        ResumeApprovalCommand(
-                            approvalId = suspension.approvalId,
-                            approvalExpectedVersion = suspension.approvalVersion,
-                            continuationExpectedVersion = suspension.continuationVersion,
-                            presentedToken = suspension.approvalToken,
-                            resumedBy = "admin",
-                        ),
-                    )
-                }
-            }.isInstanceOf(IllegalArgumentException::class.java)
-                .hasMessageContaining("resume-tool-declaration-drift")
+                assertThatThrownBy {
+                    runBlocking {
+                        engineB.resumeApproval(
+                            ResumeApprovalCommand(
+                                approvalId = suspension.approvalId,
+                                approvalExpectedVersion = suspension.approvalVersion,
+                                continuationExpectedVersion = suspension.continuationVersion,
+                                presentedToken = suspension.approvalToken,
+                                resumedBy = "admin",
+                            ),
+                        )
+                    }
+                }.isInstanceOf(IllegalArgumentException::class.java)
+                    .hasMessageContaining("resume-tool-declaration-drift")
 
-            val continuation = runBlocking { storesB.approvalContinuationStore.get(suspension.approvalId) }
-            assertThat(continuation).isNotNull
-            assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
-            assertThat(driftedTool.executeCount.get()).isEqualTo(0)
-            assertThat(runBlocking { storesB.suspendedInvocationStore.get(suspension.approvalId) }).isNotNull
+                val continuation = runBlocking { storesB.approvalContinuationStore.get(suspension.approvalId) }
+                assertThat(continuation).isNotNull
+                assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+                assertThat(driftedTool.executeCount.get()).isEqualTo(0)
+                assertThat(runBlocking { storesB.suspendedInvocationStore.get(suspension.approvalId) }).isNotNull
+            }
         }
     }
 
@@ -384,20 +389,21 @@ class FileSuspendedInvocationStoreRestartTest {
                 fqcn = serviceName,
                 model = "test-model",
             )
-            val engineA = createEngine(
+            createEngine(
                 provider = RestartTestProvider(),
                 toolRegistry = toolRegistryFor(toolA),
                 stores = storesA,
-            )
-            val exception = triggerDynamicSuspension(engineA, serviceA)
-            val approved = approve(storesA, exception.approvalId)
-            SuspendedWorkflow(
-                approvalId = exception.approvalId,
-                approvalVersion = approved.version,
-                continuationVersion = exception.continuationVersion,
-                approvalToken = exception.challenge.token,
-                workflowRunId = exception.workflowRunId,
-            )
+            ).use { engineA ->
+                val exception = triggerDynamicSuspension(engineA, serviceA)
+                val approved = approve(storesA, exception.approvalId)
+                SuspendedWorkflow(
+                    approvalId = exception.approvalId,
+                    approvalVersion = approved.version,
+                    continuationVersion = exception.continuationVersion,
+                    approvalToken = exception.challenge.token,
+                    workflowRunId = exception.workflowRunId,
+                )
+            }
         }
 
         val toolB = RestartCalculatorTool()
@@ -407,33 +413,34 @@ class FileSuspendedInvocationStoreRestartTest {
                 fqcn = serviceName,
                 model = "changed-model",
             )
-            val engineB = createEngine(
+            createEngine(
                 provider = RestartTestProvider(),
                 toolRegistry = toolRegistryFor(toolB),
                 stores = storesB,
-            )
-            engineB.registerService(serviceB)
+            ).use { engineB ->
+                engineB.registerService(serviceB)
 
-            assertThatThrownBy {
-                runBlocking {
-                    engineB.resumeApproval(
-                        ResumeApprovalCommand(
-                            approvalId = suspension.approvalId,
-                            approvalExpectedVersion = suspension.approvalVersion,
-                            continuationExpectedVersion = suspension.continuationVersion,
-                            presentedToken = suspension.approvalToken,
-                            resumedBy = "admin",
-                        ),
-                    )
-                }
-            }.isInstanceOf(ConfigurationException::class.java)
-                .hasMessageContaining("resume-operation-definition-drift")
+                assertThatThrownBy {
+                    runBlocking {
+                        engineB.resumeApproval(
+                            ResumeApprovalCommand(
+                                approvalId = suspension.approvalId,
+                                approvalExpectedVersion = suspension.approvalVersion,
+                                continuationExpectedVersion = suspension.continuationVersion,
+                                presentedToken = suspension.approvalToken,
+                                resumedBy = "admin",
+                            ),
+                        )
+                    }
+                }.isInstanceOf(ConfigurationException::class.java)
+                    .hasMessageContaining("resume-operation-definition-drift")
 
-            val continuation = runBlocking { storesB.approvalContinuationStore.get(suspension.approvalId) }
-            assertThat(continuation).isNotNull
-            assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
-            assertThat(toolB.executeCount.get()).isEqualTo(0)
-            assertThat(runBlocking { storesB.suspendedInvocationStore.get(suspension.approvalId) }).isNotNull
+                val continuation = runBlocking { storesB.approvalContinuationStore.get(suspension.approvalId) }
+                assertThat(continuation).isNotNull
+                assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.PENDING)
+                assertThat(toolB.executeCount.get()).isEqualTo(0)
+                assertThat(runBlocking { storesB.suspendedInvocationStore.get(suspension.approvalId) }).isNotNull
+            }
         }
     }
 
@@ -552,8 +559,12 @@ class FileSuspendedInvocationStoreRestartTest {
             check(task.call()) { "Failed to compile dynamic service $fqcn" }
         }
 
-        val loader = URLClassLoader(arrayOf(classesRoot.toUri().toURL()), javaClass.classLoader)
-        return loader.loadClass(fqcn).kotlin
+        return URLClassLoader(
+            arrayOf(classesRoot.toUri().toURL()),
+            javaClass.classLoader,
+        ).use { loader ->
+            loader.loadClass(fqcn).kotlin
+        }
     }
 
     private fun triggerDynamicSuspension(

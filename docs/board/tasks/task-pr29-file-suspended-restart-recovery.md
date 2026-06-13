@@ -1,7 +1,7 @@
 # Task PR #29 — Encrypted FileSuspendedInvocationStore and Restart-Safe Recovery
 
 ## Status
-**Complete** — Merged
+**Complete** — Pending merge
 
 ## Branch
 feat/file-suspended-invocation-restart-recovery
@@ -80,6 +80,6 @@ Follows the same pattern as `FileApprovalStore`:
 
 ## Verification
 ```bash
-./gradlew :tramai-persistence-file:compileKotlin
+./gradlew :tramai-persistence-file:compileKotlin :tramai-persistence-file:compileTestKotlin --rerun-tasks 2>&1 | grep -E "error|Error|warning"
 ./gradlew :tramai-persistence-file:test --rerun-tasks
 ```

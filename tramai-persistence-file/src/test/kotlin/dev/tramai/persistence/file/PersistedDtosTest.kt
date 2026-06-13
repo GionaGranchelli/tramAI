@@ -460,7 +460,10 @@ class PersistedDtosTest {
         val persistedRecord = PersistedSuspendedInvocationRecordV1(
             schemaVersion = 1,
             metadata = metadata.toPersistedV1(),
-            replayEnvelope = envelope.toPersistedV1(),
+            replayEnvelope = PersistedReplayEnvelopeV1(
+                schemaVersion = 1,
+                messages = envelope.revealForResume().messages.map { it.toPersistedV1() },
+            ),
         )
 
         val restoredRecord = PersistedSuspendedInvocationRecordV1.fromJson(persistedRecord.toJson())

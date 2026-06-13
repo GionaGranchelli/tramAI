@@ -511,7 +511,7 @@ data class PersistedContentPartV1(
 // Domain conversions — SuspendedInvocationMetadata
 // ====================================================================
 
-fun PersistedSuspendedInvocationMetadataV1.toDomain(): SuspendedInvocationMetadata =
+internal fun PersistedSuspendedInvocationMetadataV1.toDomain(): SuspendedInvocationMetadata =
     SuspendedInvocationMetadata(
         approvalId = approvalId,
         toolCallId = toolCallId,
@@ -529,7 +529,7 @@ fun PersistedSuspendedInvocationMetadataV1.toDomain(): SuspendedInvocationMetada
         toolSecurity = toolSecurity?.toDomain(),
     )
 
-fun SuspendedInvocationMetadata.toPersistedV1(): PersistedSuspendedInvocationMetadataV1 =
+internal fun SuspendedInvocationMetadata.toPersistedV1(): PersistedSuspendedInvocationMetadataV1 =
     PersistedSuspendedInvocationMetadataV1(
         schemaVersion = 1,
         approvalId = approvalId,
@@ -548,7 +548,7 @@ fun SuspendedInvocationMetadata.toPersistedV1(): PersistedSuspendedInvocationMet
         toolSecurity = toolSecurity?.toPersistedV1(),
     )
 
-fun PersistedEngineExecutionIdentityV1.toDomain(): EngineExecutionIdentity = EngineExecutionIdentity(
+internal fun PersistedEngineExecutionIdentityV1.toDomain(): EngineExecutionIdentity = EngineExecutionIdentity(
     workflowRunId = workflowRunId,
     correlationId = correlationId,
     workflowDigest = Sha256Digest.of(workflowDigest),
@@ -556,7 +556,7 @@ fun PersistedEngineExecutionIdentityV1.toDomain(): EngineExecutionIdentity = Eng
     actorId = actorId,
 )
 
-fun EngineExecutionIdentity.toPersistedV1(): PersistedEngineExecutionIdentityV1 =
+internal fun EngineExecutionIdentity.toPersistedV1(): PersistedEngineExecutionIdentityV1 =
     PersistedEngineExecutionIdentityV1(
         schemaVersion = 1,
         workflowRunId = workflowRunId,
@@ -566,26 +566,26 @@ fun EngineExecutionIdentity.toPersistedV1(): PersistedEngineExecutionIdentityV1 
         actorId = actorId,
     )
 
-fun PersistedExecutionSecurityContextV1.toDomain(): ExecutionSecurityContext = ExecutionSecurityContext(
+internal fun PersistedExecutionSecurityContextV1.toDomain(): ExecutionSecurityContext = ExecutionSecurityContext(
     dataClassification = dataClassification?.let(DataClassification::valueOf),
     classificationSource = classificationSource?.let(ClassificationSource::valueOf),
 )
 
-fun ExecutionSecurityContext.toPersistedV1(): PersistedExecutionSecurityContextV1 =
+internal fun ExecutionSecurityContext.toPersistedV1(): PersistedExecutionSecurityContextV1 =
     PersistedExecutionSecurityContextV1(
         schemaVersion = 1,
         dataClassification = dataClassification?.name,
         classificationSource = classificationSource?.name,
     )
 
-fun PersistedResumeOperationReferenceV1.toDomain(): ResumeOperationReference = ResumeOperationReference(
+internal fun PersistedResumeOperationReferenceV1.toDomain(): ResumeOperationReference = ResumeOperationReference(
     serviceInterface = serviceInterface,
     methodName = methodName,
     jvmMethodDescriptor = jvmMethodDescriptor,
     resumeDefinitionDigest = Sha256Digest.of(resumeDefinitionDigest),
 )
 
-fun ResumeOperationReference.toPersistedV1(): PersistedResumeOperationReferenceV1 =
+internal fun ResumeOperationReference.toPersistedV1(): PersistedResumeOperationReferenceV1 =
     PersistedResumeOperationReferenceV1(
         schemaVersion = 1,
         serviceInterface = serviceInterface,
@@ -594,19 +594,19 @@ fun ResumeOperationReference.toPersistedV1(): PersistedResumeOperationReferenceV
         resumeDefinitionDigest = resumeDefinitionDigest.value,
     )
 
-fun PersistedResumeToolReferenceV1.toDomain(): ResumeToolReference = ResumeToolReference(
+internal fun PersistedResumeToolReferenceV1.toDomain(): ResumeToolReference = ResumeToolReference(
     toolName = toolName,
     declarationDigest = Sha256Digest.of(declarationDigest),
 )
 
-fun ResumeToolReference.toPersistedV1(): PersistedResumeToolReferenceV1 =
+internal fun ResumeToolReference.toPersistedV1(): PersistedResumeToolReferenceV1 =
     PersistedResumeToolReferenceV1(
         schemaVersion = 1,
         toolName = toolName,
         declarationDigest = declarationDigest.value,
     )
 
-fun PersistedTokenBudgetSnapshotV1.toDomain(): TokenBudgetSnapshot = TokenBudgetSnapshot(
+internal fun PersistedTokenBudgetSnapshotV1.toDomain(): TokenBudgetSnapshot = TokenBudgetSnapshot(
     totalInputTokens = totalInputTokens,
     totalOutputTokens = totalOutputTokens,
     totalInputCost = totalInputCost,
@@ -614,7 +614,7 @@ fun PersistedTokenBudgetSnapshotV1.toDomain(): TokenBudgetSnapshot = TokenBudget
     warnIfExceeded = warnIfExceeded,
 )
 
-fun TokenBudgetSnapshot.toPersistedV1(): PersistedTokenBudgetSnapshotV1 =
+internal fun TokenBudgetSnapshot.toPersistedV1(): PersistedTokenBudgetSnapshotV1 =
     PersistedTokenBudgetSnapshotV1(
         schemaVersion = 1,
         totalInputTokens = totalInputTokens,
@@ -624,7 +624,7 @@ fun TokenBudgetSnapshot.toPersistedV1(): PersistedTokenBudgetSnapshotV1 =
         warnIfExceeded = warnIfExceeded,
     )
 
-fun PersistedToolSecurityMetadataV1.toDomain(): ToolSecurityMetadata = ToolSecurityMetadata(
+internal fun PersistedToolSecurityMetadataV1.toDomain(): ToolSecurityMetadata = ToolSecurityMetadata(
     permission = permission,
     risk = RiskLevel.valueOf(risk),
     approval = ApprovalMode.valueOf(approval),
@@ -633,7 +633,7 @@ fun PersistedToolSecurityMetadataV1.toDomain(): ToolSecurityMetadata = ToolSecur
     compatibilityMode = CompatibilityMode.valueOf(compatibilityMode),
 )
 
-fun ToolSecurityMetadata.toPersistedV1(): PersistedToolSecurityMetadataV1 =
+internal fun ToolSecurityMetadata.toPersistedV1(): PersistedToolSecurityMetadataV1 =
     PersistedToolSecurityMetadataV1(
         schemaVersion = 1,
         permission = permission,
@@ -644,16 +644,10 @@ fun ToolSecurityMetadata.toPersistedV1(): PersistedToolSecurityMetadataV1 =
         compatibilityMode = compatibilityMode.name,
     )
 
-fun PersistedReplayEnvelopeV1.toDomain(): SensitiveReplayEnvelope =
+internal fun PersistedReplayEnvelopeV1.toDomain(): SensitiveReplayEnvelope =
     SensitiveReplayEnvelope.of(messages.map { it.toDomain() })
 
-fun SensitiveReplayEnvelope.toPersistedV1(): PersistedReplayEnvelopeV1 =
-    PersistedReplayEnvelopeV1(
-        schemaVersion = 1,
-        messages = revealForResume().messages.map { it.toPersistedV1() },
-    )
-
-fun PersistedMessageV1.toDomain(): Message = Message(
+internal fun PersistedMessageV1.toDomain(): Message = Message(
     role = MessageRole.valueOf(role),
     content = content,
     contentParts = contentParts?.map { it.toDomain() },
@@ -661,7 +655,7 @@ fun PersistedMessageV1.toDomain(): Message = Message(
     toolCalls = toolCalls?.map { it.toDomain() },
 )
 
-fun Message.toPersistedV1(): PersistedMessageV1 = PersistedMessageV1(
+internal fun Message.toPersistedV1(): PersistedMessageV1 = PersistedMessageV1(
     schemaVersion = 1,
     role = role.name,
     content = content,
@@ -670,20 +664,20 @@ fun Message.toPersistedV1(): PersistedMessageV1 = PersistedMessageV1(
     toolCalls = toolCalls?.map { it.toPersistedV1() },
 )
 
-fun PersistedToolCallV1.toDomain(): ToolCall = ToolCall(
+internal fun PersistedToolCallV1.toDomain(): ToolCall = ToolCall(
     id = id,
     name = name,
     argumentsJson = argumentsJson,
 )
 
-fun ToolCall.toPersistedV1(): PersistedToolCallV1 = PersistedToolCallV1(
+internal fun ToolCall.toPersistedV1(): PersistedToolCallV1 = PersistedToolCallV1(
     schemaVersion = 1,
     id = id,
     name = name,
     argumentsJson = argumentsJson,
 )
 
-fun PersistedContentPartV1.toDomain(): ContentPart = when (type) {
+internal fun PersistedContentPartV1.toDomain(): ContentPart = when (type) {
     "text" -> ContentPart.TextPart(
         text = requireNotNull(text) { "persisted-content-part-text-missing" },
     )
@@ -700,7 +694,7 @@ fun PersistedContentPartV1.toDomain(): ContentPart = when (type) {
     else -> error("persisted-content-part-type-unsupported")
 }
 
-fun ContentPart.toPersistedV1(): PersistedContentPartV1 = when (this) {
+internal fun ContentPart.toPersistedV1(): PersistedContentPartV1 = when (this) {
     is ContentPart.TextPart -> PersistedContentPartV1(
         schemaVersion = 1,
         type = "text",

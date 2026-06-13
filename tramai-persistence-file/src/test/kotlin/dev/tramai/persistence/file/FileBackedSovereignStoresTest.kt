@@ -1,15 +1,39 @@
 package dev.tramai.persistence.file
 
+import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.model.Message
+import dev.tramai.core.model.MessageRole
+import dev.tramai.core.model.ToolCall
+import dev.tramai.core.policy.ApprovalMode
+import dev.tramai.core.policy.AuditDetail
+import dev.tramai.core.policy.ClassificationSource
+import dev.tramai.core.policy.CompatibilityMode
+import dev.tramai.core.policy.DataClassification
+import dev.tramai.core.policy.ManagedNetworkEgress
+import dev.tramai.core.policy.RiskLevel
+import dev.tramai.core.policy.ToolSecurityMetadata
+import dev.tramai.engine.EngineExecutionIdentity
+import dev.tramai.engine.ExecutionSecurityContext
+import dev.tramai.engine.ResumeOperationReference
+import dev.tramai.engine.ResumeToolReference
+import dev.tramai.engine.SensitiveReplayEnvelope
+import dev.tramai.engine.SuspendedInvocationMetadata
+import dev.tramai.engine.TokenBudgetSnapshot
+import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
+import java.security.MessageDigest
+import java.util.Base64
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import kotlin.io.path.*
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import kotlin.test.assertTrue
 
 class FileBackedSovereignStoresTest {
@@ -143,13 +167,30 @@ class FileBackedSovereignStoresTest {
             assertNotNull(stores.approvalStore, "approvalStore must be non-null")
             assertNotNull(stores.approvalContinuationStore, "approvalContinuationStore must be non-null")
             assertNotNull(stores.auditStore, "auditStore must be non-null")
+            assertNotNull(stores.suspendedInvocationStore, "suspendedInvocationStore must be non-null")
 
             assertTrue(stores.approvalStore is FileApprovalStore)
             assertTrue(stores.approvalContinuationStore is FileApprovalContinuationStore)
             assertTrue(stores.auditStore is FileAuditStore)
+            assertTrue(stores.suspendedInvocationStore is FileSuspendedInvocationStore)
         } finally {
             stores.close()
         }
+    }
+
+    @Test
+    fun `open creates suspended directory with 0700 permissions`() {
+        val config = createConfig()
+        val stores = FileBackedSovereignStores.open(config)
+        stores.close()
+
+        val suspendedDir = rootDir.resolve("suspended")
+        assertTrue(suspendedDir.exists(), "suspended directory must exist after open")
+        assertTrue(suspendedDir.isDirectory(), "suspended must be a directory")
+        assertTrue(
+            Files.getPosixFilePermissions(suspendedDir) == PosixFilePermissions.fromString("rwx------"),
+            "suspended permissions must be 0700",
+        )
     }
 
     @Test
@@ -172,6 +213,54 @@ class FileBackedSovereignStoresTest {
         val stores = FileBackedSovereignStores.open(config)
         stores.close()
         stores.close()
+    }
+
+    @Test
+    fun `corrupted suspended record fails startup verification`() = runBlocking {
+        val config = createConfig()
+        val approvalId = "bundle-suspended-corrupt-1"
+
+        FileBackedSovereignStores.open(config).use { stores ->
+            val (metadata, envelope) = createValidSuspendedRecord(approvalId)
+            stores.suspendedInvocationStore.create(metadata, envelope)
+        }
+
+        val path = suspendedRecordPath(approvalId)
+        val encrypted = EncryptedFileEnvelopeV1.fromJson(path.readText())
+        Files.writeString(
+            path,
+            encrypted.copy(ciphertextBase64 = encrypted.ciphertextBase64.dropLast(1) + "X").toJson(),
+        )
+
+        assertThrows<FileStoreCorruptionException> {
+            FileBackedSovereignStores.open(
+                FileBackedStoreConfiguration(
+                    rootDirectory = rootDir,
+                    encryption = FileStoreEncryptionConfiguration(
+                        activeKeyId = "test-key",
+                        keyProvider = keyProvider,
+                    ),
+                    verifyOnOpen = true,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `operations after close are rejected on suspended store`() = runBlocking {
+        val stores = FileBackedSovereignStores.open(createConfig())
+        val suspendedStore = stores.suspendedInvocationStore
+        stores.close()
+
+        assertThrows<IllegalStateException> {
+            runBlocking { suspendedStore.get("approval-closed") }
+        }
+        assertThrows<IllegalStateException> {
+            runBlocking { suspendedStore.revealReplayEnvelope("approval-closed") }
+        }
+        assertThrows<IllegalStateException> {
+            runBlocking { suspendedStore.remove("approval-closed") }
+        }
     }
 
     // ── activeKeyId validation ──────────────────────────────────────────
@@ -445,5 +534,132 @@ class FileBackedSovereignStoresTest {
         assertThrows<FileStorePermissionException> {
             FileBackedSovereignStores.open(createConfig(setupRoot))
         }
+    }
+
+    private fun suspendedRecordPath(approvalId: String): Path =
+        rootDir.resolve(
+            "suspended/${FileStoreSha256.digest("suspended-invocation", approvalId)}.tram.enc",
+        )
+
+    private fun createValidSuspendedRecord(
+        approvalId: String,
+    ): Pair<SuspendedInvocationMetadata, SensitiveReplayEnvelope> {
+        val toolName = "bundle_lookup"
+        val toolCallId = "bundle-tool-call-1"
+        val operationReference = ResumeOperationReference(
+            serviceInterface = "dev.tramai.persistence.file.BundleTestService",
+            methodName = "resume",
+            jvmMethodDescriptor = "(Ljava/lang/String;)Ljava/lang/String;",
+            resumeDefinitionDigest = Sha256Digest.of(
+                "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+            ),
+        )
+        val messages = listOf(
+            Message(
+                role = MessageRole.USER,
+                content = "bundle prompt",
+            ),
+            Message(
+                role = MessageRole.ASSISTANT,
+                content = "",
+                toolCalls = listOf(
+                    ToolCall(
+                        id = toolCallId,
+                        name = toolName,
+                        argumentsJson = "__redacted_approval_continuation_args__",
+                    ),
+                ),
+            ),
+        )
+        val metadata = SuspendedInvocationMetadata(
+            approvalId = approvalId,
+            toolCallId = toolCallId,
+            toolName = toolName,
+            toolCallIndex = 0,
+            correlationId = "bundle-correlation-1",
+            identity = EngineExecutionIdentity(
+                workflowRunId = "bundle-workflow-1",
+                correlationId = "bundle-correlation-1",
+                workflowDigest = Sha256Digest.of(
+                    "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+                ),
+                policyVersion = "policy-v1",
+                actorId = "bundle-actor",
+            ),
+            securityContext = ExecutionSecurityContext(
+                dataClassification = DataClassification.CONFIDENTIAL,
+                classificationSource = ClassificationSource.RULE_BASED,
+            ),
+            operationReference = operationReference,
+            replayEnvelopeDigest = computeReplayEnvelopeDigest(operationReference, messages),
+            conversationId = "bundle-conversation-1",
+            historySize = 1,
+            tokenBudgetSnapshot = TokenBudgetSnapshot(
+                totalInputTokens = 1,
+                totalOutputTokens = 2,
+                totalInputCost = 0.01,
+                totalOutputCost = 0.02,
+                warnIfExceeded = true,
+            ),
+            toolReference = ResumeToolReference(
+                toolName = toolName,
+                declarationDigest = Sha256Digest.of(
+                    "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+                ),
+            ),
+            toolSecurity = ToolSecurityMetadata(
+                permission = "bundle.read",
+                risk = RiskLevel.LOW,
+                approval = ApprovalMode.HUMAN_REQUIRED,
+                managedNetworkEgress = ManagedNetworkEgress.DENY,
+                audit = AuditDetail.FULL,
+                compatibilityMode = CompatibilityMode.STRICT,
+            ),
+        )
+        return metadata to SensitiveReplayEnvelope.of(messages)
+    }
+
+    private fun computeReplayEnvelopeDigest(
+        operationReference: ResumeOperationReference,
+        messages: List<Message>,
+    ): Sha256Digest {
+        val canonical = buildString {
+            appendField("service_interface", operationReference.serviceInterface)
+            append("method=").append(operationReference.methodName).append('\n')
+            append("jvm_descriptor=").append(operationReference.jvmMethodDescriptor).append('\n')
+            append("digest=").append(operationReference.resumeDefinitionDigest.value).append('\n')
+            append(encodeCanonicalMessages(messages))
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(canonical.toByteArray(StandardCharsets.UTF_8))
+        val hex = digest.joinToString("") { "%02x".format(it) }
+        return Sha256Digest.of("sha256:$hex")
+    }
+
+    private fun encodeCanonicalMessages(messages: List<Message>): String = buildString {
+        messages.forEachIndexed { index, message ->
+            if (index > 0) append("\n---\n")
+            append("role=").append(message.role.name).append('\n')
+            appendField("content", message.content)
+            message.toolCalls?.let { toolCalls ->
+                append("tool_calls_count=").append(toolCalls.size).append('\n')
+                toolCalls.forEachIndexed { toolIndex, toolCall ->
+                    append("tool_call_index=").append(toolIndex).append('\n')
+                    appendField("tool_call_id", toolCall.id)
+                    appendField("tool_call_name", toolCall.name)
+                    appendField("tool_call_args", toolCall.argumentsJson)
+                }
+            }
+        }
+    }
+
+    private fun StringBuilder.appendField(name: String, value: String?) {
+        if (value == null) {
+            append(name).append("_null\n")
+            return
+        }
+        val bytes = value.toByteArray(StandardCharsets.UTF_8)
+        append(name).append("_len=").append(bytes.size).append('\n')
+        append(value).append('\n')
     }
 }

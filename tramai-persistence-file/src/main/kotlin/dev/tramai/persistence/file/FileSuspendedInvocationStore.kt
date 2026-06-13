@@ -19,6 +19,11 @@ class FileSuspendedInvocationStore internal constructor(
     private val lease: FileStoreLease,
 ) : SuspendedInvocationStore {
 
+    internal data class ValidatedSuspendedInvocationRecord(
+        val metadata: SuspendedInvocationMetadata,
+        val envelope: SensitiveReplayEnvelope,
+    )
+
     companion object {
         private const val RECORD_TYPE = "suspended-invocation"
         private const val SUSPENDED_DIR = "suspended"
@@ -68,6 +73,36 @@ class FileSuspendedInvocationStore internal constructor(
         return record
     }
 
+    internal fun decodeAndValidateRecord(
+        record: PersistedSuspendedInvocationRecordV1,
+    ): ValidatedSuspendedInvocationRecord {
+        try {
+            validateRecordSchemas(record)
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+        }
+
+        val metadata = try {
+            record.metadata.toDomain()
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException("suspended-invocation-domain-conversion-failed", e)
+        }
+
+        val messages = try {
+            record.replayEnvelope.messages.map { it.toDomain() }
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException("suspended-invocation-domain-conversion-failed", e)
+        }
+
+        val envelope = try {
+            ReplayEnvelopePersistenceCodec.restoreFromPersistence(metadata, messages)
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException("suspended-invocation-replay-envelope-invalid", e)
+        }
+
+        return ValidatedSuspendedInvocationRecord(metadata, envelope)
+    }
+
     fun verifyAll() = lease.withOpenOperation {
         if (!suspendedDir.exists()) return@withOpenOperation
         FileStoreUtil.validateManagedDirectory(suspendedDir, "suspended")
@@ -94,23 +129,14 @@ class FileSuspendedInvocationStore internal constructor(
             } catch (e: Exception) {
                 throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
             }
-            validateRecordSchemas(record)
             val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.metadata.approvalId)
             if (expectedDigest != digestHex) {
                 throw FileStoreCorruptionException("suspended-invocation-id-filename-digest-mismatch")
             }
-            val metadata = try {
-                record.metadata.toDomain()
-            } catch (e: Exception) {
-                throw FileStoreCorruptionException("suspended-invocation-domain-conversion-failed", e)
-            }
-            val replayEnvelope = try {
-                record.replayEnvelope.toDomain()
-            } catch (e: Exception) {
-                throw FileStoreCorruptionException("suspended-invocation-domain-conversion-failed", e)
-            }
+            validateRecordSchemas(record)
+            val validated = decodeAndValidateRecord(record)
             try {
-                ReplayEnvelopePersistenceCodec.snapshotForPersistence(metadata, replayEnvelope)
+                ReplayEnvelopePersistenceCodec.snapshotForPersistence(validated.metadata, validated.envelope)
             } catch (e: Exception) {
                 throw FileStoreCorruptionException("suspended-invocation-replay-envelope-invalid", e)
             }
@@ -167,11 +193,7 @@ class FileSuspendedInvocationStore internal constructor(
         lock.lock()
         try {
             val record = readCurrent(approvalId) ?: return null
-            return try {
-                record.metadata.toDomain()
-            } catch (e: Exception) {
-                throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
-            }
+            return decodeAndValidateRecord(record).metadata
         } finally {
             lock.unlock()
         }
@@ -184,13 +206,7 @@ class FileSuspendedInvocationStore internal constructor(
         lock.lock()
         try {
             val record = readCurrent(approvalId) ?: return null
-            return try {
-                val metadata = record.metadata.toDomain()
-                val messages = record.replayEnvelope.messages.map { it.toDomain() }
-                ReplayEnvelopePersistenceCodec.restoreFromPersistence(metadata, messages)
-            } catch (e: Exception) {
-                throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
-            }
+            return decodeAndValidateRecord(record).envelope
         } finally {
             lock.unlock()
         }
@@ -203,13 +219,10 @@ class FileSuspendedInvocationStore internal constructor(
         lock.lock()
         try {
             val record = readCurrent(approvalId) ?: return null
+            val validated = decodeAndValidateRecord(record)
             Files.delete(storePath(approvalId))
             FileStoreUtil.forceParentDirectory(suspendedDir)
-            return try {
-                record.metadata.toDomain()
-            } catch (e: Exception) {
-                throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
-            }
+            return validated.metadata
         } finally {
             lock.unlock()
         }

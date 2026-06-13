@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Base64
 
-object ReplayEnvelopePersistenceCodec {
+internal object ReplayEnvelopePersistenceCodec {
 
     private const val REDACTED_APPROVAL_CONTINUATION_ARGUMENTS =
         "__redacted_approval_continuation_args__"
@@ -50,7 +50,7 @@ object ReplayEnvelopePersistenceCodec {
         val selectedSlot = matchingSlots.single()
         require(metadata.toolCallIndex >= 0) { "suspended-replay-envelope-tool-call-index-out-of-bounds" }
         require(selectedSlot.toolCallIndex == metadata.toolCallIndex) {
-            "suspended-replay-envelope-tool-call-index-out-of-bounds"
+            "suspended-replay-envelope-tool-call-index-mismatch"
         }
         require(selectedSlot.call.name == metadata.toolName) {
             "suspended-replay-envelope-tool-call-name-mismatch"
