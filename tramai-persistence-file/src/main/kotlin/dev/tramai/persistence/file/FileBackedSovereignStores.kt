@@ -2,6 +2,7 @@ package dev.tramai.persistence.file
 
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStore
+import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.security.audit.AuditStore
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -18,12 +19,12 @@ import kotlin.io.path.isSymbolicLink
 import kotlin.io.path.notExists
 
 /**
- * Bundle of all three sovereign file-backed stores, sharing a single root directory
+ * Bundle of all four sovereign file-backed stores, sharing a single root directory
  * and an exclusive file lock.
  *
  * On construction, [open] validates the root directory, acquires an exclusive lock
  * on `.tramai.lock`, creates or validates subdirectories (`approvals/`, `continuations/`,
- * `audit/`), initialises or validates the `manifest.json`, optionally verifies all
+ * `audit/`, `suspended/`), initialises or validates the `manifest.json`, optionally verifies all
  * existing records, and returns a fully wired [AutoCloseable] handle.
  *
  * ## Thread safety
@@ -40,11 +41,13 @@ import kotlin.io.path.notExists
  * @property approvalStore Store for [ApprovalRequest] records.
  * @property approvalContinuationStore Store for [ApprovalContinuation] records.
  * @property auditStore Store for [AuditEvent] records.
+ * @property suspendedInvocationStore Store for suspended invocation metadata and replay envelopes.
  */
 class FileBackedSovereignStores private constructor(
     val approvalStore: ApprovalStore,
     val approvalContinuationStore: ApprovalContinuationStore,
     val auditStore: AuditStore,
+    val suspendedInvocationStore: SuspendedInvocationStore,
     private val lockFile: RandomAccessFile,
     private val lock: FileLock,
     private val rootDir: Path,
@@ -62,10 +65,10 @@ class FileBackedSovereignStores private constructor(
          * 1. Create root directory with 0700 permissions if absent.
          * 2. Verify root is a directory, not a symlink, with 0700 permissions.
          * 3. Acquire exclusive lock on `.tramai.lock` (rejects if already held).
-         * 4. Create subdirectories (`approvals/`, `continuations/`, `audit/`) with 0700 permissions.
+         * 4. Create subdirectories (`approvals/`, `continuations/`, `audit/`, `suspended/`) with 0700 permissions.
          * 5. Validate or create `manifest.json` (format version must be 1).
          * 6. Resolve and validate the encryption key (must be AES, 256-bit).
-         * 7. Construct and wire the three file-backed stores with a shared [FileStoreLease].
+         * 7. Construct and wire the four file-backed stores with a shared [FileStoreLease].
          * 8. If [FileBackedStoreConfiguration.verifyOnOpen] is true, verify all existing records.
          *
          * On any failure the lock is released before the exception propagates.
@@ -130,7 +133,7 @@ class FileBackedSovereignStores private constructor(
                 }
 
                 // ── 4. Create subdirectories with strict permissions ──
-                val subdirs = listOf("approvals", "continuations", "audit")
+                val subdirs = listOf("approvals", "continuations", "audit", "suspended")
                 for (dir in subdirs) {
                     val path = root.resolve(dir)
                     if (path.notExists()) {
@@ -188,18 +191,21 @@ class FileBackedSovereignStores private constructor(
                 val fileBackedApprovalStore = FileApprovalStore(root, key, configuration, lease)
                 val fileBackedContinuationStore = FileApprovalContinuationStore(root, key, configuration, lease)
                 val fileBackedAuditStore = FileAuditStore(root, key, configuration, lease)
+                val fileBackedSuspendedStore = FileSuspendedInvocationStore(root, key, configuration, lease)
 
                 // ── 7. If verifyOnOpen, verify all records ──
                 if (configuration.verifyOnOpen) {
                     fileBackedApprovalStore.verifyAll()
                     fileBackedContinuationStore.verifyAll()
                     fileBackedAuditStore.verifyAll()
+                    fileBackedSuspendedStore.verifyAll()
                 }
 
                 return FileBackedSovereignStores(
                     approvalStore = fileBackedApprovalStore,
                     approvalContinuationStore = fileBackedContinuationStore,
                     auditStore = fileBackedAuditStore,
+                    suspendedInvocationStore = fileBackedSuspendedStore,
                     lockFile = lockFileNonNull,
                     lock = fileLockNonNull,
                     rootDir = root,

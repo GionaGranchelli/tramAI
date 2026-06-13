@@ -6,12 +6,32 @@ import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.model.ContentPart
+import dev.tramai.core.model.Message
+import dev.tramai.core.model.MessageRole
+import dev.tramai.core.model.ToolCall
+import dev.tramai.core.policy.ApprovalMode
+import dev.tramai.core.policy.AuditDetail
+import dev.tramai.core.policy.ClassificationSource
+import dev.tramai.core.policy.CompatibilityMode
+import dev.tramai.core.policy.DataClassification
+import dev.tramai.core.policy.ManagedNetworkEgress
+import dev.tramai.core.policy.RiskLevel
+import dev.tramai.core.policy.ToolSecurityMetadata
+import dev.tramai.engine.EngineExecutionIdentity
+import dev.tramai.engine.ExecutionSecurityContext
+import dev.tramai.engine.ResumeOperationReference
+import dev.tramai.engine.ResumeToolReference
+import dev.tramai.engine.SensitiveReplayEnvelope
+import dev.tramai.engine.SuspendedInvocationMetadata
+import dev.tramai.engine.TokenBudgetSnapshot
 import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.AuditHashAlgorithm
 import dev.tramai.security.audit.CURRENT_AUDIT_SCHEMA_VERSION
 import dev.tramai.security.audit.calculateHash
 import org.junit.jupiter.api.Test
 import java.time.Instant
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -357,5 +377,105 @@ class PersistedDtosTest {
         assertEquals(eventWithHash.eventHash, restored.eventHash)
         assertEquals(eventWithHash.metadata, restored.metadata)
         assertEquals(eventWithHash.timestamp, restored.timestamp)
+    }
+
+    @Test
+    fun `Suspended invocation DTOs round trip domain and json`() {
+        val messages = listOf(
+            Message(
+                role = MessageRole.USER,
+                content = "",
+                contentParts = listOf(
+                    ContentPart.TextPart("describe"),
+                    ContentPart.ImagePart("image/png", byteArrayOf(1, 2, 3, 4)),
+                    ContentPart.ImageUrlContent("https://example.com/x.png", "image/png"),
+                ),
+            ),
+            Message(
+                role = MessageRole.ASSISTANT,
+                content = "",
+                toolCalls = listOf(
+                    ToolCall(
+                        id = "call-1",
+                        name = "safeTool",
+                        argumentsJson = "__redacted_approval_continuation_args__",
+                    ),
+                ),
+            ),
+        )
+        val metadata = SuspendedInvocationMetadata(
+            approvalId = "approval-1",
+            toolCallId = "call-1",
+            toolName = "safeTool",
+            toolCallIndex = 0,
+            correlationId = "corr-1",
+            identity = EngineExecutionIdentity(
+                workflowRunId = "wf-1",
+                correlationId = "corr-1",
+                workflowDigest = testDigest,
+                policyVersion = "policy-v1",
+                actorId = "actor-1",
+            ),
+            securityContext = ExecutionSecurityContext(
+                dataClassification = DataClassification.CONFIDENTIAL,
+                classificationSource = ClassificationSource.RULE_BASED,
+            ),
+            operationReference = ResumeOperationReference(
+                serviceInterface = "dev.example.Service",
+                methodName = "run",
+                jvmMethodDescriptor = "(Ljava/lang/String;)Ljava/lang/String;",
+                resumeDefinitionDigest = Sha256Digest.of(
+                    "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                ),
+            ),
+            replayEnvelopeDigest = Sha256Digest.of(
+                "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            ),
+            conversationId = "conversation-1",
+            historySize = 0,
+            tokenBudgetSnapshot = TokenBudgetSnapshot(
+                totalInputTokens = 10,
+                totalOutputTokens = 20,
+                totalInputCost = 0.1,
+                totalOutputCost = 0.2,
+                warnIfExceeded = true,
+            ),
+            toolReference = ResumeToolReference(
+                toolName = "safeTool",
+                declarationDigest = Sha256Digest.of(
+                    "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+                ),
+            ),
+            toolSecurity = ToolSecurityMetadata(
+                permission = "files.read",
+                risk = RiskLevel.MEDIUM,
+                approval = ApprovalMode.HUMAN_REQUIRED,
+                managedNetworkEgress = ManagedNetworkEgress.ALLOWLIST_ONLY,
+                audit = AuditDetail.FULL,
+                compatibilityMode = CompatibilityMode.STRICT,
+            ),
+        )
+        val envelope = SensitiveReplayEnvelope.of(messages)
+
+        val persistedRecord = PersistedSuspendedInvocationRecordV1(
+            schemaVersion = 1,
+            metadata = metadata.toPersistedV1(),
+            replayEnvelope = PersistedReplayEnvelopeV1(
+                schemaVersion = 1,
+                messages = envelope.revealForResume().messages.map { it.toPersistedV1() },
+            ),
+        )
+
+        val restoredRecord = PersistedSuspendedInvocationRecordV1.fromJson(persistedRecord.toJson())
+        val restoredMetadata = restoredRecord.metadata.toDomain()
+        val restoredMessages = restoredRecord.replayEnvelope.toDomain().revealForResume().messages
+
+        assertEquals(metadata, restoredMetadata)
+        assertEquals(messages[0].role, restoredMessages[0].role)
+        assertEquals(messages[0].contentParts?.size, restoredMessages[0].contentParts?.size)
+        val restoredImage = restoredMessages[0].contentParts?.get(1) as ContentPart.ImagePart
+        assertContentEquals(byteArrayOf(1, 2, 3, 4), restoredImage.data)
+        assertEquals("safeTool", restoredMessages[1].toolCalls?.single()?.name)
+        assertEquals("__redacted_approval_continuation_args__", restoredMessages[1].toolCalls?.single()?.argumentsJson)
     }
 }

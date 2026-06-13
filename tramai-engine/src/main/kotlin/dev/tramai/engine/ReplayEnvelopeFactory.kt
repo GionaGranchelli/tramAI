@@ -62,7 +62,7 @@ internal object ReplayEnvelopeFactory {
         toolCallIndex: Int,
     ): PreparedReplayEnvelope {
         // Select latest assistant message with tool calls (fail closed if none)
-        val assistantMsgIndex = messages.indexOfLast { it.role == MessageRole.ASSISTANT && it.toolCalls != null }
+        val assistantMsgIndex = messages.indexOfLast { it.role == MessageRole.ASSISTANT && !it.toolCalls.isNullOrEmpty() }
         require(assistantMsgIndex >= 0) { "replay-envelope-assistant-batch-not-found" }
 
         val assistantMsg = messages[assistantMsgIndex]
@@ -121,7 +121,7 @@ internal object ReplayEnvelopeFactory {
         val messages = payload.messages.toMutableList()
 
         // Find the matching assistant message with tool calls
-        val assistantMsgIndex = messages.indexOfLast { it.role == MessageRole.ASSISTANT && it.toolCalls != null }
+        val assistantMsgIndex = messages.indexOfLast { it.role == MessageRole.ASSISTANT && !it.toolCalls.isNullOrEmpty() }
         require(assistantMsgIndex >= 0) { "replay-envelope-assistant-batch-not-found" }
 
         val assistantMsg = messages[assistantMsgIndex]
