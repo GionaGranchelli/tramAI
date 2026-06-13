@@ -193,6 +193,28 @@ class LocalModelArtifactManifestV1Test {
         assertThat(manifest.artifacts[0].relativePath).isEqualTo("original.gguf")
     }
 
+    @Test
+    fun `exposed artifact snapshot cannot be mutated through JVM list API`() {
+        val manifest = LocalModelArtifactManifestV1(
+            schemaVersion = 1,
+            registryEntryId = "entry-1",
+            providerId = "provider-1",
+            modelName = "model-1",
+            revision = "rev-1",
+            artifacts = listOf(
+                artifact("first.gguf", 10L, "a"),
+                artifact("second.gguf", 20L, "b"),
+            ),
+        )
+
+        @Suppress("UNCHECKED_CAST")
+        val exposed = manifest.artifacts as MutableList<LocalModelArtifactFileV1>
+
+        assertThatThrownBy {
+            exposed[0] = artifact("substituted.gguf", 99L, "c")
+        }.isInstanceOf(UnsupportedOperationException::class.java)
+    }
+
     private fun artifact(relativePath: String, sizeBytes: Long, fill: String): LocalModelArtifactFileV1 =
         LocalModelArtifactFileV1(
             relativePath = relativePath,

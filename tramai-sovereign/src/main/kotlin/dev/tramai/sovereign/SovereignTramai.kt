@@ -31,6 +31,7 @@ import dev.tramai.security.audit.AuditStore
 import dev.tramai.standalone.Tramai
 import dev.tramai.standalone.TramaiRuntime
 import java.time.Clock
+import java.util.Collections
 import kotlinx.coroutines.runBlocking
 import kotlin.reflect.KClass
 
@@ -67,8 +68,10 @@ import kotlin.reflect.KClass
  */
 class SovereignTramai private constructor(
     private val delegate: Tramai,
-    private val verificationReceipts: List<VerifiedLocalModelArtifact>,
+    verificationReceipts: List<VerifiedLocalModelArtifact>,
 ) {
+    private val verificationReceipts: List<VerifiedLocalModelArtifact> =
+        Collections.unmodifiableList(ArrayList(verificationReceipts))
     /**
      * Creates a service proxy for the given service type.
      */
@@ -455,6 +458,7 @@ class SovereignTramai private constructor(
                 "artifact-file-symlink-rejected",
                 "artifact-file-size-mismatch",
                 "artifact-file-digest-mismatch",
+                "artifact-file-access-failed",
                 "artifact-traversal-rejected",
                 "artifact-directory-substituted-for-file",
                 "artifact-not-a-regular-file",

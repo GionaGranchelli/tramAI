@@ -58,22 +58,25 @@ Used by `RegisteredModel`, `LocalModelArtifactManifestV1`, and `LocalModelArtifa
 ### LocalModelArtifactManifestV1
 
 ```kotlin
-data class LocalModelArtifactManifestV1(
+class LocalModelArtifactManifestV1(
     val schemaVersion: Int,  // NO default — required to prevent aggregate-digest drift
     val registryEntryId: String,
     val providerId: String,
     val modelName: String,
     val revision: String,
-    val artifacts: List<LocalModelArtifactFileV1>,
+    artifacts: List<LocalModelArtifactFileV1>,
 ) {
+    val artifacts: List<LocalModelArtifactFileV1> =
+        java.util.Collections.unmodifiableList(java.util.ArrayList(artifacts))
+
     init {
         require(schemaVersion == 1) { "Schema version must be 1" }
         validateField("registryEntryId", registryEntryId)
         validateField("providerId", providerId)
         validateField("modelName", modelName)
         validateField("revision", revision)
-        require(artifacts.isNotEmpty()) { "At least one artifact file is required" }
-        val paths = artifacts.map { it.relativePath }
+        require(this.artifacts.isNotEmpty()) { "At least one artifact file is required" }
+        val paths = this.artifacts.map { it.relativePath }
         require(paths.distinct().size == paths.size) {
             "Duplicate artifact paths (case-sensitive comparison)"
         }
@@ -112,13 +115,26 @@ data class LocalModelArtifactFileV1(
     init {
         validateField("relativePath", relativePath)
         require(relativePath.isNotEmpty()) { "Path must not be empty" }
-        require(!relativePath.startsWith("/")) { "Path must be relative (no absolute paths)" }
-        // Block both Unix ../ and Windows ..\ traversal
-        require(!relativePath.startsWith("..")) { "Path must not traverse upward" }
-        require(!relativePath.contains("/../") && !relativePath.contains("\\..\\")) {
+        require(!relativePath.startsWith("/")) { "Path must be relative (no Unix absolute paths)" }
+        require(!relativePath.startsWith("\\\\")) { "Path must be relative (no UNC paths)" }
+        require(relativePath.length < 2 || relativePath[1] != ':') {
+            "Path must be relative (no Windows drive prefixes)"
+        }
+        val normalized = relativePath.replace('\\\\', '/')
+        require(!normalized.startsWith("..")) { "Path must not traverse upward" }
+        require(!normalized.contains("/../") && !normalized.endsWith("/..")) {
             "Path must not contain upward traversal"
         }
-        require(relativePath.none(Char::isISOControl)) { "Path must not contain control characters" }
+        require(!normalized.contains("/./") && !normalized.startsWith("./") && normalized != ".") {
+            "Path must not contain self-reference segments"
+        }
+        require(!normalized.contains("//")) {
+            "Path must not contain empty segments (double slashes)"
+        }
+        require(normalized.none(Char::isISOControl)) { "Path must not contain control characters" }
+        require(normalized == relativePath) {
+            "Path must use forward-slash separator consistently"
+        }
         require(sizeBytes >= 0) { "sizeBytes must not be negative" }
     }
 }
@@ -290,6 +306,7 @@ Fixed safe codes only:
 - `artifact-file-symlink-rejected`
 - `artifact-file-size-mismatch`
 - `artifact-file-digest-mismatch`
+- `artifact-file-access-failed`
 - `artifact-traversal-rejected`
 - `artifact-directory-substituted-for-file`
 - `artifact-not-a-regular-file`

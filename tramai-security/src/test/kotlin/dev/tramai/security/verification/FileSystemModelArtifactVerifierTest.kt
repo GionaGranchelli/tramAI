@@ -205,6 +205,22 @@ class FileSystemModelArtifactVerifierTest {
     }
 
     @Test
+    fun `digest optional mode verifies bytes without registry pinned digest`() = runBlocking {
+        val root = Files.createTempDirectory("artifact-root")
+        val content = "transitional bytes".toByteArray(StandardCharsets.UTF_8)
+        root.resolve("model.bin").writeBytes(content)
+        val manifest = manifestFor(root, "model.bin", "entry-1", "provider-1", "model-1", "rev-1")
+        val registeredModel = registeredModelFor(manifest).copy(artifactDigest = null)
+
+        val receipt = verifier(root, manifest).verify(registeredModel)
+
+        assertThat(receipt).isNotNull
+        assertThat(receipt?.artifactCount).isEqualTo(1)
+        assertThat(receipt?.totalSizeBytes).isEqualTo(content.size.toLong())
+        assertThat(receipt?.manifestDigest).isEqualTo(manifestDigest(manifest))
+    }
+
+    @Test
     fun `total size overflow rejects`() = runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val firstContent = byteArrayOf(1)

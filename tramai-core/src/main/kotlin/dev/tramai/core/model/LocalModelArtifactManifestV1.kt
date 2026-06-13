@@ -1,5 +1,7 @@
 package dev.tramai.core.model
 
+import java.util.Collections
+
 class LocalModelArtifactManifestV1(
     val schemaVersion: Int,
     val registryEntryId: String,
@@ -8,7 +10,8 @@ class LocalModelArtifactManifestV1(
     val revision: String,
     artifacts: List<LocalModelArtifactFileV1>,
 ) {
-    val artifacts: List<LocalModelArtifactFileV1> = artifacts.toList()
+    val artifacts: List<LocalModelArtifactFileV1> =
+        Collections.unmodifiableList(ArrayList(artifacts))
 
     init {
         require(schemaVersion == 1) { "Schema version must be 1" }

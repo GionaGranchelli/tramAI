@@ -102,13 +102,13 @@ class FileSystemModelArtifactVerifier(
                 error("artifact-not-a-regular-file")
             }
 
-            val actualSizeBeforeHash = Files.size(normalizedCandidate)
+            val actualSizeBeforeHash = safeFileSize(normalizedCandidate)
             check(actualSizeBeforeHash == artifact.sizeBytes) { "artifact-file-size-mismatch" }
 
             val actualDigest = hashFile(normalizedCandidate)
             check(actualDigest == artifact.digest) { "artifact-file-digest-mismatch" }
 
-            val actualSizeAfterHash = Files.size(normalizedCandidate)
+            val actualSizeAfterHash = safeFileSize(normalizedCandidate)
             check(actualSizeAfterHash == artifact.sizeBytes) { "artifact-file-size-mismatch" }
             return
         }
@@ -116,9 +116,20 @@ class FileSystemModelArtifactVerifier(
         error("artifact-file-not-found")
     }
 
+    private fun safeFileSize(path: Path): Long = try {
+        Files.size(path)
+    } catch (_: Exception) {
+        error("artifact-file-access-failed")
+    }
+
     private fun hashFile(path: Path): ModelArtifactDigest {
         val digest = MessageDigest.getInstance("SHA-256")
-        Files.newInputStream(path).use { input ->
+        val stream = try {
+            Files.newInputStream(path)
+        } catch (_: Exception) {
+            error("artifact-file-access-failed")
+        }
+        stream.use { input ->
             val buffer = ByteArray(HASH_BUFFER_SIZE)
             while (true) {
                 val read = input.read(buffer)
