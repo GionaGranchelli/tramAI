@@ -106,6 +106,26 @@ class SovereignTramaiArtifactVerificationTest {
     }
 
     @Test
+    fun `local model with verifier throwing modified byte error rejects before build`() {
+        val registeredModel = localRegisteredModel(
+            artifactDigest = ModelArtifactDigest.of("sha256:${"b".repeat(64)}"),
+        )
+        val verifier = RecordingVerifier { throw IllegalStateException("artifact-file-digest-mismatch") }
+
+        assertThatThrownBy {
+            localBuilder(registeredModel)
+                .modelArtifactVerifier(verifier)
+                .modelArtifactVerificationSettings(
+                    ModelArtifactVerificationSettings(enabled = true),
+                )
+                .build()
+        }.isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("artifact-file-digest-mismatch")
+
+        assertThat(verifier.seenModels).containsExactly(registeredModel)
+    }
+
+    @Test
     fun `cloud model without local artifact manifest preserves existing behavior`() = runBlocking {
         val registeredModel = RegisteredModel(
             registryEntryId = "cloud-entry",

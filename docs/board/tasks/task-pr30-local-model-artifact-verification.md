@@ -1,7 +1,7 @@
 # Task PR #30 — Local-Model Artifact Manifest and Byte-Level Verification
 
 ## Status
-**Planned**
+**Merged** (squash commit onto master expected via PR #30)
 
 ## Branch
 `feat/local-model-artifact-verification`

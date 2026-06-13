@@ -1,6 +1,6 @@
 # SPEC-018: Local Model Artifact Verification
 
-**Status:** proposed
+**Status:** implemented (PR #30)
 **PR:** #30
 **Branch:** feat/local-model-artifact-verification
 
