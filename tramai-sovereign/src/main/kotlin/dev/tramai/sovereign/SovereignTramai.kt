@@ -3,8 +3,11 @@ package dev.tramai.sovereign
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ToolArgumentsDigester
+import dev.tramai.core.model.ModelArtifactVerificationSettings
+import dev.tramai.core.model.ModelArtifactVerifier
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
+import dev.tramai.core.model.VerifiedLocalModelArtifact
 import dev.tramai.core.model.TramaiTool
 import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.observation.OperationObserver
@@ -28,6 +31,7 @@ import dev.tramai.security.audit.AuditStore
 import dev.tramai.standalone.Tramai
 import dev.tramai.standalone.TramaiRuntime
 import java.time.Clock
+import kotlinx.coroutines.runBlocking
 import kotlin.reflect.KClass
 
 /**
@@ -63,6 +67,7 @@ import kotlin.reflect.KClass
  */
 class SovereignTramai private constructor(
     private val delegate: Tramai,
+    private val verificationReceipts: List<VerifiedLocalModelArtifact>,
 ) {
     /**
      * Creates a service proxy for the given service type.
@@ -74,6 +79,11 @@ class SovereignTramai private constructor(
      * both service creation and approval-resume operations.
      */
     fun runtime(): SovereignTramaiRuntime = SovereignTramaiRuntime(delegate.runtime())
+
+    /**
+     * Returns immutable verification receipts from build-time artifact verification.
+     */
+    fun verificationReceipts(): List<VerifiedLocalModelArtifact> = verificationReceipts
 
     companion object {
         @JvmStatic
@@ -101,6 +111,9 @@ class SovereignTramai private constructor(
         private val fallbackRoutes = mutableListOf<FallbackRoute>()
         private var defaultProviderName: String? = null
         private var clock: Clock = Clock.systemUTC()
+        private var modelArtifactVerifier: ModelArtifactVerifier? = null
+        private var verificationSettings: ModelArtifactVerificationSettings =
+            ModelArtifactVerificationSettings()
 
         // --- Required inputs ---
 
@@ -234,6 +247,16 @@ class SovereignTramai private constructor(
 
         fun engineEventObserver(observer: EngineEventObserver): Builder = apply {
             standaloneBuilder.engineEventObserver(observer)
+        }
+
+        fun modelArtifactVerifier(verifier: ModelArtifactVerifier): Builder = apply {
+            this.modelArtifactVerifier = verifier
+        }
+
+        fun modelArtifactVerificationSettings(
+            settings: ModelArtifactVerificationSettings,
+        ): Builder = apply {
+            this.verificationSettings = settings
         }
 
         // --- Approval suspension delegation ---
@@ -377,6 +400,11 @@ class SovereignTramai private constructor(
                 }
             }
 
+            val verificationReceipts = verifyLocalModelArtifacts(
+                profile = profile,
+                modelRegistry = modelRegistry!!,
+            )
+
             val policyConfig: PolicyConfiguration = profile.toPolicyConfiguration()
             val policyEngine = DefaultPolicyEngine(policyConfig)
             val auditEng = AuditEngine(store = auditStore!!, clock = clock)
@@ -391,7 +419,59 @@ class SovereignTramai private constructor(
                 .approvalLifecycleAudit(approvalLifecycleEmitter)
                 .build()
 
-            return SovereignTramai(tramai)
+            return SovereignTramai(
+                delegate = tramai,
+                verificationReceipts = verificationReceipts,
+            )
+        }
+
+        private fun verifyLocalModelArtifacts(
+            profile: SovereignProfileConfiguration,
+            modelRegistry: ModelRegistry,
+        ): List<VerifiedLocalModelArtifact> {
+            val verifier = modelArtifactVerifier ?: return emptyList()
+            if (!verificationSettings.enabled) {
+                return emptyList()
+            }
+
+            return runBlocking {
+                val receipts = mutableListOf<VerifiedLocalModelArtifact>()
+                for ((modelName, providerName) in primaryModelRoutes) {
+                    val registeredModel = try {
+                        modelRegistry.findApprovedModel(providerName, modelName)
+                    } catch (exception: Exception) {
+                        throw IllegalStateException(
+                            "artifact-approved-model-lookup-failed",
+                            exception,
+                        )
+                    } ?: throw IllegalStateException("artifact-approved-model-not-found")
+
+                    val trustZone = profile.providerZones.getValue(providerName)
+                    if (trustZone != ProviderTrustZone.LOCAL) {
+                        continue
+                    }
+
+                    if (
+                        verificationSettings.requireDigestForLocalModels &&
+                        registeredModel.artifactDigest == null
+                    ) {
+                        throw IllegalStateException("artifact-digest-required-for-local-model")
+                    }
+
+                    val receipt = try {
+                        verifier.verify(registeredModel)
+                    } catch (exception: IllegalStateException) {
+                        throw IllegalStateException(exception.message ?: "artifact-verification-failed", exception)
+                    } catch (exception: IllegalArgumentException) {
+                        throw IllegalStateException(exception.message ?: "artifact-verification-failed", exception)
+                    } catch (exception: Exception) {
+                        throw IllegalStateException("artifact-verification-failed", exception)
+                    } ?: throw IllegalStateException("artifact-manifest-not-found")
+
+                    receipts += receipt
+                }
+                receipts.toList()
+            }
         }
     }
 }
