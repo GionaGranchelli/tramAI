@@ -79,7 +79,8 @@ class FileSystemModelArtifactVerifier(
                 continue
             }
 
-            val realPath = normalizedCandidate.toRealPath()
+            val realPath = runCatching { normalizedCandidate.toRealPath() }
+                .getOrElse { error("artifact-file-symlink-rejected") }
             val resolvedWithinAllowedRoot = allowedRoots.any { realPath.startsWith(it) }
             if (!resolvedWithinAllowedRoot) {
                 sawEscapingSymlink = true
@@ -90,7 +91,7 @@ class FileSystemModelArtifactVerifier(
                 check(!Files.isDirectory(normalizedCandidate)) {
                     "artifact-directory-substituted-for-file"
                 }
-                check(resolvedWithinAllowedRoot) { "artifact-file-symlink-rejected" }
+                error("artifact-not-a-regular-file")
             }
 
             val actualSizeBeforeHash = Files.size(normalizedCandidate)

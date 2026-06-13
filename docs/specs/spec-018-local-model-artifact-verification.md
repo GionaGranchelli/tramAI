@@ -294,11 +294,11 @@ Fixed safe codes only:
 - `artifact-aggregate-digest-mismatch`
 - `artifact-file-not-found`
 - `artifact-file-symlink-rejected`
-- `artifact-parent-directory-symlink-rejected`
 - `artifact-file-size-mismatch`
 - `artifact-file-digest-mismatch`
 - `artifact-traversal-rejected`
 - `artifact-directory-substituted-for-file`
+- `artifact-not-a-regular-file`
 - `artifact-verification-not-configured`
 
 ## Sovereign Runtime Binding
