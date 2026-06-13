@@ -8,14 +8,18 @@ data class LocalModelArtifactManifestV1(
     val revision: String,
     val artifacts: List<LocalModelArtifactFileV1>,
 ) {
+    private val _artifacts: List<LocalModelArtifactFileV1> = artifacts.toList()
+
+    val safeArtifacts: List<LocalModelArtifactFileV1> get() = _artifacts
+
     init {
         require(schemaVersion == 1) { "Schema version must be 1" }
         validateField("registryEntryId", registryEntryId)
         validateField("providerId", providerId)
         validateField("modelName", modelName)
         validateField("revision", revision)
-        require(artifacts.isNotEmpty()) { "At least one artifact file is required" }
-        val paths = artifacts.map { it.relativePath }
+        require(_artifacts.isNotEmpty()) { "At least one artifact file is required" }
+        val paths = _artifacts.map { it.relativePath }
         require(paths.distinct().size == paths.size) {
             "Duplicate artifact paths (case-sensitive comparison)"
         }
@@ -28,8 +32,8 @@ data class LocalModelArtifactManifestV1(
         sb.append("providerId=").append(providerId).append('\n')
         sb.append("modelName=").append(modelName).append('\n')
         sb.append("revision=").append(revision).append('\n')
-        sb.append("artifact_count=").append(artifacts.size).append('\n')
-        artifacts.sortedBy { it.relativePath }.forEach { artifact ->
+        sb.append("artifact_count=").append(_artifacts.size).append('\n')
+        _artifacts.sortedBy { it.relativePath }.forEach { artifact ->
             sb.append("  relativePath=").append(artifact.relativePath).append('\n')
             sb.append("  sizeBytes=").append(artifact.sizeBytes).append('\n')
             sb.append("  digest=").append(artifact.digest.value).append('\n')

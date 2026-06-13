@@ -429,16 +429,49 @@ class SovereignTramai private constructor(
             profile: SovereignProfileConfiguration,
             modelRegistry: ModelRegistry,
         ): List<VerifiedLocalModelArtifact> {
-            val verifier = modelArtifactVerifier ?: return emptyList()
             if (!verificationSettings.enabled) {
                 return emptyList()
             }
 
+            val verifier = checkNotNull(modelArtifactVerifier) {
+                "artifact-verification-not-configured"
+            }
+
+            // Collect unique (providerName, modelName) targets from primary AND fallback routes
+            val verificationTargets = buildSet {
+                primaryModelRoutes.forEach { (modelName, providerName) ->
+                    add(providerName to modelName)
+                }
+                fallbackRoutes.forEach { route ->
+                    add(route.providerName to route.fallbackModelName)
+                }
+            }
+
+            val safeCodes = setOf(
+                "artifact-manifest-not-found",
+                "artifact-manifest-identity-drift",
+                "artifact-aggregate-digest-mismatch",
+                "artifact-file-not-found",
+                "artifact-file-symlink-rejected",
+                "artifact-file-size-mismatch",
+                "artifact-file-digest-mismatch",
+                "artifact-traversal-rejected",
+                "artifact-directory-substituted-for-file",
+                "artifact-not-a-regular-file",
+                "artifact-total-size-overflow",
+            )
+
+            fun sanitizedArtifactReason(exception: Exception): String =
+                exception.message?.takeIf { it in safeCodes }
+                    ?: "artifact-verification-failed"
+
             return runBlocking {
                 val receipts = mutableListOf<VerifiedLocalModelArtifact>()
-                for ((modelName, providerName) in primaryModelRoutes) {
+                for ((providerName, modelName) in verificationTargets) {
                     val registeredModel = try {
                         modelRegistry.findApprovedModel(providerName, modelName)
+                    } catch (exception: kotlinx.coroutines.CancellationException) {
+                        throw exception
                     } catch (exception: Exception) {
                         throw IllegalStateException(
                             "artifact-approved-model-lookup-failed",
@@ -460,12 +493,18 @@ class SovereignTramai private constructor(
 
                     val receipt = try {
                         verifier.verify(registeredModel)
+                    } catch (exception: kotlinx.coroutines.CancellationException) {
+                        throw exception
                     } catch (exception: IllegalStateException) {
-                        throw IllegalStateException(exception.message ?: "artifact-verification-failed", exception)
+                        throw IllegalStateException(
+                            sanitizedArtifactReason(exception),
+                        )
                     } catch (exception: IllegalArgumentException) {
-                        throw IllegalStateException(exception.message ?: "artifact-verification-failed", exception)
+                        throw IllegalStateException(
+                            sanitizedArtifactReason(exception),
+                        )
                     } catch (exception: Exception) {
-                        throw IllegalStateException("artifact-verification-failed", exception)
+                        throw IllegalStateException("artifact-verification-failed")
                     } ?: throw IllegalStateException("artifact-manifest-not-found")
 
                     receipts += receipt

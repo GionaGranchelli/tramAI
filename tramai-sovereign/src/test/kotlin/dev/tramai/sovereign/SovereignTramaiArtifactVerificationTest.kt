@@ -14,6 +14,7 @@ import dev.tramai.security.model.InMemoryModelRegistry
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -126,6 +127,22 @@ class SovereignTramaiArtifactVerificationTest {
     }
 
     @Test
+    fun `enabled equals true without verifier rejects before build`() {
+        val registeredModel = localRegisteredModel(
+            artifactDigest = ModelArtifactDigest.of("sha256:${"a".repeat(64)}"),
+        )
+
+        assertThatThrownBy {
+            localBuilder(registeredModel)
+                .modelArtifactVerificationSettings(
+                    ModelArtifactVerificationSettings(enabled = true),
+                )
+                .build()
+        }.isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("artifact-verification-not-configured")
+    }
+
+    @Test
     fun `cloud model without local artifact manifest preserves existing behavior`() = runBlocking {
         val registeredModel = RegisteredModel(
             registryEntryId = "cloud-entry",
@@ -175,22 +192,211 @@ class SovereignTramaiArtifactVerificationTest {
     }
 
     @Test
-    fun `no verifier configured preserves backward compatible behavior`() = runBlocking {
-        val registeredModel = localRegisteredModel(artifactDigest = null)
+    fun `cancellation from verifier propagates unchanged`() {
+        val registeredModel = localRegisteredModel(
+            artifactDigest = ModelArtifactDigest.of("sha256:${"a".repeat(64)}"),
+        )
+        val verifier = RecordingVerifier {
+            throw CancellationException("verifier cancelled")
+        }
 
-        val tramai = localBuilder(registeredModel)
+        assertThatThrownBy {
+            localBuilder(registeredModel)
+                .clock(fixedClock)
+                .modelArtifactVerifier(verifier)
+                .modelArtifactVerificationSettings(
+                    ModelArtifactVerificationSettings(enabled = true),
+                )
+                .build()
+        }.isInstanceOf(CancellationException::class.java)
+            .hasMessage("verifier cancelled")
+    }
+
+    @Test
+    fun `custom verifier path leakage sanitized via safe-code allowlist`() {
+        val registeredModel = localRegisteredModel(
+            artifactDigest = ModelArtifactDigest.of("sha256:${"a".repeat(64)}"),
+        )
+        val verifier = RecordingVerifier {
+            throw IllegalStateException("/mnt/models/customer-secret.gguf")
+        }
+
+        assertThatThrownBy {
+            localBuilder(registeredModel)
+                .clock(fixedClock)
+                .modelArtifactVerifier(verifier)
+                .modelArtifactVerificationSettings(
+                    ModelArtifactVerificationSettings(enabled = true),
+                )
+                .build()
+        }.isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("artifact-verification-failed")
+    }
+
+    @Test
+    fun `GLOBAL_CLOUD primary with LOCAL fallback and valid manifest produces LOCAL receipt`() {
+        val localRegistered = RegisteredModel(
+            registryEntryId = "local-entry",
+            providerId = "fallback-provider",
+            modelName = "test-model-fallback",
+            revision = "1.0",
+            artifactDigest = ModelArtifactDigest.of("sha256:${"a".repeat(64)}"),
+        )
+        val cloudRegistered = RegisteredModel(
+            registryEntryId = "cloud-entry",
+            providerId = "cloud-provider",
+            modelName = "test-model",
+            revision = "1.0",
+        )
+
+        val registry = InMemoryModelRegistry.builder()
+            .register(localRegistered)
+            .register(cloudRegistered)
+            .build()
+
+        val profile = SovereignProfileConfiguration(
+            allowedModels = setOf("test-model", "test-model-fallback"),
+            allowedProviders = setOf("cloud-provider", "fallback-provider"),
+            allowedFallbackProviders = setOf("fallback-provider"),
+            providerZones = mapOf(
+                "cloud-provider" to ProviderTrustZone.GLOBAL_CLOUD,
+                "fallback-provider" to ProviderTrustZone.LOCAL,
+            ),
+        )
+
+        var invokedWith: RegisteredModel? = null
+        val verifier = RecordingVerifier { model ->
+            invokedWith = model
+            VerifiedLocalModelArtifact(
+                registryEntryId = model.registryEntryId,
+                manifestDigest = model.artifactDigest!!,
+                modelName = model.modelName,
+                verifiedAt = fixedClock.instant(),
+                artifactCount = 1,
+                totalSizeBytes = 512,
+            )
+        }
+
+        val tramai = SovereignTramai.builder()
+            .profile(profile)
+            .modelRegistry(registry)
+            .auditStore(InMemoryAuditStore())
+            .provider(FakeProvider("cloud-provider"), name = "cloud-provider", default = true)
+            .provider(FakeProvider("fallback-provider"), name = "fallback-provider")
+            .model("test-model", "cloud-provider")
+            .model("test-model-fallback", "fallback-provider")
+            .fallbackModel("test-model", "test-model-fallback", "fallback-provider")
+            .clock(fixedClock)
+            .modelArtifactVerifier(verifier)
             .modelArtifactVerificationSettings(
-                ModelArtifactVerificationSettings(
-                    enabled = true,
-                    requireDigestForLocalModels = true,
-                ),
+                ModelArtifactVerificationSettings(enabled = true),
             )
             .build()
 
-        val result = tramai.create<EchoService>().echo("hello")
+        assertThat(invokedWith).isNotNull
+        assertThat(invokedWith?.registryEntryId).isEqualTo("local-entry")
+        assertThat(tramai.verificationReceipts()).hasSize(1)
+    }
 
-        assertThat(result).isEqualTo("mock response for test-model")
-        assertThat(tramai.verificationReceipts()).isEmpty()
+    @Test
+    fun `GLOBAL_CLOUD primary with LOCAL fallback and missing manifest rejects`() {
+        val cloudRegistered = RegisteredModel(
+            registryEntryId = "cloud-entry",
+            providerId = "cloud-provider",
+            modelName = "test-model",
+            revision = "1.0",
+        )
+        val localRegistered = RegisteredModel(
+            registryEntryId = "local-entry",
+            providerId = "fallback-provider",
+            modelName = "test-model-fallback",
+            revision = "1.0",
+            artifactDigest = ModelArtifactDigest.of("sha256:${"b".repeat(64)}"),
+        )
+
+        val registry = InMemoryModelRegistry.builder()
+            .register(cloudRegistered)
+            .register(localRegistered)
+            .build()
+
+        val profile = SovereignProfileConfiguration(
+            allowedModels = setOf("test-model", "test-model-fallback"),
+            allowedProviders = setOf("cloud-provider", "fallback-provider"),
+            allowedFallbackProviders = setOf("fallback-provider"),
+            providerZones = mapOf(
+                "cloud-provider" to ProviderTrustZone.GLOBAL_CLOUD,
+                "fallback-provider" to ProviderTrustZone.LOCAL,
+            ),
+        )
+
+        val verifier = RecordingVerifier { null }
+
+        assertThatThrownBy {
+            SovereignTramai.builder()
+                .profile(profile)
+                .modelRegistry(registry)
+                .auditStore(InMemoryAuditStore())
+                .provider(FakeProvider("cloud-provider"), name = "cloud-provider", default = true)
+                .provider(FakeProvider("fallback-provider"), name = "fallback-provider")
+                .model("test-model", "cloud-provider")
+                .model("test-model-fallback", "fallback-provider")
+                .fallbackModel("test-model", "test-model-fallback", "fallback-provider")
+                .clock(fixedClock)
+                .modelArtifactVerifier(verifier)
+                .modelArtifactVerificationSettings(
+                    ModelArtifactVerificationSettings(enabled = true),
+                )
+                .build()
+        }.isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("artifact-manifest-not-found")
+    }
+
+    @Test
+    fun `LOCAL primary and LOCAL fallback referencing same pair verifies once`() {
+        val registeredModel = localRegisteredModel(
+            artifactDigest = ModelArtifactDigest.of("sha256:${"a".repeat(64)}"),
+        )
+
+        val registry = InMemoryModelRegistry.builder()
+            .register(registeredModel)
+            .build()
+
+        val profile = SovereignProfileConfiguration(
+            allowedModels = setOf("test-model"),
+            allowedProviders = setOf("local-provider"),
+            allowedFallbackProviders = setOf("local-provider"),
+            providerZones = mapOf("local-provider" to ProviderTrustZone.LOCAL),
+        )
+
+        val seenModels = mutableListOf<RegisteredModel>()
+        val verifier = RecordingVerifier { model ->
+            seenModels += model
+            VerifiedLocalModelArtifact(
+                registryEntryId = model.registryEntryId,
+                manifestDigest = model.artifactDigest!!,
+                modelName = model.modelName,
+                verifiedAt = fixedClock.instant(),
+                artifactCount = 1,
+                totalSizeBytes = 512,
+            )
+        }
+
+        val tramai = SovereignTramai.builder()
+            .profile(profile)
+            .modelRegistry(registry)
+            .auditStore(InMemoryAuditStore())
+            .provider(FakeProvider("local-provider"), name = "local-provider", default = true)
+            .model("test-model", "local-provider")
+            .fallbackProvider("test-model", "local-provider")
+            .clock(fixedClock)
+            .modelArtifactVerifier(verifier)
+            .modelArtifactVerificationSettings(
+                ModelArtifactVerificationSettings(enabled = true),
+            )
+            .build()
+
+        assertThat(seenModels).hasSize(1)
+        assertThat(tramai.verificationReceipts()).hasSize(1)
     }
 
     private fun localBuilder(registeredModel: RegisteredModel): SovereignTramai.Builder {

@@ -134,7 +134,7 @@ class FileSystemModelArtifactVerifierTest {
     }
 
     @Test
-    fun `symlink within allowed root passes`() = runBlocking {
+    fun `symlink within allowed root rejects`() = runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val target = createFile(root, "real/model.bin", "allowed".toByteArray(StandardCharsets.UTF_8))
         val link = root.resolve("links/model.bin")
@@ -148,9 +148,13 @@ class FileSystemModelArtifactVerifierTest {
             ),
         )
 
-        val receipt = verifier(root, manifest).verify(registeredModelFor(manifest))
-
-        assertThat(receipt).isNotNull
+        assertThatIllegalStateException()
+            .isThrownBy {
+                runBlocking {
+                    verifier(root, manifest).verify(registeredModelFor(manifest))
+                }
+            }
+            .withMessage("artifact-file-symlink-rejected")
     }
 
     @Test
@@ -177,7 +181,7 @@ class FileSystemModelArtifactVerifierTest {
     }
 
     @Test
-    fun `parent symlink passes when target stays within allowed root`() = runBlocking {
+    fun `parent symlink rejects when target stays within allowed root`() = runBlocking {
         val root = Files.createTempDirectory("artifact-root")
         val targetDir = root.resolve("actual")
         Files.createDirectories(targetDir)
@@ -191,9 +195,49 @@ class FileSystemModelArtifactVerifierTest {
             ),
         )
 
-        val receipt = verifier(root, manifest).verify(registeredModelFor(manifest))
+        assertThatIllegalStateException()
+            .isThrownBy {
+                runBlocking {
+                    verifier(root, manifest).verify(registeredModelFor(manifest))
+                }
+            }
+            .withMessage("artifact-file-symlink-rejected")
+    }
 
-        assertThat(receipt).isNotNull
+    @Test
+    fun `total size overflow rejects`() = runBlocking {
+        val root = Files.createTempDirectory("artifact-root")
+        val firstContent = byteArrayOf(1)
+        val secondContent = byteArrayOf(2)
+        createFile(root, "first.bin", firstContent)
+        createFile(root, "second.bin", secondContent)
+        val manifest = LocalModelArtifactManifestV1(
+            schemaVersion = 1,
+            registryEntryId = "entry-1",
+            providerId = "provider-1",
+            modelName = "model-1",
+            revision = "rev-1",
+            artifacts = listOf(
+                LocalModelArtifactFileV1(
+                    relativePath = "first.bin",
+                    sizeBytes = Long.MAX_VALUE,
+                    digest = digestOfBytes(firstContent),
+                ),
+                LocalModelArtifactFileV1(
+                    relativePath = "second.bin",
+                    sizeBytes = 1,
+                    digest = digestOfBytes(secondContent),
+                ),
+            ),
+        )
+
+        assertThatIllegalStateException()
+            .isThrownBy {
+                runBlocking {
+                    verifier(root, manifest).verify(registeredModelFor(manifest))
+                }
+            }
+            .withMessage("artifact-total-size-overflow")
     }
 
     @Test

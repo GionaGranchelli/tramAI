@@ -13,7 +13,7 @@ import java.time.Clock
 
 class FileSystemModelArtifactVerifier(
     allowedRootDirectories: Set<Path>,
-    private val manifests: Map<String, LocalModelArtifactManifestV1>,
+    manifests: Map<String, LocalModelArtifactManifestV1>,
     private val clock: Clock = Clock.systemUTC(),
 ) : ModelArtifactVerifier {
 
@@ -21,18 +21,29 @@ class FileSystemModelArtifactVerifier(
         .map { it.toAbsolutePath().normalize() }
         .toSet()
 
+    private val manifests = manifests.toMap()
+
     override suspend fun verify(registeredModel: RegisteredModel): VerifiedLocalModelArtifact? {
         val manifest = manifests[registeredModel.registryEntryId] ?: return null
 
         ensureIdentityMatches(manifest, registeredModel)
         val manifestDigest = sha256Digest(manifest.canonicalBytes())
-        val expectedManifestDigest = registeredModel.artifactDigest?.value
-        check(expectedManifestDigest == manifestDigest.value) { "artifact-aggregate-digest-mismatch" }
+
+        // Verify aggregate digest only when the registry pins one
+        registeredModel.artifactDigest?.let { expected ->
+            check(expected == manifestDigest) {
+                "artifact-aggregate-digest-mismatch"
+            }
+        }
 
         var totalSizeBytes = 0L
-        manifest.artifacts.forEach { artifact ->
+        manifest.artifacts.toList().forEach { artifact ->
             verifyArtifactFile(artifact)
-            totalSizeBytes = Math.addExact(totalSizeBytes, artifact.sizeBytes)
+            totalSizeBytes = try {
+                Math.addExact(totalSizeBytes, artifact.sizeBytes)
+            } catch (_: ArithmeticException) {
+                error("artifact-total-size-overflow")
+            }
         }
 
         return VerifiedLocalModelArtifact(
@@ -64,27 +75,22 @@ class FileSystemModelArtifactVerifier(
     }
 
     private fun verifyArtifactFile(artifact: LocalModelArtifactFileV1) {
-        var sawTraversal = false
-        var sawEscapingSymlink = false
-
         for (root in allowedRoots) {
             val candidate = root.resolve(artifact.relativePath)
             val normalizedCandidate = candidate.toAbsolutePath().normalize()
             if (!normalizedCandidate.startsWith(root)) {
-                sawTraversal = true
-                continue
+                continue // traversal — try next root
             }
 
             if (!Files.exists(normalizedCandidate)) {
                 continue
             }
 
+            // Strict symlink policy: reject any symlink in the path chain
             val realPath = runCatching { normalizedCandidate.toRealPath() }
                 .getOrElse { error("artifact-file-symlink-rejected") }
-            val resolvedWithinAllowedRoot = allowedRoots.any { realPath.startsWith(it) }
-            if (!resolvedWithinAllowedRoot) {
-                sawEscapingSymlink = true
-                continue
+            if (realPath != normalizedCandidate.toAbsolutePath().normalize()) {
+                error("artifact-file-symlink-rejected")
             }
 
             if (!Files.isRegularFile(normalizedCandidate)) {
@@ -98,19 +104,17 @@ class FileSystemModelArtifactVerifier(
             check(actualSizeBeforeHash == artifact.sizeBytes) { "artifact-file-size-mismatch" }
 
             val actualDigest = hashFile(normalizedCandidate)
-            check(actualDigest == artifact.digest.value) { "artifact-file-digest-mismatch" }
+            check(actualDigest == artifact.digest) { "artifact-file-digest-mismatch" }
 
             val actualSizeAfterHash = Files.size(normalizedCandidate)
             check(actualSizeAfterHash == artifact.sizeBytes) { "artifact-file-size-mismatch" }
             return
         }
 
-        check(!sawTraversal) { "artifact-traversal-rejected" }
-        check(!sawEscapingSymlink) { "artifact-file-symlink-rejected" }
         error("artifact-file-not-found")
     }
 
-    private fun hashFile(path: Path): String {
+    private fun hashFile(path: Path): ModelArtifactDigest {
         val digest = MessageDigest.getInstance("SHA-256")
         Files.newInputStream(path).use { input ->
             val buffer = ByteArray(HASH_BUFFER_SIZE)
@@ -122,7 +126,7 @@ class FileSystemModelArtifactVerifier(
                 digest.update(buffer, 0, read)
             }
         }
-        return digest.digest().toHexString()
+        return ModelArtifactDigest.of("sha256:${digest.digest().toHexString()}")
     }
 
     private fun sha256Digest(bytes: ByteArray): ModelArtifactDigest {
