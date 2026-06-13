@@ -409,9 +409,9 @@ No `verifyAll()` on `SovereignTramaiRuntime` — it's on `SovereignTramai` only,
 | Extra bytes appended | Reject |
 | Missing file | Reject |
 | Directory substitution | Reject |
-| Artifact symlink to allowed root | Pass (resolved path within root) |
+| Artifact symlink to allowed root | Reject (strict policy rejects all symlinks) |
 | Artifact symlink escaping allowed root | Reject |
-| Parent-directory symlink to allowed root | Pass (resolved path within root) |
+| Parent-directory symlink to allowed root | Reject (strict policy rejects all symlinks) |
 | Parent-directory symlink escaping allowed root | Reject |
 | Artifact outside allowed root | Reject |
 | Large artifact hashed incrementally | Pass without full-memory loading |

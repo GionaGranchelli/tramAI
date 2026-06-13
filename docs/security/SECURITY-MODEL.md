@@ -177,7 +177,7 @@ Structured output validation is a structural correctness guard, not a confidenti
 
 **Scenario:** A deployment marketed as "air-gap capable" makes hidden cloud calls at runtime.
 
-**Control:** Automated zero-egress tests verify that no unauthorized external DNS, HTTP, or network requests occur during reference workflow execution. Loopback and explicitly approved internal endpoints (e.g., local Ollama, local vLLM) are allowed by profile.
+**Control:** Automated zero-egress tests (SPEC-019) verify that no unauthorized external DNS, HTTP, or network requests occur during reference workflow execution. Loopback and explicitly approved internal endpoints (e.g., local Ollama, local vLLM) are allowed by profile. The `SovereignDeploymentMode.OFFLINE` mode enforces local-only provider composition at build time (SPEC-019).
 
 ### AS-12: Audit Event Suppression
 

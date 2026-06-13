@@ -19,6 +19,7 @@ import dev.tramai.security.ProviderTrustZone
  * @property allowedTools Tools whose execution is permitted.
  * @property allowedPermissions Tool permissions that are granted.
  * @property providerZones Explicit trust-zone mapping for every allowed provider.
+ * @property deploymentMode Deployment connectivity contract (default: STANDARD).
  */
 data class SovereignProfileConfiguration(
     val allowedModels: Set<String>,
@@ -27,6 +28,7 @@ data class SovereignProfileConfiguration(
     val allowedTools: Set<String> = emptySet(),
     val allowedPermissions: Set<String> = emptySet(),
     val providerZones: Map<String, ProviderTrustZone>,
+    val deploymentMode: SovereignDeploymentMode = SovereignDeploymentMode.STANDARD,
 ) {
     init {
         require(allowedModels.isNotEmpty()) { "allowedModels must not be empty" }
