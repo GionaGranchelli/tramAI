@@ -3,8 +3,11 @@ package dev.tramai.sovereign
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ToolArgumentsDigester
+import dev.tramai.core.model.ModelArtifactVerificationSettings
+import dev.tramai.core.model.ModelArtifactVerifier
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
+import dev.tramai.core.model.VerifiedLocalModelArtifact
 import dev.tramai.core.model.TramaiTool
 import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.observation.OperationObserver
@@ -28,6 +31,8 @@ import dev.tramai.security.audit.AuditStore
 import dev.tramai.standalone.Tramai
 import dev.tramai.standalone.TramaiRuntime
 import java.time.Clock
+import java.util.Collections
+import kotlinx.coroutines.runBlocking
 import kotlin.reflect.KClass
 
 /**
@@ -63,7 +68,10 @@ import kotlin.reflect.KClass
  */
 class SovereignTramai private constructor(
     private val delegate: Tramai,
+    verificationReceipts: List<VerifiedLocalModelArtifact>,
 ) {
+    private val verificationReceipts: List<VerifiedLocalModelArtifact> =
+        Collections.unmodifiableList(ArrayList(verificationReceipts))
     /**
      * Creates a service proxy for the given service type.
      */
@@ -74,6 +82,11 @@ class SovereignTramai private constructor(
      * both service creation and approval-resume operations.
      */
     fun runtime(): SovereignTramaiRuntime = SovereignTramaiRuntime(delegate.runtime())
+
+    /**
+     * Returns immutable verification receipts from build-time artifact verification.
+     */
+    fun verificationReceipts(): List<VerifiedLocalModelArtifact> = verificationReceipts
 
     companion object {
         @JvmStatic
@@ -101,6 +114,9 @@ class SovereignTramai private constructor(
         private val fallbackRoutes = mutableListOf<FallbackRoute>()
         private var defaultProviderName: String? = null
         private var clock: Clock = Clock.systemUTC()
+        private var modelArtifactVerifier: ModelArtifactVerifier? = null
+        private var verificationSettings: ModelArtifactVerificationSettings =
+            ModelArtifactVerificationSettings()
 
         // --- Required inputs ---
 
@@ -234,6 +250,16 @@ class SovereignTramai private constructor(
 
         fun engineEventObserver(observer: EngineEventObserver): Builder = apply {
             standaloneBuilder.engineEventObserver(observer)
+        }
+
+        fun modelArtifactVerifier(verifier: ModelArtifactVerifier): Builder = apply {
+            this.modelArtifactVerifier = verifier
+        }
+
+        fun modelArtifactVerificationSettings(
+            settings: ModelArtifactVerificationSettings,
+        ): Builder = apply {
+            this.verificationSettings = settings
         }
 
         // --- Approval suspension delegation ---
@@ -377,6 +403,11 @@ class SovereignTramai private constructor(
                 }
             }
 
+            val verificationReceipts = verifyLocalModelArtifacts(
+                profile = profile,
+                modelRegistry = modelRegistry!!,
+            )
+
             val policyConfig: PolicyConfiguration = profile.toPolicyConfiguration()
             val policyEngine = DefaultPolicyEngine(policyConfig)
             val auditEng = AuditEngine(store = auditStore!!, clock = clock)
@@ -391,7 +422,98 @@ class SovereignTramai private constructor(
                 .approvalLifecycleAudit(approvalLifecycleEmitter)
                 .build()
 
-            return SovereignTramai(tramai)
+            return SovereignTramai(
+                delegate = tramai,
+                verificationReceipts = verificationReceipts,
+            )
+        }
+
+        private fun verifyLocalModelArtifacts(
+            profile: SovereignProfileConfiguration,
+            modelRegistry: ModelRegistry,
+        ): List<VerifiedLocalModelArtifact> {
+            if (!verificationSettings.enabled) {
+                return emptyList()
+            }
+
+            val verifier = checkNotNull(modelArtifactVerifier) {
+                "artifact-verification-not-configured"
+            }
+
+            // Collect unique (providerName, modelName) targets from primary AND fallback routes
+            val verificationTargets = buildSet {
+                primaryModelRoutes.forEach { (modelName, providerName) ->
+                    add(providerName to modelName)
+                }
+                fallbackRoutes.forEach { route ->
+                    add(route.providerName to route.fallbackModelName)
+                }
+            }
+
+            val safeCodes = setOf(
+                "artifact-manifest-not-found",
+                "artifact-manifest-identity-drift",
+                "artifact-aggregate-digest-mismatch",
+                "artifact-file-not-found",
+                "artifact-file-symlink-rejected",
+                "artifact-file-size-mismatch",
+                "artifact-file-digest-mismatch",
+                "artifact-file-access-failed",
+                "artifact-traversal-rejected",
+                "artifact-directory-substituted-for-file",
+                "artifact-not-a-regular-file",
+                "artifact-total-size-overflow",
+            )
+
+            fun sanitizedArtifactReason(exception: Exception): String =
+                exception.message?.takeIf { it in safeCodes }
+                    ?: "artifact-verification-failed"
+
+            return runBlocking {
+                val receipts = mutableListOf<VerifiedLocalModelArtifact>()
+                for ((providerName, modelName) in verificationTargets) {
+                    val trustZone = profile.providerZones.getValue(providerName)
+                    if (trustZone != ProviderTrustZone.LOCAL) {
+                        continue
+                    }
+
+                    val registeredModel = try {
+                        modelRegistry.findApprovedModel(providerName, modelName)
+                    } catch (exception: kotlinx.coroutines.CancellationException) {
+                        throw exception
+                    } catch (_: Exception) {
+                        throw IllegalStateException(
+                            "artifact-approved-model-lookup-failed",
+                        )
+                    } ?: throw IllegalStateException("artifact-approved-model-not-found")
+
+                    if (
+                        verificationSettings.requireDigestForLocalModels &&
+                        registeredModel.artifactDigest == null
+                    ) {
+                        throw IllegalStateException("artifact-digest-required-for-local-model")
+                    }
+
+                    val receipt = try {
+                        verifier.verify(registeredModel)
+                    } catch (exception: kotlinx.coroutines.CancellationException) {
+                        throw exception
+                    } catch (exception: IllegalStateException) {
+                        throw IllegalStateException(
+                            sanitizedArtifactReason(exception),
+                        )
+                    } catch (exception: IllegalArgumentException) {
+                        throw IllegalStateException(
+                            sanitizedArtifactReason(exception),
+                        )
+                    } catch (exception: Exception) {
+                        throw IllegalStateException("artifact-verification-failed")
+                    } ?: throw IllegalStateException("artifact-manifest-not-found")
+
+                    receipts += receipt
+                }
+                receipts.toList()
+            }
         }
     }
 }
