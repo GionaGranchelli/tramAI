@@ -171,6 +171,28 @@ class LocalModelArtifactManifestV1Test {
             .hasMessageContaining("At least one artifact file is required")
     }
 
+    @Test
+    fun `mutable source list after construction does not affect immutable manifest`() {
+        val artifactList = mutableListOf(
+            artifact("original.gguf", 10L, "a"),
+        )
+        val manifest = LocalModelArtifactManifestV1(
+            schemaVersion = 1,
+            registryEntryId = "entry-1",
+            providerId = "provider-1",
+            modelName = "model-1",
+            revision = "rev-1",
+            artifacts = artifactList,
+        )
+        val canonicalBefore = manifest.canonicalBytes()
+        artifactList.clear()
+        artifactList += artifact("substituted.gguf", 99L, "b")
+        val canonicalAfter = manifest.canonicalBytes()
+        assertThat(canonicalBefore).isEqualTo(canonicalAfter)
+        assertThat(manifest.artifacts).hasSize(1)
+        assertThat(manifest.artifacts[0].relativePath).isEqualTo("original.gguf")
+    }
+
     private fun artifact(relativePath: String, sizeBytes: Long, fill: String): LocalModelArtifactFileV1 =
         LocalModelArtifactFileV1(
             relativePath = relativePath,

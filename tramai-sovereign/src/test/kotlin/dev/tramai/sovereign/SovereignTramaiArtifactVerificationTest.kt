@@ -3,6 +3,7 @@ package dev.tramai.sovereign
 import dev.tramai.core.model.ModelArtifactDigest
 import dev.tramai.core.model.ModelArtifactVerificationSettings
 import dev.tramai.core.model.ModelArtifactVerifier
+import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.RegisteredModel
@@ -140,6 +141,72 @@ class SovereignTramaiArtifactVerificationTest {
                 .build()
         }.isInstanceOf(IllegalStateException::class.java)
             .hasMessage("artifact-verification-not-configured")
+    }
+
+    @Test
+    fun `digest optional transitional mode builds and verifies file bytes without registry pinning`() {
+        val registeredModel = localRegisteredModel(artifactDigest = null)
+        val verifier = RecordingVerifier { model ->
+            VerifiedLocalModelArtifact(
+                registryEntryId = model.registryEntryId,
+                manifestDigest = ModelArtifactDigest.of("sha256:${"d".repeat(64)}"),
+                modelName = model.modelName,
+                verifiedAt = fixedClock.instant(),
+                artifactCount = 1,
+                totalSizeBytes = 512,
+            )
+        }
+
+        val tramai = localBuilder(registeredModel)
+            .clock(fixedClock)
+            .modelArtifactVerifier(verifier)
+            .modelArtifactVerificationSettings(
+                ModelArtifactVerificationSettings(
+                    enabled = true,
+                    requireDigestForLocalModels = false,
+                ),
+            )
+            .build()
+
+        assertThat(verifier.seenModels).containsExactly(registeredModel)
+        assertThat(tramai.verificationReceipts()).isNotEmpty
+    }
+
+    @Test
+    fun `model registry SPI exception sanitized through cause chain`() {
+        val registeredModel = localRegisteredModel(
+            artifactDigest = ModelArtifactDigest.of("sha256:${"a".repeat(64)}"),
+        )
+        val verifier = RecordingVerifier { null }
+
+        assertThatThrownBy {
+            SovereignTramai.builder()
+                .profile(
+                    SovereignProfileConfiguration(
+                        allowedModels = setOf("test-model"),
+                        allowedProviders = setOf("local-provider"),
+                        providerZones = mapOf("local-provider" to ProviderTrustZone.LOCAL),
+                    ),
+                )
+                .modelRegistry(object : ModelRegistry {
+                    override suspend fun findApprovedModel(
+                        providerId: String,
+                        modelName: String,
+                    ): RegisteredModel? {
+                        throw IllegalStateException("/secret/model/path.gguf")
+                    }
+                })
+                .auditStore(InMemoryAuditStore())
+                .provider(FakeProvider("local-provider"), name = "local-provider", default = true)
+                .model("test-model", "local-provider")
+                .clock(fixedClock)
+                .modelArtifactVerifier(verifier)
+                .modelArtifactVerificationSettings(
+                    ModelArtifactVerificationSettings(enabled = true),
+                )
+                .build()
+        }.isInstanceOf(IllegalStateException::class.java)
+            .hasMessage("artifact-approved-model-lookup-failed")
     }
 
     @Test

@@ -36,22 +36,24 @@ class FileSystemModelArtifactVerifier(
             }
         }
 
-        var totalSizeBytes = 0L
-        manifest.artifacts.toList().forEach { artifact ->
-            verifyArtifactFile(artifact)
-            totalSizeBytes = try {
-                Math.addExact(totalSizeBytes, artifact.sizeBytes)
+        // Precompute aggregate declared size before any filesystem work
+        val artifacts = manifest.artifacts
+        val totalSizeBytes = artifacts.fold(0L) { total, artifact ->
+            try {
+                Math.addExact(total, artifact.sizeBytes)
             } catch (_: ArithmeticException) {
                 error("artifact-total-size-overflow")
             }
         }
+
+        artifacts.forEach(::verifyArtifactFile)
 
         return VerifiedLocalModelArtifact(
             registryEntryId = registeredModel.registryEntryId,
             manifestDigest = manifestDigest,
             modelName = registeredModel.modelName,
             verifiedAt = clock.instant(),
-            artifactCount = manifest.artifacts.size,
+            artifactCount = artifacts.size,
             totalSizeBytes = totalSizeBytes,
         )
     }

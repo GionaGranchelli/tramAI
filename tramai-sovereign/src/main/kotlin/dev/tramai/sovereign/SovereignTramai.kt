@@ -472,10 +472,9 @@ class SovereignTramai private constructor(
                         modelRegistry.findApprovedModel(providerName, modelName)
                     } catch (exception: kotlinx.coroutines.CancellationException) {
                         throw exception
-                    } catch (exception: Exception) {
+                    } catch (_: Exception) {
                         throw IllegalStateException(
                             "artifact-approved-model-lookup-failed",
-                            exception,
                         )
                     } ?: throw IllegalStateException("artifact-approved-model-not-found")
 

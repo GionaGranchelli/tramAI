@@ -319,18 +319,19 @@ fun modelArtifactVerificationSettings(settings: ModelArtifactVerificationSetting
 
 In `SovereignTramai.Builder.build()`:
 
-When `verificationSettings.enabled && modelArtifactVerifier != null`:
-- Use `runBlocking` (single blocking call at startup) to:
-  - Iterate `primaryModelRoutes` (modelName → providerName)
-  - For each: `modelRegistry.findApprovedModel(providerName, modelName)`
-  - Check the provider's trust zone from `profile.providerZones`
-  - For LOCAL-zone providers with `requireDigestForLocalModels == true`:
-    - Require `registeredModel.artifactDigest != null` (``IllegalStateException`` if missing)
-  - For LOCAL-zone providers (any):
-    - Call `modelArtifactVerifier.verify(registeredModel)`
-    - If returns `null` or throws: fail `build()` with `IllegalStateException`
-    - Collect receipts
-  - For CLOUD-zone providers: skip artifact verification
+When `verificationSettings.enabled`:
+- `checkNotNull(modelArtifactVerifier)` — fail closed if verifier is missing
+- Use `runBlocking` (single blocking call at startup) to iterate **unique** (providerName, modelName) targets from primary AND fallback routes
+- For each: `modelRegistry.findApprovedModel(providerName, modelName)`
+- Check the provider's trust zone from `profile.providerZones`
+- For LOCAL-zone providers with `requireDigestForLocalModels == true`:
+  - Require `registeredModel.artifactDigest != null` (``IllegalStateException`` if missing)
+- For LOCAL-zone providers (any):
+  - Call `modelArtifactVerifier.verify(registeredModel)`
+  - Sanitize SPI exceptions through a fixed-code allowlist; drop arbitrary ModelRegistry SPI cause
+  - If returns `null` or throws: fail `build()` with `IllegalStateException`
+  - Collect receipts
+- For CLOUD-zone providers: skip artifact verification
 - Store receipts on `SovereignTramai` for the runtime lifetime
 
 ```kotlin

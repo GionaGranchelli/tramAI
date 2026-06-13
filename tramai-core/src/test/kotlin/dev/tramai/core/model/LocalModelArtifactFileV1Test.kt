@@ -51,6 +51,36 @@ class LocalModelArtifactFileV1Test {
         assertInvalidPath("models/\nmodel.gguf")
     }
 
+    @Test
+    fun `Windows drive prefix is rejected`() {
+        assertInvalidPath("C:/models/model.gguf")
+    }
+
+    @Test
+    fun `UNC path is rejected`() {
+        assertInvalidPath("\\\\server\\share\\model.gguf")
+    }
+
+    @Test
+    fun `backslash separator is rejected`() {
+        assertInvalidPath("models\\model.gguf")
+    }
+
+    @Test
+    fun `self reference segment is rejected`() {
+        assertInvalidPath("models/./model.gguf")
+    }
+
+    @Test
+    fun `double slash is rejected`() {
+        assertInvalidPath("models//model.gguf")
+    }
+
+    @Test
+    fun `trailing double-dot is rejected`() {
+        assertInvalidPath("models/..")
+    }
+
     private fun assertInvalidPath(path: String) {
         assertThatThrownBy {
             LocalModelArtifactFileV1(
