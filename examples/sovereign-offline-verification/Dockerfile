@@ -5,7 +5,7 @@ RUN groupadd --system tramai \
     && mkdir -p /app /out \
     && chown -R tramai:tramai /app /out
 
-COPY build/install/sovereign-offline-verification/ /app/
+COPY examples/sovereign-offline-verification/build/install/sovereign-offline-verification/ /app/
 
 USER tramai
 
