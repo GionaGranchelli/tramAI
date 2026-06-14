@@ -93,7 +93,7 @@ class SovereignEvidencePackIntegrationTest {
         assertThat(pack.zeroEgress).isNull()
         assertThat(pack.auditChain).isNull()
         assertThat(pack.schemaVersion).isEqualTo(1)
-        assertThat(pack.generatedAt).isNotNull
+        assertThat(pack.generatedAt).isNotNull()
     }
 
     @Test
@@ -225,7 +225,7 @@ class SovereignEvidencePackIntegrationTest {
             ),
         )
 
-        assertThat(pack.zeroEgress).isNotNull
+        assertThat(pack.zeroEgress).isNotNull()
         assertThat(pack.zeroEgress!!.deploymentMode).isEqualTo("OFFLINE")
         assertThat(pack.zeroEgress!!.runtimeBuildSucceeded).isTrue()
         assertThat(pack.zeroEgress!!.loopbackProviderInvocationSucceeded).isTrue()
@@ -246,7 +246,7 @@ class SovereignEvidencePackIntegrationTest {
             ),
         )
 
-        assertThat(pack.auditChain).isNotNull
+        assertThat(pack.auditChain).isNotNull()
         assertThat(pack.auditChain!!.isValid).isTrue()
         assertThat(pack.auditChain!!.totalEvents).isEqualTo(7)
         assertThat(pack.zeroEgress).isNull()

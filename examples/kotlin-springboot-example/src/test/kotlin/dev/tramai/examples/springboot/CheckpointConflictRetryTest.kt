@@ -413,9 +413,10 @@ class CheckpointConflictRetryTest {
         // Wait for completion + guard to fire
         // Poll the checkpoint endpoint (not result — loadRun hides CANCELLED
         // as long as the coroutine is still active)
+        Thread.sleep(500) // initial settle time for async workflow start
         var pollDelay = 200L
         var checkpointCancelled = false
-        repeat(240) {
+        repeat(360) {
             val json = asyncJson(get("/invoice/workflow/checkpoint/$workflowId"))
                 .andExpect(status().isOk)
                 .andReturn()

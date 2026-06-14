@@ -192,7 +192,7 @@ object SovereignEvidencePackWriter {
             return
         }
         sb.appendLine()
-        val entries = map.entries.toList()
+        val entries = map.entries.sortedBy { it.key }
         for ((i, entry) in entries.withIndex()) {
             val isLast = i == entries.lastIndex
             val innerIndent = "    ".repeat(indent + 1)
@@ -242,7 +242,7 @@ object SovereignEvidencePackWriter {
                 return
             }
             sb.appendLine("{")
-            val entries = map.entries.toList()
+            val entries = map.entries.sortedBy { it.key }
             for ((i, entry) in entries.withIndex()) {
                 val isLast = i == entries.lastIndex
                 val innerIndent = "    ".repeat(indent + 1)
@@ -312,7 +312,7 @@ object SovereignEvidencePackWriter {
                 sb.append("{ ")
                 @Suppress("UNCHECKED_CAST")
                 val m = value as Map<String, Any?>
-                val entries = m.entries.toList()
+                val entries = m.entries.sortedBy { it.key }
                 for ((i, entry) in entries.withIndex()) {
                     sb.append(escapedString(entry.key)).append(": ")
                     appendAnyValue(sb, entry.value)

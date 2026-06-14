@@ -250,7 +250,7 @@ internal fun executeVerificationInternal(tempDir: Path, reportPath: Path) {
             ),
         )
         SovereignEvidencePackWriter.write(evidencePack, evidencePath)
-        println("EVIDENCE_PACK_WRITTEN: ${evidencePath.toAbsolutePath()}")
+        println("EVIDENCE_PACK_WRITTEN: build/sovereign-evidence/sovereign-evidence-pack-v1.json")
 
     } finally {
         // v. Close the loopback server

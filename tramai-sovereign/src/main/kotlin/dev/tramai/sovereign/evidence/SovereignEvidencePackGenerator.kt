@@ -24,7 +24,8 @@ object SovereignEvidencePackGenerator {
      * @param verificationReceipts The verification receipts from build-time artifact verification.
      * @param zeroEgress Optional zero-egress verification subsection.
      * @param auditChain Optional audit-chain validation subsection.
-     * @return A fully populated [SovereignEvidencePackV1] with a deterministic [generatedAt] timestamp.
+     * @return A fully populated [SovereignEvidencePackV1] with the [generatedAt] timestamp
+     * set to the current wall-clock time when this method is called.
      */
     fun generate(
         deploymentMode: SovereignDeploymentMode,
