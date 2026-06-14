@@ -233,8 +233,8 @@ internal fun executeVerificationInternal(tempDir: Path, reportPath: Path) {
         // t. Write report
         ZeroEgressReportWriter.write(report, reportPath)
 
-        // u. Generate and write evidence pack
-        val evidencePath = Path.of("build", "sovereign-evidence", "sovereign-evidence-pack-v1.json")
+        // u. Generate and write evidence pack to report directory
+        val evidencePath = reportPath.resolveSibling("sovereign-evidence-pack-v1.json")
         val evidencePack = tramai.evidencePack(
             zeroEgress = ZeroEgressEvidenceV1(
                 deploymentMode = SovereignDeploymentMode.OFFLINE.name,

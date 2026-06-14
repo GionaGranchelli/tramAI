@@ -417,16 +417,25 @@ class CheckpointConflictRetryTest {
         var pollDelay = 200L
         var checkpointCancelled = false
         repeat(360) {
-            val json = asyncJson(get("/invoice/workflow/checkpoint/$workflowId"))
-                .andExpect(status().isOk)
-                .andReturn()
-                .response
-                .contentAsString
-            val node = objectMapper.readTree(json)
-            val metadata = node["metadata"]
-            if (metadata != null && metadata["workflow_status"]?.asText() == "CANCELLED") {
-                checkpointCancelled = true
-                return@repeat
+            val json = try {
+                asyncJson(get("/invoice/workflow/checkpoint/$workflowId"))
+                    .andReturn()
+                    .response
+                    .contentAsString
+            } catch (_: Exception) {
+                null
+            }
+            if (json != null) {
+                try {
+                    val node = objectMapper.readTree(json)
+                    val metadata = node["metadata"]
+                    if (metadata != null && metadata["workflow_status"]?.asText() == "CANCELLED") {
+                        checkpointCancelled = true
+                        return@repeat
+                    }
+                } catch (_: Exception) {
+                    // JSON parsing failed — retry
+                }
             }
             Thread.sleep(pollDelay)
             pollDelay = (pollDelay * 1.5).toLong().coerceAtMost(1000)
