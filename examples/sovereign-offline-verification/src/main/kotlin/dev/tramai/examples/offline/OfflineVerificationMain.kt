@@ -14,6 +14,9 @@ import dev.tramai.security.verification.FileSystemModelArtifactVerifier
 import dev.tramai.sovereign.SovereignDeploymentMode
 import dev.tramai.sovereign.SovereignProfileConfiguration
 import dev.tramai.sovereign.SovereignTramai
+import dev.tramai.sovereign.evidence.AuditChainEvidenceV1
+import dev.tramai.sovereign.evidence.SovereignEvidencePackWriter
+import dev.tramai.sovereign.evidence.ZeroEgressEvidenceV1
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -39,13 +42,18 @@ fun main(args: Array<String>) {
 }
 
 private fun run(args: Array<String>): Int {
-    // a. Parse --report-path= argument
+    // a. Parse --report-path= and --evidence-path= arguments
     val reportPathArg = args.firstOrNull { it.startsWith("--report-path=") }
     val reportPathStr = reportPathArg?.substringAfter("--report-path=") ?: "zero-egress-report.json"
     val reportPath = Path.of(reportPathStr)
 
+    val evidencePathArg = args.firstOrNull { it.startsWith("--evidence-path=") }
+    val evidencePathStr = evidencePathArg?.substringAfter("--evidence-path=")
+        ?: "build/sovereign-evidence/sovereign-evidence-pack-v1.json"
+    val evidencePath = Path.of(evidencePathStr)
+
     val result = kotlin.runCatching {
-        executeVerification(reportPath)
+        executeVerification(reportPath, evidencePath)
     }
 
     return if (result.isSuccess) {
@@ -61,11 +69,11 @@ private fun run(args: Array<String>): Int {
 }
 
 /** Runs the full verification flow. Throws on failure. */
-internal fun executeVerification(reportPath: Path) {
+internal fun executeVerification(reportPath: Path, evidencePath: Path) {
     // b. Create temporary directory for artifact file
     val tempDir = Files.createTempDirectory("tramai-offline-verification-")
     try {
-        executeVerificationInternal(tempDir, reportPath)
+        executeVerificationInternal(tempDir, reportPath, evidencePath)
     } finally {
         // Clean up temp directory
         tempDir.toFile().deleteRecursively()
@@ -73,7 +81,7 @@ internal fun executeVerification(reportPath: Path) {
 }
 
 /** Core verification logic after temp directory is created. */
-internal fun executeVerificationInternal(tempDir: Path, reportPath: Path) {
+internal fun executeVerificationInternal(tempDir: Path, reportPath: Path, evidencePath: Path) {
     // c. Write dummy artifact file
     val artifactContent = "offline-test-model-artifact-content"
     val artifactFile = tempDir.resolve("offline-test-model.bin")
@@ -230,12 +238,30 @@ internal fun executeVerificationInternal(tempDir: Path, reportPath: Path) {
         // t. Write report
         ZeroEgressReportWriter.write(report, reportPath)
 
+        // u. Generate and write evidence pack
+        val evidencePack = tramai.evidencePack(
+            zeroEgress = ZeroEgressEvidenceV1(
+                deploymentMode = SovereignDeploymentMode.OFFLINE.name,
+                runtimeBuildSucceeded = true,
+                loopbackProviderInvocationSucceeded = providerSucceeded,
+                loopbackProviderInvocationCount = loopbackProvider.invocationCount.get(),
+                externalTcpProbeBlocked = tcpBlocked,
+                externalDnsProbeBlocked = dnsBlocked,
+            ),
+            auditChain = AuditChainEvidenceV1(
+                isValid = auditValid,
+                totalEvents = allEvents.size,
+            ),
+        )
+        SovereignEvidencePackWriter.write(evidencePack, evidencePath)
+        println("EVIDENCE_PACK_WRITTEN: ${evidencePath.toAbsolutePath().normalize()}")
+
     } finally {
         // v. Close the loopback server
         loopbackServer.close()
     }
 
-    // Exit code 0 is handled by the caller (step u, w)
+    // Exit code 0 is handled by the caller (step v, w)
 }
 
 /**

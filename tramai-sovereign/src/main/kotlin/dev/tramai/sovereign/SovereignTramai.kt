@@ -9,6 +9,10 @@ import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.model.VerifiedLocalModelArtifact
 import dev.tramai.core.model.TramaiTool
+import dev.tramai.sovereign.evidence.AuditChainEvidenceV1
+import dev.tramai.sovereign.evidence.SovereignEvidencePackGenerator
+import dev.tramai.sovereign.evidence.SovereignEvidencePackV1
+import dev.tramai.sovereign.evidence.ZeroEgressEvidenceV1
 import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
@@ -69,6 +73,8 @@ import kotlin.reflect.KClass
 class SovereignTramai private constructor(
     private val delegate: Tramai,
     verificationReceipts: List<VerifiedLocalModelArtifact>,
+    private val profile: SovereignProfileConfiguration,
+    private val verificationSettings: ModelArtifactVerificationSettings,
 ) {
     private val verificationReceipts: List<VerifiedLocalModelArtifact> =
         Collections.unmodifiableList(ArrayList(verificationReceipts))
@@ -87,6 +93,30 @@ class SovereignTramai private constructor(
      * Returns immutable verification receipts from build-time artifact verification.
      */
     fun verificationReceipts(): List<VerifiedLocalModelArtifact> = verificationReceipts
+
+    /**
+     * Generates a deterministic [SovereignEvidencePackV1] summarising the
+     * current deployment's security posture.
+     *
+     * Safe for auditor review — contains no secrets, tokens, prompts,
+     * stack traces, or filesystem paths.
+     *
+     * @param zeroEgress Optional zero-egress verification subsection.
+     * @param auditChain Optional audit-chain validation subsection.
+     */
+    fun evidencePack(
+        zeroEgress: ZeroEgressEvidenceV1? = null,
+        auditChain: AuditChainEvidenceV1? = null,
+    ): SovereignEvidencePackV1 = SovereignEvidencePackGenerator.generate(
+        deploymentMode = profile.deploymentMode,
+        allowedModels = profile.allowedModels,
+        allowedProviders = profile.allowedProviders,
+        providerZones = profile.providerZones.mapValues { it.value.name },
+        verificationSettings = verificationSettings,
+        verificationReceipts = verificationReceipts,
+        zeroEgress = zeroEgress,
+        auditChain = auditChain,
+    )
 
     companion object {
         @JvmStatic
@@ -428,6 +458,8 @@ class SovereignTramai private constructor(
             return SovereignTramai(
                 delegate = tramai,
                 verificationReceipts = verificationReceipts,
+                profile = profile,
+                verificationSettings = verificationSettings,
             )
         }
 

@@ -10,4 +10,4 @@ COPY examples/sovereign-offline-verification/build/install/sovereign-offline-ver
 
 USER tramai
 
-ENTRYPOINT ["/app/bin/sovereign-offline-verification", "--report-path=/out/zero-egress-report.json"]
+ENTRYPOINT ["/app/bin/sovereign-offline-verification", "--report-path=/out/zero-egress-report.json", "--evidence-path=/out/sovereign-evidence-pack-v1.json"]

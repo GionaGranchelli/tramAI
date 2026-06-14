@@ -215,6 +215,7 @@ The hash chain makes event removal or modification detectable. WORM storage or a
 | Zero-egress verification | 2 | AS-11 |
 | SBOM + provenance | 3 | AS-08 |
 | Artifact signing | 3 | AS-08 |
+| Evidence pack generation | 3 | AS-07, AS-11 |
 | Workflow versioning + digest | 4 | AS-05 |
 | Audit query + incident replay | 4 | AS-07 |
 | MCP authorization + audience validation | 5 | AS-10 |
@@ -222,7 +223,21 @@ The hash chain makes event removal or modification detectable. WORM storage or a
 
 ---
 
-## 7. Residual Risk
+## Evidence Pack Safety
+
+The `SovereignEvidencePackV1` artifact is designed to be **safe for auditor sharing**:
+
+- Contains only deployment configuration summaries (allowed models, providers, zones)
+- Contains only aggregate verification results (artifact count, digest hex, byte totals)
+- Contains only probe-level zero-egress results (blocked/not-blocked)
+- Contains only audit-chain validation status (valid/invalid, event count)
+- **Never contains** prompts, payloads, tokens, secrets, stack traces, filesystem paths, or raw audit events
+- Field ordering is deterministic and diff-compatible
+- Generated and consumed locally — no external transmission required
+
+The evidence pack is the recommended vehicle for CI attestation, enterprise security review, and grant reporting for sovereign AI deployments.
+
+## Residual Risk
 
 | Risk | Residual Level | Rationale |
 |------|---------------|-----------|
