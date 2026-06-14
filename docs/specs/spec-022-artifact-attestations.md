@@ -211,7 +211,9 @@ Three attest steps run after the evidence pack is generated:
 
 ### Evidence Pack Attestation Section
 
-The CI-generated evidence pack includes a populated `attestation` section derived from environment variables (`GITHUB_WORKFLOW`, `GITHUB_RUN_ID`, `GITHUB_REPOSITORY`, `GITHUB_SHA`). SHA-256 digests of all three artifacts are computed at generation time and recorded in `attestedSubjects`.
+The CI-generated evidence pack includes a populated `attestation` section derived from environment variables (`GITHUB_WORKFLOW`, `GITHUB_RUN_ID`, `GITHUB_REPOSITORY`, `GITHUB_SHA`). SHA-256 digests of zero-egress report and SBOM artifacts are computed at generation time and recorded in `attestedSubjects`.
+
+**Important:** The evidence pack itself is attested exclusively by GitHub Actions (`actions/attest-build-provenance@v2`). Its digest is NOT included in the pack's own `attestedSubjects` because the SHA would change when the attestation section is added (self-referencing digest problem). The canonical source of truth for the final evidence-pack digest is the GitHub attestation resource, verifiable with `gh attestation verify`.
 
 Local execution of the offline verification harness produces `attestation = null` when these env vars are absent.
 

@@ -309,14 +309,10 @@ internal fun executeVerificationInternal(
             val sha256 = MessageDigest.getInstance("SHA-256")
             val subjects = mutableListOf<AttestedSubjectV1>()
 
-            // Evidence pack
-            val evidenceBytes = Files.readAllBytes(evidencePath)
-            val evidenceHex = sha256.digest(evidenceBytes).joinToString("") { "%02x".format(it) }
-            subjects.add(AttestedSubjectV1(
-                fileName = evidencePath.fileName.toString(),
-                sha256 = "sha256:$evidenceHex",
-                attestationType = "build-provenance",
-            ))
+            // NOTE: The evidence pack itself is attested by GitHub Actions
+            // via actions/attest-build-provenance@v2. We do NOT include its
+            // own digest here because the SHA would be stale after the
+            // re-generation below. See SPEC-022 for the attestation architecture.
 
             // Zero-egress report
             if (Files.exists(reportPath)) {
