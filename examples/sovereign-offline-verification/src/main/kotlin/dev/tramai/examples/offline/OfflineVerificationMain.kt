@@ -14,6 +14,8 @@ import dev.tramai.security.verification.FileSystemModelArtifactVerifier
 import dev.tramai.sovereign.SovereignDeploymentMode
 import dev.tramai.sovereign.SovereignProfileConfiguration
 import dev.tramai.sovereign.SovereignTramai
+import dev.tramai.sovereign.evidence.AttestationEvidenceV1
+import dev.tramai.sovereign.evidence.AttestedSubjectV1
 import dev.tramai.sovereign.evidence.AuditChainEvidenceV1
 import dev.tramai.sovereign.evidence.SovereignEvidencePackWriter
 import dev.tramai.sovereign.evidence.SupplyChainEvidenceV1
@@ -276,8 +278,8 @@ internal fun executeVerificationInternal(
         // t. Write report
         ZeroEgressReportWriter.write(report, reportPath)
 
-        // u. Generate and write evidence pack
-        val evidencePack = tramai.evidencePack(
+        // u. Generate and write evidence pack (first pass, without attestation)
+        var evidencePack = tramai.evidencePack(
             zeroEgress = ZeroEgressEvidenceV1(
                 deploymentMode = SovereignDeploymentMode.OFFLINE.name,
                 runtimeBuildSucceeded = true,
@@ -293,7 +295,88 @@ internal fun executeVerificationInternal(
             supplyChain = supplyChain,
         )
         SovereignEvidencePackWriter.write(evidencePack, evidencePath)
-        println("EVIDENCE_PACK_WRITTEN: ${evidencePath.toAbsolutePath().normalize()}")
+
+        // v. If GitHub CI env vars are present, generate AttestationEvidenceV1 and re-write
+        val githubWorkflow = System.getenv("GITHUB_WORKFLOW")
+        val githubRunId = System.getenv("GITHUB_RUN_ID")
+        val githubRepository = System.getenv("GITHUB_REPOSITORY")
+        val githubSha = System.getenv("GITHUB_SHA")
+
+        val attestation: AttestationEvidenceV1? = if (
+            githubWorkflow != null && githubRunId != null &&
+            githubRepository != null && githubSha != null
+        ) {
+            val sha256 = MessageDigest.getInstance("SHA-256")
+            val subjects = mutableListOf<AttestedSubjectV1>()
+
+            // Evidence pack
+            val evidenceBytes = Files.readAllBytes(evidencePath)
+            val evidenceHex = sha256.digest(evidenceBytes).joinToString("") { "%02x".format(it) }
+            subjects.add(AttestedSubjectV1(
+                fileName = evidencePath.fileName.toString(),
+                sha256 = "sha256:$evidenceHex",
+                attestationType = "build-provenance",
+            ))
+
+            // Zero-egress report
+            if (Files.exists(reportPath)) {
+                val reportBytes = Files.readAllBytes(reportPath)
+                val reportHex = sha256.digest(reportBytes).joinToString("") { "%02x".format(it) }
+                subjects.add(AttestedSubjectV1(
+                    fileName = reportPath.fileName.toString(),
+                    sha256 = "sha256:$reportHex",
+                    attestationType = "build-provenance",
+                ))
+            }
+
+            // SBOM
+            val sbomPath = Path.of("build/supply-chain/sbom/tramai-cyclonedx-sbom.json")
+            if (Files.exists(sbomPath)) {
+                val sbomBytes = Files.readAllBytes(sbomPath)
+                val sbomHex = sha256.digest(sbomBytes).joinToString("") { "%02x".format(it) }
+                subjects.add(AttestedSubjectV1(
+                    fileName = sbomPath.fileName.toString(),
+                    sha256 = "sha256:$sbomHex",
+                    attestationType = "sbom",
+                ))
+            }
+
+            AttestationEvidenceV1(
+                provider = "GitHub Artifact Attestations",
+                workflowName = githubWorkflow,
+                workflowRunId = githubRunId,
+                repository = githubRepository,
+                commitSha = githubSha,
+                attestedSubjects = subjects,
+            )
+        } else {
+            println("GITHUB_* env vars not set — attestation omitted from evidence pack")
+            null
+        }
+
+        // w. Re-generate with attestation if present
+        if (attestation != null) {
+            evidencePack = tramai.evidencePack(
+                zeroEgress = ZeroEgressEvidenceV1(
+                    deploymentMode = SovereignDeploymentMode.OFFLINE.name,
+                    runtimeBuildSucceeded = true,
+                    loopbackProviderInvocationSucceeded = providerSucceeded,
+                    loopbackProviderInvocationCount = loopbackProvider.invocationCount.get(),
+                    externalTcpProbeBlocked = tcpBlocked,
+                    externalDnsProbeBlocked = dnsBlocked,
+                ),
+                auditChain = AuditChainEvidenceV1(
+                    isValid = auditValid,
+                    totalEvents = allEvents.size,
+                ),
+                supplyChain = supplyChain,
+                attestation = attestation,
+            )
+            SovereignEvidencePackWriter.write(evidencePack, evidencePath)
+            println("EVIDENCE_PACK_WITH_ATTESTATION_WRITTEN: ${evidencePath.toAbsolutePath().normalize()}")
+        } else {
+            println("EVIDENCE_PACK_WRITTEN: ${evidencePath.toAbsolutePath().normalize()}")
+        }
 
     } finally {
         // v. Close the loopback server

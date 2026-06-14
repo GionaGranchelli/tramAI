@@ -100,20 +100,21 @@ jobs:
           path: |
             build/zero-egress-report/sovereign-evidence-pack-v1.json
 
-      - name: Attest build provenance
+      - name: Attest sovereign evidence pack
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: build/zero-egress-report/sovereign-evidence-pack-v1.json
 
-      - name: Attest SBOM
-        uses: actions/attest-sbom@v2
-        with:
-          subject-path: build/supply-chain/sbom/tramai-cyclonedx-sbom.json
-
-      - name: Attest evidence pack
+      - name: Attest zero-egress report
         uses: actions/attest-build-provenance@v2
         with:
+          subject-path: build/zero-egress-report/zero-egress-report.json
+
+      - name: Attest SBOM for sovereign evidence pack
+        uses: actions/attest@v4
+        with:
           subject-path: build/zero-egress-report/sovereign-evidence-pack-v1.json
+          sbom-path: build/supply-chain/sbom/tramai-cyclonedx-sbom.json
 
       - name: Upload zero-egress report on failure
         if: failure()

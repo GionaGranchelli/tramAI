@@ -12,3 +12,5 @@ graphify-out.kotlin/
 graphify-out/
 # Hermes agent prompt files
 .hermes-*
+# Hermes agent local state
+.memory/
