@@ -180,6 +180,7 @@ a safe-for-auditors JSON artifact that captures the deployment's security postur
 | `zeroEgress` | Optional subsection from offline harness |
 | `auditChain` | Optional subsection from audit-chain validation |
 | `supplyChain` | Optional subsection from CycloneDX SBOM linkage |
+| `attestation` | Optional subsection from GitHub Artifact Attestations CI/CD provenance |
 | `generatedAt` | ISO-8601 instant at generation time |
 
 **Security invariants:**
@@ -193,6 +194,8 @@ a safe-for-auditors JSON artifact that captures the deployment's security postur
 val pack = tramai.evidencePack(
     zeroEgress = zeroEgressResult,
     auditChain = auditChainResult,
+    supplyChain = supplyChainResult,
+    attestation = attestationResult,
 )
 SovereignEvidencePackWriter.write(pack, Path.of("build/sovereign-evidence", "sovereign-evidence-pack-v1.json"))
 ```
@@ -218,3 +221,5 @@ The offline verification harness overrides this path via `--evidence-path=/out/s
 | #30 | ✅ Local-model artifact manifest and byte-level verification |
 | #31 | ✅ Offline runtime profile and zero-egress verification harness |
 | #32 | ✅ Sovereign evidence pack for auditor-safe deployment attestation |
+| #33 | ✅ CycloneDX SBOM generation and evidence linkage |
+| #34 | 🚧 GitHub Artifact Attestations for CI/CD provenance |

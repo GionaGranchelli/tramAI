@@ -6,6 +6,11 @@ on:
       - master
   pull_request:
 
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -94,6 +99,21 @@ jobs:
           name: sovereign-evidence-pack
           path: |
             build/zero-egress-report/sovereign-evidence-pack-v1.json
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: build/zero-egress-report/sovereign-evidence-pack-v1.json
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@v2
+        with:
+          subject-path: build/supply-chain/sbom/tramai-cyclonedx-sbom.json
+
+      - name: Attest evidence pack
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: build/zero-egress-report/sovereign-evidence-pack-v1.json
 
       - name: Upload zero-egress report on failure
         if: failure()

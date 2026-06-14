@@ -32,6 +32,7 @@ class SovereignEvidencePackWriterTest {
         assertThat(json).contains("\"zeroEgress\": null")
         assertThat(json).contains("\"auditChain\": null")
         assertThat(json).contains("\"supplyChain\": null")
+        assertThat(json).contains("\"attestation\": null")
         assertThat(json).contains("\"generatedAt\":")
 
         // Verify field order matches data class declaration order
@@ -45,6 +46,7 @@ class SovereignEvidencePackWriterTest {
         val zeroEgressIdx = json.indexOf("\"zeroEgress\"")
         val auditChainIdx = json.indexOf("\"auditChain\"")
         val supplyChainIdx = json.indexOf("\"supplyChain\"")
+        val attestationIdx = json.indexOf("\"attestation\"")
         val generatedAtIdx = json.indexOf("\"generatedAt\"")
 
         assertThat(schemaIdx).isLessThan(deployIdx)
@@ -56,7 +58,8 @@ class SovereignEvidencePackWriterTest {
         assertThat(artifactsIdx).isLessThan(zeroEgressIdx)
         assertThat(zeroEgressIdx).isLessThan(auditChainIdx)
         assertThat(auditChainIdx).isLessThan(supplyChainIdx)
-        assertThat(supplyChainIdx).isLessThan(generatedAtIdx)
+        assertThat(supplyChainIdx).isLessThan(attestationIdx)
+        assertThat(attestationIdx).isLessThan(generatedAtIdx)
     }
 
     @Test
@@ -72,6 +75,7 @@ class SovereignEvidencePackWriterTest {
             zeroEgress = null,
             auditChain = null,
             supplyChain = null,
+            attestation = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
         val json = writeToString(pack)
@@ -99,6 +103,7 @@ class SovereignEvidencePackWriterTest {
             zeroEgress = null,
             auditChain = null,
             supplyChain = null,
+            attestation = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
         val json = writeToString(pack)
@@ -171,6 +176,7 @@ class SovereignEvidencePackWriterTest {
                 totalEvents = 5,
             ),
             supplyChain = null,
+            attestation = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
         val json = writeToString(pack)
@@ -202,6 +208,7 @@ class SovereignEvidencePackWriterTest {
             zeroEgress = null,
             auditChain = null,
             supplyChain = null,
+            attestation = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
         val json = writeToString(pack)
@@ -232,6 +239,7 @@ class SovereignEvidencePackWriterTest {
                 sbomSha256 = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
                 generatedBy = "CycloneDX Gradle Plugin 3.2.4",
             ),
+            attestation = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
         val json = writeToString(pack)
@@ -242,6 +250,109 @@ class SovereignEvidencePackWriterTest {
         assertThat(json).contains("\"sbomFileName\": \"tramai-cyclonedx-sbom.json\"")
         assertThat(json).contains("\"sbomSha256\": \"sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890\"")
         assertThat(json).contains("\"generatedBy\": \"CycloneDX Gradle Plugin 3.2.4\"")
+    }
+
+    @Test
+    fun `writer serialises attestation subsection`() {
+        val pack = SovereignEvidencePackV1(
+            deploymentMode = "STANDARD",
+            allowedModels = listOf("model-a"),
+            allowedProviders = listOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            artifactVerificationSettings = mapOf("enabled" to false),
+            artifacts = emptyList(),
+            zeroEgress = null,
+            auditChain = null,
+            supplyChain = null,
+            attestation = AttestationEvidenceV1(
+                provider = "GitHub Artifact Attestations",
+                workflowName = "CI",
+                workflowRunId = "1234567",
+                repository = "my-org/my-repo",
+                commitSha = "abcdef1234567890abcdef1234567890abcdef12",
+                attestedSubjects = listOf(
+                    AttestedSubjectV1(
+                            attestationType = "build-provenance",
+                        fileName = "tramai.jar",
+                        sha256 = "sha256:${"a".repeat(64)}",
+                    ),
+                ),
+            ),
+            generatedAt = "2026-01-01T00:00:00Z",
+        )
+        val json = writeToString(pack)
+
+        assertThat(json).contains("\"attestation\":")
+        assertThat(json).contains("\"provider\": \"GitHub Artifact Attestations\"")
+        assertThat(json).contains("\"workflowRunId\": \"1234567\"")
+        assertThat(json).contains("\"repository\": \"my-org/my-repo\"")
+        assertThat(json).contains("\"commitSha\": \"abcdef1234567890abcdef1234567890abcdef12\"")
+        assertThat(json).contains("\"attestedSubjects\":")
+        assertThat(json).contains("\"fileName\": \"tramai.jar\"")
+        assertThat(json).contains("\"sha256\": \"sha256:${"a".repeat(64)}\"")
+    }
+
+    @Test
+    fun `writer serialises attestation with multiple subjects`() {
+        val pack = SovereignEvidencePackV1(
+            deploymentMode = "STANDARD",
+            allowedModels = listOf("model-a"),
+            allowedProviders = listOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            artifactVerificationSettings = mapOf("enabled" to false),
+            artifacts = emptyList(),
+            zeroEgress = null,
+            auditChain = null,
+            supplyChain = null,
+            attestation = AttestationEvidenceV1(
+                provider = "GitHub Artifact Attestations",
+                workflowName = "CI",
+                workflowRunId = "987654",
+                repository = "org/repo-name",
+                commitSha = "1234567890abcdef1234567890abcdef12345678",
+                attestedSubjects = listOf(
+                    AttestedSubjectV1(
+                            attestationType = "build-provenance",
+                        fileName = "artifact-a.bin",
+                        sha256 = "sha256:${"b".repeat(64)}",
+                    ),
+                    AttestedSubjectV1(
+                            attestationType = "build-provenance",
+                        fileName = "artifact-b.bin",
+                        sha256 = "sha256:${"c".repeat(64)}",
+                    ),
+                ),
+            ),
+            generatedAt = "2026-01-01T00:00:00Z",
+        )
+        val json = writeToString(pack)
+
+        assertThat(json).contains("\"attestedSubjects\":")
+        assertThat(json).contains("\"fileName\": \"artifact-a.bin\"")
+        assertThat(json).contains("\"fileName\": \"artifact-b.bin\"")
+        assertThat(json).contains("\"sha256\": \"sha256:${"b".repeat(64)}\"")
+        assertThat(json).contains("\"sha256\": \"sha256:${"c".repeat(64)}\"")
+        assertThat(json).contains("\"commitSha\": \"1234567890abcdef1234567890abcdef12345678\"")
+    }
+
+    @Test
+    fun `writer serialises null attestation`() {
+        val pack = SovereignEvidencePackV1(
+            deploymentMode = "STANDARD",
+            allowedModels = listOf("model-a"),
+            allowedProviders = listOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            artifactVerificationSettings = mapOf("enabled" to false),
+            artifacts = emptyList(),
+            zeroEgress = null,
+            auditChain = null,
+            supplyChain = null,
+            attestation = null,
+            generatedAt = "2026-01-01T00:00:00Z",
+        )
+        val json = writeToString(pack)
+
+        assertThat(json).contains("\"attestation\": null")
     }
 
     @Test
@@ -548,6 +659,7 @@ class SovereignEvidencePackWriterTest {
                 sbomSha256 = "sha256:${"a".repeat(64)}",
                 generatedBy = "Gradle Plugin",
             ),
+            attestation = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
         val json = writeToString(pack)
@@ -654,6 +766,275 @@ class SovereignEvidencePackWriterTest {
             .hasMessage("evidence-unsupported-supply-chain-schema-version")
     }
 
+    // ── Attestation validation tests ───────────────────────────────────────
+
+    @Test
+    fun `rejects unsupported attestation schema version`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                attestation = AttestationEvidenceV1(
+                    schemaVersion = 2,
+                    provider = "GitHub Artifact Attestations",
+                    workflowName = "CI",
+                    workflowRunId = "12345",
+                    repository = "org/repo",
+                    commitSha = "a".repeat(40),
+                    attestedSubjects = listOf(
+                        AttestedSubjectV1(
+                        attestationType = "build-provenance",
+                        fileName = "artifact.bin",
+                        sha256 = "sha256:${"a".repeat(64)}",
+                        ),
+                    ),
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsupported-attestation-schema-version")
+    }
+
+    @Test
+    fun `rejects invalid attestation workflow run id`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                attestation = AttestationEvidenceV1(
+                    provider = "GitHub Artifact Attestations",
+                    workflowName = "CI",
+                    workflowRunId = "abc123",
+                    repository = "org/repo",
+                    commitSha = "a".repeat(40),
+                    attestedSubjects = listOf(
+                        AttestedSubjectV1(
+                        attestationType = "build-provenance",
+                        fileName = "artifact.bin",
+                        sha256 = "sha256:${"a".repeat(64)}",
+                        ),
+                    ),
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-attestation-workflow-run-id")
+    }
+
+    @Test
+    fun `rejects invalid attestation repository format`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                attestation = AttestationEvidenceV1(
+                    provider = "GitHub Artifact Attestations",
+                    workflowName = "CI",
+                    workflowRunId = "12345",
+                    repository = "invalid-repo-no-slash",
+                    commitSha = "a".repeat(40),
+                    attestedSubjects = listOf(
+                        AttestedSubjectV1(
+                        attestationType = "build-provenance",
+                        fileName = "artifact.bin",
+                        sha256 = "sha256:${"a".repeat(64)}",
+                        ),
+                    ),
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-attestation-repository")
+    }
+
+    @Test
+    fun `rejects invalid attestation commit sha`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                attestation = AttestationEvidenceV1(
+                    provider = "GitHub Artifact Attestations",
+                    workflowName = "CI",
+                    workflowRunId = "12345",
+                    repository = "org/repo",
+                    commitSha = "short",
+                    attestedSubjects = listOf(
+                        AttestedSubjectV1(
+                        attestationType = "build-provenance",
+                        fileName = "artifact.bin",
+                        sha256 = "sha256:${"a".repeat(64)}",
+                        ),
+                    ),
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-attestation-commit-sha")
+    }
+
+    @Test
+    fun `rejects empty attestation subjects`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                attestation = AttestationEvidenceV1(
+                    provider = "GitHub Artifact Attestations",
+                    workflowName = "CI",
+                    workflowRunId = "12345",
+                    repository = "org/repo",
+                    commitSha = "a".repeat(40),
+                    attestedSubjects = emptyList(),
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-attestation-subjects")
+    }
+
+    @Test
+    fun `rejects invalid digest format in attestation subject`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                attestation = AttestationEvidenceV1(
+                    provider = "GitHub Artifact Attestations",
+                    workflowName = "CI",
+                    workflowRunId = "12345",
+                    repository = "org/repo",
+                    commitSha = "a".repeat(40),
+                    attestedSubjects = listOf(
+                        AttestedSubjectV1(
+                        attestationType = "build-provenance",
+                        fileName = "artifact.bin",
+                        sha256 = "sha256:xyz",
+                        ),
+                    ),
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-digest-format")
+    }
+
+    @Test
+    fun `rejects invalid subject name with path separator`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                attestation = AttestationEvidenceV1(
+                    provider = "GitHub Artifact Attestations",
+                    workflowName = "CI",
+                    workflowRunId = "12345",
+                    repository = "org/repo",
+                    commitSha = "a".repeat(40),
+                    attestedSubjects = listOf(
+                        AttestedSubjectV1(
+                        attestationType = "build-provenance",
+                        fileName = "subdir/artifact.bin",
+                        sha256 = "sha256:${"a".repeat(64)}",
+                        ),
+                    ),
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
+    }
+
+    @Test
+    fun `rejects unsupported attestation type`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                attestation = AttestationEvidenceV1(
+                    provider = "GitHub Artifact Attestations",
+                    workflowName = "CI",
+                    workflowRunId = "12345",
+                    repository = "org/repo",
+                    commitSha = "a".repeat(40),
+                    attestedSubjects = listOf(
+                        AttestedSubjectV1(
+                        attestationType = "invalid-type",
+                        fileName = "artifact.bin",
+                        sha256 = "sha256:${"a".repeat(64)}",
+                        ),
+                    ),
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsupported-attestation-type")
+    }
+
+    @Test
+    fun `accepts valid full attestation`() {
+        val pack = SovereignEvidencePackGenerator.generate(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verificationSettings = ModelArtifactVerificationSettings(),
+            verificationReceipts = emptyList(),
+            attestation = AttestationEvidenceV1(
+                provider = "GitHub Artifact Attestations",
+                workflowName = "CI",
+                workflowRunId = "123456789",
+                repository = "my-org/my-repo_name",
+                commitSha = "abcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                attestedSubjects = listOf(
+                    AttestedSubjectV1(
+                            attestationType = "build-provenance",
+                        fileName = "tramai.jar",
+                        sha256 = "sha256:${"a".repeat(64)}",
+                    ),
+                    AttestedSubjectV1(
+                            attestationType = "build-provenance",
+                        fileName = "tramai-sources.jar",
+                        sha256 = "sha256:${"b".repeat(64)}",
+                    ),
+                ),
+            ),
+        )
+
+        assertThat(pack.attestation).isNotNull()
+        assertThat(pack.attestation!!.provider).isEqualTo("GitHub Artifact Attestations")
+        assertThat(pack.attestation!!.workflowRunId).isEqualTo("123456789")
+        assertThat(pack.attestation!!.repository).isEqualTo("my-org/my-repo_name")
+        assertThat(pack.attestation!!.commitSha).isEqualTo("abcdefabcdefabcdefabcdefabcdefabcdefabcd")
+        assertThat(pack.attestation!!.attestedSubjects).hasSize(2)
+        assertThat(pack.attestation!!.attestedSubjects[0].fileName).isEqualTo("tramai.jar")
+        assertThat(pack.attestation!!.attestedSubjects[1].fileName).isEqualTo("tramai-sources.jar")
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private fun samplePack(): SovereignEvidencePackV1 = SovereignEvidencePackV1(
@@ -666,6 +1047,7 @@ class SovereignEvidencePackWriterTest {
         zeroEgress = null,
         auditChain = null,
         supplyChain = null,
+        attestation = null,
         generatedAt = "2026-01-01T00:00:00Z",
     )
 

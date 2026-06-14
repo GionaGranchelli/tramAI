@@ -19,9 +19,9 @@ This spec defines a **Sovereign Evidence Pack V1**: a deterministic, safe-for-au
 
 Implement:
 
-1. Evidence DTOs (`SovereignEvidencePackV1`, `ArtifactEvidenceV1`, `ZeroEgressEvidenceV1`, `AuditChainEvidenceV1`, `SupplyChainEvidenceV1`)
+1. Evidence DTOs (`SovereignEvidencePackV1`, `ArtifactEvidenceV1`, `ZeroEgressEvidenceV1`, `AuditChainEvidenceV1`, `SupplyChainEvidenceV1`, `AttestationEvidenceV1`, `AttestedSubjectV1`)
 2. `SovereignEvidencePackWriter` — deterministic JSON serializer with full control-character escaping
-3. `SovereignEvidencePackGenerator` — collects state from `SovereignTramai`, verification receipts, optional zero-egress results, and optional audit-chain results
+3. `SovereignEvidencePackGenerator` — collects state from `SovereignTramai`, verification receipts, optional zero-egress results, optional audit-chain results, optional supply-chain results, and optional attestation results
 4. `SovereignTramai.evidencePack(...)` method for convenient generation
 5. Integration with `examples/sovereign-offline-verification` — generates evidence pack alongside existing zero-egress report
 6. CI upload of evidence pack as GitHub Actions artifact
@@ -56,6 +56,7 @@ data class SovereignEvidencePackV1(
     val zeroEgress: ZeroEgressEvidenceV1?,
     val auditChain: AuditChainEvidenceV1?,
     val supplyChain: SupplyChainEvidenceV1?,
+    val attestation: AttestationEvidenceV1?,
     val generatedAt: String,
 )
 ```
@@ -118,6 +119,7 @@ data class AuditChainEvidenceV1(
 3. Optional `ZeroEgressEvidenceV1` — probe results
 4. Optional `AuditChainEvidenceV1` — aggregate audit summary
 5. Optional `SupplyChainEvidenceV1` — SBOM linkage summary
+6. Optional `AttestationEvidenceV1` — CI/CD provenance summary
 
 Added to `SovereignTramai`:
 
@@ -126,6 +128,7 @@ fun evidencePack(
     zeroEgress: ZeroEgressEvidenceV1? = null,
     auditChain: AuditChainEvidenceV1? = null,
     supplyChain: SupplyChainEvidenceV1? = null,
+    attestation: AttestationEvidenceV1? = null,
 ): SovereignEvidencePackV1
 ```
 
@@ -163,3 +166,5 @@ Applied in `SovereignEvidencePackGenerator.generate()` to: `allowedModels`, `all
 | PR #30 | ✅ Local-model artifact manifest and byte-level verification |
 | PR #31 | ✅ Offline runtime profile and zero-egress verification harness |
 | PR #32 | ✅ Sovereign evidence pack for auditor-safe deployment attestation |
+| PR #33 | ✅ CycloneDX SBOM generation and evidence linkage |
+| PR #34 | 🚧 GitHub Artifact Attestations for CI/CD provenance |
