@@ -177,9 +177,10 @@ a safe-for-auditors JSON artifact that captures the deployment's security postur
 | `providerZones` | Mapped from `SovereignProfileConfiguration.providerZones` |
 | `artifactVerificationSettings` | From `modelArtifactVerificationSettings` |
 | `artifacts` | From `verificationReceipts()` |
-| `zeroEgress` | Optional subsection from offline harness |
-| `auditChain` | Optional subsection from audit-chain validation |
-| `generatedAt` | ISO-8601 instant at generation time |
+|| `zeroEgress` | Optional subsection from offline harness |
+|| `auditChain` | Optional subsection from audit-chain validation |
+|| `supplyChain` | Optional subsection from CycloneDX SBOM linkage |
+|| `generatedAt` | ISO-8601 instant at generation time |
 
 **Security invariants:**
 - Contains no secrets, tokens, prompts, stack traces, or filesystem paths

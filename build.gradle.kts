@@ -14,6 +14,7 @@ plugins {
     base
     alias(libs.plugins.kotlin.jvm) apply false
     alias(libs.plugins.sonarqube)
+    alias(libs.plugins.cyclonedx.bom)
 }
 
 sonar {
@@ -490,8 +491,38 @@ tasks.register("verifyReleaseReadiness") {
     description = "Runs the repo-local release verification checks for publication metadata and published artifacts."
     notCompatibleWithConfigurationCache("Release readiness aggregates execution-time verification tasks.")
     dependsOn(
-        jarPublishingProjectNames.map { ":$it:test" },
+        jarPublishingProjectNames.map { ":${it}:test" },
         "verifyPublicationMetadata",
         "verifyPublishedLocalArtifacts",
     )
+}
+
+// ── CycloneDX SBOM ────────────────────────────────────────────────────────
+
+// Plugin is applied above via: alias(libs.plugins.cyclonedx.bom)
+// Default output goes to build/reports/bom.json and is post-processed
+// by the copy task below, avoiding typed extension resolution issues.
+
+tasks.register("prepareCycloneDxBom") {
+    group = "verification"
+    description = "Run cyclonedxBom and place the result plus digest under build/supply-chain/sbom/"
+    dependsOn("cyclonedxBom")
+    doLast {
+        val sbomDir = rootProject.layout.buildDirectory.dir("supply-chain/sbom").get().asFile
+        sbomDir.mkdirs()
+        val sourceBom = rootProject.layout.buildDirectory.file("reports/cyclonedx/bom.json").get().asFile
+        val targetBom = sbomDir.resolve("tramai-cyclonedx-sbom.json")
+        if (sourceBom.exists()) {
+            sourceBom.copyTo(targetBom, overwrite = true)
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val hex = digest.digest(targetBom.readBytes())
+                .joinToString("") { "%02x".format(it) }
+            sbomDir.resolve("tramai-cyclonedx-sbom.sha256")
+                .writeText("sha256:$hex")
+            logger.lifecycle("SBOM generated: ${targetBom.absolutePath}")
+            logger.lifecycle("SBOM digest: build/supply-chain/sbom/tramai-cyclonedx-sbom.sha256")
+        } else {
+            logger.warn("cyclonedxBom did not produce reports/bom.json in the build directory; skipping SBOM copy.")
+        }
+    }
 }

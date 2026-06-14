@@ -24,6 +24,7 @@ object SovereignEvidencePackGenerator {
      * @param verificationReceipts The verification receipts from build-time artifact verification.
      * @param zeroEgress Optional zero-egress verification subsection.
      * @param auditChain Optional audit-chain validation subsection.
+     * @param supplyChain Optional supply-chain SBOM linkage subsection.
      * @return A fully populated [SovereignEvidencePackV1] with the [generatedAt] timestamp
      * set to the current wall-clock time when this method is called.
      */
@@ -36,6 +37,7 @@ object SovereignEvidencePackGenerator {
         verificationReceipts: List<VerifiedLocalModelArtifact>,
         zeroEgress: ZeroEgressEvidenceV1? = null,
         auditChain: AuditChainEvidenceV1? = null,
+        supplyChain: SupplyChainEvidenceV1? = null,
     ): SovereignEvidencePackV1 {
         // Sanitize all string identifiers before building DTOs
         val sanitizedModels = allowedModels.map { EvidenceSafeString.sanitize(it) }.toSet()
@@ -59,6 +61,25 @@ object SovereignEvidencePackGenerator {
             "requireDigestForLocalModels" to verificationSettings.requireDigestForLocalModels,
         )
 
+        // Validate and sanitize supply-chain evidence
+        val sanitizedSupplyChain = supplyChain?.let { sc ->
+            // sbomSha256 must match "sha256:<hex>" format — do NOT run through EvidenceSafeString
+            // (hex could contain substrings like "token" coincidentally)
+            val digestRegex = Regex("^sha256:[a-fA-F0-9]{64}$")
+            require(digestRegex.matches(sc.sbomSha256)) {
+                "evidence-unsafe-digest-format"
+            }
+
+            SupplyChainEvidenceV1(
+                schemaVersion = sc.schemaVersion,
+                sbomFormat = EvidenceSafeString.sanitize(sc.sbomFormat),
+                sbomSpecVersion = EvidenceSafeString.sanitize(sc.sbomSpecVersion),
+                sbomFileName = EvidenceSafeString.sanitize(sc.sbomFileName),
+                sbomSha256 = sc.sbomSha256,
+                generatedBy = EvidenceSafeString.sanitize(sc.generatedBy),
+            )
+        }
+
         return SovereignEvidencePackV1(
             schemaVersion = 1,
             deploymentMode = deploymentMode.name,
@@ -69,6 +90,7 @@ object SovereignEvidencePackGenerator {
             artifacts = artifacts,
             zeroEgress = zeroEgress,
             auditChain = auditChain,
+            supplyChain = sanitizedSupplyChain,
             generatedAt = Instant.now().toString(),
         )
     }
