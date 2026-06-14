@@ -1,6 +1,12 @@
 package dev.tramai.sovereign.evidence
 
+import dev.tramai.core.model.ModelArtifactDigest
+import dev.tramai.core.model.ModelArtifactVerificationSettings
+import dev.tramai.core.model.VerifiedLocalModelArtifact
+import dev.tramai.sovereign.SovereignDeploymentMode
+import java.time.Instant
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -22,7 +28,6 @@ class SovereignEvidencePackWriterTest {
         assertThat(json).contains("\"allowedProviders\":")
         assertThat(json).contains("\"providerZones\":")
         assertThat(json).contains("\"artifactVerificationSettings\":")
-        assertThat(json).contains("\"verifiedModels\":")
         assertThat(json).contains("\"artifacts\":")
         assertThat(json).contains("\"zeroEgress\": null")
         assertThat(json).contains("\"auditChain\": null")
@@ -35,7 +40,6 @@ class SovereignEvidencePackWriterTest {
         val providersIdx = json.indexOf("\"allowedProviders\"")
         val zonesIdx = json.indexOf("\"providerZones\"")
         val settingsIdx = json.indexOf("\"artifactVerificationSettings\"")
-        val verifiedIdx = json.indexOf("\"verifiedModels\"")
         val artifactsIdx = json.indexOf("\"artifacts\"")
         val zeroEgressIdx = json.indexOf("\"zeroEgress\"")
         val auditChainIdx = json.indexOf("\"auditChain\"")
@@ -46,8 +50,7 @@ class SovereignEvidencePackWriterTest {
         assertThat(modelsIdx).isLessThan(providersIdx)
         assertThat(providersIdx).isLessThan(zonesIdx)
         assertThat(zonesIdx).isLessThan(settingsIdx)
-        assertThat(settingsIdx).isLessThan(verifiedIdx)
-        assertThat(verifiedIdx).isLessThan(artifactsIdx)
+        assertThat(settingsIdx).isLessThan(artifactsIdx)
         assertThat(artifactsIdx).isLessThan(zeroEgressIdx)
         assertThat(zeroEgressIdx).isLessThan(auditChainIdx)
         assertThat(auditChainIdx).isLessThan(generatedAtIdx)
@@ -62,7 +65,6 @@ class SovereignEvidencePackWriterTest {
             allowedProviders = listOf("line1\nline2", "tab\there", "cr\rend"),
             providerZones = emptyMap(),
             artifactVerificationSettings = emptyMap(),
-            verifiedModels = emptyList(),
             artifacts = emptyList(),
             zeroEgress = null,
             auditChain = null,
@@ -91,7 +93,6 @@ class SovereignEvidencePackWriterTest {
             allowedProviders = listOf("\u0000\u0008\u000c"),
             providerZones = emptyMap(),
             artifactVerificationSettings = emptyMap(),
-            verifiedModels = emptyList(),
             artifacts = emptyList(),
             zeroEgress = null,
             auditChain = null,
@@ -144,7 +145,6 @@ class SovereignEvidencePackWriterTest {
             allowedProviders = listOf("local-provider"),
             providerZones = mapOf("local-provider" to "LOCAL"),
             artifactVerificationSettings = mapOf("enabled" to true),
-            verifiedModels = emptyList(),
             artifacts = listOf(
                 ArtifactEvidenceV1(
                     registryEntryId = "entry-1",
@@ -194,7 +194,6 @@ class SovereignEvidencePackWriterTest {
             allowedProviders = emptyList(),
             providerZones = emptyMap(),
             artifactVerificationSettings = emptyMap(),
-            verifiedModels = emptyList(),
             artifacts = emptyList(),
             zeroEgress = null,
             auditChain = null,
@@ -204,10 +203,87 @@ class SovereignEvidencePackWriterTest {
 
         assertThat(json).contains("\"allowedModels\": []")
         assertThat(json).contains("\"allowedProviders\": []")
-        assertThat(json).contains("\"verifiedModels\": []")
         assertThat(json).contains("\"artifacts\": []")
         assertThat(json).contains("\"zeroEgress\": null")
         assertThat(json).contains("\"auditChain\": null")
+    }
+
+    @Test
+    fun `rejects evidence-unsafe model names`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("/tmp/model"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+            )
+        }
+    }
+
+    @Test
+    fun `rejects evidence-unsafe provider names`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("secret-provider"),
+                providerZones = mapOf("secret-provider" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+            )
+        }
+    }
+
+    @Test
+    fun `rejects evidence-unsafe home path in model name`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("/home/user/model"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+            )
+        }
+    }
+
+    @Test
+    fun `rejects evidence-unsafe token in provider zone key`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("token-provider"),
+                providerZones = mapOf("token-provider" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+            )
+        }
+    }
+
+    @Test
+    fun `rejects evidence-unsafe registry entry id`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            val receipt = VerifiedLocalModelArtifact(
+                registryEntryId = "token-entry-1",
+                manifestDigest = ModelArtifactDigest.of("sha256:abc"),
+                modelName = "model-a",
+                verifiedAt = Instant.parse("2026-01-01T00:00:00Z"),
+                artifactCount = 1,
+                totalSizeBytes = 100,
+            )
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = listOf(receipt),
+            )
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -218,7 +294,6 @@ class SovereignEvidencePackWriterTest {
         allowedProviders = listOf("provider-x"),
         providerZones = mapOf("provider-x" to "LOCAL"),
         artifactVerificationSettings = mapOf("enabled" to false),
-        verifiedModels = emptyList(),
         artifacts = emptyList(),
         zeroEgress = null,
         auditChain = null,

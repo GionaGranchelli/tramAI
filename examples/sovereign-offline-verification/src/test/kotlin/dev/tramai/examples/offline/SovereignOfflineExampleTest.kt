@@ -316,8 +316,9 @@ class SovereignOfflineExampleTest {
 
         // Override DNS and TCP blocking — in a test environment these
         // might succeed or fail. We test that the flow completes regardless.
+        val evidencePath = tempDir.resolve("sovereign-evidence-pack-v1.json")
         val result = kotlin.runCatching {
-            executeVerification(reportPath)
+            executeVerification(reportPath, evidencePath)
         }
 
         // The main flow should succeed. Network probe results are

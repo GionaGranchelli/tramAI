@@ -176,7 +176,6 @@ a safe-for-auditors JSON artifact that captures the deployment's security postur
 | `allowedProviders` | Sorted from `SovereignProfileConfiguration.allowedProviders` |
 | `providerZones` | Mapped from `SovereignProfileConfiguration.providerZones` |
 | `artifactVerificationSettings` | From `modelArtifactVerificationSettings` |
-| `verifiedModels` | Registry model summary (currently empty; populated by receipts) |
 | `artifacts` | From `verificationReceipts()` |
 | `zeroEgress` | Optional subsection from offline harness |
 | `auditChain` | Optional subsection from audit-chain validation |
@@ -194,8 +193,10 @@ val pack = tramai.evidencePack(
     zeroEgress = zeroEgressResult,
     auditChain = auditChainResult,
 )
-SovereignEvidencePackWriter.write(pack, Path.of("build", "sovereign-evidence", "sovereign-evidence-pack-v1.json"))
+SovereignEvidencePackWriter.write(pack, Path.of("build/sovereign-evidence", "sovereign-evidence-pack-v1.json"))
 ```
+
+The offline verification harness overrides this path via `--evidence-path=/out/sovereign-evidence-pack-v1.json`.
 
 ## Limitations
 

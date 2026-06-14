@@ -17,7 +17,7 @@ Add a deterministic Sovereign Evidence Pack V1 that summarizes the security-rele
 ### New files
 1. `tramai-sovereign/.../evidence/SovereignEvidencePackV1.kt` — Top-level evidence DTO
 2. `tramai-sovereign/.../evidence/ArtifactEvidenceV1.kt` — Artifact summary DTO
-3. `tramai-sovereign/.../evidence/VerifiedModelEvidenceV1.kt` — Model evidence DTO
+3. `tramai-sovereign/.../evidence/EvidenceSafeString.kt` — Identifier sanitizer
 4. `tramai-sovereign/.../evidence/ZeroEgressEvidenceV1.kt` — Zero-egress evidence DTO
 5. `tramai-sovereign/.../evidence/AuditChainEvidenceV1.kt` — Audit chain evidence DTO
 6. `tramai-sovereign/.../evidence/SovereignEvidencePackWriter.kt` — Deterministic JSON writer
@@ -43,7 +43,8 @@ Add a deterministic Sovereign Evidence Pack V1 that summarizes the security-rele
 **Scope:** Data classes, JSON serializer
 
 **Acceptance criteria:**
-- [ ] All 5 DTOs created with stable field ordering
+- [ ] All 4 DTOs created with stable field ordering (VerifiedModelEvidenceV1 removed)
+- [ ] EvidenceSafeString sanitizer rejects unsafe identifiers before DTO construction
 - [ ] Writer produces deterministic JSON with full control-character escaping
 - [ ] No prompts, paths, secrets, tokens in output
 

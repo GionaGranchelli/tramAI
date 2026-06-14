@@ -37,22 +37,22 @@ object SovereignEvidencePackGenerator {
         zeroEgress: ZeroEgressEvidenceV1? = null,
         auditChain: AuditChainEvidenceV1? = null,
     ): SovereignEvidencePackV1 {
+        // Sanitize all string identifiers before building DTOs
+        val sanitizedModels = allowedModels.map { EvidenceSafeString.sanitize(it) }.toSet()
+        val sanitizedProviders = allowedProviders.map { EvidenceSafeString.sanitize(it) }.toSet()
+        val sanitizedZones = providerZones.mapKeys { EvidenceSafeString.sanitize(it.key) }
+            .mapValues { EvidenceSafeString.sanitize(it.value) }
+
         val artifacts = verificationReceipts.map { receipt ->
             ArtifactEvidenceV1(
-                registryEntryId = receipt.registryEntryId,
-                manifestDigest = receipt.manifestDigest.value,
-                modelName = receipt.modelName,
+                registryEntryId = EvidenceSafeString.sanitize(receipt.registryEntryId),
+                manifestDigest = EvidenceSafeString.sanitize(receipt.manifestDigest.value),
+                modelName = EvidenceSafeString.sanitize(receipt.modelName),
                 verifiedAt = receipt.verifiedAt.toString(),
                 artifactCount = receipt.artifactCount,
                 totalSizeBytes = receipt.totalSizeBytes,
             )
         }
-
-        // Verified models — currently populated from receipts since we don't
-        // have the full RegisteredModel info (providerId, revision) in the
-        // receipt DTO. These are left empty and can be populated in a future
-        // iteration when the SovereignTramai stores the registered models.
-        val verifiedModels = emptyList<VerifiedModelEvidenceV1>()
 
         val settingsMap = linkedMapOf<String, Any?>(
             "enabled" to verificationSettings.enabled,
@@ -62,11 +62,10 @@ object SovereignEvidencePackGenerator {
         return SovereignEvidencePackV1(
             schemaVersion = 1,
             deploymentMode = deploymentMode.name,
-            allowedModels = allowedModels.toList().sorted(),
-            allowedProviders = allowedProviders.toList().sorted(),
-            providerZones = providerZones,
+            allowedModels = sanitizedModels.toList().sorted(),
+            allowedProviders = sanitizedProviders.toList().sorted(),
+            providerZones = sanitizedZones,
             artifactVerificationSettings = settingsMap,
-            verifiedModels = verifiedModels,
             artifacts = artifacts,
             zeroEgress = zeroEgress,
             auditChain = auditChain,

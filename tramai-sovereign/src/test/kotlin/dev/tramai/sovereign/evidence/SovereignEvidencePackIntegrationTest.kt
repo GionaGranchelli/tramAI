@@ -89,7 +89,6 @@ class SovereignEvidencePackIntegrationTest {
         assertThat(pack.artifacts[0].modelName).isEqualTo("test-model")
         assertThat(pack.artifacts[0].artifactCount).isEqualTo(2)
         assertThat(pack.artifacts[0].totalSizeBytes).isEqualTo(1024)
-        assertThat(pack.verifiedModels).isEmpty()
         assertThat(pack.zeroEgress).isNull()
         assertThat(pack.auditChain).isNull()
         assertThat(pack.schemaVersion).isEqualTo(1)

@@ -19,7 +19,7 @@ This spec defines a **Sovereign Evidence Pack V1**: a deterministic, safe-for-au
 
 Implement:
 
-1. Evidence DTOs (`SovereignEvidencePackV1`, `ArtifactEvidenceV1`, `VerifiedModelEvidenceV1`, `ZeroEgressEvidenceV1`, `AuditChainEvidenceV1`)
+1. Evidence DTOs (`SovereignEvidencePackV1`, `ArtifactEvidenceV1`, `ZeroEgressEvidenceV1`, `AuditChainEvidenceV1`)
 2. `SovereignEvidencePackWriter` — deterministic JSON serializer with full control-character escaping
 3. `SovereignEvidencePackGenerator` — collects state from `SovereignTramai`, verification receipts, optional zero-egress results, and optional audit-chain results
 4. `SovereignTramai.evidencePack(...)` method for convenient generation
@@ -52,7 +52,6 @@ data class SovereignEvidencePackV1(
     val allowedProviders: List<String>,
     val providerZones: Map<String, String>,
     val artifactVerificationSettings: Map<String, Any?>,
-    val verifiedModels: List<VerifiedModelEvidenceV1>,
     val artifacts: List<ArtifactEvidenceV1>,
     val zeroEgress: ZeroEgressEvidenceV1?,
     val auditChain: AuditChainEvidenceV1?,
@@ -72,19 +71,6 @@ data class ArtifactEvidenceV1(
     val verifiedAt: String,
     val artifactCount: Int,
     val totalSizeBytes: Long,
-)
-```
-
-### VerifiedModelEvidenceV1
-
-Summarizes a verified model from the registry:
-
-```kotlin
-data class VerifiedModelEvidenceV1(
-    val modelName: String,
-    val providerId: String,
-    val revision: String,
-    val artifactDigestRegistered: Boolean,
 )
 ```
 
@@ -139,6 +125,17 @@ fun evidencePack(
     auditChainResult: AuditChainEvidenceV1? = null,
 ): SovereignEvidencePackV1
 ```
+
+## Evidence Identifier Sanitizer
+
+`EvidenceSafeString.sanitize(value: String): String` validates that identifiers written into the evidence pack do not contain fragments that could leak sensitive information:
+
+- Rejects path prefixes (`/tmp/`, `/home/`, `/Users/`)
+- Rejects secrets-adjacent terms (`token`, `secret`, `password`, `prompt`, `rawRequest`, `rawResponse`, `stacktrace`)
+- Rejects ISO control characters
+- Throws `IllegalArgumentException` with a fixed safe reason code on any violation
+
+Applied in `SovereignEvidencePackGenerator.generate()` to: `allowedModels`, `allowedProviders`, `providerZones` keys and values, `registryEntryId`, `manifestDigest`, and `modelName` — **before** the DTOs are constructed.
 
 ## Security Invariants
 

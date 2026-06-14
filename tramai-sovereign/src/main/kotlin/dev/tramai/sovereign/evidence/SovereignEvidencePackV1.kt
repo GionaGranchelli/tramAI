@@ -16,7 +16,6 @@ package dev.tramai.sovereign.evidence
  * @property allowedProviders The set of provider names allowed by the profile (sorted).
  * @property providerZones Trust-zone mapping for each allowed provider.
  * @property artifactVerificationSettings Settings that controlled artifact verification.
- * @property verifiedModels Summary of registry entries that were verified.
  * @property artifacts Summary of individual artifact verification receipts.
  * @property zeroEgress Optional zero-egress verification subsection.
  * @property auditChain Optional audit-chain validation subsection.
@@ -29,7 +28,6 @@ data class SovereignEvidencePackV1(
     val allowedProviders: List<String>,
     val providerZones: Map<String, String>,
     val artifactVerificationSettings: Map<String, Any?>,
-    val verifiedModels: List<VerifiedModelEvidenceV1>,
     val artifacts: List<ArtifactEvidenceV1>,
     val zeroEgress: ZeroEgressEvidenceV1? = null,
     val auditChain: AuditChainEvidenceV1? = null,
