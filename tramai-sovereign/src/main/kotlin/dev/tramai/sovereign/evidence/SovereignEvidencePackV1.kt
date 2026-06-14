@@ -20,6 +20,7 @@ package dev.tramai.sovereign.evidence
  * @property zeroEgress Optional zero-egress verification subsection.
  * @property auditChain Optional audit-chain validation subsection.
  * @property supplyChain Optional supply-chain SBOM linkage subsection.
+ * @property releaseBundle Optional release-bundle artifact manifest subsection.
  * @property attestation Optional CI/CD attestation subsection.
  * @property generatedAt ISO-8601 instant when this pack was generated.
  */
@@ -34,6 +35,7 @@ data class SovereignEvidencePackV1(
     val zeroEgress: ZeroEgressEvidenceV1? = null,
     val auditChain: AuditChainEvidenceV1? = null,
     val supplyChain: SupplyChainEvidenceV1? = null,
+    val releaseBundle: ReleaseBundleEvidenceV1? = null,
     val attestation: AttestationEvidenceV1? = null,
     val generatedAt: String,
 )

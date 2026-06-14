@@ -11,6 +11,7 @@ import dev.tramai.core.model.VerifiedLocalModelArtifact
 import dev.tramai.core.model.TramaiTool
 import dev.tramai.sovereign.evidence.AttestationEvidenceV1
 import dev.tramai.sovereign.evidence.AuditChainEvidenceV1
+import dev.tramai.sovereign.evidence.ReleaseBundleEvidenceV1
 import dev.tramai.sovereign.evidence.SovereignEvidencePackGenerator
 import dev.tramai.sovereign.evidence.SovereignEvidencePackV1
 import dev.tramai.sovereign.evidence.SupplyChainEvidenceV1
@@ -106,12 +107,14 @@ class SovereignTramai private constructor(
      * @param zeroEgress Optional zero-egress verification subsection.
      * @param auditChain Optional audit-chain validation subsection.
      * @param supplyChain Optional supply-chain SBOM linkage subsection.
+     * @param releaseBundle Optional release-bundle artifact manifest subsection.
      * @param attestation Optional CI/CD attestation subsection.
      */
     fun evidencePack(
         zeroEgress: ZeroEgressEvidenceV1? = null,
         auditChain: AuditChainEvidenceV1? = null,
         supplyChain: SupplyChainEvidenceV1? = null,
+        releaseBundle: ReleaseBundleEvidenceV1? = null,
         attestation: AttestationEvidenceV1? = null,
     ): SovereignEvidencePackV1 = SovereignEvidencePackGenerator.generate(
         deploymentMode = profile.deploymentMode,
@@ -123,6 +126,7 @@ class SovereignTramai private constructor(
         zeroEgress = zeroEgress,
         auditChain = auditChain,
         supplyChain = supplyChain,
+        releaseBundle = releaseBundle,
         attestation = attestation,
     )
 

@@ -5,6 +5,7 @@ import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.javadoc.Javadoc
 import org.gradle.kotlin.dsl.configure
 import org.gradle.plugins.signing.SigningExtension
+import org.gradle.util.GradleVersion
 import org.w3c.dom.Element
 import java.io.File
 import java.net.URI
@@ -524,5 +525,94 @@ tasks.register("prepareCycloneDxBom") {
         } else {
             logger.warn("cyclonedxBom did not produce reports/cyclonedx/bom.json in the build directory; skipping SBOM copy.")
         }
+    }
+}
+
+val sovereignReleaseModules = listOf(
+    ":tramai-core",
+    ":tramai-security",
+    ":tramai-structured",
+    ":tramai-engine",
+    ":tramai-standalone",
+    ":tramai-sovereign",
+    ":tramai-persistence-file",
+    ":tramai-observability",
+)
+
+tasks.register("prepareSovereignReleaseArtifacts") {
+    group = "verification"
+    description = "Collects JARs from sovereign release modules, computes SHA-256 digests, and generates release-artifacts-v1.json."
+    dependsOn(sovereignReleaseModules.map { project(it).tasks.named("jar") })
+
+    doLast {
+        val outputDir = rootProject.layout.buildDirectory.dir("sovereign-release").get().asFile
+        val artifactsDir = outputDir.resolve("artifacts")
+        artifactsDir.mkdirs()
+
+        val groupId = tramaiGroup.get()
+        val version = tramaiVersion.get()
+        val artifactEntries = mutableListOf<String>()
+
+        sovereignReleaseModules.forEach { modulePath ->
+            val proj = project(modulePath)
+            val moduleName = proj.name
+            val libsDir = proj.layout.buildDirectory.dir("libs").get().asFile
+            if (!libsDir.exists()) return@forEach
+
+            libsDir.listFiles { f -> f.name.endsWith(".jar") }?.forEach { jarFile ->
+                val copied = jarFile.copyTo(artifactsDir.resolve(jarFile.name), overwrite = true)
+
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                val hex = digest.digest(copied.readBytes())
+                    .joinToString("") { "%02x".format(it) }
+                val sha256 = "sha256:$hex"
+
+                // Determine classifier from filename pattern: artifactId-version[-classifier].extension
+                val classifier = when {
+                    jarFile.name.contains("-sources.jar") -> "sources"
+                    jarFile.name.contains("-javadoc.jar") -> "javadoc"
+                    else -> null
+                }
+
+                val artifactLine = buildString {
+                    append("        {")
+                    append("\"groupId\": \"$groupId\", ")
+                    append("\"artifactId\": \"$moduleName\", ")
+                    append("\"version\": \"$version\", ")
+                    append("\"classifier\": ${if (classifier != null) "\"$classifier\"" else "null"}, ")
+                    append("\"extension\": \"jar\", ")
+                    append("\"fileName\": \"${jarFile.name}\", ")
+                    append("\"sha256\": \"$sha256\", ")
+                    append("\"sizeBytes\": ${copied.length()}")
+                    append("}")
+                }
+                artifactEntries.add(artifactLine)
+            }
+        }
+
+        val javaVersion = System.getProperty("java.version") ?: "unknown"
+        val gradleVersion = GradleVersion.current().version
+
+        val json = buildString {
+            appendLine("{")
+            appendLine("  \"schemaVersion\": 1,")
+            appendLine("  \"buildTool\": \"Gradle\",")
+            appendLine("  \"javaVersion\": \"$javaVersion\",")
+            appendLine("  \"gradleVersion\": \"$gradleVersion\",")
+            appendLine("  \"artifacts\": [")
+            for ((i, entry) in artifactEntries.withIndex()) {
+                append(entry)
+                if (i < artifactEntries.lastIndex) append(",")
+                appendLine()
+            }
+            appendLine("  ]")
+            append("}")
+            appendLine()
+        }
+
+        val jsonFile = outputDir.resolve("release-artifacts-v1.json")
+        jsonFile.writeText(json)
+        logger.lifecycle("Sovereign release artifact manifest generated: ${jsonFile.absolutePath}")
+        logger.lifecycle("  Artifacts collected: ${artifactEntries.size}")
     }
 }
