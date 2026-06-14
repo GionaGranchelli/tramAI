@@ -10,11 +10,12 @@ package dev.tramai.sovereign.evidence
  */
 internal object EvidenceSafeString {
 
+    private val windowsDrivePath = Regex("^[A-Za-z]:[/\\\\]")
+
     private val forbiddenFragments = listOf(
         "/tmp/",
         "/home/",
         "/Users/",
-        "C:\\\\",
         "token",
         "secret",
         "password",
@@ -34,6 +35,10 @@ internal object EvidenceSafeString {
     fun sanitize(value: String): String {
         require(value.none(Char::isISOControl)) {
             "evidence-unsafe-control-character"
+        }
+
+        require(!windowsDrivePath.containsMatchIn(value)) {
+            "evidence-unsafe-identifier"
         }
 
         val lower = value.lowercase()

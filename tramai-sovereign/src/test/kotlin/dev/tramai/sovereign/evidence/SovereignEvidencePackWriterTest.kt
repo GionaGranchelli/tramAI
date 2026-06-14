@@ -6,7 +6,7 @@ import dev.tramai.core.model.VerifiedLocalModelArtifact
 import dev.tramai.sovereign.SovereignDeploymentMode
 import java.time.Instant
 import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.Assertions.assertThrows
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -210,7 +210,7 @@ class SovereignEvidencePackWriterTest {
 
     @Test
     fun `rejects evidence-unsafe model names`() {
-        assertThrows(IllegalArgumentException::class.java) {
+        assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
                 deploymentMode = SovereignDeploymentMode.STANDARD,
                 allowedModels = setOf("/tmp/model"),
@@ -219,12 +219,13 @@ class SovereignEvidencePackWriterTest {
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
             )
-        }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
     }
 
     @Test
     fun `rejects evidence-unsafe provider names`() {
-        assertThrows(IllegalArgumentException::class.java) {
+        assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
                 deploymentMode = SovereignDeploymentMode.STANDARD,
                 allowedModels = setOf("model-a"),
@@ -233,12 +234,13 @@ class SovereignEvidencePackWriterTest {
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
             )
-        }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
     }
 
     @Test
     fun `rejects evidence-unsafe home path in model name`() {
-        assertThrows(IllegalArgumentException::class.java) {
+        assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
                 deploymentMode = SovereignDeploymentMode.STANDARD,
                 allowedModels = setOf("/home/user/model"),
@@ -247,12 +249,13 @@ class SovereignEvidencePackWriterTest {
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
             )
-        }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
     }
 
     @Test
     fun `rejects evidence-unsafe token in provider zone key`() {
-        assertThrows(IllegalArgumentException::class.java) {
+        assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
                 deploymentMode = SovereignDeploymentMode.STANDARD,
                 allowedModels = setOf("model-a"),
@@ -261,15 +264,17 @@ class SovereignEvidencePackWriterTest {
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
             )
-        }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
     }
 
     @Test
     fun `rejects evidence-unsafe registry entry id`() {
-        assertThrows(IllegalArgumentException::class.java) {
+        val validDigest = ModelArtifactDigest.of("sha256:${"a".repeat(64)}")
+        assertThatThrownBy {
             val receipt = VerifiedLocalModelArtifact(
                 registryEntryId = "token-entry-1",
-                manifestDigest = ModelArtifactDigest.of("sha256:abc"),
+                manifestDigest = validDigest,
                 modelName = "model-a",
                 verifiedAt = Instant.parse("2026-01-01T00:00:00Z"),
                 artifactCount = 1,
@@ -283,7 +288,53 @@ class SovereignEvidencePackWriterTest {
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = listOf(receipt),
             )
-        }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
+    }
+
+    @Test
+    fun `rejects Windows drive path with backslash`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("C:\\models\\x"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
+    }
+
+    @Test
+    fun `rejects Windows drive path with forward slash`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("C:/models/x"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
+    }
+
+    @Test
+    fun `rejects Windows drive path with lowercase drive letter`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("d:\\private\\model"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
