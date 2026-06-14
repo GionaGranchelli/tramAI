@@ -1,8 +1,8 @@
 # Module: `tramai-sovereign`
 
-> **One-liner:** Secure embedded runtime profile that wires deny-by-default policy enforcement, approved-model registry enforcement, classification-aware provider routing, and hash-chained policy-decision audit emission without requiring the SaaS platform.
+> **One-liner:** Secure embedded runtime profile that wires deny-by-default policy enforcement, approved-model registry enforcement, classification-aware provider routing, offline deployment validation, artifact-byte verification, and hash-chained policy-decision audit emission without requiring the SaaS platform.
 > **Module type:** `composition` + `secure profile`
-> **Source files:** 2 files — `SovereignTramai.kt`, `SovereignProfileConfiguration.kt`
+> **Source files:** 3 files — `SovereignTramai.kt`, `SovereignProfileConfiguration.kt`, `SovereignDeploymentMode.kt`
 
 ## Purpose
 
@@ -12,12 +12,21 @@ Its job is to compose existing security primitives (PolicyEngine, ModelRegistry,
 
 ## Threat Boundary
 
-The sovereign profile validates configured provider-model identity and declared registry metadata. It does **not** yet verify:
-- Deployed model bytes
-- Runtime images or GPU hosts
-- Network-isolation boundaries
+The sovereign profile validates:
+- Configured provider-model identity and declared registry metadata (SPEC-017)
+- Deployed model bytes via artifact manifest and streaming SHA-256 verification (SPEC-018)
+- Local-only provider composition in `OFFLINE` deployment mode (SPEC-019)
 
-These are separate follow-up capabilities tracked on the Phase 2 roadmap.
+It does **not** yet:
+- Verify runtime images or GPU hosts
+- Enforce infrastructure-level network isolation (firewalls, NetworkPolicy, sandboxing — this is a shared responsibility)
+- Periodically re-attest model artifact files
+
+## Offline Deployment Mode
+
+`SovereignDeploymentMode.OFFLINE` enforces that every registered provider, primary route, fallback route, and default provider targets `ProviderTrustZone.LOCAL`. This is a build-time composition contract — it does not replace infrastructure-level network isolation.
+
+See SPEC-019 and `examples/sovereign-offline-verification/` for the reference zero-egress verification harness.
 
 ## Embedded Deployment Model
 
@@ -34,7 +43,7 @@ Every sovereign deployment must provide:
 
 | Input | Required | Description |
 |-------|----------|-------------|
-| `SovereignProfileConfiguration` | Yes | Model, provider, tool allowlists and trust zones |
+| `SovereignProfileConfiguration` | Yes | Model, provider, tool allowlists, trust zones, and deployment mode |
 | `ModelRegistry` | Yes | Approved model identities |
 | `AuditStore` | Yes | Hash-chained policy-decision audit storage |
 | At least one `ModelProvider` | Yes | Registered with explicit trust zone |
@@ -47,6 +56,7 @@ Every sovereign deployment must provide:
 - **Provider routing matrix:** Always enabled (sovereign defaults)
 - **Legacy permissive mode:** Not reachable through the sovereign API
 - **Wildcard allowlists:** Rejected at construction time
+- **Deployment mode:** `STANDARD` by default
 - **SaaS platform dependency:** None
 
 ## Usage
@@ -85,6 +95,30 @@ val tramai = SovereignTramai.builder()
 val service = tramai.create<MyService>()
 ```
 
+### Offline deployment with artifact verification
+
+```kotlin
+val tramai = SovereignTramai.builder()
+    .profile(
+        SovereignProfileConfiguration(
+            allowedModels = setOf("offline-test-model"),
+            allowedProviders = setOf("loopback-local-provider"),
+            providerZones = mapOf("loopback-local-provider" to ProviderTrustZone.LOCAL),
+            deploymentMode = SovereignDeploymentMode.OFFLINE,
+        ),
+    )
+    .modelRegistry(registry)
+    .auditStore(auditStore)
+    .provider(loopbackProvider, name = "loopback-local-provider", default = true)
+    .model("offline-test-model", "loopback-local-provider")
+    .modelArtifactVerifier(verifier)
+    .modelArtifactVerificationSettings(ModelArtifactVerificationSettings(enabled = true))
+    .build()
+
+// Verification receipts are accessible after build
+val receipts = tramai.verificationReceipts()
+```
+
 ## Dependencies
 
 | Module | Type | Reason |
@@ -110,6 +144,8 @@ val service = tramai.create<MyService>()
 - Fallback providers appear in `allowedFallbackProviders`
 - Fallback models appear in `allowedModels`
 - Duplicate provider registrations are rejected
+- In `OFFLINE` mode: every registered provider, primary route, fallback route, and default provider targets `LOCAL`
+- When artifact verification enabled: LOCAL models are verified against their manifest
 
 ## Security Invariants
 
@@ -124,27 +160,25 @@ val service = tramai.create<MyService>()
 | HIGH-risk tool | Policy engine requires human approval |
 | Policy decision | Hash-chained audit event emitted via `AuditEnginePolicyDecisionAuditEmitter` |
 | Legacy permissive mode | Not reachable through sovereign API |
+| Offline mode with non-LOCAL provider | Build fails with fixed safe reason code |
+| Artifact byte tampering | Streaming SHA-256 verification; build fails before provider invocation |
 
 ## Limitations
 
-- The sovereign profile validates configured provider-model identity and declared registry metadata.
-- It does **not** verify deployed model bytes, runtime images, GPU hosts, or network-isolation boundaries.
-- The sovereign profile wires policy decisions that require approval for HIGH and CRITICAL risk tools.
-- Embedded approval suspension and resume composition is available through `SovereignTramai.Builder` for `ApprovalGateCoordinator`, `ApprovalContinuationStore`, and `ToolArgumentsDigester`.
-- Approval lifecycle audit emission is not configurable in the sovereign profile; it is always wired to the sovereign `AuditEngine`.
-- Artifact-byte verification is tracked as a follow-up capability (Phase 2).
+- Artifact verification happens once at build time — periodic re-attestation is deferred
+- `OFFLINE` mode is a composition contract, not a firewall — production network isolation requires infrastructure controls
+- The zero-egress verification harness (`examples/sovereign-offline-verification/`) proves loopback model invocation inside `--network=none`, but does not replace production firewall, NetworkPolicy, or sandboxing
 
 ## Module Source
 
 - **Package:** `dev.tramai.sovereign`
-- **Main types:** `SovereignTramai`, `SovereignProfileConfiguration`
+- **Main types:** `SovereignTramai`, `SovereignProfileConfiguration`, `SovereignDeploymentMode`
 
 ## Follow-Up Roadmap
 
 | PR | Capability |
 |----|------------|
-| #25 | Executable Sovereign Document Intelligence reference workflow |
-| #26 | Approval timeout auto-deny |
-| #27 | Zero-egress verification harness |
-| #28 | Artifact-byte verification |
-| #29 | Evidence pack and SBOM |
+| #29 | ✅ Encrypted suspended invocation store and restart-safe recovery |
+| #30 | ✅ Local-model artifact manifest and byte-level verification |
+| #31 | ✅ Offline runtime profile and zero-egress verification harness |
+| #32 | Evidence pack and SBOM |

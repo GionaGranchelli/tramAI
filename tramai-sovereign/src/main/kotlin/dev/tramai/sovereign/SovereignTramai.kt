@@ -403,6 +403,9 @@ class SovereignTramai private constructor(
                 }
             }
 
+            // Offline deployment validation — before registry lookup
+            validateOfflineDeployment(profile)
+
             val verificationReceipts = verifyLocalModelArtifacts(
                 profile = profile,
                 modelRegistry = modelRegistry!!,
@@ -513,6 +516,38 @@ class SovereignTramai private constructor(
                     receipts += receipt
                 }
                 receipts.toList()
+            }
+        }
+
+        private fun validateOfflineDeployment(
+            profile: SovereignProfileConfiguration,
+        ) {
+            if (profile.deploymentMode != SovereignDeploymentMode.OFFLINE) {
+                return
+            }
+
+            for (providerName in registeredProviders) {
+                require(profile.providerZones.getValue(providerName) == ProviderTrustZone.LOCAL) {
+                    "offline-profile-non-local-provider-rejected"
+                }
+            }
+
+            for ((_, providerName) in primaryModelRoutes) {
+                require(profile.providerZones.getValue(providerName) == ProviderTrustZone.LOCAL) {
+                    "offline-profile-non-local-primary-route-rejected"
+                }
+            }
+
+            for (fallback in fallbackRoutes) {
+                require(profile.providerZones.getValue(fallback.providerName) == ProviderTrustZone.LOCAL) {
+                    "offline-profile-non-local-fallback-rejected"
+                }
+            }
+
+            defaultProviderName?.let { providerName ->
+                require(profile.providerZones.getValue(providerName) == ProviderTrustZone.LOCAL) {
+                    "offline-profile-non-local-default-provider-rejected"
+                }
             }
         }
     }
