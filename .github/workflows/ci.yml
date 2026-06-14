@@ -78,6 +78,12 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Generate CycloneDX SBOM
+        run: ./gradlew cyclonedxBom
+
+      - name: Compute SBOM digest + copy
+        run: ./gradlew prepareCycloneDxBom
+
       - name: Run zero-egress verification harness
         run: ./scripts/verify-zero-egress.sh
 

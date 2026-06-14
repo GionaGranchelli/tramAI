@@ -114,14 +114,14 @@ data class AuditChainEvidenceV1(
 
 1. `SovereignTramai` — deployment mode, provider zones, verification settings, verification receipts
 2. `SovereignProfileConfiguration` — allowed models, allowed providers
-3. Optional `ZeroEgressVerificationReportV1` — probe results
+3. Optional `ZeroEgressEvidenceV1` — probe results
 4. Optional `AuditChainEvidenceV1` — aggregate audit summary
 
 Added to `SovereignTramai`:
 
 ```kotlin
 fun evidencePack(
-    zeroEgressReport: ZeroEgressVerificationReportV1? = null,
+    zeroEgressResult: ZeroEgressEvidenceV1? = null,
     auditChainResult: AuditChainEvidenceV1? = null,
 ): SovereignEvidencePackV1
 ```

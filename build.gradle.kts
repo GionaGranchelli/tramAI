@@ -500,7 +500,7 @@ tasks.register("verifyReleaseReadiness") {
 // ── CycloneDX SBOM ────────────────────────────────────────────────────────
 
 // Plugin is applied above via: alias(libs.plugins.cyclonedx.bom)
-// Default output goes to build/reports/bom.json and is post-processed
+// Default output goes to build/reports/cyclonedx/bom.json and is post-processed
 // by the copy task below, avoiding typed extension resolution issues.
 
 tasks.register("prepareCycloneDxBom") {
@@ -522,7 +522,7 @@ tasks.register("prepareCycloneDxBom") {
             logger.lifecycle("SBOM generated: ${targetBom.absolutePath}")
             logger.lifecycle("SBOM digest: build/supply-chain/sbom/tramai-cyclonedx-sbom.sha256")
         } else {
-            logger.warn("cyclonedxBom did not produce reports/bom.json in the build directory; skipping SBOM copy.")
+            logger.warn("cyclonedxBom did not produce reports/cyclonedx/bom.json in the build directory; skipping SBOM copy.")
         }
     }
 }

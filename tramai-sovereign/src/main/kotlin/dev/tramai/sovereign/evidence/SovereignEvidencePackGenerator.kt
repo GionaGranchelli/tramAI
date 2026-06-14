@@ -13,6 +13,13 @@ import java.time.Instant
  */
 object SovereignEvidencePackGenerator {
 
+    private fun sanitizeFileNameOnly(value: String): String {
+        val sanitized = EvidenceSafeString.sanitize(value)
+        require(!sanitized.contains('/')) { "evidence-unsafe-identifier" }
+        require(!sanitized.contains('\\')) { "evidence-unsafe-identifier" }
+        return sanitized
+    }
+
     /**
      * Generates a [SovereignEvidencePackV1] from the current deployment state.
      *
@@ -70,11 +77,15 @@ object SovereignEvidencePackGenerator {
                 "evidence-unsafe-digest-format"
             }
 
+            require(sc.schemaVersion == 1) {
+                "evidence-unsupported-supply-chain-schema-version"
+            }
+
             SupplyChainEvidenceV1(
                 schemaVersion = sc.schemaVersion,
                 sbomFormat = EvidenceSafeString.sanitize(sc.sbomFormat),
                 sbomSpecVersion = EvidenceSafeString.sanitize(sc.sbomSpecVersion),
-                sbomFileName = EvidenceSafeString.sanitize(sc.sbomFileName),
+                sbomFileName = sanitizeFileNameOnly(sc.sbomFileName),
                 sbomSha256 = sc.sbomSha256,
                 generatedBy = EvidenceSafeString.sanitize(sc.generatedBy),
             )

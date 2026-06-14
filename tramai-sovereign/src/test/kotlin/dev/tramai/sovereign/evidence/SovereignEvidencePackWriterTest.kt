@@ -564,6 +564,96 @@ class SovereignEvidencePackWriterTest {
         assertThat(json).doesNotContain("rawResponse")
     }
 
+    @Test
+    fun `rejects sbom filename with subdir relative path`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                supplyChain = SupplyChainEvidenceV1(
+                    sbomFormat = "CycloneDX",
+                    sbomSpecVersion = "1.6",
+                    sbomFileName = "subdir/sbom.json",
+                    sbomSha256 = "sha256:${"a".repeat(64)}",
+                    generatedBy = "test",
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
+    }
+
+    @Test
+    fun `rejects sbom filename with backslash relative path`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                supplyChain = SupplyChainEvidenceV1(
+                    sbomFormat = "CycloneDX",
+                    sbomSpecVersion = "1.6",
+                    sbomFileName = "subdir\\sbom.json",
+                    sbomSha256 = "sha256:${"a".repeat(64)}",
+                    generatedBy = "test",
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
+    }
+
+    @Test
+    fun `rejects unsupported supply-chain schema version 0`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                supplyChain = SupplyChainEvidenceV1(
+                    schemaVersion = 0,
+                    sbomFormat = "CycloneDX",
+                    sbomSpecVersion = "1.6",
+                    sbomFileName = "sbom.json",
+                    sbomSha256 = "sha256:${"a".repeat(64)}",
+                    generatedBy = "test",
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsupported-supply-chain-schema-version")
+    }
+
+    @Test
+    fun `rejects unsupported supply-chain schema version 2`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                supplyChain = SupplyChainEvidenceV1(
+                    schemaVersion = 2,
+                    sbomFormat = "CycloneDX",
+                    sbomSpecVersion = "1.6",
+                    sbomFileName = "sbom.json",
+                    sbomSha256 = "sha256:${"a".repeat(64)}",
+                    generatedBy = "test",
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsupported-supply-chain-schema-version")
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private fun samplePack(): SovereignEvidencePackV1 = SovereignEvidencePackV1(
