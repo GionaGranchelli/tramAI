@@ -179,6 +179,7 @@ a safe-for-auditors JSON artifact that captures the deployment's security postur
 | `artifacts` | From `verificationReceipts()` |
 | `zeroEgress` | Optional subsection from offline harness |
 | `auditChain` | Optional subsection from audit-chain validation |
+| `supplyChain` | Optional subsection from CycloneDX SBOM linkage |
 | `generatedAt` | ISO-8601 instant at generation time |
 
 **Security invariants:**

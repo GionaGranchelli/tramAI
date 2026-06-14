@@ -19,6 +19,7 @@ package dev.tramai.sovereign.evidence
  * @property artifacts Summary of individual artifact verification receipts.
  * @property zeroEgress Optional zero-egress verification subsection.
  * @property auditChain Optional audit-chain validation subsection.
+ * @property supplyChain Optional supply-chain SBOM linkage subsection.
  * @property generatedAt ISO-8601 instant when this pack was generated.
  */
 data class SovereignEvidencePackV1(
@@ -31,5 +32,6 @@ data class SovereignEvidencePackV1(
     val artifacts: List<ArtifactEvidenceV1>,
     val zeroEgress: ZeroEgressEvidenceV1? = null,
     val auditChain: AuditChainEvidenceV1? = null,
+    val supplyChain: SupplyChainEvidenceV1? = null,
     val generatedAt: String,
 )

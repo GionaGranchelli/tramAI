@@ -19,7 +19,7 @@ This spec defines a **Sovereign Evidence Pack V1**: a deterministic, safe-for-au
 
 Implement:
 
-1. Evidence DTOs (`SovereignEvidencePackV1`, `ArtifactEvidenceV1`, `ZeroEgressEvidenceV1`, `AuditChainEvidenceV1`)
+1. Evidence DTOs (`SovereignEvidencePackV1`, `ArtifactEvidenceV1`, `ZeroEgressEvidenceV1`, `AuditChainEvidenceV1`, `SupplyChainEvidenceV1`)
 2. `SovereignEvidencePackWriter` — deterministic JSON serializer with full control-character escaping
 3. `SovereignEvidencePackGenerator` — collects state from `SovereignTramai`, verification receipts, optional zero-egress results, and optional audit-chain results
 4. `SovereignTramai.evidencePack(...)` method for convenient generation
@@ -55,6 +55,7 @@ data class SovereignEvidencePackV1(
     val artifacts: List<ArtifactEvidenceV1>,
     val zeroEgress: ZeroEgressEvidenceV1?,
     val auditChain: AuditChainEvidenceV1?,
+    val supplyChain: SupplyChainEvidenceV1?,
     val generatedAt: String,
 )
 ```
@@ -114,15 +115,17 @@ data class AuditChainEvidenceV1(
 
 1. `SovereignTramai` — deployment mode, provider zones, verification settings, verification receipts
 2. `SovereignProfileConfiguration` — allowed models, allowed providers
-3. Optional `ZeroEgressVerificationReportV1` — probe results
+3. Optional `ZeroEgressEvidenceV1` — probe results
 4. Optional `AuditChainEvidenceV1` — aggregate audit summary
+5. Optional `SupplyChainEvidenceV1` — SBOM linkage summary
 
 Added to `SovereignTramai`:
 
 ```kotlin
 fun evidencePack(
-    zeroEgressReport: ZeroEgressVerificationReportV1? = null,
-    auditChainResult: AuditChainEvidenceV1? = null,
+    zeroEgress: ZeroEgressEvidenceV1? = null,
+    auditChain: AuditChainEvidenceV1? = null,
+    supplyChain: SupplyChainEvidenceV1? = null,
 ): SovereignEvidencePackV1
 ```
 

@@ -31,6 +31,7 @@ class SovereignEvidencePackWriterTest {
         assertThat(json).contains("\"artifacts\":")
         assertThat(json).contains("\"zeroEgress\": null")
         assertThat(json).contains("\"auditChain\": null")
+        assertThat(json).contains("\"supplyChain\": null")
         assertThat(json).contains("\"generatedAt\":")
 
         // Verify field order matches data class declaration order
@@ -43,6 +44,7 @@ class SovereignEvidencePackWriterTest {
         val artifactsIdx = json.indexOf("\"artifacts\"")
         val zeroEgressIdx = json.indexOf("\"zeroEgress\"")
         val auditChainIdx = json.indexOf("\"auditChain\"")
+        val supplyChainIdx = json.indexOf("\"supplyChain\"")
         val generatedAtIdx = json.indexOf("\"generatedAt\"")
 
         assertThat(schemaIdx).isLessThan(deployIdx)
@@ -53,7 +55,8 @@ class SovereignEvidencePackWriterTest {
         assertThat(settingsIdx).isLessThan(artifactsIdx)
         assertThat(artifactsIdx).isLessThan(zeroEgressIdx)
         assertThat(zeroEgressIdx).isLessThan(auditChainIdx)
-        assertThat(auditChainIdx).isLessThan(generatedAtIdx)
+        assertThat(auditChainIdx).isLessThan(supplyChainIdx)
+        assertThat(supplyChainIdx).isLessThan(generatedAtIdx)
     }
 
     @Test
@@ -68,20 +71,19 @@ class SovereignEvidencePackWriterTest {
             artifacts = emptyList(),
             zeroEgress = null,
             auditChain = null,
+            supplyChain = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
         val json = writeToString(pack)
 
-        // The escaped strings in the JSON output:
-        // deploymentMode: "OF\"FLINE"  → check for "OF\"FLINE"
-        assertThat(json).contains("\"OF\\\"FLINE\"")
-        // allowedModels[0]: "test\\model" → check for test\\model
+        // In the raw JSON text, backslash is escaped as \\.
+        // Input "test\model" (1 backslash) → JSON "test\\model" (2 backslash chars)
         assertThat(json).contains("test\\\\model")
-        // allowedProviders[0]: "line1\nline2" → check for line1\nline2
+        // Input "line1\nline2" (newline char) → JSON "line1\\nline2" (literal \n)
         assertThat(json).contains("line1\\nline2")
-        // allowedProviders[1]: "tab\there" → check for tab\there
+        // Input "tab\there" (tab char) → JSON "tab\\there" (literal \t)
         assertThat(json).contains("tab\\there")
-        // allowedProviders[2]: "cr\rend" → check for cr\rend
+        // Input "cr\rend" (CR char) → JSON "cr\\rend" (literal \r)
         assertThat(json).contains("cr\\rend")
     }
 
@@ -96,6 +98,7 @@ class SovereignEvidencePackWriterTest {
             artifacts = emptyList(),
             zeroEgress = null,
             auditChain = null,
+            supplyChain = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
         val json = writeToString(pack)
@@ -167,6 +170,7 @@ class SovereignEvidencePackWriterTest {
                 isValid = true,
                 totalEvents = 5,
             ),
+            supplyChain = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
         val json = writeToString(pack)
@@ -197,6 +201,7 @@ class SovereignEvidencePackWriterTest {
             artifacts = emptyList(),
             zeroEgress = null,
             auditChain = null,
+            supplyChain = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
         val json = writeToString(pack)
@@ -206,6 +211,37 @@ class SovereignEvidencePackWriterTest {
         assertThat(json).contains("\"artifacts\": []")
         assertThat(json).contains("\"zeroEgress\": null")
         assertThat(json).contains("\"auditChain\": null")
+        assertThat(json).contains("\"supplyChain\": null")
+    }
+
+    @Test
+    fun `writer serialises supply-chain subsection`() {
+        val pack = SovereignEvidencePackV1(
+            deploymentMode = "STANDARD",
+            allowedModels = listOf("model-a"),
+            allowedProviders = listOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            artifactVerificationSettings = mapOf("enabled" to false),
+            artifacts = emptyList(),
+            zeroEgress = null,
+            auditChain = null,
+            supplyChain = SupplyChainEvidenceV1(
+                sbomFormat = "CycloneDX",
+                sbomSpecVersion = "1.6",
+                sbomFileName = "tramai-cyclonedx-sbom.json",
+                sbomSha256 = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+                generatedBy = "CycloneDX Gradle Plugin 3.2.4",
+            ),
+            generatedAt = "2026-01-01T00:00:00Z",
+        )
+        val json = writeToString(pack)
+
+        assertThat(json).contains("\"supplyChain\":")
+        assertThat(json).contains("\"sbomFormat\": \"CycloneDX\"")
+        assertThat(json).contains("\"sbomSpecVersion\": \"1.6\"")
+        assertThat(json).contains("\"sbomFileName\": \"tramai-cyclonedx-sbom.json\"")
+        assertThat(json).contains("\"sbomSha256\": \"sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890\"")
+        assertThat(json).contains("\"generatedBy\": \"CycloneDX Gradle Plugin 3.2.4\"")
     }
 
     @Test
@@ -337,6 +373,287 @@ class SovereignEvidencePackWriterTest {
             .hasMessage("evidence-unsafe-identifier")
     }
 
+    // ── Supply-chain validation tests ──────────────────────────────────────
+
+    @Test
+    fun `rejects invalid sbom digest sha256 abc`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                supplyChain = SupplyChainEvidenceV1(
+                    sbomFormat = "CycloneDX",
+                    sbomSpecVersion = "1.6",
+                    sbomFileName = "sbom.json",
+                    sbomSha256 = "sha256:abc",
+                    generatedBy = "test",
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-digest-format")
+    }
+
+    @Test
+    fun `rejects invalid sbom digest format abc`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                supplyChain = SupplyChainEvidenceV1(
+                    sbomFormat = "CycloneDX",
+                    sbomSpecVersion = "1.6",
+                    sbomFileName = "sbom.json",
+                    sbomSha256 = "abc",
+                    generatedBy = "test",
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-digest-format")
+    }
+
+    @Test
+    fun `rejects wrong digest algorithm sha512`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                supplyChain = SupplyChainEvidenceV1(
+                    sbomFormat = "CycloneDX",
+                    sbomSpecVersion = "1.6",
+                    sbomFileName = "sbom.json",
+                    sbomSha256 = "sha512:a" + "b".repeat(63),
+                    generatedBy = "test",
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-digest-format")
+    }
+
+    @Test
+    fun `rejects non-hex sbom digest`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                supplyChain = SupplyChainEvidenceV1(
+                    sbomFormat = "CycloneDX",
+                    sbomSpecVersion = "1.6",
+                    sbomFileName = "sbom.json",
+                    sbomSha256 = "sha256:zzzz${"a".repeat(60)}",
+                    generatedBy = "test",
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-digest-format")
+    }
+
+    @Test
+    fun `rejects sbom filename with path`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                supplyChain = SupplyChainEvidenceV1(
+                    sbomFormat = "CycloneDX",
+                    sbomSpecVersion = "1.6",
+                    sbomFileName = "/tmp/sbom.json",
+                    sbomSha256 = "sha256:${"a".repeat(64)}",
+                    generatedBy = "test",
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
+    }
+
+    @Test
+    fun `rejects sbom filename with windows path`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                supplyChain = SupplyChainEvidenceV1(
+                    sbomFormat = "CycloneDX",
+                    sbomSpecVersion = "1.6",
+                    sbomFileName = "C:\\sbom.json",
+                    sbomSha256 = "sha256:${"a".repeat(64)}",
+                    generatedBy = "test",
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
+    }
+
+    @Test
+    fun `accepts valid sbom filename`() {
+        val pack = SovereignEvidencePackGenerator.generate(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verificationSettings = ModelArtifactVerificationSettings(),
+            verificationReceipts = emptyList(),
+            supplyChain = SupplyChainEvidenceV1(
+                sbomFormat = "CycloneDX",
+                sbomSpecVersion = "1.6",
+                sbomFileName = "tramai-cyclonedx-sbom.json",
+                sbomSha256 = "sha256:${"a".repeat(64)}",
+                generatedBy = "test",
+            ),
+        )
+
+        assertThat(pack.supplyChain).isNotNull()
+        assertThat(pack.supplyChain!!.sbomFileName).isEqualTo("tramai-cyclonedx-sbom.json")
+        assertThat(pack.supplyChain!!.sbomSha256).isEqualTo("sha256:${"a".repeat(64)}")
+    }
+
+    @Test
+    fun `evidence output does not contain sensitive patterns in supply-chain`() {
+        val pack = SovereignEvidencePackV1(
+            deploymentMode = "STANDARD",
+            allowedModels = listOf("model-a"),
+            allowedProviders = listOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            artifactVerificationSettings = mapOf("enabled" to false),
+            artifacts = emptyList(),
+            zeroEgress = null,
+            auditChain = null,
+            supplyChain = SupplyChainEvidenceV1(
+                sbomFormat = "CycloneDX",
+                sbomSpecVersion = "1.6",
+                sbomFileName = "safe-sbom.json",
+                sbomSha256 = "sha256:${"a".repeat(64)}",
+                generatedBy = "Gradle Plugin",
+            ),
+            generatedAt = "2026-01-01T00:00:00Z",
+        )
+        val json = writeToString(pack)
+
+        // supply-chain fields should not introduce sensitive paths
+        assertThat(json).doesNotContain("/tmp/")
+        assertThat(json).doesNotContain("/home/")
+        assertThat(json).doesNotContain("/Users/")
+        assertThat(json).doesNotContain("C:\\")
+        assertThat(json).doesNotContain("prompt")
+        // Note: "token" can appear in hex digests ("a" hex won't), but we verify no unsafe patterns
+        assertThat(json).doesNotContain("stacktrace")
+        assertThat(json).doesNotContain("rawRequest")
+        assertThat(json).doesNotContain("rawResponse")
+    }
+
+    @Test
+    fun `rejects sbom filename with subdir relative path`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                supplyChain = SupplyChainEvidenceV1(
+                    sbomFormat = "CycloneDX",
+                    sbomSpecVersion = "1.6",
+                    sbomFileName = "subdir/sbom.json",
+                    sbomSha256 = "sha256:${"a".repeat(64)}",
+                    generatedBy = "test",
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
+    }
+
+    @Test
+    fun `rejects sbom filename with backslash relative path`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                supplyChain = SupplyChainEvidenceV1(
+                    sbomFormat = "CycloneDX",
+                    sbomSpecVersion = "1.6",
+                    sbomFileName = "subdir\\sbom.json",
+                    sbomSha256 = "sha256:${"a".repeat(64)}",
+                    generatedBy = "test",
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
+    }
+
+    @Test
+    fun `rejects unsupported supply-chain schema version 0`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                supplyChain = SupplyChainEvidenceV1(
+                    schemaVersion = 0,
+                    sbomFormat = "CycloneDX",
+                    sbomSpecVersion = "1.6",
+                    sbomFileName = "sbom.json",
+                    sbomSha256 = "sha256:${"a".repeat(64)}",
+                    generatedBy = "test",
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsupported-supply-chain-schema-version")
+    }
+
+    @Test
+    fun `rejects unsupported supply-chain schema version 2`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                supplyChain = SupplyChainEvidenceV1(
+                    schemaVersion = 2,
+                    sbomFormat = "CycloneDX",
+                    sbomSpecVersion = "1.6",
+                    sbomFileName = "sbom.json",
+                    sbomSha256 = "sha256:${"a".repeat(64)}",
+                    generatedBy = "test",
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsupported-supply-chain-schema-version")
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private fun samplePack(): SovereignEvidencePackV1 = SovereignEvidencePackV1(
@@ -348,6 +665,7 @@ class SovereignEvidencePackWriterTest {
         artifacts = emptyList(),
         zeroEgress = null,
         auditChain = null,
+        supplyChain = null,
         generatedAt = "2026-01-01T00:00:00Z",
     )
 

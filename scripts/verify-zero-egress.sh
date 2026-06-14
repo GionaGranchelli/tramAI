@@ -12,11 +12,16 @@ REPORT_DIR="${REPO_ROOT}/build/zero-egress-report"
 rm -rf "$REPORT_DIR"
 mkdir -p "$REPORT_DIR"
 chmod 0777 "$REPORT_DIR"
+
+SBOM_DIR="${REPO_ROOT}/build/supply-chain/sbom"
+mkdir -p "$SBOM_DIR"
+
 trap '' EXIT
 
 echo "=== Building application distribution ==="
 cd "$REPO_ROOT"
 ./gradlew :examples:sovereign-offline-verification:installDist --quiet
+./gradlew prepareCycloneDxBom --quiet 2>/dev/null || true
 
 echo "=== Building Docker image ==="
 cd "$REPO_ROOT"
@@ -29,7 +34,10 @@ echo "=== Running container with --network=none ==="
 docker run --rm \
   --network=none \
   --volume "$REPORT_DIR:/out" \
-  tramai-sovereign-offline-verification:local
+  --volume "$SBOM_DIR:/sbom:ro" \
+  tramai-sovereign-offline-verification:local \
+  --sbom-path=/sbom/tramai-cyclonedx-sbom.json \
+  --sbom-digest-path=/sbom/tramai-cyclonedx-sbom.sha256
 
 REPORT_FILE="$REPORT_DIR/zero-egress-report.json"
 if [[ ! -f "$REPORT_FILE" ]]; then

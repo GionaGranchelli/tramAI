@@ -259,6 +259,30 @@ class SovereignEvidencePackIntegrationTest {
 
         assertThat(pack.zeroEgress).isNull()
         assertThat(pack.auditChain).isNull()
+        assertThat(pack.supplyChain).isNull()
+    }
+
+    @Test
+    fun `evidence pack includes supply-chain subsection when provided`() {
+        val tramai = buildOfflineTramai()
+
+        val pack = tramai.evidencePack(
+            supplyChain = SupplyChainEvidenceV1(
+                sbomFormat = "CycloneDX",
+                sbomSpecVersion = "1.6",
+                sbomFileName = "tramai-cyclonedx-sbom.json",
+                sbomSha256 = "sha256:${"a".repeat(64)}",
+                generatedBy = "CycloneDX Gradle Plugin 3.2.4",
+            ),
+        )
+
+        assertThat(pack.supplyChain).isNotNull()
+        assertThat(pack.supplyChain!!.sbomFormat).isEqualTo("CycloneDX")
+        assertThat(pack.supplyChain!!.sbomSpecVersion).isEqualTo("1.6")
+        assertThat(pack.supplyChain!!.sbomFileName).isEqualTo("tramai-cyclonedx-sbom.json")
+        assertThat(pack.supplyChain!!.sbomSha256).isEqualTo("sha256:${"a".repeat(64)}")
+        assertThat(pack.supplyChain!!.generatedBy).isEqualTo("CycloneDX Gradle Plugin 3.2.4")
+        assertThat(pack.supplyChain!!.schemaVersion).isEqualTo(1)
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

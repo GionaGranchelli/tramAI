@@ -16,6 +16,7 @@ import dev.tramai.sovereign.SovereignProfileConfiguration
 import dev.tramai.sovereign.SovereignTramai
 import dev.tramai.sovereign.evidence.AuditChainEvidenceV1
 import dev.tramai.sovereign.evidence.SovereignEvidencePackWriter
+import dev.tramai.sovereign.evidence.SupplyChainEvidenceV1
 import dev.tramai.sovereign.evidence.ZeroEgressEvidenceV1
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -52,8 +53,36 @@ private fun run(args: Array<String>): Int {
         ?: "build/sovereign-evidence/sovereign-evidence-pack-v1.json"
     val evidencePath = Path.of(evidencePathStr)
 
+    // Parse optional SBOM arguments
+    val sbomPathArg = args.firstOrNull { it.startsWith("--sbom-path=") }
+    val sbomDigestPathArg = args.firstOrNull { it.startsWith("--sbom-digest-path=") }
+
+    val supplyChain: SupplyChainEvidenceV1? = if (sbomPathArg != null && sbomDigestPathArg != null) {
+        val sbomPathStr = sbomPathArg.substringAfter("--sbom-path=")
+        val sbomDigestPathStr = sbomDigestPathArg.substringAfter("--sbom-digest-path=")
+        val sbomPath = Path.of(sbomPathStr)
+        val sbomDigestPath = Path.of(sbomDigestPathStr)
+
+        val digestContent = Files.readString(sbomDigestPath).trim()
+        // Validate digest format
+        val digestRegex = Regex("^sha256:[a-fA-F0-9]{64}$")
+        require(digestRegex.matches(digestContent)) {
+            "Invalid SBOM digest format in $sbomDigestPathStr"
+        }
+
+        SupplyChainEvidenceV1(
+            sbomFormat = "CycloneDX",
+            sbomSpecVersion = "1.6",
+            sbomFileName = sbomPath.fileName.toString(),
+            sbomSha256 = digestContent,
+            generatedBy = "CycloneDX Gradle Plugin 3.2.4",
+        )
+    } else {
+        null
+    }
+
     val result = kotlin.runCatching {
-        executeVerification(reportPath, evidencePath)
+        executeVerification(reportPath, evidencePath, supplyChain)
     }
 
     return if (result.isSuccess) {
@@ -69,11 +98,15 @@ private fun run(args: Array<String>): Int {
 }
 
 /** Runs the full verification flow. Throws on failure. */
-internal fun executeVerification(reportPath: Path, evidencePath: Path) {
+internal fun executeVerification(
+    reportPath: Path,
+    evidencePath: Path,
+    supplyChain: SupplyChainEvidenceV1? = null,
+) {
     // b. Create temporary directory for artifact file
     val tempDir = Files.createTempDirectory("tramai-offline-verification-")
     try {
-        executeVerificationInternal(tempDir, reportPath, evidencePath)
+        executeVerificationInternal(tempDir, reportPath, evidencePath, supplyChain)
     } finally {
         // Clean up temp directory
         tempDir.toFile().deleteRecursively()
@@ -81,7 +114,12 @@ internal fun executeVerification(reportPath: Path, evidencePath: Path) {
 }
 
 /** Core verification logic after temp directory is created. */
-internal fun executeVerificationInternal(tempDir: Path, reportPath: Path, evidencePath: Path) {
+internal fun executeVerificationInternal(
+    tempDir: Path,
+    reportPath: Path,
+    evidencePath: Path,
+    supplyChain: SupplyChainEvidenceV1? = null,
+) {
     // c. Write dummy artifact file
     val artifactContent = "offline-test-model-artifact-content"
     val artifactFile = tempDir.resolve("offline-test-model.bin")
@@ -252,6 +290,7 @@ internal fun executeVerificationInternal(tempDir: Path, reportPath: Path, eviden
                 isValid = auditValid,
                 totalEvents = allEvents.size,
             ),
+            supplyChain = supplyChain,
         )
         SovereignEvidencePackWriter.write(evidencePack, evidencePath)
         println("EVIDENCE_PACK_WRITTEN: ${evidencePath.toAbsolutePath().normalize()}")
