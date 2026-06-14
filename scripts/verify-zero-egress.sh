@@ -9,6 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 REPORT_DIR="$(mktemp -d)"
+chmod 0777 "$REPORT_DIR"
 trap 'rm -rf "$REPORT_DIR"' EXIT
 
 echo "=== Building application distribution ==="
