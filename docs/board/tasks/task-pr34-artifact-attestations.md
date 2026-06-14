@@ -41,8 +41,8 @@ Add GitHub Artifact Attestations (`actions/attest@v4`) to link the Sovereign Evi
 **Scope:** `AttestationEvidenceV1`, `AttestedSubjectV1`
 
 **Acceptance criteria:**
-- [ ] `AttestationEvidenceV1` data class created with 6 fields: `schemaVersion`, `attestationType`, `workflowRunId`, `repository`, `commitSha`, `subjects`
-- [ ] `AttestedSubjectV1` data class created with 2 fields: `name`, `sha256`
+- [ ] `AttestationEvidenceV1` data class created with 7 fields: `schemaVersion`, `provider`, `workflowName`, `workflowRunId`, `repository`, `commitSha`, `attestedSubjects`
+- [ ] `AttestedSubjectV1` data class created with 3 fields: `fileName`, `sha256`, `attestationType`
 - [ ] Stable field ordering matching data class declaration order
 
 ### Phase 2: Evidence Pack Integration
@@ -52,8 +52,8 @@ Add GitHub Artifact Attestations (`actions/attest@v4`) to link the Sovereign Evi
 **Acceptance criteria:**
 - [ ] `SovereignEvidencePackV1.attestation` field added (after supplyChain, before generatedAt, position 11/12)
 - [ ] Writer serializes attestation (or null) at correct field position (11/12)
-- [ ] `serializeAttestation()` produces deterministic JSON with correct field ordering: schemaVersion, attestationType, workflowRunId, repository, commitSha, subjects
-- [ ] `serializeAttestedSubject()` produces deterministic JSON with correct field ordering: name, sha256
+- [ ] `serializeAttestation()` produces deterministic JSON with correct field ordering: schemaVersion, provider, workflowName, workflowRunId, repository, commitSha, attestedSubjects
+- [ ] `serializeAttestedSubject()` produces deterministic JSON with correct field ordering: fileName, sha256, attestationType
 - [ ] Generator accepts optional `attestation` parameter
 - [ ] `SovereignTramai.evidencePack()` forwards `attestation` parameter
 - [ ] Backward compatible — existing callers without attestation continue to work
@@ -63,10 +63,11 @@ Add GitHub Artifact Attestations (`actions/attest@v4`) to link the Sovereign Evi
 **Scope:** GitHub Actions workflow updates
 
 **Acceptance criteria:**
-- [ ] `build` job has `id-token: write` and `attestations: write` permissions
-- [ ] SBOM attest step: `actions/attest@v4` with `subject-path: build/supply-chain/sbom/tramai-cyclonedx-sbom.json` and `subject-name: tramai-cyclonedx-sbom.json`
-- [ ] Evidence pack attest step: `actions/attest@v4` with `subject-path: build/zero-egress-report/sovereign-evidence-pack-v1.json` and `subject-name: sovereign-evidence-pack-v1.json`
-- [ ] Evidence pack digest computed for attestation linkage
+- [ ] `zero-egress` job has `id-token: write` and `attestations: write` permissions; `build` job has only `contents: read`
+- [ ] Evidence pack attest step: `actions/attest-build-provenance@v2` with `subject-path: build/zero-egress-report/sovereign-evidence-pack-v1.json`
+- [ ] Zero-egress report attest step: `actions/attest-build-provenance@v2` with `subject-path: build/zero-egress-report/zero-egress-report.json`
+- [ ] SBOM predicate attest step: `actions/attest@v4` with `subject-path` pointing to the evidence pack and `sbom-path` pointing to the CycloneDX JSON
+- [ ] Offline harness generates AttestationEvidenceV1 from GITHUB_* env vars when present; falls back to null locally
 
 ### Phase 4: Documentation
 

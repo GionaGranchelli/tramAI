@@ -15,20 +15,21 @@ Without CI/CD provenance, an auditor cannot:
 - Trust that the evidence pack has not been detached from its build context
 - Use GitHub's built-in artifact attestation UI or CLI (`gh attestation verify`) to validate the chain
 
-This spec defines **GitHub Artifact Attestations** integration — linking the Sovereign Evidence Pack and its SBOM to a specific GitHub Actions workflow run using `actions/attest@v4`.
+This spec defines **GitHub Artifact Attestations** integration — linking the Sovereign Evidence Pack and its SBOM to a specific GitHub Actions workflow run using `actions/attest@v4` and `actions/attest-build-provenance@v2`.
 
 ## Scope
 
 Implement:
 
-1. `AttestationEvidenceV1` DTO — captures workflow run ID, repository, commit SHA, and attested subjects
-2. `AttestedSubjectV1` DTO — name + SHA-256 digest pair for each attested artifact
+1. `AttestationEvidenceV1` DTO — captures provider, workflow name, workflow run ID, repository, commit SHA, and attested subjects
+2. `AttestedSubjectV1` DTO — fileName + sha256 + attestationType for each attested artifact
 3. `SovereignEvidencePackV1.attestation` field — optional `AttestationEvidenceV1` subsection
-4. `SovereignEvidencePackWriter.serializeAttestation()` — deterministic JSON serialization for the attestation subsection
-5. `SovereignEvidencePackWriter.serializeAttestedSubject()` — deterministic JSON serialization for each subject entry
-6. CI pipeline attest steps using `actions/attest@v4` for the evidence pack and SBOM artifacts
-7. Verification documentation with `gh attestation verify` commands
-8. Documentation (SPEC-022, task doc, module docs update)
+4. Writer serialization — deterministic JSON for attestation subsection and subject entries
+5. Generator validation — 8 safe reason codes, regex checks, EvidenceSafeString sanitization
+6. CI attest steps in the zero-egress job using `actions/attest-build-provenance@v2` and `actions/attest@v4` with `sbom-path`
+7. Offline verification harness generates `AttestationEvidenceV1` from `GITHUB_*` env vars when present; falls back to `null` locally
+8. Verification documentation with `gh attestation verify` commands
+9. Documentation (SPEC-022, task doc, module docs update)
 
 ## Non-Goals
 
@@ -38,67 +39,71 @@ Implement:
 - Periodic re-attestation
 - Attestation revocation or expiry
 - Cross-platform attestation verification (macOS, Windows)
+- Full SLSA provenance
 
 ## GitHub Artifact Attestations Approach
 
-GitHub Artifact Attestations (`actions/attest@v4`) uses Sigstore-powered signing to bind an artifact digest to a workflow run identity. The attestation is stored as an **attestation resource** associated with the repository and can be verified using the `gh attestation verify` CLI command.
+GitHub Artifact Attestations (`actions/attest-build-provenance@v2`, `actions/attest@v4`) uses Sigstore-powered signing to bind an artifact digest to a workflow run identity. The attestation is stored as an **attestation resource** associated with the repository and can be verified using the `gh attestation verify` CLI command.
 
 ### How It Works
 
-1. After the evidence pack (or SBOM) is generated, `actions/attest@v4` is called with the artifact path and a subject name
-2. The action computes the SHA-256 digest of the artifact, fetches an OIDC token from GitHub's OIDC provider, and creates a Sigstore signature
-3. The attestation is persisted as a repository-level attestation resource
-4. Downstream consumers verify with `gh attestation verify <artifact> --repo <owner>/<repo>`
+1. After the evidence pack and report are generated in the zero-egress job, `actions/attest-build-provenance@v2` is called to bind their digests to the workflow run
+2. `actions/attest@v4` with `sbom-path` creates an SBOM predicate attestation on the evidence pack
+3. The action computes the SHA-256 digest of the artifact, fetches an OIDC token from GitHub's OIDC provider, and creates a Sigstore signature
+4. The attestation is persisted as a repository-level attestation resource
+5. Downstream consumers verify with `gh attestation verify <artifact> --repo <owner>/<repo>`
 
-### Attestation Subjects
+### Attested Artifacts
 
-Each attest step attests one artifact with a human-readable subject name:
-
-| Subject name | Artifact |
-|---|---|
-| `sovereign-evidence-pack-v1.json` | The sovereign evidence pack JSON |
-| `tramai-cyclonedx-sbom.json` | The CycloneDX SBOM JSON |
-| `tramai-cyclonedx-sbom.sha256` | The SBOM SHA-256 digest file |
+| Action | Artifact | Type |
+|--------|----------|------|
+| `attest-build-provenance@v2` | `sovereign-evidence-pack-v1.json` | Build provenance |
+| `attest-build-provenance@v2` | `zero-egress-report.json` | Build provenance |
+| `attest@v4` + `sbom-path` | Subject: evidence pack, SBOM: `tramai-cyclonedx-sbom.json` | SBOM predicate |
 
 ## AttestationEvidenceV1 DTO
 
 ```kotlin
 data class AttestationEvidenceV1(
     val schemaVersion: Int = 1,
-    val attestationType: String,
+    val provider: String,
+    val workflowName: String,
     val workflowRunId: String,
     val repository: String,
     val commitSha: String,
-    val subjects: List<AttestedSubjectV1>,
+    val attestedSubjects: List<AttestedSubjectV1>,
 )
 ```
 
 ### Fields
 
 | Field | Type | Description |
-|---|---|---|
+|-------|------|-------------|
 | `schemaVersion` | Int | Schema version (currently 1) |
-| `attestationType` | String | The type of attestation (e.g. `"build-provenance"`, `"sbom"`) |
+| `provider` | String | The attestation provider (e.g. "GitHub Artifact Attestations") |
+| `workflowName` | String | The GitHub Actions workflow name |
 | `workflowRunId` | String | The GitHub Actions workflow run ID (numeric string) |
-| `repository` | String | The repository in `"owner/name"` format |
+| `repository` | String | The repository in "owner/name" format |
 | `commitSha` | String | The full 40-character commit SHA |
-| `subjects` | List\<AttestedSubjectV1\> | The list of attested subject artifacts with sha256 digests |
+| `attestedSubjects` | List\<AttestedSubjectV1\> | The list of attested artifact references |
 
 ## AttestedSubjectV1 DTO
 
 ```kotlin
 data class AttestedSubjectV1(
-    val name: String,
+    val fileName: String,
     val sha256: String,
+    val attestationType: String,
 )
 ```
 
 ### Fields
 
 | Field | Type | Description |
-|---|---|---|
-| `name` | String | The subject identifier (typically a file name or artifact name) |
-| `sha256` | String | SHA-256 digest in `"sha256:<hex>"` format |
+|-------|------|-------------|
+| `fileName` | String | The artifact filename (no path components) |
+| `sha256` | String | SHA-256 digest in "sha256:\<hex\>" format |
+| `attestationType` | String | The attestation type: "build-provenance" or "sbom" |
 
 ## Field Ordering in SovereignEvidencePackV1
 
@@ -106,67 +111,109 @@ The `attestation` field is added as field **11 of 12** in the data class declara
 
 ```kotlin
 data class SovereignEvidencePackV1(
-    val schemaVersion: Int = 1,                 // 1
-    val deploymentMode: String,                  // 2
-    val allowedModels: List<String>,             // 3
-    val allowedProviders: List<String>,          // 4
-    val providerZones: Map<String, String>,      // 5
-    val artifactVerificationSettings: Map<String, Any?>, // 6
-    val artifacts: List<ArtifactEvidenceV1>,    // 7
-    val zeroEgress: ZeroEgressEvidenceV1? = null,    // 8
-    val auditChain: AuditChainEvidenceV1? = null,    // 9
-    val supplyChain: SupplyChainEvidenceV1? = null,  // 10
-    val attestation: AttestationEvidenceV1? = null,  // 11 ← NEW
-    val generatedAt: String,                     // 12
+    val schemaVersion: Int = 1,                           // 1
+    val deploymentMode: String,                            // 2
+    val allowedModels: List<String>,                       // 3
+    val allowedProviders: List<String>,                    // 4
+    val providerZones: Map<String, String>,                // 5
+    val artifactVerificationSettings: Map<String, Any?>,   // 6
+    val artifacts: List<ArtifactEvidenceV1>,               // 7
+    val zeroEgress: ZeroEgressEvidenceV1? = null,          // 8
+    val auditChain: AuditChainEvidenceV1? = null,          // 9
+    val supplyChain: SupplyChainEvidenceV1? = null,        // 10
+    val attestation: AttestationEvidenceV1? = null,        // 11 ← NEW
+    val generatedAt: String,                               // 12
 )
 ```
+
+Attestation field order inside the object:
+1. `schemaVersion` (Int)
+2. `provider` (String)
+3. `workflowName` (String)
+4. `workflowRunId` (String)
+5. `repository` (String)
+6. `commitSha` (String)
+7. `attestedSubjects` (List\<AttestedSubjectV1\>)
+
+AttestedSubject field order:
+1. `fileName` (String)
+2. `sha256` (String)
+3. `attestationType` (String)
+
+## Generator Validation
+
+The generator validates attestation input with these safe reason codes:
+
+| Reason Code | Condition |
+|-------------|-----------|
+| `evidence-unsupported-attestation-schema-version` | schemaVersion != 1 |
+| `evidence-unsafe-attestation-workflow-run-id` | workflowRunId does not match `^[0-9]+$` |
+| `evidence-unsafe-attestation-repository` | repository does not match `^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$` |
+| `evidence-unsafe-attestation-commit-sha` | commitSha does not match `^[a-fA-F0-9]{40}$` |
+| `evidence-unsafe-attestation-subjects` | attestedSubjects is empty |
+| `evidence-unsafe-digest-format` | Subject sha256 does not match `^sha256:[a-fA-F0-9]{64}$` |
+| `evidence-unsafe-identifier` | Subject fileName fails EvidenceSafeString or contains `/` or `\` |
+| `evidence-unsupported-attestation-type` | Subject attestationType is not `"build-provenance"` nor `"sbom"` |
+
+SHA-256 hex values are **not** run through `EvidenceSafeString` because hex digests may coincidentally contain forbidden substrings (e.g. "token", "secret" as hex patterns).
+
+`provider` and `workflowName` are sanitized through `EvidenceSafeString`.
 
 ## CI Design
 
 ### Permissions
 
-The `actions/attest@v4` action requires `id-token: write` and `attestations: write` permissions. These are added to the `build` job:
+The privileged `id-token: write` and `attestations: write` permissions are scoped to the **zero-egress job only** (least privilege):
 
 ```yaml
-build:
-    runs-on: ubuntu-latest
+permissions:
+  contents: read
+
+jobs:
+  build:
+    permissions:
+      contents: read
+    # ... build steps ...
+
+  zero-egress:
     permissions:
       contents: read
       id-token: write
       attestations: write
+    # ... attestation steps ...
 ```
 
-### Attest Steps
+### Attest Steps (zero-egress job)
 
-Two attest steps are added to the `build` job, after the SBOM and evidence pack are generated:
+Three attest steps run after the evidence pack is generated:
 
-1. **Attest the SBOM** — run unconditionally alongside SBOM generation
-2. **Attest the evidence pack** — run after the evidence pack is available
+1. **Attest sovereign evidence pack** — build provenance on the evidence pack itself
+2. **Attest zero-egress report** — build provenance on the verification report
+3. **Attest SBOM for sovereign evidence pack** — SBOM predicate on the evidence pack, referencing the CycloneDX SBOM via `sbom-path`
 
 ```yaml
-      - name: Attest SBOM
-        uses: actions/attest@v4
+      - name: Attest sovereign evidence pack
+        uses: actions/attest-build-provenance@v2
         with:
-          subject-path: build/supply-chain/sbom/tramai-cyclonedx-sbom.json
-          subject-name: tramai-cyclonedx-sbom.json
+          subject-path: build/zero-egress-report/sovereign-evidence-pack-v1.json
 
-      - name: Generate evidence pack digest for attestation
-        run: |
-          sha256sum build/zero-egress-report/sovereign-evidence-pack-v1.json \
-            | cut -d' ' -f1 > /tmp/evidence-pack.sha256
+      - name: Attest zero-egress report
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: build/zero-egress-report/zero-egress-report.json
 
-      - name: Attest evidence pack
+      - name: Attest SBOM for sovereign evidence pack
         uses: actions/attest@v4
         with:
           subject-path: build/zero-egress-report/sovereign-evidence-pack-v1.json
-          subject-name: sovereign-evidence-pack-v1.json
+          sbom-path: build/supply-chain/sbom/tramai-cyclonedx-sbom.json
 ```
 
-The digest is stored in the attestation metadata and also recorded in the `AttestationEvidenceV1` DTO for evidence-pack linkage.
+### Evidence Pack Attestation Section
 
-### Zero-Egress Job Considerations
+The CI-generated evidence pack includes a populated `attestation` section derived from environment variables (`GITHUB_WORKFLOW`, `GITHUB_RUN_ID`, `GITHUB_REPOSITORY`, `GITHUB_SHA`). SHA-256 digests of all three artifacts are computed at generation time and recorded in `attestedSubjects`.
 
-The `zero-egress` job currently does **not** need attestation because it is a CI verification harness rather than a deployable artifact. This is a documented design choice.
+Local execution of the offline verification harness produces `attestation = null` when these env vars are absent.
 
 ## Verification Commands
 
@@ -177,8 +224,8 @@ Once attestations are created, any consumer can verify them using the GitHub CLI
 gh attestation verify build/zero-egress-report/sovereign-evidence-pack-v1.json \
   --repo GionaGranchelli/tramAI
 
-# Verify the SBOM
-gh attestation verify build/supply-chain/sbom/tramai-cyclonedx-sbom.json \
+# Verify the zero-egress report
+gh attestation verify build/zero-egress-report/zero-egress-report.json \
   --repo GionaGranchelli/tramAI
 
 # Verify with a specific OIDC issuer
@@ -201,15 +248,17 @@ fi
 ## Security Invariants
 
 - `attestation.repository` and `attestation.commitSha` are sanitized through `EvidenceSafeString` before being written into the DTO
-- `AttestationEvidenceV1` is populated from CI environment variables (`GITHUB_RUN_ID`, `GITHUB_REPOSITORY`, `GITHUB_SHA`) — never from untrusted input
+- `AttestationEvidenceV1` is populated from CI environment variables (`GITHUB_WORKFLOW`, `GITHUB_RUN_ID`, `GITHUB_REPOSITORY`, `GITHUB_SHA`) — never from untrusted input
 - The `actions/attest@v4` action uses OIDC tokens scoped to the workflow run — tokens cannot be reused across runs
 - Attestation is **not** a replacement for secret verification — it proves build provenance, not artifact correctness
-- Subjects are limited to evidence-pack and SBOM artifacts — build outputs (JARs, AARs) are outside scope
+- Subjects are limited to evidence-pack, report, and SBOM artifacts — build outputs (JARs, AARs) are outside scope
+- No secrets, tokens, prompts, payloads, or filesystem paths in the evidence pack
+- SHA-256 hex values never run through EvidenceSafeString
 
 ## Residual Risks
 
 | Risk | Mitigation |
-|---|---|
+|------|------------|
 | Attestation binds to workflow run, not artifact content | `actions/attest@v4` computes the SHA-256 digest at attestation time — content is bound by digest |
 | OIDC token compromise could forge attestation | Token is short-lived, scoped to current workflow run, and minted by GitHub's OIDC provider using the `id-token: write` permission |
 | Evidence pack contains stale attestation data | `attestation` field is populated from CI environment variables at evidence-pack generation time |
@@ -219,7 +268,7 @@ fi
 ## Roadmap
 
 | PR | Scope |
-|---|---|
+|----|-------|
 | #29 | ✅ Encrypted suspended invocation store and restart-safe recovery |
 | #30 | ✅ Local-model artifact manifest and byte-level verification |
 | #31 | ✅ Offline runtime profile and zero-egress verification harness |

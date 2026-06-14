@@ -151,10 +151,10 @@ object SovereignEvidencePackWriter {
     private fun serializeAttestedSubject(s: AttestedSubjectV1): String {
         val sb = StringBuilder()
         sb.appendLine("{")
-        appendStringField(sb, "fileName", s.fileName, 1, 3, indent = 2)
-        appendStringField(sb, "sha256", s.sha256, 2, 3, indent = 2)
-        appendStringField(sb, "attestationType", s.attestationType, 3, 3, indent = 2, last = true)
-        sb.append("                }")
+        appendStringField(sb, "fileName", s.fileName, 1, 3, indent = 1)
+        appendStringField(sb, "sha256", s.sha256, 2, 3, indent = 1)
+        appendStringField(sb, "attestationType", s.attestationType, 3, 3, indent = 1, last = true)
+        sb.append("            }")
         return sb.toString()
     }
 
