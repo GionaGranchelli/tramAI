@@ -31,45 +31,55 @@ object SovereignEvidencePackWriter {
         sb.appendLine("{")
 
         // Field order matches data class declaration order
-        appendField(sb, "schemaVersion", pack.schemaVersion.toString(), 1, 11)
-        appendStringField(sb, "deploymentMode", pack.deploymentMode, 2, 11)
-        appendStringListField(sb, "allowedModels", pack.allowedModels, 3, 11)
-        appendStringListField(sb, "allowedProviders", pack.allowedProviders, 4, 11)
-        appendStringMapField(sb, "providerZones", pack.providerZones, 5, 11)
-        appendObjectField(sb, "artifactVerificationSettings", pack.artifactVerificationSettings, 6, 11)
-        appendObjectListField(sb, "artifacts", pack.artifacts, 7, 11, serialize = ::serializeArtifact)
+        appendField(sb, "schemaVersion", pack.schemaVersion.toString(), 1, 12)
+        appendStringField(sb, "deploymentMode", pack.deploymentMode, 2, 12)
+        appendStringListField(sb, "allowedModels", pack.allowedModels, 3, 12)
+        appendStringListField(sb, "allowedProviders", pack.allowedProviders, 4, 12)
+        appendStringMapField(sb, "providerZones", pack.providerZones, 5, 12)
+        appendObjectField(sb, "artifactVerificationSettings", pack.artifactVerificationSettings, 6, 12)
+        appendObjectListField(sb, "artifacts", pack.artifacts, 7, 12, serialize = ::serializeArtifact)
 
         if (pack.zeroEgress != null) {
             appendObjectField(
                 sb = sb, key = "zeroEgress", value = pack.zeroEgress,
-                index = 8, total = 11, last = false,
+                index = 8, total = 12, last = false,
                 serialize = { z -> serializeZeroEgress(z) },
             )
         } else {
-            appendNullField(sb, "zeroEgress", 8, 11, last = false)
+            appendNullField(sb, "zeroEgress", 8, 12, last = false)
         }
 
         if (pack.auditChain != null) {
             appendObjectField(
                 sb = sb, key = "auditChain", value = pack.auditChain,
-                index = 9, total = 11, last = false,
+                index = 9, total = 12, last = false,
                 serialize = { a -> serializeAuditChain(a) },
             )
         } else {
-            appendNullField(sb, "auditChain", 9, 11, last = false)
+            appendNullField(sb, "auditChain", 9, 12, last = false)
         }
 
         if (pack.supplyChain != null) {
             appendObjectField(
                 sb = sb, key = "supplyChain", value = pack.supplyChain,
-                index = 10, total = 11, last = false,
+                index = 10, total = 12, last = false,
                 serialize = { s -> serializeSupplyChain(s) },
             )
         } else {
-            appendNullField(sb, "supplyChain", 10, 11, last = false)
+            appendNullField(sb, "supplyChain", 10, 12, last = false)
         }
 
-        appendStringField(sb, "generatedAt", pack.generatedAt, 11, 11, last = true)
+        if (pack.attestation != null) {
+            appendObjectField(
+                sb = sb, key = "attestation", value = pack.attestation,
+                index = 11, total = 12, last = false,
+                serialize = { a -> serializeAttestation(a) },
+            )
+        } else {
+            appendNullField(sb, "attestation", 11, 12, last = false)
+        }
+
+        appendStringField(sb, "generatedAt", pack.generatedAt, 12, 12, last = true)
 
         sb.append("}")
         sb.appendLine()
@@ -120,6 +130,30 @@ object SovereignEvidencePackWriter {
         appendStringField(sb, "sbomFileName", s.sbomFileName, 4, 6, indent = 2)
         appendStringField(sb, "sbomSha256", s.sbomSha256, 5, 6, indent = 2)
         appendStringField(sb, "generatedBy", s.generatedBy, 6, 6, indent = 2, last = true)
+        sb.append("            }")
+        return sb.toString()
+    }
+
+    private fun serializeAttestation(a: AttestationEvidenceV1): String {
+        val sb = StringBuilder()
+        sb.appendLine("{")
+        appendField(sb, "schemaVersion", a.schemaVersion.toString(), 1, 7, indent = 2)
+        appendStringField(sb, "provider", a.provider, 2, 7, indent = 2)
+        appendStringField(sb, "workflowName", a.workflowName, 3, 7, indent = 2)
+        appendStringField(sb, "workflowRunId", a.workflowRunId, 4, 7, indent = 2)
+        appendStringField(sb, "repository", a.repository, 5, 7, indent = 2)
+        appendStringField(sb, "commitSha", a.commitSha, 6, 7, indent = 2)
+        appendObjectListField(sb, "attestedSubjects", a.attestedSubjects, 7, 7, indent = 2, serialize = ::serializeAttestedSubject, last = true)
+        sb.append("            }")
+        return sb.toString()
+    }
+
+    private fun serializeAttestedSubject(s: AttestedSubjectV1): String {
+        val sb = StringBuilder()
+        sb.appendLine("{")
+        appendStringField(sb, "fileName", s.fileName, 1, 3, indent = 1)
+        appendStringField(sb, "sha256", s.sha256, 2, 3, indent = 1)
+        appendStringField(sb, "attestationType", s.attestationType, 3, 3, indent = 1, last = true)
         sb.append("            }")
         return sb.toString()
     }

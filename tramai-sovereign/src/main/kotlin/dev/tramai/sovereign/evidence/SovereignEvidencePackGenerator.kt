@@ -32,6 +32,7 @@ object SovereignEvidencePackGenerator {
      * @param zeroEgress Optional zero-egress verification subsection.
      * @param auditChain Optional audit-chain validation subsection.
      * @param supplyChain Optional supply-chain SBOM linkage subsection.
+     * @param attestation Optional CI/CD attestation subsection.
      * @return A fully populated [SovereignEvidencePackV1] with the [generatedAt] timestamp
      * set to the current wall-clock time when this method is called.
      */
@@ -45,6 +46,7 @@ object SovereignEvidencePackGenerator {
         zeroEgress: ZeroEgressEvidenceV1? = null,
         auditChain: AuditChainEvidenceV1? = null,
         supplyChain: SupplyChainEvidenceV1? = null,
+        attestation: AttestationEvidenceV1? = null,
     ): SovereignEvidencePackV1 {
         // Sanitize all string identifiers before building DTOs
         val sanitizedModels = allowedModels.map { EvidenceSafeString.sanitize(it) }.toSet()
@@ -91,6 +93,61 @@ object SovereignEvidencePackGenerator {
             )
         }
 
+        // Validate and sanitize attestation evidence
+        val sanitizedAttestation = attestation?.let { a ->
+            require(a.schemaVersion == 1) {
+                "evidence-unsupported-attestation-schema-version"
+            }
+
+            val workflowRunIdRegex = Regex("^[0-9]+$")
+            require(workflowRunIdRegex.matches(a.workflowRunId)) {
+                "evidence-unsafe-attestation-workflow-run-id"
+            }
+
+            val repositoryRegex = Regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+            require(repositoryRegex.matches(a.repository)) {
+                "evidence-unsafe-attestation-repository"
+            }
+
+            val commitShaRegex = Regex("^[a-fA-F0-9]{40}$")
+            require(commitShaRegex.matches(a.commitSha)) {
+                "evidence-unsafe-attestation-commit-sha"
+            }
+
+            require(a.attestedSubjects.isNotEmpty()) {
+                "evidence-unsafe-attestation-subjects"
+            }
+
+            val sha256Regex = Regex("^sha256:[a-fA-F0-9]{64}$")
+            val sanitizedSubjects = a.attestedSubjects.map { subject ->
+                require(sha256Regex.matches(subject.sha256)) {
+                    "evidence-unsafe-digest-format"
+                }
+                require(
+                    subject.attestationType == "build-provenance" ||
+                    subject.attestationType == "sbom"
+                ) {
+                    "evidence-unsupported-attestation-type"
+                }
+                // Do NOT run sha256 hex values through EvidenceSafeString
+                AttestedSubjectV1(
+                    fileName = sanitizeFileNameOnly(subject.fileName),
+                    sha256 = subject.sha256,
+                    attestationType = subject.attestationType,
+                )
+            }
+
+            AttestationEvidenceV1(
+                schemaVersion = a.schemaVersion,
+                provider = EvidenceSafeString.sanitize(a.provider),
+                workflowName = EvidenceSafeString.sanitize(a.workflowName),
+                workflowRunId = a.workflowRunId,
+                repository = EvidenceSafeString.sanitize(a.repository),
+                commitSha = a.commitSha,
+                attestedSubjects = sanitizedSubjects,
+            )
+        }
+
         return SovereignEvidencePackV1(
             schemaVersion = 1,
             deploymentMode = deploymentMode.name,
@@ -102,6 +159,7 @@ object SovereignEvidencePackGenerator {
             zeroEgress = zeroEgress,
             auditChain = auditChain,
             supplyChain = sanitizedSupplyChain,
+            attestation = sanitizedAttestation,
             generatedAt = Instant.now().toString(),
         )
     }

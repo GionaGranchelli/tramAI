@@ -260,6 +260,7 @@ class SovereignEvidencePackIntegrationTest {
         assertThat(pack.zeroEgress).isNull()
         assertThat(pack.auditChain).isNull()
         assertThat(pack.supplyChain).isNull()
+        assertThat(pack.attestation).isNull()
     }
 
     @Test
@@ -283,6 +284,69 @@ class SovereignEvidencePackIntegrationTest {
         assertThat(pack.supplyChain!!.sbomSha256).isEqualTo("sha256:${"a".repeat(64)}")
         assertThat(pack.supplyChain!!.generatedBy).isEqualTo("CycloneDX Gradle Plugin 3.2.4")
         assertThat(pack.supplyChain!!.schemaVersion).isEqualTo(1)
+    }
+
+    @Test
+    fun `evidence pack includes attestation subsection when provided`() {
+        val tramai = buildOfflineTramai()
+
+        val pack = tramai.evidencePack(
+            attestation = AttestationEvidenceV1(
+                provider = "GitHub Artifact Attestations",
+                workflowName = "CI",
+                workflowRunId = "1234567",
+                repository = "my-org/my-repo",
+                commitSha = "abcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                attestedSubjects = listOf(
+                    AttestedSubjectV1(
+                        attestationType = "build-provenance",
+                        fileName = "tramai.jar",
+                        sha256 = "sha256:${"a".repeat(64)}",
+                    ),
+                ),
+            ),
+        )
+
+        assertThat(pack.attestation).isNotNull()
+        assertThat(pack.attestation!!.provider).isEqualTo("GitHub Artifact Attestations")
+        assertThat(pack.attestation!!.workflowRunId).isEqualTo("1234567")
+        assertThat(pack.attestation!!.repository).isEqualTo("my-org/my-repo")
+        assertThat(pack.attestation!!.commitSha).isEqualTo("abcdefabcdefabcdefabcdefabcdefabcdefabcd")
+        assertThat(pack.attestation!!.attestedSubjects).hasSize(1)
+        assertThat(pack.attestation!!.attestedSubjects[0].fileName).isEqualTo("tramai.jar")
+    }
+
+    @Test
+    fun `evidence pack includes attestation with sbom type and multiple subjects`() {
+        val tramai = buildOfflineTramai()
+
+        val pack = tramai.evidencePack(
+            attestation = AttestationEvidenceV1(
+                provider = "GitHub Artifact Attestations",
+                workflowName = "CI",
+                workflowRunId = "987654",
+                repository = "org/repo-name",
+                commitSha = "1234567890abcdef1234567890abcdef12345678",
+                attestedSubjects = listOf(
+                    AttestedSubjectV1(
+                        attestationType = "sbom",
+                        fileName = "sbom-a.json",
+                        sha256 = "sha256:${"b".repeat(64)}",
+                    ),
+                    AttestedSubjectV1(
+                        attestationType = "sbom",
+                        fileName = "sbom-b.json",
+                        sha256 = "sha256:${"c".repeat(64)}",
+                    ),
+                ),
+            ),
+        )
+
+        assertThat(pack.attestation).isNotNull()
+        assertThat(pack.attestation!!.provider).isEqualTo("GitHub Artifact Attestations")
+        assertThat(pack.attestation!!.attestedSubjects).hasSize(2)
+        assertThat(pack.attestation!!.attestedSubjects[0].fileName).isEqualTo("sbom-a.json")
+        assertThat(pack.attestation!!.attestedSubjects[1].fileName).isEqualTo("sbom-b.json")
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
