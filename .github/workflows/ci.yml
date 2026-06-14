@@ -68,3 +68,11 @@ jobs:
           name: zero-egress-verification-report
           path: |
             build/zero-egress-report/zero-egress-report.json
+
+      - name: Upload evidence pack
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sovereign-evidence-pack
+          path: |
+            build/sovereign-evidence/sovereign-evidence-pack-v1.json

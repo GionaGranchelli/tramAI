@@ -14,6 +14,9 @@ import dev.tramai.security.verification.FileSystemModelArtifactVerifier
 import dev.tramai.sovereign.SovereignDeploymentMode
 import dev.tramai.sovereign.SovereignProfileConfiguration
 import dev.tramai.sovereign.SovereignTramai
+import dev.tramai.sovereign.evidence.AuditChainEvidenceV1
+import dev.tramai.sovereign.evidence.SovereignEvidencePackWriter
+import dev.tramai.sovereign.evidence.ZeroEgressEvidenceV1
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -230,12 +233,31 @@ internal fun executeVerificationInternal(tempDir: Path, reportPath: Path) {
         // t. Write report
         ZeroEgressReportWriter.write(report, reportPath)
 
+        // u. Generate and write evidence pack
+        val evidencePath = Path.of("build", "sovereign-evidence", "sovereign-evidence-pack-v1.json")
+        val evidencePack = tramai.evidencePack(
+            zeroEgress = ZeroEgressEvidenceV1(
+                deploymentMode = SovereignDeploymentMode.OFFLINE.name,
+                runtimeBuildSucceeded = true,
+                loopbackProviderInvocationSucceeded = providerSucceeded,
+                loopbackProviderInvocationCount = loopbackProvider.invocationCount.get(),
+                externalTcpProbeBlocked = tcpBlocked,
+                externalDnsProbeBlocked = dnsBlocked,
+            ),
+            auditChain = AuditChainEvidenceV1(
+                isValid = auditValid,
+                totalEvents = allEvents.size,
+            ),
+        )
+        SovereignEvidencePackWriter.write(evidencePack, evidencePath)
+        println("EVIDENCE_PACK_WRITTEN: ${evidencePath.toAbsolutePath()}")
+
     } finally {
         // v. Close the loopback server
         loopbackServer.close()
     }
 
-    // Exit code 0 is handled by the caller (step u, w)
+    // Exit code 0 is handled by the caller (step v, w)
 }
 
 /**

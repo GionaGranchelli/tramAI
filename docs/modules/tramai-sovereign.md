@@ -163,6 +163,40 @@ val receipts = tramai.verificationReceipts()
 | Offline mode with non-LOCAL provider | Build fails with fixed safe reason code |
 | Artifact byte tampering | Streaming SHA-256 verification; build fails before provider invocation |
 
+## Evidence Pack
+
+`SovereignTramai.evidencePack()` generates a deterministic [SovereignEvidencePackV1] —
+a safe-for-auditors JSON artifact that captures the deployment's security posture:
+
+| Field | Source |
+|-------|--------|
+| `schemaVersion` | Fixed at 1 |
+| `deploymentMode` | `SovereignProfileConfiguration.deploymentMode` |
+| `allowedModels` | Sorted from `SovereignProfileConfiguration.allowedModels` |
+| `allowedProviders` | Sorted from `SovereignProfileConfiguration.allowedProviders` |
+| `providerZones` | Mapped from `SovereignProfileConfiguration.providerZones` |
+| `artifactVerificationSettings` | From `modelArtifactVerificationSettings` |
+| `verifiedModels` | Registry model summary (currently empty; populated by receipts) |
+| `artifacts` | From `verificationReceipts()` |
+| `zeroEgress` | Optional subsection from offline harness |
+| `auditChain` | Optional subsection from audit-chain validation |
+| `generatedAt` | ISO-8601 instant at generation time |
+
+**Security invariants:**
+- Contains no secrets, tokens, prompts, stack traces, or filesystem paths
+- Safe for CI artifact upload and auditor review
+- Deterministic field ordering for diff-compatible output
+- Full JSON control-character escaping via `SovereignEvidencePackWriter`
+
+**Usage:**
+```kotlin
+val pack = tramai.evidencePack(
+    zeroEgress = zeroEgressResult,
+    auditChain = auditChainResult,
+)
+SovereignEvidencePackWriter.write(pack, Path.of("build", "sovereign-evidence", "sovereign-evidence-pack-v1.json"))
+```
+
 ## Limitations
 
 - Artifact verification happens once at build time — periodic re-attestation is deferred
@@ -181,4 +215,4 @@ val receipts = tramai.verificationReceipts()
 | #29 | ✅ Encrypted suspended invocation store and restart-safe recovery |
 | #30 | ✅ Local-model artifact manifest and byte-level verification |
 | #31 | ✅ Offline runtime profile and zero-egress verification harness |
-| #32 | Evidence pack and SBOM |
+| #32 | ✅ Sovereign evidence pack for auditor-safe deployment attestation |
