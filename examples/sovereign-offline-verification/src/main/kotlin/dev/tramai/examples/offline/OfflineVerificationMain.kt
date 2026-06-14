@@ -172,15 +172,19 @@ internal fun executeVerificationInternal(tempDir: Path, reportPath: Path) {
 
         // n. Create runtime and service proxy
         val runtime = tramai.runtime()
+        var providerSucceeded = false
         try {
             val service = runtime.create(OfflineEchoService::class)
 
-            // o. Run echo call
+            // o. Run echo call and assert response
             val response = runBlocking {
                 service.echo("offline-verification")
             }
-            @Suppress("UNUSED_EXPRESSION")
-            response
+            check(response == "offline-loopback-response") {
+                "loopback-service-response-invalid"
+            }
+
+            providerSucceeded = true
         } finally {
             // p. Close the runtime
             runtime.close()
@@ -212,7 +216,7 @@ internal fun executeVerificationInternal(tempDir: Path, reportPath: Path) {
         val report = ZeroEgressVerificationReportV1(
             deploymentMode = SovereignDeploymentMode.OFFLINE.name,
             runtimeBuildSucceeded = true,
-            loopbackProviderInvocationSucceeded = true,
+            loopbackProviderInvocationSucceeded = providerSucceeded,
             loopbackProviderInvocationCount = loopbackProvider.invocationCount.get(),
             externalTcpProbeBlocked = tcpBlocked,
             externalDnsProbeBlocked = dnsBlocked,

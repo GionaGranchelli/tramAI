@@ -102,7 +102,7 @@ object ZeroEgressReportWriter {
         sb.appendLine()
     }
 
-    /** Escapes a string for JSON: `"`, `\`, newline, carriage return, tab. */
+    /** Escapes a string for JSON with full Unicode control-character handling. */
     private fun escapedString(value: String): String {
         val sb = StringBuilder(value.length + 2)
         sb.append('"')
@@ -113,7 +113,13 @@ object ZeroEgressReportWriter {
                 '\n' -> sb.append("\\n")
                 '\r' -> sb.append("\\r")
                 '\t' -> sb.append("\\t")
-                else -> sb.append(ch)
+                else -> {
+                    if (ch.code < 0x20) {
+                        sb.append("\\u%04x".format(ch.code))
+                    } else {
+                        sb.append(ch)
+                    }
+                }
             }
         }
         sb.append('"')

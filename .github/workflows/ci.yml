@@ -67,4 +67,4 @@ jobs:
         with:
           name: zero-egress-verification-report
           path: |
-            **/zero-egress-report.json
+            build/zero-egress-report/zero-egress-report.json

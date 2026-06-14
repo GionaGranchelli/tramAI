@@ -8,9 +8,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-REPORT_DIR="$(mktemp -d)"
+REPORT_DIR="${REPO_ROOT}/build/zero-egress-report"
+rm -rf "$REPORT_DIR"
+mkdir -p "$REPORT_DIR"
 chmod 0777 "$REPORT_DIR"
-trap 'rm -rf "$REPORT_DIR"' EXIT
+trap '' EXIT
 
 echo "=== Building application distribution ==="
 cd "$REPO_ROOT"

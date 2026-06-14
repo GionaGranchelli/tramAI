@@ -98,12 +98,6 @@ class SovereignOfflineExampleTest {
             artifactVerificationReceiptCount = 1,
             auditChainValid = true,
         )
-
-        val output = java.io.ByteArrayOutputStream()
-        java.io.PrintStream(output).use { ps ->
-            // Capture the JSON output by writing to a temp file and reading back
-        }
-
         val tempFile = Files.createTempFile("report-test-", ".json")
         try {
             ZeroEgressReportWriter.write(report, tempFile)

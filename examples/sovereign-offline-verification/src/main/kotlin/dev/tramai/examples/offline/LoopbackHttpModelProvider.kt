@@ -22,24 +22,41 @@ class LoopbackHttpModelProvider(
 
     private val client: HttpClient = HttpClient.newHttpClient()
 
-    /** Counter incremented on each [complete] call. */
+    private val baseUri: URI
+
+    /** Counter incremented on each successful [complete] call. */
     val invocationCount: AtomicInteger = AtomicInteger(0)
+
+    init {
+        baseUri = URI.create(loopbackUrl)
+        require(baseUri.scheme == "http") {
+            "loopback-provider-invalid-scheme"
+        }
+        require(baseUri.host == "127.0.0.1") {
+            "loopback-provider-non-loopback-host-rejected"
+        }
+    }
 
     override fun providerId(): String = "loopback-local-provider"
 
     override suspend fun complete(request: ModelRequest): ModelResponse {
-        invocationCount.incrementAndGet()
-
         val httpRequest = HttpRequest.newBuilder()
-            .uri(URI.create("$loopbackUrl/complete"))
+            .uri(baseUri.resolve("/complete"))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.noBody())
             .timeout(java.time.Duration.ofSeconds(5))
             .build()
 
         val httpResponse = client.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+        check(httpResponse.statusCode() == 200) {
+            "loopback-provider-http-status-invalid"
+        }
+        check(httpResponse.body() == "offline-loopback-echo") {
+            "loopback-provider-response-invalid"
+        }
 
-        // Return deterministic response regardless of server echo
+        invocationCount.incrementAndGet()
+
         return ModelResponse(
             content = "offline-loopback-response",
             finishReason = FinishReason.STOP,
