@@ -542,16 +542,49 @@ val sovereignReleaseModules = listOf(
 tasks.register("prepareSovereignReleaseArtifacts") {
     group = "verification"
     description = "Collects JARs from sovereign release modules, computes SHA-256 digests, and generates release-artifacts-v1.json."
-    dependsOn(sovereignReleaseModules.map { project(it).tasks.named("jar") })
+    dependsOn(sovereignReleaseModules.flatMap { module ->
+        listOf(
+            project(module).tasks.named("jar"),
+            project(module).tasks.matching { it.name == "sourcesJar" },
+            project(module).tasks.matching { it.name == "javadocJar" },
+        )
+    })
 
     doLast {
         val outputDir = rootProject.layout.buildDirectory.dir("sovereign-release").get().asFile
         val artifactsDir = outputDir.resolve("artifacts")
+
+        // Clean output directory first to avoid stale artifacts
+        if (outputDir.exists()) {
+            outputDir.deleteRecursively()
+        }
         artifactsDir.mkdirs()
+
+        fun jsonEscape(value: String): String {
+            val sb = StringBuilder()
+            for (ch in value) {
+                when (ch) {
+                    '"' -> sb.append("\\\"")
+                    '\\' -> sb.append("\\\\")
+                    '\n' -> sb.append("\\n")
+                    '\r' -> sb.append("\\r")
+                    '\t' -> sb.append("\\t")
+                    else -> {
+                        if (ch.code < 0x20) {
+                            sb.append("\\u%04x".format(ch.code))
+                        } else {
+                            sb.append(ch)
+                        }
+                    }
+                }
+            }
+            return sb.toString()
+        }
 
         val groupId = tramaiGroup.get()
         val version = tramaiVersion.get()
         val artifactEntries = mutableListOf<String>()
+        val artifactSortKeys = mutableListOf<String>()
 
         sovereignReleaseModules.forEach { modulePath ->
             val proj = project(modulePath)
@@ -559,7 +592,8 @@ tasks.register("prepareSovereignReleaseArtifacts") {
             val libsDir = proj.layout.buildDirectory.dir("libs").get().asFile
             if (!libsDir.exists()) return@forEach
 
-            libsDir.listFiles { f -> f.name.endsWith(".jar") }?.forEach { jarFile ->
+            libsDir.listFiles { f -> f.name.endsWith(".jar") }
+                ?.forEach { jarFile ->
                 val copied = jarFile.copyTo(artifactsDir.resolve(jarFile.name), overwrite = true)
 
                 val digest = java.security.MessageDigest.getInstance("SHA-256")
@@ -574,21 +608,29 @@ tasks.register("prepareSovereignReleaseArtifacts") {
                     else -> null
                 }
 
+                val escapedFile = jsonEscape(jarFile.name)
                 val artifactLine = buildString {
                     append("        {")
-                    append("\"groupId\": \"$groupId\", ")
-                    append("\"artifactId\": \"$moduleName\", ")
-                    append("\"version\": \"$version\", ")
-                    append("\"classifier\": ${if (classifier != null) "\"$classifier\"" else "null"}, ")
+                    append("\"groupId\": \"${jsonEscape(groupId)}\", ")
+                    append("\"artifactId\": \"${jsonEscape(moduleName)}\", ")
+                    append("\"version\": \"${jsonEscape(version)}\", ")
+                    append("\"classifier\": ${if (classifier != null) "\"${jsonEscape(classifier)}\"" else "null"}, ")
                     append("\"extension\": \"jar\", ")
-                    append("\"fileName\": \"${jarFile.name}\", ")
+                    append("\"fileName\": \"$escapedFile\", ")
                     append("\"sha256\": \"$sha256\", ")
                     append("\"sizeBytes\": ${copied.length()}")
                     append("}")
                 }
                 artifactEntries.add(artifactLine)
+                artifactSortKeys.add(jarFile.name)
             }
         }
+
+        // Sort all artifacts globally by filename for deterministic ordering
+        val sortedIndices = artifactSortKeys.indices.sortedBy { artifactSortKeys[it] }
+        val sortedEntries = sortedIndices.map { artifactEntries[it] }
+        artifactEntries.clear()
+        artifactEntries.addAll(sortedEntries)
 
         val javaVersion = System.getProperty("java.version") ?: "unknown"
         val gradleVersion = GradleVersion.current().version
@@ -597,8 +639,8 @@ tasks.register("prepareSovereignReleaseArtifacts") {
             appendLine("{")
             appendLine("  \"schemaVersion\": 1,")
             appendLine("  \"buildTool\": \"Gradle\",")
-            appendLine("  \"javaVersion\": \"$javaVersion\",")
-            appendLine("  \"gradleVersion\": \"$gradleVersion\",")
+            appendLine("  \"javaVersion\": \"${jsonEscape(javaVersion)}\",")
+            appendLine("  \"gradleVersion\": \"${jsonEscape(gradleVersion)}\",")
             appendLine("  \"artifacts\": [")
             for ((i, entry) in artifactEntries.withIndex()) {
                 append(entry)

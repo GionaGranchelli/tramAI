@@ -13,6 +13,8 @@ jobs:
   build:
     permissions:
       contents: read
+      id-token: write
+      attestations: write
     runs-on: ubuntu-latest
 
     steps:
@@ -77,6 +79,11 @@ jobs:
             build/sovereign-release/artifacts/
             build/sovereign-release/release-artifacts-v1.json
 
+      - name: Attest release artifact manifest
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: build/sovereign-release/release-artifacts-v1.json
+
   zero-egress:
     runs-on: ubuntu-latest
     needs: build
@@ -130,11 +137,6 @@ jobs:
         with:
           subject-path: build/zero-egress-report/sovereign-evidence-pack-v1.json
           sbom-path: build/supply-chain/sbom/tramai-cyclonedx-sbom.json
-
-      - name: Attest release artifact manifest
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: build/sovereign-release/release-artifacts-v1.json
 
       - name: Upload zero-egress report on failure
         if: failure()
