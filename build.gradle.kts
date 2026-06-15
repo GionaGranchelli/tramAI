@@ -7,6 +7,7 @@ import org.gradle.kotlin.dsl.configure
 import org.gradle.plugins.signing.SigningExtension
 import org.gradle.util.GradleVersion
 import org.w3c.dom.Element
+import groovy.json.JsonSlurper
 import java.io.File
 import java.net.URI
 import javax.xml.parsers.DocumentBuilderFactory
@@ -591,8 +592,13 @@ tasks.register("prepareSovereignReleaseArtifacts") {
             val moduleName = proj.name
             val libsDir = proj.layout.buildDirectory.dir("libs").get().asFile
             if (!libsDir.exists()) return@forEach
+            val expectedJarPrefixes = listOf(
+                "$moduleName-$version.jar",
+                "$moduleName-$version-sources.jar",
+                "$moduleName-$version-javadoc.jar",
+            )
 
-            libsDir.listFiles { f -> f.name.endsWith(".jar") }
+            libsDir.listFiles { f -> f.name in expectedJarPrefixes }
                 ?.forEach { jarFile ->
                 val copied = jarFile.copyTo(artifactsDir.resolve(jarFile.name), overwrite = true)
 
@@ -659,6 +665,168 @@ tasks.register("prepareSovereignReleaseArtifacts") {
     }
 }
 
+// ──────────────────────────────────────────────
+// Manifest verifier helper
+// ──────────────────────────────────────────────
+
+/**
+ * Verifies that [manifestDir]/release-artifacts-v1.json is internally consistent
+ * with the JAR files in [artifactsDir].
+ *
+ * Every error is communicated through a [GradleException] whose message starts
+ * with one of the required error codes listed in the PR #37 spec.
+ */
+fun verifyReleaseManifest(manifestDir: File, artifactsDir: File) {
+    val manifestFile = manifestDir.resolve("release-artifacts-v1.json")
+
+    // 1. Manifest file must exist
+    require(manifestFile.exists()) {
+        "sovereign-release-manifest-missing: ${manifestFile.absolutePath}"
+    }
+
+    // 2. Artifacts directory must exist
+    require(artifactsDir.isDirectory()) {
+        "sovereign-release-artifacts-dir-missing: ${artifactsDir.absolutePath}"
+    }
+
+    // 3. Parse JSON (fail closed on malformed content)
+    val manifest: Map<String, Any>
+    try {
+        @Suppress("UNCHECKED_CAST")
+        manifest = JsonSlurper().parse(manifestFile) as Map<String, Any>
+    } catch (e: Exception) {
+        throw GradleException("sovereign-release-manifest-invalid-json", e)
+    }
+
+    // 4. Schema version must be supported (currently 1)
+    val schemaVersion = (manifest["schemaVersion"] as? Number)?.toInt()
+        ?: throw GradleException("sovereign-release-manifest-unsupported-schema-version")
+    require(schemaVersion == 1) {
+        "sovereign-release-manifest-unsupported-schema-version: $schemaVersion"
+    }
+
+    // 5. artifacts array must be present
+    val rawArtifacts = manifest["artifacts"]
+        ?: throw GradleException("sovereign-release-manifest-missing-artifacts")
+
+    // 6. artifacts array must not be empty
+    @Suppress("UNCHECKED_CAST")
+    val artifactList = rawArtifacts as? List<Map<String, Any>>
+        ?: throw GradleException("sovereign-release-manifest-invalid-json: artifacts is not an array")
+    require(artifactList.isNotEmpty()) {
+        "sovereign-release-manifest-empty-artifacts"
+    }
+
+    val seenFileNames = mutableSetOf<String>()
+    val seenCoordinates = mutableSetOf<String>()
+    val manifestFileNames = mutableSetOf<String>()
+
+    for ((i, entry) in artifactList.withIndex()) {
+        // 7. Each entry must be a map with required fields
+        val fileName = entry["fileName"]?.let { it as? String }
+            ?: throw GradleException("sovereign-release-manifest-invalid-artifact-entry (index $i): missing or non-String fileName")
+        val groupId = entry["groupId"]?.let { it as? String }
+            ?: throw GradleException("sovereign-release-manifest-invalid-artifact-entry (index $i): missing or non-String groupId")
+        val artifactId = entry["artifactId"]?.let { it as? String }
+            ?: throw GradleException("sovereign-release-manifest-invalid-artifact-entry (index $i): missing or non-String artifactId")
+        val version = entry["version"]?.let { it as? String }
+            ?: throw GradleException("sovereign-release-manifest-invalid-artifact-entry (index $i): missing or non-String version")
+        val extension = entry["extension"]?.let { it as? String }
+            ?: throw GradleException("sovereign-release-manifest-invalid-artifact-entry (index $i): missing or non-String extension")
+        val sha256 = entry["sha256"]?.let { it as? String }
+            ?: throw GradleException("sovereign-release-manifest-invalid-artifact-entry (index $i): missing or non-String sha256")
+        val sizeBytes = entry["sizeBytes"]?.let { it as? Number }
+            ?: throw GradleException("sovereign-release-manifest-invalid-artifact-entry (index $i): missing or non-Numeric sizeBytes")
+
+        val classifier = entry["classifier"]?.let { it as? String }
+
+        // 8. Unsafe file name — reject path traversal characters
+        require(!fileName.contains("/") && !fileName.contains("\\") && !fileName.contains("..")) {
+            "sovereign-release-manifest-unsafe-file-name: $fileName"
+        }
+
+        // 9. Digest must be sha256: followed by 64 lowercase hex chars
+        require(sha256.startsWith("sha256:")) {
+            "sovereign-release-manifest-invalid-digest-format: $sha256 (missing 'sha256:' prefix)"
+        }
+        val hexPart = sha256.removePrefix("sha256:")
+        require(hexPart.length == 64 && hexPart.all { it in '0'..'9' || it in 'a'..'f' }) {
+            "sovereign-release-manifest-invalid-digest-format: $sha256 (expected 64 hex chars, got ${hexPart.length})"
+        }
+
+        // 10. Size must be a positive integer
+        val size = sizeBytes.toLong()
+        require(size > 0) {
+            "sovereign-release-manifest-invalid-size: $size (must be positive)"
+        }
+
+        // 11. Only JAR extensions are supported in the release manifest
+        require(extension == "jar") {
+            "sovereign-release-manifest-unsupported-extension: $extension (only 'jar' is supported)"
+        }
+
+        // 12. Duplicate fileName rejection
+        require(seenFileNames.add(fileName)) {
+            "sovereign-release-manifest-duplicate-file-name: $fileName"
+        }
+
+        // 13. Duplicate Maven coordinate rejection
+        val coordinate = "$groupId:$artifactId:$version:${classifier ?: ""}:$extension"
+        require(seenCoordinates.add(coordinate)) {
+            "sovereign-release-manifest-duplicate-coordinate: $coordinate"
+        }
+
+        manifestFileNames.add(fileName)
+
+        // 14. File must exist on disk
+        val jarFile = artifactsDir.resolve(fileName)
+        require(jarFile.exists()) {
+            "sovereign-release-artifact-missing: $fileName"
+        }
+
+        // 15. File size must match
+        val actualSize = jarFile.length()
+        require(actualSize == size) {
+            "sovereign-release-artifact-size-mismatch: $fileName (expected $size bytes, actual $actualSize)"
+        }
+
+        // 16. SHA-256 digest must match
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        val computedHex = digest.digest(jarFile.readBytes())
+            .joinToString("") { "%02x".format(it) }
+        require(computedHex == hexPart) {
+            "sovereign-release-artifact-digest-mismatch: $fileName"
+        }
+    }
+
+    // 17. Reject unlisted .jar files in the artifacts directory
+    val actualJars = artifactsDir.listFiles { f -> f.name.endsWith(".jar") }?.toList() ?: emptyList()
+    for (jarFile in actualJars) {
+        require(jarFile.name in manifestFileNames) {
+            "sovereign-release-artifact-unlisted: ${jarFile.name}"
+        }
+    }
+
+    logger.lifecycle("Release manifest verification passed: ${artifactList.size} artifact(s) validated.")
+}
+
+// ──────────────────────────────────────────────
+// Task: verifySovereignReleaseManifest
+// ──────────────────────────────────────────────
+
+tasks.register("verifySovereignReleaseManifest") {
+    group = "verification"
+    description = "Verifies that build/sovereign-release/release-artifacts-v1.json is internally consistent with the JAR files in build/sovereign-release/artifacts/."
+    dependsOn(":prepareSovereignReleaseArtifacts")
+
+    doLast {
+        val buildDir = rootProject.layout.buildDirectory.get().asFile
+        val manifestDir = buildDir.resolve("sovereign-release")
+        val artifactsDir = manifestDir.resolve("artifacts")
+        verifyReleaseManifest(manifestDir, artifactsDir)
+    }
+}
+
 tasks.register("prepareSovereignEvidenceBundle") {
     group = "verification"
     description = "Assembles all sovereign audit outputs into build/sovereign-evidence/."
@@ -712,5 +880,22 @@ tasks.register("prepareSovereignEvidenceBundle") {
 
         logger.lifecycle("Sovereign evidence bundle assembled: ${outputDir.absolutePath}")
         logger.lifecycle("  Files: ${outputDir.walkTopDown().count { it.isFile }}")
+    }
+}
+
+// ──────────────────────────────────────────────
+// Task: verifySovereignEvidenceBundleReleaseManifest
+// ──────────────────────────────────────────────
+
+tasks.register("verifySovereignEvidenceBundleReleaseManifest") {
+    group = "verification"
+    description = "Verifies that build/sovereign-evidence/release/release-artifacts-v1.json is internally consistent with the JAR files in build/sovereign-evidence/release/artifacts/."
+    dependsOn(":prepareSovereignEvidenceBundle")
+
+    doLast {
+        val buildDir = rootProject.layout.buildDirectory.get().asFile
+        val manifestDir = buildDir.resolve("sovereign-evidence/release")
+        val artifactsDir = manifestDir.resolve("artifacts")
+        verifyReleaseManifest(manifestDir, artifactsDir)
     }
 }

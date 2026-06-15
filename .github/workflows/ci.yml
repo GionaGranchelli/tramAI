@@ -57,6 +57,9 @@ jobs:
       - name: Prepare sovereign release artifacts
         run: ./gradlew prepareSovereignReleaseArtifacts
 
+      - name: Verify sovereign release manifest
+        run: ./gradlew verifySovereignReleaseManifest
+
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
         with:
@@ -124,6 +127,9 @@ jobs:
 
       - name: Assemble sovereign evidence bundle
         run: ./gradlew prepareSovereignEvidenceBundle
+
+      - name: Verify sovereign evidence bundle release manifest
+        run: ./gradlew verifySovereignEvidenceBundleReleaseManifest
 
       - name: Upload sovereign evidence bundle
         uses: actions/upload-artifact@v4
