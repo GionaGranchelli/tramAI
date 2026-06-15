@@ -24,7 +24,6 @@ import dev.tramai.sovereign.SovereignProfileConfiguration
 import dev.tramai.sovereign.SovereignTramai
 import dev.tramai.sovereign.SovereignTramaiRuntime
 import dev.tramai.sovereign.evidence.ReleaseBundleEvidenceLoader
-import dev.tramai.sovereign.evidence.ZeroEgressEvidenceV1
 import dev.tramai.engine.ResumeApprovalCommand
 import dev.tramai.security.ProviderTrustZone
 import java.time.Clock
@@ -396,19 +395,12 @@ class SovereignDocumentIntelligenceWorkflowTest {
             )
 
             val pack = harness.tramai.evidencePack(
-                zeroEgress = ZeroEgressEvidenceV1(
-                    deploymentMode = "STANDARD",
-                    runtimeBuildSucceeded = true,
-                    loopbackProviderInvocationSucceeded = true,
-                    loopbackProviderInvocationCount = harness.provider.capturedRequests.size,
-                    externalTcpProbeBlocked = false,
-                    externalDnsProbeBlocked = false,
-                ),
                 auditChain = auditChainEvidence(outcome.auditEvents),
             )
 
             assertEquals(1, pack.schemaVersion)
             assertEquals("STANDARD", pack.deploymentMode)
+            assertEquals(null, pack.zeroEgress)
             assertEquals(outcome.auditEvents.size, pack.auditChain?.totalEvents)
             assertTrue(pack.auditChain?.isValid == true)
             assertEquals(listOf("local-invoice-model"), pack.allowedModels)

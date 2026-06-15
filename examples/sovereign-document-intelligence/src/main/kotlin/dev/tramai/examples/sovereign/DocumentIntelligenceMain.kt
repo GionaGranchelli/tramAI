@@ -1,8 +1,6 @@
 package dev.tramai.examples.sovereign
 
-import dev.tramai.sovereign.SovereignDeploymentMode
 import dev.tramai.sovereign.evidence.SovereignEvidencePackWriter
-import dev.tramai.sovereign.evidence.ZeroEgressEvidenceV1
 import java.nio.file.Path
 
 fun main(args: Array<String>) {
@@ -26,14 +24,6 @@ fun main(args: Array<String>) {
         writeAuditEvents(approvalPath, approvalEvents(outcome.auditEvents))
 
         val evidencePack = harness.tramai.evidencePack(
-            zeroEgress = ZeroEgressEvidenceV1(
-                deploymentMode = SovereignDeploymentMode.STANDARD.name,
-                runtimeBuildSucceeded = true,
-                loopbackProviderInvocationSucceeded = true,
-                loopbackProviderInvocationCount = harness.provider.capturedRequests.size,
-                externalTcpProbeBlocked = false,
-                externalDnsProbeBlocked = false,
-            ),
             auditChain = auditChainEvidence(outcome.auditEvents),
             releaseBundle = releaseBundle,
         )

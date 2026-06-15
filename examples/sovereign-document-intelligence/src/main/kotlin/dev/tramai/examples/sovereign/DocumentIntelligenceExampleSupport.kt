@@ -182,13 +182,19 @@ internal fun auditChainEvidence(events: List<AuditEvent>): AuditChainEvidenceV1 
 internal fun resolveReleaseBundleEvidence(args: Array<String>): ReleaseBundleEvidenceV1? {
     val explicitManifest = args.firstOrNull { it.startsWith("--release-bundle-manifest=") }
         ?.substringAfter("--release-bundle-manifest=")
+
+    val defaultManifest = Path.of("build/sovereign-release/release-artifacts-v1.json")
+    val resolvedDefault = resolvePathFromCurrentOrAncestor(defaultManifest)
+
     val manifestPath = when {
         explicitManifest != null ->
             resolvePathFromCurrentOrAncestor(Path.of(explicitManifest)) ?: Path.of(explicitManifest)
-        resolvePathFromCurrentOrAncestor(Path.of("build/sovereign-release/release-artifacts-v1.json")) != null ->
-            resolvePathFromCurrentOrAncestor(Path.of("build/sovereign-release/release-artifacts-v1.json"))
-        else -> null
+        resolvedDefault != null ->
+            resolvedDefault
+        else ->
+            null
     }
+
     return manifestPath?.let { ReleaseBundleEvidenceLoader.load(it) }
 }
 
