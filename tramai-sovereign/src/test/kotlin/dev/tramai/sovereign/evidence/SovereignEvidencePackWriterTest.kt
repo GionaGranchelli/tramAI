@@ -32,6 +32,7 @@ class SovereignEvidencePackWriterTest {
         assertThat(json).contains("\"zeroEgress\": null")
         assertThat(json).contains("\"auditChain\": null")
         assertThat(json).contains("\"supplyChain\": null")
+        assertThat(json).contains("\"releaseBundle\": null")
         assertThat(json).contains("\"attestation\": null")
         assertThat(json).contains("\"generatedAt\":")
 
@@ -46,6 +47,7 @@ class SovereignEvidencePackWriterTest {
         val zeroEgressIdx = json.indexOf("\"zeroEgress\"")
         val auditChainIdx = json.indexOf("\"auditChain\"")
         val supplyChainIdx = json.indexOf("\"supplyChain\"")
+        val releaseBundleIdx = json.indexOf("\"releaseBundle\"")
         val attestationIdx = json.indexOf("\"attestation\"")
         val generatedAtIdx = json.indexOf("\"generatedAt\"")
 
@@ -58,7 +60,8 @@ class SovereignEvidencePackWriterTest {
         assertThat(artifactsIdx).isLessThan(zeroEgressIdx)
         assertThat(zeroEgressIdx).isLessThan(auditChainIdx)
         assertThat(auditChainIdx).isLessThan(supplyChainIdx)
-        assertThat(supplyChainIdx).isLessThan(attestationIdx)
+        assertThat(supplyChainIdx).isLessThan(releaseBundleIdx)
+        assertThat(releaseBundleIdx).isLessThan(attestationIdx)
         assertThat(attestationIdx).isLessThan(generatedAtIdx)
     }
 
@@ -75,6 +78,7 @@ class SovereignEvidencePackWriterTest {
             zeroEgress = null,
             auditChain = null,
             supplyChain = null,
+            releaseBundle = null,
             attestation = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
@@ -103,6 +107,7 @@ class SovereignEvidencePackWriterTest {
             zeroEgress = null,
             auditChain = null,
             supplyChain = null,
+            releaseBundle = null,
             attestation = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
@@ -176,6 +181,7 @@ class SovereignEvidencePackWriterTest {
                 totalEvents = 5,
             ),
             supplyChain = null,
+            releaseBundle = null,
             attestation = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
@@ -208,6 +214,7 @@ class SovereignEvidencePackWriterTest {
             zeroEgress = null,
             auditChain = null,
             supplyChain = null,
+            releaseBundle = null,
             attestation = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
@@ -239,6 +246,7 @@ class SovereignEvidencePackWriterTest {
                 sbomSha256 = "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
                 generatedBy = "CycloneDX Gradle Plugin 3.2.4",
             ),
+            releaseBundle = null,
             attestation = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
@@ -264,6 +272,7 @@ class SovereignEvidencePackWriterTest {
             zeroEgress = null,
             auditChain = null,
             supplyChain = null,
+            releaseBundle = null,
             attestation = AttestationEvidenceV1(
                 provider = "GitHub Artifact Attestations",
                 workflowName = "CI",
@@ -304,6 +313,7 @@ class SovereignEvidencePackWriterTest {
             zeroEgress = null,
             auditChain = null,
             supplyChain = null,
+            releaseBundle = null,
             attestation = AttestationEvidenceV1(
                 provider = "GitHub Artifact Attestations",
                 workflowName = "CI",
@@ -347,6 +357,7 @@ class SovereignEvidencePackWriterTest {
             zeroEgress = null,
             auditChain = null,
             supplyChain = null,
+            releaseBundle = null,
             attestation = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
@@ -659,6 +670,7 @@ class SovereignEvidencePackWriterTest {
                 sbomSha256 = "sha256:${"a".repeat(64)}",
                 generatedBy = "Gradle Plugin",
             ),
+            releaseBundle = null,
             attestation = null,
             generatedAt = "2026-01-01T00:00:00Z",
         )
@@ -1035,6 +1047,284 @@ class SovereignEvidencePackWriterTest {
         assertThat(pack.attestation!!.attestedSubjects[1].fileName).isEqualTo("tramai-sources.jar")
     }
 
+    // ── Release-bundle writer tests ─────────────────────────────────────────
+
+    @Test
+    fun `writer serialises release-bundle subsection with multiple artifacts`() {
+        val pack = SovereignEvidencePackV1(
+            deploymentMode = "STANDARD",
+            allowedModels = listOf("model-a"),
+            allowedProviders = listOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            artifactVerificationSettings = mapOf("enabled" to false),
+            artifacts = emptyList(),
+            zeroEgress = null,
+            auditChain = null,
+            supplyChain = null,
+            releaseBundle = ReleaseBundleEvidenceV1(
+                buildTool = "Gradle",
+                javaVersion = "25.0.1",
+                gradleVersion = "8.10",
+                artifacts = listOf(
+                    ReleaseArtifactEvidenceV1(
+                        groupId = "dev.tramai",
+                        artifactId = "tramai-core",
+                        version = "1.0.0",
+                        classifier = null,
+                        extension = "jar",
+                        fileName = "tramai-core-1.0.0.jar",
+                        sha256 = "sha256:${"a".repeat(64)}",
+                        sizeBytes = 51200,
+                    ),
+                    ReleaseArtifactEvidenceV1(
+                        groupId = "dev.tramai",
+                        artifactId = "tramai-sovereign",
+                        version = "1.0.0",
+                        classifier = "sources",
+                        extension = "jar",
+                        fileName = "tramai-sovereign-1.0.0-sources.jar",
+                        sha256 = "sha256:${"b".repeat(64)}",
+                        sizeBytes = 25600,
+                    ),
+                ),
+            ),
+            attestation = null,
+            generatedAt = "2026-01-01T00:00:00Z",
+        )
+        val json = writeToString(pack)
+
+        assertThat(json).contains("\"releaseBundle\":")
+        assertThat(json).contains("\"buildTool\": \"Gradle\"")
+        assertThat(json).contains("\"javaVersion\": \"25.0.1\"")
+        assertThat(json).contains("\"gradleVersion\": \"8.10\"")
+        assertThat(json).contains("\"groupId\": \"dev.tramai\"")
+        assertThat(json).contains("\"artifactId\": \"tramai-core\"")
+        assertThat(json).contains("\"artifactId\": \"tramai-sovereign\"")
+        assertThat(json).contains("\"version\": \"1.0.0\"")
+        assertThat(json).contains("\"classifier\": null")
+        assertThat(json).contains("\"classifier\": \"sources\"")
+        assertThat(json).contains("\"extension\": \"jar\"")
+        assertThat(json).contains("\"fileName\": \"tramai-core-1.0.0.jar\"")
+        assertThat(json).contains("\"fileName\": \"tramai-sovereign-1.0.0-sources.jar\"")
+        assertThat(json).contains("\"sha256\": \"sha256:${"a".repeat(64)}\"")
+        assertThat(json).contains("\"sha256\": \"sha256:${"b".repeat(64)}\"")
+        assertThat(json).contains("\"sizeBytes\": 51200")
+        assertThat(json).contains("\"sizeBytes\": 25600")
+    }
+
+    @Test
+    fun `writer serialises null releaseBundle as null`() {
+        val pack = SovereignEvidencePackV1(
+            deploymentMode = "STANDARD",
+            allowedModels = listOf("model-a"),
+            allowedProviders = listOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            artifactVerificationSettings = mapOf("enabled" to false),
+            artifacts = emptyList(),
+            zeroEgress = null,
+            auditChain = null,
+            supplyChain = null,
+            releaseBundle = null,
+            attestation = null,
+            generatedAt = "2026-01-01T00:00:00Z",
+        )
+        val json = writeToString(pack)
+
+        assertThat(json).contains("\"releaseBundle\": null")
+    }
+
+    // ── Release-bundle validation tests ─────────────────────────────────────
+
+    @Test
+    fun `rejects unsupported release bundle schema version`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                releaseBundle = ReleaseBundleEvidenceV1(
+                    schemaVersion = 2,
+                    buildTool = "Gradle",
+                    javaVersion = "25",
+                    gradleVersion = "8.10",
+                    artifacts = listOf(
+                        ReleaseArtifactEvidenceV1(
+                            groupId = "dev.tramai",
+                            artifactId = "tramai-core",
+                            version = "1.0.0",
+                            classifier = null,
+                            extension = "jar",
+                            fileName = "tramai-core-1.0.0.jar",
+                            sha256 = "sha256:${"a".repeat(64)}",
+                            sizeBytes = 51200,
+                        ),
+                    ),
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsupported-release-bundle-schema-version")
+    }
+
+    @Test
+    fun `rejects empty artifact list in release bundle`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                releaseBundle = ReleaseBundleEvidenceV1(
+                    buildTool = "Gradle",
+                    javaVersion = "25",
+                    gradleVersion = "8.10",
+                    artifacts = emptyList(),
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-release-artifacts-empty")
+    }
+
+    @Test
+    fun `rejects negative artifact size in release bundle`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                releaseBundle = ReleaseBundleEvidenceV1(
+                    buildTool = "Gradle",
+                    javaVersion = "25",
+                    gradleVersion = "8.10",
+                    artifacts = listOf(
+                        ReleaseArtifactEvidenceV1(
+                            groupId = "dev.tramai",
+                            artifactId = "tramai-core",
+                            version = "1.0.0",
+                            classifier = null,
+                            extension = "jar",
+                            fileName = "tramai-core-1.0.0.jar",
+                            sha256 = "sha256:${"a".repeat(64)}",
+                            sizeBytes = -1,
+                        ),
+                    ),
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-artifact-size-negative")
+    }
+
+    @Test
+    fun `rejects invalid digest format in release artifact`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                releaseBundle = ReleaseBundleEvidenceV1(
+                    buildTool = "Gradle",
+                    javaVersion = "25",
+                    gradleVersion = "8.10",
+                    artifacts = listOf(
+                        ReleaseArtifactEvidenceV1(
+                            groupId = "dev.tramai",
+                            artifactId = "tramai-core",
+                            version = "1.0.0",
+                            classifier = null,
+                            extension = "jar",
+                            fileName = "tramai-core-1.0.0.jar",
+                            sha256 = "sha256:xyz",
+                            sizeBytes = 51200,
+                        ),
+                    ),
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-digest-format")
+    }
+
+    @Test
+    fun `rejects filename with path separator in release artifact`() {
+        assertThatThrownBy {
+            SovereignEvidencePackGenerator.generate(
+                deploymentMode = SovereignDeploymentMode.STANDARD,
+                allowedModels = setOf("model-a"),
+                allowedProviders = setOf("provider-x"),
+                providerZones = mapOf("provider-x" to "LOCAL"),
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+                releaseBundle = ReleaseBundleEvidenceV1(
+                    buildTool = "Gradle",
+                    javaVersion = "25",
+                    gradleVersion = "8.10",
+                    artifacts = listOf(
+                        ReleaseArtifactEvidenceV1(
+                            groupId = "dev.tramai",
+                            artifactId = "tramai-core",
+                            version = "1.0.0",
+                            classifier = null,
+                            extension = "jar",
+                            fileName = "subdir/tramai-core-1.0.0.jar",
+                            sha256 = "sha256:${"a".repeat(64)}",
+                            sizeBytes = 51200,
+                        ),
+                    ),
+                ),
+            )
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("evidence-unsafe-identifier")
+    }
+
+    @Test
+    fun `accepts valid full release bundle`() {
+        val pack = SovereignEvidencePackGenerator.generate(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verificationSettings = ModelArtifactVerificationSettings(),
+            verificationReceipts = emptyList(),
+            releaseBundle = ReleaseBundleEvidenceV1(
+                buildTool = "Gradle",
+                javaVersion = "25.0.1",
+                gradleVersion = "8.10",
+                artifacts = listOf(
+                    ReleaseArtifactEvidenceV1(
+                        groupId = "dev.tramai",
+                        artifactId = "tramai-core",
+                        version = "1.0.0",
+                        classifier = null,
+                        extension = "jar",
+                        fileName = "tramai-core-1.0.0.jar",
+                        sha256 = "sha256:${"a".repeat(64)}",
+                        sizeBytes = 51200,
+                    ),
+                ),
+            ),
+        )
+
+        assertThat(pack.releaseBundle).isNotNull()
+        assertThat(pack.releaseBundle!!.schemaVersion).isEqualTo(1)
+        assertThat(pack.releaseBundle!!.buildTool).isEqualTo("Gradle")
+        assertThat(pack.releaseBundle!!.javaVersion).isEqualTo("25.0.1")
+        assertThat(pack.releaseBundle!!.gradleVersion).isEqualTo("8.10")
+        assertThat(pack.releaseBundle!!.artifacts).hasSize(1)
+        assertThat(pack.releaseBundle!!.artifacts[0].groupId).isEqualTo("dev.tramai")
+        assertThat(pack.releaseBundle!!.artifacts[0].artifactId).isEqualTo("tramai-core")
+        assertThat(pack.releaseBundle!!.artifacts[0].sha256).isEqualTo("sha256:${"a".repeat(64)}")
+        assertThat(pack.releaseBundle!!.artifacts[0].sizeBytes).isEqualTo(51200)
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private fun samplePack(): SovereignEvidencePackV1 = SovereignEvidencePackV1(
@@ -1047,6 +1337,7 @@ class SovereignEvidencePackWriterTest {
         zeroEgress = null,
         auditChain = null,
         supplyChain = null,
+        releaseBundle = null,
         attestation = null,
         generatedAt = "2026-01-01T00:00:00Z",
     )

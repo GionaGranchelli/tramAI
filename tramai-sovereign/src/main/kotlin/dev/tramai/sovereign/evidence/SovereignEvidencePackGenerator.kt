@@ -32,11 +32,12 @@ object SovereignEvidencePackGenerator {
      * @param zeroEgress Optional zero-egress verification subsection.
      * @param auditChain Optional audit-chain validation subsection.
      * @param supplyChain Optional supply-chain SBOM linkage subsection.
+     * @param releaseBundle Optional release-bundle artifact manifest subsection.
      * @param attestation Optional CI/CD attestation subsection.
      * @return A fully populated [SovereignEvidencePackV1] with the [generatedAt] timestamp
      * set to the current wall-clock time when this method is called.
      */
-    fun generate(
+     fun generate(
         deploymentMode: SovereignDeploymentMode,
         allowedModels: Set<String>,
         allowedProviders: Set<String>,
@@ -46,8 +47,9 @@ object SovereignEvidencePackGenerator {
         zeroEgress: ZeroEgressEvidenceV1? = null,
         auditChain: AuditChainEvidenceV1? = null,
         supplyChain: SupplyChainEvidenceV1? = null,
+        releaseBundle: ReleaseBundleEvidenceV1? = null,
         attestation: AttestationEvidenceV1? = null,
-    ): SovereignEvidencePackV1 {
+     ): SovereignEvidencePackV1 {
         // Sanitize all string identifiers before building DTOs
         val sanitizedModels = allowedModels.map { EvidenceSafeString.sanitize(it) }.toSet()
         val sanitizedProviders = allowedProviders.map { EvidenceSafeString.sanitize(it) }.toSet()
@@ -148,6 +150,47 @@ object SovereignEvidencePackGenerator {
             )
         }
 
+        // Validate and sanitize release-bundle evidence
+        val sanitizedReleaseBundle = releaseBundle?.let { r ->
+            require(r.schemaVersion == 1) {
+                "evidence-unsupported-release-bundle-schema-version"
+            }
+
+            require(r.artifacts.isNotEmpty()) {
+                "evidence-unsafe-release-artifacts-empty"
+            }
+
+            val digestRegex = Regex("^sha256:[a-fA-F0-9]{64}$")
+            val sanitizedArtifacts = r.artifacts.map { artifact ->
+                require(digestRegex.matches(artifact.sha256)) {
+                    "evidence-unsafe-digest-format"
+                }
+
+                require(artifact.sizeBytes >= 0) {
+                    "evidence-unsafe-artifact-size-negative"
+                }
+
+                ReleaseArtifactEvidenceV1(
+                    groupId = EvidenceSafeString.sanitize(artifact.groupId),
+                    artifactId = EvidenceSafeString.sanitize(artifact.artifactId),
+                    version = EvidenceSafeString.sanitize(artifact.version),
+                    classifier = artifact.classifier?.let { EvidenceSafeString.sanitize(it) },
+                    extension = EvidenceSafeString.sanitize(artifact.extension),
+                    fileName = sanitizeFileNameOnly(artifact.fileName),
+                    sha256 = artifact.sha256,
+                    sizeBytes = artifact.sizeBytes,
+                )
+            }
+
+            ReleaseBundleEvidenceV1(
+                schemaVersion = r.schemaVersion,
+                buildTool = EvidenceSafeString.sanitize(r.buildTool),
+                javaVersion = EvidenceSafeString.sanitize(r.javaVersion),
+                gradleVersion = EvidenceSafeString.sanitize(r.gradleVersion),
+                artifacts = sanitizedArtifacts,
+            )
+        }
+
         return SovereignEvidencePackV1(
             schemaVersion = 1,
             deploymentMode = deploymentMode.name,
@@ -159,6 +202,7 @@ object SovereignEvidencePackGenerator {
             zeroEgress = zeroEgress,
             auditChain = auditChain,
             supplyChain = sanitizedSupplyChain,
+            releaseBundle = sanitizedReleaseBundle,
             attestation = sanitizedAttestation,
             generatedAt = Instant.now().toString(),
         )

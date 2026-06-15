@@ -13,6 +13,8 @@ jobs:
   build:
     permissions:
       contents: read
+      id-token: write
+      attestations: write
     runs-on: ubuntu-latest
 
     steps:
@@ -52,6 +54,9 @@ jobs:
       - name: Compute SBOM digest + copy
         run: ./gradlew prepareCycloneDxBom
 
+      - name: Prepare sovereign release artifacts
+        run: ./gradlew prepareSovereignReleaseArtifacts
+
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
         with:
@@ -65,6 +70,19 @@ jobs:
           name: cyclonedx-sbom-digest
           path: |
             build/supply-chain/sbom/tramai-cyclonedx-sbom.sha256
+
+      - name: Upload sovereign release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sovereign-release-artifacts
+          path: |
+            build/sovereign-release/artifacts/
+            build/sovereign-release/release-artifacts-v1.json
+
+      - name: Attest release artifact manifest
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: build/sovereign-release/release-artifacts-v1.json
 
   zero-egress:
     runs-on: ubuntu-latest

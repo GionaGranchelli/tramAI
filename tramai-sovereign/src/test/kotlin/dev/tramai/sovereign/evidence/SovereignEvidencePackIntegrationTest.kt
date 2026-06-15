@@ -260,6 +260,7 @@ class SovereignEvidencePackIntegrationTest {
         assertThat(pack.zeroEgress).isNull()
         assertThat(pack.auditChain).isNull()
         assertThat(pack.supplyChain).isNull()
+        assertThat(pack.releaseBundle).isNull()
         assertThat(pack.attestation).isNull()
     }
 
@@ -347,6 +348,39 @@ class SovereignEvidencePackIntegrationTest {
         assertThat(pack.attestation!!.attestedSubjects).hasSize(2)
         assertThat(pack.attestation!!.attestedSubjects[0].fileName).isEqualTo("sbom-a.json")
         assertThat(pack.attestation!!.attestedSubjects[1].fileName).isEqualTo("sbom-b.json")
+    }
+
+    @Test
+    fun `evidence pack includes release-bundle subsection when provided`() {
+        val tramai = buildOfflineTramai()
+
+        val pack = tramai.evidencePack(
+            releaseBundle = ReleaseBundleEvidenceV1(
+                buildTool = "Gradle",
+                javaVersion = "25.0.1",
+                gradleVersion = "8.10",
+                artifacts = listOf(
+                    ReleaseArtifactEvidenceV1(
+                        groupId = "dev.tramai",
+                        artifactId = "tramai-core",
+                        version = "1.0.0",
+                        classifier = null,
+                        extension = "jar",
+                        fileName = "tramai-core-1.0.0.jar",
+                        sha256 = "sha256:${"a".repeat(64)}",
+                        sizeBytes = 51200,
+                    ),
+                ),
+            ),
+        )
+
+        assertThat(pack.releaseBundle).isNotNull()
+        assertThat(pack.releaseBundle!!.buildTool).isEqualTo("Gradle")
+        assertThat(pack.releaseBundle!!.javaVersion).isEqualTo("25.0.1")
+        assertThat(pack.releaseBundle!!.gradleVersion).isEqualTo("8.10")
+        assertThat(pack.releaseBundle!!.artifacts).hasSize(1)
+        assertThat(pack.releaseBundle!!.artifacts[0].artifactId).isEqualTo("tramai-core")
+        assertThat(pack.releaseBundle!!.artifacts[0].sha256).isEqualTo("sha256:${"a".repeat(64)}")
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
