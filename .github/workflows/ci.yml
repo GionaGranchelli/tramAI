@@ -122,21 +122,36 @@ jobs:
           path: |
             build/zero-egress-report/sovereign-evidence-pack-v1.json
 
+      - name: Assemble sovereign evidence bundle
+        run: ./gradlew prepareSovereignEvidenceBundle
+
+      - name: Upload sovereign evidence bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: sovereign-evidence-bundle
+          path: |
+            build/sovereign-evidence/
+
       - name: Attest sovereign evidence pack
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: build/zero-egress-report/sovereign-evidence-pack-v1.json
+          subject-path: build/sovereign-evidence/sovereign-evidence-pack-v1.json
 
       - name: Attest zero-egress report
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: build/zero-egress-report/zero-egress-report.json
+          subject-path: build/sovereign-evidence/zero-egress-report.json
+
+      - name: Attest release artifact manifest
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: build/sovereign-evidence/release/release-artifacts-v1.json
 
       - name: Attest SBOM for sovereign evidence pack
         uses: actions/attest@v4
         with:
-          subject-path: build/zero-egress-report/sovereign-evidence-pack-v1.json
-          sbom-path: build/supply-chain/sbom/tramai-cyclonedx-sbom.json
+          subject-path: build/sovereign-evidence/sovereign-evidence-pack-v1.json
+          sbom-path: build/sovereign-evidence/supply-chain/tramai-cyclonedx-sbom.json
 
       - name: Upload zero-egress report on failure
         if: failure()
