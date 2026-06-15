@@ -738,10 +738,22 @@ fun verifyReleaseManifest(manifestDir: File, artifactsDir: File) {
         val sizeBytes = entry["sizeBytes"]?.let { it as? Number }
             ?: throw GradleException("sovereign-release-manifest-invalid-artifact-entry (index $i): missing or non-Numeric sizeBytes")
 
-        val classifier = entry["classifier"]?.let { it as? String }
+        val rawClassifier = entry["classifier"]
+        val classifier = when (rawClassifier) {
+            null -> null
+            is String -> rawClassifier
+            else -> throw GradleException(
+                "sovereign-release-manifest-invalid-artifact-entry (index $i): classifier must be String or null, got ${rawClassifier::class.simpleName}"
+            )
+        }
 
-        // 8. Unsafe file name — reject path traversal characters
-        require(!fileName.contains("/") && !fileName.contains("\\") && !fileName.contains("..")) {
+        // 8. Unsafe file name — reject blank, path traversal, and directory separators
+        require(
+            fileName.isNotBlank() &&
+            !fileName.contains("/") &&
+            !fileName.contains("\\") &&
+            !fileName.contains("..")
+        ) {
             "sovereign-release-manifest-unsafe-file-name: $fileName"
         }
 
@@ -750,9 +762,12 @@ fun verifyReleaseManifest(manifestDir: File, artifactsDir: File) {
             "sovereign-release-manifest-invalid-digest-format: $sha256 (missing 'sha256:' prefix)"
         }
         val hexPart = sha256.removePrefix("sha256:")
-        require(hexPart.length == 64 && hexPart.all { it in '0'..'9' || it in 'a'..'f' }) {
+        val digestRegex = Regex("^[a-fA-F0-9]{64}$")
+        require(digestRegex.matches(hexPart)) {
             "sovereign-release-manifest-invalid-digest-format: $sha256 (expected 64 hex chars, got ${hexPart.length})"
         }
+        // Normalise to lowercase for comparison after validation
+        val normalisedHex = hexPart.lowercase()
 
         // 10. Size must be a positive integer
         val size = sizeBytes.toLong()
@@ -794,7 +809,7 @@ fun verifyReleaseManifest(manifestDir: File, artifactsDir: File) {
         val digest = java.security.MessageDigest.getInstance("SHA-256")
         val computedHex = digest.digest(jarFile.readBytes())
             .joinToString("") { "%02x".format(it) }
-        require(computedHex == hexPart) {
+        require(computedHex == normalisedHex) {
             "sovereign-release-artifact-digest-mismatch: $fileName"
         }
     }
@@ -817,7 +832,6 @@ fun verifyReleaseManifest(manifestDir: File, artifactsDir: File) {
 tasks.register("verifySovereignReleaseManifest") {
     group = "verification"
     description = "Verifies that build/sovereign-release/release-artifacts-v1.json is internally consistent with the JAR files in build/sovereign-release/artifacts/."
-    dependsOn(":prepareSovereignReleaseArtifacts")
 
     doLast {
         val buildDir = rootProject.layout.buildDirectory.get().asFile
@@ -890,7 +904,6 @@ tasks.register("prepareSovereignEvidenceBundle") {
 tasks.register("verifySovereignEvidenceBundleReleaseManifest") {
     group = "verification"
     description = "Verifies that build/sovereign-evidence/release/release-artifacts-v1.json is internally consistent with the JAR files in build/sovereign-evidence/release/artifacts/."
-    dependsOn(":prepareSovereignEvidenceBundle")
 
     doLast {
         val buildDir = rootProject.layout.buildDirectory.get().asFile
