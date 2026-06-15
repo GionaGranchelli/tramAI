@@ -41,7 +41,7 @@ object ReleaseBundleEvidenceLoader {
 
         val parser = JsonParser(text)
         val root = try {
-            parser.parseValue()
+            parser.parseDocument()
         } catch (e: IllegalStateException) {
             throw e
         } catch (e: Exception) {
@@ -182,6 +182,23 @@ object ReleaseBundleEvidenceLoader {
                 else -> throw IllegalStateException("release-bundle-evidence-invalid-json: unexpected '${ch}' at position $pos")
             }
         }
+
+        /**
+         * Parses a complete JSON document: one value followed by optional
+         * trailing whitespace and then end-of-file. Rejects trailing content
+         * after the first JSON value.
+         */
+        fun parseDocument(): Any? {
+            skipWhitespace()
+            val value = parseValue()
+            skipWhitespace()
+            if (!isAtEnd()) {
+                throw IllegalStateException("release-bundle-evidence-invalid-json: trailing content at position $pos")
+            }
+            return value
+        }
+
+        private fun isAtEnd(): Boolean = pos >= text.length
 
         private fun parseObject(): Map<String, Any?> {
             expect('{')

@@ -275,4 +275,30 @@ class ReleaseBundleEvidenceLoaderTest {
             .isInstanceOf(IllegalStateException::class.java)
             .hasMessageContaining("release-bundle-evidence-duplicate-coordinate")
     }
+
+    // ── Trailing content ────────────────────────────────────────────────────
+
+    @Test
+    fun `trailing garbage after valid json throws invalid-json`() {
+        val path = writeManifest(validManifest + " trailing-garbage")
+        assertThatThrownBy { ReleaseBundleEvidenceLoader.load(path) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("release-bundle-evidence-invalid-json")
+    }
+
+    @Test
+    fun `second JSON object after valid json throws invalid-json`() {
+        val path = writeManifest(validManifest + "\n{}")
+        assertThatThrownBy { ReleaseBundleEvidenceLoader.load(path) }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("release-bundle-evidence-invalid-json")
+    }
+
+    @Test
+    fun `allows trailing whitespace after valid json`() {
+        val path = writeManifest(validManifest + "   \n  \t  ")
+        val result = ReleaseBundleEvidenceLoader.load(path)
+        assertThat(result.schemaVersion).isEqualTo(1)
+        assertThat(result.artifacts).hasSize(2)
+    }
 }

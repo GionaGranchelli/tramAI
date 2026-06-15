@@ -17,14 +17,14 @@ SBOM_DIR="${REPO_ROOT}/build/supply-chain/sbom"
 mkdir -p "$SBOM_DIR"
 
 RELEASE_MANIFEST="${TRAMAI_RELEASE_BUNDLE_MANIFEST:-}"
-RELEASE_MANIFEST_VOLUME=""
-RELEASE_MANIFEST_ARG=""
+DOCKER_VOLUME_ARGS=()
+APP_RELEASE_ARGS=()
 if [[ -n "$RELEASE_MANIFEST" ]]; then
   if [[ -f "$RELEASE_MANIFEST" ]]; then
     MANIFEST_DIR="$(cd "$(dirname "$RELEASE_MANIFEST")" && pwd)"
     MANIFEST_FILE="$(basename "$RELEASE_MANIFEST")"
-    RELEASE_MANIFEST_VOLUME="--volume $MANIFEST_DIR:/release-manifest:ro"
-    RELEASE_MANIFEST_ARG="--release-bundle-manifest=/release-manifest/$MANIFEST_FILE"
+    DOCKER_VOLUME_ARGS+=("--volume" "$MANIFEST_DIR:/release-manifest:ro")
+    APP_RELEASE_ARGS+=("--release-bundle-manifest=/release-manifest/$MANIFEST_FILE")
     echo "Release bundle manifest: $RELEASE_MANIFEST"
   else
     echo "WARNING: TRAMAI_RELEASE_BUNDLE_MANIFEST=$RELEASE_MANIFEST not found, skipping"
@@ -50,11 +50,11 @@ docker run --rm \
   --network=none \
   --volume "$REPORT_DIR:/out" \
   --volume "$SBOM_DIR:/sbom:ro" \
-  $RELEASE_MANIFEST_VOLUME \
+  "${DOCKER_VOLUME_ARGS[@]}" \
   tramai-sovereign-offline-verification:local \
   --sbom-path=/sbom/tramai-cyclonedx-sbom.json \
   --sbom-digest-path=/sbom/tramai-cyclonedx-sbom.sha256 \
-  $RELEASE_MANIFEST_ARG
+  "${APP_RELEASE_ARGS[@]}"
 
 REPORT_FILE="$REPORT_DIR/zero-egress-report.json"
 if [[ ! -f "$REPORT_FILE" ]]; then
