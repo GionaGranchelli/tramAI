@@ -114,8 +114,19 @@ jobs:
       - name: Compute SBOM digest + copy
         run: ./gradlew prepareCycloneDxBom
 
+      - name: Prepare sovereign release artifacts
+        run: ./gradlew prepareSovereignReleaseArtifacts
+
+      - name: Verify sovereign release manifest
+        run: ./gradlew verifySovereignReleaseManifest
+
       - name: Run zero-egress verification harness
         run: ./scripts/verify-zero-egress.sh
+        env:
+          TRAMAI_RELEASE_BUNDLE_MANIFEST: ${{ github.workspace }}/build/sovereign-release/release-artifacts-v1.json
+
+      - name: Verify evidence pack contains release bundle
+        run: ./gradlew verifySovereignEvidencePackContainsReleaseBundle
 
       - name: Upload evidence pack
         if: always()

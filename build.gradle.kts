@@ -844,10 +844,6 @@ tasks.register("verifySovereignReleaseManifest") {
 tasks.register("prepareSovereignEvidenceBundle") {
     group = "verification"
     description = "Assembles all sovereign audit outputs into build/sovereign-evidence/."
-    dependsOn(
-        ":prepareCycloneDxBom",
-        ":prepareSovereignReleaseArtifacts",
-    )
 
     doLast {
         val buildDir = rootProject.layout.buildDirectory.get().asFile
@@ -910,5 +906,34 @@ tasks.register("verifySovereignEvidenceBundleReleaseManifest") {
         val manifestDir = buildDir.resolve("sovereign-evidence/release")
         val artifactsDir = manifestDir.resolve("artifacts")
         verifyReleaseManifest(manifestDir, artifactsDir)
+    }
+}
+
+// ──────────────────────────────────────────────
+// Task: verifySovereignEvidencePackContainsReleaseBundle
+// ──────────────────────────────────────────────
+
+tasks.register("verifySovereignEvidencePackContainsReleaseBundle") {
+    group = "verification"
+    description = "Verifies that build/zero-egress-report/sovereign-evidence-pack-v1.json contains releaseBundle."
+
+    doLast {
+        val buildDir = rootProject.layout.buildDirectory.get().asFile
+        val evidencePackPath = buildDir.resolve("zero-egress-report/sovereign-evidence-pack-v1.json")
+
+        require(evidencePackPath.exists()) {
+            "sovereign-evidence-pack-missing: ${evidencePackPath.absolutePath}"
+        }
+
+        val text = evidencePackPath.readText()
+        val hasReleaseBundle = text.contains("\"releaseBundle\":") &&
+            !text.contains("\"releaseBundle\": null") &&
+            !text.contains("\"releaseBundle\": null,")
+
+        require(hasReleaseBundle) {
+            "sovereign-evidence-pack-missing-release-bundle: ${evidencePackPath.absolutePath}"
+        }
+
+        logger.lifecycle("Evidence pack contains releaseBundle: ${evidencePackPath.absolutePath}")
     }
 }
