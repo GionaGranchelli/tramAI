@@ -17,6 +17,8 @@ import dev.tramai.sovereign.SovereignTramai
 import dev.tramai.sovereign.evidence.AttestationEvidenceV1
 import dev.tramai.sovereign.evidence.AttestedSubjectV1
 import dev.tramai.sovereign.evidence.AuditChainEvidenceV1
+import dev.tramai.sovereign.evidence.ReleaseBundleEvidenceLoader
+import dev.tramai.sovereign.evidence.ReleaseBundleEvidenceV1
 import dev.tramai.sovereign.evidence.SovereignEvidencePackWriter
 import dev.tramai.sovereign.evidence.SupplyChainEvidenceV1
 import dev.tramai.sovereign.evidence.ZeroEgressEvidenceV1
@@ -83,8 +85,21 @@ private fun run(args: Array<String>): Int {
         null
     }
 
+    // Parse optional release bundle manifest argument
+    val releaseBundleManifestArg = args.firstOrNull { it.startsWith("--release-bundle-manifest=") }
+    val releaseBundle = if (releaseBundleManifestArg != null) {
+        val manifestPathStr = releaseBundleManifestArg.substringAfter("--release-bundle-manifest=")
+        val manifestPath = Path.of(manifestPathStr)
+        println("Loading release bundle manifest: $manifestPath")
+        val loaded = ReleaseBundleEvidenceLoader.load(manifestPath)
+        println("Release bundle loaded: ${loaded.artifacts.size} artifact(s)")
+        loaded
+    } else {
+        null
+    }
+
     val result = kotlin.runCatching {
-        executeVerification(reportPath, evidencePath, supplyChain)
+        executeVerification(reportPath, evidencePath, supplyChain, releaseBundle)
     }
 
     return if (result.isSuccess) {
@@ -104,11 +119,12 @@ internal fun executeVerification(
     reportPath: Path,
     evidencePath: Path,
     supplyChain: SupplyChainEvidenceV1? = null,
+    releaseBundle: ReleaseBundleEvidenceV1? = null,
 ) {
     // b. Create temporary directory for artifact file
     val tempDir = Files.createTempDirectory("tramai-offline-verification-")
     try {
-        executeVerificationInternal(tempDir, reportPath, evidencePath, supplyChain)
+        executeVerificationInternal(tempDir, reportPath, evidencePath, supplyChain, releaseBundle)
     } finally {
         // Clean up temp directory
         tempDir.toFile().deleteRecursively()
@@ -121,6 +137,7 @@ internal fun executeVerificationInternal(
     reportPath: Path,
     evidencePath: Path,
     supplyChain: SupplyChainEvidenceV1? = null,
+    releaseBundle: ReleaseBundleEvidenceV1? = null,
 ) {
     // c. Write dummy artifact file
     val artifactContent = "offline-test-model-artifact-content"
@@ -293,6 +310,7 @@ internal fun executeVerificationInternal(
                 totalEvents = allEvents.size,
             ),
             supplyChain = supplyChain,
+            releaseBundle = releaseBundle,
         )
         SovereignEvidencePackWriter.write(evidencePack, evidencePath)
 
@@ -366,6 +384,7 @@ internal fun executeVerificationInternal(
                     totalEvents = allEvents.size,
                 ),
                 supplyChain = supplyChain,
+                releaseBundle = releaseBundle,
                 attestation = attestation,
             )
             SovereignEvidencePackWriter.write(evidencePack, evidencePath)

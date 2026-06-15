@@ -16,6 +16,21 @@ chmod 0777 "$REPORT_DIR"
 SBOM_DIR="${REPO_ROOT}/build/supply-chain/sbom"
 mkdir -p "$SBOM_DIR"
 
+RELEASE_MANIFEST="${TRAMAI_RELEASE_BUNDLE_MANIFEST:-}"
+RELEASE_MANIFEST_VOLUME=""
+RELEASE_MANIFEST_ARG=""
+if [[ -n "$RELEASE_MANIFEST" ]]; then
+  if [[ -f "$RELEASE_MANIFEST" ]]; then
+    MANIFEST_DIR="$(cd "$(dirname "$RELEASE_MANIFEST")" && pwd)"
+    MANIFEST_FILE="$(basename "$RELEASE_MANIFEST")"
+    RELEASE_MANIFEST_VOLUME="--volume $MANIFEST_DIR:/release-manifest:ro"
+    RELEASE_MANIFEST_ARG="--release-bundle-manifest=/release-manifest/$MANIFEST_FILE"
+    echo "Release bundle manifest: $RELEASE_MANIFEST"
+  else
+    echo "WARNING: TRAMAI_RELEASE_BUNDLE_MANIFEST=$RELEASE_MANIFEST not found, skipping"
+  fi
+fi
+
 trap '' EXIT
 
 echo "=== Building application distribution ==="
@@ -35,9 +50,11 @@ docker run --rm \
   --network=none \
   --volume "$REPORT_DIR:/out" \
   --volume "$SBOM_DIR:/sbom:ro" \
+  $RELEASE_MANIFEST_VOLUME \
   tramai-sovereign-offline-verification:local \
   --sbom-path=/sbom/tramai-cyclonedx-sbom.json \
-  --sbom-digest-path=/sbom/tramai-cyclonedx-sbom.sha256
+  --sbom-digest-path=/sbom/tramai-cyclonedx-sbom.sha256 \
+  $RELEASE_MANIFEST_ARG
 
 REPORT_FILE="$REPORT_DIR/zero-egress-report.json"
 if [[ ! -f "$REPORT_FILE" ]]; then
