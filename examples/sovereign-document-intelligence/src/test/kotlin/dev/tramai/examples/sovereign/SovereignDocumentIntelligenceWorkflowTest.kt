@@ -23,12 +23,16 @@ import dev.tramai.security.audit.toCanonicalJson
 import dev.tramai.sovereign.SovereignProfileConfiguration
 import dev.tramai.sovereign.SovereignTramai
 import dev.tramai.sovereign.SovereignTramaiRuntime
+import dev.tramai.sovereign.evidence.ReleaseBundleEvidenceLoader
 import dev.tramai.engine.ResumeApprovalCommand
 import dev.tramai.security.ProviderTrustZone
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import java.nio.file.Files
+import java.nio.file.Path
+import org.junit.jupiter.api.io.TempDir
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -44,6 +48,9 @@ import kotlinx.coroutines.runBlocking
  * → token-bound resume → exactly-once tool execution → hash-chained audit evidence.
  */
 class SovereignDocumentIntelligenceWorkflowTest {
+
+    @TempDir
+    lateinit var tempDir: Path
 
     // ── Deterministic fixtures ──────────────────────────────────────────────
 
@@ -374,5 +381,129 @@ class SovereignDocumentIntelligenceWorkflowTest {
 
         assertEquals(1, ledger.executionCount())
         runtime.close()
+    }
+
+    @Test
+    fun `evidence pack can be generated from completed workflow`() {
+        val harness = buildExampleHarness()
+
+        harness.use {
+            val outcome = runApprovedWorkflow(
+                runtime = harness.runtime,
+                approvalStore = harness.approvalStore,
+                auditStore = harness.auditStore,
+            )
+
+            val pack = harness.tramai.evidencePack(
+                auditChain = auditChainEvidence(outcome.auditEvents),
+            )
+
+            assertEquals(1, pack.schemaVersion)
+            assertEquals("STANDARD", pack.deploymentMode)
+            assertEquals(null, pack.zeroEgress)
+            assertEquals(outcome.auditEvents.size, pack.auditChain?.totalEvents)
+            assertTrue(pack.auditChain?.isValid == true)
+            assertEquals(listOf("local-invoice-model"), pack.allowedModels)
+            assertEquals(listOf("local-provider"), pack.allowedProviders)
+        }
+    }
+
+    @Test
+    fun `release bundle manifest can be loaded and included in evidence pack`() {
+        val manifestPath = tempDir.resolve("release-artifacts-v1.json")
+        Files.writeString(
+            manifestPath,
+            """
+            {
+              "schemaVersion": 1,
+              "buildTool": "Gradle",
+              "javaVersion": "25.0.1",
+              "gradleVersion": "8.10",
+              "artifacts": [
+                {
+                  "groupId": "dev.tramai",
+                  "artifactId": "tramai-core",
+                  "version": "0.3.1",
+                  "classifier": null,
+                  "extension": "jar",
+                  "fileName": "tramai-core-0.3.1.jar",
+                  "sha256": "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+                  "sizeBytes": 289479
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        val releaseBundle = ReleaseBundleEvidenceLoader.load(manifestPath)
+        val harness = buildExampleHarness()
+
+        harness.use {
+            runApprovedWorkflow(
+                runtime = harness.runtime,
+                approvalStore = harness.approvalStore,
+                auditStore = harness.auditStore,
+            )
+            val pack = harness.tramai.evidencePack(releaseBundle = releaseBundle)
+
+            assertNotNull(pack.releaseBundle)
+            assertEquals("Gradle", pack.releaseBundle!!.buildTool)
+            assertEquals(1, pack.releaseBundle!!.artifacts.size)
+            assertEquals("tramai-core-0.3.1.jar", pack.releaseBundle!!.artifacts.single().fileName)
+        }
+    }
+
+    @Test
+    fun `structured invoice assessment is deterministic across runs`() {
+        val firstHarness = buildExampleHarness()
+        val firstAssessment = firstHarness.use {
+            runApprovedWorkflow(
+                runtime = firstHarness.runtime,
+                approvalStore = firstHarness.approvalStore,
+                auditStore = firstHarness.auditStore,
+            ).assessment
+        }
+
+        val secondHarness = buildExampleHarness()
+        val secondAssessment = secondHarness.use {
+            runApprovedWorkflow(
+                runtime = secondHarness.runtime,
+                approvalStore = secondHarness.approvalStore,
+                auditStore = secondHarness.auditStore,
+            ).assessment
+        }
+
+        assertEquals(firstAssessment, secondAssessment)
+        assertEquals(
+            InvoiceAssessment(
+                invoiceId = "INV-001",
+                supplierName = "Acme Corp",
+                amountCents = 15000000,
+                currency = "EUR",
+                risk = InvoiceRisk.HIGH,
+                recommendedAction = InvoiceAction.SCHEDULE_PAYMENT,
+                rationale = "Enterprise license renewal Q3 exceeds threshold and requires payment scheduling",
+            ),
+            firstAssessment,
+        )
+    }
+
+    @Test
+    fun `audit chain includes workflow resume and approval enforcement points`() {
+        val harness = buildExampleHarness()
+
+        harness.use {
+            val outcome = runApprovedWorkflow(
+                runtime = harness.runtime,
+                approvalStore = harness.approvalStore,
+                auditStore = harness.auditStore,
+            )
+            val enforcementPoints = outcome.auditEvents.map { it.enforcementPoint }.toSet()
+
+            assertTrue("BEFORE_WORKFLOW_RESUME" in enforcementPoints)
+            assertTrue("APPROVAL_SUSPENDED" in enforcementPoints)
+            assertTrue("APPROVAL_RESUMED" in enforcementPoints)
+            assertTrue("APPROVAL_COMPLETED" in enforcementPoints)
+        }
     }
 }

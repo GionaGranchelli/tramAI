@@ -1,5 +1,6 @@
 plugins {
     kotlin("jvm")
+    application
 }
 
 group = "dev.tramai.examples"
@@ -18,4 +19,8 @@ dependencies {
 tasks.withType<Test> {
     useJUnitPlatform()
     maxParallelForks = 1
+}
+
+application {
+    mainClass.set("dev.tramai.examples.sovereign.DocumentIntelligenceMainKt")
 }
