@@ -20,6 +20,7 @@ include(
     "tramai-ollama",
     "tramai-platform",
     "tramai-spring",
+    "tramai-spring-boot-starter-sovereign",
     "tramai-scheduler",
     "tramai-security",
     "tramai-sovereign",
