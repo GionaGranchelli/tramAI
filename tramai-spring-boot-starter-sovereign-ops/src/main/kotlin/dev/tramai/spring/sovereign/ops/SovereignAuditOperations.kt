@@ -12,12 +12,12 @@ interface SovereignAuditOperations {
     /**
      * Read events in an audit stream, bounded by [limit].
      * @param auditStreamId The audit stream identifier.
-     * @param limit Maximum number of events to return (capped by [SovereignOpsProperties.maxPageSize]).
-     * @return A list of safe audit event summaries (empty if stream not found).
+     * @param limit Maximum number of events to return (defaults to [SovereignOpsProperties.maxPageSize]).
+     * @return A list of safe event summaries (empty if stream not found).
      */
     suspend fun readAuditStream(
         auditStreamId: String,
-        limit: Int = 100,
+        limit: Int? = null,
     ): List<SovereignAuditEventSummary>
 
     /**

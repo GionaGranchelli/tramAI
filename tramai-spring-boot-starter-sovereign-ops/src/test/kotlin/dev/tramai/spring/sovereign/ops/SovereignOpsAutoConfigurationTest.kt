@@ -237,6 +237,20 @@ class SovereignOpsAutoConfigurationTest {
             }
     }
 
+    @Test
+    fun `default audit stream limit uses configured max page size`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .withPropertyValues("tramai.sovereign.ops.max-page-size=50")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignAuditOperations::class.java)
+                val events = runBlocking {
+                    ops.readAuditStream("test-stream")
+                }
+                assertThat(events).isNotNull
+            }
+    }
+
     // ── Custom bean is not overridden ──────────────────────────────────
 
     @Test
@@ -423,7 +437,7 @@ class CustomApprovalOperations : SovereignApprovalOperations {
 class CustomAuditOperations : SovereignAuditOperations {
     override suspend fun readAuditStream(
         auditStreamId: String,
-        limit: Int,
+        limit: Int?,
     ): List<SovereignAuditEventSummary> = emptyList()
     override suspend fun latestAuditEvent(
         auditStreamId: String,

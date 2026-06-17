@@ -21,17 +21,18 @@ class DefaultSovereignAuditOperations(
 
     override suspend fun readAuditStream(
         auditStreamId: String,
-        limit: Int,
+        limit: Int?,
     ): List<SovereignAuditEventSummary> {
         validateAuditStreamId(auditStreamId)
-        require(limit in 1..properties.maxPageSize) {
+        val effectiveLimit = limit ?: properties.maxPageSize
+        require(effectiveLimit in 1..properties.maxPageSize) {
             "tramai-sovereign-ops-page-size-too-large"
         }
         if (store == null) {
             throw IllegalStateException("tramai-sovereign-ops-store-unavailable")
         }
         return store.readStream(auditStreamId)
-            .take(limit)
+            .take(effectiveLimit)
             .map { it.toSummary() }
     }
 

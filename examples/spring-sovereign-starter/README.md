@@ -213,7 +213,7 @@ The module provides four service interfaces:
 
 | Service | Purpose |
 |---|---|
-| `SovereignApprovalOperations` | Inspect and cancel approvals |
+| `SovereignApprovalOperations` | Inspect and deny approvals |
 | `SovereignSuspendedInvocationOperations` | Inspect suspended invocations |
 | `SovereignAuditOperations` | Read audit event streams |
 | `SovereignRuntimeOperations` | Check runtime/store health and persistence mode |
@@ -248,12 +248,12 @@ class ApprovalAdminService(
     suspend fun getApproval(id: String): SovereignApprovalSummary? =
         approvals.getApproval(id)
 
-    suspend fun cancelApproval(
+    suspend fun denyApproval(
         id: String,
         actor: String,
         reason: String,
     ): SovereignApprovalSummary =
-        approvals.cancelApproval(id, actor, reason)
+        approvals.denyApproval(id, actor, reason)
 }
 ```
 

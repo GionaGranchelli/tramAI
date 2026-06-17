@@ -16,16 +16,20 @@ import org.springframework.boot.context.properties.ConfigurationProperties
  * ```
  *
  * Read-capable, mutation-disabled by default — inspection is safer than
- * state mutation. Set `mutations-enabled: true` to allow cancel/force-recover.
+ * state mutation. Set `mutations-enabled: true` to allow administrative
+ * denial of approvals.
  */
 @ConfigurationProperties(prefix = "tramai.sovereign.ops")
 data class SovereignOpsProperties(
     /** Enables operations service beans. When false, no ops beans are created. */
     var enabled: Boolean = true,
 
-    /** When false, state-changing operations (cancel, force-recover) are blocked. */
+    /**
+     * When false, mutation operations (denyApproval) are blocked.
+     * When true, administrative denial of approvals is allowed.
+     */
     var mutationsEnabled: Boolean = false,
 
-    /** Maximum number of items returned by list/query operations. */
+    /** Maximum number of audit events returned by readAuditStream. */
     var maxPageSize: Int = 100,
 )
