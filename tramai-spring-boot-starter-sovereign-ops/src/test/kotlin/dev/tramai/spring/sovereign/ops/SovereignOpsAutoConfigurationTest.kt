@@ -7,6 +7,7 @@ import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.AuditStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxOperations
 import java.time.Instant
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -61,6 +62,15 @@ class SovereignOpsAutoConfigurationTest {
             .withUserConfiguration(MinimalStoreConfig::class.java)
             .run { ctx ->
                 assertThat(ctx).hasSingleBean(SovereignRuntimeOperations::class.java)
+            }
+    }
+
+    @Test
+    fun `creates outbox operations bean`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(SovereignOpsAuditOutboxOperations::class.java)
             }
     }
 

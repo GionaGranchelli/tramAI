@@ -6,11 +6,13 @@ import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.AuditStore
 import dev.tramai.spring.sovereign.ops.outbox.DefaultSovereignOpsAuditDigestService
+import dev.tramai.spring.sovereign.ops.outbox.DefaultSovereignOpsAuditOutboxOperations
 import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsAuditOutboxStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditDigestService
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxDispatcher
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxOperations
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
@@ -122,6 +124,19 @@ class SovereignOpsAutoConfiguration {
             outboxDispatcher = outboxDispatcher.ifAvailable,
             outboxStore = outboxStore,
             digestService = digestService,
+        )
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun sovereignOpsAuditOutboxOperations(
+        outboxStore: SovereignOpsAuditOutboxStore,
+        outboxDispatcher: ObjectProvider<SovereignOpsAuditOutboxDispatcher>,
+        properties: SovereignOpsProperties,
+    ): SovereignOpsAuditOutboxOperations =
+        DefaultSovereignOpsAuditOutboxOperations(
+            outboxStore = outboxStore,
+            outboxDispatcher = outboxDispatcher.ifAvailable,
+            properties = properties,
         )
 
     @Bean

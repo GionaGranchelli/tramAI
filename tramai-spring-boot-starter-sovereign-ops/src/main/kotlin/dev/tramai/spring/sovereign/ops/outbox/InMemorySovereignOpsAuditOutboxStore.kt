@@ -147,4 +147,21 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         store.values
             .filter { it.status == SovereignOpsAuditOutboxStatus.PENDING }
             .take(limit)
+
+    override suspend fun listByStatus(
+        status: SovereignOpsAuditOutboxStatus,
+        limit: Int,
+    ): List<SovereignOpsAuditOutboxRecord> =
+        store.values
+            .filter { it.status == status }
+            .take(limit)
+
+    override suspend fun listExpiredEmitting(
+        now: Instant,
+        limit: Int,
+    ): List<SovereignOpsAuditOutboxRecord> =
+        store.values
+            .filter { it.status == SovereignOpsAuditOutboxStatus.EMITTING }
+            .filter { it.claimExpiresAt != null && it.claimExpiresAt.isBefore(now) }
+            .take(limit)
 }

@@ -98,4 +98,16 @@ interface SovereignOpsAuditOutboxStore {
 
     /** List pending records (for diagnostics). */
     suspend fun listPending(limit: Int): List<SovereignOpsAuditOutboxRecord>
+
+    /** List records by exact status (for diagnostics and recovery). */
+    suspend fun listByStatus(
+        status: SovereignOpsAuditOutboxStatus,
+        limit: Int,
+    ): List<SovereignOpsAuditOutboxRecord>
+
+    /** List EMITTING records whose claim has expired. */
+    suspend fun listExpiredEmitting(
+        now: Instant,
+        limit: Int,
+    ): List<SovereignOpsAuditOutboxRecord>
 }
