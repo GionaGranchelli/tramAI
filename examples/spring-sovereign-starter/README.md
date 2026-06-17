@@ -192,3 +192,72 @@ When `type: file` is configured, the file persistence auto-configuration:
 4. Add `tramai.sovereign.persistence.*` to `application.yml`
 5. Restart — existing in-memory state is lost (this is expected)
 6. Verify: state survives subsequent restarts
+
+---
+
+## Using the sovereign operations service layer
+
+The sovereign ops module exposes internal Spring service beans for safe
+operational inspection. It does **not** expose HTTP endpoints.
+
+Add the dependency:
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation(project(":tramai-spring-boot-starter-sovereign-ops"))
+}
+```
+
+The module provides four service interfaces:
+
+| Service | Purpose |
+|---|---|
+| `SovereignApprovalOperations` | Inspect and deny approvals |
+| `SovereignSuspendedInvocationOperations` | Inspect suspended invocations |
+| `SovereignAuditOperations` | Read audit event streams |
+| `SovereignRuntimeOperations` | Check runtime/store health and persistence mode |
+
+### Security rules
+
+- No approval tokens are exposed
+- No resume tokens are exposed
+- No raw replay envelopes are exposed
+- No raw tool arguments are exposed
+- No raw model prompts or responses are exposed
+- Mutations are **disabled by default**
+
+### Configuration
+
+```yaml
+tramai:
+  sovereign:
+    ops:
+      enabled: true
+      mutations-enabled: false
+      max-page-size: 100
+```
+
+### Example usage
+
+```kotlin
+@Service
+class ApprovalAdminService(
+    private val approvals: SovereignApprovalOperations,
+) {
+    suspend fun getApproval(id: String): SovereignApprovalSummary? =
+        approvals.getApproval(id)
+
+    suspend fun denyApproval(
+        id: String,
+        actor: String,
+        reason: String,
+    ): SovereignApprovalSummary =
+        approvals.denyApproval(id, actor, reason)
+}
+```
+
+### Warning
+
+Do not expose these operations directly over HTTP without authentication,
+authorization, audit logging, and role checks.
