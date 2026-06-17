@@ -1,6 +1,7 @@
 package dev.tramai.spring.sovereign.ops
 
 import dev.tramai.security.audit.AuditEngine
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import java.security.MessageDigest
 
 /**
@@ -43,6 +44,36 @@ class AuditEngineSovereignOpsAuditEmitter(
             workflowRunId = workflowRunId,
             correlationId = correlationId,
             actor = actor,
+            enforcementPoint = "sovereign-ops.approval.deny",
+            decision = "DENIED",
+            policyVersion = null,
+            workflowDigest = null,
+            reasonCode = "sovereign-ops-admin-denial",
+            metadata = metadata,
+        )
+    }
+
+    /**
+     * Outbox replay emission using pre-digested values.
+     *
+     * This override does NOT re-hash [SovereignOpsAuditOutboxRecord.aggregateIdDigest]
+     * or [SovereignOpsAuditOutboxRecord.reasonDigest] — it uses the values
+     * stored in the outbox record directly, avoiding the double-hashing bug.
+     */
+    override suspend fun approvalDeniedFromOutbox(record: SovereignOpsAuditOutboxRecord) {
+        val metadata = mutableMapOf(
+            "approvalIdDigest" to bounded(record.aggregateIdDigest),
+            "approvalStatus" to bounded(record.approvalStatus),
+            "approvalVersion" to (record.approvalVersion?.toString() ?: "unknown"),
+            "reasonDigest" to bounded(record.reasonDigest),
+            "reasonLength" to record.reasonLength.toString(),
+        )
+
+        auditEngine.emit(
+            auditStreamId = "sovereign-ops-approval:${record.aggregateIdDigest}",
+            workflowRunId = record.workflowRunId,
+            correlationId = record.correlationId,
+            actor = record.actor,
             enforcementPoint = "sovereign-ops.approval.deny",
             decision = "DENIED",
             policyVersion = null,
