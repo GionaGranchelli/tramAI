@@ -10,11 +10,15 @@ package dev.tramai.spring.sovereign.ops
 interface SovereignAuditOperations {
 
     /**
-     * Read all events in an audit stream.
+     * Read events in an audit stream, bounded by [limit].
      * @param auditStreamId The audit stream identifier.
+     * @param limit Maximum number of events to return (capped by [SovereignOpsProperties.maxPageSize]).
      * @return A list of safe audit event summaries (empty if stream not found).
      */
-    suspend fun readAuditStream(auditStreamId: String): List<SovereignAuditEventSummary>
+    suspend fun readAuditStream(
+        auditStreamId: String,
+        limit: Int = 100,
+    ): List<SovereignAuditEventSummary>
 
     /**
      * Get the latest event in an audit stream.

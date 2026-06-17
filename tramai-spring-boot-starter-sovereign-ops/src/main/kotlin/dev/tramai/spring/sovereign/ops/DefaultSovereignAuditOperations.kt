@@ -8,9 +8,11 @@ import dev.tramai.security.audit.AuditStore
  *
  * Delegates to an [AuditStore]. Returns only safe event summaries —
  * raw prompts, model responses, and sensitive payloads are never exposed.
+ * All read operations are bounded by [SovereignOpsProperties.maxPageSize].
  */
 class DefaultSovereignAuditOperations(
     private val store: AuditStore?,
+    private val properties: SovereignOpsProperties,
 ) : SovereignAuditOperations {
 
     private companion object {
@@ -19,12 +21,18 @@ class DefaultSovereignAuditOperations(
 
     override suspend fun readAuditStream(
         auditStreamId: String,
+        limit: Int,
     ): List<SovereignAuditEventSummary> {
         validateAuditStreamId(auditStreamId)
+        require(limit in 1..properties.maxPageSize) {
+            "tramai-sovereign-ops-page-size-too-large"
+        }
         if (store == null) {
             throw IllegalStateException("tramai-sovereign-ops-store-unavailable")
         }
-        return store.readStream(auditStreamId).map { it.toSummary() }
+        return store.readStream(auditStreamId)
+            .take(limit)
+            .map { it.toSummary() }
     }
 
     override suspend fun latestAuditEvent(
@@ -41,7 +49,7 @@ class DefaultSovereignAuditOperations(
 
     private fun validateAuditStreamId(id: String) {
         require(id.isNotBlank()) { "tramai-sovereign-ops-invalid-audit-stream-id" }
-        require(id.length <= 256) { "tramai-sovereign-ops-invalid-audit-stream-id" }
+        require(id.length <= 128) { "tramai-sovereign-ops-invalid-audit-stream-id" }
         require(SAFE_ID.matches(id)) { "tramai-sovereign-ops-invalid-audit-stream-id" }
     }
 

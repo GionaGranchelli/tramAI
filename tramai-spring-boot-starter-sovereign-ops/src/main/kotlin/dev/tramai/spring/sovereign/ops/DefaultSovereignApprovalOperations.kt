@@ -18,16 +18,16 @@ class DefaultSovereignApprovalOperations(
 
     private companion object {
         private val SAFE_ID = Regex("[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}")
+        private val SAFE_ACTOR = Regex("[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}")
         private const val MAX_REASON_LENGTH = 4096
     }
 
     override suspend fun getApproval(approvalId: String): SovereignApprovalSummary? {
         validateApprovalId(approvalId)
-        val request = store.get(approvalId) ?: return null
-        return request.toSummary()
+        return store.get(approvalId)?.toSummary()
     }
 
-    override suspend fun cancelApproval(
+    override suspend fun denyApproval(
         approvalId: String,
         actor: String,
         reason: String,
@@ -59,13 +59,14 @@ class DefaultSovereignApprovalOperations(
     }
 
     private fun validateActor(actor: String) {
-        require(actor.isNotBlank()) { "tramai-sovereign-ops-invalid-approval-id" }
-        require(actor.length <= 256) { "tramai-sovereign-ops-invalid-approval-id" }
+        require(actor.isNotBlank()) { "tramai-sovereign-ops-invalid-actor" }
+        require(actor.length <= 256) { "tramai-sovereign-ops-invalid-actor" }
+        require(SAFE_ACTOR.matches(actor)) { "tramai-sovereign-ops-invalid-actor" }
     }
 
     private fun validateReason(reason: String) {
-        require(reason.isNotBlank()) { "tramai-sovereign-ops-invalid-approval-id" }
-        require(reason.length <= MAX_REASON_LENGTH) { "tramai-sovereign-ops-invalid-approval-id" }
+        require(reason.isNotBlank()) { "tramai-sovereign-ops-invalid-reason" }
+        require(reason.length <= MAX_REASON_LENGTH) { "tramai-sovereign-ops-invalid-reason" }
     }
 
     // ── Mapping ──

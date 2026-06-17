@@ -10,7 +10,6 @@ import dev.tramai.engine.SuspendedInvocationStore
  */
 class DefaultSovereignSuspendedInvocationOperations(
     private val store: SuspendedInvocationStore?,
-    private val properties: SovereignOpsProperties,
 ) : SovereignSuspendedInvocationOperations {
 
     private companion object {
@@ -45,7 +44,6 @@ class DefaultSovereignSuspendedInvocationOperations(
             correlationId = identity.correlationId,
             serviceName = operationReference.serviceInterface,
             operationName = operationReference.methodName,
-            createdAt = null,
             status = "SUSPENDED",
             replayEnvelopeDigest = replayEnvelopeDigest.value,
         )

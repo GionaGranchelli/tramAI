@@ -64,6 +64,29 @@ class SovereignOpsAutoConfigurationTest {
             }
     }
 
+    // ── P1: Startup safety when ApprovalStore is absent ────────────────
+
+    @Test
+    fun `does not fail startup when approval store is absent`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfigWithoutApproval::class.java,
+            )
+            .run { ctx ->
+                // Approval operations bean should not be created
+                assertThat(ctx).doesNotHaveBean(
+                    SovereignApprovalOperations::class.java,
+                )
+                // Other ops beans should still exist
+                assertThat(ctx).hasSingleBean(
+                    SovereignAuditOperations::class.java,
+                )
+                assertThat(ctx).hasSingleBean(
+                    SovereignRuntimeOperations::class.java,
+                )
+            }
+    }
+
     // ── enabled=false disables ops beans ────────────────────────────────
 
     @Test
@@ -81,17 +104,17 @@ class SovereignOpsAutoConfigurationTest {
             }
     }
 
-    // ── mutationsEnabled=false blocks cancel ────────────────────────────
+    // ── mutationsEnabled=false blocks deny ─────────────────────────────
 
     @Test
-    fun `mutations disabled blocks cancel approval`() {
+    fun `mutations disabled blocks deny approval`() {
         contextRunner
             .withUserConfiguration(MinimalStoreConfig::class.java)
             .run { ctx ->
                 val ops = ctx.getBean(SovereignApprovalOperations::class.java)
                 val ex = runCatching {
                     runBlocking {
-                        ops.cancelApproval("test-id", "actor", "reason")
+                        ops.denyApproval("test-approval", "actor", "reason")
                     }
                 }.exceptionOrNull()
                 assertThat(ex)
@@ -113,6 +136,40 @@ class SovereignOpsAutoConfigurationTest {
                 }.exceptionOrNull()
                 assertThat(ex)
                     .hasMessageContaining("tramai-sovereign-ops-invalid-approval-id")
+            }
+    }
+
+    @Test
+    fun `invalid actor is rejected with correct error code`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignApprovalOperations::class.java)
+                val ex = runCatching {
+                    runBlocking {
+                        ops.denyApproval("test-approval", " ", "reason")
+                    }
+                }.exceptionOrNull()
+                assertThat(ex)
+                    .hasMessageContaining("tramai-sovereign-ops-invalid-actor")
+            }
+    }
+
+    @Test
+    fun `blank reason is rejected with correct error code`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignApprovalOperations::class.java)
+                val ex = runCatching {
+                    runBlocking {
+                        ops.denyApproval("test-approval", "admin", "")
+                    }
+                }.exceptionOrNull()
+                assertThat(ex)
+                    .hasMessageContaining("tramai-sovereign-ops-invalid-reason")
             }
     }
 
@@ -145,6 +202,38 @@ class SovereignOpsAutoConfigurationTest {
                 }.exceptionOrNull()
                 assertThat(ex)
                     .hasMessageContaining("tramai-sovereign-ops-invalid-audit-stream-id")
+            }
+    }
+
+    @Test
+    fun `audit stream id over 128 chars is rejected`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignAuditOperations::class.java)
+                val longId = "a".repeat(129)
+                val ex = runCatching {
+                    runBlocking { ops.readAuditStream(longId) }
+                }.exceptionOrNull()
+                assertThat(ex)
+                    .hasMessageContaining("tramai-sovereign-ops-invalid-audit-stream-id")
+            }
+    }
+
+    // ── Page size enforcement ──────────────────────────────────────────
+
+    @Test
+    fun `page size beyond max is rejected`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .withPropertyValues("tramai.sovereign.ops.max-page-size=10")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignAuditOperations::class.java)
+                val ex = runCatching {
+                    runBlocking { ops.readAuditStream("test-stream", limit = 50) }
+                }.exceptionOrNull()
+                assertThat(ex)
+                    .hasMessageContaining("tramai-sovereign-ops-page-size-too-large")
             }
     }
 
@@ -192,7 +281,6 @@ class SovereignOpsAutoConfigurationTest {
                     ops.getApproval("test-approval")
                 }
                 assertThat(summary).isNotNull
-                // Verify no token-like fields exist on the DTO
                 val props = SovereignApprovalSummary::class.memberProperties
                     .map { it.name }
                 assertThat(props).doesNotContain("approvalToken")
@@ -220,6 +308,7 @@ class SovereignOpsAutoConfigurationTest {
                 assertThat(props).doesNotContain("rawEnvelope")
                 assertThat(props).doesNotContain("arguments")
                 assertThat(props).doesNotContain("toolArguments")
+                assertThat(props).doesNotContain("createdAt")
             }
     }
 
@@ -273,8 +362,9 @@ class TestApprovalContinuationStore :
         arguments: dev.tramai.core.approval.SensitiveToolArguments,
     ): dev.tramai.core.approval.ApprovalContinuation = continuation
 
-    override suspend fun get(approvalId: String): dev.tramai.core.approval.ApprovalContinuation? =
-        null
+    override suspend fun get(
+        approvalId: String,
+    ): dev.tramai.core.approval.ApprovalContinuation? = null
 
     override suspend fun claimForExecution(
         approvalId: String,
@@ -322,7 +412,7 @@ class CustomApprovalOperations : SovereignApprovalOperations {
     override suspend fun getApproval(
         approvalId: String,
     ): SovereignApprovalSummary? = null
-    override suspend fun cancelApproval(
+    override suspend fun denyApproval(
         approvalId: String,
         actor: String,
         reason: String,
@@ -333,6 +423,7 @@ class CustomApprovalOperations : SovereignApprovalOperations {
 class CustomAuditOperations : SovereignAuditOperations {
     override suspend fun readAuditStream(
         auditStreamId: String,
+        limit: Int,
     ): List<SovereignAuditEventSummary> = emptyList()
     override suspend fun latestAuditEvent(
         auditStreamId: String,
@@ -342,31 +433,33 @@ class CustomAuditOperations : SovereignAuditOperations {
 // ── Test configuration classes ────────────────────────────────────────
 
 open class MinimalStoreConfig {
-    @Bean
-    open fun testAuditStore(): AuditStore = TestAuditStore()
+    @Bean open fun testAuditStore(): AuditStore = TestAuditStore()
 
-    @Bean
-    open fun testApprovalStore(): ApprovalStore = TestApprovalStore()
+    @Bean open fun testApprovalStore(): ApprovalStore = TestApprovalStore()
 
-    @Bean
-    open fun testApprovalContinuationStore(): dev.tramai.core.approval.ApprovalContinuationStore =
+    @Bean open fun testApprovalContinuationStore():
+        dev.tramai.core.approval.ApprovalContinuationStore =
         TestApprovalContinuationStore()
 
-    @Bean
-    open fun testSuspendedInvocationStore(): SuspendedInvocationStore =
+    @Bean open fun testSuspendedInvocationStore(): SuspendedInvocationStore =
+        TestSuspendedInvocationStore()
+}
+
+open class MinimalStoreConfigWithoutApproval {
+    @Bean open fun testAuditStore(): AuditStore = TestAuditStore()
+
+    @Bean open fun testSuspendedInvocationStore(): SuspendedInvocationStore =
         TestSuspendedInvocationStore()
 }
 
 open class CustomApprovalOpsConfig {
-    @Bean
-    @Primary
+    @Bean @Primary
     open fun customApprovalOps(): SovereignApprovalOperations =
         CustomApprovalOperations()
 }
 
 open class CustomAuditOpsConfig {
-    @Bean
-    @Primary
+    @Bean @Primary
     open fun customAuditOps(): SovereignAuditOperations =
         CustomAuditOperations()
 }
@@ -377,7 +470,6 @@ class TestApprovalStore : ApprovalStore {
     private val store = mutableMapOf<String, ApprovalRequest>()
 
     init {
-        // Pre-populate with a test approval
         store["test-approval"] = ApprovalRequest(
             approvalId = "test-approval",
             binding = dev.tramai.core.approval.ApprovalBinding(
@@ -407,9 +499,7 @@ class TestApprovalStore : ApprovalStore {
         )
     }
 
-    override suspend fun create(
-        request: ApprovalRequest,
-    ): ApprovalRequest {
+    override suspend fun create(request: ApprovalRequest): ApprovalRequest {
         store[request.approvalId] = request
         return request
     }
@@ -422,9 +512,8 @@ class TestApprovalStore : ApprovalStore {
         expectedVersion: Long,
         transition: ApprovalTransition,
     ): ApprovalRequest {
-        val current = store[approvalId] ?: throw IllegalArgumentException(
-            "not found",
-        )
+        val current = store[approvalId]
+            ?: throw IllegalArgumentException("not found")
         val updated = current.copy(
             status = ApprovalStatus.DENIED,
             decidedBy = when (transition) {

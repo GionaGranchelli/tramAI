@@ -10,7 +10,7 @@ import dev.tramai.security.audit.AuditStore
  *
  * Checks which store beans are available in the Spring context and
  * detects persistence mode (file-backed vs in-memory) based on
- * simple class-name heuristics.
+ * concrete class package membership.
  *
  * Does NOT depend on optional file-persistence module.
  */
@@ -38,9 +38,7 @@ class DefaultSovereignRuntimeOperations(
         listOfNotNull(auditStore, approvalStore, approvalContinuationStore, suspendedInvocationStore)
             .forEach { store ->
                 val name = store.javaClass.name
-                if (name.contains("File", ignoreCase = true) ||
-                    name.startsWith("dev.tramai.persistence.file")
-                ) {
+                if (name.startsWith("dev.tramai.persistence.file.")) {
                     return "file"
                 }
             }

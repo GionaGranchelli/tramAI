@@ -6,6 +6,7 @@ import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.security.audit.AuditStore
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -50,13 +51,13 @@ class SovereignOpsAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnBean(ApprovalStore::class)
     fun sovereignApprovalOperations(
-        approvalStore: ObjectProvider<ApprovalStore>,
+        approvalStore: ApprovalStore,
         properties: SovereignOpsProperties,
     ): SovereignApprovalOperations =
         DefaultSovereignApprovalOperations(
-            store = approvalStore.ifAvailable
-                ?: throw IllegalStateException("tramai-sovereign-ops-store-unavailable"),
+            store = approvalStore,
             properties = properties,
         )
 
@@ -64,20 +65,20 @@ class SovereignOpsAutoConfiguration {
     @ConditionalOnMissingBean
     fun sovereignSuspendedInvocationOperations(
         suspendedInvocationStore: ObjectProvider<SuspendedInvocationStore>,
-        properties: SovereignOpsProperties,
     ): SovereignSuspendedInvocationOperations =
         DefaultSovereignSuspendedInvocationOperations(
             store = suspendedInvocationStore.ifAvailable,
-            properties = properties,
         )
 
     @Bean
     @ConditionalOnMissingBean
     fun sovereignAuditOperations(
         auditStore: ObjectProvider<AuditStore>,
+        properties: SovereignOpsProperties,
     ): SovereignAuditOperations =
         DefaultSovereignAuditOperations(
             store = auditStore.ifAvailable,
+            properties = properties,
         )
 
     @Bean

@@ -37,7 +37,6 @@ data class SovereignSuspendedInvocationSummary(
     val correlationId: String?,
     val serviceName: String?,
     val operationName: String?,
-    val createdAt: Instant?,
     val status: String,
     val replayEnvelopeDigest: String?,
 )
