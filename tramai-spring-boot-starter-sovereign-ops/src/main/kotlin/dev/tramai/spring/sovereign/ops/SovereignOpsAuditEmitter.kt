@@ -1,5 +1,7 @@
 package dev.tramai.spring.sovereign.ops
 
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
+
 /**
  * Audit emitter for sovereign operations mutations.
  *
@@ -42,4 +44,26 @@ fun interface SovereignOpsAuditEmitter {
         workflowRunId: String?,
         correlationId: String?,
     )
+
+    /**
+     * Called during outbox dispatch replay with pre-digested audit values.
+     *
+     * Unlike [approvalDenied], this method receives already-digested values
+     * from the outbox record — the implementation must NOT re-hash them.
+     *
+     * The default implementation delegates to [approvalDenied], passing
+     * [SovereignOpsAuditOutboxRecord.aggregateIdDigest] as [approvalId]
+     * and an empty reason. Override to emit the pre-digested values directly.
+     */
+    suspend fun approvalDeniedFromOutbox(record: SovereignOpsAuditOutboxRecord) {
+        approvalDenied(
+            approvalId = record.aggregateIdDigest,
+            actor = record.actor,
+            reason = "",
+            approvalStatus = record.approvalStatus,
+            approvalVersion = record.approvalVersion,
+            workflowRunId = record.workflowRunId,
+            correlationId = record.correlationId,
+        )
+    }
 }

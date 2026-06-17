@@ -45,10 +45,16 @@ import org.springframework.context.annotation.Bean
  *       max-page-size: 100
  * ```
  *
- * Read-capable, mutation-disabled by default. When mutations are enabled,
- * approval denials use a transactional outbox pattern: the approval
- * transition and audit outbox record are created atomically. Audit
- * emission can be retried from the outbox if the initial dispatch fails.
+ * Read-capable, mutation-disabled by default — inspection is safer than
+ * state mutation. Set `mutations-enabled: true` to allow administrative
+ * denial of approvals.
+ *
+ * ## Durability gate
+ * Mutations require a durable outbox store. The default auto-configured
+ * [InMemorySovereignOpsAuditOutboxStore] is non-durable, so denyApproval
+ * fails closed with `tramai-sovereign-ops-audit-outbox-not-durable`.
+ * Applications must provide a durable [SovereignOpsAuditOutboxStore]
+ * implementation before mutations can proceed.
  *
  * An [AuditEngine] bean is required for mutation auditing. Without one,
  * state-changing operations fail closed with
@@ -109,6 +115,7 @@ class SovereignOpsAutoConfiguration {
         mutationStore: SovereignOpsApprovalMutationStore,
         properties: SovereignOpsProperties,
         outboxDispatcher: ObjectProvider<SovereignOpsAuditOutboxDispatcher>,
+        outboxStore: SovereignOpsAuditOutboxStore,
         digestService: SovereignOpsAuditDigestService,
     ): SovereignApprovalOperations =
         DefaultSovereignApprovalOperations(
@@ -116,6 +123,7 @@ class SovereignOpsAutoConfiguration {
             mutationStore = mutationStore,
             properties = properties,
             outboxDispatcher = outboxDispatcher.ifAvailable,
+            outboxStore = outboxStore,
             digestService = digestService,
         )
 

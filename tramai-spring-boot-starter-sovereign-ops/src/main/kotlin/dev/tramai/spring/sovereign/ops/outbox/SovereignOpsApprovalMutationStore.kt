@@ -3,11 +3,13 @@ package dev.tramai.spring.sovereign.ops.outbox
 /**
  * Atomic approval mutation store that guarantees:
  *
- * **No durable approval transition without a durable audit outbox record.**
+ * **No approval denial is committed unless an audit intent was appended first.**
  *
- * The mutation and outbox append are performed under the same critical
- * section (lock or persistence boundary). If either fails, neither
- * is committed.
+ * The outbox record is appended before the approval transition under the same
+ * critical section (lock or persistence boundary). If the outbox append fails,
+ * the approval is never mutated. If the transition fails after a successful
+ * outbox append, the outbox record is marked as
+ * [SovereignOpsAuditOutboxStatus.FAILED_PERMANENT] — an orphaned audit intent.
  */
 interface SovereignOpsApprovalMutationStore {
 

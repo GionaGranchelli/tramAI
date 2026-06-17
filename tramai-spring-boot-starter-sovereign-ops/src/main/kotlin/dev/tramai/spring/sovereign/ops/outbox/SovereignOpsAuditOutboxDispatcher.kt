@@ -9,8 +9,11 @@ import java.time.Instant
  * Dispatches pending audit outbox records to the [SovereignOpsAuditEmitter].
  *
  * Behavior:
- * 1. Claims up to [limit] pending records.
- * 2. For each claimed record, emits the audit event.
+ * 1. Claims up to [limit] dispatchable records (PENDING, FAILED_RETRYABLE,
+ *    or expired EMITTING).
+ * 2. For each claimed record, emits the audit event via
+ *    [SovereignOpsAuditEmitter.approvalDeniedFromOutbox] — this uses
+ *    pre-digested values from the outbox record without re-hashing.
  * 3. On success: marks the record as [SovereignOpsAuditOutboxStatus.EMITTED].
  * 4. On [RuntimeException] (including emission failure): marks as
  *    [SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE].
@@ -49,15 +52,7 @@ class SovereignOpsAuditOutboxDispatcher(
 
         for (record in claimed) {
             try {
-                auditEmitter.approvalDenied(
-                    approvalId = record.aggregateIdDigest,  // safe: only digest
-                    actor = record.actor,
-                    reason = "",  // never re-emit raw reason
-                    approvalStatus = record.approvalStatus,
-                    approvalVersion = record.approvalVersion,
-                    workflowRunId = record.workflowRunId,
-                    correlationId = record.correlationId,
-                )
+                auditEmitter.approvalDeniedFromOutbox(record)
                 outboxStore.markEmitted(
                     outboxId = record.outboxId,
                     expectedStatus = SovereignOpsAuditOutboxStatus.EMITTING,

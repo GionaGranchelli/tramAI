@@ -1,14 +1,17 @@
 package dev.tramai.spring.sovereign.ops.outbox
 
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 /**
  * Replay-safe audit outbox record for sovereign ops mutations.
  *
- * Records audit intent durably alongside the approval state change,
- * so emission can be retried safely. The record is created atomically
- * with the approval transition — one cannot exist without the other.
+ * Records audit intent alongside the approval state change.
+ * The record is created before the approval transition — if append fails,
+ * the approval is never mutated. If the transition fails after append,
+ * the outbox record is marked [SovereignOpsAuditOutboxStatus.FAILED_PERMANENT]
+ * as an orphaned audit intent.
  *
  * ## Security invariants
  * - Never stores raw approval ID (only [approvalIdDigest])
@@ -33,6 +36,9 @@ import java.util.UUID
  * @property status Current outbox processing status.
  * @property attemptCount Number of emission attempts.
  * @property lastErrorCode Last error code, if any.
+ * @property claimedBy The identity that claimed this record for dispatch, if any.
+ * @property claimedAt When this record was claimed for dispatch, if any.
+ * @property claimExpiresAt When the current claim expires and another dispatcher may re-claim.
  * @property emittedAt When the audit event was successfully emitted, if ever.
  */
 data class SovereignOpsAuditOutboxRecord(
@@ -52,8 +58,16 @@ data class SovereignOpsAuditOutboxRecord(
     val status: SovereignOpsAuditOutboxStatus = SovereignOpsAuditOutboxStatus.PENDING,
     val attemptCount: Int = 0,
     val lastErrorCode: String? = null,
+    val claimedBy: String? = null,
+    val claimedAt: Instant? = null,
+    val claimExpiresAt: Instant? = null,
     val emittedAt: Instant? = null,
-)
+) {
+    companion object {
+        /** Default claim expiry duration for stuck-EMITTING recovery. */
+        val DEFAULT_CLAIM_EXPIRY: java.time.Duration = java.time.Duration.ofMinutes(5)
+    }
+}
 
 /**
  * Processing status for an audit outbox record.

@@ -7,6 +7,8 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditDigestService
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxDispatcher
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
+import kotlinx.coroutines.CancellationException
 
 /**
  * Default implementation of [SovereignApprovalOperations].
@@ -17,16 +19,20 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
  * outbox records for audit emission.
  *
  * ## Atomicity guarantee
- * The approval transition and audit outbox record are created atomically
- * by the mutation store. If audit dispatch fails, the operation still
- * returns success because the audit intent is durably recorded and can
- * be retried later.
+ * The approval transition is only attempted after the audit outbox record
+ * is appended. If audit dispatch fails, the operation still returns success
+ * because the audit intent is durably recorded and can be retried later.
+ *
+ * ## Durability gate
+ * Mutations require a durable outbox store ([SovereignOpsAuditOutboxStore.isDurable]).
+ * In-memory outbox stores are rejected to prevent audit intent loss on restart.
  */
 class DefaultSovereignApprovalOperations(
     private val approvalStore: ApprovalStore,
     private val mutationStore: SovereignOpsApprovalMutationStore,
     private val properties: SovereignOpsProperties,
     private val outboxDispatcher: SovereignOpsAuditOutboxDispatcher?,
+    private val outboxStore: SovereignOpsAuditOutboxStore,
     private val digestService: SovereignOpsAuditDigestService = DefaultSovereignOpsAuditDigestService,
 ) : SovereignApprovalOperations {
 
@@ -55,6 +61,10 @@ class DefaultSovereignApprovalOperations(
 
         if (outboxDispatcher == null) {
             throw IllegalStateException("tramai-sovereign-ops-audit-unavailable")
+        }
+
+        if (!outboxStore.isDurable()) {
+            throw IllegalStateException("tramai-sovereign-ops-audit-outbox-not-durable")
         }
 
         val request = approvalStore.get(approvalId)
@@ -88,7 +98,9 @@ class DefaultSovereignApprovalOperations(
         // are already durable — the record can be retried later.
         try {
             outboxDispatcher.dispatchPending(limit = 1)
-        } catch (_: Exception) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (ignored: Exception) {
             // Non-fatal: audit intent is durably recorded, will be retried
         }
 
