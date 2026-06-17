@@ -163,7 +163,7 @@ class SovereignOpsAuditOutboxOperationsTest {
     }
 
     @Test
-    fun `markPreparedFailed marks prepared record permanently failed and sanitizes summary`() {
+    fun `markPreparedFailed marks prepared record permanently failed with fixed error code`() {
         contextRunner
             .withUserConfiguration(
                 MinimalStoreConfig::class.java,
@@ -184,8 +184,39 @@ class SovereignOpsAuditOutboxOperationsTest {
                 val stored = runBlocking { outboxStore.get("prepared") }
 
                 assertThat(summary.status).isEqualTo(SovereignOpsAuditOutboxStatus.FAILED_PERMANENT)
-                assertThat(summary.lastErrorCode).isNull()
-                assertThat(stored!!.lastErrorCode).isEqualTo("operator closed after crash")
+                assertThat(stored!!.lastErrorCode).isEqualTo("operator-marked-prepared-failed")
+                assertThat(summary.lastErrorCode).isEqualTo("operator-marked-prepared-failed")
+            }
+    }
+
+    @Test
+    fun `markPreparedFailed does not persist raw operator reason as lastErrorCode`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignOpsAuditOutboxOperations::class.java)
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+
+                runBlocking {
+                    outboxStore.append(record("prepared", SovereignOpsAuditOutboxStatus.PREPARED))
+                }
+
+                runBlocking {
+                    ops.markPreparedFailed(
+                        "prepared",
+                        "contains /private/path and user@example.com",
+                    )
+                }
+                val stored = runBlocking { outboxStore.get("prepared") }
+
+                // Raw sensitive text must NOT appear in lastErrorCode
+                assertThat(stored!!.lastErrorCode).doesNotContain("/private/path")
+                assertThat(stored!!.lastErrorCode).doesNotContain("user@example.com")
+                assertThat(stored!!.lastErrorCode).isEqualTo("operator-marked-prepared-failed")
             }
     }
 

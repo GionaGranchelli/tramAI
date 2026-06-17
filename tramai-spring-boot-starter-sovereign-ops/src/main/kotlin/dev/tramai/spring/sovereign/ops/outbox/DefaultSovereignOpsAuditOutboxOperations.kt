@@ -86,7 +86,7 @@ class DefaultSovereignOpsAuditOutboxOperations(
         return outboxStore.markFailed(
             outboxId = outboxId,
             expectedStatus = SovereignOpsAuditOutboxStatus.PREPARED,
-            errorCode = reason,
+            errorCode = "operator-marked-prepared-failed",
             retryable = false,
         ).toSummary()
     }
