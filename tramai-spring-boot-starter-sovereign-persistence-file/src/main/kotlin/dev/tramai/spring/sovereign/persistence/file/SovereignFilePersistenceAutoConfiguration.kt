@@ -91,27 +91,17 @@ class SovereignFilePersistenceAutoConfiguration {
 
         val rootDir = baseDir.toAbsolutePath().normalize()
 
-        // Reject path traversal attempts: the normalized path must be
-        // within its own absolute parent tree.
-        val normalizedParent = baseDir.toAbsolutePath().normalize().parent
-        if (normalizedParent != null && !rootDir.startsWith(normalizedParent)) {
-            throw IllegalStateException(
-                "tramai-sovereign-file-persistence-unsafe-base-dir",
-            )
-        }
-
         // ── Load encryption key ──
         val rawKey = SovereignStoreKeyLoader.load(properties)
         val secretKey: SecretKey = SecretKeySpec(rawKey, "AES")
 
-        // ── Build file store configuration ──
+        // ── Build file store configuration (secure defaults: verifyOnOpen=true) ──
         val config = FileBackedStoreConfiguration(
             rootDirectory = rootDir,
             encryption = FileStoreEncryptionConfiguration(
                 activeKeyId = "default",
                 keyProvider = FileStoreEncryptionKeyProvider { secretKey },
             ),
-            verifyOnOpen = false,
         )
 
         // ── Open stores (creates lock, manifest, validates) ──

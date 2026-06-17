@@ -8,6 +8,7 @@ import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.RegisteredModel
 import dev.tramai.core.provider.ModelProvider
+import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.security.approval.DefaultApprovalGateCoordinator
 import dev.tramai.security.approval.InMemoryApprovalContinuationStore
 import dev.tramai.security.approval.InMemoryApprovalStore
@@ -163,6 +164,7 @@ class SovereignTramaiAutoConfiguration {
         modelProviders: ObjectProvider<ModelProvider>,
         approvalGateCoordinator: ApprovalGateCoordinator,
         approvalContinuationStore: ApprovalContinuationStore,
+        suspendedInvocationStore: ObjectProvider<SuspendedInvocationStore>,
         toolArgumentsDigester: ToolArgumentsDigester?,
         clock: Clock,
         properties: SovereignTramaiProperties,
@@ -175,6 +177,7 @@ class SovereignTramaiAutoConfiguration {
             .approvalContinuationStore(approvalContinuationStore)
             .clock(clock)
 
+        suspendedInvocationStore.ifAvailable { builder.suspendedInvocationStore(it) }
         toolArgumentsDigester?.let { builder.toolArgumentsDigester(it) }
 
         // Register provider beans from the application context.

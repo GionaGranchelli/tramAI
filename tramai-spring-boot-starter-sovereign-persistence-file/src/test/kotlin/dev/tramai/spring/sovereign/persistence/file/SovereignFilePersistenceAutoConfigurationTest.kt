@@ -305,6 +305,49 @@ class SovereignFilePersistenceAutoConfigurationTest {
         }
     }
 
+    @Test
+    fun `file backed SuspendedInvocationStore is consumed by SovereignTramaiRuntime`() {
+        val dir = tempDir.resolve("runtime-suspended")
+        val keyFile = prepareKeyFile(dir)
+
+        val combinedRunner = ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(
+                    SovereignFilePersistenceAutoConfiguration::class.java,
+                    dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration::class.java,
+                ),
+            )
+            .withUserConfiguration(MinimalProviderConfig::class.java)
+            .withPropertyValues(
+                "tramai.sovereign.enabled=true",
+                "tramai.sovereign.allowed-models[0]=test-model",
+                "tramai.sovereign.allowed-providers[0]=test-provider",
+                "tramai.sovereign.provider-zones.test-provider=LOCAL",
+                "tramai.sovereign.models.test-model=test-provider",
+                "tramai.sovereign.persistence.type=file",
+                "tramai.sovereign.persistence.base-dir=${dir.toAbsolutePath()}",
+                "tramai.sovereign.persistence.encryption.key-file=${keyFile.toAbsolutePath()}",
+            )
+
+        combinedRunner.run { ctx ->
+            // Runtime and tramai beans exist (proves builder path succeeded)
+            assertThat(ctx).hasSingleBean(
+                dev.tramai.sovereign.SovereignTramai::class.java,
+            )
+            assertThat(ctx).hasSingleBean(
+                dev.tramai.sovereign.SovereignTramaiRuntime::class.java,
+            )
+
+            // SuspendedInvocationStore is file-backed in the runtime
+            assertThat(ctx).hasSingleBean(SuspendedInvocationStore::class.java)
+            val store = ctx.getBean(SuspendedInvocationStore::class.java)
+            assertThat(store)
+                .isExactlyInstanceOf(
+                    dev.tramai.persistence.file.FileSuspendedInvocationStore::class.java,
+                )
+        }
+    }
+
     // ── User-provided beans are not overridden ─────────────────────────
 
     @Test
@@ -320,6 +363,7 @@ class SovereignFilePersistenceAutoConfigurationTest {
                     .toTypedArray(),
             )
             .run { ctx ->
+                assertThat(ctx.getBeansOfType(AuditStore::class.java)).hasSize(1)
                 val store = ctx.getBean(AuditStore::class.java)
                 assertThat(store).isInstanceOf(CustomAuditStore::class.java)
             }
@@ -338,6 +382,7 @@ class SovereignFilePersistenceAutoConfigurationTest {
                     .toTypedArray(),
             )
             .run { ctx ->
+                assertThat(ctx.getBeansOfType(ApprovalStore::class.java)).hasSize(1)
                 val store = ctx.getBean(ApprovalStore::class.java)
                 assertThat(store).isInstanceOf(CustomApprovalStore::class.java)
             }
@@ -367,6 +412,11 @@ open class CustomApprovalStoreConfig {
     @Bean
     @Primary
     open fun customApprovalStore(): ApprovalStore = CustomApprovalStore()
+}
+
+open class MinimalProviderConfig {
+    @Bean
+    open fun stubModelProvider(): StubModelProvider = StubModelProvider()
 }
 
 // ── Stub implementations ─────────────────────────────────────────────
@@ -423,4 +473,12 @@ class CustomApprovalStore : ApprovalStore {
     ): dev.tramai.core.approval.ApprovalConsumptionReceipt {
         throw UnsupportedOperationException("custom stub")
     }
+}
+
+class StubModelProvider : dev.tramai.core.provider.ModelProvider {
+    override fun providerId(): String = "test-provider"
+    override suspend fun complete(
+        request: dev.tramai.core.model.ModelRequest,
+    ): dev.tramai.core.model.ModelResponse =
+        dev.tramai.core.model.ModelResponse(content = "stub response")
 }

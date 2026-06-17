@@ -96,7 +96,7 @@ The test verifies:
 - Spring context starts with `SovereignTramaiRuntime`
 - `analyzeInvoice` returns a deterministic result through the sovereign runtime
 - `riskLevel` is `MEDIUM`
-| `detectedRisks` is non-empty
+- `detectedRisks` is non-empty
 
 ---
 
@@ -158,7 +158,6 @@ When `type: file` is configured, the file persistence auto-configuration:
 | Key file missing | `tramai-sovereign-file-persistence-key-file-missing` |
 | Invalid key (bad base64 / wrong size) | `tramai-sovereign-file-persistence-invalid-key` |
 | Base dir cannot be created | `tramai-sovereign-file-persistence-base-dir-unavailable` |
-| Base dir path unsafe | `tramai-sovereign-file-persistence-unsafe-base-dir` |
 
 ### Expected directory layout
 
