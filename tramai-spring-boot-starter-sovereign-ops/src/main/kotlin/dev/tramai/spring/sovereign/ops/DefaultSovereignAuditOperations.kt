@@ -8,7 +8,8 @@ import dev.tramai.security.audit.AuditStore
  *
  * Delegates to an [AuditStore]. Returns only safe event summaries —
  * raw prompts, model responses, and sensitive payloads are never exposed.
- * All read operations are bounded by [SovereignOpsProperties.maxPageSize].
+ * All read operations are bounded by [SovereignOpsProperties.maxPageSize]
+ * and use the store's bounded [AuditStore.readStreamPage] API.
  */
 class DefaultSovereignAuditOperations(
     private val store: AuditStore?,
@@ -21,6 +22,7 @@ class DefaultSovereignAuditOperations(
 
     override suspend fun readAuditStream(
         auditStreamId: String,
+        afterSequenceNumber: Long?,
         limit: Int?,
     ): List<SovereignAuditEventSummary> {
         validateAuditStreamId(auditStreamId)
@@ -28,12 +30,17 @@ class DefaultSovereignAuditOperations(
         require(effectiveLimit in 1..properties.maxPageSize) {
             "tramai-sovereign-ops-page-size-too-large"
         }
+        require(afterSequenceNumber == null || afterSequenceNumber >= 0) {
+            "tramai-sovereign-ops-invalid-audit-cursor"
+        }
         if (store == null) {
             throw IllegalStateException("tramai-sovereign-ops-store-unavailable")
         }
-        return store.readStream(auditStreamId)
-            .take(effectiveLimit)
-            .map { it.toSummary() }
+        return store.readStreamPage(
+            auditStreamId = auditStreamId,
+            afterSequenceNumber = afterSequenceNumber,
+            limit = effectiveLimit,
+        ).map { it.toSummary() }
     }
 
     override suspend fun latestAuditEvent(

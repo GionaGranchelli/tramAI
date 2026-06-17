@@ -73,6 +73,27 @@ class InMemoryAuditStore : AuditStore {
         }
     }
 
+    override suspend fun readStreamPage(
+        auditStreamId: String,
+        afterSequenceNumber: Long?,
+        limit: Int,
+    ): List<AuditEvent> {
+        require(limit > 0) { "audit-store-invalid-limit" }
+        require(afterSequenceNumber == null || afterSequenceNumber >= 0) {
+            "audit-store-invalid-cursor"
+        }
+        val state = streams[auditStreamId] ?: return emptyList()
+        return state.lock.withLock {
+            state.events.asSequence()
+                .filter { event ->
+                    afterSequenceNumber == null || event.sequenceNumber > afterSequenceNumber
+                }
+                .take(limit)
+                .map { it.snapshot() }
+                .toList()
+        }
+    }
+
     override suspend fun latestEvent(auditStreamId: String): AuditEvent? {
         val state = streams[auditStreamId] ?: return null
         return state.lock.withLock {
