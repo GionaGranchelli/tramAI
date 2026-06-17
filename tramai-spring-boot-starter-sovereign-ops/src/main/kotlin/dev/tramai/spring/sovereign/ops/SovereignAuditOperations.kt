@@ -10,13 +10,22 @@ package dev.tramai.spring.sovereign.ops
 interface SovereignAuditOperations {
 
     /**
-     * Read events in an audit stream, bounded by [limit].
+     * Read a page of events in an audit stream, bounded by [limit].
+     *
+     * Uses cursor-based pagination via [afterSequenceNumber] for stable,
+     * replay-safe reads on append-only audit streams.
+     *
      * @param auditStreamId The audit stream identifier.
-     * @param limit Maximum number of events to return (defaults to [SovereignOpsProperties.maxPageSize]).
+     * @param afterSequenceNumber Return only events with sequenceNumber
+     *        greater than this value. Pass `null` (default) to start
+     *        from the beginning.
+     * @param limit Maximum number of events to return (defaults to
+     *        [SovereignOpsProperties.maxPageSize]).
      * @return A list of safe event summaries (empty if stream not found).
      */
     suspend fun readAuditStream(
         auditStreamId: String,
+        afterSequenceNumber: Long? = null,
         limit: Int? = null,
     ): List<SovereignAuditEventSummary>
 

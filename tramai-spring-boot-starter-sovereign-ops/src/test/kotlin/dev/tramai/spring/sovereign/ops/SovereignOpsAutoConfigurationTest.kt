@@ -251,6 +251,49 @@ class SovereignOpsAutoConfigurationTest {
             }
     }
 
+    @Test
+    fun `audit pagination forwards cursor to store`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignAuditOperations::class.java)
+                val events = runBlocking {
+                    ops.readAuditStream("test-stream", afterSequenceNumber = 0L)
+                }
+                assertThat(events).isNotEmpty
+            }
+    }
+
+    @Test
+    fun `audit pagination rejects negative cursor`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignAuditOperations::class.java)
+                val ex = runCatching {
+                    runBlocking {
+                        ops.readAuditStream("test-stream", afterSequenceNumber = -1L)
+                    }
+                }.exceptionOrNull()
+                assertThat(ex)
+                    .hasMessageContaining("tramai-sovereign-ops-invalid-audit-cursor")
+            }
+    }
+
+    @Test
+    fun `latestAuditEvent remains accessible`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignAuditOperations::class.java)
+                val latest = runBlocking {
+                    ops.latestAuditEvent("test-stream")
+                }
+                assertThat(latest).isNotNull
+                assertThat(latest!!.sequenceNumber).isEqualTo(1L)
+            }
+    }
+
     // ── Custom bean is not overridden ──────────────────────────────────
 
     @Test
@@ -437,6 +480,7 @@ class CustomApprovalOperations : SovereignApprovalOperations {
 class CustomAuditOperations : SovereignAuditOperations {
     override suspend fun readAuditStream(
         auditStreamId: String,
+        afterSequenceNumber: Long?,
         limit: Int?,
     ): List<SovereignAuditEventSummary> = emptyList()
     override suspend fun latestAuditEvent(

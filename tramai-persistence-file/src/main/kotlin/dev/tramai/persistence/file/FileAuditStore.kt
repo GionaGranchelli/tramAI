@@ -268,6 +268,37 @@ class FileAuditStore internal constructor(
         }
     }
 
+    override suspend fun readStreamPage(
+        auditStreamId: String,
+        afterSequenceNumber: Long?,
+        limit: Int,
+    ): List<AuditEvent> = lease.withOpenOperation {
+        require(limit > 0) { "audit-store-invalid-limit" }
+        val entries = scanStreamEntries(auditStreamId)
+        if (entries.isEmpty()) return@withOpenOperation emptyList()
+
+        val pageEntries = entries.asSequence()
+            .filter { afterSequenceNumber == null || it.sequenceNumber > afterSequenceNumber }
+            .take(limit)
+            .toList()
+
+        if (pageEntries.isEmpty()) return@withOpenOperation emptyList()
+
+        // Decrypt only the events in the page. Each event's individual integrity
+        // is validated via decryption (AAD binding) and eventHash self-validation.
+        // Full chain validation (previousEventHash linking) is deferred to readStream().
+        val events = pageEntries.map { readAuditEventFromEntry(it) }
+
+        // Validate each event's internal consistency: eventHash must match calculated hash
+        for (event in events) {
+            require(event.eventHash == event.calculateHash()) { "audit-event-hash-mismatch" }
+        }
+
+        return@withOpenOperation events.map {
+            it.copy(metadata = java.util.Collections.unmodifiableMap(java.util.LinkedHashMap(it.metadata)))
+        }
+    }
+
     override suspend fun latestEvent(auditStreamId: String): AuditEvent? = lease.withOpenOperation {
         val entries = scanStreamEntries(auditStreamId)
         if (entries.isEmpty()) return@withOpenOperation null
