@@ -98,6 +98,16 @@ class InMemoryAuditStoreReadStreamPageTest {
     }
 
     @Test
+    fun `readStreamPage rejects negative cursor`() {
+        val store = InMemoryAuditStore()
+        assertThrows<IllegalArgumentException> {
+            runTest {
+                store.readStreamPage("test-stream", afterSequenceNumber = -1L, limit = 5)
+            }
+        }
+    }
+
+    @Test
     fun `readStreamPage with cursor returns partial page at end`() = runTest {
         val store = createStoreWithEvents(10)
         val page = store.readStreamPage("test-stream", afterSequenceNumber = 8L, limit = 5)

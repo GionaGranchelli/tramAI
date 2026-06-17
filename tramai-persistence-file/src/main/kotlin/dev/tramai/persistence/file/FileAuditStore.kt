@@ -274,6 +274,9 @@ class FileAuditStore internal constructor(
         limit: Int,
     ): List<AuditEvent> = lease.withOpenOperation {
         require(limit > 0) { "audit-store-invalid-limit" }
+        require(afterSequenceNumber == null || afterSequenceNumber >= 0) {
+            "audit-store-invalid-cursor"
+        }
         val entries = scanStreamEntries(auditStreamId)
         if (entries.isEmpty()) return@withOpenOperation emptyList()
 
@@ -284,14 +287,16 @@ class FileAuditStore internal constructor(
 
         if (pageEntries.isEmpty()) return@withOpenOperation emptyList()
 
-        // Decrypt only the events in the page. Each event's individual integrity
-        // is validated via decryption (AAD binding) and eventHash self-validation.
-        // Full chain validation (previousEventHash linking) is deferred to readStream().
-        val events = pageEntries.map { readAuditEventFromEntry(it) }
-
-        // Validate each event's internal consistency: eventHash must match calculated hash
-        for (event in events) {
-            require(event.eventHash == event.calculateHash()) { "audit-event-hash-mismatch" }
+        // Decrypt only the events in the page. Each event's local invariants
+        // are validated against the filename metadata (stream binding, sequence
+        // binding, event ID digest, schema version, and self-hash). Full chain
+        // validation (previousEventHash linking) is deferred to readStream().
+        var previousEvent: AuditEvent? = null
+        val events = pageEntries.map { entry ->
+            val event = readAuditEventFromEntry(entry)
+            validatePageEvent(auditStreamId, entry, event, previousEvent)
+            previousEvent = event
+            event
         }
 
         return@withOpenOperation events.map {
@@ -379,6 +384,40 @@ class FileAuditStore internal constructor(
             }
 
             validateChain(firstStreamId, events)
+        }
+    }
+
+    // ── Page-level validation (bounded read, no full chain) ──
+
+    private fun validatePageEvent(
+        expectedAuditStreamId: String,
+        entry: AuditFileEntry,
+        event: AuditEvent,
+        previousEventInPage: AuditEvent?,
+    ) {
+        require(event.auditStreamId == expectedAuditStreamId) {
+            "audit-stream-id-mismatch"
+        }
+        require(event.sequenceNumber == entry.sequenceNumber) {
+            "audit-sequence-filename-mismatch"
+        }
+        require(eventDigest(event.eventId) == entry.eventIdDigest) {
+            "audit-event-id-filename-mismatch"
+        }
+        require(event.schemaVersion == CURRENT_AUDIT_SCHEMA_VERSION) {
+            "audit-schema-version-unsupported"
+        }
+        require(event.eventHash == event.calculateHash()) {
+            "audit-event-hash-mismatch"
+        }
+        // If this is not the first event in the page, verify hash-chain
+        // continuity within the page (previousEventHash links to the
+        // preceding page event). Full stream-chain validation is deferred
+        // to readStream().
+        if (previousEventInPage != null) {
+            require(event.previousEventHash == previousEventInPage.eventHash) {
+                "audit-hash-chain-broken-within-page"
+            }
         }
     }
 }

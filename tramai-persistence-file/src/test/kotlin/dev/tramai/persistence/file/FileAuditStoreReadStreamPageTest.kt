@@ -171,6 +171,33 @@ class FileAuditStoreReadStreamPageTest {
     }
 
     @Test
+    fun `readStreamPage rejects zero limit`() = runBlocking {
+        val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
+        val ex = org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            store.readStreamPage("test-stream", afterSequenceNumber = null, limit = 0)
+        }
+        assertTrue(ex.message?.contains("invalid-limit") == true)
+    }
+
+    @Test
+    fun `readStreamPage rejects negative limit`() = runBlocking {
+        val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
+        val ex = org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            store.readStreamPage("test-stream", afterSequenceNumber = null, limit = -1)
+        }
+        assertTrue(ex.message?.contains("invalid-limit") == true)
+    }
+
+    @Test
+    fun `readStreamPage rejects negative cursor`() = runBlocking {
+        val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
+        val ex = org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            store.readStreamPage("test-stream", afterSequenceNumber = -1L, limit = 5)
+        }
+        assertTrue(ex.message?.contains("invalid-cursor") == true)
+    }
+
+    @Test
     fun `readStreamPage stops after limit even with more events`() = runBlocking {
         val store = FileAuditStore(rootDir, testKey, createConfig(), FileStoreLease())
         populateStream(store, "page-stop", 100)

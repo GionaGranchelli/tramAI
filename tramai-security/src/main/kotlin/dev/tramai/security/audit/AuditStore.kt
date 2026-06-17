@@ -26,6 +26,9 @@ interface AuditStore {
         limit: Int,
     ): List<AuditEvent> {
         require(limit > 0) { "audit-store-invalid-limit" }
+        require(afterSequenceNumber == null || afterSequenceNumber >= 0) {
+            "audit-store-invalid-cursor"
+        }
         return readStream(auditStreamId)
             .asSequence()
             .filter { event ->
