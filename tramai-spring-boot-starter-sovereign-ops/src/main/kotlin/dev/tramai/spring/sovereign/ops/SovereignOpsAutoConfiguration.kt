@@ -5,6 +5,13 @@ import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.AuditStore
+import dev.tramai.spring.sovereign.ops.outbox.DefaultSovereignOpsAuditDigestService
+import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsApprovalMutationStore
+import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsAuditOutboxStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditDigestService
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxDispatcher
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
@@ -18,7 +25,7 @@ import org.springframework.context.annotation.Bean
  *
  * Activates when `tramai.sovereign.ops.enabled=true` (default).
  * Adds internal service beans for safe operational inspection of:
- * - Approvals (with auditable mutations)
+ * - Approvals (with outbox-backed auditable mutations)
  * - Suspended invocations
  * - Audit streams
  * - Runtime/store status
@@ -39,11 +46,12 @@ import org.springframework.context.annotation.Bean
  * ```
  *
  * Read-capable, mutation-disabled by default. When mutations are enabled,
- * state changes automatically emit safe hash-chained audit events via
- * [AuditEngineSovereignOpsAuditEmitter] if an [AuditEngine] bean is
- * available. If no [AuditEngine] bean exists,
- * [NoopSovereignOpsAuditEmitter] is configured for startup and read-only
- * compatibility — state-changing operations still **fail closed** with
+ * approval denials use a transactional outbox pattern: the approval
+ * transition and audit outbox record are created atomically. Audit
+ * emission can be retried from the outbox if the initial dispatch fails.
+ *
+ * An [AuditEngine] bean is required for mutation auditing. Without one,
+ * state-changing operations fail closed with
  * `tramai-sovereign-ops-audit-unavailable`.
  */
 @AutoConfiguration(after = [dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration::class])
@@ -58,25 +66,57 @@ class SovereignOpsAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    fun sovereignOpsAuditEmitter(
+    fun sovereignOpsAuditDigestService(): SovereignOpsAuditDigestService =
+        DefaultSovereignOpsAuditDigestService
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun sovereignOpsAuditOutboxStore(): SovereignOpsAuditOutboxStore =
+        InMemorySovereignOpsAuditOutboxStore()
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun sovereignOpsAuditOutboxDispatcher(
+        outboxStore: SovereignOpsAuditOutboxStore,
         auditEngine: ObjectProvider<AuditEngine>,
-    ): SovereignOpsAuditEmitter =
-        auditEngine.ifAvailable
+    ): SovereignOpsAuditOutboxDispatcher? {
+        val emitter = auditEngine.ifAvailable
             ?.let { AuditEngineSovereignOpsAuditEmitter(it) }
-            ?: NoopSovereignOpsAuditEmitter
+            ?: return null
+        return SovereignOpsAuditOutboxDispatcher(
+            outboxStore = outboxStore,
+            auditEmitter = emitter,
+        )
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(ApprovalStore::class)
+    fun sovereignOpsApprovalMutationStore(
+        approvalStore: ApprovalStore,
+        outboxStore: SovereignOpsAuditOutboxStore,
+    ): SovereignOpsApprovalMutationStore =
+        InMemorySovereignOpsApprovalMutationStore(
+            approvalStore = approvalStore,
+            outboxStore = outboxStore,
+        )
 
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnBean(ApprovalStore::class)
     fun sovereignApprovalOperations(
         approvalStore: ApprovalStore,
+        mutationStore: SovereignOpsApprovalMutationStore,
         properties: SovereignOpsProperties,
-        sovereignOpsAuditEmitter: SovereignOpsAuditEmitter,
+        outboxDispatcher: ObjectProvider<SovereignOpsAuditOutboxDispatcher>,
+        digestService: SovereignOpsAuditDigestService,
     ): SovereignApprovalOperations =
         DefaultSovereignApprovalOperations(
-            store = approvalStore,
+            approvalStore = approvalStore,
+            mutationStore = mutationStore,
             properties = properties,
-            auditEmitter = sovereignOpsAuditEmitter,
+            outboxDispatcher = outboxDispatcher.ifAvailable,
+            digestService = digestService,
         )
 
     @Bean

@@ -2,26 +2,32 @@ package dev.tramai.spring.sovereign.ops
 
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStore
-import dev.tramai.core.approval.ApprovalTransition
-import kotlinx.coroutines.CancellationException
+import dev.tramai.spring.sovereign.ops.outbox.DefaultSovereignOpsAuditDigestService
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditDigestService
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxDispatcher
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 
 /**
  * Default implementation of [SovereignApprovalOperations].
  *
- * Delegates to an [ApprovalStore]. All mutations are guarded by
- * [SovereignOpsProperties.mutationsEnabled] and emit a safe audit event
- * via [SovereignOpsAuditEmitter] on success. Only safe summaries are
- * returned — tokens and sensitive payloads are never exposed.
+ * Read operations delegate directly to an [ApprovalStore].
+ * Write operations ([denyApproval]) use a [SovereignOpsApprovalMutationStore]
+ * for atomic approval denial + audit outbox intent, then dispatch pending
+ * outbox records for audit emission.
  *
- * **Atomicity note**: The store transition and audit emission are separate
- * operations. If audit emission fails after a successful transition, the
- * approval state change is NOT rolled back. The caller receives a
- * [IllegalStateException] with code `tramai-sovereign-ops-audit-emission-failed`.
+ * ## Atomicity guarantee
+ * The approval transition and audit outbox record are created atomically
+ * by the mutation store. If audit dispatch fails, the operation still
+ * returns success because the audit intent is durably recorded and can
+ * be retried later.
  */
 class DefaultSovereignApprovalOperations(
-    private val store: ApprovalStore,
+    private val approvalStore: ApprovalStore,
+    private val mutationStore: SovereignOpsApprovalMutationStore,
     private val properties: SovereignOpsProperties,
-    private val auditEmitter: SovereignOpsAuditEmitter,
+    private val outboxDispatcher: SovereignOpsAuditOutboxDispatcher?,
+    private val digestService: SovereignOpsAuditDigestService = DefaultSovereignOpsAuditDigestService,
 ) : SovereignApprovalOperations {
 
     private companion object {
@@ -32,7 +38,7 @@ class DefaultSovereignApprovalOperations(
 
     override suspend fun getApproval(approvalId: String): SovereignApprovalSummary? {
         validateApprovalId(approvalId)
-        return store.get(approvalId)?.toSummary()
+        return approvalStore.get(approvalId)?.toSummary()
     }
 
     override suspend fun denyApproval(
@@ -47,38 +53,46 @@ class DefaultSovereignApprovalOperations(
         validateActor(actor)
         validateReason(reason)
 
-        if (!auditEmitter.isActive()) {
+        if (outboxDispatcher == null) {
             throw IllegalStateException("tramai-sovereign-ops-audit-unavailable")
         }
 
-        val request = store.get(approvalId)
+        val request = approvalStore.get(approvalId)
             ?: throw IllegalStateException("tramai-sovereign-ops-invalid-approval-id")
 
-        val updated = store.transition(
-            approvalId = approvalId,
-            expectedVersion = request.version,
-            transition = ApprovalTransition.Deny(decidedBy = actor, comment = reason),
+        val approvalIdDigest = digestService.approvalIdDigest(approvalId)
+        val reasonDigest = digestService.reasonDigest(reason)
+        val eventKey = "deny:$approvalIdDigest:${request.version + 1}"
+
+        val auditIntent = SovereignOpsAuditOutboxRecord(
+            aggregateIdDigest = approvalIdDigest,
+            eventKey = eventKey,
+            actor = actor,
+            workflowRunId = request.binding.workflowRunId,
+            correlationId = null,
+            approvalStatus = "DENIED",
+            approvalVersion = request.version + 1,
+            reasonDigest = reasonDigest,
+            reasonLength = reason.length,
         )
 
-        // Emit audit event after successful transition.
-        // Makes audit failure visible without cascading approval state rollback.
+        val result = mutationStore.denyApprovalWithAuditIntent(
+            approvalId = approvalId,
+            expectedVersion = request.version,
+            actor = actor,
+            reason = reason,
+            auditIntent = auditIntent,
+        )
+
+        // Dispatch the outbox record. If dispatch fails, the mutation + outbox
+        // are already durable — the record can be retried later.
         try {
-            auditEmitter.approvalDenied(
-                approvalId = approvalId,
-                actor = actor,
-                reason = reason,
-                approvalStatus = updated.status.name,
-                approvalVersion = updated.version,
-                workflowRunId = updated.binding.workflowRunId,
-                correlationId = null,
-            )
-        } catch (e: CancellationException) {
-            throw e
+            outboxDispatcher.dispatchPending(limit = 1)
         } catch (_: Exception) {
-            throw IllegalStateException("tramai-sovereign-ops-audit-emission-failed")
+            // Non-fatal: audit intent is durably recorded, will be retried
         }
 
-        return updated.toSummary()
+        return result.approval.toSummary()
     }
 
     // ── Validation ──
