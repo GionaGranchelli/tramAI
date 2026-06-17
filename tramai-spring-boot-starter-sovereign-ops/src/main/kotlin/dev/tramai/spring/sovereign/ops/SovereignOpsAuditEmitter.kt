@@ -14,6 +14,15 @@ package dev.tramai.spring.sovereign.ops
 fun interface SovereignOpsAuditEmitter {
 
     /**
+     * Whether this emitter is backed by real audit infrastructure.
+     *
+     * Returns `true` for real implementations (e.g. [AuditEngineSovereignOpsAuditEmitter])
+     * and `false` for [NoopSovereignOpsAuditEmitter]. Mutations should fail
+     * closed when this returns `false`.
+     */
+    fun isActive(): Boolean = true
+
+    /**
      * Called when an approval is denied through the sovereign ops layer.
      *
      * @param approvalId The approval request identifier.

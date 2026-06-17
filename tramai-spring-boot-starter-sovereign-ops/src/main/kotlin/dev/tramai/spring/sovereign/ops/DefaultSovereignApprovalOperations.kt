@@ -47,6 +47,10 @@ class DefaultSovereignApprovalOperations(
         validateActor(actor)
         validateReason(reason)
 
+        if (!auditEmitter.isActive()) {
+            throw IllegalStateException("tramai-sovereign-ops-audit-unavailable")
+        }
+
         val request = store.get(approvalId)
             ?: throw IllegalStateException("tramai-sovereign-ops-invalid-approval-id")
 

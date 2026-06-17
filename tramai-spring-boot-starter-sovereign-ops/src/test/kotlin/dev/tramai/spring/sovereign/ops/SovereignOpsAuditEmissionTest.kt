@@ -2,6 +2,7 @@ package dev.tramai.spring.sovereign.ops
 
 import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.AuditStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -212,7 +213,7 @@ class SovereignOpsAuditEmissionTest {
     }
 
     @Test
-    fun `denyApproval propagates CancellationException from audit emitter`() {
+    fun `denyApproval maps generic audit emitter failure`() {
         contextRunner
             .withUserConfiguration(
                 MinimalStoreConfig::class.java,
@@ -228,10 +229,62 @@ class SovereignOpsAuditEmissionTest {
                     }
                 }.exceptionOrNull()
 
-                // CancellationException from the custom emitter should propagate
+                // Generic runtime exception from the emitter should be mapped
                 assertThat(ex)
                     .isInstanceOf(IllegalStateException::class.java)
                     .hasMessageContaining("tramai-sovereign-ops-audit-emission-failed")
+            }
+    }
+
+    @Test
+    fun `denyApproval propagates CancellationException from audit emitter`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                CancellingAuditEmitterConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignApprovalOperations::class.java)
+
+                val ex = runCatching {
+                    runBlocking {
+                        ops.denyApproval("test-approval", "admin", "Test reason")
+                    }
+                }.exceptionOrNull()
+
+                // CancellationException MUST propagate, not be wrapped
+                assertThat(ex).isInstanceOf(CancellationException::class.java)
+            }
+    }
+
+    @Test
+    fun `denyApproval fails with audit-unavailable when no AuditEngine`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignApprovalOperations::class.java)
+
+                val ex = runCatching {
+                    runBlocking {
+                        ops.denyApproval("test-approval", "admin", "Test reason")
+                    }
+                }.exceptionOrNull()
+
+                assertThat(ex)
+                    .isInstanceOf(IllegalStateException::class.java)
+                    .hasMessageContaining("tramai-sovereign-ops-audit-unavailable")
+
+                // Approval must remain PENDING — version unchanged
+                val approval = runBlocking {
+                    dev.tramai.core.approval.ApprovalStore::class.java
+                        .let { ctx.getBean(it) }
+                        .let { (it as dev.tramai.core.approval.ApprovalStore).get("test-approval") }
+                }
+                assertThat(approval).isNotNull
+                assertThat(approval!!.status.name).isEqualTo("PENDING")
+                assertThat(approval.version).isEqualTo(0L)
             }
     }
 
@@ -246,6 +299,7 @@ class SovereignOpsAuditEmissionTest {
 
                 val emitter = ctx.getBean(SovereignOpsAuditEmitter::class.java)
                 assertThat(emitter).isInstanceOf(NoopSovereignOpsAuditEmitter::class.java)
+                assertThat(emitter.isActive()).isFalse()
             }
     }
 
@@ -257,6 +311,8 @@ class SovereignOpsAuditEmissionTest {
                 CustomAuditEmitterConfig::class.java,
             )
             .run { ctx ->
+                assertThat(ctx.getBeansOfType(SovereignOpsAuditEmitter::class.java))
+                    .hasSize(1)
                 val emitter = ctx.getBean(SovereignOpsAuditEmitter::class.java)
                 assertThat(emitter).isInstanceOf(CustomTestAuditEmitter::class.java)
             }
@@ -285,6 +341,7 @@ class FailingAuditEmitterConfig {
 }
 
 class FailingTestAuditEmitter : SovereignOpsAuditEmitter {
+    override fun isActive(): Boolean = true
     override suspend fun approvalDenied(
         approvalId: String,
         actor: String,
@@ -305,6 +362,7 @@ class CustomAuditEmitterConfig {
 }
 
 class CustomTestAuditEmitter : SovereignOpsAuditEmitter {
+    override fun isActive(): Boolean = true
     override suspend fun approvalDenied(
         approvalId: String,
         actor: String,
@@ -315,5 +373,27 @@ class CustomTestAuditEmitter : SovereignOpsAuditEmitter {
         correlationId: String?,
     ) {
         // Custom implementation — no-op for test
+    }
+}
+
+// ── Cancellation-emitting emitter ─────────────────────────────────
+
+class CancellingAuditEmitterConfig {
+    @Bean
+    open fun cancellingEmitter(): SovereignOpsAuditEmitter = CancellingTestAuditEmitter()
+}
+
+class CancellingTestAuditEmitter : SovereignOpsAuditEmitter {
+    override fun isActive(): Boolean = true
+    override suspend fun approvalDenied(
+        approvalId: String,
+        actor: String,
+        reason: String,
+        approvalStatus: String,
+        approvalVersion: Long?,
+        workflowRunId: String?,
+        correlationId: String?,
+    ) {
+        throw CancellationException("Audit cancelled")
     }
 }

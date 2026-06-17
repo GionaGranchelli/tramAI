@@ -9,6 +9,8 @@ package dev.tramai.spring.sovereign.ops
  */
 object NoopSovereignOpsAuditEmitter : SovereignOpsAuditEmitter {
 
+    override fun isActive(): Boolean = false
+
     override suspend fun approvalDenied(
         approvalId: String,
         actor: String,
