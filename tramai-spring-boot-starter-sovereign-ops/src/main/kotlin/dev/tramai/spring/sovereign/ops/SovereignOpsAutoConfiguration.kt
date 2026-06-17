@@ -41,7 +41,10 @@ import org.springframework.context.annotation.Bean
  * Read-capable, mutation-disabled by default. When mutations are enabled,
  * state changes automatically emit safe hash-chained audit events via
  * [AuditEngineSovereignOpsAuditEmitter] if an [AuditEngine] bean is
- * available, or fall back to [NoopSovereignOpsAuditEmitter].
+ * available. If no [AuditEngine] bean exists,
+ * [NoopSovereignOpsAuditEmitter] is configured for startup and read-only
+ * compatibility — state-changing operations still **fail closed** with
+ * `tramai-sovereign-ops-audit-unavailable`.
  */
 @AutoConfiguration(after = [dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration::class])
 @EnableConfigurationProperties(SovereignOpsProperties::class)

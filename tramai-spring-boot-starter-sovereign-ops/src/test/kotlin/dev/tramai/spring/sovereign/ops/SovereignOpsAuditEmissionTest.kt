@@ -237,6 +237,39 @@ class SovereignOpsAuditEmissionTest {
     }
 
     @Test
+    fun `audit failure after transition does not rollback approval denial`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                FailingAuditEmitterConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignApprovalOperations::class.java)
+
+                val ex = runCatching {
+                    runBlocking {
+                        ops.denyApproval("test-approval", "admin", "Test reason")
+                    }
+                }.exceptionOrNull()
+
+                // Caller sees audit failure
+                assertThat(ex)
+                    .isInstanceOf(IllegalStateException::class.java)
+                    .hasMessageContaining("tramai-sovereign-ops-audit-emission-failed")
+
+                // But the approval transition already happened and is NOT rolled back
+                val approval = runBlocking {
+                    ctx.getBean(dev.tramai.core.approval.ApprovalStore::class.java)
+                        .get("test-approval")
+                }
+                assertThat(approval).isNotNull
+                assertThat(approval!!.status.name).isEqualTo("DENIED")
+                assertThat(approval.version).isEqualTo(1L)
+            }
+    }
+
+    @Test
     fun `denyApproval propagates CancellationException from audit emitter`() {
         contextRunner
             .withUserConfiguration(
