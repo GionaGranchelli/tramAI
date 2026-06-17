@@ -3,6 +3,7 @@ package dev.tramai.spring.sovereign.ops
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.AuditStore
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
@@ -17,7 +18,7 @@ import org.springframework.context.annotation.Bean
  *
  * Activates when `tramai.sovereign.ops.enabled=true` (default).
  * Adds internal service beans for safe operational inspection of:
- * - Approvals
+ * - Approvals (with auditable mutations)
  * - Suspended invocations
  * - Audit streams
  * - Runtime/store status
@@ -37,7 +38,13 @@ import org.springframework.context.annotation.Bean
  *       max-page-size: 100
  * ```
  *
- * Read-capable, mutation-disabled by default.
+ * Read-capable, mutation-disabled by default. When mutations are enabled,
+ * state changes automatically emit safe hash-chained audit events via
+ * [AuditEngineSovereignOpsAuditEmitter] if an [AuditEngine] bean is
+ * available. If no [AuditEngine] bean exists,
+ * [NoopSovereignOpsAuditEmitter] is configured for startup and read-only
+ * compatibility — state-changing operations still **fail closed** with
+ * `tramai-sovereign-ops-audit-unavailable`.
  */
 @AutoConfiguration(after = [dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration::class])
 @EnableConfigurationProperties(SovereignOpsProperties::class)
@@ -51,14 +58,25 @@ class SovereignOpsAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    fun sovereignOpsAuditEmitter(
+        auditEngine: ObjectProvider<AuditEngine>,
+    ): SovereignOpsAuditEmitter =
+        auditEngine.ifAvailable
+            ?.let { AuditEngineSovereignOpsAuditEmitter(it) }
+            ?: NoopSovereignOpsAuditEmitter
+
+    @Bean
+    @ConditionalOnMissingBean
     @ConditionalOnBean(ApprovalStore::class)
     fun sovereignApprovalOperations(
         approvalStore: ApprovalStore,
         properties: SovereignOpsProperties,
+        sovereignOpsAuditEmitter: SovereignOpsAuditEmitter,
     ): SovereignApprovalOperations =
         DefaultSovereignApprovalOperations(
             store = approvalStore,
             properties = properties,
+            auditEmitter = sovereignOpsAuditEmitter,
         )
 
     @Bean
