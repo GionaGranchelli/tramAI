@@ -28,6 +28,7 @@ dependencies {
 
     annotationProcessor(libs.spring.boot.configuration.processor)
 
+    testImplementation(project(":tramai-spring"))
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.assertj.core)
     testImplementation(libs.coroutines.core)

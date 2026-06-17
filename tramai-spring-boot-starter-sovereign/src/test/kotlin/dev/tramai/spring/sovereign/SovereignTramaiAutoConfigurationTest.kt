@@ -1,19 +1,24 @@
 package dev.tramai.spring.sovereign
 
-import dev.tramai.core.model.ModelRequest
-import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.annotations.AiService
+import dev.tramai.core.annotations.Operation
+import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.provider.ModelProvider
-import dev.tramai.security.audit.AuditStore
+import dev.tramai.security.approval.InMemoryApprovalContinuationStore
 import dev.tramai.security.audit.AuditEvent
+import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.model.InMemoryModelRegistry
 import dev.tramai.sovereign.SovereignProfileConfiguration
 import dev.tramai.sovereign.SovereignTramai
 import dev.tramai.sovereign.SovereignTramaiRuntime
+import dev.tramai.spring.AiServiceBeanDefinitionRegistrar
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
@@ -50,6 +55,17 @@ class SovereignTramaiAutoConfigurationTest {
     }
 
     @Test
+    fun `model registry is derived from properties dot models`() {
+        contextRunner
+            .withPropertyValues(*minimalProperties.entries.map { "${it.key}=${it.value}" }.toTypedArray())
+            .run { context ->
+                assertThat(context).hasSingleBean(ModelRegistry::class.java)
+                val registry = context.getBean(ModelRegistry::class.java)
+                assertThat(registry).isInstanceOf(InMemoryModelRegistry::class.java)
+            }
+    }
+
+    @Test
     fun `creates SovereignTramai and SovereignTramaiRuntime when providers are available`() {
         contextRunner
             .withUserConfiguration(MinimalProviderConfiguration::class.java)
@@ -57,6 +73,23 @@ class SovereignTramaiAutoConfigurationTest {
             .run { context ->
                 assertThat(context).hasSingleBean(SovereignTramai::class.java)
                 assertThat(context).hasSingleBean(SovereignTramaiRuntime::class.java)
+            }
+    }
+
+    @Test
+    fun `sovereign runtime creates an AiService and invokes it`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalProviderConfiguration::class.java,
+                AiServiceRegistrarConfiguration::class.java,
+            )
+            .withPropertyValues(*minimalProperties.entries.map { "${it.key}=${it.value}" }.toTypedArray())
+            .run { context ->
+                assertThat(context).hasSingleBean(SovereignTramaiRuntime::class.java)
+                val runtime = context.getBean(SovereignTramaiRuntime::class.java)
+                val service = runtime.create(TestInvoiceAi::class)
+                val result = runBlocking { service.analyze("invoice-001") }
+                assertThat(result).isEqualTo("stub response")
             }
     }
 
@@ -80,7 +113,7 @@ class SovereignTramaiAutoConfigurationTest {
         contextRunner
             .withUserConfiguration(
                 MinimalProviderConfiguration::class.java,
-                CustomModelRegistryConfiguration::class.java,
+                ModelRegistrySupplierConfiguration::class.java,
             )
             .withPropertyValues(*minimalProperties.entries.map { "${it.key}=${it.value}" }.toTypedArray())
             .run { context ->
@@ -100,6 +133,20 @@ class SovereignTramaiAutoConfigurationTest {
             .run { context ->
                 val store = context.getBean(AuditStore::class.java)
                 assertThat(store).isInstanceOf(CustomAuditStore::class.java)
+            }
+    }
+
+    @Test
+    fun `user-provided ApprovalStore bean is respected`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalProviderConfiguration::class.java,
+                CustomApprovalStoreConfiguration::class.java,
+            )
+            .withPropertyValues(*minimalProperties.entries.map { "${it.key}=${it.value}" }.toTypedArray())
+            .run { context ->
+                val store = context.getBean(ApprovalStore::class.java)
+                assertThat(store).isInstanceOf(CustomApprovalStore::class.java)
             }
     }
 
@@ -203,18 +250,41 @@ class SovereignTramaiAutoConfigurationTest {
     }
 }
 
+// ── Test interfaces ─────────────────────────────────────────────────────
+
+@AiService
+interface TestInvoiceAi {
+    @Operation(
+        prompt = "Analyze the invoice",
+        model = "local-invoice-model",
+    )
+    suspend fun analyze(invoiceId: String): String
+}
+
 // ── User Configuration classes (top-level) ───────────────────────────────
 
 open class MinimalProviderConfiguration {
     @Bean
-    open fun stubModelProvider(): ModelProvider = StubModelProvider()
+    open fun stubModelProvider(): StubModelProvider = StubModelProvider()
 }
 
-open class CustomModelRegistryConfiguration {
+open class ModelRegistrySupplierConfiguration {
     @Bean
     @Primary
     open fun customModelRegistry(): InMemoryModelRegistry =
         InMemoryModelRegistry.builder().build()
+}
+
+open class AiServiceRegistrarConfiguration {
+    @Bean
+    open fun aiServiceBeanDefinitionRegistrar(
+        beanFactory: ConfigurableListableBeanFactory,
+    ): AiServiceBeanDefinitionRegistrar = AiServiceBeanDefinitionRegistrar(beanFactory)
+}
+
+open class CustomApprovalStoreConfiguration {
+    @Bean
+    open fun customApprovalStore(): ApprovalStore = CustomApprovalStore()
 }
 
 open class CustomAuditStoreConfiguration {
@@ -232,8 +302,8 @@ open class CustomClockConfiguration {
 
 class StubModelProvider : ModelProvider {
     override fun providerId(): String = "local-provider"
-    override suspend fun complete(request: ModelRequest): ModelResponse =
-        ModelResponse(content = "stub response")
+    override suspend fun complete(request: dev.tramai.core.model.ModelRequest): dev.tramai.core.model.ModelResponse =
+        dev.tramai.core.model.ModelResponse(content = "stub response")
 }
 
 class CustomAuditStore : AuditStore {
@@ -263,4 +333,32 @@ class CustomAuditStore : AuditStore {
 
     override suspend fun readStream(auditStreamId: String): List<AuditEvent> = emptyList()
     override suspend fun latestEvent(auditStreamId: String): AuditEvent? = null
+}
+
+class CustomApprovalStore : ApprovalStore {
+    private var created = false
+
+    override suspend fun create(request: dev.tramai.core.approval.ApprovalRequest): dev.tramai.core.approval.ApprovalRequest {
+        created = true
+        return request
+    }
+
+    override suspend fun get(approvalId: String): dev.tramai.core.approval.ApprovalRequest? = null
+
+    override suspend fun transition(
+        approvalId: String,
+        expectedVersion: Long,
+        transition: dev.tramai.core.approval.ApprovalTransition,
+    ): dev.tramai.core.approval.ApprovalRequest {
+        throw UnsupportedOperationException("custom stub")
+    }
+
+    override suspend fun consumeApprovedOrReplay(
+        approvalId: String,
+        expectedVersion: Long,
+        presentedTokenDigest: dev.tramai.core.approval.Sha256Digest,
+        consumedBy: String,
+    ): dev.tramai.core.approval.ApprovalConsumptionReceipt {
+        throw UnsupportedOperationException("custom stub")
+    }
 }

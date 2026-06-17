@@ -2,9 +2,11 @@ package dev.tramai.spring.sovereign
 
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalGateCoordinator
+import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.ApprovalTokenDigester
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.model.ModelRegistry
+import dev.tramai.core.model.RegisteredModel
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.security.approval.DefaultApprovalGateCoordinator
 import dev.tramai.security.approval.InMemoryApprovalContinuationStore
@@ -33,7 +35,7 @@ import org.springframework.context.annotation.Bean
  *
  * Creates beans for:
  * - [SovereignProfileConfiguration] from [SovereignTramaiProperties]
- * - [ModelRegistry] (defaults to empty [InMemoryModelRegistry])
+ * - [ModelRegistry] derived from `tramai.sovereign.models` (or user-provided)
  * - [AuditStore] (defaults to [InMemoryAuditStore])
  * - Approval stores, gate coordinator, digesters
  * - [SovereignTramai] and [SovereignTramaiRuntime]
@@ -50,6 +52,10 @@ import org.springframework.context.annotation.Bean
     matchIfMissing = true,
 )
 class SovereignTramaiAutoConfiguration {
+
+    companion object {
+        private const val DEFAULT_REVISION = "0.0.1"
+    }
 
     // ── Sovereign profile configuration ──────────────────────────────────
 
@@ -68,12 +74,26 @@ class SovereignTramaiAutoConfiguration {
         )
     }
 
-    // ── Model registry ───────────────────────────────────────────────────
+    // ── Model registry (derived from properties.models) ───────────────────
 
     @Bean
     @ConditionalOnMissingBean
-    fun modelRegistry(): ModelRegistry =
-        InMemoryModelRegistry.builder().build()
+    fun modelRegistry(
+        properties: SovereignTramaiProperties,
+    ): ModelRegistry {
+        val builder = InMemoryModelRegistry.builder()
+        for ((modelName, providerName) in properties.models) {
+            builder.register(
+                RegisteredModel(
+                    registryEntryId = modelName,
+                    providerId = providerName,
+                    modelName = modelName,
+                    revision = DEFAULT_REVISION,
+                ),
+            )
+        }
+        return builder.build()
+    }
 
     // ── Audit store ──────────────────────────────────────────────────────
 
@@ -86,7 +106,7 @@ class SovereignTramaiAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    fun approvalStore(clock: Clock): InMemoryApprovalStore =
+    fun approvalStore(clock: Clock): ApprovalStore =
         InMemoryApprovalStore(clock = clock)
 
     @Bean
@@ -101,14 +121,15 @@ class SovereignTramaiAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     fun approvalGateCoordinator(
-        approvalStore: InMemoryApprovalStore,
+        approvalStore: ApprovalStore,
+        approvalTokenDigester: ApprovalTokenDigester,
         clock: Clock,
     ): ApprovalGateCoordinator =
         DefaultApprovalGateCoordinator(
             store = approvalStore,
             approvalIdGenerator = UuidApprovalIdGenerator(),
             approvalTokenGenerator = SecureRandomApprovalTokenGenerator(),
-            approvalTokenDigester = Sha256ApprovalTokenDigester(),
+            approvalTokenDigester = approvalTokenDigester,
             clock = clock,
         )
 
@@ -166,11 +187,6 @@ class SovereignTramaiAutoConfiguration {
         for ((modelName, providerName) in properties.models) {
             builder.model(modelName, providerName)
         }
-
-        // Register allowed tools from properties.
-        // Users must also provide actual TramaiTool beans for tools to function.
-        // The SovereignTramai builder accepts tool beans via its .tools() method,
-        // but tool auto-discovery is intentionally out of scope for the starter MVP.
 
         return builder.build()
     }
