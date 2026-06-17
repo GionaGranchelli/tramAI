@@ -51,19 +51,11 @@ fun interface SovereignOpsAuditEmitter {
      * Unlike [approvalDenied], this method receives already-digested values
      * from the outbox record — the implementation must NOT re-hash them.
      *
-     * The default implementation delegates to [approvalDenied], passing
-     * [SovereignOpsAuditOutboxRecord.aggregateIdDigest] as [approvalId]
-     * and an empty reason. Override to emit the pre-digested values directly.
+     * Implementations that support outbox replay MUST override this method.
+     * The default throws [UnsupportedOperationException] to prevent silent
+     * double-hashing of digested values.
      */
     suspend fun approvalDeniedFromOutbox(record: SovereignOpsAuditOutboxRecord) {
-        approvalDenied(
-            approvalId = record.aggregateIdDigest,
-            actor = record.actor,
-            reason = "",
-            approvalStatus = record.approvalStatus,
-            approvalVersion = record.approvalVersion,
-            workflowRunId = record.workflowRunId,
-            correlationId = record.correlationId,
-        )
+        throw UnsupportedOperationException("tramai-sovereign-ops-outbox-emission-unsupported")
     }
 }

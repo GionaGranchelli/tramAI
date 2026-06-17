@@ -1,20 +1,30 @@
 package dev.tramai.spring.sovereign.ops.outbox
 
 import java.time.Instant
-import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 /**
  * Replay-safe audit outbox record for sovereign ops mutations.
  *
  * Records audit intent alongside the approval state change.
- * The record is created before the approval transition — if append fails,
- * the approval is never mutated. If the transition fails after append,
- * the outbox record is marked [SovereignOpsAuditOutboxStatus.FAILED_PERMANENT]
- * as an orphaned audit intent.
+ * The record is created in [SovereignOpsAuditOutboxStatus.PREPARED] state
+ * before the approval transition — it is not dispatchable until the
+ * transition succeeds and the record is moved to
+ * [SovereignOpsAuditOutboxStatus.PENDING].
+ *
+ * ## Status lifecycle
+ * ```
+ * PREPARED (appended, transition pending)
+ *   ├──→ PENDING (transition succeeded, dispatchable)
+ *   │      ├──→ EMITTING (claimed)
+ *   │      │      ├──→ EMITTED (success)
+ *   │      │      └──→ FAILED_RETRYABLE → PENDING (re-claim)
+ *   │      └──→ FAILED_PERMANENT (terminal)
+ *   └──→ FAILED_PERMANENT (transition failed, orphaned intent)
+ * ```
  *
  * ## Security invariants
- * - Never stores raw approval ID (only [approvalIdDigest])
+ * - Never stores raw approval ID (only [aggregateIdDigest])
  * - Never stores raw reason text (only [reasonDigest] + [reasonLength])
  * - Never stores approval tokens, resume tokens, or replay envelopes
  * - Never stores prompts, model responses, or tool arguments
@@ -55,7 +65,7 @@ data class SovereignOpsAuditOutboxRecord(
     val reasonDigest: String,
     val reasonLength: Int,
     val createdAt: Instant = Instant.now(),
-    val status: SovereignOpsAuditOutboxStatus = SovereignOpsAuditOutboxStatus.PENDING,
+    val status: SovereignOpsAuditOutboxStatus = SovereignOpsAuditOutboxStatus.PREPARED,
     val attemptCount: Int = 0,
     val lastErrorCode: String? = null,
     val claimedBy: String? = null,
@@ -73,7 +83,9 @@ data class SovereignOpsAuditOutboxRecord(
  * Processing status for an audit outbox record.
  */
 enum class SovereignOpsAuditOutboxStatus {
-    /** Waiting to be dispatched. */
+    /** Record created but business mutation not yet committed. Not dispatchable. */
+    PREPARED,
+    /** Business mutation committed, ready for dispatch. */
     PENDING,
     /** Currently being emitted (claimed by a dispatcher). */
     EMITTING,

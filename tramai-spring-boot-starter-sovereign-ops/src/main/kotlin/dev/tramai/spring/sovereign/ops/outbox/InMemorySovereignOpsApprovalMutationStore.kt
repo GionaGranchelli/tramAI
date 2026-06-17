@@ -8,21 +8,20 @@ import java.util.concurrent.locks.ReentrantLock
 /**
  * In-memory implementation of [SovereignOpsApprovalMutationStore].
  *
- * Guarantees atomic denial + outbox append by managing both the approval
- * state and the outbox record under the same per-approval lock:
+ * Guarantees safe outbox-first semantics using a [SovereignOpsAuditOutboxStatus.PREPARED]
+ * state to close the crash window between outbox append and approval transition:
  *
- * 1. Outbox record is appended first — if this fails, the approval
- *    is never mutated.
- * 2. Approval transition happens second, writing through to the
- *    underlying [ApprovalStore] for dual-consistency: the mutation
- *    store is the source of truth for atomicity, but the
- *    [ApprovalStore] is kept in sync so read operations see
- *    the same state.
+ * 1. Append outbox record as **PREPARED** — not dispatchable yet
+ * 2. Transition the approval — if this fails, mark outbox as FAILED_PERMANENT
+ * 3. Mark outbox as **PENDING** — now dispatchable
  *
- * If the transition fails (version conflict from a concurrent mutation
- * that bypassed this lock), the outbox record is left in a
- * [SovereignOpsAuditOutboxStatus.FAILED_PERMANENT] state — this is a
- * safety net for code paths that don't go through this mutation store.
+ * ## Crash safety
+ * | Crash point | Result |
+ * |---|---|
+ * | Before outbox append | No denial, no audit |
+ * | After PREPARED append, before transition | No denial, non-dispatchable intent |
+ * | After transition, before mark PENDING | Denial committed, PREPARED record (recovery needed) |
+ * | After mark PENDING | Safe to dispatch |
  *
  * @param approvalStore The underlying [ApprovalStore] (kept in sync for reads).
  * @param outboxStore The outbox store for audit intent records.
@@ -52,7 +51,7 @@ class InMemorySovereignOpsApprovalMutationStore(
                 "tramai-sovereign-ops-approval-version-conflict"
             }
 
-            // 2. Write outbox record FIRST
+            // 2. Write outbox record as PREPARED (not dispatchable)
             //    If this fails, the approval is never mutated.
             outboxStore.append(auditIntent)
 
@@ -65,6 +64,11 @@ class InMemorySovereignOpsApprovalMutationStore(
                     expectedVersion = expectedVersion,
                     transition = ApprovalTransition.Deny(decidedBy = actor, comment = reason),
                 )
+                // 4. Mark the outbox as PENDING — now dispatchable
+                outboxStore.markReadyForDispatch(
+                    outboxId = auditIntent.outboxId,
+                    expectedStatus = SovereignOpsAuditOutboxStatus.PREPARED,
+                )
                 SovereignOpsApprovalMutationResult(
                     approval = updated,
                     auditOutboxRecord = auditIntent,
@@ -74,7 +78,7 @@ class InMemorySovereignOpsApprovalMutationStore(
                 // as permanently failed — the audit intent is orphaned.
                 outboxStore.markFailed(
                     outboxId = auditIntent.outboxId,
-                    expectedStatus = SovereignOpsAuditOutboxStatus.PENDING,
+                    expectedStatus = SovereignOpsAuditOutboxStatus.PREPARED,
                     errorCode = e::class.simpleName ?: "transition-failed",
                     retryable = false,
                 )

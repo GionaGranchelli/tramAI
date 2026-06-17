@@ -233,7 +233,7 @@ class SovereignOpsAuditOutboxTest {
                 val digester = sha256Hex("sovereign-ops-approval:test-approval")
                 val eventKey = "deny:$digester:1"
 
-                // Manually create a FAILED_RETRYABLE record
+                // Create a PREPARED record (append requires PREPARED status)
                 val record = SovereignOpsAuditOutboxRecord(
                     aggregateIdDigest = digester,
                     eventKey = eventKey,
@@ -244,12 +244,19 @@ class SovereignOpsAuditOutboxTest {
                     approvalVersion = 1L,
                     reasonDigest = sha256Hex("sovereign-ops-reason:Test"),
                     reasonLength = 4,
-                    status = SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE,
-                    lastErrorCode = "RuntimeException",
+                    status = SovereignOpsAuditOutboxStatus.PREPARED,
                 )
                 runBlocking { outboxStore.append(record) }
 
-                // First claim — should pick up FAILED_RETRYABLE
+                // Mark as PENDING (simulating successful transition)
+                runBlocking {
+                    outboxStore.markReadyForDispatch(
+                        record.outboxId,
+                        SovereignOpsAuditOutboxStatus.PREPARED,
+                    )
+                }
+
+                // First claim — should pick up PENDING
                 val claimed = runBlocking {
                     outboxStore.claimPending(
                         claimedBy = "test-dispatcher",
@@ -261,7 +268,7 @@ class SovereignOpsAuditOutboxTest {
                 assertThat(claimed[0].status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTING)
                 assertThat(claimed[0].attemptCount).isEqualTo(1)
 
-                // Mark as FAILED_RETRYABLE again
+                // Mark as FAILED_RETRYABLE
                 runBlocking {
                     outboxStore.markFailed(
                         record.outboxId,
@@ -273,7 +280,7 @@ class SovereignOpsAuditOutboxTest {
                 val failed = runBlocking { outboxStore.get(record.outboxId) }
                 assertThat(failed!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE)
 
-                // Second claim — should pick it up again
+                // Second claim — should pick up FAILED_RETRYABLE
                 val claimed2 = runBlocking {
                     outboxStore.claimPending(
                         claimedBy = "test-dispatcher",
@@ -433,7 +440,260 @@ class SovereignOpsAuditOutboxTest {
             }
     }
 
-    // ── Mutual exclusion: eventKey uniqueness ──────────────────────
+    // ── P1: Crash window — PREPARED not dispatchable ────────────────
+
+    @Test
+    fun `PREPARED outbox record is not dispatchable`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+            )
+            .run { ctx ->
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+                val digester = sha256Hex("sovereign-ops-approval:test")
+
+                // Create a PREPARED record (simulating crash before transition)
+                val record = SovereignOpsAuditOutboxRecord(
+                    outboxId = "crash-test",
+                    aggregateIdDigest = digester,
+                    eventKey = "deny:$digester:1",
+                    actor = "admin",
+                    workflowRunId = null,
+                    correlationId = null,
+                    approvalStatus = "DENIED",
+                    approvalVersion = 1L,
+                    reasonDigest = sha256Hex("sovereign-ops-reason:test"),
+                    reasonLength = 4,
+                    status = SovereignOpsAuditOutboxStatus.PREPARED,
+                )
+                runBlocking { outboxStore.append(record) }
+
+                // claimPending must NOT claim PREPARED records
+                val claimed = runBlocking {
+                    outboxStore.claimPending(
+                        claimedBy = "test-dispatcher",
+                        limit = 10,
+                        now = Instant.now(),
+                    )
+                }
+                assertThat(claimed).isEmpty()
+            }
+    }
+
+    @Test
+    fun `PREPARED record becomes dispatchable after markReadyForDispatch`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+            )
+            .run { ctx ->
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+                val digester = sha256Hex("sovereign-ops-approval:test")
+
+                val record = SovereignOpsAuditOutboxRecord(
+                    outboxId = "ready-test",
+                    aggregateIdDigest = digester,
+                    eventKey = "deny:$digester:1",
+                    actor = "admin",
+                    workflowRunId = null,
+                    correlationId = null,
+                    approvalStatus = "DENIED",
+                    approvalVersion = 1L,
+                    reasonDigest = sha256Hex("sovereign-ops-reason:test"),
+                    reasonLength = 4,
+                    status = SovereignOpsAuditOutboxStatus.PREPARED,
+                )
+                runBlocking { outboxStore.append(record) }
+
+                // Mark as PENDING
+                runBlocking {
+                    outboxStore.markReadyForDispatch(
+                        record.outboxId,
+                        SovereignOpsAuditOutboxStatus.PREPARED,
+                    )
+                }
+
+                // Now claimPending should find it
+                val claimed = runBlocking {
+                    outboxStore.claimPending(
+                        claimedBy = "test-dispatcher",
+                        limit = 10,
+                        now = Instant.now(),
+                    )
+                }
+                assertThat(claimed).hasSize(1)
+            }
+    }
+
+    @Test
+    fun `markReadyForDispatch rejects wrong expected status`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+            )
+            .run { ctx ->
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+                val digester = sha256Hex("sovereign-ops-approval:test")
+
+                val record = SovereignOpsAuditOutboxRecord(
+                    outboxId = "status-test",
+                    aggregateIdDigest = digester,
+                    eventKey = "deny:$digester:1",
+                    actor = "admin",
+                    workflowRunId = null,
+                    correlationId = null,
+                    approvalStatus = "DENIED",
+                    approvalVersion = 1L,
+                    reasonDigest = sha256Hex("sovereign-ops-reason:test"),
+                    reasonLength = 4,
+                    status = SovereignOpsAuditOutboxStatus.PREPARED,
+                )
+                runBlocking { outboxStore.append(record) }
+
+                // Try with wrong expected status
+                val ex = runCatching {
+                    runBlocking {
+                        outboxStore.markReadyForDispatch(
+                            record.outboxId,
+                            SovereignOpsAuditOutboxStatus.PENDING,
+                        )
+                    }
+                }.exceptionOrNull()
+
+                assertThat(ex)
+                    .hasMessageContaining("status mismatch")
+            }
+    }
+
+    // ── P2: CAS atomicity for markEmitted / markFailed ───────────────
+
+    @Test
+    fun `markEmitted rejects concurrent modification with CAS`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+            )
+            .run { ctx ->
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+                val digester = sha256Hex("sovereign-ops-approval:test")
+
+                val record = SovereignOpsAuditOutboxRecord(
+                    outboxId = "cas-test",
+                    aggregateIdDigest = digester,
+                    eventKey = "deny:$digester:1",
+                    actor = "admin",
+                    workflowRunId = null,
+                    correlationId = null,
+                    approvalStatus = "DENIED",
+                    approvalVersion = 1L,
+                    reasonDigest = sha256Hex("sovereign-ops-reason:test"),
+                    reasonLength = 4,
+                    status = SovereignOpsAuditOutboxStatus.PREPARED,
+                )
+                runBlocking { outboxStore.append(record) }
+                runBlocking {
+                    outboxStore.markReadyForDispatch(record.outboxId, SovereignOpsAuditOutboxStatus.PREPARED)
+                }
+
+                // Claim first (changes status to EMITTING)
+                runBlocking {
+                    outboxStore.claimPending("test", 10, Instant.now())
+                }
+
+                // Now try markEmitted with a stale expectedStatus (PENDING instead of EMITTING)
+                val ex = runCatching {
+                    runBlocking {
+                        outboxStore.markEmitted(
+                            record.outboxId,
+                            SovereignOpsAuditOutboxStatus.PENDING,  // stale!
+                            Instant.now(),
+                        )
+                    }
+                }.exceptionOrNull()
+
+                assertThat(ex)
+                    .hasMessageContaining("status mismatch")
+            }
+    }
+
+    @Test
+    fun `markFailed rejects concurrent modification with CAS`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+            )
+            .run { ctx ->
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+                val digester = sha256Hex("sovereign-ops-approval:test")
+
+                val record = SovereignOpsAuditOutboxRecord(
+                    outboxId = "cas-fail-test",
+                    aggregateIdDigest = digester,
+                    eventKey = "deny:$digester:1",
+                    actor = "admin",
+                    workflowRunId = null,
+                    correlationId = null,
+                    approvalStatus = "DENIED",
+                    approvalVersion = 1L,
+                    reasonDigest = sha256Hex("sovereign-ops-reason:test"),
+                    reasonLength = 4,
+                    status = SovereignOpsAuditOutboxStatus.PREPARED,
+                )
+                runBlocking { outboxStore.append(record) }
+                runBlocking {
+                    outboxStore.markReadyForDispatch(record.outboxId, SovereignOpsAuditOutboxStatus.PREPARED)
+                }
+
+                // Call markFailed with a stale status (PREPARED instead of PENDING)
+                val ex = runCatching {
+                    runBlocking {
+                        outboxStore.markFailed(
+                            record.outboxId,
+                            SovereignOpsAuditOutboxStatus.PREPARED,  // stale!
+                            "TestError",
+                            retryable = true,
+                        )
+                    }
+                }.exceptionOrNull()
+
+                assertThat(ex)
+                    .hasMessageContaining("status mismatch")
+            }
+    }
+
+    @Test
+    fun `append rejects non-PREPARED status`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .run { ctx ->
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+
+                val record = SovereignOpsAuditOutboxRecord(
+                    outboxId = "bad-status",
+                    aggregateIdDigest = "digest",
+                    eventKey = "key",
+                    actor = "admin",
+                    workflowRunId = null,
+                    correlationId = null,
+                    approvalStatus = "DENIED",
+                    approvalVersion = 1L,
+                    reasonDigest = "rd",
+                    reasonLength = 2,
+                    status = SovereignOpsAuditOutboxStatus.PENDING,  // not PREPARED!
+                )
+                val ex = runCatching {
+                    runBlocking { outboxStore.append(record) }
+                }.exceptionOrNull()
+
+                assertThat(ex)
+                    .hasMessageContaining("tramai-sovereign-ops-outbox-invalid-status")
+            }
+    }
 
     @Test
     fun `duplicate eventKey is rejected on append`() {
@@ -514,15 +774,13 @@ class DurableTestInMemoryOutboxStore : SovereignOpsAuditOutboxStore {
         val claimed = mutableListOf<SovereignOpsAuditOutboxRecord>()
         for ((id, record) in store) {
             if (claimed.size >= limit) break
-            val eligible = when (record.status) {
-                SovereignOpsAuditOutboxStatus.PENDING -> true
-                SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE -> true
-                SovereignOpsAuditOutboxStatus.EMITTING -> {
-                    val expiresAt = record.claimExpiresAt
-                    expiresAt != null && expiresAt.isBefore(now)
-                }
-                else -> false
-            }
+            val s = record.status
+            if (s == SovereignOpsAuditOutboxStatus.PREPARED) continue
+            val eligible = s == SovereignOpsAuditOutboxStatus.PENDING
+                || s == SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
+                || (s == SovereignOpsAuditOutboxStatus.EMITTING
+                    && record.claimExpiresAt != null
+                    && record.claimExpiresAt.isBefore(now))
             if (!eligible) continue
             val updated = record.copy(
                 status = SovereignOpsAuditOutboxStatus.EMITTING,
@@ -544,7 +802,7 @@ class DurableTestInMemoryOutboxStore : SovereignOpsAuditOutboxStore {
         val r = store[outboxId] ?: throw IllegalStateException("not found")
         require(r.status == expectedStatus) { "status mismatch" }
         val u = r.copy(status = SovereignOpsAuditOutboxStatus.EMITTED, emittedAt = emittedAt)
-        store[outboxId] = u
+        require(store.replace(outboxId, r, u)) { "concurrent update" }
         return u
     }
 
@@ -557,7 +815,7 @@ class DurableTestInMemoryOutboxStore : SovereignOpsAuditOutboxStore {
         val s = if (retryable) SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
         else SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
         val u = r.copy(status = s, lastErrorCode = errorCode)
-        store[outboxId] = u
+        require(store.replace(outboxId, r, u)) { "concurrent update" }
         return u
     }
 
@@ -570,6 +828,17 @@ class DurableTestInMemoryOutboxStore : SovereignOpsAuditOutboxStore {
 
     override suspend fun listPending(limit: Int): List<SovereignOpsAuditOutboxRecord> =
         store.values.filter { it.status == SovereignOpsAuditOutboxStatus.PENDING }.take(limit)
+
+    override suspend fun markReadyForDispatch(
+        outboxId: String,
+        expectedStatus: SovereignOpsAuditOutboxStatus,
+    ): SovereignOpsAuditOutboxRecord {
+        val r = store[outboxId] ?: throw IllegalStateException("not found")
+        require(r.status == expectedStatus) { "status mismatch" }
+        val u = r.copy(status = SovereignOpsAuditOutboxStatus.PENDING)
+        require(store.replace(outboxId, r, u)) { "concurrent update" }
+        return u
+    }
 }
 
 class DurableOutboxStoreConfig {
@@ -615,6 +884,12 @@ class CancellationEmittingOutboxStore : SovereignOpsAuditOutboxStore {
     ): SovereignOpsAuditOutboxRecord =
         delegate.markFailed(outboxId, expectedStatus, errorCode, retryable)
 
+    override suspend fun markReadyForDispatch(
+        outboxId: String,
+        expectedStatus: SovereignOpsAuditOutboxStatus,
+    ): SovereignOpsAuditOutboxRecord =
+        delegate.markReadyForDispatch(outboxId, expectedStatus)
+
     override suspend fun get(outboxId: String): SovereignOpsAuditOutboxRecord? =
         delegate.get(outboxId)
 
@@ -634,6 +909,7 @@ class CustomTestOutboxStore : SovereignOpsAuditOutboxStore {
     override suspend fun append(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord {
         require(!records.containsKey(record.outboxId)) { "duplicate id" }
         require(!eventKeyIndex.containsKey(record.eventKey)) { "duplicate event key" }
+        require(record.status == SovereignOpsAuditOutboxStatus.PREPARED) { "must be PREPARED" }
         records[record.outboxId] = record
         eventKeyIndex[record.eventKey] = record.outboxId
         return record
@@ -641,15 +917,30 @@ class CustomTestOutboxStore : SovereignOpsAuditOutboxStore {
 
     override suspend fun claimPending(
         claimedBy: String, limit: Int, now: Instant,
-    ): List<SovereignOpsAuditOutboxRecord> = records.values
-        .filter { it.status == SovereignOpsAuditOutboxStatus.PENDING }
-        .take(limit)
-        .map { it.copy(status = SovereignOpsAuditOutboxStatus.EMITTING) }
+    ): List<SovereignOpsAuditOutboxRecord> {
+        val claimed = mutableListOf<SovereignOpsAuditOutboxRecord>()
+        for ((id, record) in records) {
+            if (claimed.size >= limit) break
+            val s = record.status
+            if (s == SovereignOpsAuditOutboxStatus.PREPARED) continue
+            val eligible = s == SovereignOpsAuditOutboxStatus.PENDING
+                || s == SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
+                || (s == SovereignOpsAuditOutboxStatus.EMITTING
+                    && record.claimExpiresAt != null
+                    && record.claimExpiresAt.isBefore(now))
+            if (!eligible) continue
+            val updated = record.copy(status = SovereignOpsAuditOutboxStatus.EMITTING)
+            records[id] = updated
+            claimed.add(updated)
+        }
+        return claimed
+    }
 
     override suspend fun markEmitted(
         outboxId: String, expectedStatus: SovereignOpsAuditOutboxStatus, emittedAt: Instant,
     ): SovereignOpsAuditOutboxRecord {
         val r = records[outboxId] ?: throw IllegalStateException("not found")
+        require(r.status == expectedStatus) { "status mismatch" }
         val u = r.copy(status = SovereignOpsAuditOutboxStatus.EMITTED, emittedAt = emittedAt)
         records[outboxId] = u
         return u
@@ -660,6 +951,7 @@ class CustomTestOutboxStore : SovereignOpsAuditOutboxStore {
         errorCode: String, retryable: Boolean,
     ): SovereignOpsAuditOutboxRecord {
         val r = records[outboxId] ?: throw IllegalStateException("not found")
+        require(r.status == expectedStatus) { "status mismatch" }
         val s = if (retryable) SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
         else SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
         val u = r.copy(status = s, lastErrorCode = errorCode)
@@ -677,6 +969,17 @@ class CustomTestOutboxStore : SovereignOpsAuditOutboxStore {
     override suspend fun listPending(limit: Int): List<SovereignOpsAuditOutboxRecord> = records.values
         .filter { it.status == SovereignOpsAuditOutboxStatus.PENDING }
         .take(limit)
+
+    override suspend fun markReadyForDispatch(
+        outboxId: String,
+        expectedStatus: SovereignOpsAuditOutboxStatus,
+    ): SovereignOpsAuditOutboxRecord {
+        val r = records[outboxId] ?: throw IllegalStateException("not found")
+        require(r.status == expectedStatus) { "status mismatch" }
+        val u = r.copy(status = SovereignOpsAuditOutboxStatus.PENDING)
+        records[outboxId] = u
+        return u
+    }
 }
 
 // ── Test helper ────────────────────────────────────────────────────

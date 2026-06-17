@@ -21,11 +21,33 @@ interface SovereignOpsAuditOutboxStore {
     fun isDurable(): Boolean = false
 
     /**
-     * Append a new outbox record.
+     * Append a new outbox record in [SovereignOpsAuditOutboxStatus.PREPARED] state.
+     *
+     * PREPARED records are NOT dispatchable — they must be moved to
+     * [SovereignOpsAuditOutboxStatus.PENDING] via [markReadyForDispatch]
+     * after the business mutation commits.
+     *
      * @throws IllegalArgumentException if a record with the same [SovereignOpsAuditOutboxRecord.outboxId] exists.
      * @throws IllegalArgumentException if a record with the same [SovereignOpsAuditOutboxRecord.eventKey] exists.
+     * @throws IllegalArgumentException if the record status is not PREPARED.
      */
     suspend fun append(record: SovereignOpsAuditOutboxRecord): SovereignOpsAuditOutboxRecord
+
+    /**
+     * Move a PREPARED record to PENDING, making it eligible for dispatch.
+     *
+     * Called after the business mutation commits successfully.
+     *
+     * @param outboxId The record to mark ready.
+     * @param expectedStatus Must be [SovereignOpsAuditOutboxStatus.PREPARED].
+     * @throws IllegalStateException if record not found.
+     * @throws IllegalArgumentException if status doesn't match.
+     * @throws IllegalStateException if CAS update fails (concurrent modification).
+     */
+    suspend fun markReadyForDispatch(
+        outboxId: String,
+        expectedStatus: SovereignOpsAuditOutboxStatus,
+    ): SovereignOpsAuditOutboxRecord
 
     /**
      * Claim dispatchable records (PENDING, FAILED_RETRYABLE, or expired EMITTING).
@@ -34,6 +56,8 @@ interface SovereignOpsAuditOutboxStore {
      * with [claimedBy] and [now] as the claim timestamp.
      * Records with [SovereignOpsAuditOutboxStatus.EMITTING] are only re-claimed
      * if their [SovereignOpsAuditOutboxRecord.claimExpiresAt] is before [now].
+     *
+     * PREPARED records are never dispatchable.
      */
     suspend fun claimPending(
         claimedBy: String,
@@ -43,6 +67,9 @@ interface SovereignOpsAuditOutboxStore {
 
     /**
      * Mark a record as successfully emitted.
+     *
+     * Uses CAS to prevent concurrent overwrites.
+     * @throws IllegalStateException if CAS update fails (concurrent modification).
      */
     suspend fun markEmitted(
         outboxId: String,
@@ -52,6 +79,9 @@ interface SovereignOpsAuditOutboxStore {
 
     /**
      * Mark a record as failed.
+     *
+     * Uses CAS to prevent concurrent overwrites.
+     * @throws IllegalStateException if CAS update fails (concurrent modification).
      */
     suspend fun markFailed(
         outboxId: String,

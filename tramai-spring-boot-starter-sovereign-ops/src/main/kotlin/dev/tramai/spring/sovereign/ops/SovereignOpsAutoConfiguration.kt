@@ -82,18 +82,15 @@ class SovereignOpsAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnBean(AuditEngine::class)
     fun sovereignOpsAuditOutboxDispatcher(
         outboxStore: SovereignOpsAuditOutboxStore,
-        auditEngine: ObjectProvider<AuditEngine>,
-    ): SovereignOpsAuditOutboxDispatcher? {
-        val emitter = auditEngine.ifAvailable
-            ?.let { AuditEngineSovereignOpsAuditEmitter(it) }
-            ?: return null
-        return SovereignOpsAuditOutboxDispatcher(
+        auditEngine: AuditEngine,
+    ): SovereignOpsAuditOutboxDispatcher =
+        SovereignOpsAuditOutboxDispatcher(
             outboxStore = outboxStore,
-            auditEmitter = emitter,
+            auditEmitter = AuditEngineSovereignOpsAuditEmitter(auditEngine),
         )
-    }
 
     @Bean
     @ConditionalOnMissingBean
