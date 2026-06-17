@@ -97,3 +97,98 @@ The test verifies:
 - `analyzeInvoice` returns a deterministic result through the sovereign runtime
 - `riskLevel` is `MEDIUM`
 - `detectedRisks` is non-empty
+
+---
+
+## Using encrypted file-backed stores
+
+By default, the sovereign starter uses in-memory stores for audit, approvals,
+continuations, and suspended invocations. This is fine for demos and local
+development, but state is lost on restart.
+
+For restart-safe workflows, add the file persistence starter:
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation(project(":tramai-spring-boot-starter-sovereign"))
+    implementation(project(":tramai-spring-boot-starter-sovereign-persistence-file"))
+}
+```
+
+Then configure encrypted file persistence:
+
+```yaml
+tramai:
+  sovereign:
+    persistence:
+      type: file
+      base-dir: ./data/tramai-sovereign
+      encryption:
+        key-env: TRAMAI_SOVEREIGN_STORE_KEY
+```
+
+Generate a 256-bit key:
+
+```bash
+openssl rand -base64 32
+```
+
+Set the environment variable before running:
+
+```bash
+export TRAMAI_SOVEREIGN_STORE_KEY="<generated-base64-key>"
+```
+
+When `type: file` is configured, the file persistence auto-configuration:
+- Runs **before** the base starter, so file-backed store beans are registered first
+- The base starter's `@ConditionalOnMissingBean` sees the file-backed beans and backs off
+- All four stores (audit, approvals, continuations, suspended invocations) use
+  encrypted file-backed implementations
+- Stores survive application restarts
+
+### Fail-closed validation
+
+| Condition | Error code |
+|---|---|
+| `type=file` but `base-dir` missing | `tramai-sovereign-file-persistence-missing-base-dir` |
+| Both `key-env` and `key-file` missing | `tramai-sovereign-file-persistence-missing-key-source` |
+| Both `key-env` and `key-file` set | `tramai-sovereign-file-persistence-ambiguous-key-source` |
+| `key-env` set but env var missing/blank | `tramai-sovereign-file-persistence-missing-key-env` |
+| Key file missing | `tramai-sovereign-file-persistence-key-file-missing` |
+| Invalid key (bad base64 / wrong size) | `tramai-sovereign-file-persistence-invalid-key` |
+| Base dir cannot be created | `tramai-sovereign-file-persistence-base-dir-unavailable` |
+
+### Expected directory layout
+
+```
+<base-dir>/
+  .tramai.lock
+  manifest.json
+  approvals/
+  continuations/
+  audit/
+  suspended/
+```
+
+### Key requirements
+
+- Exactly one key source: `key-env` (environment variable) or `key-file` (file)
+- Key must be base64-encoded 256-bit AES key (decodes to 32 bytes)
+- Plaintext keys in YAML are **not** supported
+- Keys are never logged and never appear in exception messages
+
+### Test
+
+```bash
+./gradlew :tramai-spring-boot-starter-sovereign-persistence-file:test
+```
+
+### Migration guide
+
+1. Add the `tramai-spring-boot-starter-sovereign-persistence-file` dependency
+2. Generate a key with `openssl rand -base64 32`
+3. Set `TRAMAI_SOVEREIGN_STORE_KEY` in your environment
+4. Add `tramai.sovereign.persistence.*` to `application.yml`
+5. Restart — existing in-memory state is lost (this is expected)
+6. Verify: state survives subsequent restarts
