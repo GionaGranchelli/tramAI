@@ -181,8 +181,8 @@ class SovereignOpsOutboxWorkerAutoConfigurationTest {
                 val observer = ctx.getBean(
                     dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver::class.java,
                 )
-                // Noop is the default
-                // The Noop companion object is the instance
+                assertThat(observer)
+                    .isSameAs(dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver.Noop)
             }
     }
 
