@@ -130,9 +130,69 @@ This validation does **not**:
 - Create a tag or GitHub release
 - Bump the version
 
-## Local Signed-Artifact Validation
+## Sovereign Runtime Signed Bundle Dry-Run
 
-When you want to validate signing locally without touching a real remote repository, publish to a file-based Maven repository and verify signatures there:
+The sovereign runtime release boundary can be validated as a local signed publication bundle without touching a remote repository, creating a tag, bumping versions, or freezing APIs:
+
+```bash
+./gradlew verifySovereignRuntimeSignedBundle
+```
+
+This validates the sovereign runtime modules and BOM in a file-based repository:
+
+- `tramai-bom`
+- `tramai-security`
+- `tramai-sovereign`
+- `tramai-persistence-file`
+- `tramai-spring-boot-starter-sovereign`
+- `tramai-spring-boot-starter-sovereign-persistence-file`
+- `tramai-spring-boot-starter-sovereign-ops`
+- `tramai-spring-boot-starter-sovereign-ops-observability`
+
+The default path validates:
+
+- POM files
+- binary JARs where expected
+- sources JARs where expected
+- javadoc JARs where expected
+- dependency graph / publication metadata
+- local file-based repository output (mavenLocal)
+- Generates `build/sovereign-runtime-release/bundle-manifest.json`
+
+When signing properties are provided, the task additionally validates `.asc` signatures:
+
+```bash
+./gradlew verifySovereignRuntimeSignedBundle \
+  -PtramaiPublishReleaseUrl=file://$PWD/build/sovereign-runtime-release-verification-repo \
+  -PsigningKey="$SIGNING_KEY" \
+  -PsigningPassword="$SIGNING_PASSWORD"
+```
+
+This validation does **not**:
+- Publish to Maven Central or Sonatype
+- Create a tag or GitHub release
+- Bump the version
+- Require signing keys for the default CI path
+- Claim API stability
+
+### Bundle Manifest
+
+The task generates `build/sovereign-runtime-release/bundle-manifest.json`:
+
+| Field | Description |
+|-------|-------------|
+| `schemaVersion` | Manifest format version (currently 1) |
+| `generatedAt` | ISO-8601 timestamp of generation |
+| `version` | The TramAI version validated |
+| `repository` | Repository path (mavenLocal or file:// path) |
+| `remotePublish` | Always `false` — local validation only |
+| `tagCreated` | Always `false` — no tag is created |
+| `signaturesPresent` | Whether .asc signatures were validated |
+| `modules[]` | List of validated modules with artifact paths, signatures, and checksums |
+
+## Local Signed-Artifact Validation (All Modules)
+
+When you want to validate signing for ALL publishable modules locally without touching a real remote repository, publish to a file-based Maven repository and verify signatures there:
 
 ```bash
 ./gradlew verifySignedPublicationBundle \

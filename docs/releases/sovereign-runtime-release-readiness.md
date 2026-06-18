@@ -50,8 +50,20 @@ No timelines are committed for these items.
 # Full test suite (all modules, no cache)
 ./gradlew test --rerun-tasks
 
+# Release metadata and artifact validation
+./gradlew verifyReleaseReadiness
+
 # Sovereign runtime local publishability
 ./gradlew verifySovereignRuntimePublication
+
+# Sovereign runtime signed bundle dry-run (default — no signing)
+./gradlew verifySovereignRuntimeSignedBundle
+
+# Sovereign runtime signed bundle dry-run (with optional signing)
+./gradlew verifySovereignRuntimeSignedBundle \
+  -PtramaiPublishReleaseUrl=file://$PWD/build/sovereign-runtime-release-verification-repo \
+  -PsigningKey="$SIGNING_KEY" \
+  -PsigningPassword="$SIGNING_PASSWORD"
 
 # Sovereign runtime consumer-resolution smoke
 ./gradlew -p examples/sovereign-runtime-consumer-smoke test
