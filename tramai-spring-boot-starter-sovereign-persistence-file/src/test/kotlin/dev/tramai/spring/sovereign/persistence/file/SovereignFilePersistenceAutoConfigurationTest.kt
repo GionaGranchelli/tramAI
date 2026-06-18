@@ -9,6 +9,9 @@ import dev.tramai.security.approval.InMemoryApprovalStore
 import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.InMemoryAuditStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -259,6 +262,41 @@ class SovereignFilePersistenceAutoConfigurationTest {
             }
     }
 
+    @Test
+    fun `file persistence mode creates SovereignOpsAuditOutboxStore bean`() {
+        val dir = tempDir.resolve("happy-outbox")
+        val keyFile = prepareKeyFile(dir)
+
+        contextRunner
+            .withPropertyValues(
+                *validFileProps(dir, keyFile).entries
+                    .map { "${it.key}=${it.value}" }
+                    .toTypedArray(),
+            )
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(SovereignOpsAuditOutboxStore::class.java)
+                val store = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+                assertThat(store).isExactlyInstanceOf(FileSovereignOpsAuditOutboxStore::class.java)
+            }
+    }
+
+    @Test
+    fun `SovereignOpsAuditOutboxStore bean is durable`() {
+        val dir = tempDir.resolve("durable-outbox")
+        val keyFile = prepareKeyFile(dir)
+
+        contextRunner
+            .withPropertyValues(
+                *validFileProps(dir, keyFile).entries
+                    .map { "${it.key}=${it.value}" }
+                    .toTypedArray(),
+            )
+            .run { ctx ->
+                val store = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+                assertThat(store.isDurable()).isTrue
+            }
+    }
+
     // ── Sovereign base starter uses file-backed stores ────────────────
 
     @Test
@@ -388,6 +426,25 @@ class SovereignFilePersistenceAutoConfigurationTest {
             }
     }
 
+    @Test
+    fun `user provided SovereignOpsAuditOutboxStore is not overridden`() {
+        val dir = tempDir.resolve("custom-outbox")
+        val keyFile = prepareKeyFile(dir)
+
+        contextRunner
+            .withUserConfiguration(CustomOutboxStoreConfig::class.java)
+            .withPropertyValues(
+                *validFileProps(dir, keyFile).entries
+                    .map { "${it.key}=${it.value}" }
+                    .toTypedArray(),
+            )
+            .run { ctx ->
+                assertThat(ctx.getBeansOfType(SovereignOpsAuditOutboxStore::class.java)).hasSize(1)
+                val store = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+                assertThat(store).isInstanceOf(CustomOutboxStore::class.java)
+            }
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private fun prepareKeyFile(dir: Path): Path {
@@ -412,6 +469,12 @@ open class CustomApprovalStoreConfig {
     @Bean
     @Primary
     open fun customApprovalStore(): ApprovalStore = CustomApprovalStore()
+}
+
+open class CustomOutboxStoreConfig {
+    @Bean
+    @Primary
+    open fun customOutboxStore(): SovereignOpsAuditOutboxStore = CustomOutboxStore()
 }
 
 open class MinimalProviderConfig {
@@ -473,6 +536,60 @@ class CustomApprovalStore : ApprovalStore {
     ): dev.tramai.core.approval.ApprovalConsumptionReceipt {
         throw UnsupportedOperationException("custom stub")
     }
+}
+
+class CustomOutboxStore : SovereignOpsAuditOutboxStore {
+    override fun isDurable(): Boolean = true
+
+    override suspend fun append(
+        record: SovereignOpsAuditOutboxRecord,
+    ): SovereignOpsAuditOutboxRecord = record
+
+    override suspend fun markReadyForDispatch(
+        outboxId: String,
+        expectedStatus: SovereignOpsAuditOutboxStatus,
+    ): SovereignOpsAuditOutboxRecord {
+        throw UnsupportedOperationException("custom stub")
+    }
+
+    override suspend fun claimPending(
+        claimedBy: String,
+        limit: Int,
+        now: Instant,
+    ): List<SovereignOpsAuditOutboxRecord> = emptyList()
+
+    override suspend fun markEmitted(
+        outboxId: String,
+        expectedStatus: SovereignOpsAuditOutboxStatus,
+        emittedAt: Instant,
+    ): SovereignOpsAuditOutboxRecord {
+        throw UnsupportedOperationException("custom stub")
+    }
+
+    override suspend fun markFailed(
+        outboxId: String,
+        expectedStatus: SovereignOpsAuditOutboxStatus,
+        errorCode: String,
+        retryable: Boolean,
+    ): SovereignOpsAuditOutboxRecord {
+        throw UnsupportedOperationException("custom stub")
+    }
+
+    override suspend fun get(outboxId: String): SovereignOpsAuditOutboxRecord? = null
+
+    override suspend fun findByEventKey(eventKey: String): SovereignOpsAuditOutboxRecord? = null
+
+    override suspend fun listPending(limit: Int): List<SovereignOpsAuditOutboxRecord> = emptyList()
+
+    override suspend fun listByStatus(
+        status: SovereignOpsAuditOutboxStatus,
+        limit: Int,
+    ): List<SovereignOpsAuditOutboxRecord> = emptyList()
+
+    override suspend fun listExpiredEmitting(
+        now: Instant,
+        limit: Int,
+    ): List<SovereignOpsAuditOutboxRecord> = emptyList()
 }
 
 class StubModelProvider : dev.tramai.core.provider.ModelProvider {
