@@ -47,9 +47,22 @@ No timelines are committed for these items.
 ## Release Validation Commands
 
 ```bash
+# Full test suite (all modules, no cache)
 ./gradlew test --rerun-tasks
+
+# Sovereign runtime local publishability
+./gradlew verifySovereignRuntimePublication
+
+# Sovereign runtime consumer-resolution smoke
+./gradlew -p examples/sovereign-runtime-consumer-smoke test
+
+# Sovereign ops module tests
 ./gradlew :tramai-spring-boot-starter-sovereign-ops:test --rerun-tasks
+
+# Observability module tests
 ./gradlew :tramai-spring-boot-starter-sovereign-ops-observability:test --rerun-tasks
+
+# Reference example smoke test
 ./gradlew :examples:sovereign-document-intelligence:run
 ```
 

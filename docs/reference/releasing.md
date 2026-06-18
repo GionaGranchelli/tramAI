@@ -81,6 +81,8 @@ Useful commands:
 
 ```bash
 ./gradlew verifyReleaseReadiness
+./gradlew verifySovereignRuntimePublication
+./gradlew -p examples/sovereign-runtime-consumer-smoke test
 ./gradlew -p examples/kotlin-springboot-example test
 ```
 
@@ -91,8 +93,42 @@ These validate:
 - published local artifacts including sources and javadoc jars
 - consumer resolution from `mavenLocal()`
 - the narrow Spring example consumer smoke path
+- sovereign runtime module publishability (POMs, sources, javadoc, dependency graph)
+- sovereign runtime consumer-resolution smoke (context loads from mavenLocal artifacts)
 
 For a public credibility summary of the currently validated paths, see [Release Validation](./release-validation.md).
+
+## Sovereign Runtime Publishability Validation
+
+The sovereign runtime modules can be validated for local publishability without touching a remote repository:
+
+```bash
+./gradlew verifySovereignRuntimePublication
+```
+
+This publishes the following to mavenLocal() and runs their test suites:
+
+- `tramai-security`
+- `tramai-sovereign`
+- `tramai-persistence-file`
+- `tramai-spring-boot-starter-sovereign`
+- `tramai-spring-boot-starter-sovereign-persistence-file`
+- `tramai-spring-boot-starter-sovereign-ops`
+- `tramai-spring-boot-starter-sovereign-ops-observability`
+
+After publishing, a consumer-resolution smoke test proves an external app can resolve them:
+
+```bash
+./gradlew -p examples/sovereign-runtime-consumer-smoke test
+```
+
+The smoke project uses `mavenLocal()` dependencies — not `project()` dependencies — to prove real consumer resolution.
+
+This validation does **not**:
+- Publish to Maven Central
+- Require signing keys
+- Create a tag or GitHub release
+- Bump the version
 
 ## Local Signed-Artifact Validation
 

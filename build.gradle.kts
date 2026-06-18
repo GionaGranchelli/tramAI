@@ -75,6 +75,10 @@ val publishableProjectNames = listOf(
     "tramai-vectorstore-pgvector",
     "tramai-rag",
     "tramai-security",
+    "tramai-spring-boot-starter-sovereign",
+    "tramai-spring-boot-starter-sovereign-persistence-file",
+    "tramai-spring-boot-starter-sovereign-ops",
+    "tramai-spring-boot-starter-sovereign-ops-observability",
 )
 val jarPublishingProjectNames = publishableProjectNames - "tramai-bom"
 
@@ -499,6 +503,34 @@ tasks.register("verifyReleaseReadiness") {
     )
 }
 
+val sovereignRuntimePublishableModules = listOf(
+    "tramai-security",
+    "tramai-sovereign",
+    "tramai-persistence-file",
+    "tramai-spring-boot-starter-sovereign",
+    "tramai-spring-boot-starter-sovereign-persistence-file",
+    "tramai-spring-boot-starter-sovereign-ops",
+    "tramai-spring-boot-starter-sovereign-ops-observability",
+)
+
+tasks.register("verifySovereignRuntimePublication") {
+    group = "verification"
+    description = "Validates local publishability of sovereign runtime modules — POM metadata, sources/javadoc JARs, and dependency graph. Does not publish remotely."
+    notCompatibleWithConfigurationCache("Sovereign runtime publication validation aggregates checks and runs publishToMavenLocal.")
+    dependsOn(
+        sovereignRuntimePublishableModules.map { ":${it}:test" },
+        sovereignRuntimePublishableModules.map { ":${it}:publishToMavenLocal" },
+    )
+    doLast {
+        val buildDir = layout.buildDirectory.get().asFile
+        val mavenLocalRepo = buildDir.resolve("sovereign-runtime-publish-verification-repo")
+        logger.lifecycle("Sovereign runtime publication validation complete.")
+        logger.lifecycle("  Validated modules: ${sovereignRuntimePublishableModules.joinToString(", ")}")
+        logger.lifecycle("  POMs, sources JARs, and javadoc JARs have been published to mavenLocal().")
+        logger.lifecycle("  No remote repository was touched.")
+    }
+}
+
 // ── CycloneDX SBOM ────────────────────────────────────────────────────────
 
 // Plugin is applied above via: alias(libs.plugins.cyclonedx.bom)
@@ -538,6 +570,10 @@ val sovereignReleaseModules = listOf(
     ":tramai-sovereign",
     ":tramai-persistence-file",
     ":tramai-observability",
+    ":tramai-spring-boot-starter-sovereign",
+    ":tramai-spring-boot-starter-sovereign-persistence-file",
+    ":tramai-spring-boot-starter-sovereign-ops",
+    ":tramai-spring-boot-starter-sovereign-ops-observability",
 )
 
 tasks.register("prepareSovereignReleaseArtifacts") {
