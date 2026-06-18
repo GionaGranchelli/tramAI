@@ -230,6 +230,188 @@ class SovereignOpsAuditOutboxBackgroundWorkerTest {
         assertThat(stored.lastErrorCode).isEqualTo("IllegalStateException")
     }
 
+    // ── Observer lifecycle tests ──────────────────────────────────────
+
+    @Test
+    fun `observer receives onCycleCompleted after successful runOnce`() {
+        val operations = TrackingOutboxOperations()
+        val worker = SovereignOpsAuditOutboxBackgroundWorker(
+            operations = operations,
+            properties = SovereignOpsOutboxWorkerProperties(recoverPrepared = false, dispatchPending = false),
+        )
+        val observer = RecordingSovereignOpsAuditOutboxWorkerObserver()
+        val lifecycle = SovereignOpsAuditOutboxWorkerLifecycle(
+            worker = worker,
+            properties = SovereignOpsOutboxWorkerProperties(
+                enabled = true,
+                initialDelay = Duration.ofMillis(1),
+            ),
+            observer = observer,
+        )
+
+        lifecycle.start()
+        Thread.sleep(50)
+        lifecycle.stop()
+
+        assertThat(observer.completed).hasSize(1)
+        assertThat(observer.failures).isEmpty()
+    }
+
+    @Test
+    fun `observer receives onCycleFailed when runOnce returns summary failure`() {
+        val worker = SovereignOpsAuditOutboxBackgroundWorker(
+            operations = TrackingOutboxOperations(
+                recoverFailure = IllegalStateException("sensitive@example.com"),
+            ),
+            properties = SovereignOpsOutboxWorkerProperties(batchSize = 1),
+        )
+        val observer = RecordingSovereignOpsAuditOutboxWorkerObserver()
+        val lifecycle = SovereignOpsAuditOutboxWorkerLifecycle(
+            worker = worker,
+            properties = SovereignOpsOutboxWorkerProperties(
+                enabled = true,
+                initialDelay = Duration.ofMillis(1),
+            ),
+            observer = observer,
+        )
+
+        lifecycle.start()
+        Thread.sleep(50)
+        lifecycle.stop()
+
+        assertThat(observer.completed).hasSize(1)
+        assertThat(observer.failures).hasSize(1)
+        val failure = observer.failures.first()
+        assertThat(failure.first).isEqualTo("recoverPrepared")
+        assertThat(failure.second).isEqualTo("IllegalStateException")
+        assertThat(failure.second).doesNotContain("sensitive@example.com")
+    }
+
+    @Test
+    fun `observer receives onCycleFailed as unexpected when exception escapes runOnce entirely`() {
+        // clock.instant() throws before any operation try/catch — this is a real
+        // unexpected escape from runOnce(), not a caught-and-summarized failure
+        val worker = SovereignOpsAuditOutboxBackgroundWorker(
+            operations = TrackingOutboxOperations(),
+            properties = SovereignOpsOutboxWorkerProperties(
+                recoverPrepared = false,
+                dispatchPending = false,
+            ),
+            clock = ThrowingClock(),
+        )
+        val observer = RecordingSovereignOpsAuditOutboxWorkerObserver()
+        val lifecycle = SovereignOpsAuditOutboxWorkerLifecycle(
+            worker = worker,
+            properties = SovereignOpsOutboxWorkerProperties(
+                enabled = true,
+                initialDelay = Duration.ofMillis(1),
+            ),
+            observer = observer,
+        )
+
+        lifecycle.start()
+        Thread.sleep(50)
+        lifecycle.stop()
+
+        // runOnce never completed — summary was never produced
+        assertThat(observer.completed).isEmpty()
+        assertThat(observer.failures).hasSize(1)
+        val failure = observer.failures.first()
+        assertThat(failure.first).isEqualTo("unexpected")
+        assertThat(failure.second).isEqualTo("IllegalStateException")
+        assertThat(failure.second).doesNotContain("secret")
+        assertThat(failure.second).doesNotContain("/secret/path")
+    }
+
+    @Test
+    fun `CancellationException is not reported to observer`() {
+        // CancellationException is rethrown by lifecycle and must not be reported
+        // through the observer as a normal worker failure.
+        val worker = SovereignOpsAuditOutboxBackgroundWorker(
+            operations = TrackingOutboxOperations(
+                recoverFailure = CancellationException("cancelled"),
+            ),
+            properties = SovereignOpsOutboxWorkerProperties(batchSize = 1),
+        )
+        val observer = RecordingSovereignOpsAuditOutboxWorkerObserver()
+        val lifecycle = SovereignOpsAuditOutboxWorkerLifecycle(
+            worker = worker,
+            properties = SovereignOpsOutboxWorkerProperties(
+                enabled = true,
+                initialDelay = Duration.ofMillis(1),
+            ),
+            observer = observer,
+        )
+
+        lifecycle.start()
+        Thread.sleep(50)
+        lifecycle.stop()
+
+        assertThat(observer.completed).isEmpty()
+        assertThat(observer.failures.any { it.second == "CancellationException" }).isFalse()
+    }
+
+    @Test
+    fun `observer onCycleCompleted failure does not kill lifecycle loop`() {
+        val worker = SovereignOpsAuditOutboxBackgroundWorker(
+            operations = TrackingOutboxOperations(),
+            properties = SovereignOpsOutboxWorkerProperties(
+                recoverPrepared = false,
+                dispatchPending = false,
+            ),
+        )
+        val observer = ThrowingObserver(throwOnCompleted = true)
+        val lifecycle = SovereignOpsAuditOutboxWorkerLifecycle(
+            worker = worker,
+            properties = SovereignOpsOutboxWorkerProperties(
+                enabled = true,
+                initialDelay = Duration.ofMillis(1),
+                interval = Duration.ofMillis(1),
+            ),
+            observer = observer,
+        )
+
+        lifecycle.start()
+        // Let multiple cycles run — observer failure must not kill the loop
+        Thread.sleep(100)
+        lifecycle.stop()
+
+        // The loop ran multiple cycles despite the observer throwing every time
+        assertThat(observer.completedCount).isGreaterThan(1)
+        // The observer threw on every cycle, but the lifecycle kept going
+        assertThat(observer.observerExceptions).isGreaterThan(1)
+    }
+
+    @Test
+    fun `observer onCycleFailed failure does not kill lifecycle loop`() {
+        val worker = SovereignOpsAuditOutboxBackgroundWorker(
+            operations = TrackingOutboxOperations(
+                recoverFailure = IllegalStateException("worker failed"),
+            ),
+            properties = SovereignOpsOutboxWorkerProperties(batchSize = 1),
+        )
+        val observer = ThrowingObserver(throwOnFailed = true)
+        val lifecycle = SovereignOpsAuditOutboxWorkerLifecycle(
+            worker = worker,
+            properties = SovereignOpsOutboxWorkerProperties(
+                enabled = true,
+                initialDelay = Duration.ofMillis(1),
+                interval = Duration.ofMillis(1),
+            ),
+            observer = observer,
+        )
+
+        lifecycle.start()
+        // Let multiple cycles run — observer failure must not kill the loop
+        Thread.sleep(100)
+        lifecycle.stop()
+
+        // The loop ran multiple cycles despite the observer throwing on every onCycleFailed
+        assertThat(observer.completedCount).isGreaterThan(1)
+        // The observer threw on every cycle, but the lifecycle kept going
+        assertThat(observer.observerExceptions).isGreaterThan(1)
+    }
+
     private fun fixedClock(): Clock =
         Clock.fixed(Instant.parse("2026-06-01T00:00:00Z"), ZoneOffset.UTC)
 
@@ -316,4 +498,54 @@ private object FailingReplayAuditEmitter : SovereignOpsAuditEmitter {
     override suspend fun approvalDeniedFromOutbox(record: SovereignOpsAuditOutboxRecord) {
         throw IllegalStateException("emission failure contains sensitive@example.com")
     }
+}
+
+private class RecordingSovereignOpsAuditOutboxWorkerObserver : SovereignOpsAuditOutboxWorkerObserver {
+    val completed = mutableListOf<SovereignOpsAuditOutboxWorkerRunSummary>()
+    val failures = mutableListOf<Pair<String, String>>()
+
+    override fun onCycleCompleted(summary: SovereignOpsAuditOutboxWorkerRunSummary) {
+        completed += summary
+    }
+
+    override fun onCycleFailed(action: String, errorCode: String) {
+        failures += action to errorCode
+    }
+}
+
+private class ThrowingObserver(
+    private val throwOnCompleted: Boolean = false,
+    private val throwOnFailed: Boolean = false,
+) : SovereignOpsAuditOutboxWorkerObserver {
+    val completedCount
+        get() = _completedCount
+    private var _completedCount = 0
+    val failures = mutableListOf<Pair<String, String>>()
+    var observerExceptions = 0
+        private set
+
+    override fun onCycleCompleted(summary: SovereignOpsAuditOutboxWorkerRunSummary) {
+        _completedCount++
+        if (throwOnCompleted) {
+            observerExceptions++
+            throw RuntimeException("observer onCycleCompleted /secret/path")
+        }
+    }
+
+    override fun onCycleFailed(action: String, errorCode: String) {
+        failures += action to errorCode
+        if (throwOnFailed) {
+            observerExceptions++
+            throw RuntimeException("observer onCycleFailed /secret/path")
+        }
+    }
+}
+
+private class ThrowingClock : Clock() {
+    override fun getZone(): java.time.ZoneId = ZoneOffset.UTC
+
+    override fun withZone(zone: java.time.ZoneId): Clock = this
+
+    override fun instant(): Instant =
+        throw IllegalStateException("clock failed /secret/path")
 }

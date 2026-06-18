@@ -13,6 +13,7 @@ import org.springframework.context.SmartLifecycle
 class SovereignOpsAuditOutboxWorkerLifecycle(
     private val worker: SovereignOpsAuditOutboxBackgroundWorker,
     private val properties: SovereignOpsOutboxWorkerProperties,
+    private val observer: SovereignOpsAuditOutboxWorkerObserver = SovereignOpsAuditOutboxWorkerObserver.Noop,
 ) : SmartLifecycle {
 
     private val logger = LogFactory.getLog(SovereignOpsAuditOutboxWorkerLifecycle::class.java)
@@ -38,7 +39,9 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
             while (running) {
                 try {
                     val summary = worker.runOnce()
+                    notifyCycleCompleted(summary)
                     summary.failure?.let {
+                        notifyCycleFailed(it.action, it.errorCode)
                         logger.warn(
                             "Sovereign ops audit outbox worker cycle failed: action=${it.action}, errorCode=${it.errorCode}",
                         )
@@ -46,9 +49,11 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
+                    val errorCode = e::class.simpleName ?: "Exception"
+                    notifyCycleFailed("unexpected", errorCode)
                     logger.warn(
                         "Sovereign ops audit outbox worker cycle failed unexpectedly: " +
-                            "errorCode=${e::class.simpleName ?: "Exception"}",
+                            "errorCode=$errorCode",
                     )
                 }
 
@@ -68,6 +73,50 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
     override fun isRunning(): Boolean = running
 
     override fun getPhase(): Int = 0
+
+    // ── Safe observer notification ─────────────────────────────────────
+
+    /**
+     * Notify the observer of a completed cycle, isolating observer failures
+     * so they cannot kill the worker loop.
+     *
+     * [CancellationException] is always rethrown — observer failures on
+     * cancellation do not provide useful signal.
+     */
+    private fun notifyCycleCompleted(summary: SovereignOpsAuditOutboxWorkerRunSummary) {
+        try {
+            observer.onCycleCompleted(summary)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logger.warn(
+                "Sovereign ops audit outbox worker observer callback failed: " +
+                    "callback=onCycleCompleted, errorCode=${e::class.simpleName ?: "Exception"}",
+            )
+        }
+    }
+
+    /**
+     * Notify the observer of a cycle failure, isolating observer failures
+     * so they cannot kill the worker loop.
+     *
+     * [CancellationException] is always rethrown.
+     */
+    private fun notifyCycleFailed(
+        action: String,
+        errorCode: String,
+    ) {
+        try {
+            observer.onCycleFailed(action, errorCode)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logger.warn(
+                "Sovereign ops audit outbox worker observer callback failed: " +
+                    "callback=onCycleFailed, errorCode=${e::class.simpleName ?: "Exception"}",
+            )
+        }
+    }
 }
 
 fun validateSovereignOpsAuditOutboxWorkerProperties(

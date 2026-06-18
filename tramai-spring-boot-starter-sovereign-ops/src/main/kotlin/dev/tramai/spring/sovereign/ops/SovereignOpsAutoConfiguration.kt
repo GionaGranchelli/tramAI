@@ -17,6 +17,7 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxDispatcher
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxOperations
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerLifecycle
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver
 import dev.tramai.spring.sovereign.ops.outbox.UnknownSovereignOpsApprovalRecoveryResolver
 import dev.tramai.spring.sovereign.ops.outbox.validateSovereignOpsAuditOutboxWorkerProperties
 import org.springframework.beans.factory.ObjectProvider
@@ -185,6 +186,11 @@ class SovereignOpsAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    fun sovereignOpsAuditOutboxWorkerObserver(): SovereignOpsAuditOutboxWorkerObserver =
+        SovereignOpsAuditOutboxWorkerObserver.Noop
+
+    @Bean
+    @ConditionalOnMissingBean
     @ConditionalOnProperty(
         prefix = "tramai.sovereign.ops.outbox.worker",
         name = ["enabled"],
@@ -194,6 +200,7 @@ class SovereignOpsAutoConfiguration {
         worker: SovereignOpsAuditOutboxBackgroundWorker,
         properties: SovereignOpsProperties,
         outboxDispatcher: ObjectProvider<SovereignOpsAuditOutboxDispatcher>,
+        observer: SovereignOpsAuditOutboxWorkerObserver,
     ): SovereignOpsAuditOutboxWorkerLifecycle {
         val rawProps = properties.outbox.worker
         val dispatcherAvailable = outboxDispatcher.ifAvailable != null
@@ -210,6 +217,7 @@ class SovereignOpsAutoConfiguration {
         return SovereignOpsAuditOutboxWorkerLifecycle(
             worker = worker,
             properties = effectiveWorkerProps,
+            observer = observer,
         )
     }
 

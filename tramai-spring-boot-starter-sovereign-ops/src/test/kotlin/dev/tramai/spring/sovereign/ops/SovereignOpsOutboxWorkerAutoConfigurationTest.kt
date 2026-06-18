@@ -170,6 +170,46 @@ class SovereignOpsOutboxWorkerAutoConfigurationTest {
                 assertThat(operations.recoverLimits).containsExactly(17)
             }
     }
+
+    // ── Observer wiring ────────────────────────────────────────────────
+
+    @Test
+    fun `default observer bean is Noop`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .run { ctx ->
+                val observer = ctx.getBean(
+                    dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver::class.java,
+                )
+                assertThat(observer)
+                    .isSameAs(dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver.Noop)
+            }
+    }
+
+    @Test
+    fun `custom observer bean is not overridden`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                TestAuditEngineConfig::class.java,
+                CustomObserverConfig::class.java,
+            )
+            .withPropertyValues(
+                "tramai.sovereign.ops.outbox.worker.enabled=true",
+                "tramai.sovereign.ops.outbox.worker.initial-delay=1h",
+            )
+            .run { ctx ->
+                assertThat(
+                    ctx.getBeansOfType(
+                        dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver::class.java,
+                    ),
+                ).hasSize(1)
+                    .containsKey("customObserver")
+
+                val lifecycle = ctx.getBean(SovereignOpsAuditOutboxWorkerLifecycle::class.java)
+                assertThat(lifecycle).isNotNull
+            }
+    }
 }
 
 open class CustomOutboxBackgroundWorkerConfig {
@@ -223,4 +263,11 @@ class RecordingOutboxOperations : SovereignOpsAuditOutboxOperations {
         recoverLimits += limit
         return SovereignOpsAuditOutboxRecoverySummary(inspected = 0)
     }
+}
+
+open class CustomObserverConfig {
+    @Bean
+    @Primary
+    open fun customObserver(): dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver =
+        dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver.Noop
 }
