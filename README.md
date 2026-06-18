@@ -209,7 +209,7 @@ The following are intentionally not claimed as complete:
 
 - stable 1.0 API
 - REST/Actuator operational endpoints
-- metrics integration
+- sovereign ops / audit outbox metrics
 - database-backed outbox or persistence
 - distributed worker leader election
 - key rotation
