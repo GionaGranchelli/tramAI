@@ -61,7 +61,6 @@ No timelines are committed for these items.
 
 # Sovereign runtime signed bundle dry-run (with optional signing)
 ./gradlew verifySovereignRuntimeSignedBundle \
-  -PtramaiPublishReleaseUrl=file://$PWD/build/sovereign-runtime-release-verification-repo \
   -PsigningKey="$SIGNING_KEY" \
   -PsigningPassword="$SIGNING_PASSWORD"
 

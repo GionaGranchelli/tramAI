@@ -138,32 +138,30 @@ The sovereign runtime release boundary can be validated as a local signed public
 ./gradlew verifySovereignRuntimeSignedBundle
 ```
 
-This validates the sovereign runtime modules and BOM in a file-based repository:
-
-- `tramai-bom`
-- `tramai-security`
-- `tramai-sovereign`
-- `tramai-persistence-file`
-- `tramai-spring-boot-starter-sovereign`
-- `tramai-spring-boot-starter-sovereign-persistence-file`
-- `tramai-spring-boot-starter-sovereign-ops`
-- `tramai-spring-boot-starter-sovereign-ops-observability`
-
-The default path validates:
+This publishes the sovereign runtime modules and BOM to a dedicated local-only Maven repository at `build/sovereign-runtime-release-verification-repo/` and validates:
 
 - POM files
 - binary JARs where expected
 - sources JARs where expected
 - javadoc JARs where expected
 - dependency graph / publication metadata
-- local file-based repository output (mavenLocal)
 - Generates `build/sovereign-runtime-release/bundle-manifest.json`
+
+The task always publishes to both `mavenLocal()` and the dedicated build-local repository. The dedicated repo uses a separate `sovereignBundleLocal` Maven repository configuration — never the shared `tramaiRemote` repository — so it cannot accidentally push to a remote publish target.
 
 When signing properties are provided, the task additionally validates `.asc` signatures:
 
 ```bash
 ./gradlew verifySovereignRuntimeSignedBundle \
-  -PtramaiPublishReleaseUrl=file://$PWD/build/sovereign-runtime-release-verification-repo \
+  -PsigningKey="$SIGNING_KEY" \
+  -PsigningPassword="$SIGNING_PASSWORD"
+```
+
+To use a custom local path instead of the build directory default:
+
+```bash
+./gradlew verifySovereignRuntimeSignedBundle \
+  -PtramaiPublishReleaseUrl=file:///path/to/custom-repo \
   -PsigningKey="$SIGNING_KEY" \
   -PsigningPassword="$SIGNING_PASSWORD"
 ```
@@ -181,10 +179,10 @@ The task generates `build/sovereign-runtime-release/bundle-manifest.json`:
 
 | Field | Description |
 |-------|-------------|
-| `schemaVersion` | Manifest format version (currently 1) |
+| `schemaVersion` | `"sovereign-runtime-release-bundle-v1"` — named schema for release evidence clarity |
 | `generatedAt` | ISO-8601 timestamp of generation |
 | `version` | The TramAI version validated |
-| `repository` | Repository path (mavenLocal or file:// path) |
+| `repository` | Absolute path to the file-based repository |
 | `remotePublish` | Always `false` — local validation only |
 | `tagCreated` | Always `false` — no tag is created |
 | `signaturesPresent` | Whether .asc signatures were validated |

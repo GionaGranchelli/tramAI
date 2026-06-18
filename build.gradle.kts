@@ -82,6 +82,27 @@ val publishableProjectNames = listOf(
 )
 val jarPublishingProjectNames = publishableProjectNames - "tramai-bom"
 
+// Sovereign bundle modules for the dedicated publication dry-run repository.
+// Used by the verifySovereignRuntimeSignedBundle task to publish only to a local
+// file-based Maven repository — never to a remote — preventing accidental remote
+// publication during dry-run validation.
+val sovereignBundleModuleNames = listOf(
+    "tramai-bom",
+    "tramai-security",
+    "tramai-sovereign",
+    "tramai-persistence-file",
+    "tramai-spring-boot-starter-sovereign",
+    "tramai-spring-boot-starter-sovereign-persistence-file",
+    "tramai-spring-boot-starter-sovereign-ops",
+    "tramai-spring-boot-starter-sovereign-ops-observability",
+)
+
+// Lazy default URL for the sovereign bundle local repository.
+// Override with -PtramaiPublishReleaseUrl=file://<path> for custom local paths.
+val sovereignBundleRepoUrl: Provider<String> = providers.gradleProperty("tramaiPublishReleaseUrl")
+    .orElse(rootProject.layout.buildDirectory.dir("sovereign-runtime-release-verification-repo")
+        .map { "file://${it.asFile.absolutePath}" })
+
 subprojects {
     group = tramaiGroup.get()
     version = tramaiVersion.get()
@@ -115,6 +136,14 @@ subprojects {
             developerName = tramaiDeveloperName.get(),
             developerEmail = tramaiDeveloperEmail.get(),
         )
+
+        // Dedicated local-only Maven repository for the sovereign signed bundle dry-run.
+        // Added inside the plugin block so maven-publish has already registered
+        // PublishingExtension. This repo is always file:// (build-local by default)
+        // and is never configured with remote credentials.
+        if (project.name in sovereignBundleModuleNames) {
+            configureSovereignBundleLocalRepo()
+        }
     }
 
     plugins.withId("java-platform") {
@@ -134,6 +163,14 @@ subprojects {
             developerName = tramaiDeveloperName.get(),
             developerEmail = tramaiDeveloperEmail.get(),
         )
+
+        // Dedicated local-only Maven repository for the sovereign signed bundle dry-run.
+        // Added inside the plugin block so maven-publish has already registered
+        // PublishingExtension. This repo is always file:// (build-local by default)
+        // and is never configured with remote credentials.
+        if (project.name in sovereignBundleModuleNames) {
+            configureSovereignBundleLocalRepo()
+        }
     }
 }
 
@@ -211,6 +248,25 @@ fun Project.configureTramaiPublishing(
         if (!signingKey.isNullOrBlank() && !signingPassword.isNullOrBlank()) {
             useInMemoryPgpKeys(signingKey, signingPassword)
             sign(extensions.getByType(PublishingExtension::class.java).publications)
+        }
+    }
+}
+
+/**
+ * Adds the dedicated sovereignBundleLocal Maven repository to this project's
+ * PublishingExtension. This repo is always file:// (build-local by default,
+ * or overridden via -PtramaiPublishReleaseUrl=file://...) and is never
+ * configured with remote credentials. The verifySovereignRuntimeSignedBundle
+ * task publishes exclusively to this repo using the generated
+ * *ToSovereignBundleLocalRepository tasks, never to tramaiRemote or :publish.
+ */
+fun Project.configureSovereignBundleLocalRepo() {
+    extensions.configure<PublishingExtension> {
+        repositories {
+            maven {
+                name = "sovereignBundleLocal"
+                url = URI(sovereignBundleRepoUrl.get())
+            }
         }
     }
 }
@@ -531,42 +587,63 @@ tasks.register("verifySovereignRuntimePublication") {
 
 tasks.register("verifySovereignRuntimeSignedBundle") {
     group = "verification"
-    description = "Validates local signed publication bundle for the sovereign runtime release boundary. Publishes to a file-based Maven repository, validates artifact structure (POMs, JARs, .module metadata), and optionally verifies .asc signatures when signing properties are provided. Generates bundle-manifest.json. Does NOT publish remotely, tag, bump versions, or freeze APIs."
+    description = "Validates local signed publication bundle for the sovereign runtime release boundary. " +
+        "Publishes to a dedicated local-only file-based Maven repository (" +
+        "build/sovereign-runtime-release-verification-repo by default), validates artifact " +
+        "structure (POMs, JARs, .module metadata), and optionally verifies .asc signatures " +
+        "when signing properties are provided. Generates bundle-manifest.json. " +
+        "Does NOT publish remotely, tag, bump versions, or freeze APIs."
     notCompatibleWithConfigurationCache("Sovereign runtime signed bundle verification inspects published artifacts and generates a manifest at execution time.")
 
-    // Always publish to mavenLocal for baseline artifact validation
+    // ── Configuration-time URL validation ────────────────────────────────
+    // Reject non-file URLs before any publish task can run. The sovereign bundle
+    // dry-run uses a dedicated soverignBundleLocal repository that is always file://
+    // (build-local by default). If someone passes -PtramaiPublishReleaseUrl pointing
+    // to a remote server, the dependent publish tasks must never be triggered.
+    val userProvidedUrl = providers.gradleProperty("tramaiPublishReleaseUrl").orNull
+    if (userProvidedUrl != null && !userProvidedUrl.startsWith("file:")) {
+        throw GradleException(
+            "verifySovereignRuntimeSignedBundle only supports file:// repositories for local " +
+            "verification. Got: $userProvidedUrl. The sovereign bundle dry-run publishes " +
+            "to a dedicated local-only repository and must never contact a remote server."
+        )
+    }
+
+    // Resolve the dedicated bundle repo URL (default or user-provided file://)
+    val bundleRepoUrl = sovereignBundleRepoUrl.get()
+
+    // Signing key properties — evaluated at configuration time by the signing extension
+    // in configureTramaiPublishing, so .asc files are produced automatically during publish.
+    val signingKey = providers.gradleProperty("signingKey").orNull
+    val signingPassword = providers.gradleProperty("signingPassword").orNull
+    val wantsSigning = !signingKey.isNullOrBlank() && !signingPassword.isNullOrBlank()
+
+    // ── Dependencies ─────────────────────────────────────────────────────
+    // Baseline: publish to mavenLocal for artifact structure checks
     dependsOn(
         sovereignRuntimePublishableModules.map { ":${it}:publishToMavenLocal" },
         ":tramai-bom:publishToMavenLocal",
     )
 
-    // When signing properties and a file-based repo URL are provided,
-    // also publish to that repo (with .asc signatures)
-    val signingKey = providers.gradleProperty("signingKey").orNull
-    val signingPassword = providers.gradleProperty("signingPassword").orNull
-    val repoUrl = providers.gradleProperty("tramaiPublishReleaseUrl").orNull
-    val wantsSigning = !signingKey.isNullOrBlank() && !signingPassword.isNullOrBlank()
-    val wantsFileRepo = !repoUrl.isNullOrBlank()
+    // Always publish to the dedicated sovereignBundleLocal repository.
+    // This repo is unconditionally file:// (build-local by default, or overridden with
+    // -PtramaiPublishReleaseUrl=file://...) and is configured separately from the
+    // tramaiRemote repository used by other publish tasks.
+    // We use the specific *ToSovereignBundleLocalRepository task — never generic :publish.
+    dependsOn(
+        sovereignRuntimePublishableModules.map { ":${it}:publishMavenPublicationToSovereignBundleLocalRepository" },
+        ":tramai-bom:publishMavenPublicationToSovereignBundleLocalRepository",
+    )
 
-    if (wantsSigning || wantsFileRepo) {
-        dependsOn(
-            sovereignRuntimePublishableModules.map { ":${it}:publish" },
-            ":tramai-bom:publish",
-        )
-    }
+    // Skip tests in the signed bundle dry-run — the verifySovereignRuntimePublication task
+    // handles test execution separately. This task focuses purely on artifact structure,
+    // signing (optional), and manifest generation.
 
     doFirst {
-        if (wantsSigning && !wantsFileRepo) {
-            throw GradleException(
-                "Signing requires -PtramaiPublishReleaseUrl=file://<path> for local file-based repository. " +
-                "Signed verification cannot run against mavenLocal() alone."
-            )
-        }
-        if (wantsFileRepo && !repoUrl!!.startsWith("file:")) {
-            throw GradleException(
-                "verifySovereignRuntimeSignedBundle only supports file:// repositories for local verification. " +
-                "Got: $repoUrl"
-            )
+        if (wantsSigning) {
+            logger.lifecycle("Signing key provided — will validate .asc signatures.")
+        } else {
+            logger.lifecycle("No signing key provided — skipping .asc signature validation.")
         }
     }
 
@@ -579,6 +656,10 @@ tasks.register("verifySovereignRuntimeSignedBundle") {
         val bundleDir = buildDir.resolve("sovereign-runtime-release")
         val bundleManifestJson = bundleDir.resolve("bundle-manifest.json")
         val allModules = sovereignRuntimePublishableModules + "tramai-bom"
+
+        // Dedicated bundle repo directory
+        val bundleRepoDir = File(URI(bundleRepoUrl))
+        logger.lifecycle("Bundle repository: ${bundleRepoDir.absolutePath}")
 
         // ── 1. Validate mavenLocal baseline ──────────────────────────────
         logger.lifecycle("Validating mavenLocal baseline artifacts...")
@@ -611,69 +692,63 @@ tasks.register("verifySovereignRuntimeSignedBundle") {
         }
         logger.lifecycle("  All mavenLocal artifacts present and non-empty.")
 
-        // ── 2. Validate file-based repository (if configured) ──────────
-        val fileRepoDir: File? = if (wantsFileRepo && repoUrl != null) {
-            File(URI(repoUrl))
-        } else {
-            null
+        // ── 2. Validate the dedicated file-based bundle repository ─────────
+        logger.lifecycle("Validating bundle repository at ${bundleRepoDir.absolutePath}...")
+        require(bundleRepoDir.isDirectory) {
+            "Missing bundle repository root at ${bundleRepoDir.absolutePath}." +
+            "The sovereignBundleLocal repository should have been populated during publish."
         }
 
-        if (fileRepoDir != null) {
-            logger.lifecycle("Validating file-based repository at ${fileRepoDir.absolutePath}...")
-            require(fileRepoDir.isDirectory) {
-                "Missing file-based repository root at ${fileRepoDir.absolutePath}"
+        allModules.forEach { moduleName ->
+            val moduleDir = bundleRepoDir.resolve("$groupPath/$moduleName/$expectedVersion")
+            require(moduleDir.isDirectory) {
+                "Missing bundle-repo module directory for $moduleName at ${moduleDir.absolutePath}"
             }
-            allModules.forEach { moduleName ->
-                val moduleDir = fileRepoDir.resolve("$groupPath/$moduleName/$expectedVersion")
-                require(moduleDir.isDirectory) {
-                    "Missing file-repo module directory for $moduleName at ${moduleDir.absolutePath}"
+            val publishedFiles = moduleDir.listFiles()?.filter(File::isFile).orEmpty()
+
+            fun requireArtifact(description: String, predicate: (String) -> Boolean) {
+                val matching = publishedFiles.filter { predicate(it.name) }
+                require(matching.isNotEmpty()) {
+                    "Missing $description for $moduleName in ${moduleDir.absolutePath}"
                 }
-                val publishedFiles = moduleDir.listFiles()?.filter(File::isFile).orEmpty()
-
-                fun requireArtifact(description: String, predicate: (String) -> Boolean) {
-                    val matching = publishedFiles.filter { predicate(it.name) }
-                    require(matching.isNotEmpty()) {
-                        "Missing $description for $moduleName in ${moduleDir.absolutePath}"
-                    }
-                    require(matching.all { it.length() > 0 }) {
-                        "Empty $description for $moduleName in ${moduleDir.absolutePath}"
-                    }
+                require(matching.all { it.length() > 0 }) {
+                    "Empty $description for $moduleName in ${moduleDir.absolutePath}"
                 }
+            }
 
-                requireArtifact("POM") { it.endsWith(".pom") && !it.endsWith(".pom.asc") }
-                requireArtifact("Gradle module metadata") { it.endsWith(".module") && !it.endsWith(".module.asc") }
+            requireArtifact("POM") { it.endsWith(".pom") && !it.endsWith(".pom.asc") }
+            requireArtifact("Gradle module metadata") { it.endsWith(".module") && !it.endsWith(".module.asc") }
 
+            if (moduleName != "tramai-bom") {
+                requireArtifact("binary jar") {
+                    it.endsWith(".jar") &&
+                    !it.endsWith("-sources.jar") &&
+                    !it.endsWith("-javadoc.jar") &&
+                    !it.endsWith(".jar.asc")
+                }
+                requireArtifact("sources jar") { it.endsWith("-sources.jar") && !it.endsWith("-sources.jar.asc") }
+                requireArtifact("javadoc jar") { it.endsWith("-javadoc.jar") && !it.endsWith("-javadoc.jar.asc") }
+            }
+
+            // Optional signing validation
+            if (wantsSigning) {
+                requireArtifact("POM signature") { it.endsWith(".pom.asc") }
+                requireArtifact("Gradle module metadata signature") { it.endsWith(".module.asc") }
                 if (moduleName != "tramai-bom") {
-                    requireArtifact("binary jar") {
-                        it.endsWith(".jar") &&
-                        !it.endsWith("-sources.jar") &&
-                        !it.endsWith("-javadoc.jar") &&
-                        !it.endsWith(".jar.asc")
+                    requireArtifact("binary jar signature") {
+                        it.endsWith(".jar.asc") &&
+                        !it.endsWith("-sources.jar.asc") &&
+                        !it.endsWith("-javadoc.jar.asc")
                     }
-                    requireArtifact("sources jar") { it.endsWith("-sources.jar") && !it.endsWith("-sources.jar.asc") }
-                    requireArtifact("javadoc jar") { it.endsWith("-javadoc.jar") && !it.endsWith("-javadoc.jar.asc") }
+                    requireArtifact("sources jar signature") { it.endsWith("-sources.jar.asc") }
+                    requireArtifact("javadoc jar signature") { it.endsWith("-javadoc.jar.asc") }
                 }
-
-                // Optional signing validation
-                if (wantsSigning) {
-                    requireArtifact("POM signature") { it.endsWith(".pom.asc") }
-                    requireArtifact("Gradle module metadata signature") { it.endsWith(".module.asc") }
-                    if (moduleName != "tramai-bom") {
-                        requireArtifact("binary jar signature") {
-                            it.endsWith(".jar.asc") &&
-                            !it.endsWith("-sources.jar.asc") &&
-                            !it.endsWith("-javadoc.jar.asc")
-                        }
-                        requireArtifact("sources jar signature") { it.endsWith("-sources.jar.asc") }
-                        requireArtifact("javadoc jar signature") { it.endsWith("-javadoc.jar.asc") }
-                    }
-                    logger.lifecycle("  Signatures validated for $moduleName.")
-                }
+                logger.lifecycle("  Signatures validated for $moduleName.")
             }
-            logger.lifecycle("  File-based repository validation complete.")
         }
+        logger.lifecycle("  Bundle repository validation complete.")
 
-        // ── 3. Generate bundle-manifest.json ───────────────────────────
+        // ── 3. Generate bundle-manifest.json (fail-closed) ───────────────
         logger.lifecycle("Generating bundle manifest...")
         bundleDir.mkdirs()
 
@@ -707,12 +782,13 @@ tasks.register("verifySovereignRuntimeSignedBundle") {
         val moduleEntries = mutableListOf<String>()
 
         allModules.forEach { moduleName ->
-            val sourceDir = if (fileRepoDir != null) {
-                fileRepoDir.resolve("$groupPath/$moduleName/$expectedVersion")
-            } else {
-                m2Repo.resolve("$moduleName/$expectedVersion")
+            val sourceDir = bundleRepoDir.resolve("$groupPath/$moduleName/$expectedVersion")
+            // Fail closed: every module must have published artifact directory
+            require(sourceDir.isDirectory) {
+                "Cannot generate bundle manifest: missing artifact directory for $moduleName " +
+                "at ${sourceDir.absolutePath}. All sovereign bundle modules must produce " +
+                "published artifacts."
             }
-            if (!sourceDir.isDirectory) return@forEach
 
             val baseName = "$moduleName-$expectedVersion"
             val artifactFiles = sourceDir.listFiles { f -> f.isFile }.orEmpty().sortedBy { it.name }
@@ -721,9 +797,7 @@ tasks.register("verifySovereignRuntimeSignedBundle") {
             val checksums = mutableMapOf<String, String>()
 
             for (file in artifactFiles) {
-                val relPath = fileRepoDir?.let {
-                    file.absolutePath.removePrefix(it.absolutePath).trimStart('/')
-                } ?: file.name
+                val relPath = file.absolutePath.removePrefix(bundleRepoDir.absolutePath).trimStart('/')
 
                 if (file.name.endsWith(".asc")) {
                     signatures.add(relPath)
@@ -749,14 +823,21 @@ tasks.register("verifySovereignRuntimeSignedBundle") {
             moduleEntries.add(moduleEntry)
         }
 
+        // Fail closed: all expected modules must have entries in the manifest
+        require(moduleEntries.size == allModules.size) {
+            "Bundle manifest expected $allModules modules but only " +
+            "${moduleEntries.size} modules have artifact directories. " +
+            "Expected: ${allModules.joinToString(", ")}. " +
+            "Found: ${moduleEntries.map { it.substringAfter("\"artifactId\": \"").substringBefore("\"") }}."
+        }
+
         val now = java.time.Instant.now().toString()
         val jsonSink = buildString {
             appendLine("{")
-            appendLine("  \"schemaVersion\": 1,")
+            appendLine("  \"schemaVersion\": \"sovereign-runtime-release-bundle-v1\",")
             appendLine("  \"generatedAt\": \"${jsonEscape(now)}\",")
             appendLine("  \"version\": \"${jsonEscape(expectedVersion)}\",")
-            val repoPath = fileRepoDir?.absolutePath ?: "mavenLocal"
-            appendLine("  \"repository\": \"${jsonEscape(repoPath)}\",")
+            appendLine("  \"repository\": \"${jsonEscape(bundleRepoDir.absolutePath)}\",")
             appendLine("  \"remotePublish\": false,")
             appendLine("  \"tagCreated\": false,")
             appendLine("  \"signaturesPresent\": $wantsSigning,")
@@ -778,6 +859,7 @@ tasks.register("verifySovereignRuntimeSignedBundle") {
         logger.lifecycle("")
         logger.lifecycle("verifySovereignRuntimeSignedBundle — PASSED")
         logger.lifecycle("  Modules validated: ${allModules.size} (${allModules.joinToString(", ")})")
+        logger.lifecycle("  Repository: ${bundleRepoDir.absolutePath}")
         logger.lifecycle("  Signatures: ${if (wantsSigning) "validated" else "not configured (skipped)"}")
         logger.lifecycle("  Remote publish: false")
         logger.lifecycle("  Tag created: false")
