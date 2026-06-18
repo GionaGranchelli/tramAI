@@ -106,6 +106,7 @@ TramAI is organized into focused Gradle modules:
 | `tramai-persistence-file` | Encrypted file-backed stores for approvals, continuations, audit, and outbox |
 | `tramai-spring-boot-starter-sovereign` | Sovereign runtime Spring Boot auto-configuration |
 | `tramai-spring-boot-starter-sovereign-ops` | Operational APIs for audit, approval, recovery, and outbox workflows |
+| `tramai-spring-boot-starter-sovereign-ops-observability` | OpenTelemetry metrics for sovereign ops audit outbox worker |
 | `tramai-spring-boot-starter-sovereign-persistence-file` | File-backed persistence auto-configuration |
 
 ### Optional Higher-Level Modules
@@ -208,12 +209,18 @@ The following are intentionally not claimed as complete:
 
 - stable 1.0 API
 - REST/Actuator operational endpoints
-- sovereign ops / audit outbox metrics
 - database-backed outbox or persistence
 - distributed worker leader election
 - key rotation
 - full production deployment guide
 - complete API reference documentation
+
+## Sovereign Runtime Release Readiness
+
+The sovereign runtime capabilities on `master` are actively evolving and not yet a stable 1.0 API. For the current release-readiness boundary, included modules, validation commands, and known non-goals, see:
+
+- [docs/releases/sovereign-runtime-release-readiness.md](docs/releases/sovereign-runtime-release-readiness.md)
+- [docs/modules/sovereign-runtime-module-matrix.md](docs/modules/sovereign-runtime-module-matrix.md)
 
 ## Development Commands
 

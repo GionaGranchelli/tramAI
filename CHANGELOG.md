@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Sovereign runtime profile and routing foundation (`tramai-sovereign`).
+- Policy enforcement and DLP/redaction support (`tramai-security`).
+- Approval gates and replay-safe resume.
+- Encrypted file-backed persistence (`tramai-persistence-file`).
+- File-backed audit outbox and recovery workflow (`tramai-spring-boot-starter-sovereign-ops`).
+- Background worker for audit outbox recovery and dispatch.
+- Observer SPI for sovereign ops audit outbox worker cycles and failures.
+- OpenTelemetry observer for sovereign ops audit outbox worker metrics (`tramai-spring-boot-starter-sovereign-ops-observability`).
+- Sovereign document intelligence reference workflow (`examples:sovereign-document-intelligence`).
+- Evidence and release-bundle generation support.
+- Sovereign runtime release-readiness documentation and module matrix.
+
+### Changed
+
+- README and architecture documentation realigned around governed AI workflows.
+- Status documentation updated to distinguish implemented, evolving, and not-complete areas.
+
+### Not included yet
+
+- Stable 1.0 API.
+- Maven Central release of sovereign runtime modules.
+- REST/Actuator operational endpoints.
+- Micrometer / Prometheus / dashboard integration.
+- Database-backed persistence or outbox.
+- Distributed worker leader election.
+- Key rotation.
+- Full production deployment guide.
+
+For the current release-readiness boundary, see [docs/releases/sovereign-runtime-release-readiness.md](docs/releases/sovereign-runtime-release-readiness.md).
+
 ## 0.3.1 — 2026-05-24
 
 Patch release focused on streaming stability, memory persistence, and proxy-aware tool scanning.

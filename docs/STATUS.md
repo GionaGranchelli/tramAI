@@ -84,6 +84,15 @@ The CI pipeline runs the full test suite on every push:
 
 All sovereign-runtime tests (policy, approval, audit, outbox, replay, persistence) pass against the current `master` branch. No tests are skipped or marked as flaky.
 
+## Release Readiness
+
+The current sovereign runtime release-readiness checklist and module matrix are tracked in:
+
+- [docs/releases/sovereign-runtime-release-readiness.md](./releases/sovereign-runtime-release-readiness.md)
+- [docs/modules/sovereign-runtime-module-matrix.md](./modules/sovereign-runtime-module-matrix.md)
+
+These documents cover included capability areas, representative modules, validation commands, explicit non-goals, and known release risks.
+
 ## Historical Context
 
 Prior to June 2026, TramAI was primarily positioned as a typed AI integration library. The pivot to a governed AI workflow runtime began with the sovereign-runtime modules. The ROADMAP.md at the repository root documents the full enterprise vision and phased plan.
