@@ -5,6 +5,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.context.ApplicationContext
 
 /**
  * Consumer-resolution smoke test for sovereign runtime modules.
@@ -18,22 +19,20 @@ import org.springframework.boot.test.context.SpringBootTest
 @SpringBootTest
 class SmokeContextTest {
 
-    @Autowired(required = false)
-    private var observer: SovereignOpsAuditOutboxWorkerObserver? = null
+    @Autowired
+    private lateinit var applicationContext: ApplicationContext
+
+    @Autowired
+    private lateinit var observer: SovereignOpsAuditOutboxWorkerObserver
 
     @Test
     fun `Spring context loads with sovereign starters on classpath`() {
-        // The context loaded — @SpringBootTest didn't throw.
-        // Prove SmokeApplication is the running context.
-        assertThat(1).isEqualTo(1)
+        val app = applicationContext.getBean(SmokeApplication::class.java)
+        assertThat(app).isNotNull
     }
 
     @Test
     fun `observer fallback is Noop when no OpenTelemetry bean is present`() {
-        // Without an OpenTelemetry bean, the observer should be the Noop.
-        // The context loaded, so the sovereign ops starter resolved correctly.
-        if (observer != null) {
-            assertThat(observer).isSameAs(SovereignOpsAuditOutboxWorkerObserver.Noop)
-        }
+        assertThat(observer).isSameAs(SovereignOpsAuditOutboxWorkerObserver.Noop)
     }
 }

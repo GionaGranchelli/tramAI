@@ -522,8 +522,6 @@ tasks.register("verifySovereignRuntimePublication") {
         sovereignRuntimePublishableModules.map { ":${it}:publishToMavenLocal" },
     )
     doLast {
-        val buildDir = layout.buildDirectory.get().asFile
-        val mavenLocalRepo = buildDir.resolve("sovereign-runtime-publish-verification-repo")
         logger.lifecycle("Sovereign runtime publication validation complete.")
         logger.lifecycle("  Validated modules: ${sovereignRuntimePublishableModules.joinToString(", ")}")
         logger.lifecycle("  POMs, sources JARs, and javadoc JARs have been published to mavenLocal().")
