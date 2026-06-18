@@ -22,6 +22,7 @@ This document describes the state of the repository, not a formal release contra
 | Audit chain (tamper-evident sequencing) | Implemented / evolving |
 | Audit outbox (atomic mutation + audit intent, claim-based dispatch) | Implemented / evolving |
 | Audit outbox background worker (recovery + dispatch loop) | Implemented / evolving |
+| Sovereign ops audit outbox OpenTelemetry metrics | Implemented |
 | Evidence generation (bundles, release artifacts) | Implemented / evolving |
 | Sovereign document intelligence example | Implemented |
 | OpenTelemetry observability (spans, metrics, opt-in) | Implemented |
@@ -65,7 +66,6 @@ The following are intentionally not claimed as complete. Some are planned, some 
 - stable 1.0 public API
 - Maven Central release of sovereign-runtime modules
 - REST/Actuator operational endpoints
-- sovereign ops / audit outbox metrics (OpenTelemetry observer available in `tramai-spring-boot-starter-sovereign-ops-observability`)
 - database-backed outbox or persistence
 - distributed worker leader election
 - key rotation

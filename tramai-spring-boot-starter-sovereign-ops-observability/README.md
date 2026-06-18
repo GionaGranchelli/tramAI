@@ -2,8 +2,8 @@
 
 OpenTelemetry observer for the TramAI sovereign ops audit outbox worker.
 
-Provides [OpenTelemetry metrics](https://opentelemetry.io/docs/specs/semconv/general/metrics/) for the
-[SovereignOpsAuditOutboxBackgroundWorker](https://github.com/nousresearch/tramai) lifecycle — cycle success/failure,
+Provides OpenTelemetry metrics for the
+`SovereignOpsAuditOutboxBackgroundWorker` lifecycle — cycle success/failure,
 latency, recovery record counts, and dispatch record counts.
 
 ## Quickstart
@@ -35,25 +35,54 @@ tramai:
 
 ## Emitted metrics
 
-All instruments are registered under the meter `dev.tramai.sovereign.ops`.
+All instruments are registered under the meter `dev.tramai.sovereign.ops.observability`.
 
 | Instrument | Type | Unit | Description |
 |---|---|---|---|
-| `tramai.sovereign.ops.outbox.worker.cycles` | LongCounter | `{cycle}` | Completed worker cycles, keyed by `action` and `outcome` |
-| `tramai.sovereign.ops.outbox.worker.duration` | DoubleHistogram | `ms` | Cycle wall-clock duration ms |
-| `tramai.sovereign.ops.outbox.worker.recovered.records` | LongCounter | `{record}` | Recovery result counts: inspected, movedToPending, markedFailedPermanent, resolverFailures |
-| `tramai.sovereign.ops.outbox.worker.dispatched.records` | LongCounter | `{record}` | Dispatch result counts: claimed, emitted, failedRetryable, failedPermanent |
-| `tramai.sovereign.ops.outbox.worker.failures` | LongCounter | `{failure}` | Unexpected cycle failures (action="unexpected", error_type=exception simple name) |
+| `tramai.sovereign.ops.outbox.worker.cycles` | LongCounter | `{cycle}` | Completed worker cycles per action and outcome |
+| `tramai.sovereign.ops.outbox.worker.duration` | DoubleHistogram | `ms` | Cycle wall-clock duration |
+| `tramai.sovereign.ops.outbox.worker.recovered.records` | LongCounter | `{record}` | Recovery result counts per result type |
+| `tramai.sovereign.ops.outbox.worker.dispatched.records` | LongCounter | `{record}` | Dispatch result counts per result type |
+| `tramai.sovereign.ops.outbox.worker.failures` | LongCounter | `{failure}` | Failure notifications emitted by the worker |
 
-### Attributes
+### Metric: worker.cycles
 
-All metrics receive these **low-cardinality, sanitized** attributes:
+**Attributes:**
 
 | Attribute | Values | Description |
 |---|---|---|
-| `action` | `recoverPrepared`, `dispatchPending`, `unexpected` | Which operation was in progress |
-| `outcome` | `success`, `failure` | Whether the cycle completed successfully |
-| `error_type` | exception simple class name, `"none"` | Only set on failure counters |
+| `tramai.sovereign.ops.outbox.worker.outcome` | `success`, `failure` | Whether the cycle completed successfully |
+| `tramai.sovereign.ops.outbox.worker.failure_action` | `none`, `recoverPrepared`, `dispatchPending` | The action that failed (or `none` on success) |
+| `tramai.sovereign.ops.outbox.worker.error_type` | `none`, simple exception class name | Error type when `outcome=failure` |
+
+### Metric: worker.duration
+
+**Attributes:** same as `worker.cycles`.
+
+### Metric: worker.failures
+
+**Attributes:**
+
+| Attribute | Values | Description |
+|---|---|---|
+| `tramai.sovereign.ops.outbox.worker.failure_action` | `recoverPrepared`, `dispatchPending`, `unexpected` | Which action triggered the failure |
+| `tramai.sovereign.ops.outbox.worker.error_type` | simple exception class name | Error type |
+
+### Metric: worker.recovered.records
+
+**Attributes:**
+
+| Attribute | Values | Description |
+|---|---|---|
+| `tramai.sovereign.ops.outbox.recovery.result` | `inspected`, `moved_to_pending`, `failed_permanent`, `resolver_failure` | Recovery operation result |
+
+### Metric: worker.dispatched.records
+
+**Attributes:**
+
+| Attribute | Values | Description |
+|---|---|---|
+| `tramai.sovereign.ops.outbox.dispatch.result` | `claimed`, `emitted`, `failed_retryable`, `failed_permanent` | Dispatch operation result |
 
 ### Sanitization guarantees
 
