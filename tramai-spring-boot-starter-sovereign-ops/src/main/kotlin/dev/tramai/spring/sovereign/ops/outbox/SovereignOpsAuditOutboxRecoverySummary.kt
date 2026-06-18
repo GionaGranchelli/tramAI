@@ -3,18 +3,16 @@ package dev.tramai.spring.sovereign.ops.outbox
 /**
  * Summary of a PREPARED recovery operation.
  *
- * Defined in this PR as a future contract for automatic PREPARED
- * reconciliation (PR #48). Not yet used — kept as a forward contract
- * so the DTO shape is agreed before implementation.
- *
  * @property inspected Number of PREPARED records examined.
- * @property movedToPending Number of records recovered to PENDING.
- * @property markedFailedPermanent Number of records marked terminal.
- * @property skipped Number of records left as-is (unresolvable).
+ * @property movedToPending Number of records recovered to PENDING (resolver returned COMMITTED_DENIED).
+ * @property markedFailedPermanent Number of records marked FAILED_PERMANENT (resolver returned NOT_COMMITTED).
+ * @property skippedUnresolved Number of records left as-is (resolver returned UNKNOWN).
+ * @property resolverFailures Number of records skipped due to resolver exception.
  */
 data class SovereignOpsAuditOutboxRecoverySummary(
     val inspected: Int,
-    val movedToPending: Int?,
-    val markedFailedPermanent: Int?,
-    val skipped: Int,
+    val movedToPending: Int = 0,
+    val markedFailedPermanent: Int = 0,
+    val skippedUnresolved: Int = 0,
+    val resolverFailures: Int = 0,
 )

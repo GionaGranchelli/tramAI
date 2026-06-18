@@ -26,6 +26,7 @@ class DefaultSovereignOpsAuditOutboxOperations(
     private val outboxStore: SovereignOpsAuditOutboxStore,
     private val outboxDispatcher: SovereignOpsAuditOutboxDispatcher?,
     private val properties: SovereignOpsProperties,
+    private val recoveryResolver: SovereignOpsApprovalRecoveryResolver,
 ) : SovereignOpsAuditOutboxOperations {
 
     private companion object {
@@ -89,6 +90,60 @@ class DefaultSovereignOpsAuditOutboxOperations(
             errorCode = "operator-marked-prepared-failed",
             retryable = false,
         ).toSummary()
+    }
+
+    override suspend fun recoverPrepared(limit: Int?): SovereignOpsAuditOutboxRecoverySummary {
+        if (!properties.mutationsEnabled) {
+            throw IllegalStateException("tramai-sovereign-ops-mutations-disabled")
+        }
+
+        val boundedLimit = validateLimit(limit)
+        val prepared = outboxStore.listByStatus(SovereignOpsAuditOutboxStatus.PREPARED, boundedLimit)
+
+        var movedToPending = 0
+        var markedFailedPermanent = 0
+        var skippedUnresolved = 0
+        var resolverFailures = 0
+
+        for (record in prepared) {
+            try {
+                when (recoveryResolver.resolvePreparedOutboxRecord(record)) {
+                    SovereignOpsPreparedRecoveryDecision.COMMITTED_DENIED -> {
+                        outboxStore.markReadyForDispatch(
+                            outboxId = record.outboxId,
+                            expectedStatus = SovereignOpsAuditOutboxStatus.PREPARED,
+                        )
+                        movedToPending++
+                    }
+
+                    SovereignOpsPreparedRecoveryDecision.NOT_COMMITTED -> {
+                        outboxStore.markFailed(
+                            outboxId = record.outboxId,
+                            expectedStatus = SovereignOpsAuditOutboxStatus.PREPARED,
+                            errorCode = "prepared-recovery-not-committed",
+                            retryable = false,
+                        )
+                        markedFailedPermanent++
+                    }
+
+                    SovereignOpsPreparedRecoveryDecision.UNKNOWN -> {
+                        skippedUnresolved++
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RuntimeException) {
+                resolverFailures++
+            }
+        }
+
+        return SovereignOpsAuditOutboxRecoverySummary(
+            inspected = prepared.size,
+            movedToPending = movedToPending,
+            markedFailedPermanent = markedFailedPermanent,
+            skippedUnresolved = skippedUnresolved,
+            resolverFailures = resolverFailures,
+        )
     }
 
     private suspend fun listAcrossStatuses(limit: Int): List<SovereignOpsAuditOutboxRecord> {
