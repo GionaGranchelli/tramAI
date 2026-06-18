@@ -1,40 +1,50 @@
-# TramAI — AI That Respects Your Code
+# TramAI — Governed AI Workflows for the JVM
 
 [![CI](https://github.com/GionaGranchelli/tramAI/actions/workflows/ci.yml/badge.svg)](https://github.com/GionaGranchelli/tramAI/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.3.0-blue.svg?logo=kotlin)](http://kotlinlang.org)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.5-brightgreen.svg?logo=springboot)](https://spring.io/projects/spring-boot)
 
-TramAI is a structured-first, observability-native AI workflow library for the JVM. It lets you add AI capabilities through typed interface methods instead of chain DSLs, agent frameworks, or stringly-typed prompt plumbing.
+TramAI is a **Kotlin-first JVM runtime for governed AI workflows**. It helps teams build AI-powered systems where model calls, tool usage, approvals, data handling, routing, replay-safety, and auditability are treated as first-class runtime concerns rather than scattered application code.
 
-## The Problem
+> **Status: active development.** The current `master` branch contains several unreleased sovereign-runtime capabilities. APIs may change before the next tagged release. This README describes the current architectural direction, not a frozen public API.
 
-You want AI in your JVM application. What you usually get:
+## Why TramAI Exists
 
-- Raw strings instead of domain types
-- Framework-centric abstractions that flatten your service boundaries
-- Tool or provider misconfiguration discovered only at runtime
-- Tests that depend on live models, network calls, or brittle mocks
-- Observability bolted on after the fact
+Calling an LLM is the easy part.
 
-TramAI takes the opposite approach: AI calls should look like normal method calls. Typed inputs. Typed outputs. Explicit configuration. Deterministic tests. Loud failures when correctness cannot be guaranteed.
+Enterprise AI workflows also need:
 
-> TramAI treats an AI call like an HTTP client call. The proxy converts your interface arguments to messages, dispatches through the engine, maps the response, and records standard OTel spans. No background loops, no hidden state, no magic.
+- policy enforcement
+- data classification and DLP/redaction
+- approval boundaries for high-risk operations
+- replay-safe continuation after suspension
+- local-vs-cloud routing as a security decision
+- audit trails with tamper-evident sequencing
+- durable operational recovery after restarts
+- evidence that sensitive work stayed inside the allowed trust zone
 
-## Customer Support Agent in 20 Lines
+TramAI exists to make those concerns explicit, testable, and composable in JVM applications.
+
+## Core Capabilities
+
+| Capability | What it means |
+|---|---|
+| Typed AI services | Define AI operations through Kotlin/JVM interfaces — typed inputs, typed outputs. |
+| Structured output | Keep model responses shaped and validated by application contracts. |
+| Policy enforcement | Apply runtime rules before sensitive AI/tool operations execute. |
+| DLP/redaction | Prevent sensitive data from leaking into prompts, logs, replay envelopes, or audit views. |
+| Approval gates | Suspend risky operations until an explicit approval decision is made. |
+| Replay-safe resume | Resume suspended invocations without trusting mutable/raw replay payloads. |
+| Sovereign routing | Route restricted workloads to local/trusted model zones and deny unsafe routes. |
+| Model registry verification | Verify local model artifacts before they can be used. |
+| Audit chain | Record governance-relevant events with tamper-evident sequencing. |
+| Encrypted file-backed persistence | Durable encrypted stores for approvals, suspended invocations, audit streams, and outbox records. |
+| Audit outbox recovery | Persist audit emission intent and safely recover/dispatch it via a configurable background worker. |
+
+## Quick Example
 
 ```kotlin
-import dev.tramai.core.annotations.AiService
-import dev.tramai.core.annotations.AiDescription
-import dev.tramai.core.annotations.Operation
-import dev.tramai.core.annotations.System as SystemMessage
-import dev.tramai.core.annotations.User as UserMessage
-import dev.tramai.core.model.ToolExecutionContext
-import dev.tramai.core.model.TramaiTool
-import dev.tramai.ollama.OllamaProvider
-import dev.tramai.standalone.Tramai
-import dev.tramai.standalone.create
-
 @AiService
 interface SupportAgent {
     @SystemMessage("You are a Tier-1 support agent. Be concise.")
@@ -48,93 +58,113 @@ data class Response(
     @AiDescription("Action taken, if any") val action: String? = null
 )
 
-val lookupOrderTool = object : TramaiTool<String, String> {
-    override val name = "lookupOrder"
-    override val description = "Look up an order by ID"
-    override val inputType = String::class
-    override suspend fun execute(input: String, ctx: ToolExecutionContext): String =
-        "Order $input: shipped on 2026-04-15"
-}
+val agent = Tramai.builder()
+    .provider(OllamaProvider("http://localhost:11434"), default = true)
+    .model("gemma4:e2b", "ollama")
+    .tools(lookupOrderTool)
+    .build()
+    .create<SupportAgent>()
 
-suspend fun main() {
-    val agent = Tramai.builder()
-        .provider(OllamaProvider("http://localhost:11434"), default = true)
-        .model("gemma4:e2b", "ollama")
-        .tools(lookupOrderTool)
-        .build()
-        .create<SupportAgent>()
-
-    val result = agent.handle("Where is my order #ORD-42?")
-    println(result.answer) // "Your order ORD-42 was shipped on April 15."
-}
+val result = agent.handle("Where is my order #ORD-42?")
+println(result.answer)
 ```
 
-Run it with `ollama pull gemma4:e2b`. No API key needed.
+One annotated interface, typed output, local model execution with tool calling. No framework dictating your architecture.
 
-What this shows:
+## Architecture Snapshot
 
-- One annotated interface as the primary AI abstraction
-- Structured output by returning a `data class`
-- Tool calling with startup validation
-- Local model execution with no framework requirement
+TramAI is organized into focused Gradle modules:
 
-If `lookupOrder` is missing, proxy creation fails with `ConfigurationException` before any request is sent, so no tokens are burned on a broken setup.
+### Core Library
 
-## What TramAI Provides
+| Module | Purpose |
+|---|---|
+| `tramai-core` | Annotations, contracts, SPIs |
+| `tramai-engine` | Proxy dispatch, execution, retry, tool calling |
+| `tramai-standalone` | Framework-free entry point |
+| `tramai-spring` | Spring Boot auto-configuration |
+| `tramai-structured` | JSON Schema generation and structured output validation |
+| `tramai-testing` | Deterministic mock providers and assertions |
 
-| You write | TramAI handles |
-|-----------|---------------|
-| `@AiService` interface | Proxy generation at startup |
-| `@Operation(model = "...")` | Provider resolution, retry, circuit breaker |
-| `data class Response(...)` | Schema generation, structured output, validation |
-| `tools = ["lookupOrder"]` | Tool validation at proxy creation |
-| `Flow<StreamChunk>` return type | Streaming with backpressure |
-| `suspend fun ask(): MyType` | Coroutine dispatch and response mapping |
+### Provider Adapters
 
-## Why Teams Pick It
+| Module | Purpose |
+|---|---|
+| `tramai-ollama` | Local models via Ollama |
+| `tramai-openai` | OpenAI and compatible APIs |
+| `tramai-anthropic` | Claude via Anthropic API |
+| `tramai-azure-openai` | Azure OpenAI API |
+| `tramai-bedrock` | AWS Bedrock |
+| `tramai-gemini` | Google Gemini API |
+| `tramai-deepseek` | DeepSeek API |
 
-| Dimension | Spring AI / LangChain4j | TramAI |
-|-----------|--------------------------|--------|
-| Structured output | Optional adapter | **Default** for non-`String` returns |
-| Provider routing | Heuristic model parsing | **Explicit** registry |
-| Tool validation | None | **Fail-loudly at proxy creation** |
-| Provider fallback | Manual | **Automatic** with circuit breaker |
-| Token budgets | None | **Hard + soft limits** per operation |
-| Response caching | None | **Per-operation** TTL-based |
-| Testability | Live model required | **Deterministic mocks** |
-| Failure testing | Non-deterministic integration tests | **Zero-network** `SimulatedFailureProvider` |
-| Observability | Micrometer (framework-bound) | **Optional** OTel module |
-| Framework coupling | Required | **Optional** standalone or Spring |
+### Sovereign Runtime
 
-## Deterministic Testing
+| Module | Purpose |
+|---|---|
+| `tramai-security` | Policy enforcement, DLP, redaction, replay envelope safety |
+| `tramai-sovereign` | Trust zones, sovereign routing, local/cloud enforcement primitives |
+| `tramai-persistence-file` | Encrypted file-backed stores for approvals, continuations, audit, and outbox |
+| `tramai-spring-boot-starter-sovereign` | Sovereign runtime Spring Boot auto-configuration |
+| `tramai-spring-boot-starter-sovereign-ops` | Operational APIs for audit, approval, recovery, and outbox workflows |
+| `tramai-spring-boot-starter-sovereign-persistence-file` | File-backed persistence auto-configuration |
 
-`tramai-testing` gives you zero-network tests that prove retries, routing, and failure handling without a live model:
+### Optional Higher-Level Modules
 
-```kotlin
-val provider = SimulatedFailureProvider {
-    onMethod("summarize").retryableFailure("rate limited", statusCode = 429)
-    onMethod("summarize") respondWith "recovered summary"
-}
-val observer = RecordingOperationObserver()
-val tramai = Tramai {
-    provider(provider, default = true)
-    model("claude-sonnet-4-20250514", "simulated-failure")
-    observer(observer)
-}
-val service = tramai.create<TestRawService>()
+| Module | Purpose |
+|---|---|
+| `tramai-orchestration` | Typed workflow coordination, checkpoints, worker pools |
+| `tramai-observability` | OpenTelemetry spans and metrics (opt-in) |
+| `tramai-memory` | Chat memory implementations |
+| `tramai-rag` | Retrieval-augmented generation pipeline |
+| `tramai-embedding` | Embedding models |
+| `tramai-scheduler` | Cron and delay triggers |
+| `tramai-server` | HTTP API, webhooks, SSE |
+| `tramai-mcp` | MCP server adapter |
+| `tramai-platform` | Multi-tenancy, API keys, plugins |
+| `tramai-memory-store` | Durable chat memory storage |
+| `tramai-dashboard` | Vue 3 admin UI |
 
-val result = runBlocking { service.summarize("invoice-1") }
+## Sovereign Workflow Mental Model
 
-assertEquals("recovered summary", result)
-TramaiAssertions.assertThat(provider, observer)
-    .whenCalled("summarize")
-    .wasCalledTimes(2)
-    .andRetried(1)
-    .andObservedFailure(ProviderException::class)
-    .emittedProvider("simulated-failure")
+A typical governed workflow follows this pattern:
+
+```
+Input document
+  -> classify sensitivity
+  -> enforce policy
+  -> choose allowed model route (local or deny)
+  -> execute locally or deny
+  -> suspend for approval when needed
+  -> resume through replay-safe continuation
+  -> persist audit evidence
+  -> dispatch audit event through outbox
+  -> produce evidence/release artifacts
 ```
 
-That test proves exact retry count, provider routing, failure observation, and recovery, all without network access or flaky CI dependencies.
+Every step is an explicit runtime concern, not an afterthought.
+
+## Reference Example
+
+The `examples/sovereign-document-intelligence` module demonstrates an end-to-end sovereign workflow:
+
+```
+RESTRICTED document
+  -> LOCAL-only routing
+  -> policy enforcement
+  -> approval suspension
+  -> replay-safe resume
+  -> audit chain
+  -> evidence pack / release bundle
+```
+
+Run it from the repository root:
+
+```bash
+./gradlew :examples:sovereign-document-intelligence:run --args="--release-bundle-manifest=build/sovereign-release/release-artifacts-v1.json"
+```
+
+This is a reference workflow — not a production deployment template.
 
 ## Getting Started
 
@@ -149,100 +179,50 @@ dependencies {
 }
 ```
 
-```xml
-<!-- Maven -->
-<dependencyManagement>
-  <dependencies>
-    <dependency>
-      <groupId>dev.tramai</groupId>
-      <artifactId>tramai-bom</artifactId>
-      <version>0.3.1</version>
-      <type>pom</type>
-      <scope>import</scope>
-    </dependency>
-  </dependencies>
-</dependencyManagement>
-```
-
-Paths from here:
-
+More:
 - [Quickstart Guide](docs/guides/quickstart.md)
 - [Spring Boot Integration](docs/guides/spring-boot.md)
-- [Standalone Usage](docs/guides/standalone-usage.md)
 - [Testing Guide](docs/guides/testing.md)
-- [Module Guide](docs/module-guide.md)
 - [Architecture Overview](docs/architecture/overview.md)
-- [Docs Index](docs/README.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Project Status](docs/STATUS.md)
 
-## Modules
+## Project Status
 
-### Stable Consumer Modules
+TramAI is under **active development**.
 
-| Module | What it does | When to add |
-|--------|-------------|-------------|
-| `tramai-core` | Annotations, contracts, SPIs, capability API | Always (transitive) |
-| `tramai-engine` | Proxy dispatch, execution, retry | Always (transitive) |
-| `tramai-standalone` | Framework-free entry point | Non-Spring projects |
-| `tramai-spring` | Spring Boot auto-configuration | Spring Boot projects |
-| `tramai-structured` | JSON Schema generation and validation | Non-`String` return types |
-| `tramai-ollama` | Local AI via Ollama | Development or privacy-sensitive use |
-| `tramai-openai` | OpenAI and compatible APIs | Cloud deployment |
-| `tramai-azure-openai` | Azure OpenAI API | Enterprise Azure deployments |
-| `tramai-anthropic` | Claude via Anthropic API | Anthropic deployments |
-| `tramai-bedrock` | AWS Bedrock | AWS ecosystem |
-| `tramai-gemini` | Google Gemini API | GCP ecosystem |
-| `tramai-deepseek` | DeepSeek API | DeepSeek deployments |
-| `tramai-memory` | Chat memory implementations | Multi-turn context |
-| `tramai-orchestration` | Multi-step workflows and worker pool | Complex pipelines |
-| `tramai-rag` | Retrieval-augmented generation pipeline | Document-backed answers |
-| `tramai-embedding` | Embedding models | RAG and semantic search |
-| `tramai-vectorstore-spi` | Vector store abstractions | When storing embeddings |
-| `tramai-vectorstore-chroma` | ChromaDB adapter | Local or network vector store |
-| `tramai-vectorstore-pgvector` | PostgreSQL pgvector adapter | Relational vector search |
-| `tramai-observability` | OpenTelemetry spans and worker events | Distributed tracing |
-| `tramai-testing` | Mock providers and assertions | Test scope |
-| `tramai-bom` | Version alignment | Multi-module builds |
+The current `master` branch includes unreleased work around:
 
-### Runtime And Platform Modules
+- sovereign routing and trust zones
+- replay-safe approvals
+- encrypted file-backed persistence
+- local model artifact verification
+- audit chain and audit outbox storage
+- audit outbox recovery, dispatch, and background worker
+- evidence-generation examples
 
-| Module | What it does | Typical use |
-|--------|-------------|-------------|
-| `tramai-memory-store` **Experimental** | Durable chat memory storage and SPI support | Persisting memory beyond one JVM |
-| `tramai-scheduler` **Experimental** | Cron and delay triggers | Time-based workflows |
-| `tramai-server` **Experimental** | HTTP API, webhooks, SSE | Remote workflow execution |
-| `tramai-mcp` **Experimental** | MCP server adapter | MCP ecosystem integration |
-| `tramai-persistence-file` **Experimental** | Encrypted file-backed approval, continuation, and audit stores | Sovereign single-node persistence |
-| `tramai-platform` **Experimental** | Multi-tenancy, API keys, plugins | SaaS and governed deployments |
-| `tramai-dashboard` **Experimental** | Vue 3 admin UI | Visual operations |
+Until the next tagged release, APIs in these areas may change.
 
-## Feature Set
+### Not Yet Included
 
-Core library:
+The following are intentionally not claimed as complete:
 
-- `@AiService`, `@System`, `@User`, and `@Operation` annotations
-- Structured output with schema generation, validation, and retry feedback
-- Tool calling, streaming, retry, circuit breaker, and response caching
-- Multimodal support with capability validation before execution
-- Explicit provider registry instead of model-name heuristics
-- OpenTelemetry integration that remains opt-in at the dependency level
-- Deterministic testing through `tramai-testing`
+- stable 1.0 API
+- REST/Actuator operational endpoints
+- metrics integration
+- database-backed outbox or persistence
+- distributed worker leader election
+- key rotation
+- full production deployment guide
+- complete API reference documentation
 
-Runtime and operations:
+## Development Commands
 
-- Token-aware and persistent memory implementations
-- RAG ingestion, chunking, embeddings, retrieval, and vector stores
-- Typed workflow orchestration with checkpoint and resume behavior
-- Worker pool execution with leases, fencing, and graceful shutdown
-- Scheduling, server, MCP, platform, audit, and dashboard modules
-
-These higher-level runtime capabilities are intentionally optional. The core TramAI story remains typed `@AiService` contracts, explicit provider routing, structured output, and opt-in observability.
-
-## Documentation And Roadmap
-
-- [Documentation](docs/README.md)
-- [Getting Started](docs/guides/getting-started.md)
-- [Changelog](CHANGELOG.md)
-- [Roadmap](ROADMAP.md)
+```bash
+./gradlew test                     # full test suite
+./gradlew test --rerun-tasks       # full test suite (no cache)
+./gradlew publishToMavenLocal      # publish to local Maven repository
+```
 
 ## License
 
