@@ -98,6 +98,44 @@ class SovereignOpsAuditOutboxBackgroundWorkerTest {
     }
 
     @Test
+    fun `runOnce catches non-runtime Exception and returns failure summary`() {
+        val worker = SovereignOpsAuditOutboxBackgroundWorker(
+            operations = TrackingOutboxOperations(
+                recoverFailure = java.io.IOException("file error /secret/path"),
+            ),
+            properties = SovereignOpsOutboxWorkerProperties(),
+        )
+
+        val summary = runBlocking { worker.runOnce() }
+
+        assertThat(summary.recovered).isNull()
+        assertThat(summary.dispatched).isNull()
+        val failure = summary.failure ?: error("expected failure summary")
+        assertThat(failure.action).isEqualTo("recoverPrepared")
+        assertThat(failure.errorCode).isEqualTo("IOException")
+        assertThat(failure.errorCode).doesNotContain("secret")
+    }
+
+    @Test
+    fun `runOnce catches non-runtime Exception from dispatch and returns failure summary`() {
+        val worker = SovereignOpsAuditOutboxBackgroundWorker(
+            operations = TrackingOutboxOperations(
+                dispatchFailure = java.io.IOException("dispatch I/O error /tmp/secret"),
+            ),
+            properties = SovereignOpsOutboxWorkerProperties(),
+        )
+
+        val summary = runBlocking { worker.runOnce() }
+
+        assertThat(summary.recovered).isNotNull
+        assertThat(summary.dispatched).isNull()
+        val failure = summary.failure ?: error("expected failure summary")
+        assertThat(failure.action).isEqualTo("dispatchPending")
+        assertThat(failure.errorCode).isEqualTo("IOException")
+        assertThat(failure.errorCode).doesNotContain("secret")
+    }
+
+    @Test
     fun `lifecycle validation rejects zero batch size`() {
         val ex = runCatching {
             validateSovereignOpsAuditOutboxWorkerProperties(
@@ -213,6 +251,7 @@ class SovereignOpsAuditOutboxBackgroundWorkerTest {
 
 private class TrackingOutboxOperations(
     private val recoverFailure: Throwable? = null,
+    private val dispatchFailure: Throwable? = null,
 ) : SovereignOpsAuditOutboxOperations {
     val calls = mutableListOf<String>()
 
@@ -222,6 +261,7 @@ private class TrackingOutboxOperations(
     ): List<SovereignOpsAuditOutboxSummary> = emptyList()
 
     override suspend fun retryPending(limit: Int?): SovereignOpsAuditOutboxDispatchResult {
+        dispatchFailure?.let { throw it }
         calls += "dispatch:$limit"
         return SovereignOpsAuditOutboxDispatchResult(
             claimed = 1,

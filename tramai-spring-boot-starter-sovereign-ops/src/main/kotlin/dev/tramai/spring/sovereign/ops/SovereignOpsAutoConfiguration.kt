@@ -18,6 +18,7 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxOperations
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerLifecycle
 import dev.tramai.spring.sovereign.ops.outbox.UnknownSovereignOpsApprovalRecoveryResolver
+import dev.tramai.spring.sovereign.ops.outbox.validateSovereignOpsAuditOutboxWorkerProperties
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
@@ -162,15 +163,23 @@ class SovereignOpsAutoConfiguration {
         properties: SovereignOpsProperties,
         outboxDispatcher: ObjectProvider<SovereignOpsAuditOutboxDispatcher>,
     ): SovereignOpsAuditOutboxBackgroundWorker {
-        val workerProps = properties.outbox.worker
-        if (workerProps.dispatchPending && workerProps.failOnMissingDispatcher) {
-            if (outboxDispatcher.ifAvailable == null) {
+        val rawProps = properties.outbox.worker
+        val dispatcherAvailable = outboxDispatcher.ifAvailable != null
+
+        val effectiveWorkerProps = if (rawProps.dispatchPending && !dispatcherAvailable) {
+            if (rawProps.failOnMissingDispatcher) {
                 throw IllegalStateException("tramai-sovereign-ops-outbox-worker-missing-dispatcher")
             }
+            rawProps.copy(dispatchPending = false)
+        } else {
+            rawProps
         }
+
+        validateSovereignOpsAuditOutboxWorkerProperties(effectiveWorkerProps)
+
         return SovereignOpsAuditOutboxBackgroundWorker(
             operations = operations,
-            properties = workerProps,
+            properties = effectiveWorkerProps,
         )
     }
 
@@ -184,11 +193,25 @@ class SovereignOpsAutoConfiguration {
     fun sovereignOpsAuditOutboxWorkerLifecycle(
         worker: SovereignOpsAuditOutboxBackgroundWorker,
         properties: SovereignOpsProperties,
-    ): SovereignOpsAuditOutboxWorkerLifecycle =
-        SovereignOpsAuditOutboxWorkerLifecycle(
+        outboxDispatcher: ObjectProvider<SovereignOpsAuditOutboxDispatcher>,
+    ): SovereignOpsAuditOutboxWorkerLifecycle {
+        val rawProps = properties.outbox.worker
+        val dispatcherAvailable = outboxDispatcher.ifAvailable != null
+
+        val effectiveWorkerProps = if (rawProps.dispatchPending && !dispatcherAvailable) {
+            if (rawProps.failOnMissingDispatcher) {
+                throw IllegalStateException("tramai-sovereign-ops-outbox-worker-missing-dispatcher")
+            }
+            rawProps.copy(dispatchPending = false)
+        } else {
+            rawProps
+        }
+
+        return SovereignOpsAuditOutboxWorkerLifecycle(
             worker = worker,
-            properties = properties.outbox.worker,
+            properties = effectiveWorkerProps,
         )
+    }
 
     @Bean
     @ConditionalOnMissingBean

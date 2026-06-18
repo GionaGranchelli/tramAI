@@ -37,11 +37,19 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
 
             while (running) {
                 try {
-                    worker.runOnce()
+                    val summary = worker.runOnce()
+                    summary.failure?.let {
+                        logger.warn(
+                            "Sovereign ops audit outbox worker cycle failed: action=${it.action}, errorCode=${it.errorCode}",
+                        )
+                    }
                 } catch (e: CancellationException) {
                     throw e
-                } catch (_: Exception) {
-                    // Runtime failures must not kill the background loop.
+                } catch (e: Exception) {
+                    logger.warn(
+                        "Sovereign ops audit outbox worker cycle failed unexpectedly: " +
+                            "errorCode=${e::class.simpleName ?: "Exception"}",
+                    )
                 }
 
                 if (running) {
@@ -62,7 +70,7 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
     override fun getPhase(): Int = 0
 }
 
-internal fun validateSovereignOpsAuditOutboxWorkerProperties(
+fun validateSovereignOpsAuditOutboxWorkerProperties(
     properties: SovereignOpsOutboxWorkerProperties,
 ) {
     require(!properties.interval.isZero && !properties.interval.isNegative) {

@@ -36,6 +36,8 @@ class SovereignOpsAuditOutboxBackgroundWorker(
                 throw e
             } catch (e: RuntimeException) {
                 failure = e.toFailureSummary(action = "recoverPrepared")
+            } catch (e: Exception) {
+                failure = e.toFailureSummary(action = "recoverPrepared")
             }
         }
 
@@ -45,6 +47,8 @@ class SovereignOpsAuditOutboxBackgroundWorker(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RuntimeException) {
+                failure = e.toFailureSummary(action = "dispatchPending")
+            } catch (e: Exception) {
                 failure = e.toFailureSummary(action = "dispatchPending")
             }
         }
@@ -58,12 +62,12 @@ class SovereignOpsAuditOutboxBackgroundWorker(
         )
     }
 
-    private fun RuntimeException.toFailureSummary(
+    private fun Throwable.toFailureSummary(
         action: String,
     ): SovereignOpsAuditOutboxWorkerFailureSummary =
         SovereignOpsAuditOutboxWorkerFailureSummary(
             action = action,
-            errorCode = this::class.simpleName ?: "RuntimeException",
+            errorCode = this::class.simpleName ?: "Exception",
         )
 }
 

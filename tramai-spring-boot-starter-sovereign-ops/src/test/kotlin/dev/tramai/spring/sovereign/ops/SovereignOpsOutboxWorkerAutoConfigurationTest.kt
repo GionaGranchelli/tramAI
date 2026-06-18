@@ -55,6 +55,7 @@ class SovereignOpsOutboxWorkerAutoConfigurationTest {
         contextRunner
             .withUserConfiguration(
                 MinimalStoreConfig::class.java,
+                TestAuditEngineConfig::class.java,
                 CustomOutboxBackgroundWorkerConfig::class.java,
             )
             .withPropertyValues(
@@ -96,6 +97,50 @@ class SovereignOpsOutboxWorkerAutoConfigurationTest {
             .run { ctx ->
                 assertThat(ctx).hasNotFailed()
                 assertThat(ctx).hasSingleBean(SovereignOpsAuditOutboxBackgroundWorker::class.java)
+            }
+    }
+
+    @Test
+    fun `missing dispatcher with failOnMissingDispatcher false skips dispatch and runs recovery only`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .withPropertyValues(
+                "tramai.sovereign.ops.outbox.worker.enabled=true",
+                "tramai.sovereign.ops.outbox.worker.initial-delay=1h",
+                "tramai.sovereign.ops.outbox.worker.fail-on-missing-dispatcher=false",
+                "tramai.sovereign.ops.outbox.worker.recover-prepared=true",
+                "tramai.sovereign.ops.outbox.worker.dispatch-pending=true",
+                "tramai.sovereign.ops.mutations-enabled=true",
+            )
+            .run { ctx ->
+                assertThat(ctx).hasNotFailed()
+                val worker = ctx.getBean(SovereignOpsAuditOutboxBackgroundWorker::class.java)
+                // Run once — should only recover, not dispatch
+                val summary = runBlocking { worker.runOnce() }
+                assertThat(summary.recovered).isNotNull
+                assertThat(summary.dispatched).isNull()
+                // Check that dispatch was skipped (retryPending would throw without dispatcher)
+                assertThat(summary.failure).isNull()
+            }
+    }
+
+    @Test
+    fun `missing dispatcher with both actions disabled but failOnMissingDispatcher false fails validation`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .withPropertyValues(
+                "tramai.sovereign.ops.outbox.worker.enabled=true",
+                "tramai.sovereign.ops.outbox.worker.initial-delay=1h",
+                "tramai.sovereign.ops.outbox.worker.fail-on-missing-dispatcher=false",
+                "tramai.sovereign.ops.outbox.worker.recover-prepared=false",
+                "tramai.sovereign.ops.outbox.worker.dispatch-pending=true",
+            )
+            .run { ctx ->
+                // dispatch-pending gets set to false because dispatcher missing,
+                // then both actions are disabled -> validation fails
+                assertThat(ctx).hasFailed()
+                assertThat(ctx.startupFailure)
+                    .hasMessageContaining("tramai-sovereign-ops-outbox-worker-invalid-actions")
             }
     }
 
