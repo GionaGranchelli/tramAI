@@ -9,11 +9,13 @@ import dev.tramai.spring.sovereign.ops.outbox.DefaultSovereignOpsAuditDigestServ
 import dev.tramai.spring.sovereign.ops.outbox.DefaultSovereignOpsAuditOutboxOperations
 import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsAuditOutboxStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRecoveryResolver
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditDigestService
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxDispatcher
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxOperations
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
+import dev.tramai.spring.sovereign.ops.outbox.UnknownSovereignOpsApprovalRecoveryResolver
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
@@ -128,14 +130,21 @@ class SovereignOpsAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    fun sovereignOpsApprovalRecoveryResolver(): SovereignOpsApprovalRecoveryResolver =
+        UnknownSovereignOpsApprovalRecoveryResolver
+
+    @Bean
+    @ConditionalOnMissingBean
     fun sovereignOpsAuditOutboxOperations(
         outboxStore: SovereignOpsAuditOutboxStore,
         outboxDispatcher: ObjectProvider<SovereignOpsAuditOutboxDispatcher>,
+        recoveryResolver: SovereignOpsApprovalRecoveryResolver,
         properties: SovereignOpsProperties,
     ): SovereignOpsAuditOutboxOperations =
         DefaultSovereignOpsAuditOutboxOperations(
             outboxStore = outboxStore,
             outboxDispatcher = outboxDispatcher.ifAvailable,
+            recoveryResolver = recoveryResolver,
             properties = properties,
         )
 

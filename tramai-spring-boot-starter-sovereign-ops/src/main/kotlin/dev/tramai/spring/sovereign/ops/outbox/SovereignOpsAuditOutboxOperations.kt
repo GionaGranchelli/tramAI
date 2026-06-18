@@ -4,7 +4,8 @@ package dev.tramai.spring.sovereign.ops.outbox
  * Operational interface for inspecting and managing the audit outbox.
  *
  * Provides visibility into all outbox states, retry of dispatchable records,
- * and manual terminal marking for stuck PREPARED records.
+ * automatic reconciliation, and manual terminal marking for stuck PREPARED
+ * records.
  *
  * ## Security invariants
  * All returned summaries use safe DTOs that expose only digested identifiers
@@ -14,10 +15,10 @@ package dev.tramai.spring.sovereign.ops.outbox
  * ## Capabilities
  * - **Visibility**: List records by status or across all statuses
  * - **Retry**: Re-dispatch PENDING and FAILED_RETRYABLE records
+ * - **Recovery**: Reconcile stuck PREPARED records using a configured resolver
  * - **Manual terminal marking**: Close orphan PREPARED records as FAILED_PERMANENT
  *
  * ## Non-goals (in this interface)
- * - Automatic PREPARED reconciliation (planned for a future PR)
  * - Background retry scheduling
  * - REST/Actuator endpoints
  */
@@ -75,4 +76,24 @@ interface SovereignOpsAuditOutboxOperations {
         outboxId: String,
         reason: String,
     ): SovereignOpsAuditOutboxSummary
+
+    /**
+     * Reconcile stuck PREPARED outbox records using the configured
+     * [SovereignOpsApprovalRecoveryResolver].
+     *
+     * For each PREPARED record:
+     * - [SovereignOpsPreparedRecoveryDecision.COMMITTED_DENIED] -> markReadyForDispatch
+     * - [SovereignOpsPreparedRecoveryDecision.NOT_COMMITTED] -> markFailed with fixed error code
+     * - [SovereignOpsPreparedRecoveryDecision.UNKNOWN] -> skip
+     * - Resolver exception -> skip, count in resolverFailures
+     *
+     * Does NOT require a dispatcher -- recovery only moves PREPARED to PENDING
+     * (or FAILED_PERMANENT). Actual dispatch happens via [retryPending].
+     *
+     * @param limit Max records to inspect. Defaults to 100, max 500.
+     * @return Summary of the recovery operation.
+     * @throws IllegalStateException if mutations are disabled.
+     * @throws kotlinx.coroutines.CancellationException if the coroutine is cancelled.
+     */
+    suspend fun recoverPrepared(limit: Int?): SovereignOpsAuditOutboxRecoverySummary
 }

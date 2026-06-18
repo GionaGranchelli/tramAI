@@ -7,6 +7,8 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Primary
 import java.time.Instant
 
 class SovereignOpsAuditOutboxOperationsTest {
@@ -264,6 +266,312 @@ class SovereignOpsAuditOutboxOperationsTest {
             }
     }
 
+    // -- recoverPrepared tests ------------------------------------------------
+
+    @Test
+    fun `recoverPrepared requires mutations enabled`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+            )
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignOpsAuditOutboxOperations::class.java)
+
+                val ex = runCatching {
+                    runBlocking { ops.recoverPrepared(limit = 10) }
+                }.exceptionOrNull()
+
+                assertThat(ex).hasMessageContaining("tramai-sovereign-ops-mutations-disabled")
+            }
+    }
+
+    @Test
+    fun `recoverPrepared with default resolver skips prepared records as unresolved`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignOpsAuditOutboxOperations::class.java)
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+
+                runBlocking {
+                    outboxStore.append(record("prepared-1", SovereignOpsAuditOutboxStatus.PREPARED))
+                    outboxStore.append(record("prepared-2", SovereignOpsAuditOutboxStatus.PREPARED))
+                }
+
+                val summary = runBlocking { ops.recoverPrepared(limit = 10) }
+
+                assertThat(summary.inspected).isEqualTo(2)
+                assertThat(summary.movedToPending).isEqualTo(0)
+                assertThat(summary.markedFailedPermanent).isEqualTo(0)
+                assertThat(summary.skippedUnresolved).isEqualTo(2)
+                assertThat(summary.resolverFailures).isEqualTo(0)
+            }
+    }
+
+    @Test
+    fun `recoverPrepared moves committed denied records to pending`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+                CommittedDeniedResolverConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignOpsAuditOutboxOperations::class.java)
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+
+                runBlocking {
+                    outboxStore.append(record("prepared-1", SovereignOpsAuditOutboxStatus.PREPARED))
+                }
+
+                val summary = runBlocking { ops.recoverPrepared(limit = 10) }
+                val stored = runBlocking { outboxStore.get("prepared-1") }
+
+                assertThat(summary.inspected).isEqualTo(1)
+                assertThat(summary.movedToPending).isEqualTo(1)
+                assertThat(stored!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
+            }
+    }
+
+    @Test
+    fun `recoverPrepared marks not committed records as permanently failed with fixed error code`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+                NotCommittedResolverConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignOpsAuditOutboxOperations::class.java)
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+
+                runBlocking {
+                    outboxStore.append(record("prepared-1", SovereignOpsAuditOutboxStatus.PREPARED))
+                }
+
+                val summary = runBlocking { ops.recoverPrepared(limit = 10) }
+                val stored = runBlocking { outboxStore.get("prepared-1") }
+
+                assertThat(summary.inspected).isEqualTo(1)
+                assertThat(summary.markedFailedPermanent).isEqualTo(1)
+                assertThat(stored!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.FAILED_PERMANENT)
+                assertThat(stored.lastErrorCode).isEqualTo("prepared-recovery-not-committed")
+            }
+    }
+
+    @Test
+    fun `recoverPrepared not committed uses fixed safe error code without sensitive text`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+                NotCommittedResolverConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignOpsAuditOutboxOperations::class.java)
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+
+                runBlocking {
+                    outboxStore.append(record("prepared-1", SovereignOpsAuditOutboxStatus.PREPARED))
+                }
+
+                runBlocking { ops.recoverPrepared(limit = 10) }
+                val stored = runBlocking { outboxStore.get("prepared-1") }
+
+                assertThat(stored!!.lastErrorCode).doesNotContain("/private/path")
+                assertThat(stored.lastErrorCode).doesNotContain("user@example.com")
+                assertThat(stored.lastErrorCode).isEqualTo("prepared-recovery-not-committed")
+            }
+    }
+
+    @Test
+    fun `recoverPrepared does not touch pending records`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+                CommittedDeniedResolverConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignOpsAuditOutboxOperations::class.java)
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+
+                runBlocking {
+                    outboxStore.append(record("pending", SovereignOpsAuditOutboxStatus.PREPARED))
+                    outboxStore.markReadyForDispatch("pending", SovereignOpsAuditOutboxStatus.PREPARED)
+                }
+
+                val summary = runBlocking { ops.recoverPrepared(limit = 10) }
+                val stored = runBlocking { outboxStore.get("pending") }
+
+                assertThat(summary.inspected).isEqualTo(0)
+                assertThat(stored!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
+            }
+    }
+
+    @Test
+    fun `recoverPrepared does not touch emitted records`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+                CommittedDeniedResolverConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignOpsAuditOutboxOperations::class.java)
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+
+                runBlocking {
+                    outboxStore.append(record("emitted", SovereignOpsAuditOutboxStatus.PREPARED))
+                    outboxStore.markReadyForDispatch("emitted", SovereignOpsAuditOutboxStatus.PREPARED)
+                    val claimed = outboxStore.claimPending("test", 10, Instant.now())
+                    for (c in claimed) {
+                        outboxStore.markEmitted(c.outboxId, SovereignOpsAuditOutboxStatus.EMITTING, Instant.now())
+                    }
+                }
+
+                val summary = runBlocking { ops.recoverPrepared(limit = 10) }
+
+                assertThat(summary.inspected).isEqualTo(0)
+            }
+    }
+
+    @Test
+    fun `recoverPrepared respects limit`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+                CommittedDeniedResolverConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignOpsAuditOutboxOperations::class.java)
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+
+                runBlocking {
+                    outboxStore.append(record("p1", SovereignOpsAuditOutboxStatus.PREPARED))
+                    outboxStore.append(record("p2", SovereignOpsAuditOutboxStatus.PREPARED))
+                    outboxStore.append(record("p3", SovereignOpsAuditOutboxStatus.PREPARED))
+                }
+
+                val summary = runBlocking { ops.recoverPrepared(limit = 2) }
+
+                assertThat(summary.inspected).isEqualTo(2)
+                assertThat(summary.movedToPending).isEqualTo(2)
+            }
+    }
+
+    @Test
+    fun `recoverPrepared rejects invalid limit`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignOpsAuditOutboxOperations::class.java)
+
+                val ex = runCatching {
+                    runBlocking { ops.recoverPrepared(limit = 0) }
+                }.exceptionOrNull()
+
+                assertThat(ex).hasMessageContaining("tramai-sovereign-ops-invalid-limit")
+            }
+    }
+
+    @Test
+    fun `recoverPrepared summary counts are correct for mixed decisions`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+                MixedDecisionResolverConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignOpsAuditOutboxOperations::class.java)
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+
+                runBlocking {
+                    outboxStore.append(record("p1", SovereignOpsAuditOutboxStatus.PREPARED))
+                    outboxStore.append(record("p2", SovereignOpsAuditOutboxStatus.PREPARED))
+                    outboxStore.append(record("p3", SovereignOpsAuditOutboxStatus.PREPARED))
+                }
+
+                val summary = runBlocking { ops.recoverPrepared(limit = 10) }
+
+                assertThat(summary.inspected).isEqualTo(3)
+                assertThat(summary.movedToPending).isEqualTo(1)
+                assertThat(summary.markedFailedPermanent).isEqualTo(1)
+                assertThat(summary.skippedUnresolved).isEqualTo(1)
+                assertThat(summary.resolverFailures).isEqualTo(0)
+            }
+    }
+
+    @Test
+    fun `recoverPrepared handles resolver RuntimeException without leaking exception message`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+                ThrowingResolverConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignOpsAuditOutboxOperations::class.java)
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+
+                runBlocking {
+                    outboxStore.append(record("prepared-1", SovereignOpsAuditOutboxStatus.PREPARED))
+                }
+
+                val summary = runBlocking { ops.recoverPrepared(limit = 10) }
+                val stored = runBlocking { outboxStore.get("prepared-1") }
+
+                assertThat(summary.inspected).isEqualTo(1)
+                assertThat(summary.movedToPending).isEqualTo(0)
+                assertThat(summary.resolverFailures).isEqualTo(1)
+                assertThat(stored!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.PREPARED)
+                assertThat(stored.lastErrorCode).isNull()
+            }
+    }
+
+    @Test
+    fun `recoverPrepared custom resolver bean is not overridden`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                DurableOutboxStoreConfig::class.java,
+                CustomRecoveryResolverConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.mutations-enabled=true")
+            .run { ctx ->
+                val ops = ctx.getBean(SovereignOpsAuditOutboxOperations::class.java)
+                val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
+
+                runBlocking {
+                    outboxStore.append(record("prepared-1", SovereignOpsAuditOutboxStatus.PREPARED))
+                }
+
+                val summary = runBlocking { ops.recoverPrepared(limit = 10) }
+
+                assertThat(summary.inspected).isEqualTo(1)
+                assertThat(summary.movedToPending).isEqualTo(1)
+            }
+    }
+
     private fun record(
         outboxId: String,
         status: SovereignOpsAuditOutboxStatus,
@@ -282,4 +590,54 @@ class SovereignOpsAuditOutboxOperationsTest {
             createdAt = Instant.parse("2026-06-01T00:00:00Z"),
             status = status,
         )
+}
+
+// -- Recovery resolver test configs -----------------------------------------
+
+class CommittedDeniedResolverConfig {
+    @Bean
+    open fun committedDeniedResolver(): SovereignOpsApprovalRecoveryResolver =
+        SovereignOpsApprovalRecoveryResolver { _ ->
+            SovereignOpsPreparedRecoveryDecision.COMMITTED_DENIED
+        }
+}
+
+class NotCommittedResolverConfig {
+    @Bean
+    open fun notCommittedResolver(): SovereignOpsApprovalRecoveryResolver =
+        SovereignOpsApprovalRecoveryResolver { _ ->
+            SovereignOpsPreparedRecoveryDecision.NOT_COMMITTED
+        }
+}
+
+class MixedDecisionResolverConfig {
+    private var counter = 0
+
+    @Bean
+    open fun mixedDecisionResolver(): SovereignOpsApprovalRecoveryResolver =
+        SovereignOpsApprovalRecoveryResolver { _ ->
+            val current = counter++
+            when {
+                current == 0 -> SovereignOpsPreparedRecoveryDecision.COMMITTED_DENIED
+                current == 1 -> SovereignOpsPreparedRecoveryDecision.NOT_COMMITTED
+                else -> SovereignOpsPreparedRecoveryDecision.UNKNOWN
+            }
+        }
+}
+
+class ThrowingResolverConfig {
+    @Bean
+    open fun throwingResolver(): SovereignOpsApprovalRecoveryResolver =
+        SovereignOpsApprovalRecoveryResolver { _ ->
+            throw RuntimeException("test-resolver-error /private/path user@example.com")
+        }
+}
+
+class CustomRecoveryResolverConfig {
+    @Bean
+    @Primary
+    open fun customRecoveryResolver(): SovereignOpsApprovalRecoveryResolver =
+        SovereignOpsApprovalRecoveryResolver { _ ->
+            SovereignOpsPreparedRecoveryDecision.COMMITTED_DENIED
+        }
 }
