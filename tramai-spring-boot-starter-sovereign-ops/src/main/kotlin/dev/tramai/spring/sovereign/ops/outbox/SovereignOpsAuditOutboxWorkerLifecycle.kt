@@ -13,6 +13,7 @@ import org.springframework.context.SmartLifecycle
 class SovereignOpsAuditOutboxWorkerLifecycle(
     private val worker: SovereignOpsAuditOutboxBackgroundWorker,
     private val properties: SovereignOpsOutboxWorkerProperties,
+    private val observer: SovereignOpsAuditOutboxWorkerObserver = SovereignOpsAuditOutboxWorkerObserver.Noop,
 ) : SmartLifecycle {
 
     private val logger = LogFactory.getLog(SovereignOpsAuditOutboxWorkerLifecycle::class.java)
@@ -38,7 +39,9 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
             while (running) {
                 try {
                     val summary = worker.runOnce()
+                    observer.onCycleCompleted(summary)
                     summary.failure?.let {
+                        observer.onCycleFailed(it.action, it.errorCode)
                         logger.warn(
                             "Sovereign ops audit outbox worker cycle failed: action=${it.action}, errorCode=${it.errorCode}",
                         )
@@ -46,9 +49,11 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
+                    val errorCode = e::class.simpleName ?: "Exception"
+                    observer.onCycleFailed("unexpected", errorCode)
                     logger.warn(
                         "Sovereign ops audit outbox worker cycle failed unexpectedly: " +
-                            "errorCode=${e::class.simpleName ?: "Exception"}",
+                            "errorCode=$errorCode",
                     )
                 }
 
