@@ -188,6 +188,53 @@ The task generates `build/sovereign-runtime-release/bundle-manifest.json`:
 | `signaturesPresent` | Whether .asc signatures were validated |
 | `modules[]` | List of validated modules with artifact paths, signatures, and checksums |
 
+## Sovereign Runtime Release-Candidate CI Gate
+
+The repository contains a dedicated workflow for validating the sovereign runtime release boundary:
+
+`.github/workflows/sovereign-runtime-release-candidate.yml`
+
+**Name:** Sovereign Runtime Release Candidate
+
+**Triggers:**
+
+- `workflow_dispatch` (manual) — no tag, no remote publish, no version bump
+- `pull_request` targeting release-critical paths (build config, sovereign modules, BOM, release docs, consumer smoke example)
+
+The workflow does **not** trigger on tags. It is a pre-publish validation gate, not the real publish workflow.
+
+**What it runs:**
+
+- `./gradlew test --rerun-tasks` — full test suite
+- `./gradlew verifyReleaseReadiness` — release metadata and artifact validation
+- `./gradlew verifySovereignRuntimePublication` — local sovereign runtime publishability
+- `./gradlew verifySovereignRuntimeSignedBundle` — signed bundle dry-run
+- `./gradlew -p examples/sovereign-runtime-consumer-smoke test` — consumer-resolution smoke
+- `./gradlew prepareSovereignReleaseArtifacts` — release artifact preparation
+- `./gradlew verifySovereignReleaseManifest` — manifest verification
+- `./gradlew :examples:sovereign-document-intelligence:run --args=...` — evidence document intelligence
+
+**What it uploads (GitHub Actions artifacts):**
+
+| Artifact | Source Path |
+|----------|-------------|
+| `sovereign-runtime-bundle-manifest` | `build/sovereign-runtime-release/bundle-manifest.json` |
+| `sovereign-runtime-local-maven-repo` | `build/sovereign-runtime-release-verification-repo/` |
+| `sovereign-release-artifacts` | `build/sovereign-release/release-artifacts-v1.json` + `build/sovereign-release/artifacts/` |
+
+**GitHub step summary:**
+
+After each run, the workflow writes a summary to `$GITHUB_STEP_SUMMARY` with:
+- Remote publish: false
+- Tag created: false
+- Version validated
+- Status of each gate
+- Uploaded artifact names
+
+**Run manually:**
+
+Go to the repository Actions tab, select **Sovereign Runtime Release Candidate**, and click **Run workflow**.
+
 ## Local Signed-Artifact Validation (All Modules)
 
 When you want to validate signing for ALL publishable modules locally without touching a real remote repository, publish to a file-based Maven repository and verify signatures there:

@@ -1,0 +1,90 @@
+name: Sovereign Runtime Release Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to validate. Leave empty to use gradle.properties."
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - "build.gradle.kts"
+      - "gradle.properties"
+      - "tramai-bom/**"
+      - "tramai-security/**"
+      - "tramai-sovereign/**"
+      - "tramai-persistence-file/**"
+      - "tramai-spring-boot-starter-sovereign/**"
+      - "tramai-spring-boot-starter-sovereign-persistence-file/**"
+      - "tramai-spring-boot-starter-sovereign-ops/**"
+      - "tramai-spring-boot-starter-sovereign-ops-observability/**"
+      - "examples/sovereign-runtime-consumer-smoke/**"
+      - "docs/releases/**"
+      - "docs/reference/releasing.md"
+      - ".github/workflows/sovereign-runtime-release-candidate.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TRAMAI_VERSION: ${{ github.event.inputs.version || '0.3.1-SNAPSHOT' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: \"25\"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run validation sequence
+        run: |
+          ./gradlew test --rerun-tasks --no-configuration-cache
+          ./gradlew verifyReleaseReadiness --no-configuration-cache
+          ./gradlew verifySovereignRuntimePublication --no-configuration-cache
+          ./gradlew verifySovereignRuntimeSignedBundle --no-configuration-cache
+          ./gradlew -p examples/sovereign-runtime-consumer-smoke test --no-configuration-cache
+          ./gradlew prepareSovereignReleaseArtifacts --no-configuration-cache
+          ./gradlew verifySovereignReleaseManifest --no-configuration-cache
+          ./gradlew :examples:sovereign-document-intelligence:run --args="--release-bundle-manifest=build/sovereign-release/release-artifacts-v1.json" --no-configuration-cache
+
+      - name: Upload bundle manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: sovereign-runtime-bundle-manifest
+          path: build/sovereign-runtime-release/bundle-manifest.json
+
+      - name: Upload local Maven repo bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: sovereign-runtime-local-maven-repo
+          path: build/sovereign-runtime-release-verification-repo/
+
+      - name: Upload sovereign release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sovereign-release-artifacts
+          path: |
+            build/sovereign-release/release-artifacts-v1.json
+            build/sovereign-release/artifacts/
+
+      - name: Write Summary
+        run: |
+          echo "## Sovereign Runtime Release Candidate" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Remote publish: false" >> $GITHUB_STEP_SUMMARY
+          echo "- Tag created: false" >> $GITHUB_STEP_SUMMARY
+          echo "- Version: $TRAMAI_VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "- Full tests: passed" >> $GITHUB_STEP_SUMMARY
+          echo "- Release readiness: passed" >> $GITHUB_STEP_SUMMARY
+          echo "- Local publication: passed" >> $GITHUB_STEP_SUMMARY
+          echo "- Signed bundle dry-run: passed" >> $GITHUB_STEP_SUMMARY
+          echo "- Consumer smoke: passed" >> $GITHUB_STEP_SUMMARY
+          echo "- Bundle manifest: uploaded" >> $GITHUB_STEP_SUMMARY

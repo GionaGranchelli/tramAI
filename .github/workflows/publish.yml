@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish or validate. Leave empty for 0.2.0-SNAPSHOT, or set a release like 0.2.0."
+        description: "Version to publish or validate. Leave empty to use the project default snapshot, or set a release like 0.3.1."
         required: false
         type: string
   push:
@@ -51,7 +51,7 @@ jobs:
           elif [[ -n "${{ github.event.inputs.version }}" ]]; then
             echo "TRAMAI_VERSION=${{ github.event.inputs.version }}" >> "$GITHUB_ENV"
           else
-            echo "TRAMAI_VERSION=0.2.0-SNAPSHOT" >> "$GITHUB_ENV"
+            echo "TRAMAI_VERSION=0.3.1" >> "$GITHUB_ENV"
           fi
 
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
