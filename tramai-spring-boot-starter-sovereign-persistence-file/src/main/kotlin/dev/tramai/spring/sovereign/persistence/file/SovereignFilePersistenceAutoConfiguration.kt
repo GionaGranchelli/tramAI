@@ -8,6 +8,7 @@ import dev.tramai.persistence.file.FileBackedStoreConfiguration
 import dev.tramai.persistence.file.FileStoreEncryptionConfiguration
 import dev.tramai.persistence.file.FileStoreEncryptionKeyProvider
 import dev.tramai.security.audit.AuditStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
 import org.springframework.boot.autoconfigure.AutoConfiguration
@@ -131,4 +132,26 @@ class SovereignFilePersistenceAutoConfiguration {
     fun suspendedInvocationStore(
         stores: FileBackedSovereignStores,
     ): SuspendedInvocationStore = stores.suspendedInvocationStore
+
+    @Bean(destroyMethod = "close")
+    @ConditionalOnMissingBean
+    fun sovereignOpsAuditOutboxStore(
+        properties: SovereignFilePersistenceProperties,
+        stores: FileBackedSovereignStores,
+    ): SovereignOpsAuditOutboxStore {
+        val baseDir = properties.baseDir
+            ?: throw IllegalStateException(
+                "tramai-sovereign-file-persistence-missing-base-dir",
+            )
+        val rootDir = baseDir.toAbsolutePath().normalize()
+        val rawKey = SovereignStoreKeyLoader.load(properties)
+        val secretKey: SecretKey = SecretKeySpec(rawKey, "AES")
+
+        val store = FileSovereignOpsAuditOutboxStore(
+            root = rootDir,
+            key = secretKey,
+        )
+        store.rebuildIndex()
+        return store
+    }
 }

@@ -22,7 +22,10 @@ kotlin {
 dependencies {
     api(project(":tramai-spring-boot-starter-sovereign"))
     api(project(":tramai-persistence-file"))
+    api(project(":tramai-spring-boot-starter-sovereign-ops"))
 
+    implementation(libs.jackson.databind)
+    implementation(libs.jackson.module.kotlin)
     implementation(libs.spring.boot.autoconfigure)
 
     annotationProcessor(libs.spring.boot.configuration.processor)
