@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish or validate. Leave empty to use the project default snapshot, or set a release like 0.3.1."
+        description: "Version to publish or validate. Leave empty to use the project default version, or set a release like 0.3.1."
         required: false
         type: string
   push:

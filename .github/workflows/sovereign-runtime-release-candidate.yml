@@ -30,7 +30,9 @@ jobs:
     permissions:
       contents: read
     env:
-      TRAMAI_VERSION: ${{ github.event.inputs.version || '0.3.1-SNAPSHOT' }}
+      TRAMAI_VERSION: ${{ github.event.inputs.version || '0.3.1' }}
+      # Override project version when workflow_dispatch provides one
+      ORG_GRADLE_PROJECT_tramaiVersion: ${{ github.event.inputs.version || '0.3.1' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,7 +41,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: \"25\"
+          java-version: "25"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -60,12 +62,14 @@ jobs:
         with:
           name: sovereign-runtime-bundle-manifest
           path: build/sovereign-runtime-release/bundle-manifest.json
+          if-no-files-found: error
 
       - name: Upload local Maven repo bundle
         uses: actions/upload-artifact@v4
         with:
           name: sovereign-runtime-local-maven-repo
           path: build/sovereign-runtime-release-verification-repo/
+          if-no-files-found: error
 
       - name: Upload sovereign release artifacts
         uses: actions/upload-artifact@v4
@@ -74,6 +78,7 @@ jobs:
           path: |
             build/sovereign-release/release-artifacts-v1.json
             build/sovereign-release/artifacts/
+          if-no-files-found: error
 
       - name: Write Summary
         run: |
@@ -88,3 +93,5 @@ jobs:
           echo "- Signed bundle dry-run: passed" >> $GITHUB_STEP_SUMMARY
           echo "- Consumer smoke: passed" >> $GITHUB_STEP_SUMMARY
           echo "- Bundle manifest: uploaded" >> $GITHUB_STEP_SUMMARY
+          echo "- Local Maven repo: uploaded" >> $GITHUB_STEP_SUMMARY
+          echo "- Release artifacts: uploaded" >> $GITHUB_STEP_SUMMARY
