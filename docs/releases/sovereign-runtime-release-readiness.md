@@ -18,7 +18,7 @@ Candidate release: 0.4.0 or the next unreleased version. No tag, no Maven Centra
 | DLP / redaction | Implemented / evolving | tramai-security | Unit + integration tests |
 | Sovereign routing | Implemented / evolving | tramai-sovereign | Unit tests |
 | Approval gates | Implemented / evolving | tramai-security / tramai-sovereign | Unit + integration tests |
-| Replay-safe resume | Implemented / evolving | tramai-security / engine | Unit + integration tests |
+| Replay-safe resume | Implemented / evolving | `tramai-security`, `tramai-engine` | Unit + integration tests |
 | Encrypted file persistence | Implemented / evolving | tramai-persistence-file | Unit + integration tests |
 | Audit chain | Implemented / evolving | tramai-security | Unit tests |
 | Audit outbox (persistence + dispatch) | Implemented / evolving | tramai-spring-boot-starter-sovereign-ops | Unit + integration tests |
