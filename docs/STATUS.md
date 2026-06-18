@@ -65,7 +65,7 @@ The following are intentionally not claimed as complete. Some are planned, some 
 - stable 1.0 public API
 - Maven Central release of sovereign-runtime modules
 - REST/Actuator operational endpoints
-- sovereign ops / audit outbox metrics
+- sovereign ops / audit outbox metrics (OpenTelemetry observer available in `tramai-spring-boot-starter-sovereign-ops-observability`)
 - database-backed outbox or persistence
 - distributed worker leader election
 - key rotation

@@ -23,6 +23,7 @@ include(
     "tramai-spring-boot-starter-sovereign",
     "tramai-spring-boot-starter-sovereign-persistence-file",
     "tramai-spring-boot-starter-sovereign-ops",
+    "tramai-spring-boot-starter-sovereign-ops-observability",
     "tramai-scheduler",
     "tramai-security",
     "tramai-sovereign",
