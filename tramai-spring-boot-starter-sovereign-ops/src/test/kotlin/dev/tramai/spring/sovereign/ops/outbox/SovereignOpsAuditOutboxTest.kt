@@ -829,6 +829,21 @@ class DurableTestInMemoryOutboxStore : SovereignOpsAuditOutboxStore {
     override suspend fun listPending(limit: Int): List<SovereignOpsAuditOutboxRecord> =
         store.values.filter { it.status == SovereignOpsAuditOutboxStatus.PENDING }.take(limit)
 
+    override suspend fun listByStatus(
+        status: SovereignOpsAuditOutboxStatus,
+        limit: Int,
+    ): List<SovereignOpsAuditOutboxRecord> =
+        store.values.filter { it.status == status }.take(limit)
+
+    override suspend fun listExpiredEmitting(
+        now: Instant,
+        limit: Int,
+    ): List<SovereignOpsAuditOutboxRecord> =
+        store.values
+            .filter { it.status == SovereignOpsAuditOutboxStatus.EMITTING }
+            .filter { it.claimExpiresAt != null && it.claimExpiresAt.isBefore(now) }
+            .take(limit)
+
     override suspend fun markReadyForDispatch(
         outboxId: String,
         expectedStatus: SovereignOpsAuditOutboxStatus,
@@ -898,6 +913,18 @@ class CancellationEmittingOutboxStore : SovereignOpsAuditOutboxStore {
 
     override suspend fun listPending(limit: Int): List<SovereignOpsAuditOutboxRecord> =
         delegate.listPending(limit)
+
+    override suspend fun listByStatus(
+        status: SovereignOpsAuditOutboxStatus,
+        limit: Int,
+    ): List<SovereignOpsAuditOutboxRecord> =
+        delegate.listByStatus(status, limit)
+
+    override suspend fun listExpiredEmitting(
+        now: Instant,
+        limit: Int,
+    ): List<SovereignOpsAuditOutboxRecord> =
+        delegate.listExpiredEmitting(now, limit)
 }
 
 class CustomTestOutboxStore : SovereignOpsAuditOutboxStore {
@@ -969,6 +996,21 @@ class CustomTestOutboxStore : SovereignOpsAuditOutboxStore {
     override suspend fun listPending(limit: Int): List<SovereignOpsAuditOutboxRecord> = records.values
         .filter { it.status == SovereignOpsAuditOutboxStatus.PENDING }
         .take(limit)
+
+    override suspend fun listByStatus(
+        status: SovereignOpsAuditOutboxStatus,
+        limit: Int,
+    ): List<SovereignOpsAuditOutboxRecord> =
+        records.values.filter { it.status == status }.take(limit)
+
+    override suspend fun listExpiredEmitting(
+        now: Instant,
+        limit: Int,
+    ): List<SovereignOpsAuditOutboxRecord> =
+        records.values
+            .filter { it.status == SovereignOpsAuditOutboxStatus.EMITTING }
+            .filter { it.claimExpiresAt != null && it.claimExpiresAt.isBefore(now) }
+            .take(limit)
 
     override suspend fun markReadyForDispatch(
         outboxId: String,
