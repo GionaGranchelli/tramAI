@@ -49,7 +49,7 @@ TramAI exists to make those concerns explicit, testable, and composable in JVM a
 interface SupportAgent {
     @SystemMessage("You are a Tier-1 support agent. Be concise.")
     @UserMessage("Customer issue: {message}")
-    @Operation(model = "gemma4:e2b", tools = ["lookupOrder"])
+    @Operation(model = "gemma4:e2b")
     suspend fun handle(message: String): Response
 }
 
@@ -61,7 +61,6 @@ data class Response(
 val agent = Tramai.builder()
     .provider(OllamaProvider("http://localhost:11434"), default = true)
     .model("gemma4:e2b", "ollama")
-    .tools(lookupOrderTool)
     .build()
     .create<SupportAgent>()
 
@@ -69,7 +68,7 @@ val result = agent.handle("Where is my order #ORD-42?")
 println(result.answer)
 ```
 
-One annotated interface, typed output, local model execution with tool calling. No framework dictating your architecture.
+One annotated interface, typed output, and local model execution. No framework dictating your architecture.
 
 ## Architecture Snapshot
 
