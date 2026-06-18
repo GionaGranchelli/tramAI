@@ -1,6 +1,6 @@
 # Architecture Overview
 
-TramAI is a structured-first, observability-native AI workflow library for the JVM. The core product goal is to let application code interact with AI through typed interface methods instead of framework-specific chains, agents, or prompt orchestration objects.
+TramAI is a Kotlin-first JVM runtime for governed AI workflows. The core product goal is to let application code interact with AI through typed interface methods while runtime layers handle structured output, provider dispatch, policy enforcement, routing, replay safety, and auditability — not through framework-specific chains, agents, or scattered prompt orchestration.
 
 ## Core Flow
 

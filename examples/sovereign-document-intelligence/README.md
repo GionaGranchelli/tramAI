@@ -1,45 +1,58 @@
-# Sovereign Document Intelligence
+# Sovereign Document Intelligence Example
 
-This example demonstrates a sovereign document-intelligence workflow built with TramAI’s typed `@AiService` model. A RESTRICTED invoice is analyzed through an approved local provider, a HIGH-risk payment tool is suspended for human approval, the workflow is resumed with a bound approval token, and the final result is written alongside audit and evidence artifacts.
+This example demonstrates how TramAI handles a restricted document workflow with local-only routing, policy enforcement, approval suspension, replay-safe resume, audit evidence, and release/evidence artifacts.
 
-## What It Shows
+It is the best entry point for understanding the sovereign runtime architecture.
 
-- RESTRICTED document handling with typed input and typed output
-- Sovereign routing that denies cloud providers and only allows the approved local provider
-- HIGH-risk tool execution suspension at `schedule-payment`
-- Replay-safe resume with token-bound continuation state and exactly-once tool execution
-- Audit-chain and evidence-pack generation suitable for downstream review
+## What It Demonstrates
 
-## Why The Document Is RESTRICTED
+```
+RESTRICTED document
+  -> sensitivity classification
+  -> LOCAL-only model route
+  -> policy enforcement
+  -> approval gate
+  -> replay-safe continuation
+  -> audit chain
+  -> evidence pack
+```
 
-The invoice includes supplier identity, banking details, payment amount, and business-purpose context. In a real enterprise setting, that combination is typically sensitive enough to require RESTRICTED handling because it can expose counterparties, financial controls, and payment instructions.
+In detail:
 
-## Why Cloud Routing Is Denied
+- **RESTRICTED document handling** with typed input and typed output
+- **Sovereign routing** that denies cloud providers and only allows the approved local provider
+- **Policy enforcement** before any model invocation or tool execution
+- **Approval suspension** for high-risk operations (e.g., `schedule-payment`)
+- **Replay-safe resume** with token-bound continuation state and exactly-once tool execution
+- **Audit chain** recording every governance decision with tamper-evident sequencing
+- **Evidence pack / release bundle** suitable for downstream review and verification
 
-The example profile only allows `local-provider`, and the model registry only registers `local-invoice-model` on that provider. That means routing to a cloud provider is denied before any model invocation occurs. The intent is to demonstrate sovereign enforcement, not best-effort fallback.
+## Why the Document is RESTRICTED
 
-## Why Local Routing Is Allowed
+The invoice includes supplier identity, banking details, payment amount, and business-purpose context — a combination typically sensitive enough to require RESTRICTED handling in regulated environments.
 
-`local-provider` is explicitly listed in the sovereign profile, mapped to the `LOCAL` trust zone, and bound to the registered model. The deterministic provider in this example stands in for an approved on-prem or enclave-hosted model endpoint.
+## Why Cloud Routing is Denied
+
+The sovereign profile only allows `local-provider`, mapped to the `LOCAL` trust zone. Routing to a cloud provider is denied before any model invocation occurs. This demonstrates sovereign enforcement, not best-effort fallback.
 
 ## Where Approval Suspension Happens
 
-Suspension occurs when the model requests the `schedule-payment` tool. That tool is marked HIGH risk with `HUMAN_REQUIRED`, so the engine stores continuation state, emits approval audit events, and throws `ApprovalSuspendedException` instead of executing the side effect immediately.
+Suspension occurs when the model requests the `schedule-payment` tool, which is marked HIGH risk with `HUMAN_REQUIRED`. The engine stores continuation state, emits approval audit events, and throws `ApprovalSuspendedException` instead of executing the side effect immediately.
 
 ## How Replay-Safe Resume Works
 
-The resume path uses the stored approval record, the expected approval and continuation versions, and the presented approval token. The tool itself is idempotent and keyed by the engine-provided idempotency key, so duplicate resume attempts cannot schedule duplicate payments.
+Resume uses the stored approval record, expected approval and continuation versions, and a presented approval token. The tool is idempotent and keyed by the engine-provided idempotency key — duplicate resume attempts cannot schedule duplicate payments.
 
 ## Output Artifacts
 
-Running the example writes these files under `build/sovereign-document-intelligence/`:
+Running the example writes artifacts under `build/sovereign-document-intelligence/`:
 
-- `result.json`
-- `audit-chain.json`
-- `approval-events.json`
-- `sovereign-evidence-pack-v1.json`
+- `result.json` — the final typed assessment
+- `audit-chain.json` — tamper-evident audit events
+- `approval-events.json` — approval lifecycle events
+- `sovereign-evidence-pack-v1.json` — evidence bundle
 
-## Running The Example
+## Running the Example
 
 From the repository root:
 
@@ -47,7 +60,7 @@ From the repository root:
 ./gradlew :examples:sovereign-document-intelligence:run --args="--release-bundle-manifest=build/sovereign-release/release-artifacts-v1.json"
 ```
 
-The `--release-bundle-manifest` argument is optional. If omitted, the example will still run; if `build/sovereign-release/release-artifacts-v1.json` already exists, it will be loaded automatically.
+The `--release-bundle-manifest` argument is optional. If `build/sovereign-release/release-artifacts-v1.json` already exists, it will be loaded automatically.
 
 ## Enterprise Mapping
 
@@ -57,3 +70,7 @@ This reference workflow maps to real review-and-execute flows such as:
 - public-sector payment authorization with locality constraints
 - sovereign AI deployments where cloud egress is disallowed for sensitive financial documents
 - audit-heavy human-in-the-loop automations that need deterministic evidence artifacts
+
+## Note
+
+This is a **reference workflow**, not a production deployment template. It demonstrates architectural capabilities; production deployment requires additional infrastructure, key management, and operational hardening beyond what this example includes.
