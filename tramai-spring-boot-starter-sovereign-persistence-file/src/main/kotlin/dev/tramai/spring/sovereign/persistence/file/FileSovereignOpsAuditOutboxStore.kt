@@ -174,6 +174,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
 
     init {
         ensureManagedDirectory(outboxDir, "ops-audit-outbox")
+        rebuildIndex()
     }
 
     private fun storePath(outboxId: String): Path =

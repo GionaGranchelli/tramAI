@@ -369,6 +369,39 @@ class FileSovereignOpsAuditOutboxStoreTest {
         assertThat(persisted("versioned", key).outboxRecordVersion).isEqualTo(2L)
     }
 
+    @Test
+    fun `constructor rebuilds event key index from filesystem`() = runBlocking {
+        val key = testKey()
+
+        val first = FileSovereignOpsAuditOutboxStore(root = tempDir, key = key)
+        try {
+            first.append(record("one", eventKey = "same-event"))
+        } finally {
+            first.close()
+        }
+
+        val reopened = FileSovereignOpsAuditOutboxStore(root = tempDir, key = key)
+        assertThat(reopened.findByEventKey("same-event")).isNotNull
+    }
+
+    @Test
+    fun `append rejects duplicate event key after constructor reopen`() = runBlocking {
+        val key = testKey()
+
+        val first = FileSovereignOpsAuditOutboxStore(root = tempDir, key = key)
+        try {
+            first.append(record("one", eventKey = "same-event"))
+        } finally {
+            first.close()
+        }
+
+        val reopened = FileSovereignOpsAuditOutboxStore(root = tempDir, key = key)
+
+        assertThatThrownBy {
+            runBlocking { reopened.append(record("two", eventKey = "same-event")) }
+        }.hasMessageContaining("tramai-sovereign-ops-outbox-duplicate-event-key")
+    }
+
     private fun store(
         key: SecretKey = testKey(),
         claimLeaseDuration: Duration = SovereignOpsAuditOutboxRecord.DEFAULT_CLAIM_EXPIRY,
@@ -377,7 +410,7 @@ class FileSovereignOpsAuditOutboxStoreTest {
             root = tempDir,
             key = key,
             claimLeaseDuration = claimLeaseDuration,
-        ).also { it.rebuildIndex() }
+        )
 
     private fun record(
         outboxId: String,

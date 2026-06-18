@@ -135,9 +135,10 @@ class SovereignFilePersistenceAutoConfiguration {
 
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
+    @Suppress("UNUSED_PARAMETER")
     fun sovereignOpsAuditOutboxStore(
         properties: SovereignFilePersistenceProperties,
-        stores: FileBackedSovereignStores,
+        stores: FileBackedSovereignStores, // ensures base file store root is opened/locked before ops outbox store
     ): SovereignOpsAuditOutboxStore {
         val baseDir = properties.baseDir
             ?: throw IllegalStateException(
@@ -147,11 +148,10 @@ class SovereignFilePersistenceAutoConfiguration {
         val rawKey = SovereignStoreKeyLoader.load(properties)
         val secretKey: SecretKey = SecretKeySpec(rawKey, "AES")
 
-        val store = FileSovereignOpsAuditOutboxStore(
+        // Event-key index is rebuilt automatically in init
+        return FileSovereignOpsAuditOutboxStore(
             root = rootDir,
             key = secretKey,
         )
-        store.rebuildIndex()
-        return store
     }
 }
