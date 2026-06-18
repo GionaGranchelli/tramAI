@@ -1,6 +1,7 @@
 package dev.tramai.spring.sovereign.ops
 
 import org.springframework.boot.context.properties.ConfigurationProperties
+import java.time.Duration
 
 /**
  * Externalized configuration for TramAI sovereign operations.
@@ -13,6 +14,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties
  *       enabled: true
  *       mutations-enabled: false
  *       max-page-size: 100
+ *       outbox:
+ *         worker:
+ *           enabled: false
  * ```
  *
  * Read-capable, mutation-disabled by default — inspection is safer than
@@ -32,4 +36,21 @@ data class SovereignOpsProperties(
 
     /** Maximum number of audit events returned by readAuditStream. */
     var maxPageSize: Int = 100,
+
+    /** Configuration for sovereign ops audit outbox behavior. */
+    var outbox: SovereignOpsOutboxProperties = SovereignOpsOutboxProperties(),
+)
+
+data class SovereignOpsOutboxProperties(
+    val worker: SovereignOpsOutboxWorkerProperties = SovereignOpsOutboxWorkerProperties(),
+)
+
+data class SovereignOpsOutboxWorkerProperties(
+    val enabled: Boolean = false,
+    val initialDelay: Duration = Duration.ofSeconds(5),
+    val interval: Duration = Duration.ofSeconds(30),
+    val batchSize: Int = 100,
+    val recoverPrepared: Boolean = true,
+    val dispatchPending: Boolean = true,
+    val failOnMissingDispatcher: Boolean = true,
 )
