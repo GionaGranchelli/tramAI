@@ -12,9 +12,11 @@ import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsAuditOutboxSto
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRecoveryResolver
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditDigestService
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxBackgroundWorker
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxDispatcher
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxOperations
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerLifecycle
 import dev.tramai.spring.sovereign.ops.outbox.UnknownSovereignOpsApprovalRecoveryResolver
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
@@ -146,6 +148,46 @@ class SovereignOpsAutoConfiguration {
             outboxDispatcher = outboxDispatcher.ifAvailable,
             recoveryResolver = recoveryResolver,
             properties = properties,
+        )
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(
+        prefix = "tramai.sovereign.ops.outbox.worker",
+        name = ["enabled"],
+        havingValue = "true",
+    )
+    fun sovereignOpsAuditOutboxBackgroundWorker(
+        operations: SovereignOpsAuditOutboxOperations,
+        properties: SovereignOpsProperties,
+        outboxDispatcher: ObjectProvider<SovereignOpsAuditOutboxDispatcher>,
+    ): SovereignOpsAuditOutboxBackgroundWorker {
+        val workerProps = properties.outbox.worker
+        if (workerProps.dispatchPending && workerProps.failOnMissingDispatcher) {
+            if (outboxDispatcher.ifAvailable == null) {
+                throw IllegalStateException("tramai-sovereign-ops-outbox-worker-missing-dispatcher")
+            }
+        }
+        return SovereignOpsAuditOutboxBackgroundWorker(
+            operations = operations,
+            properties = workerProps,
+        )
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(
+        prefix = "tramai.sovereign.ops.outbox.worker",
+        name = ["enabled"],
+        havingValue = "true",
+    )
+    fun sovereignOpsAuditOutboxWorkerLifecycle(
+        worker: SovereignOpsAuditOutboxBackgroundWorker,
+        properties: SovereignOpsProperties,
+    ): SovereignOpsAuditOutboxWorkerLifecycle =
+        SovereignOpsAuditOutboxWorkerLifecycle(
+            worker = worker,
+            properties = properties.outbox.worker,
         )
 
     @Bean
