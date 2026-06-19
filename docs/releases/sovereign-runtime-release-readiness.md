@@ -99,7 +99,7 @@ No timelines are committed for these items.
 - [x] No Maven Central claim for sovereign runtime modules unless verified
 - [x] CHANGELOG.md has Unreleased section
 
-Checklist last verified: 2026-06-18. Full test suite: 159 tasks, all green.
+Checklist last verified: 2026-06-19 after PR #63. Full release-candidate evidence chain verified by CI.
 
 ## Sovereign Runtime Release-Candidate CI Gate
 
@@ -120,7 +120,10 @@ The repository now includes a dedicated workflow for validating the sovereign ru
 - Release readiness metadata and artifacts
 - Local sovereign runtime publication (POMs, sources, javadoc)
 - Signed bundle dry-run (bundle manifest + verification repo)
-- Consumer-resolution smoke test from mavenLocal()
+- Consumer-resolution smoke test using the generated sovereign runtime verification repository
+- Verified `dev.tramai` dependency closure policy:
+  - only `build/sovereign-runtime-release-verification-repo` is allowed for TramAI dependencies
+  - `mavenLocal` and `mavenCentral` are blocked for the verified closure
 - Release artifact preparation and manifest verification
 - Sovereign document intelligence evidence run
 
@@ -137,7 +140,7 @@ The repository now includes a dedicated workflow for validating the sovereign ru
 | Artifact | Contents |
 |----------|----------|
 | `sovereign-runtime-bundle-manifest` | Bundle manifest JSON |
-| `sovereign-runtime-local-maven-repo` | Local verification Maven repository |
+| `sovereign-runtime-local-maven-repo` | Dedicated verification Maven repository used by the standalone consumer smoke test |
 | `sovereign-release-artifacts` | Release artifact manifest + generated release artifacts |
 | `sovereign-release-evidence-index` | Evidence index JSON + Markdown |
 
@@ -153,3 +156,38 @@ The release-candidate workflow also generates a release evidence index at `build
 The index includes SHA-256 hashes for files and deterministic tree hashes for directories.
 
 The index does **not** contain secrets, credentials, signing keys, or absolute machine paths.
+
+## Current Evidence Chain
+
+The current sovereign runtime release-candidate chain is:
+
+1. Run the release validation gates.
+2. Generate required release artifacts.
+3. Publish the sovereign runtime modules into the dedicated local verification repository.
+4. Run the standalone consumer smoke test.
+5. Ensure the consumer resolves `dev.tramai` dependencies from the verification repository only.
+6. Generate the evidence index from a typed model.
+7. Serialize the evidence index with structured JSON generation.
+8. Parse the written JSON back with `JsonSlurper`.
+9. Validate the evidence schema, artifact list, check map, and `devTramaiResolutionPolicy`.
+10. Generate the human-readable Markdown evidence index.
+
+The evidence index records file SHA-256 hashes and deterministic directory tree hashes for the generated release evidence.
+
+## Verified Dependency Closure
+
+The sovereign runtime release-candidate workflow now verifies that the standalone consumer smoke test resolves the TramAI sovereign runtime from the dedicated verification repository:
+
+`build/sovereign-runtime-release-verification-repo`
+
+The generated evidence index records this as `devTramaiResolutionPolicy`.
+
+For `dev.tramai` dependencies, the policy explicitly validates:
+
+- `allowedRepositories`: `["build/sovereign-runtime-release-verification-repo"]`
+- `blockedRepositories`: `["mavenLocal", "mavenCentral"]`
+- `coverage`: `"full-dev-tramai-dependency-closure"`
+
+This means the release-candidate evidence does not merely prove that the consumer smoke test passed. It proves that the standalone consumer resolved the full `dev.tramai` dependency closure from the generated verification repository, not from the developer machine's Maven local cache or Maven Central.
+
+This does not claim Maven Central publication. It only proves local release-candidate completeness.
