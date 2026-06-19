@@ -34,10 +34,12 @@ kotlin {
 }
 
 repositories {
-    // Sovereign runtime modules resolve from the dedicated verification repo
-    // (build/sovereign-runtime-release-verification-repo) — the same repo that
-    // verifySovereignRuntimeSignedBundle produces and the evidence index hashes.
-    // Only these 8 modules exist in the verification repo.
+    // All dev.tramai modules resolve exclusively from the sovereign runtime verification repo
+    // (build/sovereign-runtime-release-verification-repo). After PR #62, this repo contains
+    // the full dev.tramai dependency closure — both direct sovereign modules and transitive
+    // framework modules (tramai-core, tramai-engine, tramai-standalone, tramai-structured).
+    // mavenLocal is intentionally absent: enterprise evidence must prove this release candidate
+    // contains the right artifacts, not that this machine had the right stuff installed.
     val repoDir = requireNotNull(sovereignRuntimeVerificationRepo) {
         "Missing -PsovereignRuntimeVerificationRepo. Consumer smoke must resolve dev.tramai from the sovereign runtime verification repo."
     }
@@ -48,26 +50,11 @@ repositories {
         name = "sovereignRuntimeVerificationRepo"
         url = uri(repoDir)
         content {
-            includeModule("dev.tramai", "tramai-spring-boot-starter-sovereign")
-            includeModule("dev.tramai", "tramai-spring-boot-starter-sovereign-persistence-file")
-            includeModule("dev.tramai", "tramai-spring-boot-starter-sovereign-ops")
-            includeModule("dev.tramai", "tramai-spring-boot-starter-sovereign-ops-observability")
-            includeModule("dev.tramai", "tramai-security")
-            includeModule("dev.tramai", "tramai-sovereign")
-            includeModule("dev.tramai", "tramai-persistence-file")
-            includeModule("dev.tramai", "tramai-bom")
-        }
-    }
-    // Transitive TramAI dependencies not in the verification repo
-    // (tramai-core, tramai-standalone, tramai-engine, tramai-structured)
-    // resolve from mavenLocal, published alongside the sovereign modules.
-    mavenLocal {
-        content {
             includeGroup("dev.tramai")
         }
     }
-    // External dependencies only — dev.tramai is explicitly blocked from
-    // remote resolution to prevent stale artifacts from passing the smoke test.
+    // External dependencies only — dev.tramai is explicitly blocked from remote resolution
+    // to prevent stale artifacts from passing the smoke test.
     mavenCentral {
         content {
             excludeGroup("dev.tramai")

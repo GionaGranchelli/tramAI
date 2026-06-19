@@ -136,7 +136,7 @@ These validate:
 - consumer resolution from `mavenLocal()`
 - the narrow Spring example consumer smoke path
 - sovereign runtime module publishability (POMs, sources, javadoc, dependency graph)
-- sovereign runtime consumer-resolution smoke (context loads from mavenLocal artifacts)
+- sovereign runtime consumer-resolution smoke (full dev.tramai closure from build/sovereign-runtime-release-verification-repo)
 
 For a public credibility summary of the currently validated paths, see [Release Validation](./release-validation.md).
 
@@ -158,13 +158,14 @@ This publishes the following to mavenLocal() and runs their test suites:
 - `tramai-spring-boot-starter-sovereign-ops`
 - `tramai-spring-boot-starter-sovereign-ops-observability`
 
-After publishing, a consumer-resolution smoke test proves an external app can resolve them:
+After publishing, a consumer-resolution smoke test proves an external app can resolve them
+from a build-local Maven repository:
 
 ```bash
-./gradlew -p examples/sovereign-runtime-consumer-smoke test
+./gradlew verifySovereignRuntimeConsumerSmoke
 ```
 
-The smoke project uses `mavenLocal()` dependencies — not `project()` dependencies — to prove real consumer resolution.
+See the **Sovereign Runtime Signed Bundle Dry-Run** section below for the full closure verification.
 
 This validation does **not**:
 - Publish to Maven Central
@@ -180,7 +181,7 @@ The sovereign runtime release boundary can be validated as a local signed public
 ./gradlew verifySovereignRuntimeSignedBundle
 ```
 
-This publishes the sovereign runtime modules and BOM to a dedicated local-only Maven repository at `build/sovereign-runtime-release-verification-repo/` and validates:
+This publishes the sovereign runtime modules **and their full transitive dev.tramai dependency closure** to a dedicated local-only Maven repository at `build/sovereign-runtime-release-verification-repo/` and validates:
 
 - POM files
 - binary JARs where expected
@@ -188,6 +189,13 @@ This publishes the sovereign runtime modules and BOM to a dedicated local-only M
 - javadoc JARs where expected
 - dependency graph / publication metadata
 - Generates `build/sovereign-runtime-release/bundle-manifest.json`
+
+The published module set includes:
+
+- 4 transitive framework modules: `tramai-core`, `tramai-standalone`, `tramai-engine`, `tramai-structured`
+- 8 sovereign modules: `tramai-bom`, `tramai-security`, `tramai-sovereign`, `tramai-persistence-file`, and the 4 Spring Boot starters
+
+After the bundle dry-run, the consumer smoke test resolves all 12 modules exclusively from the verification repo — no `mavenLocal` fallback.
 
 The task always publishes to both `mavenLocal()` and the dedicated build-local repository. The dedicated repo uses a separate `sovereignBundleLocal` Maven repository configuration — never the shared `tramaiRemote` repository — so it cannot accidentally push to a remote publish target.
 

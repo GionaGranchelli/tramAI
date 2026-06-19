@@ -88,8 +88,12 @@ val jarPublishingProjectNames = publishableProjectNames - "tramai-bom"
 // publication during dry-run validation.
 val sovereignBundleModuleNames = listOf(
     "tramai-bom",
+    "tramai-core",
     "tramai-security",
     "tramai-sovereign",
+    "tramai-standalone",
+    "tramai-engine",
+    "tramai-structured",
     "tramai-persistence-file",
     "tramai-spring-boot-starter-sovereign",
     "tramai-spring-boot-starter-sovereign-persistence-file",
@@ -621,8 +625,7 @@ tasks.register("verifySovereignRuntimeSignedBundle") {
     // ── Dependencies ─────────────────────────────────────────────────────
     // Baseline: publish to mavenLocal for artifact structure checks
     dependsOn(
-        sovereignRuntimePublishableModules.map { ":${it}:publishToMavenLocal" },
-        ":tramai-bom:publishToMavenLocal",
+        sovereignBundleModuleNames.map { ":${it}:publishToMavenLocal" },
     )
 
     // Always publish to the dedicated sovereignBundleLocal repository.
@@ -631,8 +634,7 @@ tasks.register("verifySovereignRuntimeSignedBundle") {
     // tramaiRemote repository used by other publish tasks.
     // We use the specific *ToSovereignBundleLocalRepository task — never generic :publish.
     dependsOn(
-        sovereignRuntimePublishableModules.map { ":${it}:publishMavenPublicationToSovereignBundleLocalRepository" },
-        ":tramai-bom:publishMavenPublicationToSovereignBundleLocalRepository",
+        sovereignBundleModuleNames.map { ":${it}:publishMavenPublicationToSovereignBundleLocalRepository" },
     )
 
     // Skip tests in the signed bundle dry-run — the verifySovereignRuntimePublication task
@@ -655,7 +657,7 @@ tasks.register("verifySovereignRuntimeSignedBundle") {
         val buildDir = rootProject.layout.buildDirectory.get().asFile
         val bundleDir = buildDir.resolve("sovereign-runtime-release")
         val bundleManifestJson = bundleDir.resolve("bundle-manifest.json")
-        val allModules = sovereignRuntimePublishableModules + "tramai-bom"
+        val allModules = sovereignBundleModuleNames
 
         // Dedicated bundle repo directory
         val bundleRepoDir = File(URI(bundleRepoUrl))
@@ -1339,10 +1341,78 @@ tasks.register<Exec>("verifySovereignRuntimeConsumerSmoke") {
     group = "verification"
     description = "Runs the standalone sovereign runtime consumer smoke test against the dedicated verification repo."
 
-    dependsOn("verifySovereignRuntimeSignedBundle")
+    dependsOn("verifySovereignRuntimeVerificationRepoClosure")
 
     workingDir = rootProject.projectDir
     commandLine(gradleWrapper, *consumerSmokeArgs.toTypedArray())
+}
+
+// ──────────────────────────────────────────────
+// Task: verifySovereignRuntimeVerificationRepoClosure
+// ──────────────────────────────────────────────
+
+tasks.register("verifySovereignRuntimeVerificationRepoClosure") {
+    group = "verification"
+    description = "Validates that the sovereign runtime verification repo contains all required dev.tramai artifacts " +
+        "for the consumer smoke build. Fails if any required module, POM, metadata, or JAR is missing."
+
+    dependsOn("verifySovereignRuntimeSignedBundle")
+
+    doLast {
+        val buildDir = rootProject.layout.buildDirectory.get().asFile
+        val groupPath = tramaiGroup.get().replace('.', '/')
+        val expectedVersion = tramaiVersion.get()
+        val repoDir = buildDir.resolve("sovereign-runtime-release-verification-repo")
+
+        require(repoDir.isDirectory) {
+            "Missing verification repo at ${repoDir.absolutePath}. Run verifySovereignRuntimeSignedBundle first."
+        }
+
+        val bomOnlyModules = setOf("tramai-bom")
+
+        // Validate every module in the sovereignBundleModuleNames list
+        sovereignBundleModuleNames.forEach { moduleName ->
+            val moduleDir = repoDir.resolve("$groupPath/$moduleName/$expectedVersion")
+            require(moduleDir.isDirectory) {
+                "Missing module directory in verification repo for $moduleName at ${moduleDir.absolutePath}"
+            }
+
+            val baseName = "$moduleName-$expectedVersion"
+
+            // POM is required for every module
+            val pom = moduleDir.resolve("$baseName.pom")
+            require(pom.isFile) {
+                "Missing POM in verification repo for $moduleName at ${pom.absolutePath}"
+            }
+            require(pom.length() > 0) {
+                "Empty POM in verification repo for $moduleName"
+            }
+
+            // Gradle module metadata is required for every module — must be non-empty
+            val moduleMetadata = moduleDir.resolve("$baseName.module")
+            require(moduleMetadata.isFile) {
+                "Missing module metadata in verification repo for $moduleName at ${moduleMetadata.absolutePath}"
+            }
+            require(moduleMetadata.length() > 0) {
+                "Empty module metadata in verification repo for $moduleName"
+            }
+
+            // JAR is required for runtime modules (not BOM)
+            if (moduleName !in bomOnlyModules) {
+                val jar = moduleDir.resolve("$baseName.jar")
+                require(jar.isFile) {
+                    "Missing JAR in verification repo for $moduleName at ${jar.absolutePath}"
+                }
+                require(jar.length() > 0) {
+                    "Empty JAR in verification repo for $moduleName"
+                }
+            }
+        }
+
+        logger.lifecycle("verifySovereignRuntimeVerificationRepoClosure — PASSED")
+        logger.lifecycle("  Required modules: ${sovereignBundleModuleNames.size} (all present and non-empty)")
+        logger.lifecycle("  Repository: ${repoDir.absolutePath}")
+    }
 }
 
 // ──────────────────────────────────────────────
@@ -1567,10 +1637,15 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
             appendLine("      \"status\": \"passed\",")
             appendLine("      \"taskPath\": \":verifySovereignRuntimeConsumerSmoke\",")
             appendLine("      \"executes\": \"${jsonEscape(consumerSmokeCommand)}\",")
-            appendLine("      \"resolvesDevTramaiFrom\": {")
-            appendLine("        \"sovereignRuntimeModules\": \"build/sovereign-runtime-release-verification-repo\",")
-            appendLine("        \"transitiveTramaiModules\": \"mavenLocal\",")
-            appendLine("        \"remoteDevTramaiResolution\": \"blocked\"")
+            appendLine("      \"devTramaiResolutionPolicy\": {")
+            appendLine("        \"allowedRepositories\": [")
+            appendLine("          \"build/sovereign-runtime-release-verification-repo\"")
+            appendLine("        ],")
+            appendLine("        \"blockedRepositories\": [")
+            appendLine("          \"mavenLocal\",")
+            appendLine("          \"mavenCentral\"")
+            appendLine("        ],")
+            appendLine("        \"coverage\": \"full-dev-tramai-dependency-closure\"")
             appendLine("      }")
             appendLine("    }")
             appendLine("  }")
@@ -1607,6 +1682,28 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
             }
         }
 
+        // Validate the new devTramaiResolutionPolicy field emitted by PR #62
+        @Suppress("UNCHECKED_CAST")
+        val consumerSmokeCheck = checks["consumerSmoke"]
+            ?: error("Evidence index is missing consumerSmoke check.")
+        @Suppress("UNCHECKED_CAST")
+        val resolutionPolicy = consumerSmokeCheck["devTramaiResolutionPolicy"] as? Map<String, Any>
+            ?: error("consumerSmoke check is missing devTramaiResolutionPolicy.")
+        val allowed = resolutionPolicy["allowedRepositories"] as? List<*>
+            ?: error("devTramaiResolutionPolicy.allowedRepositories must be an array.")
+        require(allowed == listOf("build/sovereign-runtime-release-verification-repo")) {
+            "devTramaiResolutionPolicy has unexpected allowedRepositories: $allowed"
+        }
+        val blocked = resolutionPolicy["blockedRepositories"] as? List<*>
+            ?: error("devTramaiResolutionPolicy.blockedRepositories must be an array.")
+        require(blocked == listOf("mavenLocal", "mavenCentral")) {
+            "devTramaiResolutionPolicy has unexpected blockedRepositories: $blocked"
+        }
+        require(resolutionPolicy["coverage"] == "full-dev-tramai-dependency-closure") {
+            "devTramaiResolutionPolicy has unexpected coverage: ${resolutionPolicy["coverage"]}"
+        }
+        logger.lifecycle("Evidence index devTramaiResolutionPolicy validated.")
+
         // ── Build Markdown ────────────────────────────────────────────────
         val mdContent = buildString {
             appendLine("# Sovereign Release Evidence Index")
@@ -1636,7 +1733,7 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
             appendLine("| Release readiness | passed | :verifyReleaseReadiness | build metadata and artifact validation |")
             appendLine("| Sovereign runtime publication | passed | :verifySovereignRuntimePublication | published to mavenLocal |")
             appendLine("| Signed bundle dry-run | passed | :verifySovereignRuntimeSignedBundle | build/sovereign-runtime-release-verification-repo |")
-            appendLine("| Consumer smoke | passed | :verifySovereignRuntimeConsumerSmoke | build/sovereign-runtime-release-verification-repo |")
+            appendLine("| Consumer smoke | passed | :verifySovereignRuntimeConsumerSmoke | full dev.tramai closure from build/sovereign-runtime-release-verification-repo |")
         }
 
         val mdFile = outputDir.resolve("evidence-index.md")
