@@ -305,6 +305,29 @@ The index does **not** contain secrets, credentials, signing keys, signing passw
 
 The evidence index is uploaded as the `sovereign-release-evidence-index` GitHub Actions artifact.
 
+### Sovereign Runtime Release-Candidate Evidence
+
+Before claiming a sovereign runtime release candidate, run:
+
+```bash
+./gradlew generateSovereignReleaseEvidenceIndex --no-configuration-cache
+```
+
+The generated evidence index proves:
+
+- release gates passed
+- required artifacts exist
+- release artifacts are hashed
+- verification repository tree hash is recorded
+- standalone consumer smoke passed
+- `dev.tramai` dependency closure was resolved from the verification repository
+- `mavenLocal` and `mavenCentral` were blocked for the verified TramAI closure
+
+The evidence is written to:
+
+- `build/sovereign-runtime-release/evidence-index.json`
+- `build/sovereign-runtime-release/evidence-index.md`
+
 ## Local Signed-Artifact Validation (All Modules)
 
 When you want to validate signing for ALL publishable modules locally without touching a real remote repository, publish to a file-based Maven repository and verify signatures there:
