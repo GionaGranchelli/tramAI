@@ -1311,6 +1311,30 @@ tasks.register("verifySovereignEvidencePackContainsReleaseBundle") {
 }
 
 // ──────────────────────────────────────────────
+// Task: verifySovereignRuntimeConsumerSmoke
+// ──────────────────────────────────────────────
+
+val gradleWrapper = if (System.getProperty("os.name").lowercase().contains("windows")) {
+    "gradlew.bat"
+} else {
+    "./gradlew"
+}
+
+tasks.register<Exec>("verifySovereignRuntimeConsumerSmoke") {
+    group = "verification"
+    description = "Runs the standalone sovereign runtime consumer smoke test."
+
+    workingDir = rootProject.projectDir
+    commandLine(
+        gradleWrapper,
+        "-p",
+        "examples/sovereign-runtime-consumer-smoke",
+        "test",
+        "--no-configuration-cache",
+    )
+}
+
+// ──────────────────────────────────────────────
 // Task: generateSovereignReleaseEvidenceIndex
 // ──────────────────────────────────────────────
 
@@ -1322,10 +1346,7 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
         "verifyReleaseReadiness",
         "verifySovereignRuntimePublication",
         "verifySovereignRuntimeSignedBundle",
-        // Note: consumerSmoke (:examples:sovereign-runtime-consumer-smoke:test) is a
-        // standalone Gradle build, not a subproject of this build. It runs separately
-        // via `./gradlew -p examples/sovereign-runtime-consumer-smoke test`.
-        // The evidence index documents its task path in the checks section.
+        "verifySovereignRuntimeConsumerSmoke",
         "prepareSovereignReleaseArtifacts",
         "verifySovereignReleaseManifest",
     )
@@ -1533,7 +1554,8 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
             appendLine("    },")
             appendLine("    \"consumerSmoke\": {")
             appendLine("      \"status\": \"passed\",")
-            appendLine("      \"taskPath\": \":examples:sovereign-runtime-consumer-smoke:test\"")
+            appendLine("      \"taskPath\": \":verifySovereignRuntimeConsumerSmoke\",")
+            appendLine("      \"executes\": \"./gradlew -p examples/sovereign-runtime-consumer-smoke test --no-configuration-cache\"")
             appendLine("    }")
             appendLine("  }")
             appendLine("}")
@@ -1587,7 +1609,7 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
             appendLine("| Release readiness | passed | :verifyReleaseReadiness |")
             appendLine("| Sovereign runtime publication | passed | :verifySovereignRuntimePublication |")
             appendLine("| Signed bundle dry-run | passed | :verifySovereignRuntimeSignedBundle |")
-            appendLine("| Consumer smoke | passed | :examples:sovereign-runtime-consumer-smoke:test |")
+            appendLine("| Consumer smoke | passed | :verifySovereignRuntimeConsumerSmoke |")
         }
 
         val mdFile = outputDir.resolve("evidence-index.md")
