@@ -255,6 +255,7 @@ The workflow does **not** trigger on tags. It is a pre-publish validation gate, 
 - `./gradlew prepareSovereignReleaseArtifacts` — release artifact preparation
 - `./gradlew verifySovereignReleaseManifest` — manifest verification
 - `./gradlew :examples:sovereign-document-intelligence:run --args=...` — evidence document intelligence
+- `./gradlew generateSovereignReleaseEvidenceIndex` — generates release evidence index (JSON + Markdown)
 
 **What it uploads (GitHub Actions artifacts):**
 
@@ -263,6 +264,7 @@ The workflow does **not** trigger on tags. It is a pre-publish validation gate, 
 | `sovereign-runtime-bundle-manifest` | `build/sovereign-runtime-release/bundle-manifest.json` |
 | `sovereign-runtime-local-maven-repo` | `build/sovereign-runtime-release-verification-repo/` |
 | `sovereign-release-artifacts` | `build/sovereign-release/release-artifacts-v1.json` + `build/sovereign-release/artifacts/` |
+| `sovereign-release-evidence-index` | `build/sovereign-runtime-release/evidence-index.json` + `build/sovereign-runtime-release/evidence-index.md` |
 
 **GitHub step summary:**
 
@@ -276,6 +278,24 @@ After each run, the workflow writes a summary to `$GITHUB_STEP_SUMMARY` with:
 **Run manually:**
 
 Go to the repository Actions tab, select **Sovereign Runtime Release Candidate**, and click **Run workflow**.
+
+## Sovereign Release Evidence Index
+
+The release-candidate workflow generates a single evidence index that ties together all release-candidate evidence:
+
+- `build/sovereign-runtime-release/evidence-index.json` (machine-readable)
+- `build/sovereign-runtime-release/evidence-index.md` (human-readable)
+
+The index includes:
+- Repository, commit SHA, ref, version, generation timestamp
+- `remotePublish: false` and `tagCreated: false` — release-candidate runs never claim Maven Central publication
+- Required evidence artifacts with IDs, paths, types, and SHA-256 hashes
+- Deterministic tree hashes for directory-based evidence (local Maven verification repo, release artifacts)
+- Validation gate results
+
+The index does **not** contain secrets, credentials, signing keys, signing passwords, raw stack traces, absolute user home paths, or local usernames.
+
+The evidence index is uploaded as the `sovereign-release-evidence-index` GitHub Actions artifact.
 
 ## Local Signed-Artifact Validation (All Modules)
 

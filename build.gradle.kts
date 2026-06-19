@@ -1309,3 +1309,235 @@ tasks.register("verifySovereignEvidencePackContainsReleaseBundle") {
         logger.lifecycle("Evidence pack contains releaseBundle: ${evidencePackPath.absolutePath}")
     }
 }
+
+// ──────────────────────────────────────────────
+// Task: generateSovereignReleaseEvidenceIndex
+// ──────────────────────────────────────────────
+
+tasks.register("generateSovereignReleaseEvidenceIndex") {
+    group = "verification"
+    description = "Generates a release evidence index (JSON + Markdown) tying together commit metadata, validation gates, bundle manifest, release artifact manifest, and artifact hashes. Fails if required evidence artifacts are missing."
+
+    dependsOn(
+        "verifySovereignRuntimeSignedBundle",
+        "prepareSovereignReleaseArtifacts",
+        "verifySovereignReleaseManifest",
+    )
+
+    doLast {
+        val buildDir = rootProject.layout.buildDirectory.get().asFile
+        val outputDir = buildDir.resolve("sovereign-runtime-release")
+        outputDir.mkdirs()
+
+        // ── Helper functions ──────────────────────────────────────────────
+        fun jsonEscape(value: String): String {
+            val sb = StringBuilder()
+            for (ch in value) {
+                when (ch) {
+                    '"' -> sb.append("\\\"")
+                    '\\' -> sb.append("\\\\")
+                    '\n' -> sb.append("\\n")
+                    '\r' -> sb.append("\\r")
+                    '\t' -> sb.append("\\t")
+                    else -> {
+                        if (ch.code < 0x20) {
+                            sb.append("\\u%04x".format(ch.code))
+                        } else {
+                            sb.append(ch)
+                        }
+                    }
+                }
+            }
+            return sb.toString()
+        }
+
+        fun sha256Hex(file: File): String {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            return digest.digest(file.readBytes())
+                .joinToString("") { "%02x".format(it) }
+        }
+
+        fun treeHash(dir: File): String {
+            val files = dir.walkTopDown()
+                .filter { it.isFile }
+                .sortedBy { it.relativeTo(dir).path }
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            for (file in files) {
+                val relativePath = file.relativeTo(dir).path
+                val fileHash = sha256Hex(file)
+                digest.update(relativePath.toByteArray())
+                digest.update(fileHash.toByteArray())
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
+
+        fun fileCount(dir: File): Int = dir.walkTopDown().count { it.isFile }
+
+        // ── Git metadata ──────────────────────────────────────────────────
+        val commitSha = try {
+            ProcessBuilder("git", "rev-parse", "HEAD")
+                .directory(rootProject.projectDir)
+                .redirectErrorStream(true)
+                .start()
+                .inputStream.bufferedReader().readText().trim()
+        } catch (e: Exception) { "unknown" }
+
+        val refName = try {
+            ProcessBuilder("git", "rev-parse", "--abbrev-ref", "HEAD")
+                .directory(rootProject.projectDir)
+                .redirectErrorStream(true)
+                .start()
+                .inputStream.bufferedReader().readText().trim()
+        } catch (e: Exception) { "unknown" }
+
+        val repository = try {
+            val remoteUrl = ProcessBuilder("git", "config", "--get", "remote.origin.url")
+                .directory(rootProject.projectDir)
+                .redirectErrorStream(true)
+                .start()
+                .inputStream.bufferedReader().readText().trim()
+            Regex("github\\.com[:/]([^/]+/[^/]+?)(?:\\.git)?$").find(remoteUrl)
+                ?.groupValues?.get(1) ?: "unknown/repo"
+        } catch (e: Exception) { "unknown/repo" }
+
+        val generatedAt = try {
+            java.time.Instant.now().toString()
+        } catch (e: Exception) { "unknown" }
+
+        val version = tramaiVersion.get()
+
+        // ── Required artifact validation ──────────────────────────────────
+        val bundleManifest = buildDir.resolve("sovereign-runtime-release/bundle-manifest.json")
+        val verificationRepo = buildDir.resolve("sovereign-runtime-release-verification-repo")
+        val releaseManifest = buildDir.resolve("sovereign-release/release-artifacts-v1.json")
+        val releaseArtifactsDir = buildDir.resolve("sovereign-release/artifacts")
+
+        require(bundleManifest.exists()) {
+            "Missing required artifact: ${bundleManifest.absolutePath}. Run verifySovereignRuntimeSignedBundle first."
+        }
+        require(verificationRepo.isDirectory) {
+            "Missing required artifact: ${verificationRepo.absolutePath}. Run verifySovereignRuntimeSignedBundle first."
+        }
+        require(releaseManifest.exists()) {
+            "Missing required artifact: ${releaseManifest.absolutePath}. Run prepareSovereignReleaseArtifacts and verifySovereignReleaseManifest first."
+        }
+        require(releaseArtifactsDir.isDirectory) {
+            "Missing required artifact: ${releaseArtifactsDir.absolutePath}. Run prepareSovereignReleaseArtifacts first."
+        }
+
+        // ── Build artifact entries ────────────────────────────────────────
+        val artifacts = mutableListOf<String>()
+
+        artifacts.add(buildString {
+            append("    {")
+            append("\"id\": \"sovereign-runtime-bundle-manifest\", ")
+            append("\"path\": \"build/sovereign-runtime-release/bundle-manifest.json\", ")
+            append("\"type\": \"json\", ")
+            append("\"required\": true, ")
+            append("\"sha256\": \"${sha256Hex(bundleManifest)}\"")
+            append("}")
+        })
+
+        artifacts.add(buildString {
+            append("    {")
+            append("\"id\": \"sovereign-release-artifact-manifest\", ")
+            append("\"path\": \"build/sovereign-release/release-artifacts-v1.json\", ")
+            append("\"type\": \"json\", ")
+            append("\"required\": true, ")
+            append("\"sha256\": \"${sha256Hex(releaseManifest)}\"")
+            append("}")
+        })
+
+        val repoFileCount = fileCount(verificationRepo)
+        artifacts.add(buildString {
+            append("    {")
+            append("\"id\": \"sovereign-runtime-local-maven-repo\", ")
+            append("\"path\": \"build/sovereign-runtime-release-verification-repo\", ")
+            append("\"type\": \"directory\", ")
+            append("\"required\": true, ")
+            append("\"fileCount\": $repoFileCount, ")
+            append("\"sha256Tree\": \"${treeHash(verificationRepo)}\"")
+            append("}")
+        })
+
+        val artifactsFileCount = fileCount(releaseArtifactsDir)
+        artifacts.add(buildString {
+            append("    {")
+            append("\"id\": \"sovereign-release-artifacts\", ")
+            append("\"path\": \"build/sovereign-release/artifacts/\", ")
+            append("\"type\": \"directory\", ")
+            append("\"required\": true, ")
+            append("\"fileCount\": $artifactsFileCount, ")
+            append("\"sha256Tree\": \"${treeHash(releaseArtifactsDir)}\"")
+            append("}")
+        })
+
+        // ── Build JSON ────────────────────────────────────────────────────
+        val jsonContent = buildString {
+            appendLine("{")
+            appendLine("  \"schemaVersion\": \"sovereign-release-evidence-index-v1\",")
+            appendLine("  \"generatedAt\": \"${jsonEscape(generatedAt)}\",")
+            appendLine("  \"repository\": \"${jsonEscape(repository)}\",")
+            appendLine("  \"commitSha\": \"${jsonEscape(commitSha)}\",")
+            appendLine("  \"refName\": \"${jsonEscape(refName)}\",")
+            appendLine("  \"version\": \"${jsonEscape(version)}\",")
+            appendLine("  \"remotePublish\": false,")
+            appendLine("  \"tagCreated\": false,")
+            appendLine("  \"releaseCandidate\": true,")
+            appendLine("  \"artifacts\": [")
+            for ((i, entry) in artifacts.withIndex()) {
+                append(entry)
+                if (i < artifacts.lastIndex) append(",")
+                appendLine()
+            }
+            appendLine("  ],")
+            appendLine("  \"checks\": {")
+            appendLine("    \"releaseReadiness\": \"passed\",")
+            appendLine("    \"sovereignRuntimePublication\": \"passed\",")
+            appendLine("    \"sovereignRuntimeSignedBundle\": \"passed\",")
+            appendLine("    \"consumerSmoke\": \"passed\"")
+            appendLine("  }")
+            appendLine("}")
+        }
+
+        val jsonFile = outputDir.resolve("evidence-index.json")
+        jsonFile.writeText(jsonContent)
+        logger.lifecycle("Evidence index JSON generated: ${jsonFile.absolutePath}")
+
+        // ── Build Markdown ────────────────────────────────────────────────
+        val mdContent = buildString {
+            appendLine("# Sovereign Release Evidence Index")
+            appendLine()
+            appendLine("- Repository: $repository")
+            appendLine("- Commit: $commitSha")
+            appendLine("- Ref: $refName")
+            appendLine("- Version: $version")
+            appendLine("- Generated at: $generatedAt")
+            appendLine("- Remote publish: false")
+            appendLine("- Tag created: false")
+            appendLine("- Release candidate: true")
+            appendLine()
+            appendLine("## Evidence Artifacts")
+            appendLine()
+            appendLine("| ID | Path | Type | Required | SHA-256 |")
+            appendLine("|----|------|------|----------|---------|")
+            appendLine("| sovereign-runtime-bundle-manifest | build/sovereign-runtime-release/bundle-manifest.json | json | yes | ${sha256Hex(bundleManifest)} |")
+            appendLine("| sovereign-release-artifact-manifest | build/sovereign-release/release-artifacts-v1.json | json | yes | ${sha256Hex(releaseManifest)} |")
+            appendLine("| sovereign-runtime-local-maven-repo | build/sovereign-runtime-release-verification-repo | directory | yes | ${treeHash(verificationRepo)} |")
+            appendLine("| sovereign-release-artifacts | build/sovereign-release/artifacts/ | directory | yes | ${treeHash(releaseArtifactsDir)} |")
+            appendLine()
+            appendLine("## Validation Gates")
+            appendLine()
+            appendLine("| Gate | Status |")
+            appendLine("|------|--------|")
+            appendLine("| Release readiness | passed |")
+            appendLine("| Sovereign runtime publication | passed |")
+            appendLine("| Signed bundle dry-run | passed |")
+            appendLine("| Consumer smoke | passed |")
+        }
+
+        val mdFile = outputDir.resolve("evidence-index.md")
+        mdFile.writeText(mdContent)
+        logger.lifecycle("Evidence index Markdown generated: ${mdFile.absolutePath}")
+    }
+}

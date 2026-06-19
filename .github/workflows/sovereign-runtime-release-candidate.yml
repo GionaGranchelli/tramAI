@@ -56,6 +56,7 @@ jobs:
           ./gradlew prepareSovereignReleaseArtifacts --no-configuration-cache
           ./gradlew verifySovereignReleaseManifest --no-configuration-cache
           ./gradlew :examples:sovereign-document-intelligence:run --args="--release-bundle-manifest=build/sovereign-release/release-artifacts-v1.json" --no-configuration-cache
+          ./gradlew generateSovereignReleaseEvidenceIndex --no-configuration-cache
 
       - name: Upload bundle manifest
         uses: actions/upload-artifact@v4
@@ -80,6 +81,15 @@ jobs:
             build/sovereign-release/artifacts/
           if-no-files-found: error
 
+      - name: Upload evidence index
+        uses: actions/upload-artifact@v4
+        with:
+          name: sovereign-release-evidence-index
+          path: |
+            build/sovereign-runtime-release/evidence-index.json
+            build/sovereign-runtime-release/evidence-index.md
+          if-no-files-found: error
+
       - name: Write Summary
         run: |
           echo "## Sovereign Runtime Release Candidate" >> $GITHUB_STEP_SUMMARY
@@ -95,3 +105,4 @@ jobs:
           echo "- Bundle manifest: uploaded" >> $GITHUB_STEP_SUMMARY
           echo "- Local Maven repo: uploaded" >> $GITHUB_STEP_SUMMARY
           echo "- Release artifacts: uploaded" >> $GITHUB_STEP_SUMMARY
+          echo "- Evidence index: uploaded" >> $GITHUB_STEP_SUMMARY
