@@ -7,6 +7,7 @@ import org.gradle.kotlin.dsl.configure
 import org.gradle.plugins.signing.SigningExtension
 import org.gradle.util.GradleVersion
 import org.w3c.dom.Element
+import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import java.io.File
 import java.net.URI
@@ -100,6 +101,109 @@ val sovereignBundleModuleNames = listOf(
     "tramai-spring-boot-starter-sovereign-ops",
     "tramai-spring-boot-starter-sovereign-ops-observability",
 )
+
+// ──────────────────────────────────────────────
+// Sovereign Release Evidence Index - Typed Model
+// ──────────────────────────────────────────────
+
+data class SovereignReleaseEvidenceIndexV1(
+    val schemaVersion: String,
+    val generatedAt: String,
+    val repository: String,
+    val commitSha: String,
+    val refName: String,
+    val version: String,
+    val remotePublish: Boolean,
+    val tagCreated: Boolean,
+    val releaseCandidate: Boolean,
+    val artifacts: List<EvidenceArtifact>,
+    val checks: EvidenceChecks,
+) {
+    fun toMap(): Map<String, Any> = mapOf(
+        "schemaVersion" to schemaVersion,
+        "generatedAt" to generatedAt,
+        "repository" to repository,
+        "commitSha" to commitSha,
+        "refName" to refName,
+        "version" to version,
+        "remotePublish" to remotePublish,
+        "tagCreated" to tagCreated,
+        "releaseCandidate" to releaseCandidate,
+        "artifacts" to artifacts.map { it.toMap() },
+        "checks" to checks.toMap(),
+    )
+}
+
+data class EvidenceArtifact(
+    val id: String,
+    val path: String,
+    val type: String,
+    val required: Boolean,
+    val sha256: String? = null,
+    val fileCount: Int? = null,
+    val sha256Tree: String? = null,
+) {
+    fun toMap(): Map<String, Any> =
+        buildMap {
+            put("id", id)
+            put("path", path)
+            put("type", type)
+            put("required", required)
+            sha256?.let { put("sha256", it) }
+            fileCount?.let { put("fileCount", it) }
+            sha256Tree?.let { put("sha256Tree", it) }
+        }
+}
+
+data class EvidenceChecks(
+    val releaseReadiness: EvidenceCheck,
+    val sovereignRuntimePublication: EvidenceCheck,
+    val sovereignRuntimeSignedBundle: EvidenceCheck,
+    val consumerSmoke: ConsumerSmokeEvidenceCheck,
+) {
+    fun toMap(): Map<String, Any> = mapOf(
+        "releaseReadiness" to releaseReadiness.toMap(),
+        "sovereignRuntimePublication" to sovereignRuntimePublication.toMap(),
+        "sovereignRuntimeSignedBundle" to sovereignRuntimeSignedBundle.toMap(),
+        "consumerSmoke" to consumerSmoke.toMap(),
+    )
+}
+
+data class EvidenceCheck(
+    val status: String,
+    val taskPath: String,
+) {
+    fun toMap(): Map<String, Any> = mapOf(
+        "status" to status,
+        "taskPath" to taskPath,
+    )
+}
+
+data class ConsumerSmokeEvidenceCheck(
+    val status: String,
+    val taskPath: String,
+    val executes: String,
+    val devTramaiResolutionPolicy: DevTramaiResolutionPolicy,
+) {
+    fun toMap(): Map<String, Any> = mapOf(
+        "status" to status,
+        "taskPath" to taskPath,
+        "executes" to executes,
+        "devTramaiResolutionPolicy" to devTramaiResolutionPolicy.toMap(),
+    )
+}
+
+data class DevTramaiResolutionPolicy(
+    val allowedRepositories: List<String>,
+    val blockedRepositories: List<String>,
+    val coverage: String,
+) {
+    fun toMap(): Map<String, Any> = mapOf(
+        "allowedRepositories" to allowedRepositories,
+        "blockedRepositories" to blockedRepositories,
+        "coverage" to coverage,
+    )
+}
 
 // Lazy default URL for the sovereign bundle local repository.
 // Override with -PtramaiPublishReleaseUrl=file://<path> for custom local paths.
@@ -1438,27 +1542,6 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
         outputDir.mkdirs()
 
         // ── Helper functions ──────────────────────────────────────────────
-        fun jsonEscape(value: String): String {
-            val sb = StringBuilder()
-            for (ch in value) {
-                when (ch) {
-                    '"' -> sb.append("\\\"")
-                    '\\' -> sb.append("\\\\")
-                    '\n' -> sb.append("\\n")
-                    '\r' -> sb.append("\\r")
-                    '\t' -> sb.append("\\t")
-                    else -> {
-                        if (ch.code < 0x20) {
-                            sb.append("\\u%04x".format(ch.code))
-                        } else {
-                            sb.append(ch)
-                        }
-                    }
-                }
-            }
-            return sb.toString()
-        }
-
         fun sha256Hex(file: File): String {
             val digest = java.security.MessageDigest.getInstance("SHA-256")
             file.inputStream().use { input ->
@@ -1555,102 +1638,80 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
         }
 
         // ── Build artifact entries ────────────────────────────────────────
-        val artifacts = mutableListOf<String>()
-
-        artifacts.add(buildString {
-            append("    {")
-            append("\"id\": \"sovereign-runtime-bundle-manifest\", ")
-            append("\"path\": \"build/sovereign-runtime-release/bundle-manifest.json\", ")
-            append("\"type\": \"json\", ")
-            append("\"required\": true, ")
-            append("\"sha256\": \"${sha256Hex(bundleManifest)}\"")
-            append("}")
-        })
-
-        artifacts.add(buildString {
-            append("    {")
-            append("\"id\": \"sovereign-release-artifact-manifest\", ")
-            append("\"path\": \"build/sovereign-release/release-artifacts-v1.json\", ")
-            append("\"type\": \"json\", ")
-            append("\"required\": true, ")
-            append("\"sha256\": \"${sha256Hex(releaseManifest)}\"")
-            append("}")
-        })
-
         val repoFileCount = fileCount(verificationRepo)
-        artifacts.add(buildString {
-            append("    {")
-            append("\"id\": \"sovereign-runtime-local-maven-repo\", ")
-            append("\"path\": \"build/sovereign-runtime-release-verification-repo\", ")
-            append("\"type\": \"directory\", ")
-            append("\"required\": true, ")
-            append("\"fileCount\": $repoFileCount, ")
-            append("\"sha256Tree\": \"${treeHash(verificationRepo)}\"")
-            append("}")
-        })
-
         val artifactsFileCount = fileCount(releaseArtifactsDir)
-        artifacts.add(buildString {
-            append("    {")
-            append("\"id\": \"sovereign-release-artifacts\", ")
-            append("\"path\": \"build/sovereign-release/artifacts/\", ")
-            append("\"type\": \"directory\", ")
-            append("\"required\": true, ")
-            append("\"fileCount\": $artifactsFileCount, ")
-            append("\"sha256Tree\": \"${treeHash(releaseArtifactsDir)}\"")
-            append("}")
-        })
 
-        // ── Build JSON ────────────────────────────────────────────────────
-        val jsonContent = buildString {
-            appendLine("{")
-            appendLine("  \"schemaVersion\": \"sovereign-release-evidence-index-v1\",")
-            appendLine("  \"generatedAt\": \"${jsonEscape(generatedAt)}\",")
-            appendLine("  \"repository\": \"${jsonEscape(repository)}\",")
-            appendLine("  \"commitSha\": \"${jsonEscape(commitSha)}\",")
-            appendLine("  \"refName\": \"${jsonEscape(refName)}\",")
-            appendLine("  \"version\": \"${jsonEscape(version)}\",")
-            appendLine("  \"remotePublish\": false,")
-            appendLine("  \"tagCreated\": false,")
-            appendLine("  \"releaseCandidate\": true,")
-            appendLine("  \"artifacts\": [")
-            for ((i, entry) in artifacts.withIndex()) {
-                append(entry)
-                if (i < artifacts.lastIndex) append(",")
-                appendLine()
-            }
-            appendLine("  ],")
-            appendLine("  \"checks\": {")
-            appendLine("    \"releaseReadiness\": {")
-            appendLine("      \"status\": \"passed\",")
-            appendLine("      \"taskPath\": \":verifyReleaseReadiness\"")
-            appendLine("    },")
-            appendLine("    \"sovereignRuntimePublication\": {")
-            appendLine("      \"status\": \"passed\",")
-            appendLine("      \"taskPath\": \":verifySovereignRuntimePublication\"")
-            appendLine("    },")
-            appendLine("    \"sovereignRuntimeSignedBundle\": {")
-            appendLine("      \"status\": \"passed\",")
-            appendLine("      \"taskPath\": \":verifySovereignRuntimeSignedBundle\"")
-            appendLine("    },")
-            appendLine("    \"consumerSmoke\": {")
-            appendLine("      \"status\": \"passed\",")
-            appendLine("      \"taskPath\": \":verifySovereignRuntimeConsumerSmoke\",")
-            appendLine("      \"executes\": \"${jsonEscape(consumerSmokeCommand)}\",")
-            appendLine("      \"devTramaiResolutionPolicy\": {")
-            appendLine("        \"allowedRepositories\": [")
-            appendLine("          \"build/sovereign-runtime-release-verification-repo\"")
-            appendLine("        ],")
-            appendLine("        \"blockedRepositories\": [")
-            appendLine("          \"mavenLocal\",")
-            appendLine("          \"mavenCentral\"")
-            appendLine("        ],")
-            appendLine("        \"coverage\": \"full-dev-tramai-dependency-closure\"")
-            appendLine("      }")
-            appendLine("    }")
-            appendLine("  }")
-            appendLine("}")
-        }
+        val artifactList = listOf(
+            EvidenceArtifact(
+                id = "sovereign-runtime-bundle-manifest",
+                path = "build/sovereign-runtime-release/bundle-manifest.json",
+                type = "json",
+                required = true,
+                sha256 = sha256Hex(bundleManifest),
+            ),
+            EvidenceArtifact(
+                id = "sovereign-release-artifact-manifest",
+                path = "build/sovereign-release/release-artifacts-v1.json",
+                type = "json",
+                required = true,
+                sha256 = sha256Hex(releaseManifest),
+            ),
+            EvidenceArtifact(
+                id = "sovereign-runtime-local-maven-repo",
+                path = "build/sovereign-runtime-release-verification-repo",
+                type = "directory",
+                required = true,
+                fileCount = repoFileCount,
+                sha256Tree = treeHash(verificationRepo),
+            ),
+            EvidenceArtifact(
+                id = "sovereign-release-artifacts",
+                path = "build/sovereign-release/artifacts/",
+                type = "directory",
+                required = true,
+                fileCount = artifactsFileCount,
+                sha256Tree = treeHash(releaseArtifactsDir),
+            ),
+        )
+
+        val evidence = SovereignReleaseEvidenceIndexV1(
+            schemaVersion = "sovereign-release-evidence-index-v1",
+            generatedAt = generatedAt,
+            repository = repository,
+            commitSha = commitSha,
+            refName = refName,
+            version = version,
+            remotePublish = false,
+            tagCreated = false,
+            releaseCandidate = true,
+            artifacts = artifactList,
+            checks = EvidenceChecks(
+                releaseReadiness = EvidenceCheck(
+                    status = "passed",
+                    taskPath = ":verifyReleaseReadiness",
+                ),
+                sovereignRuntimePublication = EvidenceCheck(
+                    status = "passed",
+                    taskPath = ":verifySovereignRuntimePublication",
+                ),
+                sovereignRuntimeSignedBundle = EvidenceCheck(
+                    status = "passed",
+                    taskPath = ":verifySovereignRuntimeSignedBundle",
+                ),
+                consumerSmoke = ConsumerSmokeEvidenceCheck(
+                    status = "passed",
+                    taskPath = ":verifySovereignRuntimeConsumerSmoke",
+                    executes = consumerSmokeCommand,
+                    devTramaiResolutionPolicy = DevTramaiResolutionPolicy(
+                        allowedRepositories = listOf("build/sovereign-runtime-release-verification-repo"),
+                        blockedRepositories = listOf("mavenLocal", "mavenCentral"),
+                        coverage = "full-dev-tramai-dependency-closure",
+                    ),
+                ),
+            ),
+        )
+
+        val jsonContent = JsonOutput.prettyPrint(JsonOutput.toJson(evidence.toMap()))
 
         val jsonFile = outputDir.resolve("evidence-index.json")
         jsonFile.writeText(jsonContent)
