@@ -7,6 +7,18 @@ on:
         description: "Version to publish or validate. Leave empty to use the project default version, or set a release like 0.3.1."
         required: false
         type: string
+      publishMode:
+        description: "Publish mode. Use local-dry-run unless intentionally publishing a remote release."
+        required: true
+        default: local-dry-run
+        type: choice
+        options:
+          - local-dry-run
+          - remote-release
+      confirmRemoteRelease:
+        description: "Type RELEASE to allow remote release publishing."
+        required: false
+        type: string
   push:
     tags:
       - "v*"
@@ -44,8 +56,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Resolve version
+      - name: Resolve version and flags
         run: |
+          # --- Version resolution ---
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             echo "TRAMAI_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
           elif [[ -n "${{ github.event.inputs.version }}" ]]; then
@@ -62,25 +75,86 @@ jobs:
             echo "TRAMAI_IS_RELEASE_VERSION=false" >> "$GITHUB_ENV"
           fi
 
-      - name: Verify build
+          VERSION_SAVED="${{ github.event.inputs.version }}"
+
+          # --- Publish mode ---
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            # Tag triggers always imply remote-release mode
+            echo "TRAMAI_PUBLISH_MODE=remote-release" >> "$GITHUB_ENV"
+            PUBLISH_MODE="remote-release"
+          else
+            PUBLISH_MODE="${{ github.event.inputs.publishMode || 'local-dry-run' }}"
+            echo "TRAMAI_PUBLISH_MODE=${PUBLISH_MODE}" >> "$GITHUB_ENV"
+          fi
+
+          # --- Remote release confirmation ---
+          if [[ "${{ github.event.inputs.confirmRemoteRelease }}" == "RELEASE" ]]; then
+            echo "TRAMAI_REMOTE_RELEASE_CONFIRMED=true" >> "$GITHUB_ENV"
+            REMOTE_CONFIRMED="true"
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            # Pushing a tag is implicit confirmation
+            echo "TRAMAI_REMOTE_RELEASE_CONFIRMED=true" >> "$GITHUB_ENV"
+            REMOTE_CONFIRMED="true"
+          else
+            echo "TRAMAI_REMOTE_RELEASE_CONFIRMED=false" >> "$GITHUB_ENV"
+            REMOTE_CONFIRMED="false"
+          fi
+
+          # --- IS_RELEASE_VERSION ---
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            IS_RELEASE="true"
+          elif [[ -n "$VERSION_SAVED" && ! "$VERSION_SAVED" =~ -SNAPSHOT$ ]]; then
+            IS_RELEASE="true"
+          else
+            IS_RELEASE="false"
+          fi
+
+          # --- CAN_REMOTE_PUBLISH gate ---
+          CAN_PUBLISH=false
+          if [[ "$PUBLISH_MODE" == "remote-release" && "$REMOTE_CONFIRMED" == "true" && "$IS_RELEASE" == "true" ]]; then
+            if [[ -n "$TRAMAI_PUBLISH_RELEASE_URL" && -n "$TRAMAI_PUBLISH_USERNAME" && -n "$TRAMAI_PUBLISH_PASSWORD" && -n "$TRAMAI_SIGNING_KEY" && -n "$TRAMAI_SIGNING_PASSWORD" ]]; then
+              CAN_PUBLISH=true
+            fi
+          fi
+          echo "TRAMAI_CAN_REMOTE_PUBLISH=${CAN_PUBLISH}" >> "$GITHUB_ENV"
+
+      - name: Fail if remote-release mode is incomplete
+        if: ${{ env.TRAMAI_PUBLISH_MODE == 'remote-release' && env.TRAMAI_CAN_REMOTE_PUBLISH != 'true' }}
+        run: |
+          echo "::error::Remote release requested, but release preconditions are not satisfied."
+          echo "::error::Required: non-SNAPSHOT release version, confirmRemoteRelease=RELEASE, publish credentials (URL/username/password), signing credentials."
+          exit 1
+
+      - name: Require SonarQube secrets for release publish
+        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' && (env.SONAR_HOST_URL == '' || env.SONAR_TOKEN == '') }}
+        run: |
+          echo "::error::Release publishing now requires SONAR_HOST_URL and SONAR_TOKEN GitHub Actions secrets."
+          exit 1
+
+      - name: Verify build (local-dry-run)
+        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH != 'true' }}
+        env:
+          ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
+        run: |
+          ./gradlew verifyReleaseReadiness --no-configuration-cache
+          ./gradlew verifySovereignRuntimePublication --no-configuration-cache
+          ./gradlew verifySovereignRuntimeSignedBundle --no-configuration-cache
+          ./gradlew publishToMavenLocal --no-configuration-cache
+          ./gradlew -p examples/kotlin-springboot-example smokeTest --no-configuration-cache
+          ./gradlew -p examples/sovereign-runtime-consumer-smoke test --no-configuration-cache
+
+      - name: Verify build (remote-release)
+        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
         run: ./gradlew verifyReleaseReadiness --no-configuration-cache
 
-      - name: Require SonarQube secrets for release publish
-        if: ${{ env.TRAMAI_IS_RELEASE_VERSION == 'true' && (env.SONAR_HOST_URL == '' || env.SONAR_TOKEN == '') }}
-        run: |
-          echo "::error::Release publishing now requires SONAR_HOST_URL and SONAR_TOKEN GitHub Actions secrets. GitHub runners cannot read your local ~/.zshrc."
-          exit 1
-
       - name: Run SonarQube analysis
-        if: ${{ env.SONAR_HOST_URL != '' && env.SONAR_TOKEN != '' }}
+        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
         run: |
           PROJECT_KEY="${SONAR_PROJECT_KEY:-dev.tramai:tramai}"
-          # SonarScanner 6.2 resolves subproject classpaths during task execution.
-          # Gradle 9 requires this step to run without parallel project execution.
           ./gradlew sonar --no-configuration-cache --no-parallel \
             -Dsonar.host.url="$SONAR_HOST_URL" \
             -Dsonar.token="$SONAR_TOKEN" \
@@ -89,7 +163,7 @@ jobs:
             -Dsonar.projectVersion="$TRAMAI_VERSION"
 
       - name: Verify remote publish inputs
-        if: ${{ env.TRAMAI_IS_RELEASE_VERSION == 'true' && env.TRAMAI_PUBLISH_RELEASE_URL != '' && env.TRAMAI_PUBLISH_USERNAME != '' && env.TRAMAI_PUBLISH_PASSWORD != '' && env.TRAMAI_SIGNING_KEY != '' && env.TRAMAI_SIGNING_PASSWORD != '' }}
+        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
           ORG_GRADLE_PROJECT_tramaiPublishReleaseUrl: ${{ env.TRAMAI_PUBLISH_RELEASE_URL }}
@@ -101,7 +175,7 @@ jobs:
         run: ./gradlew verifyReleasePublishInputs --no-configuration-cache
 
       - name: Verify signing key is published to supported keyservers
-        if: ${{ env.TRAMAI_IS_RELEASE_VERSION == 'true' && env.TRAMAI_PUBLISH_RELEASE_URL != '' && env.TRAMAI_PUBLISH_USERNAME != '' && env.TRAMAI_PUBLISH_PASSWORD != '' && env.TRAMAI_SIGNING_KEY != '' && env.TRAMAI_SIGNING_PASSWORD != '' }}
+        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}
         env:
           TRAMAI_SIGNING_KEY: ${{ env.TRAMAI_SIGNING_KEY }}
         run: |
@@ -141,12 +215,12 @@ jobs:
           done
 
           if [[ "$FOUND_KEY" != "true" ]]; then
-            echo "::error::Signing key $SIGNING_FINGERPRINT is not available from the Sonatype-supported public keyservers checked by this workflow. Publish the public key before retrying the release, for example: gpg --keyserver keyserver.ubuntu.com --send-keys $SIGNING_FINGERPRINT"
+            echo "::error::Signing key $SIGNING_FINGERPRINT is not available from the Sonatype-supported public keyservers checked by this workflow. Publish the public key before retrying."
             exit 1
           fi
 
       - name: Publish to configured repository
-        if: ${{ env.TRAMAI_PUBLISH_RELEASE_URL != '' && env.TRAMAI_PUBLISH_USERNAME != '' && env.TRAMAI_PUBLISH_PASSWORD != '' && env.TRAMAI_SIGNING_KEY != '' && env.TRAMAI_SIGNING_PASSWORD != '' }}
+        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
           ORG_GRADLE_PROJECT_tramaiPublishReleaseUrl: ${{ env.TRAMAI_PUBLISH_RELEASE_URL }}
@@ -158,7 +232,7 @@ jobs:
         run: ./gradlew publish --no-configuration-cache
 
       - name: Upload tagged release deployment to Central Portal
-        if: ${{ env.TRAMAI_IS_RELEASE_VERSION == 'true' && env.TRAMAI_PUBLISH_RELEASE_URL != '' && env.TRAMAI_PUBLISH_USERNAME != '' && env.TRAMAI_PUBLISH_PASSWORD != '' && env.TRAMAI_SIGNING_KEY != '' && env.TRAMAI_SIGNING_PASSWORD != '' }}
+        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}
         env:
           TRAMAI_PUBLISH_USERNAME: ${{ env.TRAMAI_PUBLISH_USERNAME }}
           TRAMAI_PUBLISH_PASSWORD: ${{ env.TRAMAI_PUBLISH_PASSWORD }}
@@ -170,16 +244,33 @@ jobs:
             -H "Accept: application/json" \
             "${TRAMAI_CENTRAL_STAGING_API_URL}/manual/upload/defaultRepository/${TRAMAI_CENTRAL_NAMESPACE}?publishing_type=user_managed"
 
-      - name: Publish to Maven Local smoke target
-        if: ${{ !(env.TRAMAI_PUBLISH_RELEASE_URL != '' && env.TRAMAI_PUBLISH_USERNAME != '' && env.TRAMAI_PUBLISH_PASSWORD != '' && env.TRAMAI_SIGNING_KEY != '' && env.TRAMAI_SIGNING_PASSWORD != '') }}
-        env:
-          ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
-        run: ./gradlew publishToMavenLocal --no-configuration-cache
+      - name: Write Summary
+        run: |
+          echo "## TramAI Publish Workflow" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Publish mode: ${TRAMAI_PUBLISH_MODE:-local-dry-run}" >> $GITHUB_STEP_SUMMARY
 
-      - name: Publish to Maven Local for example smoke test
-        env:
-          ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
-        run: ./gradlew publishToMavenLocal --no-configuration-cache
+          if [[ "${TRAMAI_CAN_REMOTE_PUBLISH}" == "true" ]]; then
+            echo "- Remote publish: true" >> $GITHUB_STEP_SUMMARY
+            echo "- Central upload: true" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- Remote publish: false" >> $GITHUB_STEP_SUMMARY
+            echo "- Central upload: false" >> $GITHUB_STEP_SUMMARY
+          fi
 
-      - name: Run example smoke test
-        run: ./gradlew -p examples/kotlin-springboot-example smokeTest --no-configuration-cache
+          echo "- Tag trigger: $([[ "${GITHUB_REF_TYPE}" == "tag" ]] && echo true || echo false)" >> $GITHUB_STEP_SUMMARY
+          echo "- Version: ${TRAMAI_VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "- Release version: ${TRAMAI_IS_RELEASE_VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "- Remote release confirmed: ${TRAMAI_REMOTE_RELEASE_CONFIRMED}" >> $GITHUB_STEP_SUMMARY
+
+          if [[ -n "${TRAMAI_PUBLISH_RELEASE_URL}" ]]; then
+            echo "- Publish repository: configured (redacted)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- Publish repository: not configured" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [[ "${TRAMAI_CAN_REMOTE_PUBLISH}" == "true" ]]; then
+            echo "- Signing key: configured" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- Local validation: completed" >> $GITHUB_STEP_SUMMARY
+          fi
