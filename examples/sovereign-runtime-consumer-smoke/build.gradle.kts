@@ -1,5 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+val tramaiVersion = providers.gradleProperty("tramaiVersion").orElse("0.3.1")
+
 plugins {
     id("org.springframework.boot") version "3.4.5"
     id("io.spring.dependency-management") version "1.1.7"
@@ -12,7 +14,7 @@ springBoot {
 }
 
 group = "dev.tramai.examples"
-version = "0.3.1"
+version = tramaiVersion.get()
 
 java {
     toolchain {
@@ -28,17 +30,24 @@ kotlin {
 }
 
 repositories {
-    mavenLocal()
+    // dev.tramai modules must resolve from mavenLocal — the point is verifying
+    // that locally published artifacts are consumer-valid. Block remote resolution
+    // so stale Maven Central or other remote artifacts cannot make the test pass
+    // accidentally.
+    exclusiveContent {
+        forRepository { mavenLocal() }
+        filter { includeGroup("dev.tramai") }
+    }
     mavenCentral()
 }
 
 dependencies {
     // Resolve sovereign runtime modules from mavenLocal to prove they are publishable.
     // These must NOT use project() dependencies — the point is to verify consumer resolution.
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign:0.3.1")
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-persistence-file:0.3.1")
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops:0.3.1")
-    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops-observability:0.3.1")
+    implementation("dev.tramai:tramai-spring-boot-starter-sovereign:${tramaiVersion.get()}")
+    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-persistence-file:${tramaiVersion.get()}")
+    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops:${tramaiVersion.get()}")
+    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops-observability:${tramaiVersion.get()}")
 
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.jetbrains.kotlin:kotlin-reflect")

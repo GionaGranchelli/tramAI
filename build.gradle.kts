@@ -1320,18 +1320,23 @@ val gradleWrapper = if (System.getProperty("os.name").lowercase().contains("wind
     "./gradlew"
 }
 
+val consumerSmokeVersion = tramaiVersion.get()
+val consumerSmokeArgs = listOf(
+    "-p", "examples/sovereign-runtime-consumer-smoke",
+    "test",
+    "-PtramaiVersion=$consumerSmokeVersion",
+    "--no-configuration-cache",
+)
+val consumerSmokeCommand = "$gradleWrapper ${consumerSmokeArgs.joinToString(" ")}"
+
 tasks.register<Exec>("verifySovereignRuntimeConsumerSmoke") {
     group = "verification"
     description = "Runs the standalone sovereign runtime consumer smoke test."
 
+    dependsOn("verifySovereignRuntimePublication")
+
     workingDir = rootProject.projectDir
-    commandLine(
-        gradleWrapper,
-        "-p",
-        "examples/sovereign-runtime-consumer-smoke",
-        "test",
-        "--no-configuration-cache",
-    )
+    commandLine(gradleWrapper, *consumerSmokeArgs.toTypedArray())
 }
 
 // ──────────────────────────────────────────────
@@ -1555,7 +1560,7 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
             appendLine("    \"consumerSmoke\": {")
             appendLine("      \"status\": \"passed\",")
             appendLine("      \"taskPath\": \":verifySovereignRuntimeConsumerSmoke\",")
-            appendLine("      \"executes\": \"./gradlew -p examples/sovereign-runtime-consumer-smoke test --no-configuration-cache\"")
+            appendLine("      \"executes\": \"${jsonEscape(consumerSmokeCommand)}\"")
             appendLine("    }")
             appendLine("  }")
             appendLine("}")
@@ -1569,15 +1574,26 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
         require(jsonFile.isFile) {
             "Evidence index JSON was not generated."
         }
-        val jsonText = jsonFile.readText()
-        require(jsonText.contains("\"schemaVersion\"")) {
-            "Evidence index JSON is missing schemaVersion."
+        @Suppress("UNCHECKED_CAST")
+        val parsed = JsonSlurper().parse(jsonFile) as Map<String, Any>
+        require(parsed["schemaVersion"] == "sovereign-release-evidence-index-v1") {
+            "Evidence index JSON has invalid schemaVersion: expected sovereign-release-evidence-index-v1, got ${parsed["schemaVersion"]}"
         }
-        require(jsonText.contains("\"artifacts\"")) {
-            "Evidence index JSON is missing artifacts."
+        require(parsed["artifacts"] is List<*>) {
+            "Evidence index JSON artifacts must be an array."
         }
-        require(jsonText.contains("\"checks\"")) {
-            "Evidence index JSON is missing checks."
+        require(parsed["checks"] is Map<*, *>) {
+            "Evidence index JSON checks must be an object."
+        }
+        // Verify every check entry has status and taskPath
+        val checks = parsed["checks"] as Map<String, Map<String, Any>>
+        for ((name, check) in checks) {
+            require(check["status"] == "passed") {
+                "Evidence index check '$name' has unexpected status: ${check["status"]}"
+            }
+            require(check.containsKey("taskPath")) {
+                "Evidence index check '$name' is missing taskPath."
+            }
         }
 
         // ── Build Markdown ────────────────────────────────────────────────
