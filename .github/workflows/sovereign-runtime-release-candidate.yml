@@ -52,7 +52,7 @@ jobs:
           ./gradlew verifyReleaseReadiness --no-configuration-cache
           ./gradlew verifySovereignRuntimePublication --no-configuration-cache
           ./gradlew verifySovereignRuntimeSignedBundle --no-configuration-cache
-          ./gradlew -p examples/sovereign-runtime-consumer-smoke test --no-configuration-cache
+          ./gradlew verifySovereignRuntimeConsumerSmoke --no-configuration-cache
           ./gradlew prepareSovereignReleaseArtifacts --no-configuration-cache
           ./gradlew verifySovereignReleaseManifest --no-configuration-cache
           ./gradlew :examples:sovereign-document-intelligence:run --args="--release-bundle-manifest=build/sovereign-release/release-artifacts-v1.json" --no-configuration-cache
