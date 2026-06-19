@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to validate. Leave empty to use gradle.properties."
+        description: "Version to validate. Leave empty to use the current project default version."
         required: false
         type: string
   pull_request:

@@ -138,6 +138,6 @@ The repository now includes a dedicated workflow for validating the sovereign ru
 |----------|----------|
 | `sovereign-runtime-bundle-manifest` | Bundle manifest JSON |
 | `sovereign-runtime-local-maven-repo` | Local verification Maven repository |
-| `sovereign-release-artifacts` | Release artifact manifest + signed artifacts |
+| `sovereign-release-artifacts` | Release artifact manifest + generated release artifacts |
 
 Run from the Actions tab: **Sovereign Runtime Release Candidate** → **Run workflow**.
