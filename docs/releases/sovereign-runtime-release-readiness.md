@@ -139,5 +139,17 @@ The repository now includes a dedicated workflow for validating the sovereign ru
 | `sovereign-runtime-bundle-manifest` | Bundle manifest JSON |
 | `sovereign-runtime-local-maven-repo` | Local verification Maven repository |
 | `sovereign-release-artifacts` | Release artifact manifest + generated release artifacts |
+| `sovereign-release-evidence-index` | Evidence index JSON + Markdown |
 
 Run from the Actions tab: **Sovereign Runtime Release Candidate** → **Run workflow**.
+
+## Sovereign Release Evidence Index
+
+The release-candidate workflow also generates a release evidence index at `build/sovereign-runtime-release/`:
+
+- `evidence-index.json` — machine-readable, ties together commit metadata, validation gates, artifact hashes
+- `evidence-index.md` — human-readable summary with artifact and gate tables
+
+The index includes SHA-256 hashes for files and deterministic tree hashes for directories.
+
+The index does **not** contain secrets, credentials, signing keys, or absolute machine paths.
