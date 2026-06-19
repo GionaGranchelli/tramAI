@@ -22,13 +22,55 @@ The repository contains:
 
 `publish.yml` is triggered by:
 
-- `workflow_dispatch`
+- `workflow_dispatch` (manual)
 - tags matching `v*`
 
-For `workflow_dispatch`, you can optionally provide a `version` input:
+### Publish Workflow Safety Hardening
 
-- leave it empty to run the snapshot path as `0.3.1-SNAPSHOT`
-- set it to a release like `0.3.1` when you want to preflight the real release publish path before pushing the tag
+The publish workflow has been hardened against accidental remote publishing:
+
+**Default mode: `local-dry-run`**
+
+Manual workflow runs default to `local-dry-run`. In this mode, the workflow runs:
+
+- `verifyReleaseReadiness`
+- `verifySovereignRuntimePublication`
+- `verifySovereignRuntimeSignedBundle`
+- `publishToMavenLocal`
+- Kotlin Spring Boot example smoke test
+- Sovereign runtime consumer smoke test
+
+No remote publish, no Central upload, no tag/release creation.
+
+**To publish remotely: explicit opt-in**
+
+1. Set `publishMode` to `remote-release`
+2. Set `confirmRemoteRelease` to `RELEASE`
+
+Both are required. A single accidental click cannot trigger a remote publish.
+
+**Fail-closed behavior**
+
+If `remote-release` mode is selected but preconditions are not satisfied (non-SNAPSHOT version, missing credentials, missing signing keys, confirmation not entered), the workflow fails with a clear error before any publish step runs.
+
+**Centralized gate: `TRAMAI_CAN_REMOTE_PUBLISH`**
+
+All remote-sensitive steps (verify remote publish inputs, verify signing key on keyservers, publish to configured repository, upload to Central Portal) are guarded by a single workflow-level flag. Remote steps cannot run merely because secrets exist — they also require explicit mode selection, confirmation, and release-version validation.
+
+**Tag-triggered releases**
+
+Tags matching `v*` automatically set `publishMode=remote-release` with implicit confirmation. Remote steps only run if the required credentials and signing keys are present. If credentials are missing, the workflow fails with a clear error rather than silently falling back to local mode.
+
+**Workflow summary**
+
+Every run writes a summary to `$GITHUB_STEP_SUMMARY` showing:
+- publish mode
+- whether remote publish occurred
+- version validated
+- credential/signing key status (redacted)
+- tag trigger status
+
+No secrets, credentials, or signing keys are printed.
 
 ## Required Secrets
 
@@ -43,7 +85,7 @@ Remote publishing requires these GitHub Actions secrets:
 - `SONAR_HOST_URL`
 - `SONAR_TOKEN`
 
-Without those secrets, the publish workflow falls back to `publishToMavenLocal`.
+Without those secrets, remote publishing is blocked by the TRAMAI_CAN_REMOTE_PUBLISH safety gate. The workflow will fail rather than silently fall back to local mode when remote-release is selected but credentials are missing.
 
 If you want a stable non-default SonarQube key, also set:
 
