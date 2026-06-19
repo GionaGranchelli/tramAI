@@ -1321,19 +1321,25 @@ val gradleWrapper = if (System.getProperty("os.name").lowercase().contains("wind
 }
 
 val consumerSmokeVersion = tramaiVersion.get()
+val sovereignRuntimeVerificationRepo = rootProject.layout.buildDirectory
+    .dir("sovereign-runtime-release-verification-repo")
+    .get()
+    .asFile
+    .absolutePath
 val consumerSmokeArgs = listOf(
     "-p", "examples/sovereign-runtime-consumer-smoke",
     "test",
     "-PtramaiVersion=$consumerSmokeVersion",
+    "-PsovereignRuntimeVerificationRepo=$sovereignRuntimeVerificationRepo",
     "--no-configuration-cache",
 )
 val consumerSmokeCommand = "$gradleWrapper ${consumerSmokeArgs.joinToString(" ")}"
 
 tasks.register<Exec>("verifySovereignRuntimeConsumerSmoke") {
     group = "verification"
-    description = "Runs the standalone sovereign runtime consumer smoke test."
+    description = "Runs the standalone sovereign runtime consumer smoke test against the dedicated verification repo."
 
-    dependsOn("verifySovereignRuntimePublication")
+    dependsOn("verifySovereignRuntimeSignedBundle")
 
     workingDir = rootProject.projectDir
     commandLine(gradleWrapper, *consumerSmokeArgs.toTypedArray())
@@ -1560,7 +1566,12 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
             appendLine("    \"consumerSmoke\": {")
             appendLine("      \"status\": \"passed\",")
             appendLine("      \"taskPath\": \":verifySovereignRuntimeConsumerSmoke\",")
-            appendLine("      \"executes\": \"${jsonEscape(consumerSmokeCommand)}\"")
+            appendLine("      \"executes\": \"${jsonEscape(consumerSmokeCommand)}\",")
+            appendLine("      \"resolvesDevTramaiFrom\": {")
+            appendLine("        \"sovereignRuntimeModules\": \"build/sovereign-runtime-release-verification-repo\",")
+            appendLine("        \"transitiveTramaiModules\": \"mavenLocal\",")
+            appendLine("        \"remoteDevTramaiResolution\": \"blocked\"")
+            appendLine("      }")
             appendLine("    }")
             appendLine("  }")
             appendLine("}")
@@ -1620,12 +1631,12 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
             appendLine()
             appendLine("## Validation Gates")
             appendLine()
-            appendLine("| Gate | Status | Task |")
-            appendLine("|------|--------|------|")
-            appendLine("| Release readiness | passed | :verifyReleaseReadiness |")
-            appendLine("| Sovereign runtime publication | passed | :verifySovereignRuntimePublication |")
-            appendLine("| Signed bundle dry-run | passed | :verifySovereignRuntimeSignedBundle |")
-            appendLine("| Consumer smoke | passed | :verifySovereignRuntimeConsumerSmoke |")
+            appendLine("| Gate | Status | Task | Source |")
+            appendLine("|------|--------|------|--------|")
+            appendLine("| Release readiness | passed | :verifyReleaseReadiness | build metadata and artifact validation |")
+            appendLine("| Sovereign runtime publication | passed | :verifySovereignRuntimePublication | published to mavenLocal |")
+            appendLine("| Signed bundle dry-run | passed | :verifySovereignRuntimeSignedBundle | build/sovereign-runtime-release-verification-repo |")
+            appendLine("| Consumer smoke | passed | :verifySovereignRuntimeConsumerSmoke | build/sovereign-runtime-release-verification-repo |")
         }
 
         val mdFile = outputDir.resolve("evidence-index.md")
