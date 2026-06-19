@@ -1311,6 +1311,35 @@ tasks.register("verifySovereignEvidencePackContainsReleaseBundle") {
 }
 
 // ──────────────────────────────────────────────
+// Task: verifySovereignRuntimeConsumerSmoke
+// ──────────────────────────────────────────────
+
+val gradleWrapper = if (System.getProperty("os.name").lowercase().contains("windows")) {
+    "gradlew.bat"
+} else {
+    "./gradlew"
+}
+
+val consumerSmokeVersion = tramaiVersion.get()
+val consumerSmokeArgs = listOf(
+    "-p", "examples/sovereign-runtime-consumer-smoke",
+    "test",
+    "-PtramaiVersion=$consumerSmokeVersion",
+    "--no-configuration-cache",
+)
+val consumerSmokeCommand = "$gradleWrapper ${consumerSmokeArgs.joinToString(" ")}"
+
+tasks.register<Exec>("verifySovereignRuntimeConsumerSmoke") {
+    group = "verification"
+    description = "Runs the standalone sovereign runtime consumer smoke test."
+
+    dependsOn("verifySovereignRuntimePublication")
+
+    workingDir = rootProject.projectDir
+    commandLine(gradleWrapper, *consumerSmokeArgs.toTypedArray())
+}
+
+// ──────────────────────────────────────────────
 // Task: generateSovereignReleaseEvidenceIndex
 // ──────────────────────────────────────────────
 
@@ -1319,7 +1348,10 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
     description = "Generates a release evidence index (JSON + Markdown) tying together commit metadata, validation gates, bundle manifest, release artifact manifest, and artifact hashes. Fails if required evidence artifacts are missing."
 
     dependsOn(
+        "verifyReleaseReadiness",
+        "verifySovereignRuntimePublication",
         "verifySovereignRuntimeSignedBundle",
+        "verifySovereignRuntimeConsumerSmoke",
         "prepareSovereignReleaseArtifacts",
         "verifySovereignReleaseManifest",
     )
@@ -1353,52 +1385,73 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
 
         fun sha256Hex(file: File): String {
             val digest = java.security.MessageDigest.getInstance("SHA-256")
-            return digest.digest(file.readBytes())
-                .joinToString("") { "%02x".format(it) }
+            file.inputStream().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
         }
 
         fun treeHash(dir: File): String {
             val files = dir.walkTopDown()
                 .filter { it.isFile }
-                .sortedBy { it.relativeTo(dir).path }
+                .sortedBy { it.relativeTo(dir).invariantSeparatorsPath }
             val digest = java.security.MessageDigest.getInstance("SHA-256")
             for (file in files) {
-                val relativePath = file.relativeTo(dir).path
+                val relativePath = file.relativeTo(dir).invariantSeparatorsPath
                 val fileHash = sha256Hex(file)
-                digest.update(relativePath.toByteArray())
-                digest.update(fileHash.toByteArray())
+                digest.update(relativePath.toByteArray(Charsets.UTF_8))
+                digest.update(0)
+                digest.update(fileHash.toByteArray(Charsets.UTF_8))
+                digest.update(0)
             }
             return digest.digest().joinToString("") { "%02x".format(it) }
         }
 
         fun fileCount(dir: File): Int = dir.walkTopDown().count { it.isFile }
 
-        // ── Git metadata ──────────────────────────────────────────────────
-        val commitSha = try {
-            ProcessBuilder("git", "rev-parse", "HEAD")
+        // ── Git metadata (fail-closed) ─────────────────────────────────────
+        val commitSha = run {
+            val out = ProcessBuilder("git", "rev-parse", "HEAD")
                 .directory(rootProject.projectDir)
                 .redirectErrorStream(true)
                 .start()
                 .inputStream.bufferedReader().readText().trim()
-        } catch (e: Exception) { "unknown" }
+            require(out.matches(Regex("[a-f0-9]{40}"))) {
+                "Cannot generate release evidence index without a valid git commit SHA."
+            }
+            out
+        }
 
-        val refName = try {
-            ProcessBuilder("git", "rev-parse", "--abbrev-ref", "HEAD")
+        val refName = run {
+            val out = ProcessBuilder("git", "rev-parse", "--abbrev-ref", "HEAD")
                 .directory(rootProject.projectDir)
                 .redirectErrorStream(true)
                 .start()
                 .inputStream.bufferedReader().readText().trim()
-        } catch (e: Exception) { "unknown" }
+            require(out.isNotBlank() && out != "unknown") {
+                "Cannot generate release evidence index without git ref metadata."
+            }
+            out
+        }
 
-        val repository = try {
+        val repository = run {
             val remoteUrl = ProcessBuilder("git", "config", "--get", "remote.origin.url")
                 .directory(rootProject.projectDir)
                 .redirectErrorStream(true)
                 .start()
                 .inputStream.bufferedReader().readText().trim()
-            Regex("github\\.com[:/]([^/]+/[^/]+?)(?:\\.git)?$").find(remoteUrl)
-                ?.groupValues?.get(1) ?: "unknown/repo"
-        } catch (e: Exception) { "unknown/repo" }
+            val repo = Regex("github\\.com[:/]([^/]+/[^/]+?)(?:\\.git)?$").find(remoteUrl)
+                ?.groupValues?.get(1) ?: error("Cannot generate release evidence index without repository metadata.")
+            require(repo != "unknown/repo") {
+                "Cannot generate release evidence index without repository metadata."
+            }
+            repo
+        }
 
         val generatedAt = try {
             java.time.Instant.now().toString()
@@ -1413,16 +1466,16 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
         val releaseArtifactsDir = buildDir.resolve("sovereign-release/artifacts")
 
         require(bundleManifest.exists()) {
-            "Missing required artifact: ${bundleManifest.absolutePath}. Run verifySovereignRuntimeSignedBundle first."
+            "Missing required artifact: build/sovereign-runtime-release/bundle-manifest.json. Run verifySovereignRuntimeSignedBundle first."
         }
         require(verificationRepo.isDirectory) {
-            "Missing required artifact: ${verificationRepo.absolutePath}. Run verifySovereignRuntimeSignedBundle first."
+            "Missing required artifact: build/sovereign-runtime-release-verification-repo/. Run verifySovereignRuntimeSignedBundle first."
         }
         require(releaseManifest.exists()) {
-            "Missing required artifact: ${releaseManifest.absolutePath}. Run prepareSovereignReleaseArtifacts and verifySovereignReleaseManifest first."
+            "Missing required artifact: build/sovereign-release/release-artifacts-v1.json. Run prepareSovereignReleaseArtifacts and verifySovereignReleaseManifest first."
         }
         require(releaseArtifactsDir.isDirectory) {
-            "Missing required artifact: ${releaseArtifactsDir.absolutePath}. Run prepareSovereignReleaseArtifacts first."
+            "Missing required artifact: build/sovereign-release/artifacts/. Run prepareSovereignReleaseArtifacts first."
         }
 
         // ── Build artifact entries ────────────────────────────────────────
@@ -1492,10 +1545,23 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
             }
             appendLine("  ],")
             appendLine("  \"checks\": {")
-            appendLine("    \"releaseReadiness\": \"passed\",")
-            appendLine("    \"sovereignRuntimePublication\": \"passed\",")
-            appendLine("    \"sovereignRuntimeSignedBundle\": \"passed\",")
-            appendLine("    \"consumerSmoke\": \"passed\"")
+            appendLine("    \"releaseReadiness\": {")
+            appendLine("      \"status\": \"passed\",")
+            appendLine("      \"taskPath\": \":verifyReleaseReadiness\"")
+            appendLine("    },")
+            appendLine("    \"sovereignRuntimePublication\": {")
+            appendLine("      \"status\": \"passed\",")
+            appendLine("      \"taskPath\": \":verifySovereignRuntimePublication\"")
+            appendLine("    },")
+            appendLine("    \"sovereignRuntimeSignedBundle\": {")
+            appendLine("      \"status\": \"passed\",")
+            appendLine("      \"taskPath\": \":verifySovereignRuntimeSignedBundle\"")
+            appendLine("    },")
+            appendLine("    \"consumerSmoke\": {")
+            appendLine("      \"status\": \"passed\",")
+            appendLine("      \"taskPath\": \":verifySovereignRuntimeConsumerSmoke\",")
+            appendLine("      \"executes\": \"${jsonEscape(consumerSmokeCommand)}\"")
+            appendLine("    }")
             appendLine("  }")
             appendLine("}")
         }
@@ -1503,6 +1569,32 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
         val jsonFile = outputDir.resolve("evidence-index.json")
         jsonFile.writeText(jsonContent)
         logger.lifecycle("Evidence index JSON generated: ${jsonFile.absolutePath}")
+
+        // ── Post-write structural validation ───────────────────────────────
+        require(jsonFile.isFile) {
+            "Evidence index JSON was not generated."
+        }
+        @Suppress("UNCHECKED_CAST")
+        val parsed = JsonSlurper().parse(jsonFile) as Map<String, Any>
+        require(parsed["schemaVersion"] == "sovereign-release-evidence-index-v1") {
+            "Evidence index JSON has invalid schemaVersion: expected sovereign-release-evidence-index-v1, got ${parsed["schemaVersion"]}"
+        }
+        require(parsed["artifacts"] is List<*>) {
+            "Evidence index JSON artifacts must be an array."
+        }
+        require(parsed["checks"] is Map<*, *>) {
+            "Evidence index JSON checks must be an object."
+        }
+        // Verify every check entry has status and taskPath
+        val checks = parsed["checks"] as Map<String, Map<String, Any>>
+        for ((name, check) in checks) {
+            require(check["status"] == "passed") {
+                "Evidence index check '$name' has unexpected status: ${check["status"]}"
+            }
+            require(check.containsKey("taskPath")) {
+                "Evidence index check '$name' is missing taskPath."
+            }
+        }
 
         // ── Build Markdown ────────────────────────────────────────────────
         val mdContent = buildString {
@@ -1528,12 +1620,12 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
             appendLine()
             appendLine("## Validation Gates")
             appendLine()
-            appendLine("| Gate | Status |")
-            appendLine("|------|--------|")
-            appendLine("| Release readiness | passed |")
-            appendLine("| Sovereign runtime publication | passed |")
-            appendLine("| Signed bundle dry-run | passed |")
-            appendLine("| Consumer smoke | passed |")
+            appendLine("| Gate | Status | Task |")
+            appendLine("|------|--------|------|")
+            appendLine("| Release readiness | passed | :verifyReleaseReadiness |")
+            appendLine("| Sovereign runtime publication | passed | :verifySovereignRuntimePublication |")
+            appendLine("| Signed bundle dry-run | passed | :verifySovereignRuntimeSignedBundle |")
+            appendLine("| Consumer smoke | passed | :verifySovereignRuntimeConsumerSmoke |")
         }
 
         val mdFile = outputDir.resolve("evidence-index.md")
