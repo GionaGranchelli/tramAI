@@ -100,3 +100,44 @@ No timelines are committed for these items.
 - [x] CHANGELOG.md has Unreleased section
 
 Checklist last verified: 2026-06-18. Full test suite: 159 tasks, all green.
+
+## Sovereign Runtime Release-Candidate CI Gate
+
+The repository now includes a dedicated workflow for validating the sovereign runtime release boundary:
+
+`.github/workflows/sovereign-runtime-release-candidate.yml`
+
+**Name:** Sovereign Runtime Release Candidate
+
+**Triggers:**
+
+- `workflow_dispatch` — run manually without tagging or publishing
+- `pull_request` targeting release-critical paths
+
+**What it validates:**
+
+- Full test suite (rerun-tasks)
+- Release readiness metadata and artifacts
+- Local sovereign runtime publication (POMs, sources, javadoc)
+- Signed bundle dry-run (bundle manifest + verification repo)
+- Consumer-resolution smoke test from mavenLocal()
+- Release artifact preparation and manifest verification
+- Sovereign document intelligence evidence run
+
+**What it does NOT do:**
+
+- Publish to Maven Central or Sonatype
+- Create a tag or GitHub release
+- Bump the version
+- Require signing keys
+- Freeze APIs
+
+**Artifacts uploaded:**
+
+| Artifact | Contents |
+|----------|----------|
+| `sovereign-runtime-bundle-manifest` | Bundle manifest JSON |
+| `sovereign-runtime-local-maven-repo` | Local verification Maven repository |
+| `sovereign-release-artifacts` | Release artifact manifest + generated release artifacts |
+
+Run from the Actions tab: **Sovereign Runtime Release Candidate** → **Run workflow**.
