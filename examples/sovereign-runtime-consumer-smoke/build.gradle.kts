@@ -37,9 +37,7 @@ repositories {
     // Sovereign runtime modules resolve from the dedicated verification repo
     // (build/sovereign-runtime-release-verification-repo) — the same repo that
     // verifySovereignRuntimeSignedBundle produces and the evidence index hashes.
-    // Only these 8 modules exist in the verification repo; transitive deps
-    // (tramai-core, tramai-standalone, tramai-engine, tramai-structured) that
-    // are published alongside to mavenLocal complete the resolution.
+    // Only these 8 modules exist in the verification repo.
     val repoDir = requireNotNull(sovereignRuntimeVerificationRepo) {
         "Missing -PsovereignRuntimeVerificationRepo. Consumer smoke must resolve dev.tramai from the sovereign runtime verification repo."
     }
@@ -63,8 +61,18 @@ repositories {
     // Transitive TramAI dependencies not in the verification repo
     // (tramai-core, tramai-standalone, tramai-engine, tramai-structured)
     // resolve from mavenLocal, published alongside the sovereign modules.
-    mavenLocal()
-    mavenCentral()
+    mavenLocal {
+        content {
+            includeGroup("dev.tramai")
+        }
+    }
+    // External dependencies only — dev.tramai is explicitly blocked from
+    // remote resolution to prevent stale artifacts from passing the smoke test.
+    mavenCentral {
+        content {
+            excludeGroup("dev.tramai")
+        }
+    }
 }
 
 dependencies {
