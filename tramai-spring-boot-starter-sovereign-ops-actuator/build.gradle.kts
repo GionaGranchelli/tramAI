@@ -31,6 +31,7 @@ dependencies {
     testImplementation(libs.assertj.core)
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(libs.spring.boot.starter.test)
+    testImplementation(libs.spring.boot.actuator.autoconfigure)
     testImplementation("org.junit.jupiter:junit-jupiter")
 }
 
