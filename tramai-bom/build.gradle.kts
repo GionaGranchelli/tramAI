@@ -29,6 +29,8 @@ dependencies {
         api(project(":tramai-spring-boot-starter-sovereign"))
         api(project(":tramai-spring-boot-starter-sovereign-persistence-file"))
         api(project(":tramai-spring-boot-starter-sovereign-ops"))
+        api(project(":tramai-spring-boot-starter-sovereign-ops-actuator"))
+        api(project(":tramai-spring-boot-starter-sovereign-ops-micrometer"))
         api(project(":tramai-spring-boot-starter-sovereign-ops-observability"))
         api(project(":tramai-spring"))
         api(project(":tramai-security"))

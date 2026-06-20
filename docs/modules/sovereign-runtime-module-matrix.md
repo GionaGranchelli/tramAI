@@ -12,6 +12,8 @@ One-stop reference for the sovereign runtime modules on master. Updated 2026-06-
 | tramai-spring-boot-starter-sovereign | Spring Boot auto-configuration for sovereign runtime | Spring integration | Implemented / evolving |
 | tramai-spring-boot-starter-sovereign-persistence-file | Spring auto-configuration for file-backed persistence | Spring persistence integration | Implemented / evolving |
 | tramai-spring-boot-starter-sovereign-ops | Operational APIs: audit outbox, recovery, dispatch, background worker, observer SPI | Operational recovery | Implemented / evolving |
+| tramai-spring-boot-starter-sovereign-ops-actuator | Optional read-only Actuator endpoint for worker status | Operational visibility | Implemented / opt-in |
+| tramai-spring-boot-starter-sovereign-ops-micrometer | Micrometer metrics for ops audit outbox worker | Operational observability | Implemented / opt-in |
 | tramai-spring-boot-starter-sovereign-ops-observability | OpenTelemetry metrics for ops audit outbox worker | Operational observability | Implemented |
 | examples:sovereign-document-intelligence | End-to-end reference sovereign workflow | Demo / evidence pack | Implemented |
 
@@ -28,7 +30,15 @@ application
 
 application
   -> tramai-spring-boot-starter-sovereign-ops
-     -> audit outbox worker / recovery / dispatch
+     -> Operational auto-configuration (audit outbox, recovery, dispatch)
+
+application
+  -> tramai-spring-boot-starter-sovereign-ops-actuator
+     -> Read-only Actuator endpoint (requires spring-boot-actuator)
+
+application
+  -> tramai-spring-boot-starter-sovereign-ops-micrometer
+     -> Micrometer metrics only (requires MeterRegistry bean)
 
 application
   -> tramai-spring-boot-starter-sovereign-ops-observability

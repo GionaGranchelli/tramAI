@@ -79,6 +79,8 @@ val publishableProjectNames = listOf(
     "tramai-spring-boot-starter-sovereign",
     "tramai-spring-boot-starter-sovereign-persistence-file",
     "tramai-spring-boot-starter-sovereign-ops",
+    "tramai-spring-boot-starter-sovereign-ops-actuator",
+    "tramai-spring-boot-starter-sovereign-ops-micrometer",
     "tramai-spring-boot-starter-sovereign-ops-observability",
 )
 val jarPublishingProjectNames = publishableProjectNames - "tramai-bom"
@@ -99,6 +101,8 @@ val sovereignBundleModuleNames = listOf(
     "tramai-spring-boot-starter-sovereign",
     "tramai-spring-boot-starter-sovereign-persistence-file",
     "tramai-spring-boot-starter-sovereign-ops",
+    "tramai-spring-boot-starter-sovereign-ops-actuator",
+    "tramai-spring-boot-starter-sovereign-ops-micrometer",
     "tramai-spring-boot-starter-sovereign-ops-observability",
 )
 
@@ -674,6 +678,8 @@ val sovereignRuntimePublishableModules = listOf(
     "tramai-spring-boot-starter-sovereign",
     "tramai-spring-boot-starter-sovereign-persistence-file",
     "tramai-spring-boot-starter-sovereign-ops",
+    "tramai-spring-boot-starter-sovereign-ops-actuator",
+    "tramai-spring-boot-starter-sovereign-ops-micrometer",
     "tramai-spring-boot-starter-sovereign-ops-observability",
 )
 
@@ -1015,6 +1021,8 @@ val sovereignReleaseModules = listOf(
     ":tramai-spring-boot-starter-sovereign",
     ":tramai-spring-boot-starter-sovereign-persistence-file",
     ":tramai-spring-boot-starter-sovereign-ops",
+    ":tramai-spring-boot-starter-sovereign-ops-actuator",
+    ":tramai-spring-boot-starter-sovereign-ops-micrometer",
     ":tramai-spring-boot-starter-sovereign-ops-observability",
 )
 
