@@ -1463,6 +1463,8 @@ tasks.register("verifySovereignReleaseManifest") {
     group = "verification"
     description = "Verifies that build/sovereign-release/release-artifacts-v1.json is internally consistent with the JAR files in build/sovereign-release/artifacts/."
 
+    dependsOn("prepareSovereignReleaseArtifacts")
+
     doLast {
         val buildDir = rootProject.layout.buildDirectory.get().asFile
         val manifestDir = buildDir.resolve("sovereign-release")
