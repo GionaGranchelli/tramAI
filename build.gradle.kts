@@ -660,6 +660,143 @@ tasks.register("verifySignedPublicationBundle") {
     }
 }
 
+tasks.register("verifySovereignOpsObservabilityDocs") {
+    group = "verification"
+    description = "Validates sovereign ops worker observability docs against the expected metric contract, API surface, and safe-label rules."
+    notCompatibleWithConfigurationCache("Docs validation reads file content at execution time.")
+
+    doLast {
+        val rootDir = rootProject.layout.projectDirectory.asFile
+
+        val runbook = rootDir.resolve("docs/operations/sovereign-ops-worker-observability-runbook.md")
+        val promql = rootDir.resolve("docs/operations/prometheus/sovereign-ops-worker-promql.md")
+        val alerts = rootDir.resolve("docs/operations/prometheus/sovereign-ops-worker-alerts.example.yml")
+
+        val files = listOf(runbook, promql, alerts)
+        files.forEach {
+            require(it.isFile) {
+                "Missing required observability doc: ${it.invariantSeparatorsPath}"
+            }
+        }
+
+        val runbookText = runbook.readText()
+        val allText = files.joinToString("\n") { it.readText() }
+
+        fun requireContains(value: String) {
+            require(value in allText) {
+                "Expected sovereign ops observability docs to contain: $value"
+            }
+        }
+
+        fun requireAbsent(value: String) {
+            require(value !in allText) {
+                "Forbidden content found in sovereign ops observability docs: $value"
+            }
+        }
+
+        // ── A. Required Prometheus metric names
+        listOf(
+            "tramai_sovereign_ops_outbox_worker_cycles_total",
+            "tramai_sovereign_ops_outbox_worker_duration_seconds_count",
+            "tramai_sovereign_ops_outbox_worker_duration_seconds_sum",
+            "tramai_sovereign_ops_outbox_worker_duration_seconds_max",
+            "tramai_sovereign_ops_outbox_worker_failures_total",
+            "tramai_sovereign_ops_outbox_worker_recovered_records_total",
+            "tramai_sovereign_ops_outbox_worker_dispatched_records_total",
+        ).forEach(::requireContains)
+
+        // ── A. Required dotted Micrometer names
+        listOf(
+            "tramai.sovereign.ops.outbox.worker.cycles",
+            "tramai.sovereign.ops.outbox.worker.duration",
+            "tramai.sovereign.ops.outbox.worker.failures",
+            "tramai.sovereign.ops.outbox.worker.recovered.records",
+            "tramai.sovereign.ops.outbox.worker.dispatched.records",
+        ).forEach(::requireContains)
+
+        // ── B. Typo guard
+        requireAbsent("tamai_")
+
+        // ── C. Forbidden sensitive labels in PromQL/YAML selector context
+        val selectorRegex = Regex(
+            """\{(?:[^}]*\b(?:tenant_id|user_id|document_id|approval_id|workflow_id|correlation_id|token|prompt|model_response|file_path|stack_trace)\b[^}]*)\}"""
+        )
+        val hasForbiddenLabels = allText.contains(selectorRegex)
+        require(!hasForbiddenLabels) {
+            "Forbidden sensitive label found in PromQL/alert selector context"
+        }
+
+        // ── D. Approved safe label names present
+        listOf("outcome", "failure_action", "error_type", "result")
+            .forEach(::requireContains)
+
+        // ── E. Real observer API documented, invalid API absent
+        requireContains("onCycleCompleted(summary")
+        requireContains("onCycleFailed(action")
+        requireAbsent("onStatus(")
+        // ── F. Real Actuator snapshot fields present, made-up fields absent
+        listOf(
+            "enabled", "running", "recoverPreparedEnabled", "dispatchPendingEnabled",
+            "batchSize", "intervalMillis", "lastCycleDurationMillis",
+            "lastRecovered", "lastDispatched", "lastFailure", "lastFailureAt",
+            "totalCyclesCompleted", "totalCyclesFailed",
+        ).forEach { field ->
+            require(field in runbookText) {
+                "Runbook is missing real Actuator snapshot field: $field"
+            }
+        }
+
+        listOf(
+            "lastCycleResult", "cyclesSinceLastReset", "totalCycleDurationMillis",
+            "recoveredCount", "dispatchedCount", "failureCount",
+        ).forEach { field ->
+            require(field !in runbookText) {
+                "Runbook contains stale made-up Actuator field: $field"
+            }
+        }
+
+        // ── G. OpenTelemetry exporter wording
+        requireContains("does not")
+        requireContains("bring an SDK or exporter")
+        requireContains("must provide their own OpenTelemetry SDK and exporter configuration")
+
+        // ── H. Alert warning guard
+        val alertText = alerts.readText()
+        require("WARNING" in alertText) {
+            "Alert examples must contain a WARNING header"
+        }
+        require("NOT production defaults" in alertText) {
+            "Alert examples must state they are NOT production defaults"
+        }
+        require("Thresholds must be tuned" in alertText) {
+            "Alert examples must state that thresholds must be tuned"
+        }
+
+        // ── I. Starter README link guard
+        val actuatorReadme = rootDir.resolve("tramai-spring-boot-starter-sovereign-ops-actuator/README.md")
+        val micrometerReadme = rootDir.resolve("tramai-spring-boot-starter-sovereign-ops-micrometer/README.md")
+        val observabilityReadme = rootDir.resolve("tramai-spring-boot-starter-sovereign-ops-observability/README.md")
+
+        val runbookRef = "sovereign-ops-worker-observability-runbook.md"
+        val promqlRef = "sovereign-ops-worker-promql.md"
+
+        require(runbookRef in actuatorReadme.readText()) {
+            "Actuator README must link to the observability runbook"
+        }
+        require(runbookRef in micrometerReadme.readText()) {
+            "Micrometer README must link to the observability runbook"
+        }
+        require(promqlRef in micrometerReadme.readText()) {
+            "Micrometer README must link to the PromQL reference"
+        }
+        require(runbookRef in observabilityReadme.readText()) {
+            "OpenTelemetry README must link to the observability runbook"
+        }
+
+        logger.lifecycle("verifySovereignOpsObservabilityDocs: all checks passed.")
+    }
+}
+
 tasks.register("verifyReleaseReadiness") {
     group = "verification"
     description = "Runs the repo-local release verification checks for publication metadata and published artifacts."
@@ -668,6 +805,7 @@ tasks.register("verifyReleaseReadiness") {
         jarPublishingProjectNames.map { ":${it}:test" },
         "verifyPublicationMetadata",
         "verifyPublishedLocalArtifacts",
+        "verifySovereignOpsObservabilityDocs",
     )
 }
 
