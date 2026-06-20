@@ -3,8 +3,9 @@ package dev.tramai.spring.sovereign.ops.observability
 import dev.tramai.spring.sovereign.ops.SovereignOpsAutoConfiguration
 import dev.tramai.spring.sovereign.ops.outbox.RecordingSovereignOpsAuditOutboxWorkerObserver
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserverContribution
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerRunSummary
 import io.opentelemetry.api.OpenTelemetry
-import io.opentelemetry.api.metrics.Meter
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.boot.autoconfigure.AutoConfigurations
@@ -33,22 +34,27 @@ class SovereignOpsOutboxObservabilityAutoConfigurationTest {
                 assertThat(ctx).hasSingleBean(SovereignOpsAuditOutboxWorkerObserver::class.java)
                 val observer = ctx.getBean(SovereignOpsAuditOutboxWorkerObserver::class.java)
                 assertThat(observer).isInstanceOf(RecordingSovereignOpsAuditOutboxWorkerObserver::class.java)
+                assertThat(ctx).doesNotHaveBean(SovereignOpsAuditOutboxWorkerObserverContribution::class.java)
             }
     }
 
     @Test
-    fun `OpenTelemetry observer is created when OpenTelemetry bean is present`() {
+    fun `OT contribution is created when OpenTelemetry bean is present`() {
         contextRunner
             .withUserConfiguration(OpenTelemetryConfig::class.java)
             .run { ctx ->
                 assertThat(ctx).hasSingleBean(SovereignOpsAuditOutboxWorkerObserver::class.java)
                 val observer = ctx.getBean(SovereignOpsAuditOutboxWorkerObserver::class.java)
-                assertThat(observer).isInstanceOf(OpenTelemetrySovereignOpsAuditOutboxWorkerObserver::class.java)
+                assertThat(observer).isInstanceOf(RecordingSovereignOpsAuditOutboxWorkerObserver::class.java)
+
+                assertThat(ctx).hasSingleBean(SovereignOpsAuditOutboxWorkerObserverContribution::class.java)
+                val contribution = ctx.getBean(SovereignOpsAuditOutboxWorkerObserverContribution::class.java)
+                assertThat(contribution.observer).isInstanceOf(OpenTelemetrySovereignOpsAuditOutboxWorkerObserver::class.java)
             }
     }
 
     @Test
-    fun `custom observer bean is not overridden by auto-configuration`() {
+    fun `custom observer is not overridden by auto-configuration`() {
         contextRunner
             .withUserConfiguration(CustomObserverConfig::class.java)
             .run { ctx ->
@@ -72,8 +78,6 @@ class SovereignOpsOutboxObservabilityAutoConfigurationTest {
             }
     }
 
-    // ── Configurations ──────────────────────────────────────────────
-
     @Configuration
     open class OpenTelemetryConfig {
         @Bean
@@ -90,7 +94,7 @@ class SovereignOpsOutboxObservabilityAutoConfigurationTest {
     }
 
     open class CustomTestObserver : SovereignOpsAuditOutboxWorkerObserver {
-        override fun onCycleCompleted(summary: dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerRunSummary) = Unit
+        override fun onCycleCompleted(summary: SovereignOpsAuditOutboxWorkerRunSummary) = Unit
         override fun onCycleFailed(action: String, errorCode: String) = Unit
     }
 }

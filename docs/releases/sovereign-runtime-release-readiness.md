@@ -104,7 +104,7 @@ No timelines are committed for these items.
 - [x] No Maven Central claim for sovereign runtime modules unless verified
 - [x] CHANGELOG.md has Unreleased section
 
-Checklist last verified: 2026-06-19 after PR #63. Full release-candidate evidence chain verified by CI.
+Checklist last verified: 2026-06-20 after PR #68 wiring review. Full release-candidate evidence chain remains documented.
 
 ## Sovereign Runtime Release-Candidate CI Gate
 

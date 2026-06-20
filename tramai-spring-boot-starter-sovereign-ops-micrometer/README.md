@@ -40,17 +40,15 @@ never contain:
 - prompt, model, or tool data
 - raw outbox record content
 
-## Observer precedence
+## Observer composition
 
-When this module is on the classpath and a `MeterRegistry` bean exists,
-the Micrometer observer replaces the default recording observer.
-Status snapshot recording (for the Actuator endpoint) does not update
-when Micrometer metrics are active.
+When used with the sovereign ops starter, Micrometer metrics are composed
+with the default status-recording observer. The Actuator worker status
+snapshot continues to update while metrics are emitted.
 
-To use both metrics and status recording, wait for PR #68 (composite
-observer support) or manually wire a
-`RecordingSovereignOpsAuditOutboxWorkerObserver` with the Micrometer
-observer as its delegate.
+No manual wiring is required -- the base sovereign ops starter automatically
+collects observer contributions from Micrometer and OpenTelemetry modules
+and composes them behind the status-recording observer.
 
 ## Enable
 
