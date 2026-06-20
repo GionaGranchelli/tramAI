@@ -8,6 +8,8 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxSummary
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerLifecycle
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserverContribution
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerRunSummary
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerStatusStore
 import dev.tramai.spring.sovereign.ops.outbox.RecordingSovereignOpsAuditOutboxWorkerObserver
 import dev.tramai.spring.sovereign.ops.outbox.TestAuditEngineConfig
@@ -18,6 +20,9 @@ import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
+import java.time.Duration
+import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 
 class SovereignOpsOutboxWorkerAutoConfigurationTest {
 
@@ -263,6 +268,36 @@ class SovereignOpsOutboxWorkerAutoConfigurationTest {
     }
 
     @Test
+    fun `recording observer composes observer contributions`() {
+        ContributionObserverCounters.reset()
+
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                ObserverContributionConfig::class.java,
+            )
+            .run { ctx ->
+                val observer = ctx.getBean(SovereignOpsAuditOutboxWorkerObserver::class.java)
+                assertThat(observer).isInstanceOf(RecordingSovereignOpsAuditOutboxWorkerObserver::class.java)
+
+                val now = Instant.now()
+                observer.onCycleCompleted(
+                    SovereignOpsAuditOutboxWorkerRunSummary(
+                        recovered = null,
+                        dispatched = null,
+                        startedAt = now,
+                        completedAt = now.plus(Duration.ofMillis(500)),
+                    ),
+                )
+
+                val statusStore = ctx.getBean(SovereignOpsAuditOutboxWorkerStatusStore::class.java)
+                assertThat(statusStore.snapshot().totalCyclesCompleted).isEqualTo(1)
+                assertThat(ContributionObserverCounters.firstCompleted.get()).isEqualTo(1)
+                assertThat(ContributionObserverCounters.secondCompleted.get()).isEqualTo(1)
+            }
+    }
+
+    @Test
     fun `custom observer bean is not overridden by recording observer`() {
         contextRunner
             .withUserConfiguration(
@@ -341,4 +376,38 @@ open class CustomObserverConfig {
     @Primary
     open fun customObserver(): SovereignOpsAuditOutboxWorkerObserver =
         SovereignOpsAuditOutboxWorkerObserver.Noop
+}
+
+open class ObserverContributionConfig {
+    @Bean
+    open fun firstContribution(): SovereignOpsAuditOutboxWorkerObserverContribution =
+        SovereignOpsAuditOutboxWorkerObserverContribution(
+            CounterContributionObserver(ContributionObserverCounters.firstCompleted),
+        )
+
+    @Bean
+    open fun secondContribution(): SovereignOpsAuditOutboxWorkerObserverContribution =
+        SovereignOpsAuditOutboxWorkerObserverContribution(
+            CounterContributionObserver(ContributionObserverCounters.secondCompleted),
+        )
+}
+
+private object ContributionObserverCounters {
+    val firstCompleted = AtomicInteger()
+    val secondCompleted = AtomicInteger()
+
+    fun reset() {
+        firstCompleted.set(0)
+        secondCompleted.set(0)
+    }
+}
+
+private class CounterContributionObserver(
+    private val completed: AtomicInteger,
+) : SovereignOpsAuditOutboxWorkerObserver {
+    override fun onCycleCompleted(summary: SovereignOpsAuditOutboxWorkerRunSummary) {
+        completed.incrementAndGet()
+    }
+
+    override fun onCycleFailed(action: String, errorCode: String) = Unit
 }

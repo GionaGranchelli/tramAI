@@ -1,8 +1,7 @@
 package dev.tramai.spring.sovereign.ops.micrometer
 
 import dev.tramai.spring.sovereign.ops.SovereignOpsAutoConfiguration
-import dev.tramai.spring.sovereign.ops.outbox.RecordingSovereignOpsAuditOutboxWorkerObserver
-import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserverContribution
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.AutoConfigureBefore
@@ -12,27 +11,19 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean
 
 /**
- * Auto-configuration for the Micrometer-backed sovereign ops audit outbox worker observer.
+ * Auto-configuration for the Micrometer-backed sovereign ops audit outbox worker observer contribution.
  *
- * Runs before [SovereignOpsAutoConfiguration] so this observer is available
- * before the fallback recording observer is registered. Follows the same
- * pattern as `SovereignOpsOutboxObservabilityAutoConfiguration`.
+ * Runs before [SovereignOpsAutoConfiguration] so this contribution is
+ * available when the base starter builds the final observer chain.
  *
- * The observer is only created when:
+ * The contribution is only created when:
  * - Micrometer is on the classpath (`MeterRegistry`)
  * - A [MeterRegistry] bean exists
- * - No custom [SovereignOpsAuditOutboxWorkerObserver] has been registered
+ * - No Micrometer observer contribution has already been registered
  *
- * ## Observer precedence
- *
- * When this module is on the classpath and a [MeterRegistry] bean exists,
- * the Micrometer observer replaces the default recording observer.
- * This means status snapshot recording does not update when Micrometer
- * metrics are active.
- *
- * To compose both metrics and status recording, manually wire a
- * [RecordingSovereignOpsAuditOutboxWorkerObserver] with the Micrometer
- * observer as its delegate.
+ * The base sovereign ops starter composes contributions behind the
+ * recording observer, so status snapshots update while Micrometer metrics
+ * are emitted.
  */
 @AutoConfiguration
 @AutoConfigureBefore(SovereignOpsAutoConfiguration::class)
@@ -40,10 +31,12 @@ import org.springframework.context.annotation.Bean
 open class SovereignOpsOutboxMicrometerAutoConfiguration {
 
     @Bean
-    @ConditionalOnMissingBean(SovereignOpsAuditOutboxWorkerObserver::class)
     @ConditionalOnBean(MeterRegistry::class)
-    open fun micrometerSovereignOpsAuditOutboxWorkerObserver(
+    @ConditionalOnMissingBean(name = ["micrometerSovereignOpsAuditOutboxWorkerObserverContribution"])
+    open fun micrometerSovereignOpsAuditOutboxWorkerObserverContribution(
         meterRegistry: MeterRegistry,
-    ): SovereignOpsAuditOutboxWorkerObserver =
-        MicrometerSovereignOpsAuditOutboxWorkerObserver(meterRegistry)
+    ): SovereignOpsAuditOutboxWorkerObserverContribution =
+        SovereignOpsAuditOutboxWorkerObserverContribution(
+            MicrometerSovereignOpsAuditOutboxWorkerObserver(meterRegistry),
+        )
 }

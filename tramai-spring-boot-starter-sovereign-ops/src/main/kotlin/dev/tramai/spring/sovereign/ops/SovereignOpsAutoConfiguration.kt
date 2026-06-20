@@ -7,6 +7,7 @@ import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.AuditStore
 import dev.tramai.spring.sovereign.ops.outbox.DefaultSovereignOpsAuditDigestService
 import dev.tramai.spring.sovereign.ops.outbox.DefaultSovereignOpsAuditOutboxOperations
+import dev.tramai.spring.sovereign.ops.outbox.CompositeSovereignOpsAuditOutboxWorkerObserver
 import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsAuditOutboxStore
 import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsAuditOutboxWorkerStatusStore
@@ -20,6 +21,7 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxOperations
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerLifecycle
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserverContribution
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerStatusStore
 import dev.tramai.spring.sovereign.ops.outbox.UnknownSovereignOpsApprovalRecoveryResolver
 import dev.tramai.spring.sovereign.ops.outbox.validateSovereignOpsAuditOutboxWorkerProperties
@@ -223,8 +225,21 @@ class SovereignOpsAutoConfiguration {
     @ConditionalOnMissingBean
     fun sovereignOpsAuditOutboxWorkerObserver(
         statusStore: SovereignOpsAuditOutboxWorkerStatusStore,
-    ): SovereignOpsAuditOutboxWorkerObserver =
-        RecordingSovereignOpsAuditOutboxWorkerObserver(statusStore)
+        contributions: ObjectProvider<SovereignOpsAuditOutboxWorkerObserverContribution>,
+    ): SovereignOpsAuditOutboxWorkerObserver {
+        val observerContributions = contributions.orderedStream().toList()
+        val delegate = if (observerContributions.isEmpty()) {
+            SovereignOpsAuditOutboxWorkerObserver.Noop
+        } else {
+            CompositeSovereignOpsAuditOutboxWorkerObserver(
+                observerContributions.map { it.observer },
+            )
+        }
+        return RecordingSovereignOpsAuditOutboxWorkerObserver(
+            statusStore = statusStore,
+            delegate = delegate,
+        )
+    }
 
     @Bean
     @ConditionalOnMissingBean
