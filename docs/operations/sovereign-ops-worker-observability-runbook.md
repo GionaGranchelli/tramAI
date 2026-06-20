@@ -4,8 +4,8 @@
 
 This runbook describes how to observe, monitor, and troubleshoot the
 TramAI sovereign ops audit outbox worker at runtime. It covers the
-three operational surfaces — Actuator status endpoint, Micrometer
-metrics (Prometheus), and OpenTelemetry metrics — along with
+four operational surfaces — Actuator status endpoint, Actuator health
+component, Micrometer metrics (Prometheus), and OpenTelemetry metrics — along with
 PromQL queries, alert examples, and troubleshooting flows.
 
 The audience is operators who deploy applications using the sovereign
@@ -15,6 +15,7 @@ looks like, how to detect problems, and what is safe to expose.
 ## What this runbook covers
 
 - Actuator worker status endpoint (`/actuator/tramaiSovereignOpsWorker`)
+- Actuator worker health component
 - Micrometer/Prometheus metric surface (five metric families)
 - OpenTelemetry metric surface
 - PromQL query examples for all metric families
@@ -196,6 +197,58 @@ sensitive data in instrument names, attributes, or values.
 context. The module depends only on `opentelemetry-api` and does not
 bring an SDK or exporter. Applications that want to export OT metrics
 must provide their own OpenTelemetry SDK and exporter configuration.
+
+---
+
+### 4. Actuator health component
+
+**Purpose:** Provides a coarse Spring Boot health signal for the audit
+outbox worker without exposing the full worker status snapshot.
+
+**Activation:**
+
+```yaml
+tramai:
+  sovereign:
+    ops:
+      actuator:
+        worker-health:
+          enabled: true
+```
+
+The health indicator is disabled by default. It is created only when a
+`SovereignOpsAuditOutboxWorkerStatusStore` bean exists and no bean named
+`tramaiSovereignOpsWorkerHealthIndicator` has already been registered.
+
+#### Health status mapping
+
+| Worker state | Health status | Meaning |
+|--------------|---------------|---------|
+| `enabled=false` | `UNKNOWN` | Worker is intentionally disabled, not failed |
+| `enabled=true`, `running=false` | `DOWN` | Worker is expected but not running |
+| `enabled=true`, `running=true`, `totalCyclesCompleted=0`, `totalCyclesFailed>0` | `DOWN` | Worker is failing before its first successful cycle |
+| `enabled=true`, `running=true`, `totalCyclesCompleted=0`, `totalCyclesFailed=0` | `UP` | Worker has started and has not failed yet |
+| `enabled=true`, `running=true`, `totalCyclesCompleted>0` | `UP` | Worker has completed at least one cycle; later transient failures may be normal |
+
+The health details include only flat operational values such as
+`enabled`, `running`, cycle counters, scheduling configuration, and
+boolean presence flags (`hasLastRecovered`, `hasLastDispatched`,
+`hasLastFailure`). Nested recovery, dispatch, and failure objects are not
+returned directly.
+
+#### Relationship to other surfaces
+
+- **Health component:** coarse status for platform health checks and
+  alert routing. It answers whether the worker appears operational.
+- **Custom status endpoint:** full sanitized snapshot for operators
+  investigating current state and recent cycle summaries.
+- **Metrics:** time-series signals for trend analysis, dashboards,
+  PromQL alerts, and failure ratios.
+
+Enabling `tramai.sovereign.ops.actuator.worker-health.enabled=true` does
+not enable the custom worker status endpoint. Enabling
+`tramai.sovereign.ops.actuator.worker-status.enabled=true` does not enable
+the health indicator.
 
 ---
 
