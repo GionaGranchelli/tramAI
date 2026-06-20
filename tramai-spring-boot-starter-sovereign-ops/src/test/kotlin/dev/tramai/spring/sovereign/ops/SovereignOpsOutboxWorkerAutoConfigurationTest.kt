@@ -180,6 +180,9 @@ class SovereignOpsOutboxWorkerAutoConfigurationTest {
     fun `status store bean exists when sovereign ops is enabled`() {
         contextRunner
             .withUserConfiguration(MinimalStoreConfig::class.java)
+            .withPropertyValues(
+                "tramai.sovereign.ops.outbox.worker.dispatch-pending=false",
+            )
             .run { ctx ->
                 assertThat(ctx).hasSingleBean(SovereignOpsAuditOutboxWorkerStatusStore::class.java)
                 val store = ctx.getBean(SovereignOpsAuditOutboxWorkerStatusStore::class.java)
@@ -198,6 +201,7 @@ class SovereignOpsOutboxWorkerAutoConfigurationTest {
             )
             .withPropertyValues(
                 "tramai.sovereign.ops.outbox.worker.enabled=true",
+                "tramai.sovereign.ops.outbox.worker.dispatch-pending=false",
                 "tramai.sovereign.ops.outbox.worker.initial-delay=1h",
             )
             .run { ctx ->
@@ -206,8 +210,45 @@ class SovereignOpsOutboxWorkerAutoConfigurationTest {
 
                 assertThat(snapshot.totalCyclesCompleted).isEqualTo(0)
                 assertThat(snapshot.lastFailure).isNull()
+                assertThat(snapshot.lastFailureAt).isNull()
                 assertThat(snapshot.enabled).isTrue()
                 assertThat(snapshot.batchSize).isPositive()
+            }
+    }
+
+    @Test
+    fun `status snapshot reflects effective dispatch disabled when dispatcher is missing`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .withPropertyValues(
+                "tramai.sovereign.ops.outbox.worker.enabled=true",
+                "tramai.sovereign.ops.outbox.worker.dispatch-pending=true",
+                "tramai.sovereign.ops.outbox.worker.fail-on-missing-dispatcher=false",
+                "tramai.sovereign.ops.outbox.worker.initial-delay=1h",
+            )
+            .run { ctx ->
+                val store = ctx.getBean(SovereignOpsAuditOutboxWorkerStatusStore::class.java)
+                val snapshot = store.snapshot()
+                assertThat(snapshot.dispatchPendingEnabled).isFalse()
+            }
+    }
+
+    @Test
+    fun `status snapshot shows effective dispatch true when dispatcher is present`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                TestAuditEngineConfig::class.java,
+            )
+            .withPropertyValues(
+                "tramai.sovereign.ops.outbox.worker.enabled=true",
+                "tramai.sovereign.ops.outbox.worker.dispatch-pending=true",
+                "tramai.sovereign.ops.outbox.worker.initial-delay=1h",
+            )
+            .run { ctx ->
+                val store = ctx.getBean(SovereignOpsAuditOutboxWorkerStatusStore::class.java)
+                val snapshot = store.snapshot()
+                assertThat(snapshot.dispatchPendingEnabled).isTrue()
             }
     }
 

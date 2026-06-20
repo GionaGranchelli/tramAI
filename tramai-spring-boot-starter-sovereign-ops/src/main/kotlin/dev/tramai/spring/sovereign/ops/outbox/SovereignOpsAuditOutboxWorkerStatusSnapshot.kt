@@ -28,6 +28,7 @@ data class SovereignOpsAuditOutboxWorkerStatusSnapshot(
     val lastRecovered: SovereignOpsAuditOutboxRecoverySummary?,
     val lastDispatched: SovereignOpsAuditOutboxDispatchResult?,
     val lastFailure: SovereignOpsAuditOutboxWorkerFailureSummary?,
+    val lastFailureAt: Instant?,
     val totalCyclesCompleted: Long,
     val totalCyclesFailed: Long,
 )

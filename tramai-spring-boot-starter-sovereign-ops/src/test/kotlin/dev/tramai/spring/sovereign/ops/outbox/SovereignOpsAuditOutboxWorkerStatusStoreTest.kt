@@ -36,6 +36,7 @@ class SovereignOpsAuditOutboxWorkerStatusStoreTest {
         assertThat(snapshot.lastRecovered).isNull()
         assertThat(snapshot.lastDispatched).isNull()
         assertThat(snapshot.lastFailure).isNull()
+        assertThat(snapshot.lastFailureAt).isNull()
         assertThat(snapshot.totalCyclesCompleted).isZero()
         assertThat(snapshot.totalCyclesFailed).isZero()
     }
@@ -79,6 +80,7 @@ class SovereignOpsAuditOutboxWorkerStatusStoreTest {
         val dispatched = snapshot.lastDispatched ?: error("expected dispatch result")
         assertThat(dispatched.emitted).isEqualTo(4)
         assertThat(snapshot.lastFailure).isNull()
+        assertThat(snapshot.lastFailureAt).isNull()
     }
 
     @Test
@@ -97,6 +99,40 @@ class SovereignOpsAuditOutboxWorkerStatusStoreTest {
         assertThat(failure.errorCode).isEqualTo("IllegalStateException")
         assertThat(failure.errorCode).doesNotContain("sensitive")
         assertThat(failure.errorCode).doesNotContain("/secret/path")
+        assertThat(snapshot.lastFailureAt).isNotNull()
+    }
+
+    @Test
+    fun `recordCycleFailed does not reuse old cycle timestamps`() {
+        val store = InMemorySovereignOpsAuditOutboxWorkerStatusStore(
+            SovereignOpsOutboxWorkerProperties(),
+        )
+
+        // Record a successful cycle first
+        val startedAt = Instant.parse("2026-06-01T00:00:00Z")
+        val completedAt = Instant.parse("2026-06-01T00:00:05Z")
+        store.recordCycleCompleted(
+            SovereignOpsAuditOutboxWorkerRunSummary(
+                recovered = SovereignOpsAuditOutboxRecoverySummary(inspected = 1),
+                dispatched = SovereignOpsAuditOutboxDispatchResult(
+                    claimed = 1, emitted = 1, failedRetryable = 0, failedPermanent = 0,
+                ),
+                startedAt = startedAt,
+                completedAt = completedAt,
+            ),
+        )
+
+        // Now record a failure — timestamps should NOT be reused
+        store.recordCycleFailed("recoverPrepared", "IllegalStateException")
+        val snapshot = store.snapshot()
+
+        // Failure has its own timestamp distinct from the old cycle timestamps
+        assertThat(snapshot.lastFailure).isNotNull()
+        assertThat(snapshot.lastFailureAt).isNotNull()
+        assertThat(snapshot.lastCycleStartedAt).isEqualTo(startedAt)
+        assertThat(snapshot.lastCycleCompletedAt).isEqualTo(completedAt)
+        // The failure timestamp should be after the cycle timestamps
+        assertThat(snapshot.lastFailureAt).isAfter(completedAt)
     }
 
     @Test

@@ -1,6 +1,7 @@
 package dev.tramai.spring.sovereign.ops.observability
 
 import dev.tramai.spring.sovereign.ops.SovereignOpsAutoConfiguration
+import dev.tramai.spring.sovereign.ops.outbox.RecordingSovereignOpsAuditOutboxWorkerObserver
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver
 import io.opentelemetry.api.OpenTelemetry
 import io.opentelemetry.api.metrics.Meter
@@ -21,14 +22,17 @@ class SovereignOpsOutboxObservabilityAutoConfigurationTest {
                 SovereignOpsOutboxObservabilityAutoConfiguration::class.java,
             ),
         )
+        .withPropertyValues(
+            "tramai.sovereign.ops.outbox.worker.dispatch-pending=false",
+        )
 
     @Test
-    fun `Noop observer is used when no OpenTelemetry bean is present`() {
+    fun `RecordingObserver is used when no OpenTelemetry bean is present`() {
         contextRunner
             .run { ctx ->
                 assertThat(ctx).hasSingleBean(SovereignOpsAuditOutboxWorkerObserver::class.java)
                 val observer = ctx.getBean(SovereignOpsAuditOutboxWorkerObserver::class.java)
-                assertThat(observer).isSameAs(SovereignOpsAuditOutboxWorkerObserver.Noop)
+                assertThat(observer).isInstanceOf(RecordingSovereignOpsAuditOutboxWorkerObserver::class.java)
             }
     }
 

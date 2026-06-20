@@ -36,6 +36,9 @@ class InMemorySovereignOpsAuditOutboxWorkerStatusStore(
     @Volatile
     private var lastFailure: SovereignOpsAuditOutboxWorkerFailureSummary? = null
 
+    @Volatile
+    private var lastFailureAt: Instant? = null
+
     private val totalCyclesCompleted = AtomicLong(0)
     private val totalCyclesFailed = AtomicLong(0)
 
@@ -62,6 +65,7 @@ class InMemorySovereignOpsAuditOutboxWorkerStatusStore(
             lastRecovered = lastRecovered,
             lastDispatched = lastDispatched,
             lastFailure = lastFailure,
+            lastFailureAt = lastFailureAt,
             totalCyclesCompleted = totalCyclesCompleted.get(),
             totalCyclesFailed = totalCyclesFailed.get(),
         )
@@ -89,6 +93,7 @@ class InMemorySovereignOpsAuditOutboxWorkerStatusStore(
             action = action,
             errorCode = errorCode,
         )
+        lastFailureAt = Instant.now()
         totalCyclesFailed.incrementAndGet()
     }
 }
