@@ -1970,7 +1970,7 @@ tasks.register("verifySovereignRuntimeReleaseCandidate") {
     )
 
     dependsOn(
-        "test",
+        jarPublishingProjectNames.map { ":${it}:test" },
         "verifyReleaseReadiness",
         "verifySovereignRuntimePublication",
         "verifySovereignRuntimeSignedBundle",
