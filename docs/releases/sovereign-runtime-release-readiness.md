@@ -25,7 +25,7 @@ Candidate release: 0.4.0 or the next unreleased version. No tag, no Maven Centra
 | Background worker (recovery + dispatch) | Implemented / evolving | tramai-spring-boot-starter-sovereign-ops | Unit + integration tests |
 | Worker observer SPI | Implemented | tramai-spring-boot-starter-sovereign-ops | Unit tests |
 | OpenTelemetry worker metrics | Implemented | tramai-spring-boot-starter-sovereign-ops-observability | Unit tests |
-| Optional read-only Actuator worker status endpoint | Implemented / opt-in | tramai-spring-boot-starter-sovereign-ops-actuator | Unit tests |
+| Optional read-only Actuator worker status endpoint and health component | Implemented / opt-in | tramai-spring-boot-starter-sovereign-ops-actuator | Unit tests |
 | Micrometer worker metrics bridge | Implemented / opt-in | tramai-spring-boot-starter-sovereign-ops-micrometer | Unit tests |
 | Worker observability runbook | Implemented | docs/operations/sovereign-ops-worker-observability-runbook.md | Documentation review |
 | Evidence generation | Implemented / evolving | Release artifacts, examples | Smoke tests |
@@ -89,7 +89,7 @@ No timelines are committed for these items.
 |---|---|---|
 | APIs are still evolving | Medium | active-development banner on README and docs |
 | File persistence is local-node only | Medium | Documented as local-only; DB-backed persistence is future work |
-|| No production monitoring dashboard or runbook | Low | Runbook exists (see [runbook](../operations/sovereign-ops-worker-observability-runbook.md)); dashboard remains a non-goal |
+| No production monitoring dashboard | Low | Worker observability runbook exists (see [runbook](../operations/sovereign-ops-worker-observability-runbook.md)); production dashboard and environment-specific alert thresholds remain non-goals |
 | No DB-backed outbox | Medium | Explicitly listed as future work |
 | No distributed leader election | Medium | Worker assumes single-node operation; documented |
 | Sovereign ops worker is opt-in, disabled by default | Low | Production users must explicitly enable |
@@ -105,7 +105,7 @@ No timelines are committed for these items.
 - [x] No Maven Central claim for sovereign runtime modules unless verified
 - [x] CHANGELOG.md has Unreleased section
 
-Checklist last verified: 2026-06-20 after PR #68 wiring review. Full release-candidate evidence chain remains documented.
+Checklist last verified: 2026-06-20 after PR #71 health indicator review. Full release-candidate evidence chain remains documented.
 
 ## Sovereign Runtime Release-Candidate CI Gate
 

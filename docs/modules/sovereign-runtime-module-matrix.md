@@ -5,8 +5,9 @@ One-stop reference for the sovereign runtime modules on master. Updated 2026-06-
 ### Sovereign Runtime
 
 See the [worker observability runbook](../operations/sovereign-ops-worker-observability-runbook.md) for operator-facing
-documentation covering the Actuator status endpoint, Micrometer metrics,
-OpenTelemetry metrics, PromQL examples, and troubleshooting flows.
+documentation covering the Actuator status endpoint, Actuator health component,
+Micrometer metrics, OpenTelemetry metrics, PromQL examples, and
+troubleshooting flows.
 
 | Module | Purpose | Runtime Role | Release Status |
 |---|---|---|---|
@@ -16,7 +17,7 @@ OpenTelemetry metrics, PromQL examples, and troubleshooting flows.
 | tramai-spring-boot-starter-sovereign | Spring Boot auto-configuration for sovereign runtime | Spring integration | Implemented / evolving |
 | tramai-spring-boot-starter-sovereign-persistence-file | Spring auto-configuration for file-backed persistence | Spring persistence integration | Implemented / evolving |
 | tramai-spring-boot-starter-sovereign-ops | Operational APIs: audit outbox, recovery, dispatch, background worker, observer SPI | Operational recovery | Implemented / evolving |
-| tramai-spring-boot-starter-sovereign-ops-actuator | Optional read-only Actuator endpoint for worker status | Operational visibility | Implemented / opt-in |
+| tramai-spring-boot-starter-sovereign-ops-actuator | Optional read-only Actuator endpoint and health indicator for worker status | Operational visibility | Implemented / opt-in |
 | tramai-spring-boot-starter-sovereign-ops-micrometer | Micrometer metrics for ops audit outbox worker | Operational observability | Implemented / opt-in |
 | tramai-spring-boot-starter-sovereign-ops-observability | OpenTelemetry metrics for ops audit outbox worker | Operational observability | Implemented |
 | examples:sovereign-document-intelligence | End-to-end reference sovereign workflow | Demo / evidence pack | Implemented |
@@ -38,7 +39,7 @@ application
 
 application
   -> tramai-spring-boot-starter-sovereign-ops-actuator
-     -> Read-only Actuator endpoint (requires spring-boot-actuator)
+     -> Read-only Actuator endpoint and health indicator (requires spring-boot-actuator)
 
 application
   -> tramai-spring-boot-starter-sovereign-ops-micrometer
