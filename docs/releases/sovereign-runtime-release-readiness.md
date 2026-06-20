@@ -25,7 +25,7 @@ Candidate release: 0.4.0 or the next unreleased version. No tag, no Maven Centra
 | Background worker (recovery + dispatch) | Implemented / evolving | tramai-spring-boot-starter-sovereign-ops | Unit + integration tests |
 | Worker observer SPI | Implemented | tramai-spring-boot-starter-sovereign-ops | Unit tests |
 | OpenTelemetry worker metrics | Implemented | tramai-spring-boot-starter-sovereign-ops-observability | Unit tests |
-| Optional read-only Actuator worker status endpoint and health component | Implemented / opt-in | tramai-spring-boot-starter-sovereign-ops-actuator | Unit tests |
+| Optional read-only Actuator worker status endpoint and health component | Implemented / opt-in | tramai-spring-boot-starter-sovereign-ops-actuator | Unit + auto-config + health-tree integration tests |
 | Micrometer worker metrics bridge | Implemented / opt-in | tramai-spring-boot-starter-sovereign-ops-micrometer | Unit tests |
 | Worker observability runbook | Implemented | docs/operations/sovereign-ops-worker-observability-runbook.md | Documentation review |
 | Evidence generation | Implemented / evolving | Release artifacts, examples | Smoke tests |
@@ -79,6 +79,9 @@ No timelines are committed for these items.
 # Micrometer module tests
 ./gradlew :tramai-spring-boot-starter-sovereign-ops-micrometer:test --rerun-tasks
 
+# Actuator module tests (worker status endpoint + health component)
+./gradlew :tramai-spring-boot-starter-sovereign-ops-actuator:test --rerun-tasks
+
 # Reference example smoke test
 ./gradlew :examples:sovereign-document-intelligence:run
 ```
@@ -105,7 +108,7 @@ No timelines are committed for these items.
 - [x] No Maven Central claim for sovereign runtime modules unless verified
 - [x] CHANGELOG.md has Unreleased section
 
-Checklist last verified: 2026-06-20 after PR #71 health indicator review. Full release-candidate evidence chain remains documented.
+Checklist last verified: 2026-06-20 after PR #72 health-tree integration review. Full release-candidate evidence chain remains documented.
 
 ## Sovereign Runtime Release-Candidate CI Gate
 
@@ -167,7 +170,7 @@ The index does **not** contain secrets, credentials, signing keys, or absolute m
 
 The current sovereign runtime release-candidate chain is:
 
-1. Run the release validation gates.
+1. Run the release validation gates, including Actuator health-tree integration tests and observability documentation validation.
 2. Generate required release artifacts.
 3. Publish the sovereign runtime modules into the dedicated local verification repository.
 4. Run the standalone consumer smoke test.
@@ -179,6 +182,8 @@ The current sovereign runtime release-candidate chain is:
 10. Generate the human-readable Markdown evidence index.
 
 The evidence index records file SHA-256 hashes and deterministic directory tree hashes for the generated release evidence.
+
+The observability documentation validation (`verifySovereignOpsObservabilityDocs`) ensures that the runbook, metric names, health indicator docs, and PromQL references do not silently drift from the implementation. The Actuator health-tree integration tests (`SovereignOpsWorkerHealthEndpointIntegrationTest`) prove that the health component is registered in the real Spring Boot `HealthContributorRegistry` with the expected component name `tramaiSovereignOpsWorker`.
 
 ## Verified Dependency Closure
 

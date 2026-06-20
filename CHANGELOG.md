@@ -3,34 +3,40 @@
 ## Unreleased
 
 ### Added
-
 - Sovereign runtime profile and routing foundation (`tramai-sovereign`).
 - Policy enforcement and DLP/redaction support (`tramai-security`).
 - Approval gates and replay-safe resume.
 - Encrypted file-backed persistence (`tramai-persistence-file`).
 - File-backed audit outbox and recovery workflow (`tramai-spring-boot-starter-sovereign-ops`).
 - Background worker for audit outbox recovery and dispatch.
-- Observer SPI for sovereign ops audit outbox worker cycles and failures.
-- OpenTelemetry observer for sovereign ops audit outbox worker metrics (`tramai-spring-boot-starter-sovereign-ops-observability`).
+- Observer SPI and composite observer pipeline for sovereign ops audit outbox worker cycles and failures.
+- OpenTelemetry worker metrics (`tramai-spring-boot-starter-sovereign-ops-observability`).
+- Micrometer/Prometheus worker metrics bridge (`tramai-spring-boot-starter-sovereign-ops-micrometer`).
+- Optional read-only Actuator worker status endpoint (`/actuator/tramaiSovereignOpsWorker`).
+- Optional Actuator worker health component (`tramaiSovereignOpsWorker`, registered in real `HealthContributorRegistry`).
 - Sovereign document intelligence reference workflow (`examples:sovereign-document-intelligence`).
-- Evidence and release-bundle generation support.
+- Worker observability runbook covering Actuator status, health component, Micrometer, OpenTelemetry, PromQL, and example alerts.
+- Sovereign runtime release-candidate evidence chain and evidence index generation.
 - Sovereign runtime release-readiness documentation and module matrix.
 
-### Changed
+### Hardened
+- Sovereign runtime verification now validates: local publication, signed bundle dry-run, consumer resolution from dedicated verification repository, evidence index generation, observability documentation validation (`verifySovereignOpsObservabilityDocs`), and Actuator health-tree integration tests (`HealthContributorRegistry` component name verification).
+- Actuator worker health documentation is backed by health-tree integration tests, not only bean-registration unit tests — the health component name `tramaiSovereignOpsWorker` is now proven through the real Spring Boot `HealthContributorRegistry`.
 
+### Changed
 - README and architecture documentation realigned around governed AI workflows.
 - Status documentation updated to distinguish implemented, evolving, and not-complete areas.
 
-### Not included yet
-
-- Stable 1.0 API.
-- Maven Central release of sovereign runtime modules.
-- REST/Actuator operational endpoints.
-- Micrometer / Prometheus / dashboard integration.
+### Not included
+- Stable 1.0 public API.
+- Maven Central release of sovereign runtime modules (not verified).
+- Broad REST/Actuator operational control endpoints beyond worker status and health.
+- Full dashboard integration and production monitoring runbook.
 - Database-backed persistence or outbox.
 - Distributed worker leader election.
 - Key rotation.
 - Full production deployment guide.
+- Complete API reference documentation.
 
 For the current release-readiness boundary, see [docs/releases/sovereign-runtime-release-readiness.md](docs/releases/sovereign-runtime-release-readiness.md).
 
