@@ -105,7 +105,8 @@ TramAI is organized into focused Gradle modules:
 | `tramai-sovereign` | Trust zones, sovereign routing, local/cloud enforcement primitives |
 | `tramai-persistence-file` | Encrypted file-backed stores for approvals, continuations, audit, and outbox |
 | `tramai-spring-boot-starter-sovereign` | Sovereign runtime Spring Boot auto-configuration |
-| `tramai-spring-boot-starter-sovereign-ops` | Operational APIs for audit, approval, recovery, and outbox workflows |
+| `tramai-spring-boot-starter-sovereign-ops` | Operational APIs: audit outbox, recovery, dispatch, background worker, observer SPI |
+| `tramai-spring-boot-starter-sovereign-ops-actuator` | Optional Actuator endpoint for worker status (read-only, opt-in) |
 | `tramai-spring-boot-starter-sovereign-ops-micrometer` | Micrometer metrics for sovereign ops audit outbox worker |
 | `tramai-spring-boot-starter-sovereign-ops-observability` | OpenTelemetry metrics for sovereign ops audit outbox worker |
 | `tramai-spring-boot-starter-sovereign-persistence-file` | File-backed persistence auto-configuration |
