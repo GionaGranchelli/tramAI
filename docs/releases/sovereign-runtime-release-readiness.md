@@ -25,6 +25,7 @@ Candidate release: 0.4.0 or the next unreleased version. No tag, no Maven Centra
 | Background worker (recovery + dispatch) | Implemented / evolving | tramai-spring-boot-starter-sovereign-ops | Unit + integration tests |
 | Worker observer SPI | Implemented | tramai-spring-boot-starter-sovereign-ops | Unit tests |
 | OpenTelemetry worker metrics | Implemented | tramai-spring-boot-starter-sovereign-ops-observability | Unit tests |
+| Optional read-only Actuator worker status endpoint | Implemented / opt-in | tramai-spring-boot-starter-sovereign-ops-actuator | Unit tests |
 | Evidence generation | Implemented / evolving | Release artifacts, examples | Smoke tests |
 | Sovereign document intelligence example | Implemented | examples:sovereign-document-intelligence | Smoke test |
 
@@ -34,7 +35,7 @@ These capabilities are NOT claimed as complete, stable, or production-ready:
 
 - Stable 1.0 public API
 - Maven Central release of sovereign runtime modules (not verified)
-- REST/Actuator operational endpoints
+- Broad REST/Actuator operational control endpoints
 - Micrometer / Prometheus / dashboard integration
 - Database-backed persistence or outbox
 - Distributed worker leader election
