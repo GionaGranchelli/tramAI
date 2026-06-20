@@ -16,11 +16,15 @@ implementation(project(":tramai-spring-boot-starter-sovereign-ops-observability"
 
 ### 2. Provide an OpenTelemetry bean
 
-The observer activates **automatically** when:
+The observer contribution activates **automatically** when:
 - An `io.opentelemetry.api.OpenTelemetry` bean is in the Spring context
-- No custom `SovereignOpsAuditOutboxWorkerObserver` bean is registered
 
-Without an `OpenTelemetry` bean, the sovereign ops starter's `Noop` observer remains active.
+The base sovereign ops starter composes OT metrics with the status-recording
+observer. Without an `OpenTelemetry` bean, no OT contribution is created.
+
+To override the entire observer chain, provide a custom
+`SovereignOpsAuditOutboxWorkerObserver` bean — the auto-configuration
+respects `@ConditionalOnMissingBean` in the base module.
 
 ### 3. Enable the worker
 
