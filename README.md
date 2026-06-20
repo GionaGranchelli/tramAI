@@ -211,7 +211,7 @@ Until the next tagged release, APIs in these areas may change.
 The following are intentionally not claimed as complete:
 
 - stable 1.0 API
-- REST/Actuator operational endpoints
+- write/control-plane operational endpoints
 - database-backed outbox or persistence
 - distributed worker leader election
 - key rotation
