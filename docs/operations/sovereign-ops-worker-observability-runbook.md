@@ -48,17 +48,25 @@ current operational state: whether the worker is running, the last
 recorded cycle result, the number of cycles since last reset, and
 counts of recovered and dispatched records.
 
-**Properties:**
+#### Property fields (representative subset)
 
-| Property | Type | Description |
-|----------|------|-------------|
+The snapshot exposes worker configuration and recent cycle state:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `enabled` | boolean | Whether the worker is enabled in configuration |
 | `running` | boolean | Whether the worker schedule is active |
-| `lastCycleResult` | string | `success`, `failure`, or `none` |
-| `cyclesSinceLastReset` | integer | Cycles completed since last reset |
-| `totalCycleDurationMillis` | long | Cumulative cycle wall-clock time |
-| `recoveredCount` | integer | Total records recovered |
-| `dispatchedCount` | integer | Total records dispatched |
-| `failureCount` | integer | Total failures recorded |
+| `recoverPreparedEnabled` | boolean | Whether the PREPARED recovery phase is active |
+| `dispatchPendingEnabled` | boolean | Whether the PENDING dispatch phase is active |
+| `batchSize` | int | Records processed per cycle |
+| `intervalMillis` | long | Polling interval |
+| `totalCyclesCompleted` | long | Cycles completed since last reset |
+| `totalCyclesFailed` | long | Cycles that recorded a failure |
+| `lastCycleDurationMillis` | long? | Duration of the most recent cycle |
+| `lastRecovered` | object? | Most recent recovery summary (inspected, movedToPending, markedFailedPermanent, skippedUnresolved, resolverFailures) |
+| `lastDispatched` | object? | Most recent dispatch result (claimed, emitted, failedRetryable, failedPermanent) |
+| `lastFailure` | object? | Most recent failure summary (action, errorCode) |
+| `lastFailureAt` | instant? | Timestamp of the most recent failure |
 
 **Activation:**
 
@@ -185,8 +193,9 @@ sensitive data in instrument names, attributes, or values.
 
 **Activation:** The OT observer activates automatically when an
 `io.opentelemetry.api.OpenTelemetry` bean is present in the Spring
-context. No SDK or exporter is required — the module depends only on
-`opentelemetry-api`.
+context. The module depends only on `opentelemetry-api` and does not
+bring an SDK or exporter. Applications that want to export OT metrics
+must provide their own OpenTelemetry SDK and exporter configuration.
 
 ---
 
@@ -476,23 +485,38 @@ The sovereign ops starter uses `@ConditionalOnMissingBean` for the
 - If a custom `SovereignOpsAuditOutboxWorkerObserver` bean is defined
   by the application, it **replaces the entire auto-configured chain**,
   including status recording.
-- To extend rather than replace, compose your custom observer with the
-  composite by injecting and delegating to the existing observers.
+- To extend rather than replace, inject the
+  `SovereignOpsAuditOutboxWorkerStatusStore` and any
+  `SovereignOpsAuditOutboxWorkerObserverContribution` beans, then
+  compose your custom observer with the recording observer.
 
 Example of composing a custom observer:
 
 ```kotlin
 @Bean
 fun myObservingObserver(
-    statusRecorder: SovereignOpsAuditOutboxWorkerObserver,
-    micrometerObserver: SovereignOpsAuditOutboxWorkerObserver?,
-    otelObserver: SovereignOpsAuditOutboxWorkerObserver?
+    statusStore: SovereignOpsAuditOutboxWorkerStatusStore,
+    contributions: ObjectProvider<SovereignOpsAuditOutboxWorkerObserverContribution>,
 ): SovereignOpsAuditOutboxWorkerObserver {
-    return SovereignOpsAuditOutboxWorkerObserver { status ->
-        // Custom logic here
-        statusRecorder.onStatus(status)
-        micrometerObserver?.onStatus(status)
-        otelObserver?.onStatus(status)
+    val composite = CompositeSovereignOpsAuditOutboxWorkerObserver(
+        contributions.orderedStream().map { it.observer }.toList()
+    )
+
+    val defaultChain = RecordingSovereignOpsAuditOutboxWorkerObserver(
+        statusStore = statusStore,
+        delegate = composite,
+    )
+
+    return object : SovereignOpsAuditOutboxWorkerObserver {
+        override fun onCycleCompleted(summary: SovereignOpsAuditOutboxWorkerRunSummary) {
+            // Custom sanitized logic here
+            defaultChain.onCycleCompleted(summary)
+        }
+
+        override fun onCycleFailed(action: String, errorCode: String) {
+            // Custom sanitized logic here
+            defaultChain.onCycleFailed(action, errorCode)
+        }
     }
 }
 ```

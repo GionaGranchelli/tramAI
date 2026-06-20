@@ -8,7 +8,7 @@ metrics. All metric names assume the Prometheus naming convention
 
 ### Worker cycles
 
-Prometheus name: `tamai_sovereign_ops_outbox_worker_cycles_total`
+Prometheus name: `tramai_sovereign_ops_outbox_worker_cycles_total`
 
 Tags: `outcome`, `failure_action`, `error_type`
 
@@ -16,9 +16,9 @@ Tags: `outcome`, `failure_action`, `error_type`
 
 Prometheus names:
 
-- `tamai_sovereign_ops_outbox_worker_duration_seconds_count`
-- `tamai_sovereign_ops_outbox_worker_duration_seconds_sum`
-- `tamai_sovereign_ops_outbox_worker_duration_seconds_max`
+- `tramai_sovereign_ops_outbox_worker_duration_seconds_count`
+- `tramai_sovereign_ops_outbox_worker_duration_seconds_sum`
+- `tramai_sovereign_ops_outbox_worker_duration_seconds_max`
 
 Tags: `outcome`, `failure_action`, `error_type`
 
@@ -27,20 +27,20 @@ when percentile histograms are explicitly enabled.
 
 ### Worker failures
 
-Prometheus name: `tamai_sovereign_ops_outbox_worker_failures_total`
+Prometheus name: `tramai_sovereign_ops_outbox_worker_failures_total`
 
 Tags: `failure_action`, `error_type`
 
 ### Recovery records
 
-Prometheus name: `tamai_sovereign_ops_outbox_worker_recovered_records_total`
+Prometheus name: `tramai_sovereign_ops_outbox_worker_recovered_records_total`
 
 Tags: `result` (`inspected`, `moved_to_pending`, `failed_permanent`,
 `resolver_failure`)
 
 ### Dispatch records
 
-Prometheus name: `tamai_sovereign_ops_outbox_worker_dispatched_records_total`
+Prometheus name: `tramai_sovereign_ops_outbox_worker_dispatched_records_total`
 
 Tags: `result` (`claimed`, `emitted`, `failed_retryable`,
 `failed_permanent`)
@@ -76,7 +76,7 @@ sum(rate(tramai_sovereign_ops_outbox_worker_cycles_total[5m]))
 ```
 
 If no cycles are observed, the denominator is zero and the query
-returns `NaN`. Use `clamp_min(coalesce(..., 0), 1)` in alert rules
+returns `NaN`. Use `clamp_min(sum(rate(...)), 1)` in alert rules
 to avoid division by zero.
 
 ### Average cycle duration
