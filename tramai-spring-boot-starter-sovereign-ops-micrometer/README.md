@@ -55,3 +55,11 @@ and composes them behind the status-recording observer.
 Add the dependency and ensure a `MeterRegistry` bean exists (Spring Boot
 auto-configures one when `micrometer-core` or
 `micrometer-registry-prometheus` is on the classpath).
+
+## See also
+
+- [Worker observability runbook](../../docs/operations/sovereign-ops-worker-observability-runbook.md) —
+  operator-facing documentation covering Actuator, Micrometer, and
+  OpenTelemetry surfaces, PromQL queries, and troubleshooting flows.
+- [PromQL reference](../../docs/operations/prometheus/sovereign-ops-worker-promql.md) —
+  complete set of Prometheus queries for all five metric families.

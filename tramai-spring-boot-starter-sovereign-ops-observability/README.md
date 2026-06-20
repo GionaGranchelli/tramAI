@@ -109,3 +109,9 @@ fun myObserver(): SovereignOpsAuditOutboxWorkerObserver = MyObserver()
 
 - `tramai-spring-boot-starter-sovereign-ops` — the observer SPI and worker DTOs
 - `io.opentelemetry:opentelemetry-api` — meter creation (no SDK, no exporter)
+
+## See also
+
+- [Worker observability runbook](../../docs/operations/sovereign-ops-worker-observability-runbook.md) —
+  operator-facing documentation covering Actuator, Micrometer, and
+  OpenTelemetry surfaces, PromQL queries, and troubleshooting flows.

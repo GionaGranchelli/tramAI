@@ -54,3 +54,10 @@ must be configured separately -- the endpoint is disabled by default.
 This endpoint returns only sanitized operational state. Applications that
 expose the endpoint over HTTP should add their own authentication and
 authorization layer (e.g., Spring Security).
+
+## See also
+
+- [Worker observability runbook](../../docs/operations/sovereign-ops-worker-observability-runbook.md) —
+  operator-facing documentation covering all three observability surfaces
+  (Actuator, Micrometer, OpenTelemetry), PromQL queries, and
+  troubleshooting flows.

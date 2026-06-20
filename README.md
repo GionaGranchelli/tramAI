@@ -109,6 +109,7 @@ TramAI is organized into focused Gradle modules:
 | `tramai-spring-boot-starter-sovereign-ops-actuator` | Optional Actuator endpoint for worker status (read-only, opt-in) |
 | `tramai-spring-boot-starter-sovereign-ops-micrometer` | Micrometer metrics for sovereign ops audit outbox worker |
 | `tramai-spring-boot-starter-sovereign-ops-observability` | OpenTelemetry metrics for sovereign ops audit outbox worker |
+| [Worker observability runbook](docs/operations/sovereign-ops-worker-observability-runbook.md) | Operator-facing documentation for all three observability surfaces |
 | `tramai-spring-boot-starter-sovereign-persistence-file` | File-backed persistence auto-configuration |
 
 ### Optional Higher-Level Modules

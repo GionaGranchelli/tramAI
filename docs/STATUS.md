@@ -22,6 +22,7 @@ This document describes the state of the repository, not a formal release contra
 | Audit chain (tamper-evident sequencing) | Implemented / evolving |
 | Audit outbox (atomic mutation + audit intent, claim-based dispatch) | Implemented / evolving |
 | Audit outbox background worker (recovery + dispatch loop) | Implemented / evolving |
+| Sovereign ops worker observability runbook | Implemented |
 | Sovereign ops audit outbox OpenTelemetry metrics | Implemented |
 | Evidence generation (bundles, release artifacts) | Implemented / evolving |
 | Sovereign document intelligence example | Implemented |

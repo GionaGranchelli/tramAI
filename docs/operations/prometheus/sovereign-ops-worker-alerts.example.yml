@@ -1,0 +1,69 @@
+# Sovereign Ops Worker — Example Prometheus Alert Rules
+#
+# WARNING: These are examples — NOT production defaults.
+#
+# Thresholds must be tuned based on:
+# - Workload volume and patterns
+# - Retry policy and batch size
+# - Expected cycle interval
+# - Historical baseline behavior
+# - Team on-call capacity
+#
+# Always validate alert sensitivity against historical data before
+# deploying to production.
+
+groups:
+  - name: tramai-sovereign-ops-worker
+    rules:
+      # Elevated cycle failure rate
+      - alert: TramaiSovereignOpsWorkerCycleFailures
+        expr: |
+          sum(rate(tramai_sovereign_ops_outbox_worker_cycles_total{outcome="failure"}[10m]))
+          /
+          clamp_min(sum(rate(tramai_sovereign_ops_outbox_worker_cycles_total[10m])), 1)
+          > 0.10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TramAI sovereign ops worker has elevated cycle failures"
+          description: "More than 10% of worker cycles failed over the last 10 minutes. Current failure ratio: {{ $value | humanizePercentage }}."
+
+      # Permanent failures detected
+      - alert: TramaiSovereignOpsWorkerPermanentFailures
+        expr: |
+          sum(rate(tramai_sovereign_ops_outbox_worker_recovered_records_total{result="failed_permanent"}[10m]))
+          +
+          sum(rate(tramai_sovereign_ops_outbox_worker_dispatched_records_total{result="failed_permanent"}[10m]))
+          > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TramAI sovereign ops worker is producing permanent failures"
+          description: "Permanent failures were observed in recovery or dispatch. Records cannot be recovered automatically."
+
+      # Worker metrics absent (possible worker down)
+      - alert: TramaiSovereignOpsWorkerAbsent
+        expr: |
+          absent(tramai_sovereign_ops_outbox_worker_cycles_total) == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TramAI sovereign ops worker metrics absent"
+          description: "No sovereign ops worker cycle metrics have been received for at least 5 minutes. The worker may not be running."
+
+      # High cycle duration (slow worker)
+      - alert: TramaiSovereignOpsWorkerSlowCycles
+        expr: |
+          rate(tramai_sovereign_ops_outbox_worker_duration_seconds_sum[10m])
+          /
+          rate(tramai_sovereign_ops_outbox_worker_duration_seconds_count[10m])
+          > 30
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "TramAI sovereign ops worker cycles are slow"
+          description: "Average cycle duration exceeded 30s over the last 10 minutes. Current average: {{ $value | humanizeDuration }}."

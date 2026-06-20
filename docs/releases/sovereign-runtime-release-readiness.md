@@ -27,6 +27,7 @@ Candidate release: 0.4.0 or the next unreleased version. No tag, no Maven Centra
 | OpenTelemetry worker metrics | Implemented | tramai-spring-boot-starter-sovereign-ops-observability | Unit tests |
 | Optional read-only Actuator worker status endpoint | Implemented / opt-in | tramai-spring-boot-starter-sovereign-ops-actuator | Unit tests |
 | Micrometer worker metrics bridge | Implemented / opt-in | tramai-spring-boot-starter-sovereign-ops-micrometer | Unit tests |
+| Worker observability runbook | Implemented | docs/operations/sovereign-ops-worker-observability-runbook.md | Documentation review |
 | Evidence generation | Implemented / evolving | Release artifacts, examples | Smoke tests |
 | Sovereign document intelligence example | Implemented | examples:sovereign-document-intelligence | Smoke test |
 
@@ -88,7 +89,7 @@ No timelines are committed for these items.
 |---|---|---|
 | APIs are still evolving | Medium | active-development banner on README and docs |
 | File persistence is local-node only | Medium | Documented as local-only; DB-backed persistence is future work |
-| No production monitoring dashboard or runbook | Low | Explicitly listed as a non-goal |
+|| No production monitoring dashboard or runbook | Low | Runbook exists (see [runbook](../operations/sovereign-ops-worker-observability-runbook.md)); dashboard remains a non-goal |
 | No DB-backed outbox | Medium | Explicitly listed as future work |
 | No distributed leader election | Medium | Worker assumes single-node operation; documented |
 | Sovereign ops worker is opt-in, disabled by default | Low | Production users must explicitly enable |

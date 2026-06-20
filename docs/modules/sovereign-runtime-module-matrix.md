@@ -1,8 +1,12 @@
 # Sovereign Runtime Module Matrix
 
-One-stop reference for the sovereign runtime modules on master. Updated 2026-06-18.
+One-stop reference for the sovereign runtime modules on master. Updated 2026-06-20.
 
-## Module Overview
+### Sovereign Runtime
+
+See the [worker observability runbook](../operations/sovereign-ops-worker-observability-runbook.md) for operator-facing
+documentation covering the Actuator status endpoint, Micrometer metrics,
+OpenTelemetry metrics, PromQL examples, and troubleshooting flows.
 
 | Module | Purpose | Runtime Role | Release Status |
 |---|---|---|---|
@@ -48,6 +52,7 @@ All modules are opt-in. The sovereign runtime does not activate unless explicitl
 
 ## Finding More
 
+- [Worker observability runbook](../operations/sovereign-ops-worker-observability-runbook.md)
 - [Sovereign Runtime Release Readiness](../releases/sovereign-runtime-release-readiness.md)
 - [TramAI Architecture](../ARCHITECTURE.md)
 - [Project Status](../STATUS.md)
