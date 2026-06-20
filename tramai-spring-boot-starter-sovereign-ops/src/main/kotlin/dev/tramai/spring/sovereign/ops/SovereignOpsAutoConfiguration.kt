@@ -204,10 +204,18 @@ class SovereignOpsAutoConfiguration {
         properties: SovereignOpsProperties,
         outboxDispatcher: ObjectProvider<SovereignOpsAuditOutboxDispatcher>,
     ): SovereignOpsAuditOutboxWorkerStatusStore {
-        val effectiveWorkerProps = effectiveWorkerProperties(
-            rawProps = properties.outbox.worker,
-            dispatcherAvailable = outboxDispatcher.ifAvailable != null,
-        )
+        val effectiveWorkerProps = try {
+            effectiveWorkerProperties(
+                rawProps = properties.outbox.worker,
+                dispatcherAvailable = outboxDispatcher.ifAvailable != null,
+            )
+        } catch (_: IllegalStateException) {
+            // If the worker config is invalid (e.g. dispatch-pending=true but
+            // no dispatcher and failOnMissingDispatcher=true), the status store
+            // should still exist to report the raw configuration. Fall back to
+            // raw properties so the store always bootstraps.
+            properties.outbox.worker
+        }
         return InMemorySovereignOpsAuditOutboxWorkerStatusStore(effectiveWorkerProps)
     }
 
