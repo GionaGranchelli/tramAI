@@ -77,10 +77,36 @@ paths, stack traces, exception messages, or reason text.
 ## Health component
 
 - **Bean name:** `tramaiSovereignOpsWorkerHealthIndicator`
-- **Health component name:** derived by Spring Boot from the bean name
+- **Health component name:** `tramaiSovereignOpsWorker`
 - **Status mapping:** disabled worker is `UNKNOWN`; enabled but not running is
   `DOWN`; running with failures before the first success is `DOWN`; running
   after at least one completed cycle is `UP`.
+
+Spring Boot derives the health component name from the bean name by removing
+the `HealthIndicator` suffix. When exposed through the Actuator health
+endpoint, the component appears as:
+
+```json
+{
+  "components": {
+    "tramaiSovereignOpsWorker": {
+      "status": "UP",
+      "details": {
+        "enabled": true,
+        "running": true,
+        "totalCyclesCompleted": 42,
+        "totalCyclesFailed": 0
+      }
+    }
+  }
+}
+```
+
+The custom `tramaiSovereignOpsWorker` status endpoint (id:
+`tramaiSovereignOpsWorker`) and the health component share the same logical
+name but are exposed through different Actuator surfaces — the custom
+endpoint at `/actuator/tramaiSovereignOpsWorker` and the health component
+as part of `/actuator/health`. They can coexist without conflicts.
 
 ## Security
 

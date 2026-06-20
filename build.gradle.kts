@@ -772,6 +772,12 @@ tasks.register("verifySovereignOpsObservabilityDocs") {
             "Alert examples must state that thresholds must be tuned"
         }
 
+        // ── J. Health indicator documentation guard
+        requireContains("tramai.sovereign.ops.actuator.worker-health.enabled=true")
+        requireContains("tramaiSovereignOpsWorkerHealthIndicator")
+        requireContains("tramaiSovereignOpsWorker")
+        requireContains("Health component name")
+
         // ── I. Starter README link guard
         val actuatorReadme = rootDir.resolve("tramai-spring-boot-starter-sovereign-ops-actuator/README.md")
         val micrometerReadme = rootDir.resolve("tramai-spring-boot-starter-sovereign-ops-micrometer/README.md")

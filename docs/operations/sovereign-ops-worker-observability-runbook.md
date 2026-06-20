@@ -250,6 +250,16 @@ not enable the custom worker status endpoint. Enabling
 `tramai.sovereign.ops.actuator.worker-status.enabled=true` does not enable
 the health indicator.
 
+**Health component name:** `tramaiSovereignOpsWorker` (Spring Boot derives
+this from the `tramaiSovereignOpsWorkerHealthIndicator` bean name by
+removing the `HealthIndicator` suffix).
+
+The custom status endpoint (id: `tramaiSovereignOpsWorker`) and the health
+component share the same logical name but are exposed through different
+Actuator surfaces — the custom endpoint at
+`/actuator/tramaiSovereignOpsWorker` and the health component as part of
+`/actuator/health`. They can coexist without conflicts.
+
 ---
 
 ## Safe exposure model
