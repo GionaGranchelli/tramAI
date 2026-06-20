@@ -26,6 +26,7 @@ Candidate release: 0.4.0 or the next unreleased version. No tag, no Maven Centra
 | Worker observer SPI | Implemented | tramai-spring-boot-starter-sovereign-ops | Unit tests |
 | OpenTelemetry worker metrics | Implemented | tramai-spring-boot-starter-sovereign-ops-observability | Unit tests |
 | Optional read-only Actuator worker status endpoint | Implemented / opt-in | tramai-spring-boot-starter-sovereign-ops-actuator | Unit tests |
+| Micrometer worker metrics bridge | Implemented / opt-in | tramai-spring-boot-starter-sovereign-ops-micrometer | Unit tests |
 | Evidence generation | Implemented / evolving | Release artifacts, examples | Smoke tests |
 | Sovereign document intelligence example | Implemented | examples:sovereign-document-intelligence | Smoke test |
 
@@ -36,7 +37,7 @@ These capabilities are NOT claimed as complete, stable, or production-ready:
 - Stable 1.0 public API
 - Maven Central release of sovereign runtime modules (not verified)
 - Broad REST/Actuator operational control endpoints
-- Micrometer / Prometheus / dashboard integration
+- Full dashboard integration and production monitoring runbook
 - Database-backed persistence or outbox
 - Distributed worker leader election
 - Key rotation
@@ -74,6 +75,9 @@ No timelines are committed for these items.
 # Observability module tests
 ./gradlew :tramai-spring-boot-starter-sovereign-ops-observability:test --rerun-tasks
 
+# Micrometer module tests
+./gradlew :tramai-spring-boot-starter-sovereign-ops-micrometer:test --rerun-tasks
+
 # Reference example smoke test
 ./gradlew :examples:sovereign-document-intelligence:run
 ```
@@ -84,7 +88,7 @@ No timelines are committed for these items.
 |---|---|---|
 | APIs are still evolving | Medium | active-development banner on README and docs |
 | File persistence is local-node only | Medium | Documented as local-only; DB-backed persistence is future work |
-| No Actuator / Micrometer bridge for OT metrics | Low | Documented clearly; metrics available via OT collector |
+| No production monitoring dashboard or runbook | Low | Explicitly listed as a non-goal |
 | No DB-backed outbox | Medium | Explicitly listed as future work |
 | No distributed leader election | Medium | Worker assumes single-node operation; documented |
 | Sovereign ops worker is opt-in, disabled by default | Low | Production users must explicitly enable |

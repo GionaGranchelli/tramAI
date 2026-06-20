@@ -156,6 +156,7 @@ This publishes the following to mavenLocal() and runs their test suites:
 - `tramai-spring-boot-starter-sovereign`
 - `tramai-spring-boot-starter-sovereign-persistence-file`
 - `tramai-spring-boot-starter-sovereign-ops`
+- `tramai-spring-boot-starter-sovereign-ops-micrometer`
 - `tramai-spring-boot-starter-sovereign-ops-observability`
 
 After publishing, a consumer-resolution smoke test proves an external app can resolve them
