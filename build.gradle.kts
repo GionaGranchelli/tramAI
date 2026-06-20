@@ -1954,3 +1954,40 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
         logger.lifecycle("Evidence index Markdown generated: ${mdFile.absolutePath}")
     }
 }
+
+// ──────────────────────────────────────────────
+// Task: verifySovereignRuntimeReleaseCandidate
+// ──────────────────────────────────────────────
+
+tasks.register("verifySovereignRuntimeReleaseCandidate") {
+    group = "verification"
+    description =
+        "Runs the canonical local verification chain for the Sovereign Runtime Release Candidate. " +
+            "Does not publish remotely, create tags, or release to Maven Central."
+
+    notCompatibleWithConfigurationCache(
+        "Sovereign runtime release-candidate verification aggregates execution-time verification tasks.",
+    )
+
+    dependsOn(
+        "test",
+        "verifyReleaseReadiness",
+        "verifySovereignRuntimePublication",
+        "verifySovereignRuntimeSignedBundle",
+        "generateSovereignReleaseEvidenceIndex",
+        "verifySovereignRuntimeConsumerSmoke",
+    )
+
+    doLast {
+        logger.lifecycle("Sovereign runtime release-candidate verification complete.")
+        logger.lifecycle("Validated:")
+        logger.lifecycle("  - full test suite")
+        logger.lifecycle("  - release readiness")
+        logger.lifecycle("  - local sovereign runtime publication")
+        logger.lifecycle("  - signed bundle dry-run")
+        logger.lifecycle("  - release evidence index")
+        logger.lifecycle("  - standalone consumer smoke")
+        logger.lifecycle("No remote repository was published to.")
+        logger.lifecycle("No tag or GitHub release was created.")
+    }
+}

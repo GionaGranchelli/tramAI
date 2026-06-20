@@ -49,6 +49,20 @@ No timelines are committed for these items.
 
 ## Release Validation Commands
 
+### Canonical release-candidate verification
+
+Run the full local sovereign runtime release-candidate validation chain:
+
+```bash
+./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks
+```
+
+This validates the full evidence chain — tests, release readiness, local publication, signed bundle dry-run, consumer-resolution smoke, release artifact generation, release manifest verification, and evidence index generation. It does not publish remotely, create a tag, or claim Maven Central availability.
+
+### Targeted validation commands
+
+For debugging or rapid iteration, use individual commands:
+
 ```bash
 # Full test suite (all modules, no cache)
 ./gradlew test --rerun-tasks
@@ -125,11 +139,7 @@ The repository now includes a dedicated workflow for validating the sovereign ru
 
 **What it validates:**
 
-- Full test suite (rerun-tasks)
-- Release readiness metadata and artifacts
-- Local sovereign runtime publication (POMs, sources, javadoc)
-- Signed bundle dry-run (bundle manifest + verification repo)
-- Consumer-resolution smoke test using the generated sovereign runtime verification repository
+- Canonical `verifySovereignRuntimeReleaseCandidate` task: full test suite, release readiness metadata and artifacts, local sovereign runtime publication (POMs, sources, javadoc), signed bundle dry-run (bundle manifest + verification repo), consumer-resolution smoke test using the generated sovereign runtime verification repository, release artifact preparation and manifest verification, and evidence index generation
 - Verified `dev.tramai` dependency closure policy:
   - only `build/sovereign-runtime-release-verification-repo` is allowed for TramAI dependencies
   - `mavenLocal` and `mavenCentral` are blocked for the verified closure
@@ -170,7 +180,7 @@ The index does **not** contain secrets, credentials, signing keys, or absolute m
 
 The current sovereign runtime release-candidate chain is:
 
-1. Run the release validation gates, including Actuator health-tree integration tests and observability documentation validation.
+1. Run the canonical `verifySovereignRuntimeReleaseCandidate` task, which aggregates the full local verification chain.
 2. Generate required release artifacts.
 3. Publish the sovereign runtime modules into the dedicated local verification repository.
 4. Run the standalone consumer smoke test.

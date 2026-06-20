@@ -20,6 +20,7 @@
 - Sovereign runtime release-readiness documentation and module matrix.
 
 ### Hardened
+- Added canonical `verifySovereignRuntimeReleaseCandidate` Gradle task to aggregate the sovereign runtime release-candidate verification chain.
 - Sovereign runtime verification now validates: local publication, signed bundle dry-run, consumer resolution from dedicated verification repository, evidence index generation, observability documentation validation (`verifySovereignOpsObservabilityDocs`), and Actuator health-tree integration tests (`HealthContributorRegistry` component name verification).
 - Actuator worker health documentation is backed by health-tree integration tests, not only bean-registration unit tests — the health component name `tramaiSovereignOpsWorker` is now proven through the real Spring Boot `HealthContributorRegistry`.
 
