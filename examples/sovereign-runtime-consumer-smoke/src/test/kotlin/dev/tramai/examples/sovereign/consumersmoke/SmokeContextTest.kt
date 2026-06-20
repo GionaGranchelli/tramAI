@@ -1,5 +1,6 @@
 package dev.tramai.examples.sovereign.consumersmoke
 
+import dev.tramai.spring.sovereign.ops.outbox.RecordingSovereignOpsAuditOutboxWorkerObserver
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObserver
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -32,7 +33,7 @@ class SmokeContextTest {
     }
 
     @Test
-    fun `observer fallback is Noop when no OpenTelemetry bean is present`() {
-        assertThat(observer).isSameAs(SovereignOpsAuditOutboxWorkerObserver.Noop)
+    fun `observer fallback is RecordingObserver when no OpenTelemetry bean is present`() {
+        assertThat(observer).isInstanceOf(RecordingSovereignOpsAuditOutboxWorkerObserver::class.java)
     }
 }

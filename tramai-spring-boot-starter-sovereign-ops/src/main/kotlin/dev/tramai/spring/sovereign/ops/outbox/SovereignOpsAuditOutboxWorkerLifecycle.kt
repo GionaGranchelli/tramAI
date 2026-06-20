@@ -14,6 +14,7 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
     private val worker: SovereignOpsAuditOutboxBackgroundWorker,
     private val properties: SovereignOpsOutboxWorkerProperties,
     private val observer: SovereignOpsAuditOutboxWorkerObserver = SovereignOpsAuditOutboxWorkerObserver.Noop,
+    private val statusStore: SovereignOpsAuditOutboxWorkerStatusStore? = null,
 ) : SmartLifecycle {
 
     private val logger = LogFactory.getLog(SovereignOpsAuditOutboxWorkerLifecycle::class.java)
@@ -33,6 +34,7 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
         validateSovereignOpsAuditOutboxWorkerProperties(properties)
 
         running = true
+        statusStore?.markLifecycleStarted()
         job = scope.launch {
             delay(properties.initialDelay.toMillis())
 
@@ -66,6 +68,7 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
 
     override fun stop() {
         running = false
+        statusStore?.markLifecycleStopped()
         job?.cancel()
         job = null
     }
