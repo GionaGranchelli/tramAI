@@ -239,7 +239,7 @@ class SovereignOpsAuditOutboxBackgroundWorkerTest {
             operations = operations,
             properties = SovereignOpsOutboxWorkerProperties(recoverPrepared = false, dispatchPending = false),
         )
-        val observer = RecordingSovereignOpsAuditOutboxWorkerObserver()
+        val observer = CapturingSovereignOpsAuditOutboxWorkerObserver()
         val lifecycle = SovereignOpsAuditOutboxWorkerLifecycle(
             worker = worker,
             properties = SovereignOpsOutboxWorkerProperties(
@@ -265,7 +265,7 @@ class SovereignOpsAuditOutboxBackgroundWorkerTest {
             ),
             properties = SovereignOpsOutboxWorkerProperties(batchSize = 1),
         )
-        val observer = RecordingSovereignOpsAuditOutboxWorkerObserver()
+        val observer = CapturingSovereignOpsAuditOutboxWorkerObserver()
         val lifecycle = SovereignOpsAuditOutboxWorkerLifecycle(
             worker = worker,
             properties = SovereignOpsOutboxWorkerProperties(
@@ -299,7 +299,7 @@ class SovereignOpsAuditOutboxBackgroundWorkerTest {
             ),
             clock = ThrowingClock(),
         )
-        val observer = RecordingSovereignOpsAuditOutboxWorkerObserver()
+        val observer = CapturingSovereignOpsAuditOutboxWorkerObserver()
         val lifecycle = SovereignOpsAuditOutboxWorkerLifecycle(
             worker = worker,
             properties = SovereignOpsOutboxWorkerProperties(
@@ -333,7 +333,7 @@ class SovereignOpsAuditOutboxBackgroundWorkerTest {
             ),
             properties = SovereignOpsOutboxWorkerProperties(batchSize = 1),
         )
-        val observer = RecordingSovereignOpsAuditOutboxWorkerObserver()
+        val observer = CapturingSovereignOpsAuditOutboxWorkerObserver()
         val lifecycle = SovereignOpsAuditOutboxWorkerLifecycle(
             worker = worker,
             properties = SovereignOpsOutboxWorkerProperties(
@@ -500,7 +500,7 @@ private object FailingReplayAuditEmitter : SovereignOpsAuditEmitter {
     }
 }
 
-private class RecordingSovereignOpsAuditOutboxWorkerObserver : SovereignOpsAuditOutboxWorkerObserver {
+private class CapturingSovereignOpsAuditOutboxWorkerObserver : SovereignOpsAuditOutboxWorkerObserver {
     val completed = mutableListOf<SovereignOpsAuditOutboxWorkerRunSummary>()
     val failures = mutableListOf<Pair<String, String>>()
 
