@@ -194,6 +194,8 @@ Then read:
 - [Sovereign Runtime RC Boundary](../releases/sovereign-runtime-rc-boundary.md)
 - [Worker Observability Runbook](../operations/sovereign-ops-worker-observability-runbook.md)
 
+For the planned database-backed persistence direction, see [Sovereign JDBC Persistence Design](../architecture/sovereign-jdbc-persistence-design.md).
+
 ## Non-Goals
 
 This scenario does **not** claim:

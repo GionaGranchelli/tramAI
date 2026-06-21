@@ -76,3 +76,5 @@ After this RC boundary, the next roadmap area is production hardening:
 4. Production deployment guide
 5. End-to-end regulated workflow examples
 6. API stabilization based on integration feedback
+
+The first production-hardening design target is database-backed persistence. See [Sovereign JDBC Persistence Design](../architecture/sovereign-jdbc-persistence-design.md).
