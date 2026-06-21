@@ -1963,7 +1963,15 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
 
 val documentIntelligenceProject = project(":examples:sovereign-document-intelligence")
 
-tasks.register<JavaExec>("verifySovereignDocumentIntelligenceEvidenceRun") {
+val documentIntelligenceRunCommand = listOf(
+    gradleWrapper,
+    ":examples:sovereign-document-intelligence:run",
+    "--args",
+    "--release-bundle-manifest=${rootProject.layout.buildDirectory.get().asFile.absolutePath}/sovereign-release/release-artifacts-v1.json",
+    "--no-configuration-cache",
+)
+
+tasks.register<Exec>("verifySovereignDocumentIntelligenceEvidenceRun") {
     group = "verification"
     description =
         "Runs the sovereign document intelligence reference example against the generated release bundle " +
@@ -1971,12 +1979,8 @@ tasks.register<JavaExec>("verifySovereignDocumentIntelligenceEvidenceRun") {
 
     dependsOn("prepareSovereignReleaseArtifacts", "verifySovereignReleaseManifest")
 
-    classpath = documentIntelligenceProject.sourceSets["main"].runtimeClasspath
-    mainClass.set("dev.tramai.examples.sovereign.DocumentIntelligenceMainKt")
-    args(
-        "--release-bundle-manifest",
-        "${rootProject.layout.buildDirectory.get().asFile.absolutePath}/sovereign-release/release-artifacts-v1.json",
-    )
+    workingDir = rootProject.projectDir
+    commandLine(documentIntelligenceRunCommand)
 }
 
 // ──────────────────────────────────────────────
