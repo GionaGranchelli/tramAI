@@ -2,9 +2,11 @@
 
 ## Purpose
 
-This document tracks the readiness of the current sovereign runtime capabilities on master.
+This document tracks readiness evidence for the declared Sovereign Runtime Release Candidate boundary on `master`.
 
 It is NOT a formal release announcement and does NOT promise API stability. It exists so that reviewers, integrators, and the project itself have an honest, auditable snapshot of what is implemented, what is evolving, and what is intentionally not done.
+
+For the declared RC boundary, see [Sovereign Runtime RC Boundary](sovereign-runtime-rc-boundary.md).
 
 ## Target Release Boundary
 

@@ -218,6 +218,23 @@ The following are intentionally not claimed as complete:
 - full production deployment guide
 - complete API reference documentation
 
+### Sovereign Runtime Release Candidate
+
+The current `master` branch contains a Sovereign Runtime Release Candidate boundary.
+
+See:
+
+- [Sovereign Runtime RC Boundary](docs/releases/sovereign-runtime-rc-boundary.md)
+- [Sovereign Runtime Release Readiness](docs/releases/sovereign-runtime-release-readiness.md)
+
+Run the full local verification chain with:
+
+```bash
+./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks
+```
+
+This is **not** a stable 1.0 API declaration, **not** a Maven Central release, and **not** a production deployment certification.
+
 ## Sovereign Runtime Release Readiness
 
 The sovereign runtime capabilities on `master` are actively evolving and not yet a stable 1.0 API. For the current release-readiness boundary, included modules, validation commands, and known non-goals, see:
