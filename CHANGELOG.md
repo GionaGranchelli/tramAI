@@ -41,6 +41,9 @@
 
 For the current release-readiness boundary, see [docs/releases/sovereign-runtime-release-readiness.md](docs/releases/sovereign-runtime-release-readiness.md).
 
+### Documentation
+- Added Sovereign Runtime Release Candidate boundary declaration and linked it to the canonical verification task.
+
 ## 0.3.1 — 2026-05-24
 
 Patch release focused on streaming stability, memory persistence, and proxy-aware tool scanning.

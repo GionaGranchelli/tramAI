@@ -60,6 +60,22 @@ Unreleased capabilities include:
 
 APIs in these areas may change before the next release.
 
+## Sovereign Runtime
+
+**Status: Release Candidate boundary declared / active development**
+
+The Sovereign Runtime RC boundary is now documented and locally verifiable through:
+
+```bash
+./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks
+```
+
+This includes governed runtime execution, sovereign routing, DLP, replay-safe approvals, encrypted file-backed persistence, audit/outbox recovery, worker observability, and release evidence generation.
+
+For the full RC boundary declaration, see [docs/releases/sovereign-runtime-rc-boundary.md](./releases/sovereign-runtime-rc-boundary.md).
+
+Not yet included: stable 1.0 API, Maven Central release, database-backed persistence, distributed worker coordination, key rotation, and production deployment certification.
+
 ## Planned / Not Complete
 
 The following are intentionally not claimed as complete. Some are planned, some are deferred, and some represent infrastructure that does not yet exist:
