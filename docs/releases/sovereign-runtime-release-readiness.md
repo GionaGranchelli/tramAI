@@ -103,6 +103,8 @@ For debugging or rapid iteration, use individual commands:
 Also runnable via the canonical verification chain: `./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks`.
 
 ## Release Risks
+
+| Risk | Severity | Mitigation |
 |---|---|---|
 | APIs are still evolving | Medium | active-development banner on README and docs |
 | File persistence is local-node only | Medium | Documented as local-only; DB-backed persistence is future work |

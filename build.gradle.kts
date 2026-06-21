@@ -1961,8 +1961,6 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
 // Task: verifySovereignDocumentIntelligenceEvidenceRun
 // ──────────────────────────────────────────────
 
-val documentIntelligenceProject = project(":examples:sovereign-document-intelligence")
-
 val documentIntelligenceRunCommand = listOf(
     gradleWrapper,
     ":examples:sovereign-document-intelligence:run",
