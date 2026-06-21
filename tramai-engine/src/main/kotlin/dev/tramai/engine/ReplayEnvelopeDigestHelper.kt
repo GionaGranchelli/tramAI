@@ -14,7 +14,7 @@ import java.security.MessageDigest
  * Used in [SuspendedInvocationMetadata.replayEnvelopeDigest] to detect
  * replay-envelope tampering after claim.
  */
-internal object ReplayEnvelopeDigestHelper {
+object ReplayEnvelopeDigestHelper {
 
     fun compute(
         operationReference: ResumeOperationReference,

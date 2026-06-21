@@ -19,6 +19,7 @@ kotlin {
 
 dependencies {
     api(project(":tramai-core"))
+    api(project(":tramai-engine"))
     implementation(libs.jackson.databind)
     implementation(libs.jackson.module.kotlin)
     implementation(libs.jackson.datatype.jsr310)
