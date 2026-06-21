@@ -21,12 +21,14 @@ repositories {
     mavenCentral()
 }
 
+val tramaiVersion = "0.3.1"
+
 dependencies {
-    implementation("dev.tramai:tramai-standalone:0.3.1")
-    implementation("dev.tramai:tramai-ollama:0.3.1")
+    implementation("dev.tramai:tramai-standalone:$tramaiVersion")
+    implementation("dev.tramai:tramai-ollama:$tramaiVersion")
 
     testImplementation(kotlin("test"))
-    testImplementation("dev.tramai:tramai-testing:0.3.1")
+    testImplementation("dev.tramai:tramai-testing:$tramaiVersion")
 }
 
 application {

@@ -610,7 +610,7 @@ inline fun <reified T : Any> SovereignTramai.create(): T = create(T::class)
  */
 class SovereignTramaiRuntime internal constructor(
     private val delegate: TramaiRuntime,
-) : AutoCloseable {
+) : AutoCloseable by delegate {
 
     /**
      * Creates a service proxy for the given service type.
@@ -647,9 +647,6 @@ class SovereignTramaiRuntime internal constructor(
         command: ResumeApprovalCommand,
     ): R = resumeApproval(command) as R
 
-    override fun close() {
-        delegate.close()
-    }
 }
 
 /**

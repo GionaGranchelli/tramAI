@@ -42,7 +42,6 @@ class MessageWindowChatMemory(
     private val lock = Any()
 
     override fun get(conversationId: String): List<Message> {
-        requireNotNull(conversationId) { VALIDATION_CONVERSATION_ID_NULL }
         require(conversationId.isNotBlank())
         val deque = conversations[conversationId] ?: return emptyList()
         synchronized(lock) {
@@ -51,13 +50,11 @@ class MessageWindowChatMemory(
     }
 
     override fun add(conversationId: String, message: Message) {
-        requireNotNull(conversationId) { VALIDATION_CONVERSATION_ID_NULL }
         require(conversationId.isNotBlank())
         add(conversationId, listOf(message))
     }
 
     override fun add(conversationId: String, messages: List<Message>) {
-        requireNotNull(conversationId) { VALIDATION_CONVERSATION_ID_NULL }
         require(conversationId.isNotBlank())
 
         synchronized(lock) {
@@ -121,7 +118,6 @@ class MessageWindowChatMemory(
     }
 
     override fun clear(conversationId: String) {
-        requireNotNull(conversationId) { VALIDATION_CONVERSATION_ID_NULL }
         require(conversationId.isNotBlank())
         synchronized(lock) {
             conversations.remove(conversationId)
@@ -129,6 +125,3 @@ class MessageWindowChatMemory(
         }
     }
 }
-
-/** @see MessageWindowChatMemory */
-private const val VALIDATION_CONVERSATION_ID_NULL = "conversationId must not be null"

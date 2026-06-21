@@ -65,12 +65,7 @@ internal class SovereignDocumentIntelligenceHarness(
     val approvalStore: InMemoryApprovalStore,
     val continuationStore: InMemoryApprovalContinuationStore,
     val auditStore: InMemoryAuditStore,
-) : AutoCloseable {
-
-    override fun close() {
-        runtime.close()
-    }
-}
+) : AutoCloseable by runtime
 
 internal fun buildExampleHarness(
     clock: Clock = ExampleFixedClock,

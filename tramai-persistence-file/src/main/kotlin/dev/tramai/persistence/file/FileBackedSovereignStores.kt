@@ -104,22 +104,16 @@ class FileBackedSovereignStores private constructor(
             } else {
                 FileStoreUtil.validateRegularFile(lockFilePath, "lock-file")
             }
-            var lockFile: RandomAccessFile? = null
-            var fileLock: FileLock? = null
+            val lockFileNonNull = RandomAccessFile(lockFilePath.toFile(), "rw")
+            val fileLockNonNull: FileLock
             try {
-                lockFile = RandomAccessFile(lockFilePath.toFile(), "rw")
-                fileLock = lockFile.channel.tryLock()
-                require(fileLock != null) {
-                    throw FileStoreLockUnavailableException("tramai-lock-unavailable")
-                }
+                fileLockNonNull = lockFileNonNull.channel.tryLock()
+                    ?: throw FileStoreLockUnavailableException("tramai-lock-unavailable")
             } catch (e: Exception) {
                 // Close the file handle on any acquisition failure
-                try { lockFile?.close() } catch (_: Exception) {}
+                try { lockFileNonNull.close() } catch (_: Exception) {}
                 throw e
             }
-            // After successful acquisition, both are guaranteed non-null
-            val lockFileNonNull = lockFile!!
-            val fileLockNonNull = fileLock!!
 
             try {
                 // Reject symlink and validate permissions for manifest

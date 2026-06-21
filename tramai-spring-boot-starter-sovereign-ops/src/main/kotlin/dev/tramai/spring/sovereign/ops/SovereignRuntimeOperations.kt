@@ -6,7 +6,7 @@ package dev.tramai.spring.sovereign.ops
  * Reports which store beans are available in the Spring context and
  * whether stores appear to be file-backed or in-memory.
  */
-interface SovereignRuntimeOperations {
+fun interface SovereignRuntimeOperations {
 
     /**
      * Returns the current runtime status, including store availability

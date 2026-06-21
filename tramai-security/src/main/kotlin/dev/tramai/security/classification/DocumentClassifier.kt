@@ -2,7 +2,7 @@ package dev.tramai.security.classification
 
 import dev.tramai.core.model.ClassifiedDocument
 
-interface DocumentClassifier {
+fun interface DocumentClassifier {
     fun classify(input: ClassificationInput): ClassificationDecision
 }
 

@@ -10,7 +10,7 @@ import dev.tramai.core.annotations.Operation
  * a deterministic response.
  */
 @AiService
-interface OfflineEchoService {
+fun interface OfflineEchoService {
 
     @Operation(
         prompt = "Return a deterministic offline response for: {input}",

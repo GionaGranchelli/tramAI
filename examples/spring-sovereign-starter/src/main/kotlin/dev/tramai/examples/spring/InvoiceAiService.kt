@@ -10,7 +10,7 @@ import dev.tramai.core.annotations.Operation
  * under `tramai.sovereign.models`, which routes to the deterministic local provider.
  */
 @AiService
-interface InvoiceAiService {
+fun interface InvoiceAiService {
     @Operation(model = "local-invoice-model")
     suspend fun analyzeInvoice(invoiceText: String): InvoiceAnalysisResult
 }

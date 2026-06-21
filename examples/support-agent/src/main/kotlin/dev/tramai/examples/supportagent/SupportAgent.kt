@@ -14,7 +14,7 @@ import dev.tramai.core.annotations.User as UserMessage
  * handles structured output parsing, tool selection, and retries.
  */
 @AiService
-interface SupportAgent {
+fun interface SupportAgent {
 
     @SystemMessage("""You are a Tier-1 support agent for an online store.
 Respond concisely and helpfully. Use the available tools when you need to look up

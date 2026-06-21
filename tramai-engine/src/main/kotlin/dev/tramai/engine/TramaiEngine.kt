@@ -3459,7 +3459,7 @@ data class OperationDefinition(
 
     private fun sanitizedArgumentValues(arguments: List<Any?>): List<String> = arguments.map { argument ->
         val rendered = when (argument) {
-            is ClassifiedDocument<*> -> argument.payload?.toString() ?: ""
+            is ClassifiedDocument<*> -> argument.payload.toString()
             else -> argument?.toString() ?: ""
         }
         promptSanitizer?.sanitize(rendered) ?: rendered
@@ -3494,16 +3494,14 @@ data class OperationDefinition(
     private fun buildMessagesFromAnnotations(
         arguments: List<String>,
         schemaJson: String?,
-    ): List<Message> {
-        val messages = mutableListOf<Message>()
-
+    ): List<Message> = buildList {
         // 1. System messages (method-level @System or class-level @SystemPrompt)
         val system = effectiveSystemMessage
         if (!system.isNullOrBlank()) {
-            messages.add(Message(role = MessageRole.SYSTEM, content = interpolate(system, arguments)))
+            add(Message(role = MessageRole.SYSTEM, content = interpolate(system, arguments)))
         } else {
             // Default system message
-            messages.add(Message(
+            add(Message(
                 role = MessageRole.SYSTEM,
                 content = defaultSystemMessage(),
             ))
@@ -3513,15 +3511,15 @@ data class OperationDefinition(
         if (userAnnotations.isNotEmpty()) {
             for (template in userAnnotations) {
                 val content = interpolate(template, arguments)
-                messages.add(Message(role = MessageRole.USER, content = content))
+                add(Message(role = MessageRole.USER, content = content))
             }
         } else if (operation.prompt.isNotBlank()) {
             // @User absent but @Operation.prompt present → use prompt as single user message
             val content = interpolate(operation.prompt, arguments)
-            messages.add(Message(role = MessageRole.USER, content = content))
+            add(Message(role = MessageRole.USER, content = content))
         } else {
             // Neither @User nor prompt → construct default user message
-            messages.add(Message(
+            add(Message(
                 role = MessageRole.USER,
                 content = "Execute the operation ${method.name} with the provided parameters.",
             ))
@@ -3529,16 +3527,14 @@ data class OperationDefinition(
 
         // Append schema constraint to the last user message
         if (!schemaJson.isNullOrBlank()) {
-            val lastUserIndex = messages.indexOfLast { it.role == MessageRole.USER }
+            val lastUserIndex = indexOfLast { it.role == MessageRole.USER }
             if (lastUserIndex >= 0) {
-                val last = messages[lastUserIndex]
-                messages[lastUserIndex] = last.copy(
+                val last = this[lastUserIndex]
+                this[lastUserIndex] = last.copy(
                     content = last.content + "\n\nRespond only with valid JSON matching this schema:\n$schemaJson",
                 )
             }
         }
-
-        return messages
     }
 
     private fun buildMessagesFromPrompt(

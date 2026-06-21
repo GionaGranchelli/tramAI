@@ -209,19 +209,19 @@ internal object FileStoreUtil {
      * @throws FileStorePermissionException if a matched file fails permission validation.
      */
     fun strictCommittedEntries(directory: Path, filenamePattern: Regex, recordDescription: String): List<Path> {
-        val entries = mutableListOf<Path>()
-        for (entry in directory.toFile().listFiles()!!) {
-            if (entry.isDirectory) {
-                throw FileStoreCorruptionException("$recordDescription-unexpected-directory-entry")
+        return buildList {
+            for (entry in directory.toFile().listFiles()!!) {
+                if (entry.isDirectory) {
+                    throw FileStoreCorruptionException("$recordDescription-unexpected-directory-entry")
+                }
+                val path = entry.toPath()
+                val name = path.fileName.toString()
+                if (!filenamePattern.matches(name)) {
+                    throw FileStoreCorruptionException("$recordDescription-unexpected-entry")
+                }
+                add(path)
             }
-            val path = entry.toPath()
-            val name = path.fileName.toString()
-            if (!filenamePattern.matches(name)) {
-                throw FileStoreCorruptionException("$recordDescription-unexpected-entry")
-            }
-            entries.add(path)
         }
-        return entries
     }
 
     /** Fsync a directory. */

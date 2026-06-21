@@ -1,6 +1,6 @@
 package dev.tramai.core.model
 
-interface ModelRegistry {
+fun interface ModelRegistry {
     suspend fun findApprovedModel(providerId: String, modelName: String): RegisteredModel?
 }
 

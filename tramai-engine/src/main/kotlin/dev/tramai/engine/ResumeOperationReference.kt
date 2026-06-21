@@ -50,15 +50,15 @@ internal object ResumeToolDeclarationDigestHelper {
             appendField("description", tool.description)
             appendField("schema", tool.inputSchemaJson)
             append("idempotent=").append(tool.idempotent).append('\n')
-            append("side_effect_level=").append(tool.sideEffectLevel?.name ?: "null").append('\n')
+            append("side_effect_level=").append(tool.sideEffectLevel.name).append('\n')
             val sec = tool.security
             if (sec != null) {
                 appendField("permission", sec.permission)
-                appendField("risk", sec.risk?.name)
-                appendField("approval", sec.approval?.name)
-                appendField("network_egress", sec.managedNetworkEgress?.name)
-                appendField("audit", sec.audit?.name)
-                appendField("compat_mode", sec.compatibilityMode?.name)
+                appendField("risk", sec.risk.name)
+                appendField("approval", sec.approval.name)
+                appendField("network_egress", sec.managedNetworkEgress.name)
+                appendField("audit", sec.audit.name)
+                appendField("compat_mode", sec.compatibilityMode.name)
             }
         }
         val digest = MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(StandardCharsets.UTF_8))

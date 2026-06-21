@@ -13,7 +13,7 @@ import kotlin.reflect.KClass
  */
 class TramaiRuntime internal constructor(
     private val engine: TramaiEngine,
-) : AutoCloseable {
+) : AutoCloseable by engine {
 
     /**
      * Creates a service proxy for the given service type.
@@ -53,9 +53,6 @@ class TramaiRuntime internal constructor(
         command: ResumeApprovalCommand,
     ): R = resumeApproval(command) as R
 
-    override fun close() {
-        engine.close()
-    }
 }
 
 /**
