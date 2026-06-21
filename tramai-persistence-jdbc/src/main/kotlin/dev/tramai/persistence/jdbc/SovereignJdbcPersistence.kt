@@ -8,9 +8,7 @@ package dev.tramai.persistence.jdbc
  *
  * Full JDBC stores (JdbcApprovalStore, JdbcAuditStore, etc.) are not
  * implemented yet — only the schema skeleton and contract tests exist.
- *
- * This is an internal type and does not constitute a stable public API.
  */
-public object SovereignJdbcPersistence {
-    public const val MODULE_NAME: String = "tramai-persistence-jdbc"
+internal object SovereignJdbcPersistence {
+    const val MODULE_NAME: String = "tramai-persistence-jdbc"
 }

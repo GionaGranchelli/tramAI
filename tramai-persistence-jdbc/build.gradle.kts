@@ -19,12 +19,19 @@ kotlin {
 
 dependencies {
     testImplementation(platform(libs.junit.bom))
+    testImplementation(platform(libs.testcontainers.bom))
     testImplementation(libs.assertj.core)
     testImplementation(libs.kotlin.test.junit5)
     testImplementation("org.junit.jupiter:junit-jupiter")
-    testImplementation(libs.h2database)
+    testImplementation(libs.testcontainers.postgresql)
+    testImplementation(libs.testcontainers.junit.jupiter)
+    testImplementation(libs.postgresql)
 }
 
 tasks.test {
     useJUnitPlatform()
+    testLogging {
+        showStandardStreams = true
+        events("passed", "skipped", "failed")
+    }
 }

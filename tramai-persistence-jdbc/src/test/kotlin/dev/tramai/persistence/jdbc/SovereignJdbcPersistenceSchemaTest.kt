@@ -1,20 +1,36 @@
 package dev.tramai.persistence.jdbc
 
-import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.TestInstance
+import org.testcontainers.containers.PostgreSQLContainer
 import java.sql.Connection
 import java.sql.DriverManager
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class SovereignJdbcPersistenceSchemaTest {
 
     private lateinit var connection: Connection
 
-    @BeforeEach
-    fun setUp() {
+    companion object {
+        private const val POSTGRES_IMAGE = "postgres:17-alpine"
+
+        private val postgres = PostgreSQLContainer(POSTGRES_IMAGE)
+            .withDatabaseName("sovereign_test")
+            .withUsername("test")
+            .withPassword("test")
+    }
+
+    @BeforeAll
+    fun setUpAll() {
+        postgres.start()
         connection = DriverManager.getConnection(
-            "jdbc:h2:mem:sovereign_test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1"
+            postgres.jdbcUrl,
+            postgres.username,
+            postgres.password
         )
         val schemaSql = this::class.java.classLoader
             .getResource("tramai/persistence/jdbc/postgres/V1__sovereign_persistence.sql")
@@ -23,6 +39,12 @@ class SovereignJdbcPersistenceSchemaTest {
         connection.createStatement().use { stmt ->
             stmt.execute(schemaSql)
         }
+    }
+
+    @AfterAll
+    fun tearDownAll() {
+        connection.close()
+        postgres.stop()
     }
 
     // ── Table existence ─────────────────────────────────────────
@@ -65,17 +87,17 @@ class SovereignJdbcPersistenceSchemaTest {
 
     @Test
     fun `audit_events has unique event_id`() {
-        assertUniqueIndex("audit_events", "event_id")
+        assertUniqueIndex("audit_events", setOf("event_id"))
     }
 
     @Test
     fun `suspended_invocations has unique replay_envelope_digest`() {
-        assertUniqueIndex("suspended_invocations", "replay_envelope_digest")
+        assertUniqueIndex("suspended_invocations", setOf("replay_envelope_digest"))
     }
 
     @Test
     fun `audit_outbox has unique event_key`() {
-        assertUniqueIndex("audit_outbox", "event_key")
+        assertUniqueIndex("audit_outbox", setOf("event_key"))
     }
 
     // ── Encryption metadata fields ───────────────────────────────
@@ -116,6 +138,104 @@ class SovereignJdbcPersistenceSchemaTest {
         )
     }
 
+    // ── Negative constraint tests ────────────────────────────────
+
+    @Test
+    fun `duplicate audit_events event_id must fail`() {
+        connection.createStatement().use { stmt ->
+            stmt.execute(
+                """
+                INSERT INTO audit_events (stream_id, sequence_number, event_id, event_type, event_hash, schema_version)
+                VALUES ('s1', 1, 'evt-001', 'TestEvent', 'hash-a', '1')
+                """
+            )
+            val thrown = try {
+                stmt.execute(
+                    """
+                    INSERT INTO audit_events (stream_id, sequence_number, event_id, event_type, event_hash, schema_version)
+                    VALUES ('s2', 1, 'evt-001', 'TestEvent', 'hash-b', '1')
+                    """
+                )
+                false
+            } catch (e: Exception) {
+                true
+            }
+            assertTrue(thrown, "Duplicate event_id must fail unique constraint")
+        }
+    }
+
+    @Test
+    fun `duplicate audit stream sequence must fail`() {
+        connection.createStatement().use { stmt ->
+            stmt.execute(
+                """
+                INSERT INTO audit_events (stream_id, sequence_number, event_id, event_type, event_hash, schema_version)
+                VALUES ('s-dup', 1, 'evt-dup-1', 'TestEvent', 'hash-x', '1')
+                """
+            )
+            val thrown = try {
+                stmt.execute(
+                    """
+                    INSERT INTO audit_events (stream_id, sequence_number, event_id, event_type, event_hash, schema_version)
+                    VALUES ('s-dup', 1, 'evt-dup-2', 'TestEvent', 'hash-y', '1')
+                    """
+                )
+                false
+            } catch (e: Exception) {
+                true
+            }
+            assertTrue(thrown, "Duplicate (stream_id, sequence_number) must fail primary key constraint")
+        }
+    }
+
+    @Test
+    fun `duplicate suspended_invocations replay_envelope_digest must fail`() {
+        connection.createStatement().use { stmt ->
+            stmt.execute(
+                """
+                INSERT INTO suspended_invocations (invocation_id, status, replay_envelope_digest)
+                VALUES ('inv-1', 'SUSPENDED', 'digest-001')
+                """
+            )
+            val thrown = try {
+                stmt.execute(
+                    """
+                    INSERT INTO suspended_invocations (invocation_id, status, replay_envelope_digest)
+                    VALUES ('inv-2', 'SUSPENDED', 'digest-001')
+                    """
+                )
+                false
+            } catch (e: Exception) {
+                true
+            }
+            assertTrue(thrown, "Duplicate replay_envelope_digest must fail unique constraint")
+        }
+    }
+
+    @Test
+    fun `duplicate audit_outbox event_key must fail`() {
+        connection.createStatement().use { stmt ->
+            stmt.execute(
+                """
+                INSERT INTO audit_outbox (outbox_id, event_key, status)
+                VALUES ('ob-1', 'key-001', 'PENDING')
+                """
+            )
+            val thrown = try {
+                stmt.execute(
+                    """
+                    INSERT INTO audit_outbox (outbox_id, event_key, status)
+                    VALUES ('ob-2', 'key-001', 'PENDING')
+                    """
+                )
+                false
+            } catch (e: Exception) {
+                true
+            }
+            assertTrue(thrown, "Duplicate event_key must fail unique constraint")
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────
 
     private fun queryTables(): List<String> =
@@ -124,9 +244,9 @@ class SovereignJdbcPersistenceSchemaTest {
                 """
                 SELECT table_name
                 FROM information_schema.tables
-                WHERE table_schema = 'PUBLIC'
+                WHERE table_schema = 'public'
                 ORDER BY table_name
-                """.trimIndent()
+                """
             ).let { rs ->
                 generateSequence { if (rs.next()) rs.getString("table_name") else null }.toList()
             }
@@ -138,32 +258,32 @@ class SovereignJdbcPersistenceSchemaTest {
                 """
                 SELECT column_name
                 FROM information_schema.columns
-                WHERE table_schema = 'PUBLIC' AND table_name = '${table.uppercase()}'
+                WHERE table_schema = 'public' AND table_name = '${table.lowercase()}'
                 ORDER BY ordinal_position
-                """.trimIndent()
+                """
             ).let { rs ->
                 generateSequence { if (rs.next()) rs.getString("column_name") else null }.toList()
             }
         }
 
     private fun queryPrimaryKeyColumns(table: String): Set<String> {
-        val rs = connection.metaData.getPrimaryKeys(null, "PUBLIC", table.uppercase())
+        val rs = connection.metaData.getPrimaryKeys(null, null, table.lowercase())
         return generateSequence { if (rs.next()) rs.getString("COLUMN_NAME") else null }.toSet()
     }
 
-    /** Use JDBC metadata getIndexInfo — portable across H2 and PostgreSQL. */
-    private fun queryUniqueIndexes(table: String): Set<String> {
-        val rs = connection.metaData.getIndexInfo(null, "PUBLIC", table.uppercase(), false, false)
+    /** Returns the set of unique indexes, each as a sorted set of columns. */
+    private fun queryUniqueIndexes(table: String): Set<Set<String>> {
+        val rs = connection.metaData.getIndexInfo(null, null, table.lowercase(), false, false)
         val indexes = mutableMapOf<String, MutableSet<String>>()
         while (rs.next()) {
             val indexName = rs.getString("INDEX_NAME") ?: continue
             val columnName = rs.getString("COLUMN_NAME") ?: continue
             val nonUnique = rs.getBoolean("NON_UNIQUE")
-            if (!nonUnique) {
+            if (!nonUnique && indexName.startsWith("uq_")) {
                 indexes.computeIfAbsent(indexName) { mutableSetOf() }.add(columnName)
             }
         }
-        return indexes.values.flatten().toSet()
+        return indexes.values.map { it.map { c -> c.uppercase() }.toSet() }.toSet()
     }
 
     private fun assertPrimaryKey(table: String, expectedColumns: Set<String>) {
@@ -172,11 +292,12 @@ class SovereignJdbcPersistenceSchemaTest {
         assertEquals(expected, actual, "Primary key mismatch for $table")
     }
 
-    private fun assertUniqueIndex(table: String, column: String) {
-        val uniqueColumns = queryUniqueIndexes(table).map { it.uppercase() }
+    private fun assertUniqueIndex(table: String, expectedColumns: Set<String>) {
+        val indexes = queryUniqueIndexes(table)
+        val expected = expectedColumns.map { it.uppercase() }.toSet()
         assertTrue(
-            column.uppercase() in uniqueColumns,
-            "Expected unique index on $table($column). Found unique indexes on: $uniqueColumns"
+            expected in indexes,
+            "Expected exact unique index on $table(${expectedColumns.joinToString(", ")}). Found: $indexes"
         )
     }
 
