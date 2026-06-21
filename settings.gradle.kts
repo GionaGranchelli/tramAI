@@ -16,6 +16,7 @@ include(
     "tramai-memory-store",
     "tramai-orchestration",
     "tramai-persistence-file",
+    "tramai-persistence-jdbc",
     "tramai-openai",
     "tramai-ollama",
     "tramai-platform",

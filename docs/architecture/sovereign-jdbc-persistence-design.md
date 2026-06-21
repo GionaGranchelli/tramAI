@@ -8,6 +8,8 @@ The current Sovereign Runtime RC uses encrypted file-backed persistence suitable
 
 This document is a **design target**. It does **not** claim that JDBC persistence is implemented yet.
 
+The first implementation foundation is the [`tramai-persistence-jdbc`](../../tramai-persistence-jdbc) module, which introduces the PostgreSQL schema skeleton, schema contract tests, and minimal module structure. Full JDBC stores (`JdbcApprovalStore`, `JdbcAuditStore`, etc.) are not yet implemented.
+
 ## Current State
 
 The Sovereign Runtime RC currently provides:
