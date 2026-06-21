@@ -68,7 +68,7 @@ class DefaultSovereignApprovalOperations(
         }
 
         val request = approvalStore.get(approvalId)
-            ?: throw IllegalStateException("tramai-sovereign-ops-invalid-approval-id")
+            ?: throw IllegalStateException(ERROR_INVALID_APPROVAL_ID)
 
         val approvalIdDigest = digestService.approvalIdDigest(approvalId)
         val reasonDigest = digestService.reasonDigest(reason)
@@ -110,15 +110,15 @@ class DefaultSovereignApprovalOperations(
     // ── Validation ──
 
     private fun validateApprovalId(id: String) {
-        require(id.isNotBlank()) { "tramai-sovereign-ops-invalid-approval-id" }
-        require(id.length <= 128) { "tramai-sovereign-ops-invalid-approval-id" }
-        require(SAFE_ID.matches(id)) { "tramai-sovereign-ops-invalid-approval-id" }
+        require(id.isNotBlank()) { ERROR_INVALID_APPROVAL_ID }
+        require(id.length <= 128) { ERROR_INVALID_APPROVAL_ID }
+        require(SAFE_ID.matches(id)) { ERROR_INVALID_APPROVAL_ID }
     }
 
     private fun validateActor(actor: String) {
-        require(actor.isNotBlank()) { "tramai-sovereign-ops-invalid-actor" }
-        require(actor.length <= 256) { "tramai-sovereign-ops-invalid-actor" }
-        require(SAFE_ACTOR.matches(actor)) { "tramai-sovereign-ops-invalid-actor" }
+        require(actor.isNotBlank()) { ERROR_INVALID_ACTOR }
+        require(actor.length <= 256) { ERROR_INVALID_ACTOR }
+        require(SAFE_ACTOR.matches(actor)) { ERROR_INVALID_ACTOR }
     }
 
     private fun validateReason(reason: String) {
@@ -140,3 +140,9 @@ class DefaultSovereignApprovalOperations(
             reasonCode = decisionComment,
         )
 }
+
+/** @see DefaultSovereignApprovalOperations */
+private const val ERROR_INVALID_APPROVAL_ID = "tramai-sovereign-ops-invalid-approval-id"
+
+/** @see DefaultSovereignApprovalOperations */
+private const val ERROR_INVALID_ACTOR = "tramai-sovereign-ops-invalid-actor"

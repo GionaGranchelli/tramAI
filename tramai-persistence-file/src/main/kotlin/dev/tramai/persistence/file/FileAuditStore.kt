@@ -58,7 +58,7 @@ class FileAuditStore internal constructor(
     private val streamLocks = ConcurrentHashMap<String, ReentrantLock>()
 
     companion object {
-        private const val RECORD_TYPE = "audit-event"
+        private const val RECORD_TYPE = AUDIT_EVENT_LABEL
         private const val STREAM_PREFIX = "audit-stream:"
         private const val EVENT_PREFIX = "audit-event:"
         private const val FILE_EXTENSION = ".tram.enc"
@@ -89,9 +89,9 @@ class FileAuditStore internal constructor(
         // Validate that audit/ root exists before creating a new stream directory
         FileStoreUtil.validateManagedDirectory(auditDir, "audit")
         if (dir.notExists()) {
-            FileStoreUtil.createStrictDirectory(dir, "audit-stream")
+            FileStoreUtil.createStrictDirectory(dir, AUDIT_STREAM_LABEL)
         }
-        FileStoreUtil.validateManagedDirectory(dir, "audit-stream")
+        FileStoreUtil.validateManagedDirectory(dir, AUDIT_STREAM_LABEL)
         return dir
     }
 
@@ -130,7 +130,7 @@ class FileAuditStore internal constructor(
             throw FileStoreCorruptionException("audit-stream-path-not-directory")
         }
 
-        FileStoreUtil.validateManagedDirectory(dir, "audit-stream")
+        FileStoreUtil.validateManagedDirectory(dir, AUDIT_STREAM_LABEL)
         // Also validate the parent audit directory
         FileStoreUtil.validateManagedDirectory(auditDir, "audit")
 
@@ -150,7 +150,7 @@ class FileAuditStore internal constructor(
             if (!seenSequences.add(seq)) {
                 throw FileStoreCorruptionException("audit-duplicate-sequence")
             }
-            FileStoreUtil.validateRegularFile(path, "audit-event")
+            FileStoreUtil.validateRegularFile(path, AUDIT_EVENT_LABEL)
             entries.add(AuditFileEntry(sequenceNumber = seq, eventIdDigest = digest, path = path))
         }
 
@@ -342,7 +342,7 @@ class FileAuditStore internal constructor(
                 throw FileStoreCorruptionException("audit-invalid-stream-directory")
             }
 
-            FileStoreUtil.validateManagedDirectory(path, "audit-stream")
+            FileStoreUtil.validateManagedDirectory(path, AUDIT_STREAM_LABEL)
 
             val entries = mutableListOf<AuditFileEntry>()
             val seenSequences = mutableSetOf<Long>()
@@ -360,7 +360,7 @@ class FileAuditStore internal constructor(
                 if (!seenSequences.add(seq)) {
                     throw FileStoreCorruptionException("audit-duplicate-sequence")
                 }
-                FileStoreUtil.validateRegularFile(filePath, "audit-event")
+                FileStoreUtil.validateRegularFile(filePath, AUDIT_EVENT_LABEL)
                 entries.add(AuditFileEntry(sequenceNumber = seq, eventIdDigest = digest, path = filePath))
             }
 
@@ -421,3 +421,9 @@ class FileAuditStore internal constructor(
         }
     }
 }
+
+/** @see FileAuditStore */
+private const val AUDIT_EVENT_LABEL = "audit-event"
+
+/** @see FileAuditStore */
+private const val AUDIT_STREAM_LABEL = "audit-stream"

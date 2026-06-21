@@ -37,13 +37,13 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         expectedStatus: SovereignOpsAuditOutboxStatus,
     ): SovereignOpsAuditOutboxRecord {
         val record = store[outboxId]
-            ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
+            ?: throw IllegalStateException(ERROR_OUTBOX_NOT_FOUND)
         require(record.status == expectedStatus) {
-            "tramai-sovereign-ops-outbox-status-mismatch"
+            ERROR_OUTBOX_STATUS_MISMATCH
         }
         val updated = record.copy(status = SovereignOpsAuditOutboxStatus.PENDING)
         require(store.replace(outboxId, record, updated)) {
-            "tramai-sovereign-ops-outbox-concurrent-update"
+            ERROR_OUTBOX_CONCURRENT_UPDATE
         }
         return updated
     }
@@ -98,16 +98,16 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         emittedAt: Instant,
     ): SovereignOpsAuditOutboxRecord {
         val record = store[outboxId]
-            ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
+            ?: throw IllegalStateException(ERROR_OUTBOX_NOT_FOUND)
         require(record.status == expectedStatus) {
-            "tramai-sovereign-ops-outbox-status-mismatch"
+            ERROR_OUTBOX_STATUS_MISMATCH
         }
         val updated = record.copy(
             status = SovereignOpsAuditOutboxStatus.EMITTED,
             emittedAt = emittedAt,
         )
         require(store.replace(outboxId, record, updated)) {
-            "tramai-sovereign-ops-outbox-concurrent-update"
+            ERROR_OUTBOX_CONCURRENT_UPDATE
         }
         return updated
     }
@@ -119,9 +119,9 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         retryable: Boolean,
     ): SovereignOpsAuditOutboxRecord {
         val record = store[outboxId]
-            ?: throw IllegalStateException("tramai-sovereign-ops-outbox-not-found")
+            ?: throw IllegalStateException(ERROR_OUTBOX_NOT_FOUND)
         require(record.status == expectedStatus) {
-            "tramai-sovereign-ops-outbox-status-mismatch"
+            ERROR_OUTBOX_STATUS_MISMATCH
         }
         val newStatus = if (retryable) SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
         else SovereignOpsAuditOutboxStatus.FAILED_PERMANENT
@@ -130,7 +130,7 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
             lastErrorCode = errorCode,
         )
         require(store.replace(outboxId, record, updated)) {
-            "tramai-sovereign-ops-outbox-concurrent-update"
+            ERROR_OUTBOX_CONCURRENT_UPDATE
         }
         return updated
     }
@@ -165,3 +165,12 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
             .filter { it.claimExpiresAt != null && it.claimExpiresAt.isBefore(now) }
             .take(limit)
 }
+
+/** @see InMemorySovereignOpsAuditOutboxStore */
+private const val ERROR_OUTBOX_NOT_FOUND = "tramai-sovereign-ops-outbox-not-found"
+
+/** @see InMemorySovereignOpsAuditOutboxStore */
+private const val ERROR_OUTBOX_STATUS_MISMATCH = "tramai-sovereign-ops-outbox-status-mismatch"
+
+/** @see InMemorySovereignOpsAuditOutboxStore */
+private const val ERROR_OUTBOX_CONCURRENT_UPDATE = "tramai-sovereign-ops-outbox-concurrent-update"

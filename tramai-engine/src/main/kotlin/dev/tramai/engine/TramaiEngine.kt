@@ -1448,7 +1448,7 @@ internal class TramaiInvocationHandler(
                 policyHelper.buildContext(
                     enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION,
                     correlationId = correlationId,
-                ).toolName(tool?.name ?: "<unregistered>")
+                ).toolName(tool?.name ?: UNREGISTERED_LABEL)
                     .toolSecurity(tool?.security)
                     .applySecurityContext(securityContext)
                     .build()
@@ -1519,7 +1519,7 @@ internal class TramaiInvocationHandler(
         }
 
         val resolvedTool = toolRegistry.resolve(toolName)
-        val canonicalToolName = resolvedTool?.name ?: "<unregistered>"
+        val canonicalToolName = resolvedTool?.name ?: UNREGISTERED_LABEL
         val safeToolLabel = canonicalToolName.take(MAX_SAFE_TOOL_NAME_LENGTH)
         val dlpContext = DlpContext(
             contentType = DlpContentType.TOOL_RESULT,
@@ -1547,7 +1547,7 @@ internal class TramaiInvocationHandler(
 
         fun rejectAggregateTextLength(actualLength: Long): Nothing {
             emitEngineEventSafely(
-                name = "tramai.dlp.tool_result_rejected",
+                name = DLP_TOOL_REJECTED_METRIC,
                 attributes = mapOf(
                     "reasonCode" to "aggregate_text_limit_exceeded",
                     "aggregateTextLength" to actualLength,
@@ -1563,7 +1563,7 @@ internal class TramaiInvocationHandler(
 
         fun rejectSanitizedTextLimit(actualLength: Long): Nothing {
             emitEngineEventSafely(
-                name = "tramai.dlp.tool_result_rejected",
+                name = DLP_TOOL_REJECTED_METRIC,
                 attributes = mapOf(
                     "reasonCode" to "sanitized_text_limit_exceeded",
                     "aggregateTextLength" to actualLength,
@@ -1579,7 +1579,7 @@ internal class TramaiInvocationHandler(
 
         fun rejectCrossBoundarySensitiveText(): Nothing {
             emitEngineEventSafely(
-                name = "tramai.dlp.tool_result_rejected",
+                name = DLP_TOOL_REJECTED_METRIC,
                 attributes = mapOf(
                     "reasonCode" to "cross_boundary_sensitive_text_detected",
                     "correlationId" to correlationId,
@@ -3163,7 +3163,7 @@ internal class TramaiInvocationHandler(
                     policyHelper.buildContext(
                         enforcementPoint = dev.tramai.core.policy.EnforcementPoint.BEFORE_TOOL_RESULT_REINJECTION,
                         correlationId = correlationId,
-                    ).toolName(t?.name ?: "<unregistered>")
+                    ).toolName(t?.name ?: UNREGISTERED_LABEL)
                         .toolSecurity(t?.security)
                         .applySecurityContext(securityContext)
                         .build()
@@ -4039,3 +4039,9 @@ private const val ATTR_FAILURE_TYPE = "failure_type"
 private const val EVENT_CIRCUIT_OPENED = "tramai.circuit.opened"
 private const val EVENT_STARTUP_RETRY = "tramai.streaming.startup_retry"
 private const val EVENT_ROUTE_SELECTED = "tramai.route.selected"
+
+/** @see TramaiEngine */
+private const val UNREGISTERED_LABEL = "<unregistered>"
+
+/** @see TramaiEngine */
+private const val DLP_TOOL_REJECTED_METRIC = "tramai.dlp.tool_result_rejected"

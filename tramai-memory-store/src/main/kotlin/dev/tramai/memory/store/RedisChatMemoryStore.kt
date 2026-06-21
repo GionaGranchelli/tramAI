@@ -27,7 +27,7 @@ class RedisChatMemoryStore(
 ) : ChatMemoryStore {
 
     override fun getMessages(conversationId: String): List<Message> {
-        require(conversationId.isNotBlank()) { "conversationId must not be blank" }
+        require(conversationId.isNotBlank()) { VALIDATION_CONVERSATION_ID_BLANK }
         val key = conversationKey(conversationId)
         return jedisPool.resource.use { jedis ->
             jedis.lrange(key, 0, -1)
@@ -37,7 +37,7 @@ class RedisChatMemoryStore(
     }
 
     override fun appendMessages(conversationId: String, messages: List<Message>) {
-        require(conversationId.isNotBlank()) { "conversationId must not be blank" }
+        require(conversationId.isNotBlank()) { VALIDATION_CONVERSATION_ID_BLANK }
         if (messages.isEmpty()) return
         val key = conversationKey(conversationId)
         jedisPool.resource.use { jedis ->
@@ -48,7 +48,7 @@ class RedisChatMemoryStore(
     }
 
     override fun deleteConversation(conversationId: String) {
-        require(conversationId.isNotBlank()) { "conversationId must not be blank" }
+        require(conversationId.isNotBlank()) { VALIDATION_CONVERSATION_ID_BLANK }
         val key = conversationKey(conversationId)
         jedisPool.resource.use { jedis ->
             jedis.del(key)
@@ -109,3 +109,6 @@ class RedisChatMemoryStore(
         )
     }
 }
+
+/** @see RedisChatMemoryStore */
+private const val VALIDATION_CONVERSATION_ID_BLANK = "conversationId must not be blank"

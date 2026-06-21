@@ -25,7 +25,7 @@ class FileSuspendedInvocationStore internal constructor(
     )
 
     companion object {
-        private const val RECORD_TYPE = "suspended-invocation"
+        private const val RECORD_TYPE = STORAGE_NAME
         private const val SUSPENDED_DIR = "suspended"
         private const val FILE_EXTENSION = ".tram.enc"
         private val COMMITTED_FILENAME = Regex("[a-f0-9]{64}\\.tram\\.enc")
@@ -51,19 +51,19 @@ class FileSuspendedInvocationStore internal constructor(
     private fun readCurrent(approvalId: String): PersistedSuspendedInvocationRecordV1? {
         val path = storePath(approvalId)
         if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return null
-        FileStoreUtil.validateRegularFile(path, "suspended-invocation")
+        FileStoreUtil.validateRegularFile(path, STORAGE_NAME)
         val rkd = recordKeyDigest(approvalId)
         val plaintext = try {
             FileStoreUtil.readAndDecrypt(path, RECORD_TYPE, rkd, encryptionKey, keyId)
         } catch (e: FileStoreCorruptionException) {
-            throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
         val record = try {
             PersistedSuspendedInvocationRecordV1.fromJson(String(plaintext, Charsets.UTF_8))
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
         validateRecordSchemas(record)
         val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.metadata.approvalId)
@@ -79,7 +79,7 @@ class FileSuspendedInvocationStore internal constructor(
         try {
             validateRecordSchemas(record)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
 
         val metadata = try {
@@ -109,25 +109,25 @@ class FileSuspendedInvocationStore internal constructor(
         for (entry in FileStoreUtil.strictCommittedEntries(
             suspendedDir,
             COMMITTED_FILENAME,
-            "suspended-invocation",
+            STORAGE_NAME,
         )) {
             val fileName = entry.fileName.toString()
             val digestHex = fileName.removeSuffix(FILE_EXTENSION)
             if (digestHex.length != 64 || digestHex.any { it !in '0'..'9' && it !in 'a'..'f' }) {
                 throw FileStoreCorruptionException("suspended-invocation-invalid-filename")
             }
-            FileStoreUtil.validateRegularFile(entry, "suspended-invocation")
+            FileStoreUtil.validateRegularFile(entry, STORAGE_NAME)
             val plaintext = try {
                 FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, digestHex, encryptionKey, keyId)
             } catch (e: FileStoreCorruptionException) {
-                throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+                throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
             } catch (e: Exception) {
-                throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+                throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
             }
             val record = try {
                 PersistedSuspendedInvocationRecordV1.fromJson(String(plaintext, Charsets.UTF_8))
             } catch (e: Exception) {
-                throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+                throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
             }
             val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.metadata.approvalId)
             if (expectedDigest != digestHex) {
@@ -286,3 +286,9 @@ class FileSuspendedInvocationStore internal constructor(
         return trimmed
     }
 }
+
+/** @see FileSuspendedInvocationStore */
+private const val STORAGE_NAME = "suspended-invocation"
+
+/** @see FileSuspendedInvocationStore */
+private const val ERROR_CORRUPTED_RECORD = "suspended-invocation-record-corrupted"

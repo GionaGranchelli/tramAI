@@ -20,7 +20,7 @@ class JdbcChatMemoryStore(
 ) : ChatMemoryStore {
 
     override fun getMessages(conversationId: String): List<Message> {
-        require(conversationId.isNotBlank()) { "conversationId must not be blank" }
+        require(conversationId.isNotBlank()) { VALIDATION_CONVERSATION_ID_BLANK }
         return dataSource.connection.use { connection ->
             connection.prepareStatement(selectMessagesSql()).use { statement ->
                 statement.setString(1, conversationId)
@@ -36,7 +36,7 @@ class JdbcChatMemoryStore(
     }
 
     override fun appendMessages(conversationId: String, messages: List<Message>) {
-        require(conversationId.isNotBlank()) { "conversationId must not be blank" }
+        require(conversationId.isNotBlank()) { VALIDATION_CONVERSATION_ID_BLANK }
         if (messages.isEmpty()) return
 
         dataSource.connection.use { connection ->
@@ -65,7 +65,7 @@ class JdbcChatMemoryStore(
     }
 
     override fun deleteConversation(conversationId: String) {
-        require(conversationId.isNotBlank()) { "conversationId must not be blank" }
+        require(conversationId.isNotBlank()) { VALIDATION_CONVERSATION_ID_BLANK }
         dataSource.connection.use { connection ->
             connection.prepareStatement(deleteConversationSql()).use { statement ->
                 statement.setString(1, conversationId)
@@ -180,4 +180,6 @@ data class JdbcChatMemoryTable(
     val createdAtColumn: String = "created_at",
 )
 
+/** @see JdbcChatMemoryStore */
+private const val VALIDATION_CONVERSATION_ID_BLANK = "conversationId must not be blank"
 

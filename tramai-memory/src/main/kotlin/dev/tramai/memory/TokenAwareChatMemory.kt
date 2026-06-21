@@ -61,7 +61,7 @@ class TokenAwareChatMemory(
     private val lock = Any()
 
     override fun get(conversationId: String): List<Message> {
-        requireNotNull(conversationId) { "conversationId must not be null" }
+        requireNotNull(conversationId) { VALIDATION_CONVERSATION_ID_NULL }
         require(conversationId.isNotBlank())
         val deque = conversations[conversationId] ?: return emptyList()
         synchronized(lock) {
@@ -70,12 +70,12 @@ class TokenAwareChatMemory(
     }
 
     override fun add(conversationId: String, message: Message) {
-        requireNotNull(conversationId) { "conversationId must not be null" }
+        requireNotNull(conversationId) { VALIDATION_CONVERSATION_ID_NULL }
         add(conversationId, listOf(message))
     }
 
     override fun add(conversationId: String, messages: List<Message>) {
-        requireNotNull(conversationId) { "conversationId must not be null" }
+        requireNotNull(conversationId) { VALIDATION_CONVERSATION_ID_NULL }
         require(conversationId.isNotBlank())
         synchronized(lock) {
             val deque = conversations.computeIfAbsent(conversationId) { ConcurrentLinkedDeque() }
@@ -139,7 +139,7 @@ class TokenAwareChatMemory(
     }
 
     override fun clear(conversationId: String) {
-        requireNotNull(conversationId) { "conversationId must not be null" }
+        requireNotNull(conversationId) { VALIDATION_CONVERSATION_ID_NULL }
         require(conversationId.isNotBlank())
         synchronized(lock) {
             conversations.remove(conversationId)
@@ -147,3 +147,6 @@ class TokenAwareChatMemory(
         }
     }
 }
+
+/** @see TokenAwareChatMemory */
+private const val VALIDATION_CONVERSATION_ID_NULL = "conversationId must not be null"

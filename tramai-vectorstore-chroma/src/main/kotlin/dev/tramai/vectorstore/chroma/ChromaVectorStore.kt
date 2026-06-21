@@ -58,7 +58,7 @@ class ChromaVectorStore(
 
             val httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections/${urlEncode(collection)}/add"))
-                .header("Content-Type", "application/json")
+                .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
                 .timeout(Duration.ofSeconds(30))
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build()
@@ -94,7 +94,7 @@ class ChromaVectorStore(
 
             val httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections/${urlEncode(collection)}/query"))
-                .header("Content-Type", "application/json")
+                .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
                 .timeout(Duration.ofSeconds(30))
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build()
@@ -193,7 +193,7 @@ class ChromaVectorStore(
 
             val httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections/${urlEncode(collection)}/delete"))
-                .header("Content-Type", "application/json")
+                .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
                 .timeout(Duration.ofSeconds(30))
                 .method("DELETE", HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build()
@@ -215,7 +215,7 @@ class ChromaVectorStore(
         try {
             val httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections"))
-                .header("Content-Type", "application/json")
+                .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
                 .timeout(Duration.ofSeconds(30))
                 .GET()
                 .build()
@@ -260,7 +260,7 @@ class ChromaVectorStore(
 
         val httpRequest = HttpRequest.newBuilder()
             .uri(URI.create("${baseUrl.trimEnd('/')}/api/v1/collections"))
-            .header("Content-Type", "application/json")
+            .header(HEADER_CONTENT_TYPE, APPLICATION_JSON)
             .timeout(Duration.ofSeconds(30))
             .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
             .build()
@@ -279,3 +279,9 @@ class ChromaVectorStore(
 
     private fun urlEncode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8.name())
 }
+
+/** @see ChromaVectorStore */
+private const val HEADER_CONTENT_TYPE = "Content-Type"
+
+/** @see ChromaVectorStore */
+private const val APPLICATION_JSON = "application/json"

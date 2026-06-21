@@ -76,9 +76,9 @@ object SovereignEvidencePackGenerator {
         val sanitizedSupplyChain = supplyChain?.let { sc ->
             // sbomSha256 must match "sha256:<hex>" format — do NOT run through EvidenceSafeString
             // (hex could contain substrings like "token" coincidentally)
-            val digestRegex = Regex("^sha256:[a-fA-F0-9]{64}$")
+            val digestRegex = Regex(SHA256_REGEX)
             require(digestRegex.matches(sc.sbomSha256)) {
-                "evidence-unsafe-digest-format"
+                ERROR_UNSAFE_DIGEST
             }
 
             require(sc.schemaVersion == 1) {
@@ -120,10 +120,10 @@ object SovereignEvidencePackGenerator {
                 "evidence-unsafe-attestation-subjects"
             }
 
-            val sha256Regex = Regex("^sha256:[a-fA-F0-9]{64}$")
+            val sha256Regex = Regex(SHA256_REGEX)
             val sanitizedSubjects = a.attestedSubjects.map { subject ->
                 require(sha256Regex.matches(subject.sha256)) {
-                    "evidence-unsafe-digest-format"
+                    ERROR_UNSAFE_DIGEST
                 }
                 require(
                     subject.attestationType == "build-provenance" ||
@@ -160,10 +160,10 @@ object SovereignEvidencePackGenerator {
                 "evidence-unsafe-release-artifacts-empty"
             }
 
-            val digestRegex = Regex("^sha256:[a-fA-F0-9]{64}$")
+            val digestRegex = Regex(SHA256_REGEX)
             val sanitizedArtifacts = r.artifacts.map { artifact ->
                 require(digestRegex.matches(artifact.sha256)) {
-                    "evidence-unsafe-digest-format"
+                    ERROR_UNSAFE_DIGEST
                 }
 
                 require(artifact.sizeBytes >= 0) {
@@ -208,3 +208,9 @@ object SovereignEvidencePackGenerator {
         )
     }
 }
+
+/** @see SovereignEvidencePackGenerator */
+private const val SHA256_REGEX = "^sha256:[a-fA-F0-9]{64}$"
+
+/** @see SovereignEvidencePackGenerator */
+private const val ERROR_UNSAFE_DIGEST = "evidence-unsafe-digest-format"

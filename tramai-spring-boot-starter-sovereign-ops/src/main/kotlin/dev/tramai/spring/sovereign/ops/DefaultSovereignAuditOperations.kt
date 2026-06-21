@@ -56,9 +56,9 @@ class DefaultSovereignAuditOperations(
     // ── Validation ──
 
     private fun validateAuditStreamId(id: String) {
-        require(id.isNotBlank()) { "tramai-sovereign-ops-invalid-audit-stream-id" }
-        require(id.length <= 128) { "tramai-sovereign-ops-invalid-audit-stream-id" }
-        require(SAFE_ID.matches(id)) { "tramai-sovereign-ops-invalid-audit-stream-id" }
+        require(id.isNotBlank()) { ERROR_INVALID_AUDIT_STREAM_ID }
+        require(id.length <= 128) { ERROR_INVALID_AUDIT_STREAM_ID }
+        require(SAFE_ID.matches(id)) { ERROR_INVALID_AUDIT_STREAM_ID }
     }
 
     // ── Mapping ──
@@ -79,3 +79,6 @@ class DefaultSovereignAuditOperations(
             timestamp = timestamp,
         )
 }
+
+/** @see DefaultSovereignAuditOperations */
+private const val ERROR_INVALID_AUDIT_STREAM_ID = "tramai-sovereign-ops-invalid-audit-stream-id"

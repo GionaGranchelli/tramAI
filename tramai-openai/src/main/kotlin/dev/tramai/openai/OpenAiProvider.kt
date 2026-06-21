@@ -95,7 +95,7 @@ class CodexAuthFileTokenSource(
  */
 open class OpenAiCompatibleProvider(
     private val accessTokenSource: OpenAiAccessTokenSource,
-    private val providerName: String = "openai-compatible",
+    private val providerName: String = PROVIDER_LABEL,
     private val baseUrl: String,
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
@@ -434,7 +434,7 @@ open class OpenAiCompatibleProvider(
         fun bearerToken(
             bearerToken: String,
             baseUrl: String,
-            providerName: String = "openai-compatible",
+            providerName: String = PROVIDER_LABEL,
             httpClient: HttpClient = HttpClient.newHttpClient(),
             objectMapper: ObjectMapper = ObjectMapper(),
         ): OpenAiCompatibleProvider = OpenAiCompatibleProvider(
@@ -454,7 +454,7 @@ open class OpenAiCompatibleProvider(
         @JvmStatic
         fun codexAuth(
             baseUrl: String,
-            providerName: String = "openai-compatible",
+            providerName: String = PROVIDER_LABEL,
             authFile: Path = CodexAuthFileTokenSource.defaultAuthFile(),
             httpClient: HttpClient = HttpClient.newHttpClient(),
             objectMapper: ObjectMapper = ObjectMapper(),
@@ -467,6 +467,9 @@ open class OpenAiCompatibleProvider(
         )
     }
 }
+
+/** @see OpenAiCompatibleProvider */
+private const val PROVIDER_LABEL = "openai-compatible"
 
 /**
  * Provider for OpenAI's public API.

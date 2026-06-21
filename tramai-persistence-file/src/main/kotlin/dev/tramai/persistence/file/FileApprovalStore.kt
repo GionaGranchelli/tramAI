@@ -82,15 +82,15 @@ class FileApprovalStore internal constructor(
         val plaintext: ByteArray = try {
             FileStoreUtil.readAndDecrypt(path, RECORD_TYPE, rkd, encryptionKey, keyId)
         } catch (e: FileStoreCorruptionException) {
-            throw FileStoreCorruptionException("approval-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("approval-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
         val json = String(plaintext, Charsets.UTF_8)
         val dto = try {
             PersistedApprovalRequestV1.fromJson(json)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("approval-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
         // Enforce schema version on every decode
         require(dto.schemaVersion == 1) { "unsupported-approval-schema-version" }
@@ -141,15 +141,15 @@ class FileApprovalStore internal constructor(
             val plaintext: ByteArray = try {
                 FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, digestHex, encryptionKey, keyId)
             } catch (e: FileStoreCorruptionException) {
-                throw FileStoreCorruptionException("approval-record-corrupted", e)
+                throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
             } catch (e: Exception) {
-                throw FileStoreCorruptionException("approval-record-corrupted", e)
+                throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
             }
             // Parse DTO and validate schema version + domain conversion
             val dto = try {
                 PersistedApprovalRequestV1.fromJson(String(plaintext, Charsets.UTF_8))
             } catch (e: Exception) {
-                throw FileStoreCorruptionException("approval-record-corrupted", e)
+                throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
             }
             require(dto.schemaVersion == 1) {
                 throw FileStoreUnsupportedFormatException("unsupported-approval-schema-version: ${dto.schemaVersion}")
@@ -444,3 +444,6 @@ class FileApprovalStore internal constructor(
         return trimmed
     }
 }
+
+/** @see FileApprovalStore */
+private const val ERROR_CORRUPTED_RECORD = "approval-record-corrupted"

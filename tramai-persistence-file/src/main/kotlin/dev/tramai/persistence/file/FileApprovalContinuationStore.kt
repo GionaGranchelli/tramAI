@@ -106,15 +106,15 @@ class FileApprovalContinuationStore internal constructor(
         val plaintext: ByteArray = try {
             FileStoreUtil.readAndDecrypt(path, RECORD_TYPE, rkd, encryptionKey, keyId)
         } catch (e: FileStoreCorruptionException) {
-            throw FileStoreCorruptionException("continuation-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("continuation-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
         val json = String(plaintext, Charsets.UTF_8)
         val record = try {
             PersistedApprovalContinuationRecordV1.fromJson(json)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("continuation-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
         // Enforce schema version on every decode
         require(record.schemaVersion == 1) { "unsupported-continuation-schema-version" }
@@ -178,14 +178,14 @@ class FileApprovalContinuationStore internal constructor(
         val plaintext = try {
             FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, digestHex, encryptionKey, keyId)
         } catch (e: FileStoreCorruptionException) {
-            throw FileStoreCorruptionException("continuation-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("continuation-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
         val record = try {
             PersistedApprovalContinuationRecordV1.fromJson(String(plaintext, Charsets.UTF_8))
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("continuation-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
         // Root schema version
         require(record.schemaVersion == 1) {
@@ -732,3 +732,6 @@ class FileApprovalContinuationStore internal constructor(
         return count
     }
 }
+
+/** @see FileApprovalContinuationStore */
+private const val ERROR_CORRUPTED_RECORD = "continuation-record-corrupted"

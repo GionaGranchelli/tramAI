@@ -105,7 +105,7 @@ object SovereignEvidencePackWriter {
         appendStringField(sb, "verifiedAt", a.verifiedAt, 4, 6, indent = 2)
         appendField(sb, "artifactCount", a.artifactCount.toString(), 5, 6, indent = 2)
         appendField(sb, "totalSizeBytes", a.totalSizeBytes.toString(), 6, 6, indent = 2, last = true)
-        sb.append("            }")
+        sb.append(JSON_INDENT_CLOSE)
         return sb.toString()
     }
 
@@ -118,7 +118,7 @@ object SovereignEvidencePackWriter {
         appendField(sb, "loopbackProviderInvocationCount", z.loopbackProviderInvocationCount.toString(), 4, 6, indent = 2)
         appendField(sb, "externalTcpProbeBlocked", z.externalTcpProbeBlocked.toString(), 5, 6, indent = 2)
         appendField(sb, "externalDnsProbeBlocked", z.externalDnsProbeBlocked.toString(), 6, 6, indent = 2, last = true)
-        sb.append("            }")
+        sb.append(JSON_INDENT_CLOSE)
         return sb.toString()
     }
 
@@ -127,7 +127,7 @@ object SovereignEvidencePackWriter {
         sb.appendLine("{")
         appendField(sb, "isValid", a.isValid.toString(), 1, 2, indent = 2)
         appendField(sb, "totalEvents", a.totalEvents.toString(), 2, 2, indent = 2, last = true)
-        sb.append("            }")
+        sb.append(JSON_INDENT_CLOSE)
         return sb.toString()
     }
 
@@ -140,7 +140,7 @@ object SovereignEvidencePackWriter {
         appendStringField(sb, "sbomFileName", s.sbomFileName, 4, 6, indent = 2)
         appendStringField(sb, "sbomSha256", s.sbomSha256, 5, 6, indent = 2)
         appendStringField(sb, "generatedBy", s.generatedBy, 6, 6, indent = 2, last = true)
-        sb.append("            }")
+        sb.append(JSON_INDENT_CLOSE)
         return sb.toString()
     }
 
@@ -152,7 +152,7 @@ object SovereignEvidencePackWriter {
         appendStringField(sb, "javaVersion", r.javaVersion, 3, 5, indent = 2)
         appendStringField(sb, "gradleVersion", r.gradleVersion, 4, 5, indent = 2)
         appendObjectListField(sb, "artifacts", r.artifacts, 5, 5, indent = 2, serialize = ::serializeReleaseArtifact, last = true)
-        sb.append("            }")
+        sb.append(JSON_INDENT_CLOSE)
         return sb.toString()
     }
 
@@ -171,7 +171,7 @@ object SovereignEvidencePackWriter {
         appendStringField(sb, "fileName", a.fileName, 6, 8, indent = 1)
         appendStringField(sb, "sha256", a.sha256, 7, 8, indent = 1)
         appendField(sb, "sizeBytes", a.sizeBytes.toString(), 8, 8, indent = 1, last = true)
-        sb.append("            }")
+        sb.append(JSON_INDENT_CLOSE)
         return sb.toString()
     }
 
@@ -185,7 +185,7 @@ object SovereignEvidencePackWriter {
         appendStringField(sb, "repository", a.repository, 5, 7, indent = 2)
         appendStringField(sb, "commitSha", a.commitSha, 6, 7, indent = 2)
         appendObjectListField(sb, "attestedSubjects", a.attestedSubjects, 7, 7, indent = 2, serialize = ::serializeAttestedSubject, last = true)
-        sb.append("            }")
+        sb.append(JSON_INDENT_CLOSE)
         return sb.toString()
     }
 
@@ -195,7 +195,7 @@ object SovereignEvidencePackWriter {
         appendStringField(sb, "fileName", s.fileName, 1, 3, indent = 1)
         appendStringField(sb, "sha256", s.sha256, 2, 3, indent = 1)
         appendStringField(sb, "attestationType", s.attestationType, 3, 3, indent = 1, last = true)
-        sb.append("            }")
+        sb.append(JSON_INDENT_CLOSE)
         return sb.toString()
     }
 
@@ -457,3 +457,6 @@ object SovereignEvidencePackWriter {
     /** Shorthand for [escapedString] used internally. */
     private fun esc(value: String): String = escapedString(value)
 }
+
+/** @see SovereignEvidencePackWriter */
+private const val JSON_INDENT_CLOSE = "            }"

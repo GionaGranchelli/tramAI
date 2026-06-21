@@ -80,7 +80,7 @@ class DefaultSovereignOpsAuditOutboxOperations(
         validateReason(reason)
 
         val record = outboxStore.get(outboxId)
-            ?: throw IllegalStateException("tramai-sovereign-ops-invalid-outbox-id")
+            ?: throw IllegalStateException(ERROR_INVALID_OUTBOX_ID)
         require(record.status == SovereignOpsAuditOutboxStatus.PREPARED) {
             "tramai-sovereign-ops-outbox-status-mismatch"
         }
@@ -164,9 +164,9 @@ class DefaultSovereignOpsAuditOutboxOperations(
     }
 
     private fun validateOutboxId(outboxId: String) {
-        require(outboxId.isNotBlank()) { "tramai-sovereign-ops-invalid-outbox-id" }
-        require(outboxId.length <= 128) { "tramai-sovereign-ops-invalid-outbox-id" }
-        require(SAFE_OUTBOX_ID.matches(outboxId)) { "tramai-sovereign-ops-invalid-outbox-id" }
+        require(outboxId.isNotBlank()) { ERROR_INVALID_OUTBOX_ID }
+        require(outboxId.length <= 128) { ERROR_INVALID_OUTBOX_ID }
+        require(SAFE_OUTBOX_ID.matches(outboxId)) { ERROR_INVALID_OUTBOX_ID }
     }
 
     private fun validateReason(reason: String) {
@@ -202,3 +202,6 @@ class DefaultSovereignOpsAuditOutboxOperations(
         return errorCode.takeIf { SAFE_ERROR_CODE.matches(it) }
     }
 }
+
+/** @see DefaultSovereignOpsAuditOutboxOperations */
+private const val ERROR_INVALID_OUTBOX_ID = "tramai-sovereign-ops-invalid-outbox-id"

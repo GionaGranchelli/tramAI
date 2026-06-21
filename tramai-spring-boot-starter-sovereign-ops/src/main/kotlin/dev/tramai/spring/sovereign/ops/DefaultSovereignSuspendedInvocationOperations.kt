@@ -30,9 +30,9 @@ class DefaultSovereignSuspendedInvocationOperations(
     // ── Validation ──
 
     private fun validateId(id: String) {
-        require(id.isNotBlank()) { "tramai-sovereign-ops-invalid-suspended-invocation-id" }
-        require(id.length <= 128) { "tramai-sovereign-ops-invalid-suspended-invocation-id" }
-        require(SAFE_ID.matches(id)) { "tramai-sovereign-ops-invalid-suspended-invocation-id" }
+        require(id.isNotBlank()) { ERROR_INVALID_SUSPENDED_INVOCATION_ID }
+        require(id.length <= 128) { ERROR_INVALID_SUSPENDED_INVOCATION_ID }
+        require(SAFE_ID.matches(id)) { ERROR_INVALID_SUSPENDED_INVOCATION_ID }
     }
 
     // ── Mapping ──
@@ -48,3 +48,6 @@ class DefaultSovereignSuspendedInvocationOperations(
             replayEnvelopeDigest = replayEnvelopeDigest.value,
         )
 }
+
+/** @see DefaultSovereignSuspendedInvocationOperations */
+private const val ERROR_INVALID_SUSPENDED_INVOCATION_ID = "tramai-sovereign-ops-invalid-suspended-invocation-id"

@@ -80,7 +80,7 @@ class FileBackedSovereignStores private constructor(
             // ── 1. Create root directory with strict permissions if missing ──
             if (root.notExists()) {
                 Files.createDirectories(root, PosixFilePermissions.asFileAttribute(
-                    PosixFilePermissions.fromString("rwx------"),
+                    PosixFilePermissions.fromString(STRICT_PERMISSIONS),
                 ))
             }
 
@@ -89,7 +89,7 @@ class FileBackedSovereignStores private constructor(
             require(!Files.isSymbolicLink(root)) { "root-symlink-rejected" }
 
             val rootPerms = Files.getPosixFilePermissions(root)
-            val expectedRootPerms = PosixFilePermissions.fromString("rwx------")
+            val expectedRootPerms = PosixFilePermissions.fromString(STRICT_PERMISSIONS)
             require(rootPerms == expectedRootPerms) { "root-permission-denied" }
 
             // ── 3. Acquire exclusive lock on .tramai.lock ──
@@ -138,14 +138,14 @@ class FileBackedSovereignStores private constructor(
                     val path = root.resolve(dir)
                     if (path.notExists()) {
                         Files.createDirectories(path, PosixFilePermissions.asFileAttribute(
-                            PosixFilePermissions.fromString("rwx------"),
+                            PosixFilePermissions.fromString(STRICT_PERMISSIONS),
                         ))
                     }
                     require(!path.isSymbolicLink()) {
                         throw FileStorePermissionException("$dir-symlink-rejected")
                     }
                     val dirPerms = Files.getPosixFilePermissions(path)
-                    check(dirPerms == PosixFilePermissions.fromString("rwx------")) {
+                    check(dirPerms == PosixFilePermissions.fromString(STRICT_PERMISSIONS)) {
                         throw FileStorePermissionException("$dir-permission-denied")
                     }
                 }
@@ -270,3 +270,6 @@ class FileBackedSovereignStores private constructor(
         }
     }
 }
+
+/** @see FileBackedSovereignStores */
+private const val STRICT_PERMISSIONS = "rwx------"
