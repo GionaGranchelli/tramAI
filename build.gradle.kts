@@ -1966,9 +1966,8 @@ val documentIntelligenceProject = project(":examples:sovereign-document-intellig
 val documentIntelligenceRunCommand = listOf(
     gradleWrapper,
     ":examples:sovereign-document-intelligence:run",
-    "--args",
-    "--release-bundle-manifest=${rootProject.layout.buildDirectory.get().asFile.absolutePath}/sovereign-release/release-artifacts-v1.json",
     "--no-configuration-cache",
+    "--args=--release-bundle-manifest=${rootProject.layout.buildDirectory.get().asFile.absolutePath}/sovereign-release/release-artifacts-v1.json",
 )
 
 tasks.register<Exec>("verifySovereignDocumentIntelligenceEvidenceRun") {
