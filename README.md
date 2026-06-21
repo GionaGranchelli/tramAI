@@ -231,7 +231,7 @@ To run the full local release-candidate verification chain:
 ./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks
 ```
 
-This validates the release-candidate evidence locally. It does not publish remotely, create a tag, or claim Maven Central availability.
+This validates the release-candidate evidence locally — full subproject test suite, release readiness, local publication, signed bundle dry-run, consumer-resolution smoke, sovereign document intelligence evidence run, and evidence index generation. It does not publish remotely, create a tag, or claim Maven Central availability.
 
 ## Development Commands
 

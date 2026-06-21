@@ -57,7 +57,7 @@ Run the full local sovereign runtime release-candidate validation chain:
 ./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks
 ```
 
-This validates the full evidence chain — tests, release readiness, local publication, signed bundle dry-run, consumer-resolution smoke, release artifact generation, release manifest verification, and evidence index generation. It does not publish remotely, create a tag, or claim Maven Central availability.
+This validates the full evidence chain — full subproject test suite, release readiness, local publication, signed bundle dry-run, consumer-resolution smoke, release artifact generation, release manifest verification, sovereign document intelligence evidence run, and evidence index generation. It does not publish remotely, create a tag, or claim Maven Central availability.
 
 ### Targeted validation commands
 
@@ -100,9 +100,9 @@ For debugging or rapid iteration, use individual commands:
 ./gradlew :examples:sovereign-document-intelligence:run
 ```
 
-## Release Risks
+Also runnable via the canonical verification chain: `./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks`.
 
-| Risk | Severity | Mitigation |
+## Release Risks
 |---|---|---|
 | APIs are still evolving | Medium | active-development banner on README and docs |
 | File persistence is local-node only | Medium | Documented as local-only; DB-backed persistence is future work |
@@ -139,7 +139,7 @@ The repository now includes a dedicated workflow for validating the sovereign ru
 
 **What it validates:**
 
-- Canonical `verifySovereignRuntimeReleaseCandidate` task: full test suite, release readiness metadata and artifacts, local sovereign runtime publication (POMs, sources, javadoc), signed bundle dry-run (bundle manifest + verification repo), consumer-resolution smoke test using the generated sovereign runtime verification repository, release artifact preparation and manifest verification, and evidence index generation
+- Canonical `verifySovereignRuntimeReleaseCandidate` task: full subproject test suite, release readiness metadata and artifacts, local sovereign runtime publication (POMs, sources, javadoc), signed bundle dry-run (bundle manifest + verification repo), consumer-resolution smoke test using the generated sovereign runtime verification repository, release artifact preparation and manifest verification, sovereign document intelligence evidence run, and evidence index generation
 - Verified `dev.tramai` dependency closure policy:
   - only `build/sovereign-runtime-release-verification-repo` is allowed for TramAI dependencies
   - `mavenLocal` and `mavenCentral` are blocked for the verified closure

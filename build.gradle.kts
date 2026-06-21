@@ -1958,8 +1958,34 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
 }
 
 // ──────────────────────────────────────────────
+// Task: verifySovereignDocumentIntelligenceEvidenceRun
+// ──────────────────────────────────────────────
+
+val documentIntelligenceProject = project(":examples:sovereign-document-intelligence")
+
+tasks.register<JavaExec>("verifySovereignDocumentIntelligenceEvidenceRun") {
+    group = "verification"
+    description =
+        "Runs the sovereign document intelligence reference example against the generated release bundle " +
+            "manifest. Validates evidence pack generation against release artifacts."
+
+    dependsOn("prepareSovereignReleaseArtifacts", "verifySovereignReleaseManifest")
+
+    classpath = documentIntelligenceProject.sourceSets["main"].runtimeClasspath
+    mainClass.set("dev.tramai.examples.sovereign.DocumentIntelligenceMainKt")
+    args(
+        "--release-bundle-manifest",
+        "${rootProject.layout.buildDirectory.get().asFile.absolutePath}/sovereign-release/release-artifacts-v1.json",
+    )
+}
+
+// ──────────────────────────────────────────────
 // Task: verifySovereignRuntimeReleaseCandidate
 // ──────────────────────────────────────────────
+
+val allSubprojectTestTasks = subprojects.flatMap { subproject ->
+    subproject.tasks.matching { it.name == "test" }.toList()
+}
 
 tasks.register("verifySovereignRuntimeReleaseCandidate") {
     group = "verification"
@@ -1972,23 +1998,25 @@ tasks.register("verifySovereignRuntimeReleaseCandidate") {
     )
 
     dependsOn(
-        jarPublishingProjectNames.map { ":${it}:test" },
+        allSubprojectTestTasks,
         "verifyReleaseReadiness",
         "verifySovereignRuntimePublication",
         "verifySovereignRuntimeSignedBundle",
         "generateSovereignReleaseEvidenceIndex",
         "verifySovereignRuntimeConsumerSmoke",
+        "verifySovereignDocumentIntelligenceEvidenceRun",
     )
 
     doLast {
         logger.lifecycle("Sovereign runtime release-candidate verification complete.")
         logger.lifecycle("Validated:")
-        logger.lifecycle("  - full test suite")
+        logger.lifecycle("  - full subproject test suite")
         logger.lifecycle("  - release readiness")
         logger.lifecycle("  - local sovereign runtime publication")
         logger.lifecycle("  - signed bundle dry-run")
         logger.lifecycle("  - release evidence index")
         logger.lifecycle("  - standalone consumer smoke")
+        logger.lifecycle("  - sovereign document intelligence evidence run")
         logger.lifecycle("No remote repository was published to.")
         logger.lifecycle("No tag or GitHub release was created.")
     }

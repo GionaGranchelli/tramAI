@@ -53,9 +53,6 @@ jobs:
       - name: Verify sovereign runtime release candidate
         run: ./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks
 
-      - name: Run reference example smoke
-        run: ./gradlew :examples:sovereign-document-intelligence:run --args="--release-bundle-manifest=build/sovereign-release/release-artifacts-v1.json" --no-configuration-cache
-
       - name: Upload bundle manifest
         uses: actions/upload-artifact@v4
         with:
