@@ -130,7 +130,7 @@ Operators can inspect worker state **without** exposing sensitive claim data.
 - worker enabled / running state
 - cycle counters (success, failure)
 - last success / failure timestamp
-- sanitized health status (UP / DOWN / DEGRADED)
+- sanitized health status exposed through the Actuator health component
 - metric counters (OpenTelemetry, Micrometer)
 
 **Not allowed:**
@@ -151,7 +151,7 @@ Operators can inspect worker state **without** exposing sensitive claim data.
 | Policy denies route | No model call — fail with explicit denial reason |
 | Model provider unavailable | Retry / fallback according to policy |
 | Approval timeout | Remain suspended or escalate |
-| Outbox dispatch fails | Durable retry with exponential backoff |
+| Outbox dispatch fails | Event remains durable for retry or operator investigation |
 | Worker restarts | Recover pending outbox work |
 | Audit store unavailable | Fail closed for governed workflow |
 
