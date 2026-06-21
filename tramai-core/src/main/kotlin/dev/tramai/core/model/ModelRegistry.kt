@@ -4,6 +4,4 @@ fun interface ModelRegistry {
     suspend fun findApprovedModel(providerId: String, modelName: String): RegisteredModel?
 }
 
-object NoOpModelRegistry : ModelRegistry {
-    override suspend fun findApprovedModel(providerId: String, modelName: String): RegisteredModel? = null
-}
+val NoOpModelRegistry: ModelRegistry = ModelRegistry { _, _ -> null }

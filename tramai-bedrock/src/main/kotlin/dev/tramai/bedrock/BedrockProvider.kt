@@ -194,7 +194,7 @@ class BedrockProvider @JvmOverloads constructor(
 
         // Handle regular content
         val msgParts = message.contentParts
-        if (msgParts != null && msgParts.isNotEmpty()) {
+        if (!msgParts.isNullOrEmpty()) {
             for (part in msgParts) {
                 when (part) {
                     is ContentPart.TextPart -> {

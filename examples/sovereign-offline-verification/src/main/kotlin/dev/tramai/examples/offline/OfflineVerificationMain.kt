@@ -237,7 +237,6 @@ internal fun executeVerificationInternal(
 
         // n. Create runtime and service proxy
         val runtime = tramai.runtime()
-        var providerSucceeded = false
         try {
             val service = runtime.create(OfflineEchoService::class)
 
@@ -249,11 +248,11 @@ internal fun executeVerificationInternal(
                 "loopback-service-response-invalid"
             }
 
-            providerSucceeded = true
         } finally {
             // p. Close the runtime
             runtime.close()
         }
+        val providerSucceeded = true
 
         // q. External network probes
         val tcpBlocked: Boolean = try {
@@ -415,7 +414,7 @@ internal fun readAllAuditEvents(auditStore: InMemoryAuditStore): List<AuditEvent
     val streams = streamsField.get(auditStore) as ConcurrentHashMap<String, *>
     val allEvents = mutableListOf<AuditEvent>()
     for (key in streams.keys) {
-        val state = streams.get(key)!!
+        val state = streams.getValue(key)
         val stateClass = state::class.java
         val eventsField = stateClass.getDeclaredField("events")
         eventsField.isAccessible = true

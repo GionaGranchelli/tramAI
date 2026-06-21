@@ -104,7 +104,9 @@ class InMemoryApprovalStore(
             is ApprovalTransition.Deny -> transition.comment?.let {
                 require(it.length <= maxCommentLength) { "Comment exceeds maximum length of $maxCommentLength" }
             }
-            is ApprovalTransition.Timeout -> {}
+            is ApprovalTransition.Timeout -> {
+                // Timeout transitions do not carry comments.
+            }
         }
 
         // Validate decidedBy for non-timeout transitions
@@ -117,7 +119,9 @@ class InMemoryApprovalStore(
                 validateIdField(transition.decidedBy, "decidedBy", maxIdLength)
                 SafeActorIdPolicy.validateActorId(transition.decidedBy, "decidedBy")
             }
-            is ApprovalTransition.Timeout -> {}
+            is ApprovalTransition.Timeout -> {
+                // Timeout transitions are system-driven and have no deciding actor.
+            }
         }
 
         val result = store.compute(approvalId) { _, current ->

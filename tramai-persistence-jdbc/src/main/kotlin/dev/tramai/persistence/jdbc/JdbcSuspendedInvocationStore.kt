@@ -199,8 +199,8 @@ class JdbcSuspendedInvocationStore(
         }
         val constraintName = extractConstraintName(error)
         if (constraintName != null) {
-            if (constraintName.contains("replay_envelope", ignoreCase = true)) {
-                throw IllegalArgumentException("suspended-invocation-replay-envelope-digest-already-exists")
+            require(!constraintName.contains("replay_envelope", ignoreCase = true)) {
+                "suspended-invocation-replay-envelope-digest-already-exists"
             }
             throw IllegalArgumentException("suspended-invocation-already-exists")
         }

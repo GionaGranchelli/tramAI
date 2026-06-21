@@ -1,6 +1,7 @@
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
@@ -40,8 +41,9 @@ internal suspend fun executeAgentCli(
     promptLength: Int,
     context: WorkflowContext,
     observer: WorkflowObserver,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ): AgentCliExecution {
-    val process = withContext(Dispatchers.IO) {
+    val process = withContext(ioDispatcher) {
         processBuilder
             .redirectErrorStream(false)
             .start()
@@ -62,17 +64,17 @@ internal suspend fun executeAgentCli(
     val startedAtNanos = System.nanoTime()
     try {
         return coroutineScope {
-            val stdoutDeferred = async(Dispatchers.IO) { process.inputStream.captureAgentOutput(maxOutputBytes) }
-            val stderrDeferred = async(Dispatchers.IO) { process.errorStream.captureAgentOutput(maxOutputBytes) }
+            val stdoutDeferred = async(ioDispatcher) { process.inputStream.captureAgentOutput(maxOutputBytes) }
+            val stderrDeferred = async(ioDispatcher) { process.errorStream.captureAgentOutput(maxOutputBytes) }
 
             try {
                 withTimeout(timeoutSeconds.seconds) {
-                    runInterruptible(Dispatchers.IO) {
+                    runInterruptible(ioDispatcher) {
                         process.waitFor()
                     }
                 }
             } catch (_: TimeoutCancellationException) {
-                terminateAgentProcessTree(process)
+                terminateAgentProcessTree(process, ioDispatcher)
                 throw AgentCliTimeoutException(timeoutSeconds)
             }
 
@@ -106,7 +108,7 @@ internal suspend fun executeAgentCli(
             )
         }
     } finally {
-        terminateAgentProcessTree(process)
+        terminateAgentProcessTree(process, ioDispatcher)
     }
 }
 
@@ -169,8 +171,11 @@ private fun InputStream.captureAgentOutput(
     )
 }
 
-private suspend fun terminateAgentProcessTree(process: Process) {
-    withContext(NonCancellable + Dispatchers.IO) {
+private suspend fun terminateAgentProcessTree(
+    process: Process,
+    ioDispatcher: CoroutineDispatcher,
+) {
+    withContext(NonCancellable + ioDispatcher) {
         terminateProcessTree(
             process = process,
             gracePeriodMillis = agentCliTerminationGracePeriodMillis,

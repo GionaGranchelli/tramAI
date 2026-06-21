@@ -88,7 +88,7 @@ class ChromaVectorStore(
                 "n_results" to topK,
             )
 
-            if (filter != null && filter.isNotEmpty()) {
+            if (!filter.isNullOrEmpty()) {
                 payload["where"] = filter
             }
 
@@ -266,13 +266,11 @@ class ChromaVectorStore(
             .build()
 
         val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
-        if (response.statusCode() !in 200..299) {
+        if (response.statusCode() !in 200..299 && response.statusCode() != 409) {
             // Collection may have been created by another caller; ignore if it already exists.
-            if (response.statusCode() != 409) {
-                throw ChromaException(
-                    "Chroma create collection returned HTTP ${response.statusCode()}: ${response.body().take(500)}"
-                )
-            }
+            throw ChromaException(
+                "Chroma create collection returned HTTP ${response.statusCode()}: ${response.body().take(500)}"
+            )
         }
         collectionExistsCache[collection] = true
     }

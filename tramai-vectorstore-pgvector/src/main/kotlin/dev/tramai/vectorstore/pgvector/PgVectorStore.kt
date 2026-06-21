@@ -182,7 +182,7 @@ class PgVectorStore(
         filter: Map<String, String>?,
         topK: Int,
     ): SearchQuery {
-        val filterClause = if (filter != null && filter.isNotEmpty()) {
+        val filterClause = if (!filter.isNullOrEmpty()) {
             val conditions = filter.entries.mapIndexed { i, _ ->
                 "metadata->>? = ?"
             }

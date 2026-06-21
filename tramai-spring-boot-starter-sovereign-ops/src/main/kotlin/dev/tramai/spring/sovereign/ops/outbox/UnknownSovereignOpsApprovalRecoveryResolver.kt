@@ -7,10 +7,5 @@ package dev.tramai.spring.sovereign.ops.outbox
  * moved to PENDING without a resolver that can prove the approval denial
  * committed. Custom resolvers are expected for production use.
  */
-object UnknownSovereignOpsApprovalRecoveryResolver : SovereignOpsApprovalRecoveryResolver {
-
-    override suspend fun resolvePreparedOutboxRecord(
-        record: SovereignOpsAuditOutboxRecord,
-    ): SovereignOpsPreparedRecoveryDecision =
-        SovereignOpsPreparedRecoveryDecision.UNKNOWN
-}
+val UnknownSovereignOpsApprovalRecoveryResolver: SovereignOpsApprovalRecoveryResolver =
+    SovereignOpsApprovalRecoveryResolver { SovereignOpsPreparedRecoveryDecision.UNKNOWN }

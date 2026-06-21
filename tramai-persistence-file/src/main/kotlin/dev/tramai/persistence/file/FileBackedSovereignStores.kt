@@ -111,7 +111,11 @@ class FileBackedSovereignStores private constructor(
                     ?: throw FileStoreLockUnavailableException("tramai-lock-unavailable")
             } catch (e: Exception) {
                 // Close the file handle on any acquisition failure
-                try { lockFileNonNull.close() } catch (_: Exception) {}
+                try {
+                    lockFileNonNull.close()
+                } catch (_: Exception) {
+                    // Best-effort cleanup after lock acquisition failure.
+                }
                 throw e
             }
 
@@ -207,8 +211,16 @@ class FileBackedSovereignStores private constructor(
                 )
             } catch (e: Exception) {
                 // Clean up lock on failure
-                try { fileLockNonNull.close() } catch (_: Exception) {}
-                try { lockFileNonNull.close() } catch (_: Exception) {}
+                try {
+                    fileLockNonNull.close()
+                } catch (_: Exception) {
+                    // Best-effort cleanup while failing store initialization.
+                }
+                try {
+                    lockFileNonNull.close()
+                } catch (_: Exception) {
+                    // Best-effort cleanup while failing store initialization.
+                }
                 throw e
             }
         }

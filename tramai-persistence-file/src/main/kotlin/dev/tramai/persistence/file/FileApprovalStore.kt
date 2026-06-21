@@ -259,7 +259,9 @@ class FileApprovalStore internal constructor(
             is ApprovalTransition.Deny -> transition.comment?.let {
                 require(it.length <= MAX_COMMENT_LENGTH) { "Comment exceeds maximum length of $MAX_COMMENT_LENGTH" }
             }
-            is ApprovalTransition.Timeout -> {}
+            is ApprovalTransition.Timeout -> {
+                // Timeout transitions do not carry comments.
+            }
         }
 
         // Validate decidedBy for non-timeout transitions
@@ -272,7 +274,9 @@ class FileApprovalStore internal constructor(
                 validateIdField(transition.decidedBy, "decidedBy", MAX_ID_LENGTH)
                 SafeActorIdPolicy.validateActorId(transition.decidedBy, "decidedBy")
             }
-            is ApprovalTransition.Timeout -> {}
+            is ApprovalTransition.Timeout -> {
+                // Timeout transitions are system-driven and have no deciding actor.
+            }
         }
 
         val lock = getLock(approvalId)

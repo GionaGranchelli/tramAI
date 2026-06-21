@@ -490,7 +490,7 @@ internal class TramaiInvocationHandler(
         }
     }
 
-    private suspend fun executeStreaming(
+    private fun executeStreaming(
         operation: OperationDefinition,
         arguments: List<Any?>,
         tokenBudgetTracker: TokenBudgetTracker,
@@ -1749,7 +1749,7 @@ internal class TramaiInvocationHandler(
     private fun createToolSuccessMessage(toolResult: ToolResult.Success, toolCallId: String): Message {
         val textContent = toolResult.value.toString()
         val contentParts = toolResult.contentParts
-        return if (contentParts != null && contentParts.isNotEmpty()) {
+        return if (!contentParts.isNullOrEmpty()) {
             val parts = buildList<ContentPart> {
                 add(ContentPart.TextPart(textContent))
                 addAll(contentParts)
@@ -2621,7 +2621,6 @@ internal class TramaiInvocationHandler(
                 metadata.operationReference, replayPayload.messages
             )
             if (actualDigest != metadata.replayEnvelopeDigest) {
-                uncertainOutcomeEmitted = true
                 approvalLifecycleAuditEmitter.onUncertainOutcome(
                     approvalId = command.approvalId,
                     workflowRunId = metadata.identity.workflowRunId,
@@ -2637,7 +2636,6 @@ internal class TramaiInvocationHandler(
             val actualArgsDigest = digester.digest(claimed.arguments)
             val expectedArgsDigest = claimed.continuation.argumentsDigest
             if (actualArgsDigest != expectedArgsDigest) {
-                uncertainOutcomeEmitted = true
                 approvalLifecycleAuditEmitter.onUncertainOutcome(
                     approvalId = command.approvalId,
                     workflowRunId = metadata.identity.workflowRunId,
@@ -3334,9 +3332,11 @@ internal class TramaiInvocationHandler(
         val parameters = method.parameters
         for (i in parameters.indices) {
             if (parameters[i].isAnnotationPresent(ConversationId::class.java)) {
-                return args[i]?.toString() ?: throw IllegalArgumentException(
-                    "@ConversationId parameter '${parameters[i].name}' at index $i is null"
-                )
+                val argument = args[i]
+                    ?: throw IllegalArgumentException(
+                        "@ConversationId parameter '${parameters[i].name}' at index $i is null"
+                    )
+                return argument.toString()
             }
         }
         return conversationIdProvider.resolve()

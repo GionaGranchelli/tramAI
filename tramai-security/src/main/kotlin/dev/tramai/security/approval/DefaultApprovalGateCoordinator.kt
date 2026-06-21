@@ -95,10 +95,7 @@ class DefaultApprovalGateCoordinator(
             throw e
         } catch (e: Exception) {
             observeFailure("createApproval", approvalId, e)
-            throw when (e) {
-                is ApprovalStoreConflictException -> ApprovalCreationException(approvalId)
-                else -> ApprovalCreationException(approvalId)
-            }
+            throw ApprovalCreationException(approvalId)
         }
 
         return ApprovalChallenge(

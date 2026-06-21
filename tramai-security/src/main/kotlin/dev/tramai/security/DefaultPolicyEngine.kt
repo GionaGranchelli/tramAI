@@ -189,13 +189,11 @@ class DefaultPolicyEngine(
             }
         }
 
-        if (metadata != null) {
-            if (metadata.permission !in config.allowedPermissions && "*" !in config.allowedPermissions) {
-                return PolicyDecision.Deny(
-                    "Tool '$toolName' requires permission '${metadata.permission}' which is not granted for exposure",
-                    "tool-exposure-permission-denied",
-                )
-            }
+        if (metadata != null && metadata.permission !in config.allowedPermissions && "*" !in config.allowedPermissions) {
+            return PolicyDecision.Deny(
+                "Tool '$toolName' requires permission '${metadata.permission}' which is not granted for exposure",
+                "tool-exposure-permission-denied",
+            )
         }
 
         return PolicyDecision.Allow

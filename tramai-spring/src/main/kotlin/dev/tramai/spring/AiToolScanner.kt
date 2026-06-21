@@ -111,23 +111,23 @@ object AiToolScanner {
             function = function,
             name = toolName,
             description = annotation.description,
-            inputType = inputType as KClass<Any>,
+            inputType = inputType,
             idempotent = annotation.idempotent,
             sideEffectLevel = annotation.sideEffectLevel
         )
     }
 
-    private class MethodBackedTramaiTool(
+    private class MethodBackedTramaiTool<I : Any>(
         private val bean: Any,
         private val function: KFunction<*>,
         override val name: String,
         override val description: String,
-        override val inputType: KClass<Any>,
+        override val inputType: KClass<I>,
         override val idempotent: Boolean,
         override val sideEffectLevel: SideEffectLevel
-    ) : TramaiTool<Any, Any> {
+    ) : TramaiTool<I, Any> {
 
-        override suspend fun execute(input: Any, context: ToolExecutionContext): Any {
+        override suspend fun execute(input: I, context: ToolExecutionContext): Any {
             return if (function.isSuspend) {
                 function.callSuspend(bean, input) ?: Unit
             } else {
