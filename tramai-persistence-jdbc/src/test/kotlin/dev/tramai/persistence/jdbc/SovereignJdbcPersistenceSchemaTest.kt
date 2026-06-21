@@ -7,7 +7,9 @@ import org.junit.jupiter.api.TestInstance
 import org.testcontainers.containers.PostgreSQLContainer
 import java.sql.Connection
 import java.sql.DriverManager
+import java.sql.SQLException
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -100,6 +102,67 @@ class SovereignJdbcPersistenceSchemaTest {
         assertUniqueIndex("audit_outbox", setOf("event_key"))
     }
 
+    // ── Operational indexes ──────────────────────────────────────
+
+    @Test
+    fun `idx_approvals_status_created_at exists`() {
+        assertIndexExists("idx_approvals_status_created_at", "approvals")
+    }
+
+    @Test
+    fun `idx_suspended_invocations_status_created_at exists`() {
+        assertIndexExists("idx_suspended_invocations_status_created_at", "suspended_invocations")
+    }
+
+    @Test
+    fun `idx_audit_outbox_status_next_attempt exists`() {
+        assertIndexExists("idx_audit_outbox_status_next_attempt", "audit_outbox")
+    }
+
+    @Test
+    fun `idx_audit_outbox_claimed_at exists`() {
+        assertIndexExists("idx_audit_outbox_claimed_at", "audit_outbox")
+    }
+
+    @Test
+    fun `idx_worker_leases_expires_at exists`() {
+        assertIndexExists("idx_worker_leases_expires_at", "worker_leases")
+    }
+
+    // ── Column types ─────────────────────────────────────────────
+
+    @Test
+    fun `approvals sanitized_metadata is JSONB`() {
+        assertColumnType("approvals", "sanitized_metadata", "jsonb")
+    }
+
+    @Test
+    fun `approvals created_at is timestamptz`() {
+        assertColumnType("approvals", "created_at", "timestamp with time zone")
+    }
+
+    @Test
+    fun `audit_events occurred_at is timestamptz`() {
+        assertColumnType("audit_events", "occurred_at", "timestamp with time zone")
+    }
+
+    @Test
+    fun `audit_outbox created_at is timestamptz`() {
+        assertColumnType("audit_outbox", "created_at", "timestamp with time zone")
+    }
+
+    @Test
+    fun `worker_leases expires_at is timestamptz`() {
+        assertColumnType("worker_leases", "expires_at", "timestamp with time zone")
+    }
+
+    // ── NOT NULL constraints ─────────────────────────────────────
+
+    @Test
+    fun `audit_events schema_version is NOT NULL`() {
+        assertColumnNotNull("audit_events", "schema_version")
+    }
+
     // ── Encryption metadata fields ───────────────────────────────
 
     @Test
@@ -122,6 +185,48 @@ class SovereignJdbcPersistenceSchemaTest {
         assertEncryptionFields("audit_outbox")
     }
 
+    // ── Encryption CHECK constraint tests ────────────────────────
+
+    @Test
+    fun `inserting encrypted_payload without encryption metadata must fail on approvals`() {
+        assertFailsWith<SQLException>(
+            "encrypted_payload requires complete encryption metadata"
+        ) {
+            connection.createStatement().execute(
+                """
+                INSERT INTO approvals (approval_id, status, encrypted_payload)
+                VALUES ('a-enc-fail-1', 'PENDING', E'\\\\xdeadbeef')
+                """
+            )
+        }
+    }
+
+    @Test
+    fun `inserting encryption metadata without encrypted_payload must fail on approvals`() {
+        assertFailsWith<SQLException>(
+            "encryption metadata without encrypted_payload must fail"
+        ) {
+            connection.createStatement().execute(
+                """
+                INSERT INTO approvals (approval_id, status, encryption_key_id, encryption_algorithm, encryption_nonce, payload_digest)
+                VALUES ('a-enc-fail-2', 'PENDING', 'key-1', 'AES-GCM', E'\\\\xabcd', 'digest-abc')
+                """
+            )
+        }
+    }
+
+    @Test
+    fun `inserting encrypted_replay_envelope without metadata must fail on suspended_invocations`() {
+        assertFailsWith<SQLException> {
+            connection.createStatement().execute(
+                """
+                INSERT INTO suspended_invocations (invocation_id, status, replay_envelope_digest, encrypted_replay_envelope)
+                VALUES ('si-enc-fail-1', 'SUSPENDED', 'digest-xyz', E'\\\\xdeadbeef')
+                """
+            )
+        }
+    }
+
     // ── Domain-specific checks ──────────────────────────────────
 
     @Test
@@ -141,7 +246,7 @@ class SovereignJdbcPersistenceSchemaTest {
     // ── Negative constraint tests ────────────────────────────────
 
     @Test
-    fun `duplicate audit_events event_id must fail`() {
+    fun `duplicate audit_events event_id must fail with SQL state 23505`() {
         connection.createStatement().use { stmt ->
             stmt.execute(
                 """
@@ -149,23 +254,20 @@ class SovereignJdbcPersistenceSchemaTest {
                 VALUES ('s1', 1, 'evt-001', 'TestEvent', 'hash-a', '1')
                 """
             )
-            val thrown = try {
+            val exception = assertFailsWith<SQLException> {
                 stmt.execute(
                     """
                     INSERT INTO audit_events (stream_id, sequence_number, event_id, event_type, event_hash, schema_version)
                     VALUES ('s2', 1, 'evt-001', 'TestEvent', 'hash-b', '1')
                     """
                 )
-                false
-            } catch (e: Exception) {
-                true
             }
-            assertTrue(thrown, "Duplicate event_id must fail unique constraint")
+            assertEquals("23505", exception.sqlState, "Expected unique violation SQL state 23505")
         }
     }
 
     @Test
-    fun `duplicate audit stream sequence must fail`() {
+    fun `duplicate audit stream sequence must fail with SQL state 23505`() {
         connection.createStatement().use { stmt ->
             stmt.execute(
                 """
@@ -173,23 +275,20 @@ class SovereignJdbcPersistenceSchemaTest {
                 VALUES ('s-dup', 1, 'evt-dup-1', 'TestEvent', 'hash-x', '1')
                 """
             )
-            val thrown = try {
+            val exception = assertFailsWith<SQLException> {
                 stmt.execute(
                     """
                     INSERT INTO audit_events (stream_id, sequence_number, event_id, event_type, event_hash, schema_version)
                     VALUES ('s-dup', 1, 'evt-dup-2', 'TestEvent', 'hash-y', '1')
                     """
                 )
-                false
-            } catch (e: Exception) {
-                true
             }
-            assertTrue(thrown, "Duplicate (stream_id, sequence_number) must fail primary key constraint")
+            assertEquals("23505", exception.sqlState, "Expected unique violation SQL state 23505")
         }
     }
 
     @Test
-    fun `duplicate suspended_invocations replay_envelope_digest must fail`() {
+    fun `duplicate suspended_invocations replay_envelope_digest must fail with SQL state 23505`() {
         connection.createStatement().use { stmt ->
             stmt.execute(
                 """
@@ -197,23 +296,20 @@ class SovereignJdbcPersistenceSchemaTest {
                 VALUES ('inv-1', 'SUSPENDED', 'digest-001')
                 """
             )
-            val thrown = try {
+            val exception = assertFailsWith<SQLException> {
                 stmt.execute(
                     """
                     INSERT INTO suspended_invocations (invocation_id, status, replay_envelope_digest)
                     VALUES ('inv-2', 'SUSPENDED', 'digest-001')
                     """
                 )
-                false
-            } catch (e: Exception) {
-                true
             }
-            assertTrue(thrown, "Duplicate replay_envelope_digest must fail unique constraint")
+            assertEquals("23505", exception.sqlState, "Expected unique violation SQL state 23505")
         }
     }
 
     @Test
-    fun `duplicate audit_outbox event_key must fail`() {
+    fun `duplicate audit_outbox event_key must fail with SQL state 23505`() {
         connection.createStatement().use { stmt ->
             stmt.execute(
                 """
@@ -221,18 +317,15 @@ class SovereignJdbcPersistenceSchemaTest {
                 VALUES ('ob-1', 'key-001', 'PENDING')
                 """
             )
-            val thrown = try {
+            val exception = assertFailsWith<SQLException> {
                 stmt.execute(
                     """
                     INSERT INTO audit_outbox (outbox_id, event_key, status)
                     VALUES ('ob-2', 'key-001', 'PENDING')
                     """
                 )
-                false
-            } catch (e: Exception) {
-                true
             }
-            assertTrue(thrown, "Duplicate event_key must fail unique constraint")
+            assertEquals("23505", exception.sqlState, "Expected unique violation SQL state 23505")
         }
     }
 
@@ -286,6 +379,17 @@ class SovereignJdbcPersistenceSchemaTest {
         return indexes.values.map { it.map { c -> c.uppercase() }.toSet() }.toSet()
     }
 
+    /** Returns the set of all index names for a table. */
+    private fun queryIndexNames(table: String): Set<String> {
+        val rs = connection.metaData.getIndexInfo(null, null, table.lowercase(), false, false)
+        val names = mutableSetOf<String>()
+        while (rs.next()) {
+            val indexName = rs.getString("INDEX_NAME") ?: continue
+            names.add(indexName.lowercase())
+        }
+        return names
+    }
+
     private fun assertPrimaryKey(table: String, expectedColumns: Set<String>) {
         val actual = queryPrimaryKeyColumns(table).map { it.uppercase() }.toSet()
         val expected = expectedColumns.map { it.uppercase() }.toSet()
@@ -301,6 +405,14 @@ class SovereignJdbcPersistenceSchemaTest {
         )
     }
 
+    private fun assertIndexExists(indexName: String, table: String) {
+        val names = queryIndexNames(table)
+        assertTrue(
+            indexName.lowercase() in names,
+            "Expected index '$indexName' on $table. Found indexes: $names"
+        )
+    }
+
     private fun assertEncryptionFields(table: String) {
         val columns = queryColumns(table).map { it.uppercase() }
         listOf("encryption_key_id", "encryption_algorithm", "encryption_nonce", "payload_digest")
@@ -313,5 +425,40 @@ class SovereignJdbcPersistenceSchemaTest {
     private fun assertColumnExists(table: String, column: String) {
         val columns = queryColumns(table).map { it.uppercase() }
         assertTrue(column.uppercase() in columns, "Expected column '$column' in $table")
+    }
+
+    private fun assertColumnType(table: String, column: String, expectedType: String) {
+        connection.createStatement().use { stmt ->
+            stmt.executeQuery(
+                """
+                SELECT data_type
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = '${table.lowercase()}'
+                  AND column_name = '${column.lowercase()}'
+                """
+            ).let { rs ->
+                assertTrue(rs.next(), "Column '$column' not found in $table")
+                val actual = rs.getString("data_type")
+                assertEquals(expectedType.lowercase(), actual.lowercase(), "Column type mismatch for $table.$column")
+            }
+        }
+    }
+
+    private fun assertColumnNotNull(table: String, column: String) {
+        connection.createStatement().use { stmt ->
+            stmt.executeQuery(
+                """
+                SELECT is_nullable
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = '${table.lowercase()}'
+                  AND column_name = '${column.lowercase()}'
+                """
+            ).let { rs ->
+                assertTrue(rs.next(), "Column '$column' not found in $table")
+                assertEquals("NO", rs.getString("is_nullable"), "Column '$table.$column' should be NOT NULL")
+            }
+        }
     }
 }

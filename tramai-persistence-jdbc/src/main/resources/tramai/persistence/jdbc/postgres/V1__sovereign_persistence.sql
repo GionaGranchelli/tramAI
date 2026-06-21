@@ -25,10 +25,13 @@ CREATE TABLE IF NOT EXISTS approvals (
     payload_digest          TEXT,
     version                 BIGINT      NOT NULL DEFAULT 1,
     CONSTRAINT ck_approvals_encryption CHECK (
-        encrypted_payload IS NULL
-        OR (encryption_key_id IS NOT NULL AND encryption_algorithm IS NOT NULL AND encryption_nonce IS NOT NULL AND payload_digest IS NOT NULL)
+        (encrypted_payload IS NULL AND encryption_key_id IS NULL AND encryption_algorithm IS NULL AND encryption_nonce IS NULL AND payload_digest IS NULL)
+        OR (encrypted_payload IS NOT NULL AND encryption_key_id IS NOT NULL AND encryption_algorithm IS NOT NULL AND encryption_nonce IS NOT NULL AND payload_digest IS NOT NULL)
     )
 );
+
+CREATE INDEX IF NOT EXISTS idx_approvals_status_created_at
+    ON approvals (status, created_at);
 
 -- ──────────────────────────────────────────────
 -- suspended_invocations
@@ -49,8 +52,8 @@ CREATE TABLE IF NOT EXISTS suspended_invocations (
     payload_digest              TEXT,
     version                     BIGINT      NOT NULL DEFAULT 1,
     CONSTRAINT ck_suspended_invocations_encryption CHECK (
-        encrypted_replay_envelope IS NULL
-        OR (encryption_key_id IS NOT NULL AND encryption_algorithm IS NOT NULL AND encryption_nonce IS NOT NULL AND payload_digest IS NOT NULL)
+        (encrypted_replay_envelope IS NULL AND encryption_key_id IS NULL AND encryption_algorithm IS NULL AND encryption_nonce IS NULL AND payload_digest IS NULL)
+        OR (encrypted_replay_envelope IS NOT NULL AND encryption_key_id IS NOT NULL AND encryption_algorithm IS NOT NULL AND encryption_nonce IS NOT NULL AND payload_digest IS NOT NULL)
     )
 );
 
@@ -81,8 +84,8 @@ CREATE TABLE IF NOT EXISTS audit_events (
 
     PRIMARY KEY (stream_id, sequence_number),
     CONSTRAINT ck_audit_events_encryption CHECK (
-        encrypted_payload IS NULL
-        OR (encryption_key_id IS NOT NULL AND encryption_algorithm IS NOT NULL AND encryption_nonce IS NOT NULL AND payload_digest IS NOT NULL)
+        (encrypted_payload IS NULL AND encryption_key_id IS NULL AND encryption_algorithm IS NULL AND encryption_nonce IS NULL AND payload_digest IS NULL)
+        OR (encrypted_payload IS NOT NULL AND encryption_key_id IS NOT NULL AND encryption_algorithm IS NOT NULL AND encryption_nonce IS NOT NULL AND payload_digest IS NOT NULL)
     )
 );
 
@@ -110,8 +113,8 @@ CREATE TABLE IF NOT EXISTS audit_outbox (
     payload_digest          TEXT,
     version                 BIGINT      NOT NULL DEFAULT 1,
     CONSTRAINT ck_audit_outbox_encryption CHECK (
-        encrypted_payload IS NULL
-        OR (encryption_key_id IS NOT NULL AND encryption_algorithm IS NOT NULL AND encryption_nonce IS NOT NULL AND payload_digest IS NOT NULL)
+        (encrypted_payload IS NULL AND encryption_key_id IS NULL AND encryption_algorithm IS NULL AND encryption_nonce IS NULL AND payload_digest IS NULL)
+        OR (encrypted_payload IS NOT NULL AND encryption_key_id IS NOT NULL AND encryption_algorithm IS NOT NULL AND encryption_nonce IS NOT NULL AND payload_digest IS NOT NULL)
     )
 );
 
