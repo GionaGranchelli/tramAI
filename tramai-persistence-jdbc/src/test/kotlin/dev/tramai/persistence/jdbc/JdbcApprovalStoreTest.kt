@@ -10,6 +10,8 @@ import dev.tramai.core.exception.ApprovalStoreNotConsumableException
 import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.ApprovalStoreTokenRejectedException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
@@ -413,6 +415,59 @@ class JdbcApprovalStoreTest {
             assertTrue(hash.startsWith("sha256:"))
             assertEquals(71, hash.length)
         }
+    }
+
+    // ── RequestedAt round-trip ────────────────────────────────────
+
+    @Test
+    fun `requestedAt round-trips when earlier than store clock`() = runBlocking {
+        val now = fixedClock.instant()
+        val request = approvalRequest(id = "requested-at-roundtrip").copy(
+            requestedAt = now.minusSeconds(30),
+            expiresAt = now.plus(Duration.ofMinutes(5)),
+        )
+
+        store().create(request)
+
+        val loaded = store().get("requested-at-roundtrip")!!
+
+        assertEquals(request.requestedAt, loaded.requestedAt)
+        assertEquals(request.expiresAt, loaded.expiresAt)
+    }
+
+    // ── Concurrent consumption ────────────────────────────────────
+
+    @Test
+    fun `concurrent consumption with same version results in exactly one fresh consume`() = runBlocking {
+        val s = store()
+        s.create(approvalRequest(id = "concurrent-consume"))
+        s.transition("concurrent-consume", 0, ApprovalTransition.Approve("user:bob"))
+
+        val token = Sha256Digest.of("sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+
+        val results = coroutineScope {
+            val d1 = async {
+                try {
+                    val r = s.consumeApprovedOrReplay("concurrent-consume", 1, token, "worker:alpha")
+                    "fresh:${r.replayed}"
+                } catch (e: Exception) {
+                    "error:${e::class.simpleName}"
+                }
+            }
+            val d2 = async {
+                try {
+                    val r = s.consumeApprovedOrReplay("concurrent-consume", 1, token, "worker:alpha")
+                    "fresh:${r.replayed}"
+                } catch (e: Exception) {
+                    "error:${e::class.simpleName}"
+                }
+            }
+            listOf(d1.await(), d2.await())
+        }
+
+        assertEquals(2, results.size)
+        val freshCount = results.count { it == "fresh:false" }
+        assertEquals(1, freshCount, "Exactly one concurrent consumer should get fresh consumption")
     }
 
     // ── Clock ───────────────────────────────────────────────────

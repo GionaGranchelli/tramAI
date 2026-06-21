@@ -21,6 +21,7 @@ import dev.tramai.core.exception.IllegalApprovalTransitionException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.sql.ResultSet
+import java.sql.SQLException
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -32,10 +33,22 @@ import javax.sql.DataSource
  * JDBC-backed [ApprovalStore] implementation using the `approvals` table in PostgreSQL.
  *
  * Approval request data that does not map to dedicated columns is stored as structured
- * JSONB in [ApprovalMetadata.sanitizedMetadata]. The [encrypted_payload] and associated
- * encryption metadata columns remain NULL — this store does not implement payload encryption.
+ * JSONB in `sanitized_metadata`. The `encrypted_payload` and associated encryption metadata
+ * columns remain NULL — this store does not implement payload encryption.
  *
- * Optimistic concurrency is enforced via the `version` column using `WHERE version = ?`.
+ * ## Security model: actor identity
+ * - The indexed `decision_actor_hash` column stores a SHA-256 hash of the deciding
+ *   actor identity. This column is queryable and does not contain raw actor IDs.
+ * - Safe actor IDs (`requestedBy`, `decidedBy`, `consumedBy`) are persisted in the
+ *   `sanitized_metadata` JSONB field to satisfy the [ApprovalStore] SPI contract.
+ * - `decisionComment` is also stored in `sanitized_metadata`. It must not contain
+ *   prompts, model output, PII, secrets, or raw tool arguments.
+ *
+ * ## Concurrency
+ * Optimistic concurrency is enforced via the `version` column using `WHERE version = ?`
+ * (CAS update). Operations run under default JDBC autocommit — each statement is an
+ * implicit transaction. The CAS guard prevents lost updates even without explicit
+ * transaction boundaries.
  *
  * @param dataSource The [DataSource] providing connections to the PostgreSQL database.
  * @param clock The clock used for timestamp generation.
@@ -101,6 +114,7 @@ class JdbcApprovalStore(
             ),
             requestedBy = request.requestedBy,
             expiresAt = request.expiresAt.toString(),
+            requestedAt = request.requestedAt.toString(),
             decidedBy = null,
             decisionComment = null,
             consumedBy = null,
@@ -120,10 +134,13 @@ class JdbcApprovalStore(
                 stmt.setString(3, metadataJson)
                 try {
                     stmt.executeUpdate()
-                } catch (e: Exception) {
-                    // If the PK already exists (duplicate approval_id), PostgreSQL will throw
-                    // a unique violation. Remap to the domain exception.
-                    throw ApprovalStoreConflictException(request.approvalId)
+                } catch (e: SQLException) {
+                    // Map PostgreSQL unique violation (23505) to domain exception;
+                    // rethrow all other SQL failures accurately.
+                    if (e.sqlState == "23505") {
+                        throw ApprovalStoreConflictException(request.approvalId)
+                    }
+                    throw e
                 }
             }
         }
@@ -359,6 +376,7 @@ class JdbcApprovalStore(
         val binding: BindingMetadata,
         val requestedBy: String,
         val expiresAt: String,
+        val requestedAt: String,
         val decidedBy: String?,
         val decisionComment: String?,
         val consumedBy: String?,
@@ -416,7 +434,7 @@ class JdbcApprovalStore(
             binding = binding,
             status = status,
             requestedBy = metadata.requestedBy,
-            requestedAt = row.createdAt.toInstant(),
+            requestedAt = Instant.parse(metadata.requestedAt),
             expiresAt = Instant.parse(metadata.expiresAt),
             decidedBy = decidedBy,
             decidedAt = decidedAt,
