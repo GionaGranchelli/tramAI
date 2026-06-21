@@ -18,6 +18,11 @@ kotlin {
 }
 
 dependencies {
+    api(project(":tramai-core"))
+    implementation(libs.jackson.databind)
+    implementation(libs.jackson.module.kotlin)
+    implementation(libs.jackson.datatype.jsr310)
+
     testImplementation(platform(libs.junit.bom))
     testImplementation(platform(libs.testcontainers.bom))
     testImplementation(libs.assertj.core)
