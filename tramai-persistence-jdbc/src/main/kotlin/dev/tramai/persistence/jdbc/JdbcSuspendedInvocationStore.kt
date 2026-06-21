@@ -2,13 +2,13 @@ package dev.tramai.persistence.jdbc
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
-import com.fasterxml.jackson.databind.json.JsonMapper
-import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.readValue
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.model.Message
+import dev.tramai.core.model.MessageRole
+import dev.tramai.core.model.ToolCall
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ResumeOperationReference
@@ -37,17 +37,24 @@ import javax.sql.DataSource
  * `descriptor_hash`, `replay_envelope_digest`) are stored in dedicated columns
  * for queryability and duplicate detection.
  *
+ * Messages are serialized via explicit [PersistedMessage]/[PersistedToolCall] DTOs,
+ * avoiding Jackson polymorphic typing. Invariant validation (tool call ID/name/index)
+ * is performed before persistence.
+ *
  * ## Security
  * - No raw tool arguments, prompts, model responses, or sensitive payloads are
  *   stored in plaintext — the full replay envelope is always encrypted.
  * - The replay-envelope digest is stored in a plaintext column with a unique
  *   index to prevent double-suspension of the same invocation.
+ * - Safe actor IDs (workflowRunId, actorId, etc.) are stored inside the encrypted
+ *   payload, not in plaintext columns.
  * - The codec is injected by the caller, so key-management is outside this store.
  *
  * ## Concurrency
- * Operations run under default JDBC autocommit. The unique constraints on
- * `invocation_id` (PK) and `replay_envelope_digest` (unique index) provide
- * atomic duplicate detection.
+ * - [create] relies on PostgreSQL unique constraints (PK + unique index) for
+ *   atomic duplicate detection.
+ * - [remove] reads and deletes within one explicit transaction, using
+ *   `SELECT ... FOR UPDATE` to prevent concurrent double-consumption.
  *
  * @param dataSource The [DataSource] providing connections to PostgreSQL.
  * @param replayEnvelopeCodec The codec used to encrypt/decrypt replay payloads.
@@ -60,46 +67,42 @@ class JdbcSuspendedInvocationStore(
 ) : SuspendedInvocationStore {
 
     /**
-     * ObjectMapper used exclusively for serialising the combined
-     * metadata + message payload that goes into [encrypted_replay_envelope].
-     * Default typing is enabled to handle sealed/interface types
-     * ([ContentPart], [Message], etc.) correctly.
+     * Plain ObjectMapper for JSONB-safe metadata serialization (toolSecurity).
+     * No default typing — only used for safe primitive/String fields.
      */
-    private val payloadMapper: ObjectMapper = JsonMapper.builder()
-        .addModule(JavaTimeModule())
-        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-        .activateDefaultTyping(
-            BasicPolymorphicTypeValidator.builder()
-                .allowIfBaseType(Any::class.java)
-                .build(),
-            ObjectMapper.DefaultTyping.NON_FINAL,
-        )
-        .build()
-        .registerKotlinModule()
+    companion object {
+        private val mapper: ObjectMapper = ObjectMapper()
+            .registerKotlinModule()
+            .registerModule(JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+    }
 
     override suspend fun create(
         metadata: SuspendedInvocationMetadata,
         replayEnvelope: SensitiveReplayEnvelope,
     ) {
-        val safeId = validateIdField(metadata.approvalId, "approvalId")
+        validateIdField(metadata.approvalId, "approvalId")
         validateIdField(metadata.toolCallId, "toolCallId")
         validateIdField(metadata.toolName, "toolName")
         validateIdField(metadata.correlationId, "correlationId")
         metadata.conversationId?.let { validateIdField(it, "conversationId") }
+        validateDigestField(metadata.replayEnvelopeDigest.value)
 
+        // Extract messages and validate replay-envelope invariants
         val messages = replayEnvelope.revealForResume().messages
+        validateReplayEnvelopeInvariants(metadata, messages)
 
+        // Serialize via explicit DTOs — no polymorphic typing
+        val pm = messages.map { toPersisted(it) }
         val payload = Payload(
             metadata = PayloadMetadata.fromDomain(metadata),
-            messages = messages,
+            persistedMessages = pm,
         )
-        val payloadJson = payloadMapper.writeValueAsBytes(payload)
+        val payloadJson = mapper.writeValueAsBytes(payload)
 
         val encrypted = replayEnvelopeCodec.encode(payloadJson)
 
         val now = OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC)
-
-        validateDigestField(metadata.replayEnvelopeDigest.value)
 
         dataSource.connection.use { conn ->
             val sql = """
@@ -132,14 +135,26 @@ class JdbcSuspendedInvocationStore(
                     stmt.executeUpdate()
                 } catch (e: SQLException) {
                     if (e.sqlState == "23505") {
-                        val msg = e.message ?: ""
-                        if (msg.contains("replay_envelope_digest", ignoreCase = true)) {
-                            throw IllegalArgumentException(
-                                "suspended-invocation-replay-envelope-digest-already-exists",
-                            )
+                        // Check which constraint fired
+                        val constraintName = extractConstraintName(e)
+                        if (constraintName != null) {
+                            when {
+                                constraintName.contains("replay_envelope", ignoreCase = true) ->
+                                    throw IllegalArgumentException(
+                                        "suspended-invocation-replay-envelope-digest-already-exists",
+                                    )
+                                else ->
+                                    throw IllegalArgumentException(
+                                        "suspended-invocation-already-exists",
+                                    )
+                            }
+                        }
+                        // Fallback: check PK existence to distinguish
+                        if (invocationExists(conn, metadata.approvalId)) {
+                            throw IllegalArgumentException("suspended-invocation-already-exists")
                         }
                         throw IllegalArgumentException(
-                            "suspended-invocation-already-exists",
+                            "suspended-invocation-replay-envelope-digest-already-exists",
                         )
                     }
                     throw e
@@ -165,27 +180,101 @@ class JdbcSuspendedInvocationStore(
     override suspend fun remove(approvalId: String): SuspendedInvocationMetadata? {
         validateIdField(approvalId, "approvalId")
 
-        // Read + decrypt before deleting
-        val row = readCurrent(approvalId) ?: return null
-
+        // Read + delete inside one explicit transaction with row lock
         dataSource.connection.use { conn ->
-            val sql = "DELETE FROM suspended_invocations WHERE invocation_id = ?"
-            conn.prepareStatement(sql).use { stmt ->
-                stmt.setString(1, approvalId)
-                stmt.executeUpdate()
+            conn.autoCommit = false
+            try {
+                val sql = """
+                    SELECT encrypted_replay_envelope, encryption_key_id, encryption_algorithm,
+                           encryption_nonce, payload_digest, version
+                    FROM suspended_invocations
+                    WHERE invocation_id = ?
+                    FOR UPDATE
+                """.trimIndent()
+                val row = conn.prepareStatement(sql).use { stmt ->
+                    stmt.setString(1, approvalId)
+                    stmt.executeQuery().use { rs ->
+                        if (!rs.next()) {
+                            conn.rollback()
+                            return@remove null
+                        }
+
+                        val encrypted = readEncryptedFromRow(rs)
+                        val v = rs.getLong("version")
+                        val payload = decryptAndDeserialize(encrypted)
+                        val domainMessages = payload.persistedMessages.map { toDomainMessage(it) }
+                        Triple(encrypted, v, PayloadWithDomainMessages(payload.metadata, domainMessages))
+                    }
+                }
+                val (_, _, payloadWithMessages) = row
+
+                val deleteSql = "DELETE FROM suspended_invocations WHERE invocation_id = ?"
+                conn.prepareStatement(deleteSql).use { stmt ->
+                    stmt.setString(1, approvalId)
+                    stmt.executeUpdate()
+                }
+
+                conn.commit()
+                return payloadWithMessages.metadata.toDomain()
+            } catch (e: Exception) {
+                conn.rollback()
+                throw e
+            } finally {
+                conn.autoCommit = true
             }
         }
-
-        return row.metadata.toDomain()
     }
 
     // ── Internal helpers ──────────────────────────────────────────
 
-    private data class DecryptedRow(
-        val metadata: PayloadMetadata,
-        val messages: List<Message>,
-        val version: Long,
-    )
+    /**
+     * Validates invariants between the [SuspendedInvocationMetadata] and the
+     * replay envelope [Message]s that will be persisted:
+     * - Tool call ID, name, and index in the messages must match metadata.
+     */
+    private fun validateReplayEnvelopeInvariants(
+        metadata: SuspendedInvocationMetadata,
+        messages: List<Message>,
+    ) {
+        // Find the matching assistant message with tool calls
+        val assistantMsg = messages.lastOrNull { it.role == MessageRole.ASSISTANT && !it.toolCalls.isNullOrEmpty() }
+            ?: throw IllegalArgumentException("replay-envelope-no-assistant-tool-calls")
+
+        val tc = checkNotNull(assistantMsg.toolCalls)
+
+        require(metadata.toolCallIndex in tc.indices) { "replay-envelope-tool-call-index-out-of-bounds" }
+        val selectedCall = tc[metadata.toolCallIndex]
+        require(selectedCall.id == metadata.toolCallId) { "replay-envelope-tool-call-id-mismatch" }
+        require(selectedCall.name == metadata.toolName) { "replay-envelope-tool-call-name-mismatch" }
+    }
+
+    /**
+     * Extracts the constraint name from a [SQLException] message text.
+     * Returns null when the constraint name cannot be determined.
+     * Handles PostgreSQL error format: "duplicate key value violates unique constraint \"name\"".
+     */
+    private fun extractConstraintName(e: SQLException): String? {
+        // Parse constraint name from the PostgreSQL error message
+        // Pattern: "duplicate key value violates unique constraint "uq_name""
+        // or: "Key (column)=(value) already exists."
+        val msg = e.message ?: return null
+        val constraintMatch = Regex("""constraint "?([^"\s]+)"?""").find(msg)
+        return constraintMatch?.groupValues?.getOrNull(1)
+    }
+
+    /**
+     * Checks whether a row with the given [approvalId] exists in the table.
+     * Uses the same connection to stay within the existing transaction context.
+     */
+    private fun invocationExists(conn: java.sql.Connection, approvalId: String): Boolean {
+        val sql = "SELECT 1 FROM suspended_invocations WHERE invocation_id = ?"
+        conn.prepareStatement(sql).use { stmt ->
+            stmt.setString(1, approvalId)
+            stmt.executeQuery().use { rs ->
+                return rs.next()
+            }
+        }
+    }
 
     /**
      * Reads one row from [suspended_invocations] by [approvalId],
@@ -205,41 +294,13 @@ class JdbcSuspendedInvocationStore(
                 stmt.executeQuery().use { rs ->
                     if (!rs.next()) return null
 
-                    val ciphertext = rs.getBytes("encrypted_replay_envelope")
-                        ?: throw IllegalStateException("suspended-invocation-corrupted: encrypted_replay_envelope is null")
-                    val keyId = rs.getString("encryption_key_id")
-                        ?: throw IllegalStateException("suspended-invocation-corrupted: encryption_key_id is null")
-                    val algorithm = rs.getString("encryption_algorithm")
-                        ?: throw IllegalStateException("suspended-invocation-corrupted: encryption_algorithm is null")
-                    val nonce = rs.getBytes("encryption_nonce")
-                        ?: throw IllegalStateException("suspended-invocation-corrupted: encryption_nonce is null")
-                    val payloadDigest = rs.getString("payload_digest")
-                        ?: throw IllegalStateException("suspended-invocation-corrupted: payload_digest is null")
+                    val encrypted = readEncryptedFromRow(rs)
                     val version = rs.getLong("version")
-
-                    val encrypted = JdbcEncryptedReplayEnvelope(
-                        ciphertext = ciphertext,
-                        keyId = keyId,
-                        algorithm = algorithm,
-                        nonce = nonce,
-                        payloadDigest = payloadDigest,
-                    )
-
-                    val plaintext = try {
-                        replayEnvelopeCodec.decode(encrypted)
-                    } catch (e: Exception) {
-                        throw IllegalStateException("suspended-invocation-decryption-failed", e)
-                    }
-
-                    val payload: Payload = try {
-                        payloadMapper.readValue(plaintext)
-                    } catch (e: Exception) {
-                        throw IllegalStateException("suspended-invocation-deserialization-failed", e)
-                    }
+                    val payload = decryptAndDeserialize(encrypted)
 
                     return DecryptedRow(
                         metadata = payload.metadata,
-                        messages = payload.messages,
+                        messages = payload.persistedMessages.map { toDomainMessage(it) },
                         version = version,
                     )
                 }
@@ -247,32 +308,123 @@ class JdbcSuspendedInvocationStore(
         }
     }
 
-    private fun validateIdField(value: String, fieldName: String): String {
+    private data class DecryptedRow(
+        val metadata: PayloadMetadata,
+        val messages: List<Message>,
+        val version: Long,
+    )
+
+    private fun readEncryptedFromRow(rs: ResultSet): JdbcEncryptedReplayEnvelope {
+        val ciphertext = rs.getBytes("encrypted_replay_envelope")
+            ?: throw IllegalStateException("suspended-invocation-corrupted: encrypted_replay_envelope is null")
+        val keyId = rs.getString("encryption_key_id")
+            ?: throw IllegalStateException("suspended-invocation-corrupted: encryption_key_id is null")
+        val algorithm = rs.getString("encryption_algorithm")
+            ?: throw IllegalStateException("suspended-invocation-corrupted: encryption_algorithm is null")
+        val nonce = rs.getBytes("encryption_nonce")
+            ?: throw IllegalStateException("suspended-invocation-corrupted: encryption_nonce is null")
+        val payloadDigest = rs.getString("payload_digest")
+            ?: throw IllegalStateException("suspended-invocation-corrupted: payload_digest is null")
+
+        return JdbcEncryptedReplayEnvelope(
+            ciphertext = ciphertext,
+            keyId = keyId,
+            algorithm = algorithm,
+            nonce = nonce,
+            payloadDigest = payloadDigest,
+        )
+    }
+
+    private fun decryptAndDeserialize(encrypted: JdbcEncryptedReplayEnvelope): Payload {
+        val plaintext = try {
+            replayEnvelopeCodec.decode(encrypted)
+        } catch (e: Exception) {
+            throw IllegalStateException("suspended-invocation-decryption-failed", e)
+        }
+
+        return try {
+            mapper.readValue(plaintext)
+        } catch (e: Exception) {
+            throw IllegalStateException("suspended-invocation-deserialization-failed", e)
+        }
+    }
+
+    private fun validateIdField(value: String, fieldName: String) {
         require(value.isNotBlank()) { "$fieldName must not be blank" }
         require(value.none { it.isISOControl() }) { "$fieldName must not contain control characters" }
         require(value.length <= 256) { "$fieldName exceeds maximum length of 256" }
         require(value == value.trim()) { "$fieldName must not contain surrounding whitespace" }
-        return value
     }
 
     private fun validateDigestField(value: String) {
-        require(value.startsWith("sha256:")) { "replayEnvelopeDigest must start with 'sha256:'" }
-        require(value.length == 71) { "replayEnvelopeDigest must be 71 characters (sha256: + 64 hex chars)" }
+        require(value.matches(Regex("^sha256:[0-9a-f]{64}$"))) {
+            "replayEnvelopeDigest must match sha256: followed by 64 hex characters"
+        }
     }
+
+    // ── Explicit DTO serialization (no polymorphic typing) ─────────
+
+    private data class PayloadWithDomainMessages(
+        val metadata: PayloadMetadata,
+        val messages: List<Message>,
+    )
+
+    private fun toDomainMessage(pm: PersistedMessage): Message = Message(
+        role = MessageRole.valueOf(pm.role),
+        content = pm.content,
+        toolCalls = pm.toolCalls?.map { toDomainToolCall(it) },
+    )
+
+    private fun toDomainToolCall(ptc: PersistedToolCall): ToolCall = ToolCall(
+        id = ptc.id,
+        name = ptc.name,
+        argumentsJson = ptc.argumentsJson,
+    )
+
+    /**
+     * Persistable snapshot of a [Message] — no Jackson default typing needed.
+     */
+    private data class PersistedMessage(
+        val role: String,
+        val content: String,
+        val toolCalls: List<PersistedToolCall>?,
+    )
+
+    /**
+     * Persistable snapshot of a [ToolCall] — no Jackson default typing needed.
+     */
+    private data class PersistedToolCall(
+        val id: String,
+        val name: String,
+        val argumentsJson: String,
+    )
+
+    private fun toPersisted(msg: Message): PersistedMessage = PersistedMessage(
+        role = msg.role.name,
+        content = msg.content,
+        toolCalls = msg.toolCalls?.map { toPersistedToolCall(it) },
+    )
+
+    private fun toPersistedToolCall(tc: ToolCall): PersistedToolCall = PersistedToolCall(
+        id = tc.id,
+        name = tc.name,
+        argumentsJson = tc.argumentsJson,
+    )
 
     // ── Internal data types for serialisation ─────────────────────
 
     /**
      * Combined payload that is serialised as JSON, then encrypted.
+     * Uses PersistedMessage DTOs — no Jackson default typing.
      */
     private data class Payload(
         val metadata: PayloadMetadata,
-        val messages: List<Message>,
+        val persistedMessages: List<PersistedMessage>,
     )
 
     /**
      * Persistable snapshot of [SuspendedInvocationMetadata].
-     * All fields are serialisable without Jackson default-typing.
+     * All fields are plain Strings/numbers — no Jackson default typing.
      */
     private data class PayloadMetadata(
         val approvalId: String,
@@ -304,11 +456,6 @@ class JdbcSuspendedInvocationStore(
         val toolSecurity: String?,
     ) {
         companion object {
-            private val mapper: ObjectMapper = ObjectMapper()
-                .registerKotlinModule()
-                .registerModule(JavaTimeModule())
-                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-
             fun fromDomain(metadata: SuspendedInvocationMetadata): PayloadMetadata = PayloadMetadata(
                 approvalId = metadata.approvalId,
                 toolCallId = metadata.toolCallId,

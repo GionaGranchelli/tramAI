@@ -9,7 +9,7 @@ package dev.tramai.persistence.jdbc
  */
 interface JdbcReplayEnvelopeCodec {
     /**
-     * Encrypt [plaintext] and produce an [JdbcEncryptedReplayEnvelope]
+     * Encrypt [plaintext] and produce a [JdbcEncryptedReplayEnvelope]
      * suitable for storage in the `suspended_invocations` table.
      */
     fun encode(plaintext: ByteArray): JdbcEncryptedReplayEnvelope

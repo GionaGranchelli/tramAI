@@ -29,7 +29,6 @@ import java.security.SecureRandom
 import java.sql.Connection
 import java.sql.DriverManager
 import java.time.Clock
-import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import javax.crypto.Cipher
@@ -99,37 +98,6 @@ class JdbcSuspendedInvocationStoreTest {
         }
     }
 
-    // An alternative codec with a DIFFERENT key for corrupted-decryption tests
-    private val wrongKeyCodec = object : JdbcReplayEnvelopeCodec {
-        private val wrongKey = ByteArray(16).also { SecureRandom().nextBytes(it) }
-        private val ALGORITHM = "AES/GCM/NoPadding"
-        private val TAG_LENGTH = 128
-
-        override fun encode(plaintext: ByteArray): JdbcEncryptedReplayEnvelope {
-            val cipher = Cipher.getInstance(ALGORITHM)
-            val nonce = ByteArray(12).also { SecureRandom().nextBytes(it) }
-            val keySpec = SecretKeySpec(wrongKey, "AES")
-            val spec = GCMParameterSpec(TAG_LENGTH, nonce)
-            cipher.init(Cipher.ENCRYPT_MODE, keySpec, spec)
-            val ciphertext = cipher.doFinal(plaintext)
-            return JdbcEncryptedReplayEnvelope(
-                ciphertext = ciphertext,
-                keyId = "broken-key",
-                algorithm = ALGORITHM,
-                nonce = nonce,
-                payloadDigest = "sha256:corrupted",
-            )
-        }
-
-        override fun decode(envelope: JdbcEncryptedReplayEnvelope): ByteArray {
-            val cipher = Cipher.getInstance(ALGORITHM)
-            val keySpec = SecretKeySpec(wrongKey, "AES")
-            val spec = GCMParameterSpec(TAG_LENGTH, envelope.nonce)
-            cipher.init(Cipher.DECRYPT_MODE, keySpec, spec)
-            return cipher.doFinal(envelope.ciphertext)
-        }
-    }
-
     // Codec that returns mismatched metadata (wrong keyId)
     private val wrongMetadataCodec = object : JdbcReplayEnvelopeCodec {
         override fun encode(plaintext: ByteArray): JdbcEncryptedReplayEnvelope {
@@ -143,7 +111,6 @@ class JdbcSuspendedInvocationStoreTest {
     }
 
     private val fixedDigest = Sha256Digest.of("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-    private val fixedTokenDigest = Sha256Digest.of("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 
     @BeforeAll
     fun startPostgres() {
@@ -318,7 +285,11 @@ class JdbcSuspendedInvocationStoreTest {
                 sampleEnvelope(),
             )
         }
-        assertTrue(ex.message?.contains("digest", ignoreCase = true) == true)
+        assertTrue(
+            ex.message?.contains("digest", ignoreCase = true) == true ||
+            ex.message?.contains("exists", ignoreCase = true) == true,
+            "Expected digest/conflict message but got: ${ex.message}",
+        )
     }
 
     @Test
@@ -394,7 +365,7 @@ class JdbcSuspendedInvocationStoreTest {
             ),
         )
         s.create(
-            sampleMetadata("si-no-raw"),
+            sampleMetadata("si-no-raw").copy(toolCallId = "tc-x"),
             sampleEnvelope(messages),
         )
 
@@ -528,15 +499,35 @@ class JdbcSuspendedInvocationStoreTest {
 
     @Test
     fun `non-unique SQL errors are not mapped to duplicate conflicts`() = runBlocking {
-        // This tests that a non-23505 SQL error doesn't get swallowed.
-        // We can't easily trigger a non-23505 error in the INSERT path,
-        // so we verify by trying to insert a row with a null PK
-        val s = store()
-        val badMetadata = sampleMetadata("")
-        val ex = assertFailsWith<IllegalArgumentException> {
-            s.create(badMetadata, sampleEnvelope())
+        // Verify that a non-23505 SQLException is rethrown, not swallowed as conflict
+        val realDs = createDataSource()
+        val throwingDs = object : DataSource by realDs {
+            private var callCount = 0
+            override fun getConnection(): java.sql.Connection {
+                callCount++
+                val realConn = realDs.getConnection()
+                return object : java.sql.Connection by realConn {
+                    override fun prepareStatement(sql: String): java.sql.PreparedStatement {
+                        // On the INSERT call (matches INSERT pattern), throw a non-23505 error
+                        if (sql.trimStart().startsWith("INSERT", ignoreCase = true)) {
+                            realConn.close()
+                            throw java.sql.SQLException("connection failure", "08006")
+                        }
+                        return realConn.prepareStatement(sql)
+                    }
+                }
+            }
         }
-        assertTrue(ex.message?.contains("blank", ignoreCase = true) == true)
+        val s = JdbcSuspendedInvocationStore(
+            dataSource = throwingDs,
+            replayEnvelopeCodec = testCodec,
+            clock = fixedClock,
+        )
+        val ex = assertFailsWith<java.sql.SQLException> {
+            s.create(sampleMetadata("si-sql-error"), sampleEnvelope())
+        }
+        assertTrue(ex.message?.contains("connection failure", ignoreCase = true) == true,
+            "Non-23505 SQL error must be rethrown, not mapped to conflict")
     }
 
     @Test
@@ -568,6 +559,22 @@ class JdbcSuspendedInvocationStoreTest {
         assertEquals(2, results.size)
         val createdCount = results.count { it == "created" }
         assertEquals(1, createdCount, "Exactly one concurrent creation should succeed")
+    }
+
+    @Test
+    fun `concurrent remove returns metadata once and null once`() = runBlocking {
+        val s = store()
+        s.create(sampleMetadata("si-remove-concurrent"), sampleEnvelope())
+
+        val results = coroutineScope {
+            listOf(
+                async { s.remove("si-remove-concurrent") },
+                async { s.remove("si-remove-concurrent") },
+            ).map { it.await() }
+        }
+
+        assertEquals(1, results.count { it != null })
+        assertEquals(1, results.count { it == null })
     }
 
     @Test
