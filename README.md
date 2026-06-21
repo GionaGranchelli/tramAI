@@ -242,13 +242,9 @@ The sovereign runtime capabilities on `master` are actively evolving and not yet
 - [docs/releases/sovereign-runtime-release-readiness.md](docs/releases/sovereign-runtime-release-readiness.md)
 - [docs/modules/sovereign-runtime-module-matrix.md](docs/modules/sovereign-runtime-module-matrix.md)
 
-To run the full local release-candidate verification chain:
+For a practical first integration path, see:
 
-```bash
-./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks
-```
-
-This validates the release-candidate evidence locally — full subproject test suite, release readiness, local publication, signed bundle dry-run, consumer-resolution smoke, sovereign document intelligence evidence run, and evidence index generation. It does not publish remotely, create a tag, or claim Maven Central availability.
+- [Sovereign Runtime Quickstart](docs/guides/sovereign-runtime-quickstart.md)
 
 ## Development Commands
 
