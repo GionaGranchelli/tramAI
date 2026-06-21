@@ -20,10 +20,10 @@ class DefaultSovereignSuspendedInvocationOperations(
         approvalId: String,
     ): SovereignSuspendedInvocationSummary? {
         validateId(approvalId)
-        if (store == null) {
-            throw IllegalStateException("tramai-sovereign-ops-store-unavailable")
+        val suspendedInvocationStore = checkNotNull(store) {
+            "tramai-sovereign-ops-store-unavailable"
         }
-        val metadata = store.get(approvalId) ?: return null
+        val metadata = suspendedInvocationStore.get(approvalId) ?: return null
         return metadata.toSummary()
     }
 

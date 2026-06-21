@@ -297,8 +297,8 @@ class TramaiAutoConfiguration {
     ): String? {
         val trimmedDirect = directValue?.trim()?.takeIf { it.isNotBlank() }
         val trimmedRef = secretRef?.trim()?.takeIf { it.isNotBlank() }
-        if (trimmedDirect != null && trimmedRef != null) {
-            throw IllegalStateException("$fieldName cannot be configured together with its secret reference")
+        check(trimmedDirect == null || trimmedRef == null) {
+            "$fieldName cannot be configured together with its secret reference"
         }
         if (trimmedRef == null) {
             return trimmedDirect

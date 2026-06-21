@@ -33,10 +33,10 @@ class DefaultSovereignAuditOperations(
         require(afterSequenceNumber == null || afterSequenceNumber >= 0) {
             "tramai-sovereign-ops-invalid-audit-cursor"
         }
-        if (store == null) {
-            throw IllegalStateException("tramai-sovereign-ops-store-unavailable")
+        val auditStore = checkNotNull(store) {
+            "tramai-sovereign-ops-store-unavailable"
         }
-        return store.readStreamPage(
+        return auditStore.readStreamPage(
             auditStreamId = auditStreamId,
             afterSequenceNumber = afterSequenceNumber,
             limit = effectiveLimit,
@@ -47,10 +47,10 @@ class DefaultSovereignAuditOperations(
         auditStreamId: String,
     ): SovereignAuditEventSummary? {
         validateAuditStreamId(auditStreamId)
-        if (store == null) {
-            throw IllegalStateException("tramai-sovereign-ops-store-unavailable")
+        val auditStore = checkNotNull(store) {
+            "tramai-sovereign-ops-store-unavailable"
         }
-        return store.latestEvent(auditStreamId)?.toSummary()
+        return auditStore.latestEvent(auditStreamId)?.toSummary()
     }
 
     // ── Validation ──

@@ -534,11 +534,11 @@ class SovereignTramai private constructor(
                         )
                     } ?: throw IllegalStateException("artifact-approved-model-not-found")
 
-                    if (
-                        verificationSettings.requireDigestForLocalModels &&
-                        registeredModel.artifactDigest == null
+                    check(
+                        !verificationSettings.requireDigestForLocalModels ||
+                            registeredModel.artifactDigest != null,
                     ) {
-                        throw IllegalStateException("artifact-digest-required-for-local-model")
+                        "artifact-digest-required-for-local-model"
                     }
 
                     val receipt = try {

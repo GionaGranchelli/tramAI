@@ -446,8 +446,8 @@ class JdbcApprovalStore(
     }
 
     private fun parseMetadata(json: String?): ApprovalMetadata {
-        if (json == null || json.isBlank()) {
-            throw IllegalStateException("sanitized_metadata must not be null for a stored approval")
+        check(json != null && json.isNotBlank()) {
+            "sanitized_metadata must not be null for a stored approval"
         }
         return mapper.readValue(json)
     }

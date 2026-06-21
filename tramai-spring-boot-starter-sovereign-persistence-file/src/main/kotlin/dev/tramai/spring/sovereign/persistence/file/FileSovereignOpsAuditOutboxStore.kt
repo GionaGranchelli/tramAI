@@ -212,11 +212,11 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
 
         appendLock.lock()
         try {
-            if (Files.exists(storePath(record.outboxId), LinkOption.NOFOLLOW_LINKS)) {
-                throw IllegalArgumentException("tramai-sovereign-ops-outbox-duplicate-id")
+            require(!Files.exists(storePath(record.outboxId), LinkOption.NOFOLLOW_LINKS)) {
+                "tramai-sovereign-ops-outbox-duplicate-id"
             }
-            if (eventKeyIndex.containsKey(record.eventKey)) {
-                throw IllegalArgumentException("tramai-sovereign-ops-outbox-duplicate-event-key")
+            require(!eventKeyIndex.containsKey(record.eventKey)) {
+                "tramai-sovereign-ops-outbox-duplicate-event-key"
             }
 
             createAtomically(record.toPersistedV1(outboxRecordVersion = 0L))

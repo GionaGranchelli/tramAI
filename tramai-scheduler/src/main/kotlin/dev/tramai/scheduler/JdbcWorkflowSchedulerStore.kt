@@ -873,8 +873,8 @@ class JdbcWorkflowSchedulerStore(
             connection.prepareStatement(sql).use { statement ->
                 bind(statement)
                 val updated = statement.executeUpdate()
-                if (updated == 0) {
-                    throw IllegalArgumentException("Cannot $terminalAction scheduled tick '$tickId'; claim token does not match")
+                require(updated != 0) {
+                    "Cannot $terminalAction scheduled tick '$tickId'; claim token does not match"
                 }
             }
         }
@@ -892,10 +892,8 @@ class JdbcWorkflowSchedulerStore(
             connection.prepareStatement(sql).use { statement ->
                 bind(statement)
                 val updated = statement.executeUpdate()
-                if (updated == 0) {
-                    throw IllegalArgumentException(
-                        "Cannot $action delay wakeup '${delayWakeupId(runId, stepId)}'; claim token does not match",
-                    )
+                require(updated != 0) {
+                    "Cannot $action delay wakeup '${delayWakeupId(runId, stepId)}'; claim token does not match"
                 }
             }
         }

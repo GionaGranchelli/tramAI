@@ -3278,16 +3278,15 @@ internal class TramaiInvocationHandler(
         cached: CachedOperationResult,
     ) {
         val provenance = cached.provenance
-        if (provenance.providerId.isBlank() ||
-            provenance.modelName.isBlank() ||
-            provenance.dataClassification != key.securityPartition.dataClassification ||
-            provenance.classificationSource != key.securityPartition.classificationSource
+        check(
+            provenance.providerId.isNotBlank() &&
+                provenance.modelName.isNotBlank() &&
+                provenance.dataClassification == key.securityPartition.dataClassification &&
+                provenance.classificationSource == key.securityPartition.classificationSource,
         ) {
-            throw IllegalStateException(
                 "Cached entry envelope mismatch: key partition " +
                     "${key.securityPartition} != cached provenance partition " +
-                    "(${provenance.dataClassification}, ${provenance.classificationSource})",
-            )
+                    "(${provenance.dataClassification}, ${provenance.classificationSource})"
         }
     }
 

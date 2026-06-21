@@ -52,19 +52,19 @@ class DefaultSovereignApprovalOperations(
         actor: String,
         reason: String,
     ): SovereignApprovalSummary {
-        if (!properties.mutationsEnabled) {
-            throw IllegalStateException("tramai-sovereign-ops-mutations-disabled")
+        check(properties.mutationsEnabled) {
+            "tramai-sovereign-ops-mutations-disabled"
         }
         validateApprovalId(approvalId)
         validateActor(actor)
         validateReason(reason)
 
-        if (outboxDispatcher == null) {
-            throw IllegalStateException("tramai-sovereign-ops-audit-unavailable")
+        checkNotNull(outboxDispatcher) {
+            "tramai-sovereign-ops-audit-unavailable"
         }
 
-        if (!outboxStore.isDurable()) {
-            throw IllegalStateException("tramai-sovereign-ops-audit-outbox-not-durable")
+        check(outboxStore.isDurable()) {
+            "tramai-sovereign-ops-audit-outbox-not-durable"
         }
 
         val request = approvalStore.get(approvalId)

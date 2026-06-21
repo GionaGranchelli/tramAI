@@ -29,8 +29,8 @@ object ReleaseBundleEvidenceLoader {
      */
     @JvmStatic
     fun load(path: Path): ReleaseBundleEvidenceV1 {
-        if (!Files.exists(path)) {
-            throw IllegalStateException("release-bundle-evidence-missing: $path")
+        check(Files.exists(path)) {
+            "release-bundle-evidence-missing: $path"
         }
 
         val text: String = try {
@@ -48,26 +48,30 @@ object ReleaseBundleEvidenceLoader {
             throw IllegalStateException("release-bundle-evidence-invalid-json", e)
         }
 
-        val obj = root as? Map<*, *>
-            ?: throw IllegalStateException("release-bundle-evidence-invalid-json: root is not an object")
+        val obj = checkNotNull(root as? Map<*, *>) {
+            "release-bundle-evidence-invalid-json: root is not an object"
+        }
 
-        val schemaVersion = (obj["schemaVersion"] as? Number)?.toInt()
-            ?: throw IllegalStateException("release-bundle-evidence-unsupported-schema-version")
-        if (schemaVersion != 1) {
-            throw IllegalStateException("release-bundle-evidence-unsupported-schema-version: $schemaVersion")
+        val schemaVersion = checkNotNull((obj["schemaVersion"] as? Number)?.toInt()) {
+            "release-bundle-evidence-unsupported-schema-version"
+        }
+        check(schemaVersion == 1) {
+            "release-bundle-evidence-unsupported-schema-version: $schemaVersion"
         }
 
         val buildTool = stringField(obj, "buildTool")
         val javaVersion = stringField(obj, "javaVersion")
         val gradleVersion = stringField(obj, "gradleVersion")
 
-        val rawArtifacts = obj["artifacts"]
-            ?: throw IllegalStateException("release-bundle-evidence-missing-artifacts")
-        val artifactList = rawArtifacts as? List<*>
-            ?: throw IllegalStateException("release-bundle-evidence-invalid-json: artifacts is not an array")
+        val rawArtifacts = checkNotNull(obj["artifacts"]) {
+            "release-bundle-evidence-missing-artifacts"
+        }
+        val artifactList = checkNotNull(rawArtifacts as? List<*>) {
+            "release-bundle-evidence-invalid-json: artifacts is not an array"
+        }
 
-        if (artifactList.isEmpty()) {
-            throw IllegalStateException("release-bundle-evidence-empty-artifacts")
+        check(artifactList.isNotEmpty()) {
+            "release-bundle-evidence-empty-artifacts"
         }
 
         val seenFileNames = mutableSetOf<String>()
@@ -75,8 +79,9 @@ object ReleaseBundleEvidenceLoader {
         val resultArtifacts = mutableListOf<ReleaseArtifactEvidenceV1>()
 
         for ((i, rawEntry) in artifactList.withIndex()) {
-            val entry = rawEntry as? Map<*, *>
-                ?: throw IllegalStateException("release-bundle-evidence-invalid-artifact-entry (index $i)")
+            val entry = checkNotNull(rawEntry as? Map<*, *>) {
+                "release-bundle-evidence-invalid-artifact-entry (index $i)"
+            }
 
             val groupId = stringField(entry, "groupId", i)
             val artifactId = stringField(entry, "artifactId", i)
@@ -90,41 +95,41 @@ object ReleaseBundleEvidenceLoader {
             val classifier = when (rawClassifier) {
                 null -> null
                 is String -> rawClassifier
-                else -> throw IllegalStateException(
+                else -> error(
                     "release-bundle-evidence-invalid-artifact-entry (index $i): classifier must be String or null"
                 )
             }
 
             // Unsafe file name
-            if (fileName.isBlank() || !safeFileNameRegex.matches(fileName)) {
-                throw IllegalStateException("release-bundle-evidence-unsafe-file-name: $fileName")
+            check(fileName.isNotBlank() && safeFileNameRegex.matches(fileName)) {
+                "release-bundle-evidence-unsafe-file-name: $fileName"
             }
 
             // Digest format
-            if (!digestRegex.matches(sha256)) {
-                throw IllegalStateException("release-bundle-evidence-invalid-digest-format: $sha256")
+            check(digestRegex.matches(sha256)) {
+                "release-bundle-evidence-invalid-digest-format: $sha256"
             }
 
             // Size must be positive
             val size = sizeBytes.toLong()
-            if (size <= 0) {
-                throw IllegalStateException("release-bundle-evidence-invalid-size: $size")
+            check(size > 0) {
+                "release-bundle-evidence-invalid-size: $size"
             }
 
             // Only JAR extension supported
-            if (extension != "jar") {
-                throw IllegalStateException("release-bundle-evidence-unsupported-extension: $extension")
+            check(extension == "jar") {
+                "release-bundle-evidence-unsupported-extension: $extension"
             }
 
             // Duplicate fileName
-            if (!seenFileNames.add(fileName)) {
-                throw IllegalStateException("release-bundle-evidence-duplicate-file-name: $fileName")
+            check(seenFileNames.add(fileName)) {
+                "release-bundle-evidence-duplicate-file-name: $fileName"
             }
 
             // Duplicate coordinate
             val coordinate = "$groupId:$artifactId:$version:${classifier ?: ""}:$extension"
-            if (!seenCoordinates.add(coordinate)) {
-                throw IllegalStateException("release-bundle-evidence-duplicate-coordinate: $coordinate")
+            check(seenCoordinates.add(coordinate)) {
+                "release-bundle-evidence-duplicate-coordinate: $coordinate"
             }
 
             resultArtifacts.add(
@@ -152,14 +157,16 @@ object ReleaseBundleEvidenceLoader {
 
     private fun stringField(obj: Map<*, *>, key: String, index: Int? = null): String {
         val prefix = if (index != null) " (index $index)" else ""
-        return (obj[key] as? String)
-            ?: throw IllegalStateException("release-bundle-evidence-invalid-artifact-entry$prefix: missing or non-String $key")
+        return checkNotNull(obj[key] as? String) {
+            "release-bundle-evidence-invalid-artifact-entry$prefix: missing or non-String $key"
+        }
     }
 
     private fun numericField(obj: Map<*, *>, key: String, index: Int? = null): Number {
         val prefix = if (index != null) " (index $index)" else ""
-        return (obj[key] as? Number)
-            ?: throw IllegalStateException("release-bundle-evidence-invalid-artifact-entry$prefix: missing or non-Numeric $key")
+        return checkNotNull(obj[key] as? Number) {
+            "release-bundle-evidence-invalid-artifact-entry$prefix: missing or non-Numeric $key"
+        }
     }
 
     // ── Minimal recursive-descent JSON parser ──────────────────────────────
@@ -179,7 +186,7 @@ object ReleaseBundleEvidenceLoader {
                 't', 'f' -> parseBoolean()
                 'n' -> parseNull()
                 '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' -> parseNumber()
-                else -> throw IllegalStateException("release-bundle-evidence-invalid-json: unexpected '${ch}' at position $pos")
+                else -> error("release-bundle-evidence-invalid-json: unexpected '${ch}' at position $pos")
             }
         }
 
@@ -192,8 +199,8 @@ object ReleaseBundleEvidenceLoader {
             skipWhitespace()
             val value = parseValue()
             skipWhitespace()
-            if (!isAtEnd()) {
-                throw IllegalStateException("release-bundle-evidence-invalid-json: trailing content at position $pos")
+            check(isAtEnd()) {
+                "release-bundle-evidence-invalid-json: trailing content at position $pos"
             }
             return value
         }
@@ -217,7 +224,7 @@ object ReleaseBundleEvidenceLoader {
                 val ch = peek()
                 if (ch == '}') { pos++; return map }
                 if (ch == ',') { pos++; continue }
-                throw IllegalStateException("release-bundle-evidence-invalid-json: expected ',' or '}' at position $pos")
+                error("release-bundle-evidence-invalid-json: expected ',' or '}' at position $pos")
             }
         }
 
@@ -233,7 +240,7 @@ object ReleaseBundleEvidenceLoader {
                 val ch = peek()
                 if (ch == ']') { pos++; return list }
                 if (ch == ',') { pos++; continue }
-                throw IllegalStateException("release-bundle-evidence-invalid-json: expected ',' or ']' at position $pos")
+                error("release-bundle-evidence-invalid-json: expected ',' or ']' at position $pos")
             }
         }
 
@@ -246,7 +253,7 @@ object ReleaseBundleEvidenceLoader {
                 if (ch == '\\') {
                     pos++
                     val esc = text.getOrElse(pos) {
-                        throw IllegalStateException("release-bundle-evidence-invalid-json: unexpected end in escape")
+                        error("release-bundle-evidence-invalid-json: unexpected end in escape")
                     }
                     sb.append(
                         when (esc) {
@@ -257,7 +264,7 @@ object ReleaseBundleEvidenceLoader {
                                 pos += 4
                                 hex.toInt(16).toChar()
                             }
-                            else -> throw IllegalStateException("release-bundle-evidence-invalid-json: unknown escape '\\$esc'")
+                            else -> error("release-bundle-evidence-invalid-json: unknown escape '\\$esc'")
                         }
                     )
                     pos++
@@ -266,7 +273,7 @@ object ReleaseBundleEvidenceLoader {
                     pos++
                 }
             }
-            throw IllegalStateException("release-bundle-evidence-invalid-json: unclosed string")
+            error("release-bundle-evidence-invalid-json: unclosed string")
         }
 
         private fun parseNumber(): Number {
@@ -296,7 +303,7 @@ object ReleaseBundleEvidenceLoader {
             } else if (text.startsWith("false", pos)) {
                 pos += 5; false
             } else {
-                throw IllegalStateException("release-bundle-evidence-invalid-json at position $pos")
+                error("release-bundle-evidence-invalid-json at position $pos")
             }
         }
 
@@ -304,15 +311,13 @@ object ReleaseBundleEvidenceLoader {
             if (text.startsWith("null", pos)) {
                 pos += 4; return null
             }
-            throw IllegalStateException("release-bundle-evidence-invalid-json at position $pos")
+            error("release-bundle-evidence-invalid-json at position $pos")
         }
 
         private fun expect(ch: Char) {
             skipWhitespace()
-            if (pos >= text.length || text[pos] != ch) {
-                throw IllegalStateException(
-                    "release-bundle-evidence-invalid-json: expected '$ch' at position $pos"
-                )
+            check(pos < text.length && text[pos] == ch) {
+                "release-bundle-evidence-invalid-json: expected '$ch' at position $pos"
             }
             pos++
         }

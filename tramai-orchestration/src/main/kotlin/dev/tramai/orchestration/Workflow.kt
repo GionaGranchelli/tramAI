@@ -1871,7 +1871,7 @@ private fun <S> mergePluginStepResult(
         putAll(state as Map<String, Any?>)
         putAll(result)
     } as S
-    else -> throw IllegalStateException(
+    else -> error(
         "Workflow plugin steps without an explicit merge function require a Map state. " +
             "State type '${state?.let { it::class.qualifiedName } ?: "null"}' is not supported.",
     )

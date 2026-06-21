@@ -47,10 +47,8 @@ class VaultSecretValueResolver(
         if (response.statusCode() == 404) {
             return null
         }
-        if (response.statusCode() !in 200..299) {
-            throw IllegalStateException(
-                "Vault secret lookup failed for '${reference.path}' with HTTP ${response.statusCode()}",
-            )
+        check(response.statusCode() in 200..299) {
+            "Vault secret lookup failed for '${reference.path}' with HTTP ${response.statusCode()}"
         }
 
         val body = objectMapper.readTree(response.body())

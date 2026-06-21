@@ -94,8 +94,8 @@ class SovereignOpsAutoConfiguration {
             dispatcherAvailable: Boolean,
         ): SovereignOpsOutboxWorkerProperties =
             if (rawProps.dispatchPending && !dispatcherAvailable) {
-                if (rawProps.failOnMissingDispatcher) {
-                    throw IllegalStateException("tramai-sovereign-ops-outbox-worker-missing-dispatcher")
+                check(!rawProps.failOnMissingDispatcher) {
+                    "tramai-sovereign-ops-outbox-worker-missing-dispatcher"
                 }
                 rawProps.copy(dispatchPending = false)
             } else {

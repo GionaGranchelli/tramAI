@@ -73,8 +73,8 @@ class DefaultSovereignOpsAuditOutboxOperations(
         outboxId: String,
         reason: String,
     ): SovereignOpsAuditOutboxSummary {
-        if (!properties.mutationsEnabled) {
-            throw IllegalStateException("tramai-sovereign-ops-mutations-disabled")
+        check(properties.mutationsEnabled) {
+            "tramai-sovereign-ops-mutations-disabled"
         }
         validateOutboxId(outboxId)
         validateReason(reason)
@@ -93,8 +93,8 @@ class DefaultSovereignOpsAuditOutboxOperations(
     }
 
     override suspend fun recoverPrepared(limit: Int?): SovereignOpsAuditOutboxRecoverySummary {
-        if (!properties.mutationsEnabled) {
-            throw IllegalStateException("tramai-sovereign-ops-mutations-disabled")
+        check(properties.mutationsEnabled) {
+            "tramai-sovereign-ops-mutations-disabled"
         }
 
         val boundedLimit = validateLimit(limit)

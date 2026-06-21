@@ -276,12 +276,11 @@ internal data class HttpWorkflowStep<S>(
         // restricted addresses regardless of the allowlist, to prevent SSRF
         // attacks via DNS rebinding or attacker-controlled domains.
         // Skip this check if the host is explicitly in the allowlist.
-        if (!isExplicitlyAllowed &&
-            (normalizedHost == localhostHostName || resolvedAddresses.any(::isPrivateOrRestrictedAddress))
+        require(
+            isExplicitlyAllowed ||
+                (normalizedHost != localhostHostName && resolvedAddresses.none(::isPrivateOrRestrictedAddress)),
         ) {
-            throw IllegalArgumentException(
-                "Workflow HTTP step '$name' host '$host' is not a public address",
-            )
+            "Workflow HTTP step '$name' host '$host' is not a public address"
         }
         if (allowedHosts != null) {
             require(normalizedHost in allowedHosts) {

@@ -81,60 +81,50 @@ data class SovereignTramaiProperties(
         }
 
         // enabled=true but no allowed models
-        if (allowedModels.isEmpty()) {
-            throw IllegalStateException("tramai-sovereign-spring-missing-allowed-models")
+        check(allowedModels.isNotEmpty()) {
+            "tramai-sovereign-spring-missing-allowed-models"
         }
 
         // enabled=true but no allowed providers
-        if (allowedProviders.isEmpty()) {
-            throw IllegalStateException("tramai-sovereign-spring-missing-allowed-providers")
+        check(allowedProviders.isNotEmpty()) {
+            "tramai-sovereign-spring-missing-allowed-providers"
         }
 
         // Every allowed provider must have an explicit provider zone
         for (provider in allowedProviders) {
-            if (provider !in zones) {
-                throw IllegalStateException(
+            check(provider in zones) {
                     "tramai-sovereign-spring-provider-zone-missing: provider '$provider' has no configured trust zone"
-                )
             }
         }
 
         // Every provider zone must reference an allowed provider
         for (provider in zones.keys) {
-            if (provider !in allowedProviders) {
-                throw IllegalStateException(
+            check(provider in allowedProviders) {
                     "tramai-sovereign-spring-provider-zone-unknown-provider: zone configured for " +
                         "provider '$provider' which is not in allowedProviders"
-                )
             }
         }
 
         // Every model in models map must be in allowedModels
         for (modelName in models.keys) {
-            if (modelName !in allowedModels) {
-                throw IllegalStateException(
+            check(modelName in allowedModels) {
                     "tramai-sovereign-spring-model-route-unknown-model: model '$modelName' has a route " +
                         "but is not in allowedModels"
-                )
             }
         }
 
         // Every allowed model must have a route
         for (modelName in allowedModels) {
-            if (modelName !in models) {
-                throw IllegalStateException(
+            check(modelName in models) {
                     "tramai-sovereign-spring-missing-model-route: allowed model '$modelName' has no configured provider route"
-                )
             }
         }
 
         // Every model route must target an allowed provider
         for ((modelName, providerName) in models) {
-            if (providerName !in allowedProviders) {
-                throw IllegalStateException(
+            check(providerName in allowedProviders) {
                     "tramai-sovereign-spring-model-route-unknown-provider: model '$modelName' routes to " +
                         "provider '$providerName' which is not in allowedProviders"
-                )
             }
         }
 

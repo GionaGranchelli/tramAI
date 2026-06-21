@@ -64,10 +64,8 @@ class UrlDocumentLoader(
         }
 
         val statusCode = response.statusCode()
-        if (statusCode !in 200..299) {
-            throw IllegalStateException(
+        check(statusCode in 200..299) {
                 "UrlDocumentLoader: HTTP $statusCode for URL: $source"
-            )
         }
 
         val body = response.body()

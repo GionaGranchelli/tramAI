@@ -162,8 +162,8 @@ class JdbcSuspendedInvocationStore(
                             }
                         }
                         // Fallback: check PK existence to distinguish
-                        if (invocationExists(conn, metadata.approvalId)) {
-                            throw IllegalArgumentException("suspended-invocation-already-exists")
+                        require(!invocationExists(conn, metadata.approvalId)) {
+                            "suspended-invocation-already-exists"
                         }
                         throw IllegalArgumentException(
                             "suspended-invocation-replay-envelope-digest-already-exists",
