@@ -17,6 +17,7 @@ tramai = "0.3.0"
 spring-security-crypto = "6.4.5"
 spring-context = "6.2.6"
 hikaricp = "6.3.0"
+testcontainers = "2.0.5"
 
 [libraries]
 assertj-core = { module = "org.assertj:assertj-core", version.ref = "assertj" }
@@ -52,6 +53,9 @@ hikaricp = { module = "com.zaxxer:HikariCP", version.ref = "hikaricp" }
 jedis = { module = "redis.clients:jedis", version.ref = "jedis" }
 h2database = { module = "com.h2database:h2", version = "2.3.232" }
 postgresql = { module = "org.postgresql:postgresql", version = "42.7.5" }
+testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }
+testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql" }
+testcontainers-junit-jupiter = { module = "org.testcontainers:testcontainers-junit-jupiter" }
 pgvector = { module = "com.pgvector:pgvector", version = "0.1.6" }
 aws-sdk-bedrockruntime = { module = "software.amazon.awssdk:bedrockruntime", version.ref = "aws-sdk" }
 okio = { module = "com.squareup.okio:okio", version.ref = "okio" }

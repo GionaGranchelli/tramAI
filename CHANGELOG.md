@@ -47,6 +47,9 @@ For the current release-readiness boundary, see [docs/releases/sovereign-runtime
 - Added a regulated claim triage reference scenario for Sovereign Runtime RC evaluation.
 - Added Sovereign JDBC persistence design as the first production-hardening target after the Sovereign Runtime RC boundary.
 
+### Added
+- Added `tramai-persistence-jdbc` module with PostgreSQL schema skeleton and schema contract tests for the five sovereign persistence areas.
+
 ## 0.3.1 — 2026-05-24
 
 Patch release focused on streaming stability, memory persistence, and proxy-aware tool scanning.
