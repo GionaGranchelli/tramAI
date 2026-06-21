@@ -11,6 +11,7 @@ import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ToolCall
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
+import dev.tramai.engine.ReplayEnvelopeDigestHelper
 import dev.tramai.engine.ResumeOperationReference
 import dev.tramai.engine.ResumeToolReference
 import dev.tramai.engine.SensitiveReplayEnvelope
@@ -39,7 +40,9 @@ import javax.sql.DataSource
  *
  * Messages are serialized via explicit [PersistedMessage]/[PersistedToolCall] DTOs,
  * avoiding Jackson polymorphic typing. Invariant validation (tool call ID/name/index)
- * is performed before persistence.
+ * and canonical digest verification are performed before persistence — the store
+ * recomputes [SuspendedInvocationMetadata.replayEnvelopeDigest] from the actual
+ * messages and fails closed on mismatch.
  *
  * ## Security
  * - No raw tool arguments, prompts, model responses, or sensitive payloads are
@@ -94,6 +97,15 @@ class JdbcSuspendedInvocationStore(
 
         // Serialize via explicit DTOs — no polymorphic typing
         val pm = messages.map { toPersisted(it) }
+
+        // Verify the caller-provided digest matches the canonical digest of the
+        // persisted replay envelope. This prevents callers from using a wrong
+        // digest and bypassing duplicate detection.
+        val canonicalDigest = ReplayEnvelopeDigestHelper.compute(metadata.operationReference, messages)
+        require(canonicalDigest == metadata.replayEnvelopeDigest) {
+            "replay-envelope-digest-mismatch: canonical=$canonicalDigest, provided=${metadata.replayEnvelopeDigest}"
+        }
+
         val payload = Payload(
             metadata = PayloadMetadata.fromDomain(metadata),
             persistedMessages = pm,

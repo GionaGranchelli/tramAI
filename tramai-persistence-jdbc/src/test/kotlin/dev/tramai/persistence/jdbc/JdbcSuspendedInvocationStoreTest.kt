@@ -8,6 +8,7 @@ import dev.tramai.core.policy.ClassificationSource
 import dev.tramai.core.policy.DataClassification
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
+import dev.tramai.engine.ReplayEnvelopeDigestHelper
 import dev.tramai.engine.ResumeOperationReference
 import dev.tramai.engine.ResumeToolReference
 import dev.tramai.engine.SensitiveReplayEnvelope
@@ -110,12 +111,27 @@ class JdbcSuspendedInvocationStoreTest {
         }
     }
 
-    private val fixedDigest = Sha256Digest.of("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    private val operationDigest = Sha256Digest.of(
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    )
+
+    private var fixedDigest: Sha256Digest = operationDigest
 
     @BeforeAll
     fun startPostgres() {
         postgres.start()
         runMigrations()
+        // Compute the canonical digest AFTER the class is fully initialized.
+        // Must match the messages produced by sampleMessages() at test time.
+        fixedDigest = ReplayEnvelopeDigestHelper.compute(
+            operationReference = ResumeOperationReference(
+                serviceInterface = "com.example.TestService",
+                methodName = "execute",
+                jvmMethodDescriptor = "(Ljava/lang/String;)V",
+                resumeDefinitionDigest = operationDigest,
+            ),
+            messages = sampleMessages(),
+        )
     }
 
     @AfterAll
@@ -182,7 +198,7 @@ class JdbcSuspendedInvocationStoreTest {
             serviceInterface = "com.example.TestService",
             methodName = "execute",
             jvmMethodDescriptor = "(Ljava/lang/String;)V",
-            resumeDefinitionDigest = fixedDigest,
+            resumeDefinitionDigest = operationDigest,
         ),
         replayEnvelopeDigest = digest,
         conversationId = "conv-1",
@@ -239,10 +255,29 @@ class JdbcSuspendedInvocationStoreTest {
     @Test
     fun `loads a suspended invocation by ID`() = runBlocking {
         val s = store()
-        val digest1 = Sha256Digest.of("sha256:1111111111111111111111111111111111111111111111111111111111111111")
-        val digest2 = Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222")
-        s.create(sampleMetadata("si-load-1", digest1), sampleEnvelope())
-        s.create(sampleMetadata("si-load-2", digest2), sampleEnvelope())
+        val messagesA = sampleMessages()
+        val messagesB = listOf(
+            Message(MessageRole.USER, "Hello B"),
+            Message(
+                MessageRole.ASSISTANT, "",
+                toolCalls = listOf(ToolCall("tc-2", "other_tool", """{"key":"value"}""")),
+            ),
+        )
+        val digestB = ReplayEnvelopeDigestHelper.compute(
+            operationReference = ResumeOperationReference(
+                serviceInterface = "com.example.TestService",
+                methodName = "execute",
+                jvmMethodDescriptor = "(Ljava/lang/String;)V",
+                resumeDefinitionDigest = operationDigest,
+            ),
+            messages = messagesB,
+        )
+        s.create(sampleMetadata("si-load-1"), sampleEnvelope(messagesA))
+        s.create(
+            sampleMetadata("si-load-2", digest = digestB)
+                .copy(toolCallId = "tc-2", toolName = "other_tool"),
+            sampleEnvelope(messagesB),
+        )
 
         val loaded = s.get("si-load-2")
         assertNotNull(loaded)
@@ -289,6 +324,52 @@ class JdbcSuspendedInvocationStoreTest {
             ex.message?.contains("digest", ignoreCase = true) == true ||
             ex.message?.contains("exists", ignoreCase = true) == true,
             "Expected digest/conflict message but got: ${ex.message}",
+        )
+    }
+
+    @Test
+    fun `create rejects replay envelope digest mismatch`() = runBlocking {
+        val s = store()
+        val wrongDigest = Sha256Digest.of(
+            "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+        )
+
+        val ex = assertFailsWith<IllegalArgumentException> {
+            s.create(
+                sampleMetadata("si-digest-mismatch", digest = wrongDigest),
+                sampleEnvelope(),
+            )
+        }
+        assertTrue(
+            ex.message?.contains("mismatch", ignoreCase = true) == true,
+            "Expected digest mismatch error but got: ${ex.message}",
+        )
+    }
+
+    @Test
+    fun `same replay envelope cannot be stored with different metadata digest`() = runBlocking {
+        val s = store()
+        val messages = sampleMessages()
+
+        // First create with correct digest (matches the messages)
+        s.create(
+            sampleMetadata("si-same-env-1", digest = fixedDigest),
+            sampleEnvelope(messages),
+        )
+
+        // Second create with same messages but different metadata digest
+        val wrongDigest = Sha256Digest.of(
+            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        )
+        val ex = assertFailsWith<IllegalArgumentException> {
+            s.create(
+                sampleMetadata("si-same-env-2", digest = wrongDigest),
+                sampleEnvelope(messages),
+            )
+        }
+        assertTrue(
+            ex.message?.contains("mismatch", ignoreCase = true) == true,
+            "Expected digest mismatch error but got: ${ex.message}",
         )
     }
 
@@ -364,8 +445,17 @@ class JdbcSuspendedInvocationStoreTest {
                 toolCalls = listOf(ToolCall("tc-x", "test_tool", """{"secret":"top-secret"}""")),
             ),
         )
+        val rawDigest = ReplayEnvelopeDigestHelper.compute(
+            operationReference = ResumeOperationReference(
+                serviceInterface = "com.example.TestService",
+                methodName = "execute",
+                jvmMethodDescriptor = "(Ljava/lang/String;)V",
+                resumeDefinitionDigest = operationDigest,
+            ),
+            messages = messages,
+        )
         s.create(
-            sampleMetadata("si-no-raw").copy(toolCallId = "tc-x"),
+            sampleMetadata("si-no-raw", digest = rawDigest).copy(toolCallId = "tc-x"),
             sampleEnvelope(messages),
         )
 
@@ -598,7 +688,7 @@ class JdbcSuspendedInvocationStoreTest {
         assertEquals("com.example.TestService", loaded.operationReference.serviceInterface)
         assertEquals("execute", loaded.operationReference.methodName)
         assertEquals("(Ljava/lang/String;)V", loaded.operationReference.jvmMethodDescriptor)
-        assertEquals(fixedDigest, loaded.operationReference.resumeDefinitionDigest)
+        assertEquals(operationDigest, loaded.operationReference.resumeDefinitionDigest)
         assertEquals(fixedDigest, loaded.replayEnvelopeDigest)
         assertEquals("conv-1", loaded.conversationId)
         assertEquals(5, loaded.historySize)
