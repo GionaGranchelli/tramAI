@@ -194,6 +194,7 @@ class JdbcSuspendedInvocationStore(
 
         // Read + delete inside one explicit transaction with row lock
         dataSource.connection.use { conn ->
+            val previousAutoCommit = conn.autoCommit
             conn.autoCommit = false
             try {
                 val sql = """
@@ -232,7 +233,7 @@ class JdbcSuspendedInvocationStore(
                 conn.rollback()
                 throw e
             } finally {
-                conn.autoCommit = true
+                conn.autoCommit = previousAutoCommit
             }
         }
     }
