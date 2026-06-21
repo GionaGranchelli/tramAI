@@ -50,6 +50,8 @@ This validates the release-candidate evidence locally. It does **not** publish r
 
 For a practical first integration path, see [Sovereign Runtime Quickstart](../guides/sovereign-runtime-quickstart.md).
 
+For a domain-level example of how the RC applies to regulated workflows, see [Regulated Claim Triage Reference Scenario](../scenarios/regulated-claim-triage.md).
+
 ## Explicit Non-Goals
 
 The following are intentionally **not included** in this RC:

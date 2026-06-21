@@ -110,6 +110,8 @@ The current sovereign runtime release-readiness checklist and module matrix are 
 
 For first-time integration, see [Sovereign Runtime Quickstart](./guides/sovereign-runtime-quickstart.md).
 
+For a regulated workflow reference scenario, see [Regulated Claim Triage Reference Scenario](./scenarios/regulated-claim-triage.md).
+
 These documents cover included capability areas, representative modules, validation commands, explicit non-goals, and known release risks.
 
 ## Historical Context
