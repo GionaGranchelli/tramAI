@@ -44,6 +44,7 @@ For the current release-readiness boundary, see [docs/releases/sovereign-runtime
 ### Documentation
 - Added Sovereign Runtime Release Candidate boundary declaration and linked it to the canonical verification task.
 - Added Sovereign Runtime Quickstart for first-time RC evaluation and integration.
+- Added a regulated claim triage reference scenario for Sovereign Runtime RC evaluation.
 
 ## 0.3.1 — 2026-05-24
 

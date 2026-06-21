@@ -246,6 +246,10 @@ For a practical first integration path, see:
 
 - [Sovereign Runtime Quickstart](docs/guides/sovereign-runtime-quickstart.md)
 
+For a domain-level walkthrough, see:
+
+- [Regulated Claim Triage Reference Scenario](docs/scenarios/regulated-claim-triage.md)
+
 ## Development Commands
 
 ```bash

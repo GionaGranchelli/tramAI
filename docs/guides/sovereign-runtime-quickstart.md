@@ -162,6 +162,8 @@ It does **not** publish remotely, create a tag, or claim Maven Central availabil
 
 ## What this quickstart does not cover
 
+For a regulated-domain walkthrough, see [Regulated Claim Triage Reference Scenario](../scenarios/regulated-claim-triage.md).
+
 - Production deployment and operational runbooks
 - Distributed worker coordination and leader election
 - Database-backed persistence or outbox (JDBC / Postgres)
