@@ -56,41 +56,39 @@ class InMemorySovereignOpsAuditOutboxStore : SovereignOpsAuditOutboxStore {
         val claimed = mutableListOf<SovereignOpsAuditOutboxRecord>()
         for ((id, record) in store) {
             if (claimed.size >= limit) break
-            val s = record.status
-            if (s == SovereignOpsAuditOutboxStatus.PREPARED) continue
-            val updated: SovereignOpsAuditOutboxRecord?
-            if (s == SovereignOpsAuditOutboxStatus.PENDING
-                || s == SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
-            ) {
-                updated = record.copy(
-                    status = SovereignOpsAuditOutboxStatus.EMITTING,
-                    attemptCount = record.attemptCount + 1,
-                    claimedBy = claimedBy,
-                    claimedAt = now,
-                    claimExpiresAt = now.plus(SovereignOpsAuditOutboxRecord.DEFAULT_CLAIM_EXPIRY),
-                )
-            } else if (s == SovereignOpsAuditOutboxStatus.EMITTING) {
-                val expiresAt = record.claimExpiresAt
-                if (expiresAt != null && expiresAt.isBefore(now)) {
-                    updated = record.copy(
-                        status = SovereignOpsAuditOutboxStatus.EMITTING,
-                        attemptCount = record.attemptCount + 1,
-                        claimedBy = claimedBy,
-                        claimedAt = now,
-                        claimExpiresAt = now.plus(SovereignOpsAuditOutboxRecord.DEFAULT_CLAIM_EXPIRY),
-                    )
-                } else {
-                    updated = null
-                }
-            } else {
-                updated = null
-            }
-            if (updated != null && store.replace(id, record, updated)) {
+            if (!record.isClaimable(now)) continue
+
+            val updated = record.claimFor(claimedBy, now)
+            if (store.replace(id, record, updated)) {
                 claimed.add(updated)
             }
         }
         return claimed
     }
+
+    private fun SovereignOpsAuditOutboxRecord.isClaimable(now: Instant): Boolean =
+        when (status) {
+            SovereignOpsAuditOutboxStatus.PENDING,
+            SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE,
+            -> true
+            SovereignOpsAuditOutboxStatus.EMITTING -> claimExpiresAt?.isBefore(now) == true
+            SovereignOpsAuditOutboxStatus.PREPARED,
+            SovereignOpsAuditOutboxStatus.EMITTED,
+            SovereignOpsAuditOutboxStatus.FAILED_PERMANENT,
+            -> false
+        }
+
+    private fun SovereignOpsAuditOutboxRecord.claimFor(
+        claimedBy: String,
+        now: Instant,
+    ): SovereignOpsAuditOutboxRecord =
+        copy(
+            status = SovereignOpsAuditOutboxStatus.EMITTING,
+            attemptCount = attemptCount + 1,
+            claimedBy = claimedBy,
+            claimedAt = now,
+            claimExpiresAt = now.plus(SovereignOpsAuditOutboxRecord.DEFAULT_CLAIM_EXPIRY),
+        )
 
     override suspend fun markEmitted(
         outboxId: String,

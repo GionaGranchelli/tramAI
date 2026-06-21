@@ -251,32 +251,13 @@ class FileApprovalStore internal constructor(
         FileStoreUtil.validateManagedDirectory(approvalsDir, "approvals")
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
 
-        // Validate comment length
-        when (transition) {
-            is ApprovalTransition.Approve -> transition.comment?.let {
-                require(it.length <= MAX_COMMENT_LENGTH) { "Comment exceeds maximum length of $MAX_COMMENT_LENGTH" }
-            }
-            is ApprovalTransition.Deny -> transition.comment?.let {
-                require(it.length <= MAX_COMMENT_LENGTH) { "Comment exceeds maximum length of $MAX_COMMENT_LENGTH" }
-            }
-            is ApprovalTransition.Timeout -> {
-                // Timeout transitions do not carry comments.
-            }
+        transition.commentOrNull()?.let {
+            require(it.length <= MAX_COMMENT_LENGTH) { "Comment exceeds maximum length of $MAX_COMMENT_LENGTH" }
         }
 
-        // Validate decidedBy for non-timeout transitions
-        when (transition) {
-            is ApprovalTransition.Approve -> {
-                validateIdField(transition.decidedBy, "decidedBy", MAX_ID_LENGTH)
-                SafeActorIdPolicy.validateActorId(transition.decidedBy, "decidedBy")
-            }
-            is ApprovalTransition.Deny -> {
-                validateIdField(transition.decidedBy, "decidedBy", MAX_ID_LENGTH)
-                SafeActorIdPolicy.validateActorId(transition.decidedBy, "decidedBy")
-            }
-            is ApprovalTransition.Timeout -> {
-                // Timeout transitions are system-driven and have no deciding actor.
-            }
+        transition.decidedByOrNull()?.let { decidedBy ->
+            validateIdField(decidedBy, "decidedBy", MAX_ID_LENGTH)
+            SafeActorIdPolicy.validateActorId(decidedBy, "decidedBy")
         }
 
         val lock = getLock(approvalId)
@@ -293,21 +274,9 @@ class FileApprovalStore internal constructor(
             val updated = req.copy(
                 status = nextStatus,
                 version = incrementVersion(approvalId, req.version),
-                decidedAt = when (transition) {
-                    is ApprovalTransition.Approve -> now
-                    is ApprovalTransition.Deny -> now
-                    is ApprovalTransition.Timeout -> now
-                },
-                decidedBy = when (transition) {
-                    is ApprovalTransition.Approve -> transition.decidedBy
-                    is ApprovalTransition.Deny -> transition.decidedBy
-                    is ApprovalTransition.Timeout -> null
-                },
-                decisionComment = when (transition) {
-                    is ApprovalTransition.Approve -> transition.comment
-                    is ApprovalTransition.Deny -> transition.comment
-                    is ApprovalTransition.Timeout -> null
-                },
+                decidedAt = now,
+                decidedBy = transition.decidedByOrNull(),
+                decisionComment = transition.commentOrNull(),
             )
 
             writeCurrent(approvalId, updated.toPersistedV1())
@@ -393,6 +362,18 @@ class FileApprovalStore internal constructor(
             presentedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
             storedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
         )
+
+    private fun ApprovalTransition.decidedByOrNull(): String? = when (this) {
+        is ApprovalTransition.Approve -> decidedBy
+        is ApprovalTransition.Deny -> decidedBy
+        is ApprovalTransition.Timeout -> null
+    }
+
+    private fun ApprovalTransition.commentOrNull(): String? = when (this) {
+        is ApprovalTransition.Approve -> comment
+        is ApprovalTransition.Deny -> comment
+        is ApprovalTransition.Timeout -> null
+    }
 
     private fun resolveNextStatus(
         current: ApprovalRequest,

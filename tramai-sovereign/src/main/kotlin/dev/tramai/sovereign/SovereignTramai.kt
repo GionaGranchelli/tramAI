@@ -117,17 +117,23 @@ class SovereignTramai private constructor(
         releaseBundle: ReleaseBundleEvidenceV1? = null,
         attestation: AttestationEvidenceV1? = null,
     ): SovereignEvidencePackV1 = SovereignEvidencePackGenerator.generate(
-        deploymentMode = profile.deploymentMode,
-        allowedModels = profile.allowedModels,
-        allowedProviders = profile.allowedProviders,
-        providerZones = profile.providerZones.mapValues { it.value.name },
-        verificationSettings = verificationSettings,
-        verificationReceipts = verificationReceipts,
-        zeroEgress = zeroEgress,
-        auditChain = auditChain,
-        supplyChain = supplyChain,
-        releaseBundle = releaseBundle,
-        attestation = attestation,
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = profile.deploymentMode,
+            allowedModels = profile.allowedModels,
+            allowedProviders = profile.allowedProviders,
+            providerZones = profile.providerZones.mapValues { it.value.name },
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
+                verificationSettings = verificationSettings,
+                verificationReceipts = verificationReceipts,
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
+                zeroEgress = zeroEgress,
+                auditChain = auditChain,
+                supplyChain = supplyChain,
+                releaseBundle = releaseBundle,
+                attestation = attestation,
+            ),
+        ),
     )
 
     companion object {

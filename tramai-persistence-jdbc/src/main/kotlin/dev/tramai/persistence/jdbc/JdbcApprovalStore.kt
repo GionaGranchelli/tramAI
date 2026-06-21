@@ -195,14 +195,20 @@ class JdbcApprovalStore(
             val metadataJson = mapper.writeValueAsString(updatedMetadata)
 
             updateDecisionRow(
-                conn = conn,
-                approvalId = approvalId,
-                expectedVersion = expectedVersion,
-                decisionFields = decisionFields,
-                decidedAt = nowOdt,
-                actorHash = actorHash,
-                metadataJson = metadataJson,
-                nextVersion = nextVersion,
+                DecisionRowUpdate(
+                    conn = conn,
+                    target = DecisionRowTarget(
+                        approvalId = approvalId,
+                        expectedVersion = expectedVersion,
+                    ),
+                    fields = DecisionRowFields(
+                        decisionFields = decisionFields,
+                        decidedAt = nowOdt,
+                        actorHash = actorHash,
+                        metadataJson = metadataJson,
+                        nextVersion = nextVersion,
+                    ),
+                ),
             )
 
             val updatedCurrent = readCurrent(conn, approvalId) ?: throw ApprovalStoreNotFoundException(approvalId)
@@ -327,6 +333,25 @@ class JdbcApprovalStore(
         val targetStatus: String,
     )
 
+    private data class DecisionRowUpdate(
+        val conn: java.sql.Connection,
+        val target: DecisionRowTarget,
+        val fields: DecisionRowFields,
+    )
+
+    private data class DecisionRowTarget(
+        val approvalId: String,
+        val expectedVersion: Long,
+    )
+
+    private data class DecisionRowFields(
+        val decisionFields: DecisionFields,
+        val decidedAt: OffsetDateTime,
+        val actorHash: String?,
+        val metadataJson: String,
+        val nextVersion: Long,
+    )
+
     /**
      * Validates actor and comment fields for a requested approval transition.
      */
@@ -381,16 +406,7 @@ class JdbcApprovalStore(
     /**
      * Performs the optimistic-concurrency decision update.
      */
-    private fun updateDecisionRow(
-        conn: java.sql.Connection,
-        approvalId: String,
-        expectedVersion: Long,
-        decisionFields: DecisionFields,
-        decidedAt: OffsetDateTime,
-        actorHash: String?,
-        metadataJson: String,
-        nextVersion: Long,
-    ) {
+    private fun updateDecisionRow(update: DecisionRowUpdate) {
         val sql = """
             UPDATE approvals
             SET status = ?,
@@ -401,18 +417,22 @@ class JdbcApprovalStore(
                 version = ?
             WHERE approval_id = ? AND version = ?
         """.trimIndent()
-        conn.prepareStatement(sql).use { stmt ->
-            stmt.setString(1, decisionFields.targetStatus)
-            stmt.setObject(2, decidedAt)
-            if (actorHash != null) stmt.setString(3, actorHash) else stmt.setNull(3, java.sql.Types.VARCHAR)
-            stmt.setString(4, decisionFields.decisionType)
-            stmt.setString(5, metadataJson)
-            stmt.setLong(6, nextVersion)
-            stmt.setString(7, approvalId)
-            stmt.setLong(8, expectedVersion)
+        update.conn.prepareStatement(sql).use { stmt ->
+            stmt.setString(1, update.fields.decisionFields.targetStatus)
+            stmt.setObject(2, update.fields.decidedAt)
+            if (update.fields.actorHash != null) {
+                stmt.setString(3, update.fields.actorHash)
+            } else {
+                stmt.setNull(3, java.sql.Types.VARCHAR)
+            }
+            stmt.setString(4, update.fields.decisionFields.decisionType)
+            stmt.setString(5, update.fields.metadataJson)
+            stmt.setLong(6, update.fields.nextVersion)
+            stmt.setString(7, update.target.approvalId)
+            stmt.setLong(8, update.target.expectedVersion)
 
             val updated = stmt.executeUpdate()
-            if (updated == 0) throw ApprovalStoreConflictException(approvalId)
+            if (updated == 0) throw ApprovalStoreConflictException(update.target.approvalId)
         }
     }
 
@@ -479,7 +499,7 @@ class JdbcApprovalStore(
     }
 
     private fun parseMetadata(json: String?): ApprovalMetadata {
-        check(json != null && json.isNotBlank()) {
+        check(!json.isNullOrBlank()) {
             "sanitized_metadata must not be null for a stored approval"
         }
         return mapper.readValue(json)

@@ -58,6 +58,14 @@ class SovereignTramaiAutoConfiguration {
         private const val DEFAULT_REVISION = "0.0.1"
     }
 
+    data class SovereignTramaiInfrastructure(
+        val approvalGateCoordinator: ApprovalGateCoordinator,
+        val approvalContinuationStore: ApprovalContinuationStore,
+        val suspendedInvocationStore: SuspendedInvocationStore?,
+        val toolArgumentsDigester: ToolArgumentsDigester?,
+        val clock: Clock,
+    )
+
     // ── Sovereign profile configuration ──────────────────────────────────
 
     @Bean
@@ -156,29 +164,42 @@ class SovereignTramaiAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    fun sovereignTramaiInfrastructure(
+        approvalGateCoordinator: ApprovalGateCoordinator,
+        approvalContinuationStore: ApprovalContinuationStore,
+        suspendedInvocationStore: ObjectProvider<SuspendedInvocationStore>,
+        toolArgumentsDigester: ToolArgumentsDigester?,
+        clock: Clock,
+    ): SovereignTramaiInfrastructure =
+        SovereignTramaiInfrastructure(
+            approvalGateCoordinator = approvalGateCoordinator,
+            approvalContinuationStore = approvalContinuationStore,
+            suspendedInvocationStore = suspendedInvocationStore.ifAvailable,
+            toolArgumentsDigester = toolArgumentsDigester,
+            clock = clock,
+        )
+
+    @Bean
+    @ConditionalOnMissingBean
     @ConditionalOnBean(ModelProvider::class)
     fun sovereignTramai(
         profile: SovereignProfileConfiguration,
         modelRegistry: ModelRegistry,
         auditStore: AuditStore,
         modelProviders: ObjectProvider<ModelProvider>,
-        approvalGateCoordinator: ApprovalGateCoordinator,
-        approvalContinuationStore: ApprovalContinuationStore,
-        suspendedInvocationStore: ObjectProvider<SuspendedInvocationStore>,
-        toolArgumentsDigester: ToolArgumentsDigester?,
-        clock: Clock,
         properties: SovereignTramaiProperties,
+        infrastructure: SovereignTramaiInfrastructure,
     ): SovereignTramai {
         val builder = SovereignTramai.builder()
             .profile(profile)
             .modelRegistry(modelRegistry)
             .auditStore(auditStore)
-            .approvalGateCoordinator(approvalGateCoordinator)
-            .approvalContinuationStore(approvalContinuationStore)
-            .clock(clock)
+            .approvalGateCoordinator(infrastructure.approvalGateCoordinator)
+            .approvalContinuationStore(infrastructure.approvalContinuationStore)
+            .clock(infrastructure.clock)
 
-        suspendedInvocationStore.ifAvailable { builder.suspendedInvocationStore(it) }
-        toolArgumentsDigester?.let { builder.toolArgumentsDigester(it) }
+        infrastructure.suspendedInvocationStore?.let { builder.suspendedInvocationStore(it) }
+        infrastructure.toolArgumentsDigester?.let { builder.toolArgumentsDigester(it) }
 
         // Register provider beans from the application context.
         // Users provide ModelProvider beans and the starter wires them in.

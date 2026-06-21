@@ -80,7 +80,11 @@ internal object FileStoreUtil {
             writeTempFileWith0600(temp, envelopeBytes)
             atomicMove(temp, targetPath)
         } finally {
-            try { Files.deleteIfExists(temp) } catch (_: Exception) {}
+            try {
+                Files.deleteIfExists(temp)
+            } catch (_: Exception) {
+                // Best-effort cleanup of a temporary sibling after the real write path has completed or failed.
+            }
         }
     }
 
