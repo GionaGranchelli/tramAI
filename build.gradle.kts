@@ -1463,6 +1463,8 @@ tasks.register("verifySovereignReleaseManifest") {
     group = "verification"
     description = "Verifies that build/sovereign-release/release-artifacts-v1.json is internally consistent with the JAR files in build/sovereign-release/artifacts/."
 
+    dependsOn("prepareSovereignReleaseArtifacts")
+
     doLast {
         val buildDir = rootProject.layout.buildDirectory.get().asFile
         val manifestDir = buildDir.resolve("sovereign-release")
@@ -1952,5 +1954,71 @@ tasks.register("generateSovereignReleaseEvidenceIndex") {
         val mdFile = outputDir.resolve("evidence-index.md")
         mdFile.writeText(mdContent)
         logger.lifecycle("Evidence index Markdown generated: ${mdFile.absolutePath}")
+    }
+}
+
+// ──────────────────────────────────────────────
+// Task: verifySovereignDocumentIntelligenceEvidenceRun
+// ──────────────────────────────────────────────
+
+val documentIntelligenceRunCommand = listOf(
+    gradleWrapper,
+    ":examples:sovereign-document-intelligence:run",
+    "--no-configuration-cache",
+    "--args=--release-bundle-manifest=${rootProject.layout.buildDirectory.get().asFile.absolutePath}/sovereign-release/release-artifacts-v1.json",
+)
+
+tasks.register<Exec>("verifySovereignDocumentIntelligenceEvidenceRun") {
+    group = "verification"
+    description =
+        "Runs the sovereign document intelligence reference example against the generated release bundle " +
+            "manifest. Validates evidence pack generation against release artifacts."
+
+    dependsOn("prepareSovereignReleaseArtifacts", "verifySovereignReleaseManifest")
+
+    workingDir = rootProject.projectDir
+    commandLine(documentIntelligenceRunCommand)
+}
+
+// ──────────────────────────────────────────────
+// Task: verifySovereignRuntimeReleaseCandidate
+// ──────────────────────────────────────────────
+
+val allSubprojectTestTasks = subprojects.flatMap { subproject ->
+    subproject.tasks.matching { it.name == "test" }.toList()
+}
+
+tasks.register("verifySovereignRuntimeReleaseCandidate") {
+    group = "verification"
+    description =
+        "Runs the canonical local verification chain for the Sovereign Runtime Release Candidate. " +
+            "Does not publish remotely, create tags, or release to Maven Central."
+
+    notCompatibleWithConfigurationCache(
+        "Sovereign runtime release-candidate verification aggregates execution-time verification tasks.",
+    )
+
+    dependsOn(
+        allSubprojectTestTasks,
+        "verifyReleaseReadiness",
+        "verifySovereignRuntimePublication",
+        "verifySovereignRuntimeSignedBundle",
+        "generateSovereignReleaseEvidenceIndex",
+        "verifySovereignRuntimeConsumerSmoke",
+        "verifySovereignDocumentIntelligenceEvidenceRun",
+    )
+
+    doLast {
+        logger.lifecycle("Sovereign runtime release-candidate verification complete.")
+        logger.lifecycle("Validated:")
+        logger.lifecycle("  - full subproject test suite")
+        logger.lifecycle("  - release readiness")
+        logger.lifecycle("  - local sovereign runtime publication")
+        logger.lifecycle("  - signed bundle dry-run")
+        logger.lifecycle("  - release evidence index")
+        logger.lifecycle("  - standalone consumer smoke")
+        logger.lifecycle("  - sovereign document intelligence evidence run")
+        logger.lifecycle("No remote repository was published to.")
+        logger.lifecycle("No tag or GitHub release was created.")
     }
 }
