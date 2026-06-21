@@ -8,6 +8,8 @@ It is NOT a formal release announcement and does NOT promise API stability. It e
 
 For the declared RC boundary, see [Sovereign Runtime RC Boundary](sovereign-runtime-rc-boundary.md).
 
+For a practical first-use guide, see [Sovereign Runtime Quickstart](../guides/sovereign-runtime-quickstart.md).
+
 ## Target Release Boundary
 
 Candidate release: 0.4.0 or the next unreleased version. No tag, no Maven Central publication, and no API freeze is claimed here.

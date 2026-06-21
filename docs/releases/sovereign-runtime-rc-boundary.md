@@ -46,6 +46,10 @@ The full local release-candidate verification chain is:
 
 This validates the release-candidate evidence locally. It does **not** publish remotely, create a tag, or claim Maven Central availability.
 
+## Trying the RC
+
+For a practical first integration path, see [Sovereign Runtime Quickstart](../guides/sovereign-runtime-quickstart.md).
+
 ## Explicit Non-Goals
 
 The following are intentionally **not included** in this RC:

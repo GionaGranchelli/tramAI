@@ -108,6 +108,8 @@ The current sovereign runtime release-readiness checklist and module matrix are 
 - [docs/releases/sovereign-runtime-release-readiness.md](./releases/sovereign-runtime-release-readiness.md)
 - [docs/modules/sovereign-runtime-module-matrix.md](./modules/sovereign-runtime-module-matrix.md)
 
+For first-time integration, see [Sovereign Runtime Quickstart](./guides/sovereign-runtime-quickstart.md).
+
 These documents cover included capability areas, representative modules, validation commands, explicit non-goals, and known release risks.
 
 ## Historical Context
