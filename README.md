@@ -250,6 +250,10 @@ For a domain-level walkthrough, see:
 
 - [Regulated Claim Triage Reference Scenario](docs/scenarios/regulated-claim-triage.md)
 
+For the production-hardening direction toward JDBC / database-backed persistence, see:
+
+- [Sovereign JDBC Persistence Design](docs/architecture/sovereign-jdbc-persistence-design.md)
+
 ## Development Commands
 
 ```bash

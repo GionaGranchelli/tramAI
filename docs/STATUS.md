@@ -112,6 +112,8 @@ For first-time integration, see [Sovereign Runtime Quickstart](./guides/sovereig
 
 For a regulated workflow reference scenario, see [Regulated Claim Triage Reference Scenario](./scenarios/regulated-claim-triage.md).
 
+For the production-hardening direction toward database-backed persistence, see [Sovereign JDBC Persistence Design](./architecture/sovereign-jdbc-persistence-design.md).
+
 These documents cover included capability areas, representative modules, validation commands, explicit non-goals, and known release risks.
 
 ## Historical Context
