@@ -2903,16 +2903,19 @@ internal class TramaiInvocationHandler(
 
         // Task 11: Post-claim — reveal replay envelope and verify digest
         val uncertainOutcome = ResumeUncertainOutcome()
+        val resumeContext = ResumeExecutionContext(
+            command = command,
+            metadata = metadata,
+            registered = registered,
+            resolvedTool = resolvedTool,
+            uncertainOutcome = uncertainOutcome,
+        )
         return try {
             executeClaimedResume(
-                command = command,
-                metadata = metadata,
-                registered = registered,
+                context = resumeContext,
                 claimed = claimed,
-                resolvedTool = resolvedTool,
                 digester = digester,
                 store = store,
-                uncertainOutcome = uncertainOutcome,
             )
         } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
             if (!uncertainOutcome.emitted) {
@@ -2951,16 +2954,23 @@ internal class TramaiInvocationHandler(
 
     private class ResumeUncertainOutcome(var emitted: Boolean = false)
 
+    private data class ResumeExecutionContext(
+        val command: ResumeApprovalCommand,
+        val metadata: SuspendedInvocationMetadata,
+        val registered: RegisteredResumeOperation,
+        val resolvedTool: ResolvedTool,
+        val uncertainOutcome: ResumeUncertainOutcome,
+    )
+
     private suspend fun executeClaimedResume(
-        command: ResumeApprovalCommand,
-        metadata: SuspendedInvocationMetadata,
-        registered: RegisteredResumeOperation,
+        context: ResumeExecutionContext,
         claimed: ClaimedApprovalContinuation,
-        resolvedTool: ResolvedTool,
         digester: ToolArgumentsDigester,
         store: ApprovalContinuationStore,
-        uncertainOutcome: ResumeUncertainOutcome,
     ): Any? {
+        val command = context.command
+        val metadata = context.metadata
+        val registered = context.registered
         val replayPayload = revealAndValidateReplayPayload(command, metadata)
         val expectedArgsDigest = validateClaimedResumeArguments(command, metadata, claimed, digester)
         val validatedInput = claimed.arguments.reveal()
@@ -2971,15 +2981,11 @@ internal class TramaiInvocationHandler(
         )
         val tokenBudgetTracker = restoredTokenBudgetTracker(metadata)
         val toolResult = executeResumedTool(
-            command = command,
-            metadata = metadata,
-            registered = registered,
-            resolvedTool = resolvedTool,
+            context = context,
             rehydratedPayload = rehydratedPayload,
             validatedInput = validatedInput,
             expectedArgsDigest = expectedArgsDigest,
             tokenBudgetTracker = tokenBudgetTracker,
-            uncertainOutcome = uncertainOutcome,
         )
         val messages = rehydratedPayload.messages.toMutableList()
         val loopResult = continueAfterToolResult(
@@ -3049,16 +3055,17 @@ internal class TramaiInvocationHandler(
         }
 
     private suspend fun executeResumedTool(
-        command: ResumeApprovalCommand,
-        metadata: SuspendedInvocationMetadata,
-        registered: RegisteredResumeOperation,
-        resolvedTool: ResolvedTool,
+        context: ResumeExecutionContext,
         rehydratedPayload: RehydratedReplayPayload,
         validatedInput: String,
         expectedArgsDigest: Sha256Digest,
         tokenBudgetTracker: TokenBudgetTracker,
-        uncertainOutcome: ResumeUncertainOutcome,
     ): ToolResult {
+        val command = context.command
+        val metadata = context.metadata
+        val registered = context.registered
+        val resolvedTool = context.resolvedTool
+        val uncertainOutcome = context.uncertainOutcome
         val validatedToolCall = dev.tramai.core.model.ToolCall(
             id = metadata.toolCallId,
             name = metadata.toolName,

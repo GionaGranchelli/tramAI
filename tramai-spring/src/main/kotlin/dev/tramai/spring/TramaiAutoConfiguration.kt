@@ -86,8 +86,16 @@ class TramaiAutoConfiguration {
     ): Tramai {
         val dependencies = TramaiBeanDependencies.from(applicationContext)
         val builder = Tramai.builder()
-        val interceptorChain = dependencies.operationInterceptors.orderedStream().toList()
-        val userSecretResolvers = dependencies.secretResolvers.orderedStream().toList()
+        val interceptorChain: List<OperationInterceptor> = buildList {
+            dependencies.operationInterceptors.orderedStream().forEach { interceptor ->
+                add(interceptor)
+            }
+        }
+        val userSecretResolvers: List<SecretValueResolver> = buildList {
+            dependencies.secretResolvers.orderedStream().forEach { resolver ->
+                add(resolver)
+            }
+        }
         val fileSecretResolver = FileSecretValueResolver(
             allowedDirectory = properties.secrets.file.allowedDirectory
                 ?.trim()
@@ -333,7 +341,11 @@ class TramaiAutoConfiguration {
         applicationContext: org.springframework.context.ApplicationContext,
         dlpInterceptors: ObjectProvider<DlpInterceptor>,
     ): DlpInterceptor? {
-        val interceptors = dlpInterceptors.orderedStream().toList()
+        val interceptors: List<DlpInterceptor> = buildList {
+            dlpInterceptors.orderedStream().forEach { interceptor ->
+                add(interceptor)
+            }
+        }
         if (interceptors.isEmpty()) {
             return null
         }
@@ -350,7 +362,11 @@ class TramaiAutoConfiguration {
     private fun resolveEngineEventObserver(
         engineEventObservers: ObjectProvider<EngineEventObserver>,
     ): EngineEventObserver? {
-        val observers = engineEventObservers.orderedStream().toList()
+        val observers: List<EngineEventObserver> = buildList {
+            engineEventObservers.orderedStream().forEach { observer ->
+                add(observer)
+            }
+        }
         if (observers.isEmpty()) {
             return null
         }
@@ -366,7 +382,11 @@ class TramaiAutoConfiguration {
     private fun resolveDlpRedactionAuditEmitter(
         auditEmitters: ObjectProvider<DlpRedactionAuditEmitter>,
     ): DlpRedactionAuditEmitter? {
-        val emitters = auditEmitters.orderedStream().toList()
+        val emitters: List<DlpRedactionAuditEmitter> = buildList {
+            auditEmitters.orderedStream().forEach { emitter ->
+                add(emitter)
+            }
+        }
         if (emitters.isEmpty()) return null
         if (emitters.size == 1) return emitters.single()
         throw IllegalArgumentException(
@@ -377,7 +397,11 @@ class TramaiAutoConfiguration {
     private fun resolvePolicyDecisionAuditEmitter(
         auditEmitters: ObjectProvider<PolicyDecisionAuditEmitter>,
     ): PolicyDecisionAuditEmitter? {
-        val emitters = auditEmitters.orderedStream().toList()
+        val emitters: List<PolicyDecisionAuditEmitter> = buildList {
+            auditEmitters.orderedStream().forEach { emitter ->
+                add(emitter)
+            }
+        }
         if (emitters.isEmpty()) return null
         if (emitters.size == 1) return emitters.single()
         throw IllegalArgumentException(
@@ -388,7 +412,11 @@ class TramaiAutoConfiguration {
     private fun resolvePolicyEngine(
         policyEngines: ObjectProvider<PolicyEngine>,
     ): PolicyEngine? {
-        val engines = policyEngines.orderedStream().toList()
+        val engines: List<PolicyEngine> = buildList {
+            policyEngines.orderedStream().forEach { engine ->
+                add(engine)
+            }
+        }
         if (engines.isEmpty()) return null
         if (engines.size == 1) return engines.single()
         throw IllegalArgumentException(
@@ -399,7 +427,11 @@ class TramaiAutoConfiguration {
     private fun resolveModelRegistry(
         registries: ObjectProvider<ModelRegistry>,
     ): ModelRegistry? {
-        val list = registries.orderedStream().toList()
+        val list: List<ModelRegistry> = buildList {
+            registries.orderedStream().forEach { registry ->
+                add(registry)
+            }
+        }
         if (list.isEmpty()) return null
         if (list.size == 1) return list.single()
         throw IllegalArgumentException(
@@ -478,7 +510,11 @@ class TramaiAutoConfiguration {
     private fun resolveModelRegistrySettings(
         settings: ObjectProvider<ModelRegistrySettings>,
     ): ModelRegistrySettings? {
-        val list = settings.orderedStream().toList()
+        val list: List<ModelRegistrySettings> = buildList {
+            settings.orderedStream().forEach { registrySettings ->
+                add(registrySettings)
+            }
+        }
         if (list.isEmpty()) return null
         if (list.size == 1) return list.single()
         throw IllegalArgumentException(

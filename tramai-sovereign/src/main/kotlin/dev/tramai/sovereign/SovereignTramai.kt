@@ -493,14 +493,69 @@ class SovereignTramai private constructor(
                 "artifact-verification-not-configured"
             }
 
-            // Collect unique (providerName, modelName) targets from primary AND fallback routes
-            val verificationTargets = buildSet {
+            return runBlocking {
+                verifyByProviderZone(
+                    profile = profile,
+                    modelRegistry = modelRegistry,
+                    verifier = verifier,
+                    verificationTargets = collectVerificationTargets(),
+                )
+            }
+        }
+
+        private fun collectVerificationTargets(): Set<Pair<String, String>> =
+            buildSet {
                 primaryModelRoutes.forEach { (modelName, providerName) ->
                     add(providerName to modelName)
                 }
                 fallbackRoutes.forEach { route ->
                     add(route.providerName to route.fallbackModelName)
                 }
+            }
+
+        private suspend fun verifyByProviderZone(
+            profile: SovereignProfileConfiguration,
+            modelRegistry: ModelRegistry,
+            verifier: ModelArtifactVerifier,
+            verificationTargets: Set<Pair<String, String>>,
+        ): List<VerifiedLocalModelArtifact> =
+            buildList {
+                for ((providerName, modelName) in verificationTargets) {
+                    val trustZone = profile.providerZones.getValue(providerName)
+                    if (trustZone == ProviderTrustZone.LOCAL) {
+                        add(
+                            verifySingleArtifact(
+                                modelRegistry = modelRegistry,
+                                verifier = verifier,
+                                providerName = providerName,
+                                modelName = modelName,
+                            ),
+                        )
+                    }
+                }
+            }
+
+        private suspend fun verifySingleArtifact(
+            modelRegistry: ModelRegistry,
+            verifier: ModelArtifactVerifier,
+            providerName: String,
+            modelName: String,
+        ): VerifiedLocalModelArtifact {
+            val registeredModel = try {
+                modelRegistry.findApprovedModel(providerName, modelName)
+            } catch (exception: kotlinx.coroutines.CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                throw IllegalStateException(
+                    "artifact-approved-model-lookup-failed",
+                )
+            } ?: throw IllegalStateException("artifact-approved-model-not-found")
+
+            check(
+                !verificationSettings.requireDigestForLocalModels ||
+                    registeredModel.artifactDigest != null,
+            ) {
+                "artifact-digest-required-for-local-model"
             }
 
             val safeCodes = setOf(
@@ -522,51 +577,21 @@ class SovereignTramai private constructor(
                 exception.message?.takeIf { it in safeCodes }
                     ?: "artifact-verification-failed"
 
-            return runBlocking {
-                val receipts = mutableListOf<VerifiedLocalModelArtifact>()
-                for ((providerName, modelName) in verificationTargets) {
-                    val trustZone = profile.providerZones.getValue(providerName)
-                    if (trustZone != ProviderTrustZone.LOCAL) {
-                        continue
-                    }
-
-                    val registeredModel = try {
-                        modelRegistry.findApprovedModel(providerName, modelName)
-                    } catch (exception: kotlinx.coroutines.CancellationException) {
-                        throw exception
-                    } catch (_: Exception) {
-                        throw IllegalStateException(
-                            "artifact-approved-model-lookup-failed",
-                        )
-                    } ?: throw IllegalStateException("artifact-approved-model-not-found")
-
-                    check(
-                        !verificationSettings.requireDigestForLocalModels ||
-                            registeredModel.artifactDigest != null,
-                    ) {
-                        "artifact-digest-required-for-local-model"
-                    }
-
-                    val receipt = try {
-                        verifier.verify(registeredModel)
-                    } catch (exception: kotlinx.coroutines.CancellationException) {
-                        throw exception
-                    } catch (exception: IllegalStateException) {
-                        throw IllegalStateException(
-                            sanitizedArtifactReason(exception),
-                        )
-                    } catch (exception: IllegalArgumentException) {
-                        throw IllegalStateException(
-                            sanitizedArtifactReason(exception),
-                        )
-                    } catch (exception: Exception) {
-                        throw IllegalStateException("artifact-verification-failed")
-                    } ?: throw IllegalStateException("artifact-manifest-not-found")
-
-                    receipts += receipt
-                }
-                receipts.toList()
-            }
+            return try {
+                verifier.verify(registeredModel)
+            } catch (exception: kotlinx.coroutines.CancellationException) {
+                throw exception
+            } catch (exception: IllegalStateException) {
+                throw IllegalStateException(
+                    sanitizedArtifactReason(exception),
+                )
+            } catch (exception: IllegalArgumentException) {
+                throw IllegalStateException(
+                    sanitizedArtifactReason(exception),
+                )
+            } catch (exception: Exception) {
+                throw IllegalStateException("artifact-verification-failed")
+            } ?: throw IllegalStateException("artifact-manifest-not-found")
         }
 
         private fun validateOfflineDeployment(

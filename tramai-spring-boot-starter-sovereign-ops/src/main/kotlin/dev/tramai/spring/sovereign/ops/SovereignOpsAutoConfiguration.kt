@@ -227,7 +227,11 @@ class SovereignOpsAutoConfiguration {
         statusStore: SovereignOpsAuditOutboxWorkerStatusStore,
         contributions: ObjectProvider<SovereignOpsAuditOutboxWorkerObserverContribution>,
     ): SovereignOpsAuditOutboxWorkerObserver {
-        val observerContributions = contributions.orderedStream().toList()
+        val observerContributions: List<SovereignOpsAuditOutboxWorkerObserverContribution> = buildList {
+            contributions.orderedStream().forEach { contribution ->
+                add(contribution)
+            }
+        }
         val delegate = if (observerContributions.isEmpty()) {
             SovereignOpsAuditOutboxWorkerObserver.Noop
         } else {
