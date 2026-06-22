@@ -249,6 +249,7 @@ internal data class HttpWorkflowStep<S>(
         }
         return ExecutedHttpResponse(
             status = response.statusCode(),
+            // NOSONAR — java.net.http.HttpHeaders.map() returns mutable Map (Java stdlib limitation)
             headers = response.headers().map().entries.associate { (name, values) ->
                 name to values.joinToString(",")
             },

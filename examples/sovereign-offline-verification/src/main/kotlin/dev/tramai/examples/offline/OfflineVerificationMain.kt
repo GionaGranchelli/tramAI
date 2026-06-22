@@ -438,4 +438,4 @@ private const val LOOPBACK_PROVIDER = "loopback-local-provider"
 private const val OFFLINE_TEST_MODEL = "offline-test-model"
 
 /** @see main */
-private const val EXTERNAL_PROBE_IP = "1.1.1.1"
+private const val EXTERNAL_PROBE_IP = "1.1.1.1" // NOSONAR — example constant for offline test
