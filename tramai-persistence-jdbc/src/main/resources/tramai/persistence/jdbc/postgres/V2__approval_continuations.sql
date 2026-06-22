@@ -32,6 +32,15 @@ CREATE TABLE IF NOT EXISTS approval_continuations (
     CONSTRAINT ck_approval_continuations_encryption CHECK (
         (encrypted_arguments IS NULL AND encryption_key_id IS NULL AND encryption_algorithm IS NULL AND encryption_nonce IS NULL AND payload_digest IS NULL)
         OR (encrypted_arguments IS NOT NULL AND encryption_key_id IS NOT NULL AND encryption_algorithm IS NOT NULL AND encryption_nonce IS NOT NULL AND payload_digest IS NOT NULL)
+    ),
+    CONSTRAINT ck_approval_continuations_status CHECK (
+        status IN ('PENDING', 'CLAIMED', 'COMPLETED', 'EXPIRED', 'CANCELLED', 'CANCELLED_UNCERTAIN')
+    ),
+    CONSTRAINT ck_approval_continuations_version CHECK (
+        version >= 0
+    ),
+    CONSTRAINT ck_approval_continuations_expiry CHECK (
+        approval_expires_at > created_at
     )
 );
 

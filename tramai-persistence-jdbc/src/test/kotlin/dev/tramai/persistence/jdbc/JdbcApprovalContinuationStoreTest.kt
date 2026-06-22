@@ -838,4 +838,126 @@ class JdbcApprovalContinuationStoreTest {
             s.expire("early-expire", 0L)
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // P1 regression — decrypt-before-CAS atomicity
+    // ═══════════════════════════════════════════════════════════════
+
+    @Test
+    fun `claim preserves encrypted arguments when decode fails`() = runBlocking {
+        // Codec that encodes successfully but fails on decode
+        val brokenCodec = object : JdbcContinuationArgumentsCodec {
+            override fun encode(plaintext: ByteArray): JdbcEncryptedContinuationArguments {
+                return testCodec.encode(plaintext)
+            }
+
+            override fun decode(envelope: JdbcEncryptedContinuationArguments): ByteArray {
+                throw IllegalStateException("simulated-decode-failure")
+            }
+        }
+        val s = store(codec = brokenCodec)
+        s.create(createContinuation("decode-fail").first, createContinuation("decode-fail").second)
+
+        // Claim should throw because decode fails
+        assertFailsWith<IllegalStateException> {
+            s.claimForExecution("decode-fail", 0L, "worker:alice")
+        }
+
+        // Row must still be PENDING with encrypted arguments intact
+        val retrieved = s.get("decode-fail")
+        assertNotNull(retrieved)
+        assertEquals(ApprovalContinuationStatus.PENDING, retrieved.status)
+        assertEquals(0L, retrieved.version)
+
+        // encrypted_arguments should still be non-null (verified via raw SQL)
+        val conn: Connection = DriverManager.getConnection(
+            postgres.jdbcUrl, postgres.username, postgres.password,
+        )
+        conn.use { c ->
+            c.prepareStatement(
+                "SELECT encrypted_arguments FROM approval_continuations WHERE approval_id = ?",
+            ).use { stmt ->
+                stmt.setString(1, "decode-fail")
+                stmt.executeQuery().use { rs ->
+                    assertTrue(rs.next())
+                    assertNotNull(rs.getBytes("encrypted_arguments"),
+                        "encrypted_arguments must survive decode failure")
+                }
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // P2 regression — lazy expiry CAS race
+    // ═══════════════════════════════════════════════════════════════
+
+    @Test
+    fun `get re-reads actual state when lazy expiry CAS loses race`() = runBlocking {
+        val creationTime = fixedClock.instant()
+        val s1 = store(clock = Clock.fixed(creationTime, ZoneId.of("UTC")))
+        s1.create(createContinuation("lazy-race").first, createContinuation("lazy-race").second)
+
+        // Another connection claims the row (bypassing the expiration path)
+        val conn: Connection = DriverManager.getConnection(
+            postgres.jdbcUrl, postgres.username, postgres.password,
+        )
+        conn.use { c ->
+            c.createStatement().use { stmt ->
+                stmt.execute(
+                    """UPDATE approval_continuations
+                       SET status = 'CLAIMED', version = 1,
+                           claimed_by = 'worker:racer', claimed_at = NOW()
+                       WHERE approval_id = 'lazy-race'"""
+                )
+            }
+        }
+
+        // Now read with a future clock: lazy expiry sees PENDING row (stale read),
+        // tries CAS, loses because row is now CLAIMED.
+        val futureClock = Clock.fixed(creationTime.plusSeconds(600), ZoneId.of("UTC"))
+        val s2 = store(clock = futureClock)
+        val retrieved = s2.get("lazy-race")
+
+        // Must return the actual persisted state (CLAIMED), not synthetic EXPIRED
+        assertNotNull(retrieved)
+        assertEquals(ApprovalContinuationStatus.CLAIMED, retrieved.status,
+            "get() must return actual persisted state, not synthetic EXPIRED")
+        assertEquals(1L, retrieved.version)
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // P2 regression — V2 schema CHECK constraints
+    // ═══════════════════════════════════════════════════════════════
+
+    @Test
+    fun `schema rejects invalid status`() = runBlocking {
+        val conn: Connection = DriverManager.getConnection(
+            postgres.jdbcUrl, postgres.username, postgres.password,
+        )
+        assertFailsWith<org.postgresql.util.PSQLException> {
+            conn.prepareStatement(
+                """INSERT INTO approval_continuations
+                   (approval_id, status, version, created_at, approval_expires_at, arguments_digest)
+                   VALUES ('bad-status', 'BOGUS', 0, NOW(), NOW() + INTERVAL '5 minutes', 'sha256:${"a".repeat(64)}')"""
+            ).use { stmt ->
+                stmt.executeUpdate()
+            }
+        }
+    }
+
+    @Test
+    fun `schema rejects approval_expires_at before created_at`() = runBlocking {
+        val conn: Connection = DriverManager.getConnection(
+            postgres.jdbcUrl, postgres.username, postgres.password,
+        )
+        assertFailsWith<org.postgresql.util.PSQLException> {
+            conn.prepareStatement(
+                """INSERT INTO approval_continuations
+                   (approval_id, status, version, created_at, approval_expires_at, arguments_digest)
+                   VALUES ('bad-expiry', 'PENDING', 0, NOW(), NOW() - INTERVAL '5 minutes', 'sha256:${"a".repeat(64)}')"""
+            ).use { stmt ->
+                stmt.executeUpdate()
+            }
+        }
+    }
 }

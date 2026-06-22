@@ -157,7 +157,12 @@ class JdbcApprovalContinuationStore(
             val now = clock.instant()
             val (updated, expired) = maybeExpireLazy(row, now)
             if (expired) {
-                applyLazyExpiry(updated, row.version)
+                val applied = applyLazyExpiry(updated, row.version)
+                if (!applied) {
+                    // CAS lost: another writer changed the row first.
+                    // Re-read to return the actual persisted state.
+                    return readCurrent(conn, approvalId)?.toDomain()
+                }
             }
 
             return updated.toDomain()
@@ -181,6 +186,8 @@ class JdbcApprovalContinuationStore(
             val (normalized, expired) = maybeExpireLazy(row, now)
 
             if (expired) {
+                // Best-effort: try to expire the row. If CAS loses (another
+                // writer won), the row is no longer PENDING — still not claimable.
                 applyLazyExpiry(normalized, row.version)
                 throw ApprovalContinuationNotClaimableException(approvalId)
             }
@@ -196,6 +203,11 @@ class JdbcApprovalContinuationStore(
 
             val newVersion = incrementVersion(approvalId, row.version)
             val nowOdt = OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
+
+            // Decrypt arguments BEFORE the CAS update.
+            // If decryption fails, no DB mutation has occurred — the row stays PENDING
+            // with encrypted arguments intact.
+            val capturedArguments = decryptArguments(row)
 
             // CAS update: must still be PENDING at the expected version
             val updateSql = """
@@ -234,9 +246,6 @@ class JdbcApprovalContinuationStore(
                     throw ApprovalContinuationNotClaimableException(approvalId)
                 }
             }
-
-            // Decrypt the original arguments for the caller
-            val capturedArguments = decryptArguments(row)
 
             val claimedContinuation = normalizeRow(
                 approvalId = approvalId,
@@ -703,8 +712,11 @@ class JdbcApprovalContinuationStore(
 
     /**
      * Applies a lazy expiry transition to the database.
+     *
+     * @return true if the CAS update succeeded (row was expired), false if
+     *   another writer changed the row first.
      */
-    private fun applyLazyExpiry(row: ContinuationRow, expectedVersion: Long) {
+    private fun applyLazyExpiry(row: ContinuationRow, expectedVersion: Long): Boolean {
         dataSource.connection.use { conn ->
             val sql = """
                 UPDATE approval_continuations
@@ -723,7 +735,7 @@ class JdbcApprovalContinuationStore(
                 stmt.setLong(1, row.version)
                 stmt.setString(2, row.approvalId)
                 stmt.setLong(3, expectedVersion)
-                stmt.executeUpdate() // Best-effort; next read will retry if this fails
+                return stmt.executeUpdate() == 1
             }
         }
     }
