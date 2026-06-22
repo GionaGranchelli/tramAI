@@ -1273,6 +1273,74 @@ class TramaiEngineTest {
                 StreamChunk.Complete("hello", UsageMetrics(outputTokens = 1)),
             )
         }
+        @Test
+        fun `streaming success with prior history persists current user message and preserves history`() {
+            val historyMessages = mutableListOf(
+                Message(role = MessageRole.USER, content = "first question"),
+                Message(role = MessageRole.ASSISTANT, content = "first answer"),
+            )
+            val addCalls = AtomicInteger(0)
+            val chatMemory = object : ChatMemory {
+                override fun get(conversationId: String): List<Message> = historyMessages.toList()
+
+                override fun add(conversationId: String, messages: List<Message>) {
+                    addCalls.incrementAndGet()
+                    historyMessages += messages
+                }
+
+                override fun add(conversationId: String, message: Message) {
+                    error("Unexpected single-message add in streaming persistence test")
+                }
+
+                override fun clear(conversationId: String) {
+                    historyMessages.clear()
+                }
+            }
+            val provider = NamedStreamingProvider("test") {
+                flow {
+                    emit(StreamChunk.Token("second "))
+                    emit(StreamChunk.Token("answer"))
+                    emit(StreamChunk.Complete("second answer", UsageMetrics(outputTokens = 2)))
+                }
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                chatMemory = chatMemory,
+                conversationIdProvider = ConversationIdProvider { "session-1" },
+            )
+            val service = engine.create<StreamingService>()
+
+            val chunks = runBlocking { service.stream("second question").toList() }
+
+            assertThat(chunks).containsExactly(
+                StreamChunk.Token("second "),
+                StreamChunk.Token("answer"),
+                StreamChunk.Complete("second answer", UsageMetrics(outputTokens = 2)),
+            )
+            assertThat(addCalls.get()).isEqualTo(1)
+
+            // Verify persisted messages contain prior history plus new turn
+            assertThat(historyMessages).hasSize(4)
+            assertThat(historyMessages.map { it.role }).containsExactly(
+                MessageRole.USER, MessageRole.ASSISTANT,
+                MessageRole.USER, MessageRole.ASSISTANT,
+            )
+            assertThat(historyMessages[0].content).isEqualTo("first question")
+            assertThat(historyMessages[1].content).isEqualTo("first answer")
+            assertThat(historyMessages[2].content).contains("second question")
+            assertThat(historyMessages[3].content).isEqualTo("second answer")
+
+            // Verify the streaming provider received history + current user turn
+            assertThat(provider.streamRequests).hasSize(1)
+            val request = provider.streamRequests.single()
+            assertThat(request.messages).hasSize(3)
+            assertThat(request.messages.map { it.role }).containsExactly(
+                MessageRole.USER, MessageRole.ASSISTANT, MessageRole.USER,
+            )
+            assertThat(request.messages[0].content).isEqualTo("first question")
+            assertThat(request.messages[1].content).isEqualTo("first answer")
+            assertThat(request.messages[2].content).contains("second question")
+        }
     }
 
     // ── DLP Integration Tests ───────────────────────────────────────────

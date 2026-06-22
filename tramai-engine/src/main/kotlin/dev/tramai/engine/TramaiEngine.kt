@@ -497,9 +497,9 @@ internal class TramaiInvocationHandler(
         conversationId: String?,
     ): Flow<StreamChunk> {
         val securityContext = ExecutionSecurityContext.fromArguments(arguments.toTypedArray())
-        val memoryInjection = injectMemoryMessages(operation, arguments, conversationId)
-        val historySize = memoryInjection?.first?.size ?: 0
-        val memoryMessages = memoryInjection?.second
+        val initialMessages = operation.initialMessages(arguments)
+        val (history, effectiveMessages) = injectMemoryMessages(initialMessages, conversationId)
+            ?: (emptyList<Message>() to initialMessages)
 
         return flow {
             val correlationId = java.util.UUID.randomUUID().toString()
@@ -529,8 +529,8 @@ internal class TramaiInvocationHandler(
                             routeIndex = routeIndex,
                             attempt = attemptCounter.next(),
                             tokenBudgetTracker = tokenBudgetTracker,
-                            memoryMessages = memoryMessages,
-                            historySize = historySize,
+                            memoryMessages = effectiveMessages,
+                            historySize = history.size,
                             conversationId = conversationId,
                             emitChunk = { emit(it) },
                         ),
@@ -545,8 +545,8 @@ internal class TramaiInvocationHandler(
                                 role = MessageRole.ASSISTANT,
                                 content = result.fullText,
                             )
-                            val turnMessages = operation.initialMessages(arguments)
-                                .drop(historySize)
+                            val turnMessages = effectiveMessages
+                                .drop(history.size)
                                 .filter { it.role != MessageRole.SYSTEM }
                             chatMemory.add(conversationId, turnMessages + assistantMessage)
                         }
@@ -631,24 +631,6 @@ internal class TramaiInvocationHandler(
         }
     }
 
-    private fun persistStreamingMemory(
-        fullText: String,
-        memoryInjectedMessages: List<Message>?,
-        historySize: Int,
-        conversationId: String?,
-    ) {
-        if (chatMemory == null || conversationId == null || memoryInjectedMessages == null) {
-            return
-        }
-        val assistantMessage = Message(
-            role = MessageRole.ASSISTANT,
-            content = fullText,
-        )
-        val turnMessages = memoryInjectedMessages
-            .drop(historySize)
-            .filter { it.role != MessageRole.SYSTEM }
-        chatMemory.add(conversationId, turnMessages + assistantMessage)
-    }
 
     private suspend fun enforceBeforeProviderResolution(
         operation: OperationDefinition,

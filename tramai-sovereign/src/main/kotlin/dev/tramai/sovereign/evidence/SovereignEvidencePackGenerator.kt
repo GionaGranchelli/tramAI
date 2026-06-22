@@ -34,6 +34,48 @@ object SovereignEvidencePackGenerator {
         val attestation: AttestationEvidenceV1? = null,
     )
 
+    /**
+     * Legacy overload that accepts individual parameters.
+     * Prefer [generate] with [GenerationParams].
+     */
+    @Deprecated(
+        "Use GenerationParams overload",
+        ReplaceWith(
+            "generate(SovereignEvidencePackGenerator.GenerationParams(...))",
+        ),
+    )
+    fun generate(
+        deploymentMode: SovereignDeploymentMode,
+        allowedModels: Set<String>,
+        allowedProviders: Set<String>,
+        providerZones: Map<String, String>,
+        verificationSettings: ModelArtifactVerificationSettings,
+        verificationReceipts: List<VerifiedLocalModelArtifact>,
+        zeroEgress: ZeroEgressEvidenceV1? = null,
+        auditChain: AuditChainEvidenceV1? = null,
+        supplyChain: SupplyChainEvidenceV1? = null,
+        releaseBundle: ReleaseBundleEvidenceV1? = null,
+        attestation: AttestationEvidenceV1? = null,
+    ): SovereignEvidencePackV1 = generate(
+        GenerationParams(
+            deploymentMode = deploymentMode,
+            allowedModels = allowedModels,
+            allowedProviders = allowedProviders,
+            providerZones = providerZones,
+            verification = VerificationEvidence(
+                verificationSettings = verificationSettings,
+                verificationReceipts = verificationReceipts,
+            ),
+            optionalEvidence = OptionalEvidence(
+                zeroEgress = zeroEgress,
+                auditChain = auditChain,
+                supplyChain = supplyChain,
+                releaseBundle = releaseBundle,
+                attestation = attestation,
+            ),
+        ),
+    )
+
     private fun sanitizeFileNameOnly(value: String): String {
         val sanitized = EvidenceSafeString.sanitize(value)
         require(!sanitized.contains('/')) { "evidence-unsafe-identifier" }
