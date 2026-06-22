@@ -90,11 +90,10 @@ class JdbcSovereignOpsAuditOutboxStore(
             val previousAutoCommit = conn.autoCommit
             conn.autoCommit = false
             try {
-                val nowOdt = OffsetDateTime.now(ZoneOffset.UTC)
                 val payloadJson = mapper.writeValueAsBytes(record.toPersistedOutbox())
                 val encrypted = payloadCodec.encode(payloadJson)
 
-                insertAppend(conn, record, encrypted, nowOdt)
+                insertAppend(conn, record, encrypted)
                 conn.commit()
                 record
             } catch (e: SQLException) {
@@ -122,6 +121,9 @@ class JdbcSovereignOpsAuditOutboxStore(
             val domain = row.toDomain()
             validateQueryableColumns(domain, row)
 
+            require(expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED) {
+                "tramai-sovereign-ops-outbox-status-mismatch"
+            }
             require(domain.status == expectedStatus) {
                 "tramai-sovereign-ops-outbox-status-mismatch"
             }
@@ -158,12 +160,17 @@ class JdbcSovereignOpsAuditOutboxStore(
 
                 val claimed = selected.map { row ->
                     val record = row.toDomain()
+                    validateQueryableColumns(record, row)
+                    require(record.isDispatchable(now)) {
+                        "tramai-sovereign-ops-outbox-not-dispatchable"
+                    }
                     val updated = record.copy(
                         status = SovereignOpsAuditOutboxStatus.EMITTING,
                         attemptCount = record.attemptCount + 1,
                         claimedBy = claimedBy,
                         claimedAt = now,
                         claimExpiresAt = claimExpiresAt,
+                        lastErrorCode = null,
                     )
                     val payloadJson = mapper.writeValueAsBytes(updated.toPersistedOutbox())
                     val encrypted = payloadCodec.encode(payloadJson)
@@ -196,6 +203,9 @@ class JdbcSovereignOpsAuditOutboxStore(
             val domain = row.toDomain()
             validateQueryableColumns(domain, row)
 
+            require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
+                "tramai-sovereign-ops-outbox-status-mismatch"
+            }
             require(domain.status == expectedStatus) {
                 "tramai-sovereign-ops-outbox-status-mismatch"
             }
@@ -257,6 +267,18 @@ class JdbcSovereignOpsAuditOutboxStore(
             val domain = row.toDomain()
             validateQueryableColumns(domain, row)
 
+            if (retryable) {
+                require(expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING) {
+                    "tramai-sovereign-ops-outbox-status-mismatch"
+                }
+            } else {
+                require(
+                    expectedStatus == SovereignOpsAuditOutboxStatus.EMITTING ||
+                        expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED
+                ) {
+                    "tramai-sovereign-ops-outbox-status-mismatch"
+                }
+            }
             require(domain.status == expectedStatus) {
                 "tramai-sovereign-ops-outbox-status-mismatch"
             }
@@ -401,31 +423,73 @@ class JdbcSovereignOpsAuditOutboxStore(
                 "audit-outbox-column-correlation-key-hash-mismatch"
             }
         }
+        require(domain.lastErrorCode == row.lastFailureType) {
+            "audit-outbox-column-last-failure-type-mismatch"
+        }
         // Timestamp columns may have millisecond precision differences;
         // allow up to 1-second tolerance for round-trip comparisons.
         validateTimestampMatch(
+            dbValue = row.createdAt.toInstant(),
+            domainValue = domain.createdAt,
+            columnName = "created_at",
+        )
+        validateNullableTimestampMatch(
             dbValue = row.claimedAt?.toInstant(),
             domainValue = domain.claimedAt,
             columnName = "claimed_at",
         )
-        validateTimestampMatch(
+        validateNullableTimestampMatch(
             dbValue = row.dispatchedAt?.toInstant(),
             domainValue = domain.emittedAt,
             columnName = "dispatched_at",
         )
+        validateNullableTimestampMatch(
+            dbValue = row.nextAttemptAt?.toInstant(),
+            domainValue = domain.claimExpiresAt,
+            columnName = "next_attempt_at",
+        )
     }
 
     private fun validateTimestampMatch(
+        dbValue: Instant,
+        domainValue: Instant,
+        columnName: String,
+    ) {
+        val diff = Duration.between(dbValue, domainValue).abs()
+        require(diff.seconds <= 1) {
+            "audit-outbox-column-$columnName-mismatch"
+        }
+    }
+
+    private fun validateNullableTimestampMatch(
         dbValue: Instant?,
         domainValue: Instant?,
         columnName: String,
     ) {
+        require((dbValue == null) == (domainValue == null)) {
+            "audit-outbox-column-$columnName-mismatch"
+        }
         if (dbValue == null || domainValue == null) return
         val diff = Duration.between(dbValue, domainValue).abs()
         require(diff.seconds <= 1) {
             "audit-outbox-column-$columnName-mismatch"
         }
     }
+
+    private fun SovereignOpsAuditOutboxRecord.isDispatchable(now: Instant): Boolean =
+        when (status) {
+            SovereignOpsAuditOutboxStatus.PENDING,
+            SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE,
+            -> true
+            SovereignOpsAuditOutboxStatus.EMITTING -> {
+                val expiresAt = claimExpiresAt
+                expiresAt != null && expiresAt.isBefore(now)
+            }
+            SovereignOpsAuditOutboxStatus.PREPARED,
+            SovereignOpsAuditOutboxStatus.EMITTED,
+            SovereignOpsAuditOutboxStatus.FAILED_PERMANENT,
+            -> false
+        }
 
     // ══════════════════════════════════════════════════════════════════
     // SQL — INSERT
@@ -435,7 +499,6 @@ class JdbcSovereignOpsAuditOutboxStore(
         conn: Connection,
         record: SovereignOpsAuditOutboxRecord,
         encrypted: JdbcEncryptedAuditOutboxPayload,
-        nowOdt: OffsetDateTime,
     ) {
         val sql = """
             INSERT INTO audit_outbox (
@@ -451,7 +514,7 @@ class JdbcSovereignOpsAuditOutboxStore(
             stmt.setString(2, record.eventKey)
             stmt.setString(3, record.status.name)
             stmt.setString(4, record.aggregateIdDigest)
-            stmt.setTimestamp(5, Timestamp.from(nowOdt.toInstant()))
+            stmt.setTimestamp(5, Timestamp.from(record.createdAt))
             stmt.setBytes(6, encrypted.ciphertext)
             stmt.setString(7, encrypted.keyId)
             stmt.setString(8, encrypted.algorithm)
@@ -640,7 +703,8 @@ class JdbcSovereignOpsAuditOutboxStore(
             stmt.setBytes(6, encrypted.nonce)
             stmt.setString(7, encrypted.payloadDigest)
             stmt.setString(8, outboxId)
-            stmt.executeUpdate()
+            val updated = stmt.executeUpdate()
+            require(updated == 1) { "tramai-sovereign-ops-outbox-claim-update-failed" }
         }
     }
 
