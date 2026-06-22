@@ -29,16 +29,30 @@ class PolicyAuditWiringTest {
         PolicyDecision.Deny(reason = "test-block", reasonCode = "test-blocked")
     }
 
-    private fun failingEmitter(failingPoint: EnforcementPoint) = PolicyDecisionAuditEmitter { point, _, _ ->
-        if (point == failingPoint) {
-            throw RuntimeException("Audit storage failure")
+    private fun failingEmitter(failingPoint: EnforcementPoint) = object : PolicyDecisionAuditEmitter {
+        override suspend fun emit(
+            enforcementPoint: EnforcementPoint,
+            context: PolicyContext,
+            decision: PolicyDecision,
+        ) {
+            if (enforcementPoint == failingPoint) {
+                throw RuntimeException("Audit storage failure")
+            }
         }
     }
 
     @Test
     fun `ALLOW with configured emitter emits exactly one event before enforcement`() = runBlocking {
         val callCount = AtomicInteger(0)
-        val emitter = PolicyDecisionAuditEmitter { _, _, _ -> callCount.incrementAndGet() }
+        val emitter = object : PolicyDecisionAuditEmitter {
+            override suspend fun emit(
+                enforcementPoint: EnforcementPoint,
+                context: PolicyContext,
+                decision: PolicyDecision,
+            ) {
+                callCount.incrementAndGet()
+            }
+        }
 
         val helper = PolicyEnforcementHelper(
             policyEngine = policyEngine,
@@ -55,7 +69,15 @@ class PolicyAuditWiringTest {
     @Test
     fun `DENY with configured emitter emits exactly one event before exception`() = runBlocking {
         val callCount = AtomicInteger(0)
-        val emitter = PolicyDecisionAuditEmitter { _, _, _ -> callCount.incrementAndGet() }
+        val emitter = object : PolicyDecisionAuditEmitter {
+            override suspend fun emit(
+                enforcementPoint: EnforcementPoint,
+                context: PolicyContext,
+                decision: PolicyDecision,
+            ) {
+                callCount.incrementAndGet()
+            }
+        }
 
         val helper = PolicyEnforcementHelper(
             policyEngine = denyPolicyEngine,

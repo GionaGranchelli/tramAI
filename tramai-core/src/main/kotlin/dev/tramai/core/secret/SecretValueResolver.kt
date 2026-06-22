@@ -7,7 +7,7 @@ import java.nio.file.Path
 /**
  * Resolves external secret references for provider credentials.
  */
-fun interface SecretValueResolver {
+interface SecretValueResolver {
     /**
      * Resolves the given [secretRef] (e.g., "env:API_KEY") to its raw value.
      * Returns null if this resolver does not handle the given reference scheme or if the secret is missing.
@@ -18,10 +18,12 @@ fun interface SecretValueResolver {
 /**
  * Resolves secrets from environment variables using the "env:" prefix.
  */
-val EnvironmentSecretValueResolver: SecretValueResolver = SecretValueResolver { secretRef ->
-    val name = secretRef.removePrefix("env:")
-        .takeIf { secretRef.startsWith("env:") && it.isNotBlank() }
-    if (name == null) null else System.getenv(name)
+object EnvironmentSecretValueResolver : SecretValueResolver {
+    override fun resolve(secretRef: String): String? {
+        val name = secretRef.removePrefix("env:")
+            .takeIf { secretRef.startsWith("env:") && it.isNotBlank() }
+        return if (name == null) null else System.getenv(name)
+    }
 }
 
 /**

@@ -18,6 +18,8 @@ import dev.tramai.core.security.DlpInterceptor
 import dev.tramai.core.security.DlpRedaction
 import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.DlpResult
+import dev.tramai.core.policy.EnforcementPoint
+import dev.tramai.core.policy.PolicyContext
 import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.core.policy.PolicyEngine
@@ -463,7 +465,13 @@ class TramaiAutoConfigurationTest {
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
             .withBean("auditEmitter", PolicyDecisionAuditEmitter::class.java, Supplier {
-                PolicyDecisionAuditEmitter { _, _, _ -> }
+                object : PolicyDecisionAuditEmitter {
+                    override suspend fun emit(
+                        enforcementPoint: EnforcementPoint,
+                        context: PolicyContext,
+                        decision: PolicyDecision,
+                    ) = Unit
+                }
             })
 
         contextRunner.run { context ->
@@ -484,10 +492,22 @@ class TramaiAutoConfigurationTest {
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
             .withBean("firstEmitter", PolicyDecisionAuditEmitter::class.java, Supplier {
-                PolicyDecisionAuditEmitter { _, _, _ -> }
+                object : PolicyDecisionAuditEmitter {
+                    override suspend fun emit(
+                        enforcementPoint: EnforcementPoint,
+                        context: PolicyContext,
+                        decision: PolicyDecision,
+                    ) = Unit
+                }
             })
             .withBean("secondEmitter", PolicyDecisionAuditEmitter::class.java, Supplier {
-                PolicyDecisionAuditEmitter { _, _, _ -> }
+                object : PolicyDecisionAuditEmitter {
+                    override suspend fun emit(
+                        enforcementPoint: EnforcementPoint,
+                        context: PolicyContext,
+                        decision: PolicyDecision,
+                    ) = Unit
+                }
             })
 
         contextRunner.run { context ->
@@ -526,16 +546,20 @@ class TramaiAutoConfigurationTest {
             .withUserConfiguration(DlpTestApplication::class.java)
             .withBean(DlpProvider::class.java)
             .withBean("dlpInterceptor", DlpInterceptor::class.java, Supplier {
-                DlpInterceptor { _: DlpContext, text: String ->
-                    val sanitizedText = text.replace("sensitive", "redacted")
-                    DlpResult(
-                        sanitizedText = sanitizedText,
-                        redactions = if (sanitizedText != text) listOf(DlpRedaction("dlp-rule", 1)) else emptyList(),
-                    )
+                object : DlpInterceptor {
+                    override fun inspect(context: DlpContext, text: String): DlpResult {
+                        val sanitizedText = text.replace("sensitive", "redacted")
+                        return DlpResult(
+                            sanitizedText = sanitizedText,
+                            redactions = if (sanitizedText != text) listOf(DlpRedaction("dlp-rule", 1)) else emptyList(),
+                        )
+                    }
                 }
             })
             .withBean("dlpRedactionAuditEmitter", DlpRedactionAuditEmitter::class.java, Supplier {
-                DlpRedactionAuditEmitter { _, _ -> }
+                object : DlpRedactionAuditEmitter {
+                    override suspend fun emit(context: DlpContext, redactions: List<DlpRedaction>) = Unit
+                }
             })
             .withPropertyValues(
                 "tramai.default-provider=dlp-provider",
@@ -559,10 +583,14 @@ class TramaiAutoConfigurationTest {
             .withUserConfiguration(TestApplication::class.java, ProviderConfiguration::class.java)
             .withPropertyValues("tramai.default-provider=stub")
             .withBean("firstDlpEmitter", DlpRedactionAuditEmitter::class.java, Supplier {
-                DlpRedactionAuditEmitter { _, _ -> }
+                object : DlpRedactionAuditEmitter {
+                    override suspend fun emit(context: DlpContext, redactions: List<DlpRedaction>) = Unit
+                }
             })
             .withBean("secondDlpEmitter", DlpRedactionAuditEmitter::class.java, Supplier {
-                DlpRedactionAuditEmitter { _, _ -> }
+                object : DlpRedactionAuditEmitter {
+                    override suspend fun emit(context: DlpContext, redactions: List<DlpRedaction>) = Unit
+                }
             })
 
         contextRunner.run { context ->
@@ -711,8 +739,10 @@ class TramaiAutoConfigurationTest {
             .withUserConfiguration(TestApplication::class.java)
             .withBean(DlpProvider::class.java)
             .withBean("dlpInterceptor", DlpInterceptor::class.java, Supplier {
-                DlpInterceptor { _: DlpContext, _: String ->
-                    DlpResult(sanitizedText = "[REDACTED]")
+                object : DlpInterceptor {
+                    override fun inspect(context: DlpContext, text: String): DlpResult {
+                        return DlpResult(sanitizedText = "[REDACTED]")
+                    }
                 }
             })
             .withPropertyValues(
@@ -740,13 +770,17 @@ class TramaiAutoConfigurationTest {
             .withUserConfiguration(TestApplication::class.java)
             .withBean(DlpProvider::class.java)
             .withBean("firstDlpInterceptor", DlpInterceptor::class.java, Supplier {
-                DlpInterceptor { _: DlpContext, text: String ->
-                    DlpResult(sanitizedText = text)
+                object : DlpInterceptor {
+                    override fun inspect(context: DlpContext, text: String): DlpResult {
+                        return DlpResult(sanitizedText = text)
+                    }
                 }
             })
             .withBean("secondDlpInterceptor", DlpInterceptor::class.java, Supplier {
-                DlpInterceptor { _: DlpContext, text: String ->
-                    DlpResult(sanitizedText = text)
+                object : DlpInterceptor {
+                    override fun inspect(context: DlpContext, text: String): DlpResult {
+                        return DlpResult(sanitizedText = text)
+                    }
                 }
             })
             .withPropertyValues(
@@ -856,8 +890,8 @@ open class ExpensiveProviderConfiguration {
 @TestConfiguration
 open class SecretResolverConfiguration {
     @Bean
-    open fun testSecretValueResolver(): SecretValueResolver = SecretValueResolver { secretRef ->
-        when (secretRef) {
+    open fun testSecretValueResolver(): SecretValueResolver = object : SecretValueResolver {
+        override fun resolve(secretRef: String): String? = when (secretRef) {
             "vault:openai/api-key" -> "resolved-openai-key"
             else -> null
         }
@@ -894,7 +928,9 @@ open class InterceptorConfiguration {
 @TestConfiguration
 open class EngineEventObserverConfiguration {
     @Bean
-    open fun engineEventObserver(): EngineEventObserver = EngineEventObserver { _, _ -> }
+    open fun engineEventObserver(): EngineEventObserver = object : EngineEventObserver {
+        override fun onEngineEvent(name: String, attributes: Map<String, Any?>) = Unit
+    }
 }
 
 class PrimaryFailingProvider : ModelProvider {

@@ -1,5 +1,6 @@
 package dev.tramai.engine
 
+import dev.tramai.core.policy.PolicyContext
 import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.core.policy.PolicyEngine
 
@@ -9,4 +10,6 @@ import dev.tramai.core.policy.PolicyEngine
  * Used in 0.4.x when no explicit [PolicyEngine] is configured.
  * Will be removed or replaced in TramAI Enterprise 1.0.
  */
-val LegacyPermissivePolicyEngine: PolicyEngine = PolicyEngine { PolicyDecision.Allow }
+object LegacyPermissivePolicyEngine : PolicyEngine {
+    override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
+}

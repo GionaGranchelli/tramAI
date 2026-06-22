@@ -6,7 +6,7 @@ package dev.tramai.spring.sovereign.ops
  * Returns only safe metadata. Raw replay envelopes, tool arguments,
  * and sensitive payloads are NEVER exposed.
  */
-fun interface SovereignSuspendedInvocationOperations {
+interface SovereignSuspendedInvocationOperations {
 
     /**
      * Retrieve a single suspended invocation by its approval ID.

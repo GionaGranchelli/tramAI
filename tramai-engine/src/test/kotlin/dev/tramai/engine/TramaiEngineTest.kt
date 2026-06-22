@@ -32,12 +32,14 @@ import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.policy.ClassificationSource
 import dev.tramai.core.policy.DataClassification
 import dev.tramai.core.policy.EnforcementPoint
+import dev.tramai.core.policy.PolicyContext
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpRedaction
 import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.DlpResult
 import dev.tramai.core.security.NoOpDlpInterceptor
@@ -1292,8 +1294,8 @@ class TramaiEngineTest {
         private fun inconsistentDlpInterceptor(
             sanitizedText: String,
             redactions: Boolean,
-        ) = DlpInterceptor { _, _ ->
-            DlpResult(
+        ) = object : DlpInterceptor {
+            override fun inspect(context: DlpContext, text: String): DlpResult = DlpResult(
                 sanitizedText = sanitizedText,
                 redactions = if (redactions) listOf(dev.tramai.core.security.DlpRedaction("email", 1)) else emptyList(),
             )
@@ -1314,7 +1316,9 @@ class TramaiEngineTest {
             streamId: String = "stream-1",
         ) = AuditEngineDlpRedactionAuditEmitter(
             AuditEngine(store, clock = fixedAuditClock),
-            dev.tramai.security.audit.DlpAuditStreamIdResolver { streamId },
+            object : dev.tramai.security.audit.DlpAuditStreamIdResolver {
+                override fun resolve(context: DlpContext): String = streamId
+            },
         ) to store
 
         private fun filteringEngine(
@@ -1390,8 +1394,10 @@ class TramaiEngineTest {
         fun `DLP audit emission failure blocks response return without retry fallback or circuit poisoning`() {
             val primary = NamedProvider("primary") { ModelResponse(content = "Contact me at user@example.com for info") }
             val fallback = NamedProvider("fallback") { ModelResponse(content = "fallback response") }
-            val failingEmitter = DlpRedactionAuditEmitter { _, _ ->
-                throw RuntimeException("audit bridge failed")
+            val failingEmitter = object : DlpRedactionAuditEmitter {
+                override suspend fun emit(context: DlpContext, redactions: List<DlpRedaction>) {
+                    throw RuntimeException("audit bridge failed")
+                }
             }
             val engine = TramaiEngine(
                 providerRegistry = ProviderRegistry.builder()
@@ -1528,8 +1534,8 @@ class TramaiEngineTest {
             val streamIds = mutableListOf<String>()
             val auditEmitter = AuditEngineDlpRedactionAuditEmitter(
                 AuditEngine(store, clock = fixedAuditClock),
-                dev.tramai.security.audit.DlpAuditStreamIdResolver {
-                    it.correlationId.also(streamIds::add)
+                object : dev.tramai.security.audit.DlpAuditStreamIdResolver {
+                    override fun resolve(context: DlpContext): String = context.correlationId.also(streamIds::add)
                 },
             )
             val provider = RecordingProvider {
@@ -1563,14 +1569,14 @@ class TramaiEngineTest {
             val sharedStreamIds = mutableListOf<String>()
             val policyEmitter = AuditEnginePolicyDecisionAuditEmitter(
                 auditEngine,
-                dev.tramai.security.audit.AuditStreamIdResolver {
-                    it.correlationId.also(sharedStreamIds::add)
+                object : dev.tramai.security.audit.AuditStreamIdResolver {
+                    override fun resolve(context: PolicyContext): String = context.correlationId.also(sharedStreamIds::add)
                 },
             )
             val dlpEmitter = AuditEngineDlpRedactionAuditEmitter(
                 auditEngine,
-                dev.tramai.security.audit.DlpAuditStreamIdResolver {
-                    it.correlationId.also(sharedStreamIds::add)
+                object : dev.tramai.security.audit.DlpAuditStreamIdResolver {
+                    override fun resolve(context: DlpContext): String = context.correlationId.also(sharedStreamIds::add)
                 },
             )
             val provider = RecordingProvider {
@@ -1807,8 +1813,10 @@ class TramaiEngineTest {
                 ),
                 ModelResponse(content = "should not be requested"),
             )
-            val failingEmitter = DlpRedactionAuditEmitter { _, _ ->
-                throw RuntimeException("audit bridge failed")
+            val failingEmitter = object : DlpRedactionAuditEmitter {
+                override suspend fun emit(context: DlpContext, redactions: List<DlpRedaction>) {
+                    throw RuntimeException("audit bridge failed")
+                }
             }
             val engine = TramaiEngine(
                 provider = provider,

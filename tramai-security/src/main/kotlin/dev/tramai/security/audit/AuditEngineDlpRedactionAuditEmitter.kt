@@ -7,22 +7,24 @@ import dev.tramai.core.security.DlpRedaction
 import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.DlpRuleIdNormalizer
 
-fun interface DlpAuditStreamIdResolver {
+interface DlpAuditStreamIdResolver {
     fun resolve(context: DlpContext): String
 }
 
-val DefaultDlpAuditStreamIdResolver: DlpAuditStreamIdResolver = DlpAuditStreamIdResolver { context ->
-    val workflowRunId = context.workflowRunId
-        ?.trim()
-        ?.takeIf { it.isNotEmpty() }
-    if (workflowRunId != null) {
-        workflowRunId
-    } else {
-        val id = context.correlationId.trim()
-        require(id.isNotEmpty()) { "DLP audit stream ID must not be blank" }
-        require(id.length <= 256) { "DLP audit stream ID exceeds maximum length of 256" }
+object DefaultDlpAuditStreamIdResolver : DlpAuditStreamIdResolver {
+    override fun resolve(context: DlpContext): String {
+        val workflowRunId = context.workflowRunId
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        if (workflowRunId != null) {
+            return workflowRunId
+        } else {
+            val id = context.correlationId.trim()
+            require(id.isNotEmpty()) { "DLP audit stream ID must not be blank" }
+            require(id.length <= 256) { "DLP audit stream ID exceeds maximum length of 256" }
 
-        id
+            return id
+        }
     }
 }
 

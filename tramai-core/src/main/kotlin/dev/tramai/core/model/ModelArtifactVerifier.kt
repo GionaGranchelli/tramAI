@@ -1,7 +1,9 @@
 package dev.tramai.core.model
 
-fun interface ModelArtifactVerifier {
+interface ModelArtifactVerifier {
     suspend fun verify(registeredModel: RegisteredModel): VerifiedLocalModelArtifact?
 }
 
-val NoOpModelArtifactVerifier: ModelArtifactVerifier = ModelArtifactVerifier { null }
+object NoOpModelArtifactVerifier : ModelArtifactVerifier {
+    override suspend fun verify(registeredModel: RegisteredModel): VerifiedLocalModelArtifact? = null
+}

@@ -1,10 +1,15 @@
 package dev.tramai.core.security
 
-fun interface DlpRedactionAuditEmitter {
+interface DlpRedactionAuditEmitter {
     suspend fun emit(
         context: DlpContext,
         redactions: List<DlpRedaction>,
     )
 }
 
-val NoOpDlpRedactionAuditEmitter: DlpRedactionAuditEmitter = DlpRedactionAuditEmitter { _, _ -> Unit }
+object NoOpDlpRedactionAuditEmitter : DlpRedactionAuditEmitter {
+    override suspend fun emit(
+        context: DlpContext,
+        redactions: List<DlpRedaction>,
+    ) = Unit
+}

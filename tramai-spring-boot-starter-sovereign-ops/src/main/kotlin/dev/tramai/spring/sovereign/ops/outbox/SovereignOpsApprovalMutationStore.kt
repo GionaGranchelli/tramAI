@@ -11,7 +11,7 @@ package dev.tramai.spring.sovereign.ops.outbox
  * outbox append, the outbox record is marked as
  * [SovereignOpsAuditOutboxStatus.FAILED_PERMANENT] — an orphaned audit intent.
  */
-fun interface SovereignOpsApprovalMutationStore {
+interface SovereignOpsApprovalMutationStore {
 
     /**
      * Atomically deny an approval and persist the audit outbox record.

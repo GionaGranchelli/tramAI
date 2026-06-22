@@ -32,6 +32,33 @@ class AuditEngine(
             event.copy(eventHash = event.copy(eventHash = "").calculateHash())
         }
     }
+
+    @Deprecated("Use AuditEmission overload", ReplaceWith("emit(AuditEmission(auditStreamId, workflowRunId, correlationId, actor, enforcementPoint, decision, policyVersion, workflowDigest, reasonCode, metadata))"))
+    suspend fun emit(
+        auditStreamId: String,
+        workflowRunId: String?,
+        correlationId: String?,
+        actor: String?,
+        enforcementPoint: String,
+        decision: String,
+        policyVersion: String?,
+        workflowDigest: String?,
+        reasonCode: String?,
+        metadata: Map<String, String>,
+    ): AuditEvent = emit(
+        AuditEmission(
+            auditStreamId = auditStreamId,
+            workflowRunId = workflowRunId,
+            correlationId = correlationId,
+            actor = actor,
+            enforcementPoint = enforcementPoint,
+            decision = decision,
+            policyVersion = policyVersion,
+            workflowDigest = workflowDigest,
+            reasonCode = reasonCode,
+            metadata = metadata,
+        )
+    )
 }
 
 data class AuditEmission(

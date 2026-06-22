@@ -78,7 +78,7 @@ class DlpInspectionException(
  * Implementations inspect and optionally sanitize model outputs and tool results
  * before they reach downstream consumers, structured parsers, or cache storage.
  */
-fun interface DlpInterceptor {
+interface DlpInterceptor {
     /**
      * Inspect and optionally sanitize [text] within the given [context].
      *
@@ -90,4 +90,6 @@ fun interface DlpInterceptor {
 /**
  * No-op DLP interceptor that passes all text through unmodified.
  */
-val NoOpDlpInterceptor: DlpInterceptor = DlpInterceptor { _, text -> DlpResult(text) }
+object NoOpDlpInterceptor : DlpInterceptor {
+    override fun inspect(context: DlpContext, text: String): DlpResult = DlpResult(text)
+}

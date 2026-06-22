@@ -1,6 +1,6 @@
 package dev.tramai.core.policy
 
-fun interface PolicyDecisionAuditEmitter {
+interface PolicyDecisionAuditEmitter {
     suspend fun emit(
         enforcementPoint: EnforcementPoint,
         context: PolicyContext,
@@ -8,4 +8,10 @@ fun interface PolicyDecisionAuditEmitter {
     )
 }
 
-val NoOpPolicyDecisionAuditEmitter: PolicyDecisionAuditEmitter = PolicyDecisionAuditEmitter { _, _, _ -> Unit }
+object NoOpPolicyDecisionAuditEmitter : PolicyDecisionAuditEmitter {
+    override suspend fun emit(
+        enforcementPoint: EnforcementPoint,
+        context: PolicyContext,
+        decision: PolicyDecision,
+    ) = Unit
+}

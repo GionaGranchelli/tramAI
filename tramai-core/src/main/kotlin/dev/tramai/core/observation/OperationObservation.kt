@@ -69,7 +69,9 @@ interface OperationObservation {
 /**
  * Default no-op observer.
  */
-val NoOpOperationObserver: OperationObserver = OperationObserver { NoOpOperationObservation }
+object NoOpOperationObserver : OperationObserver {
+    override fun onCallStarted(context: OperationCallContext): OperationObservation = NoOpOperationObservation
+}
 
 /**
  * Default no-op per-call observation.

@@ -2,7 +2,7 @@ package dev.tramai.security.audit
 
 import dev.tramai.core.policy.PolicyContext
 
-fun interface AuditStreamIdResolver {
+interface AuditStreamIdResolver {
     /**
      * Resolves a stable audit stream ID from the [context].
      *
@@ -15,19 +15,21 @@ fun interface AuditStreamIdResolver {
     fun resolve(context: PolicyContext): String
 }
 
-val DefaultAuditStreamIdResolver: AuditStreamIdResolver = AuditStreamIdResolver { context ->
-    val workflowRunId = context.workflowRunId
-        ?.trim()
-        ?.takeIf { it.isNotEmpty() }
-    if (workflowRunId != null) {
-        workflowRunId
-    } else {
-        val correlationId = context.correlationId
-            .trim()
-            .takeIf { it.isNotEmpty() }
+object DefaultAuditStreamIdResolver : AuditStreamIdResolver {
+    override fun resolve(context: PolicyContext): String {
+        val workflowRunId = context.workflowRunId
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        if (workflowRunId != null) {
+            return workflowRunId
+        } else {
+            val correlationId = context.correlationId
+                .trim()
+                .takeIf { it.isNotEmpty() }
 
-        correlationId ?: throw IllegalArgumentException(
-            "AuditStreamIdResolver requires at least one of workflowRunId or correlationId to be non-blank",
-        )
+            return correlationId ?: throw IllegalArgumentException(
+                "AuditStreamIdResolver requires at least one of workflowRunId or correlationId to be non-blank",
+            )
+        }
     }
 }

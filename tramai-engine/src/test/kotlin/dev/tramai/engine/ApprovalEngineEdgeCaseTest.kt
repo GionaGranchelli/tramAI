@@ -1013,9 +1013,11 @@ class ApprovalEngineEdgeCaseTest {
             approvalGateCoordinator = coordinator,
             clock = fixedClock,
             approvalLifecycleAuditEmitter = auditEmitter,
-            engineEventObserver = EngineEventObserver { name, _ ->
-                observerEvents.add(name)
-                throw RuntimeException("observer failed")
+            engineEventObserver = object : EngineEventObserver {
+                override fun onEngineEvent(name: String, attributes: Map<String, Any?>) {
+                    observerEvents.add(name)
+                    throw RuntimeException("observer failed")
+                }
             },
         )
 

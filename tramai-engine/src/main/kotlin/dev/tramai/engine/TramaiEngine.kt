@@ -2310,6 +2310,7 @@ internal class TramaiInvocationHandler(
                 modelName = operation.operation.model,
                 attemptNumber = attemptIndex,
                 conversationId = conversationId,
+                idempotencyKey = request.idempotencyKey,
                 timeout = java.time.Duration.ofMillis(operation.operation.timeoutMillis),
             )
 
@@ -2918,36 +2919,15 @@ internal class TramaiInvocationHandler(
                 store = store,
             )
         } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
-            if (!uncertainOutcome.emitted) {
-                approvalLifecycleAuditEmitter.onUncertainOutcome(
-                    approvalId = e.approvalId,
-                    workflowRunId = metadata.identity.workflowRunId,
-                    toolName = metadata.toolName,
-                    reason = "nested-approval-not-supported",
-                )
-            }
+            emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "nested-approval-not-supported")
             throw e
         } catch (e: dev.tramai.core.exception.StructuredOutputException) {
-            if (!uncertainOutcome.emitted) {
-                approvalLifecycleAuditEmitter.onUncertainOutcome(
-                    approvalId = command.approvalId,
-                    workflowRunId = metadata.identity.workflowRunId,
-                    toolName = metadata.toolName,
-                    reason = "structured-parse-failed: ${e::class.simpleName ?: "unknown"}",
-                )
-            }
+            emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "structured-parse-failed: ${e::class.simpleName ?: "unknown"}")
             throw e
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (!uncertainOutcome.emitted) {
-                approvalLifecycleAuditEmitter.onUncertainOutcome(
-                    approvalId = command.approvalId,
-                    workflowRunId = metadata.identity.workflowRunId,
-                    toolName = metadata.toolName,
-                    reason = "resume-failed: ${e::class.simpleName ?: "unknown"}",
-                )
-            }
+            emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "resume-failed: ${e::class.simpleName ?: "unknown"}")
             throw e
         }
     }
@@ -2971,8 +2951,8 @@ internal class TramaiInvocationHandler(
         val command = context.command
         val metadata = context.metadata
         val registered = context.registered
-        val replayPayload = revealAndValidateReplayPayload(command, metadata)
-        val expectedArgsDigest = validateClaimedResumeArguments(command, metadata, claimed, digester)
+        val replayPayload = revealAndValidateReplayPayload(context.uncertainOutcome, command, metadata)
+        val expectedArgsDigest = validateClaimedResumeArguments(context.uncertainOutcome, command, metadata, claimed, digester)
         val validatedInput = claimed.arguments.reveal()
         val rehydratedPayload = ReplayEnvelopeFactory.rehydrateAfterClaim(
             payload = replayPayload,
@@ -3020,6 +3000,7 @@ internal class TramaiInvocationHandler(
     }
 
     private suspend fun revealAndValidateReplayPayload(
+        marker: ResumeUncertainOutcome,
         command: ResumeApprovalCommand,
         metadata: SuspendedInvocationMetadata,
     ): ReplayPayload {
@@ -3028,13 +3009,14 @@ internal class TramaiInvocationHandler(
         val replayPayload = replayEnvelope.revealForResume()
         val actualDigest = ReplayEnvelopeDigestHelper.compute(metadata.operationReference, replayPayload.messages)
         if (actualDigest != metadata.replayEnvelopeDigest) {
-            emitResumeUncertainOutcome(command, metadata, "replay-envelope-digest-mismatch")
+            emitResumeUncertainOutcomeOnce(marker, command, metadata, "replay-envelope-digest-mismatch")
             throw dev.tramai.core.exception.ConfigurationException("Replay envelope digest mismatch")
         }
         return replayPayload
     }
 
     private suspend fun validateClaimedResumeArguments(
+        marker: ResumeUncertainOutcome,
         command: ResumeApprovalCommand,
         metadata: SuspendedInvocationMetadata,
         claimed: ClaimedApprovalContinuation,
@@ -3043,7 +3025,7 @@ internal class TramaiInvocationHandler(
         val actualArgsDigest = digester.digest(claimed.arguments)
         val expectedArgsDigest = claimed.continuation.argumentsDigest
         if (actualArgsDigest != expectedArgsDigest) {
-            emitResumeUncertainOutcome(command, metadata, "payload-integrity-mismatch")
+            emitResumeUncertainOutcomeOnce(marker, command, metadata, "payload-integrity-mismatch")
             throw dev.tramai.core.exception.ConfigurationException("Claimed continuation payload integrity mismatch")
         }
         return expectedArgsDigest
@@ -3099,13 +3081,7 @@ internal class TramaiInvocationHandler(
         } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
             throw e
         } catch (e: ToolInvalidInputException) {
-            uncertainOutcome.emitted = true
-            approvalLifecycleAuditEmitter.onUncertainOutcome(
-                approvalId = command.approvalId,
-                workflowRunId = metadata.identity.workflowRunId,
-                toolName = metadata.toolName,
-                reason = "tool-execution-failed: ${e::class.simpleName ?: "unknown"}",
-            )
+            emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "tool-execution-failed: ${e::class.simpleName ?: "unknown"}")
             throw e
         }
     }
@@ -3166,11 +3142,14 @@ internal class TramaiInvocationHandler(
         }
     }
 
-    private suspend fun emitResumeUncertainOutcome(
+    private suspend fun emitResumeUncertainOutcomeOnce(
+        marker: ResumeUncertainOutcome,
         command: ResumeApprovalCommand,
         metadata: SuspendedInvocationMetadata,
         reason: String,
     ) {
+        if (marker.emitted) return
+        marker.emitted = true
         approvalLifecycleAuditEmitter.onUncertainOutcome(
             approvalId = command.approvalId,
             workflowRunId = metadata.identity.workflowRunId,
@@ -3734,6 +3713,7 @@ internal class TramaiInvocationHandler(
         for (i in parameters.indices) {
             if (parameters[i].isAnnotationPresent(ConversationId::class.java)) {
                 val argument = args[i]
+                    ?: throw IllegalArgumentException("@ConversationId parameter '${parameters[i].name}' at index $i is null")
                 return argument.toString()
             }
         }
@@ -4068,7 +4048,7 @@ data class OperationDefinition(
 
     private fun sanitizedArgumentValues(arguments: List<Any?>): List<String> = arguments.map { argument ->
         val rendered = when (argument) {
-            is ClassifiedDocument<*> -> argument.payload.toString()
+            is ClassifiedDocument<*> -> argument.payload?.toString() ?: ""
             else -> argument?.toString() ?: ""
         }
         promptSanitizer?.sanitize(rendered) ?: rendered

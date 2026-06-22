@@ -15,6 +15,7 @@ import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpRedaction
 import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.DlpResult
 import dev.tramai.core.policy.EnforcementPoint
@@ -242,8 +243,10 @@ class TramaiTest {
                 )
             }
         }
-        val auditEmitter = DlpRedactionAuditEmitter { context, redactions ->
-            auditCalls += context.contentType.name to redactions.size
+        val auditEmitter = object : DlpRedactionAuditEmitter {
+            override suspend fun emit(context: DlpContext, redactions: List<DlpRedaction>) {
+                auditCalls += context.contentType.name to redactions.size
+            }
         }
         val provider = RecordingProvider("anthropic") { ModelResponse(content = "this is a secret") }
 
@@ -271,8 +274,10 @@ class TramaiTest {
                 )
             }
         }
-        val auditEmitter = DlpRedactionAuditEmitter { _, _ ->
-            throw RuntimeException("audit bridge failed")
+        val auditEmitter = object : DlpRedactionAuditEmitter {
+            override suspend fun emit(context: DlpContext, redactions: List<DlpRedaction>) {
+                throw RuntimeException("audit bridge failed")
+            }
         }
         val provider = RecordingProvider("anthropic") { ModelResponse(content = "this is a secret") }
 
@@ -365,8 +370,14 @@ class TramaiTest {
     fun `builder with custom audit emitter receives runtime policy events`() {
         val provider = RecordingProvider("anthropic") { ModelResponse(content = "hello") }
         val events = mutableListOf<String>()
-        val emitter = PolicyDecisionAuditEmitter { _, _, _ ->
-            events.add("emitted")
+        val emitter = object : PolicyDecisionAuditEmitter {
+            override suspend fun emit(
+                enforcementPoint: EnforcementPoint,
+                context: PolicyContext,
+                decision: PolicyDecision,
+            ) {
+                events.add("emitted")
+            }
         }
 
         val tramai = Tramai {
@@ -406,10 +417,16 @@ class TramaiTest {
             PolicyDecision.Deny("always deny", "always-deny")
         }
         val auditEvents = mutableListOf<String>()
-        val emitter = PolicyDecisionAuditEmitter { _, _, decision ->
-            when (decision) {
-                is PolicyDecision.Deny -> auditEvents.add("DENY:${decision.reasonCode}")
-                else -> auditEvents.add("ALLOW")
+        val emitter = object : PolicyDecisionAuditEmitter {
+            override suspend fun emit(
+                enforcementPoint: EnforcementPoint,
+                context: PolicyContext,
+                decision: PolicyDecision,
+            ) {
+                when (decision) {
+                    is PolicyDecision.Deny -> auditEvents.add("DENY:${decision.reasonCode}")
+                    else -> auditEvents.add("ALLOW")
+                }
             }
         }
 
