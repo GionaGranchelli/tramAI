@@ -74,6 +74,7 @@ data class SuspendedInvocationMetadata(
  *   Will be removed in a future version once all consumers migrate.
  */
 @Deprecated("Use SensitiveReplayEnvelope instead", ReplaceWith("SensitiveReplayEnvelope"))
+@Suppress("DEPRECATION")
 class SensitiveResumeContext private constructor(
     private val operation: OperationDefinition,
     private val tool: ResolvedTool,
@@ -184,6 +185,7 @@ interface SuspendedInvocationStore {
      * @deprecated Use [revealReplayEnvelope] instead.
      */
     @Deprecated("Use revealReplayEnvelope instead", level = DeprecationLevel.ERROR)
+    @Suppress("DEPRECATION")
     suspend fun revealSensitiveContext(approvalId: String): SensitiveResumeContext? =
         throw UnsupportedOperationException("deprecated-api: use revealReplayEnvelope")
 }

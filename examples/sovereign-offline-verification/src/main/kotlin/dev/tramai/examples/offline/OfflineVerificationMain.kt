@@ -257,7 +257,7 @@ internal fun executeVerificationInternal(
         // q. External network probes
         val tcpBlocked: Boolean = try {
             Socket().use { socket ->
-                socket.connect(InetSocketAddress("1.1.1.1", 443), 1000)
+                socket.connect(InetSocketAddress(EXTERNAL_PROBE_IP, 443), 1000)
             }
             false // connection succeeded — not blocked
         } catch (_: Exception) {
@@ -436,3 +436,6 @@ private const val LOOPBACK_PROVIDER = "loopback-local-provider"
 
 /** @see main */
 private const val OFFLINE_TEST_MODEL = "offline-test-model"
+
+/** @see main */
+private const val EXTERNAL_PROBE_IP = "1.1.1.1"

@@ -345,6 +345,7 @@ class DefaultPolicyEngine(
 
     // ─── Legacy classification egress ───────────────────────────────────────
 
+    @Suppress("DEPRECATION")
     private fun evaluateClassificationEgress(
         classification: DataClassification?,
         providerId: String?,

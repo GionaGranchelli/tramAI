@@ -51,7 +51,7 @@ import java.util.Base64
 class BedrockProvider @JvmOverloads constructor(
     private val region: String,
     private val modelId: String = DEFAULT_MODEL_ID,
-    private val credentialsProvider: AwsCredentialsProvider = DefaultCredentialsProvider.create(),
+    private val credentialsProvider: AwsCredentialsProvider = DefaultCredentialsProvider.builder().build(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
     private val ioDispatcher: CoroutineContext = Dispatchers.IO,
 ) : ModelProvider, StreamCapable {

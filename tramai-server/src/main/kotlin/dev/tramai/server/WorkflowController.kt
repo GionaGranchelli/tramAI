@@ -356,12 +356,8 @@ class WorkflowErrorHandler {
         problem(
             HttpStatus.BAD_REQUEST,
             ERROR_INVALID_REQUEST,
-            error.allValidationResults
-                .flatMap { result ->
-                    result.resolvableErrors.mapNotNull { resolvable ->
-                        resolvable.defaultMessage?.takeIf(String::isNotBlank)
-                    }
-                }
+            error.allErrors
+                .mapNotNull { it.defaultMessage?.takeIf(String::isNotBlank) }
                 .ifEmpty { listOf(error.message ?: "Request is invalid") }
                 .joinToString("; "),
         )

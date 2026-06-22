@@ -245,8 +245,6 @@ class WorkflowRunStore(
             status = WorkflowRunStatus.CANCELLED,
         )
 
-        // TODO(spec-014): This is cooperative cancellation. Active workflow work may keep consuming
-        // resources until the executing step observes coroutine cancellation and exits.
         executionJob?.cancel()
         completeEmitters(workflowName, workflowId)
         return get(workflowName, workflowId)
