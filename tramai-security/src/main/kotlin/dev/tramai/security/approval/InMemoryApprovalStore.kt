@@ -160,39 +160,57 @@ class InMemoryApprovalStore(
             }
 
             if (req.consumedAt == null && req.consumedBy == null) {
-                if (req.version != expectedVersion) throw ApprovalStoreConflictException(approvalId)
-
-                val now = clock.instant()
-                if (now >= req.expiresAt) throw ApprovalStoreNotConsumableException(approvalId)
-
                 replayed.set(false)
-                req.copy(
-                    consumedBy = consumedBy,
-                    consumedAt = now,
-                    version = incrementVersion(approvalId, req.version),
-                )
-            } else {
-                if (req.consumedAt == null || req.consumedBy == null) {
-                    throw ApprovalStoreNotConsumableException(approvalId)
-                }
-                if (req.consumedBy != consumedBy) throw ApprovalStoreNotConsumableException(approvalId)
-
-                val replayVersion = try {
-                    Math.addExact(expectedVersion, 1L)
-                } catch (_: ArithmeticException) {
-                    throw ApprovalStoreConflictException(approvalId)
-                }
-                if (req.version != replayVersion) throw ApprovalStoreConflictException(approvalId)
-
-                replayed.set(true)
-                req
+                return@compute consumeFreshApproval(approvalId, expectedVersion, consumedBy, req)
             }
+
+            replayed.set(true)
+            consumeReplayApproval(approvalId, expectedVersion, consumedBy, req)
         }
 
         return ApprovalConsumptionReceipt(
             request = result ?: throw ApprovalStoreNotFoundException(approvalId),
             replayed = replayed.get(),
         )
+    }
+
+    private fun consumeFreshApproval(
+        approvalId: String,
+        expectedVersion: Long,
+        consumedBy: String,
+        req: ApprovalRequest,
+    ): ApprovalRequest {
+        if (req.version != expectedVersion) throw ApprovalStoreConflictException(approvalId)
+
+        val now = clock.instant()
+        if (now >= req.expiresAt) throw ApprovalStoreNotConsumableException(approvalId)
+
+        return req.copy(
+            consumedBy = consumedBy,
+            consumedAt = now,
+            version = incrementVersion(approvalId, req.version),
+        )
+    }
+
+    private fun consumeReplayApproval(
+        approvalId: String,
+        expectedVersion: Long,
+        consumedBy: String,
+        req: ApprovalRequest,
+    ): ApprovalRequest {
+        if (req.consumedAt == null || req.consumedBy == null) {
+            throw ApprovalStoreNotConsumableException(approvalId)
+        }
+        if (req.consumedBy != consumedBy) throw ApprovalStoreNotConsumableException(approvalId)
+
+        val replayVersion = try {
+            Math.addExact(expectedVersion, 1L)
+        } catch (_: ArithmeticException) {
+            throw ApprovalStoreConflictException(approvalId)
+        }
+        if (req.version != replayVersion) throw ApprovalStoreConflictException(approvalId)
+
+        return req
     }
 
     private fun incrementVersion(

@@ -5,7 +5,6 @@ import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.security.audit.AuditStore
 import java.io.RandomAccessFile
-import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.file.Files
@@ -76,152 +75,175 @@ class FileBackedSovereignStores private constructor(
         fun open(configuration: FileBackedStoreConfiguration): FileBackedSovereignStores {
             val root = configuration.rootDirectory.toAbsolutePath().normalize()
             validateActiveKeyId(configuration.encryption.activeKeyId)
+            prepareRootDirectory(root)
 
-            // ── 1. Create root directory with strict permissions if missing ──
-            if (root.notExists()) {
-                Files.createDirectories(root, PosixFilePermissions.asFileAttribute(
-                    DIR_PERMS_0700,
-                ))
+            val lockHandle = acquireStoreLock(root)
+
+            try {
+                prepareStoreLayout(root)
+                val stores = createStores(root, configuration)
+                verifyStoresIfRequired(configuration, stores)
+
+                return FileBackedSovereignStores(
+                    approvalStore = stores.approvalStore,
+                    approvalContinuationStore = stores.approvalContinuationStore,
+                    auditStore = stores.auditStore,
+                    suspendedInvocationStore = stores.suspendedInvocationStore,
+                    lockFile = lockHandle.file,
+                    lock = lockHandle.lock,
+                    rootDir = root,
+                    lease = stores.lease,
+                )
+            } catch (e: Exception) {
+                lockHandle.close()
+                throw e
             }
+        }
 
-            // ── 2. Validate root directory ──
+        private data class StoreLockHandle(
+            val file: RandomAccessFile,
+            val lock: FileLock,
+        ) {
+            fun close() {
+                closeQuietly(lock)
+                closeQuietly(file)
+            }
+        }
+
+        private data class StoreBundle(
+            val approvalStore: FileApprovalStore,
+            val approvalContinuationStore: FileApprovalContinuationStore,
+            val auditStore: FileAuditStore,
+            val suspendedInvocationStore: FileSuspendedInvocationStore,
+            val lease: FileStoreLease,
+        )
+
+        private fun prepareRootDirectory(root: Path) {
+            if (root.notExists()) {
+                Files.createDirectories(root, PosixFilePermissions.asFileAttribute(DIR_PERMS_0700))
+            }
             require(Files.isDirectory(root)) { "root-not-directory" }
             require(!Files.isSymbolicLink(root)) { "root-symlink-rejected" }
+            require(Files.getPosixFilePermissions(root).toSet() == DIR_PERMS_0700) {
+                "root-permission-denied"
+            }
+        }
 
-            val rootPerms = Files.getPosixFilePermissions(root).toSet()
-            val expectedRootPerms = DIR_PERMS_0700
-            require(rootPerms == expectedRootPerms) { "root-permission-denied" }
-
-            // ── 3. Acquire exclusive lock on .tramai.lock ──
+        private fun acquireStoreLock(root: Path): StoreLockHandle {
             val lockFilePath = root.resolve(".tramai.lock")
-            // Reject symlink for lock file
-            require(!lockFilePath.isSymbolicLink()) {
+            if (lockFilePath.isSymbolicLink()) {
                 throw FileStorePermissionException("lock-file-symlink-rejected")
             }
-            // Ensure .tramai.lock exists with 0600 permissions
             if (!lockFilePath.exists()) {
                 Files.createFile(lockFilePath, PosixFilePermissions.asFileAttribute(FILE_PERMS_0600))
             } else {
                 FileStoreUtil.validateRegularFile(lockFilePath, "lock-file")
             }
-            val lockFileNonNull = RandomAccessFile(lockFilePath.toFile(), "rw")
-            val fileLockNonNull: FileLock
-            try {
-                fileLockNonNull = lockFileNonNull.channel.tryLock()
-                    ?: throw FileStoreLockUnavailableException("tramai-lock-unavailable")
-            } catch (e: Exception) {
-                // Close the file handle on any acquisition failure
-                try {
-                    lockFileNonNull.close()
-                } catch (_: Exception) {
-                    // Best-effort cleanup after lock acquisition failure.
-                }
-                throw e
-            }
 
-            try {
-                // Reject symlink and validate permissions for manifest
-                val manifestPath = root.resolve("manifest.json")
-                // Check symlink BEFORE existence — dangling symlinks appear non-existent to exists()
-                if (manifestPath.isSymbolicLink()) {
-                    throw FileStorePermissionException("manifest-symlink-rejected")
-                }
-                if (Files.exists(manifestPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-                    FileStoreUtil.validateRegularFile(manifestPath, "manifest")
-                }
-
-                // ── 4. Create subdirectories with strict permissions ──
-                val subdirs = listOf("approvals", "continuations", "audit", "suspended")
-                for (dir in subdirs) {
-                    val path = root.resolve(dir)
-                    if (path.notExists()) {
-                        Files.createDirectories(path, PosixFilePermissions.asFileAttribute(
-                            DIR_PERMS_0700,
-                        ))
-                    }
-                    require(!path.isSymbolicLink()) {
-                        throw FileStorePermissionException("$dir-symlink-rejected")
-                    }
-                    val dirPerms = Files.getPosixFilePermissions(path).toSet()
-                    check(dirPerms == DIR_PERMS_0700) {
-                        throw FileStorePermissionException("$dir-permission-denied")
-                    }
-                }
-
-                // ── 5. Validate or create manifest.json ──
-                if (Files.exists(manifestPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-                    FileStoreUtil.validateRegularFile(manifestPath, "manifest")
-                    val manifestJson = FileStoreUtil.boundedReadText(manifestPath)
-                    val manifest = StoreManifestV1.fromJson(manifestJson)
-                    manifest.validateManifest()
-                } else {
-                    val manifest = StoreManifestV1(
-                        formatVersion = 1,
-                        module = "tramai-persistence-file",
-                        createdAt = Instant.now().toString(),
-                    )
-                    // Atomic create with immediate 0600 permissions
-                    FileChannel.open(
-                        manifestPath,
-                        setOf(
-                            StandardOpenOption.CREATE_NEW,
-                            StandardOpenOption.WRITE,
-                            StandardOpenOption.DSYNC,
-                        ),
-                        PosixFilePermissions.asFileAttribute(FILE_PERMS_0600),
-                    ).use { channel ->
-                        val bytes = manifest.toJson().toByteArray(Charsets.UTF_8)
-                        val buffer = java.nio.ByteBuffer.wrap(bytes)
-                        while (buffer.hasRemaining()) {
-                            channel.write(buffer)
-                        }
-                        channel.force(true)
-                    }
-                }
-
-                // ── 6. Resolve and validate encryption key ──
-                val key = configuration.encryption.keyProvider.resolve(configuration.encryption.activeKeyId)
-                validateEncryptionKey(key)
-
-                // Shared lease for post-close guarding
-                val lease = FileStoreLease()
-
-                val fileBackedApprovalStore = FileApprovalStore(root, key, configuration, lease)
-                val fileBackedContinuationStore = FileApprovalContinuationStore(root, key, configuration, lease)
-                val fileBackedAuditStore = FileAuditStore(root, key, configuration, lease)
-                val fileBackedSuspendedStore = FileSuspendedInvocationStore(root, key, configuration, lease)
-
-                // ── 7. If verifyOnOpen, verify all records ──
-                if (configuration.verifyOnOpen) {
-                    fileBackedApprovalStore.verifyAll()
-                    fileBackedContinuationStore.verifyAll()
-                    fileBackedAuditStore.verifyAll()
-                    fileBackedSuspendedStore.verifyAll()
-                }
-
-                return FileBackedSovereignStores(
-                    approvalStore = fileBackedApprovalStore,
-                    approvalContinuationStore = fileBackedContinuationStore,
-                    auditStore = fileBackedAuditStore,
-                    suspendedInvocationStore = fileBackedSuspendedStore,
-                    lockFile = lockFileNonNull,
-                    lock = fileLockNonNull,
-                    rootDir = root,
-                    lease = lease,
+            val lockFile = RandomAccessFile(lockFilePath.toFile(), "rw")
+            return try {
+                StoreLockHandle(
+                    file = lockFile,
+                    lock = lockFile.channel.tryLock()
+                        ?: throw FileStoreLockUnavailableException("tramai-lock-unavailable"),
                 )
             } catch (e: Exception) {
-                // Clean up lock on failure
-                try {
-                    fileLockNonNull.close()
-                } catch (_: Exception) {
-                    // Best-effort cleanup while failing store initialization.
-                }
-                try {
-                    lockFileNonNull.close()
-                } catch (_: Exception) {
-                    // Best-effort cleanup while failing store initialization.
-                }
+                closeQuietly(lockFile)
                 throw e
+            }
+        }
+
+        private fun prepareStoreLayout(root: Path) {
+            val manifestPath = root.resolve("manifest.json")
+            validateManifestPath(manifestPath)
+            listOf("approvals", "continuations", "audit", "suspended").forEach { dir ->
+                prepareStoreSubdirectory(root.resolve(dir), dir)
+            }
+            validateOrCreateManifest(manifestPath)
+        }
+
+        private fun validateManifestPath(manifestPath: Path) {
+            if (manifestPath.isSymbolicLink()) {
+                throw FileStorePermissionException("manifest-symlink-rejected")
+            }
+            if (Files.exists(manifestPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                FileStoreUtil.validateRegularFile(manifestPath, "manifest")
+            }
+        }
+
+        private fun prepareStoreSubdirectory(path: Path, name: String) {
+            if (path.notExists()) {
+                Files.createDirectories(path, PosixFilePermissions.asFileAttribute(DIR_PERMS_0700))
+            }
+            if (path.isSymbolicLink()) {
+                throw FileStorePermissionException("$name-symlink-rejected")
+            }
+            if (Files.getPosixFilePermissions(path).toSet() != DIR_PERMS_0700) {
+                throw FileStorePermissionException("$name-permission-denied")
+            }
+        }
+
+        private fun validateOrCreateManifest(manifestPath: Path) {
+            if (Files.exists(manifestPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                FileStoreUtil.validateRegularFile(manifestPath, "manifest")
+                StoreManifestV1.fromJson(FileStoreUtil.boundedReadText(manifestPath)).validateManifest()
+                return
+            }
+
+            val manifest = StoreManifestV1(
+                formatVersion = 1,
+                module = "tramai-persistence-file",
+                createdAt = Instant.now().toString(),
+            )
+            FileChannel.open(
+                manifestPath,
+                setOf(
+                    StandardOpenOption.CREATE_NEW,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.DSYNC,
+                ),
+                PosixFilePermissions.asFileAttribute(FILE_PERMS_0600),
+            ).use { channel ->
+                val buffer = java.nio.ByteBuffer.wrap(manifest.toJson().toByteArray(Charsets.UTF_8))
+                while (buffer.hasRemaining()) {
+                    channel.write(buffer)
+                }
+                channel.force(true)
+            }
+        }
+
+        private fun createStores(
+            root: Path,
+            configuration: FileBackedStoreConfiguration,
+        ): StoreBundle {
+            val key = configuration.encryption.keyProvider.resolve(configuration.encryption.activeKeyId)
+            validateEncryptionKey(key)
+            val lease = FileStoreLease()
+            return StoreBundle(
+                approvalStore = FileApprovalStore(root, key, configuration, lease),
+                approvalContinuationStore = FileApprovalContinuationStore(root, key, configuration, lease),
+                auditStore = FileAuditStore(root, key, configuration, lease),
+                suspendedInvocationStore = FileSuspendedInvocationStore(root, key, configuration, lease),
+                lease = lease,
+            )
+        }
+
+        private fun verifyStoresIfRequired(
+            configuration: FileBackedStoreConfiguration,
+            stores: StoreBundle,
+        ) {
+            if (!configuration.verifyOnOpen) return
+            stores.approvalStore.verifyAll()
+            stores.approvalContinuationStore.verifyAll()
+            stores.auditStore.verifyAll()
+            stores.suspendedInvocationStore.verifyAll()
+        }
+
+        private fun closeQuietly(closeable: AutoCloseable) {
+            try {
+                closeable.close()
+            } catch (_: Exception) {
+                // Best-effort cleanup while failing store initialization.
             }
         }
 

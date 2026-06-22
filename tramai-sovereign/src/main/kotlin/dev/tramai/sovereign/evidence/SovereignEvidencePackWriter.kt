@@ -302,28 +302,42 @@ object SovereignEvidencePackWriter {
             if (!last) sb.append(",")
             sb.appendLine()
         } else {
-            // Generic object: serialize as JSON object with reflection-like approach
-            // For the artifactVerificationSettings map, we need special handling
             @Suppress("UNCHECKED_CAST")
-            val map = value as Map<String, Any?>
-            if (map.isEmpty()) {
-                sb.append("{ }")
-                if (!last) sb.append(",")
-                sb.appendLine()
-                return
-            }
-            sb.appendLine("{")
-            val entries = map.entries.sortedBy { it.key }
-            for ((i, entry) in entries.withIndex()) {
-                val isLast = i == entries.lastIndex
-                val innerIndent = "    ".repeat(indent + 1)
-                sb.append(innerIndent).append(escapedString(entry.key)).append(": ")
-                appendAnyValue(sb, entry.value)
-                if (!isLast) sb.append(",")
-                sb.appendLine()
-            }
-            sb.append(indentStr).append("}")
+            appendGenericObjectField(sb, value as Map<String, Any?>, indent, last)
+        }
+    }
+
+    private fun appendGenericObjectField(
+        sb: StringBuilder,
+        map: Map<String, Any?>,
+        indent: Int,
+        last: Boolean,
+    ) {
+        if (map.isEmpty()) {
+            sb.append("{ }")
             if (!last) sb.append(",")
+            sb.appendLine()
+            return
+        }
+
+        val indentStr = "    ".repeat(indent)
+        sb.appendLine("{")
+        appendGenericObjectEntries(sb, map, indent + 1)
+        sb.append(indentStr).append("}")
+        if (!last) sb.append(",")
+        sb.appendLine()
+    }
+
+    private fun appendGenericObjectEntries(
+        sb: StringBuilder,
+        map: Map<String, Any?>,
+        indent: Int,
+    ) {
+        val entries = map.entries.sortedBy { it.key }
+        for ((i, entry) in entries.withIndex()) {
+            sb.append("    ".repeat(indent)).append(escapedString(entry.key)).append(": ")
+            appendAnyValue(sb, entry.value)
+            if (i != entries.lastIndex) sb.append(",")
             sb.appendLine()
         }
     }

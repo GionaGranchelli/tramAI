@@ -74,77 +74,7 @@ object ReleaseBundleEvidenceLoader {
             "release-bundle-evidence-empty-artifacts"
         }
 
-        val seenFileNames = mutableSetOf<String>()
-        val seenCoordinates = mutableSetOf<String>()
-        val resultArtifacts = mutableListOf<ReleaseArtifactEvidenceV1>()
-
-        for ((i, rawEntry) in artifactList.withIndex()) {
-            val entry = checkNotNull(rawEntry as? Map<*, *>) {
-                "release-bundle-evidence-invalid-artifact-entry (index $i)"
-            }
-
-            val groupId = stringField(entry, "groupId", i)
-            val artifactId = stringField(entry, "artifactId", i)
-            val version = stringField(entry, "version", i)
-            val fileName = stringField(entry, "fileName", i)
-            val sha256 = stringField(entry, "sha256", i)
-            val extension = stringField(entry, "extension", i)
-            val sizeBytes = numericField(entry, "sizeBytes", i)
-
-            val rawClassifier = entry["classifier"]
-            val classifier = when (rawClassifier) {
-                null -> null
-                is String -> rawClassifier
-                else -> error(
-                    "release-bundle-evidence-invalid-artifact-entry (index $i): classifier must be String or null"
-                )
-            }
-
-            // Unsafe file name
-            check(fileName.isNotBlank() && safeFileNameRegex.matches(fileName)) {
-                "release-bundle-evidence-unsafe-file-name: $fileName"
-            }
-
-            // Digest format
-            check(digestRegex.matches(sha256)) {
-                "release-bundle-evidence-invalid-digest-format: $sha256"
-            }
-
-            // Size must be positive
-            val size = sizeBytes.toLong()
-            check(size > 0) {
-                "release-bundle-evidence-invalid-size: $size"
-            }
-
-            // Only JAR extension supported
-            check(extension == "jar") {
-                "release-bundle-evidence-unsupported-extension: $extension"
-            }
-
-            // Duplicate fileName
-            check(seenFileNames.add(fileName)) {
-                "release-bundle-evidence-duplicate-file-name: $fileName"
-            }
-
-            // Duplicate coordinate
-            val coordinate = "$groupId:$artifactId:$version:${classifier ?: ""}:$extension"
-            check(seenCoordinates.add(coordinate)) {
-                "release-bundle-evidence-duplicate-coordinate: $coordinate"
-            }
-
-            resultArtifacts.add(
-                ReleaseArtifactEvidenceV1(
-                    groupId = groupId,
-                    artifactId = artifactId,
-                    version = version,
-                    classifier = classifier,
-                    extension = extension,
-                    fileName = fileName,
-                    sha256 = sha256,
-                    sizeBytes = size,
-                )
-            )
-        }
+        val resultArtifacts = parseArtifacts(artifactList)
 
         return ReleaseBundleEvidenceV1(
             schemaVersion = schemaVersion,
@@ -153,6 +83,83 @@ object ReleaseBundleEvidenceLoader {
             gradleVersion = gradleVersion,
             artifacts = resultArtifacts,
         )
+    }
+
+    private fun parseArtifacts(artifactList: List<*>): List<ReleaseArtifactEvidenceV1> {
+        val seenFileNames = mutableSetOf<String>()
+        val seenCoordinates = mutableSetOf<String>()
+        return artifactList.mapIndexed { index, rawEntry ->
+            val artifact = parseArtifact(index, rawEntry)
+            validateUniqueArtifact(artifact, seenFileNames, seenCoordinates)
+            artifact
+        }
+    }
+
+    private fun parseArtifact(index: Int, rawEntry: Any?): ReleaseArtifactEvidenceV1 {
+        val entry = checkNotNull(rawEntry as? Map<*, *>) {
+            "release-bundle-evidence-invalid-artifact-entry (index $index)"
+        }
+        val groupId = stringField(entry, "groupId", index)
+        val artifactId = stringField(entry, "artifactId", index)
+        val version = stringField(entry, "version", index)
+        val fileName = stringField(entry, "fileName", index)
+        val sha256 = stringField(entry, "sha256", index)
+        val extension = stringField(entry, "extension", index)
+        val size = numericField(entry, "sizeBytes", index).toLong()
+        val classifier = classifierField(entry, index)
+
+        validateArtifactFields(fileName, sha256, size, extension)
+        return ReleaseArtifactEvidenceV1(
+            groupId = groupId,
+            artifactId = artifactId,
+            version = version,
+            classifier = classifier,
+            extension = extension,
+            fileName = fileName,
+            sha256 = sha256,
+            sizeBytes = size,
+        )
+    }
+
+    private fun classifierField(entry: Map<*, *>, index: Int): String? =
+        when (val rawClassifier = entry["classifier"]) {
+            null -> null
+            is String -> rawClassifier
+            else -> error("release-bundle-evidence-invalid-artifact-entry (index $index): classifier must be String or null")
+        }
+
+    private fun validateArtifactFields(
+        fileName: String,
+        sha256: String,
+        size: Long,
+        extension: String,
+    ) {
+        check(fileName.isNotBlank() && safeFileNameRegex.matches(fileName)) {
+            "release-bundle-evidence-unsafe-file-name: $fileName"
+        }
+        check(digestRegex.matches(sha256)) {
+            "release-bundle-evidence-invalid-digest-format: $sha256"
+        }
+        check(size > 0) {
+            "release-bundle-evidence-invalid-size: $size"
+        }
+        check(extension == "jar") {
+            "release-bundle-evidence-unsupported-extension: $extension"
+        }
+    }
+
+    private fun validateUniqueArtifact(
+        artifact: ReleaseArtifactEvidenceV1,
+        seenFileNames: MutableSet<String>,
+        seenCoordinates: MutableSet<String>,
+    ) {
+        check(seenFileNames.add(artifact.fileName)) {
+            "release-bundle-evidence-duplicate-file-name: ${artifact.fileName}"
+        }
+        val coordinate = "${artifact.groupId}:${artifact.artifactId}:${artifact.version}:${artifact.classifier ?: ""}:${artifact.extension}"
+        check(seenCoordinates.add(coordinate)) {
+            "release-bundle-evidence-duplicate-coordinate: $coordinate"
+        }
     }
 
     private fun stringField(obj: Map<*, *>, key: String, index: Int? = null): String {
@@ -251,29 +258,40 @@ object ReleaseBundleEvidenceLoader {
                 val ch = text[pos]
                 if (ch == '"') { pos++; return sb.toString() }
                 if (ch == '\\') {
-                    pos++
-                    val esc = text.getOrElse(pos) {
-                        error("release-bundle-evidence-invalid-json: unexpected end in escape")
-                    }
-                    sb.append(
-                        when (esc) {
-                            '"' -> '"'; '\\' -> '\\'; '/' -> '/'
-                            'n' -> '\n'; 'r' -> '\r'; 't' -> '\t'
-                            'u' -> {
-                                val hex = text.substring(pos + 1, pos + 5)
-                                pos += 4
-                                hex.toInt(16).toChar()
-                            }
-                            else -> error("release-bundle-evidence-invalid-json: unknown escape '\\$esc'")
-                        }
-                    )
-                    pos++
+                    sb.append(parseEscapedCharacter())
                 } else {
                     sb.append(ch)
                     pos++
                 }
             }
             error("release-bundle-evidence-invalid-json: unclosed string")
+        }
+
+        private fun parseEscapedCharacter(): Char {
+            pos++
+            return when (val esc = text.getOrElse(pos) {
+                error("release-bundle-evidence-invalid-json: unexpected end in escape")
+            }) {
+                '"' -> consumeEscaped('"')
+                '\\' -> consumeEscaped('\\')
+                '/' -> consumeEscaped('/')
+                'n' -> consumeEscaped('\n')
+                'r' -> consumeEscaped('\r')
+                't' -> consumeEscaped('\t')
+                'u' -> parseUnicodeEscape()
+                else -> error("release-bundle-evidence-invalid-json: unknown escape '\\$esc'")
+            }
+        }
+
+        private fun consumeEscaped(character: Char): Char {
+            pos++
+            return character
+        }
+
+        private fun parseUnicodeEscape(): Char {
+            val hex = text.substring(pos + 1, pos + 5)
+            pos += 5
+            return hex.toInt(16).toChar()
         }
 
         private fun parseNumber(): Number {

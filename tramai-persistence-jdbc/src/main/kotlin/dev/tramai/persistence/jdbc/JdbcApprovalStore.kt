@@ -20,6 +20,7 @@ import dev.tramai.core.exception.ApprovalStoreTokenRejectedException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.SQLException
 import java.time.Clock
@@ -237,60 +238,93 @@ class JdbcApprovalStore(
             }
 
             if (req.consumedAt == null && req.consumedBy == null) {
-                // Fresh consumption
-                if (req.version != expectedVersion) throw ApprovalStoreConflictException(approvalId)
-
-                val now = clock.instant()
-                if (now >= req.expiresAt) throw ApprovalStoreNotConsumableException(approvalId)
-
-                val nextVersion = incrementVersion(approvalId, req.version)
-                val nowOdt = OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
-
-                val metadata = parseMetadata(current.sanitizedMetadataJson)
-                val updatedMetadata = metadata.copy(
-                    consumedBy = consumedBy,
-                    consumedAt = now.toString(),
-                )
-                val metadataJson = mapper.writeValueAsString(updatedMetadata)
-
-                val sql = """
-                    UPDATE approvals
-                    SET sanitized_metadata = ?::jsonb,
-                        version = ?
-                    WHERE approval_id = ? AND version = ?
-                """.trimIndent()
-                conn.prepareStatement(sql).use { stmt ->
-                    stmt.setString(1, metadataJson)
-                    stmt.setLong(2, nextVersion)
-                    stmt.setString(3, approvalId)
-                    stmt.setLong(4, expectedVersion)
-
-                    val updated = stmt.executeUpdate()
-                    if (updated == 0) throw ApprovalStoreConflictException(approvalId)
-                }
-
-                val updatedCurrent = readCurrent(conn, approvalId) ?: throw ApprovalStoreNotFoundException(approvalId)
-                return ApprovalConsumptionReceipt(
-                    request = mapToApprovalRequest(updatedCurrent),
-                    replayed = false,
-                )
+                return consumeFreshApproval(conn, current, req, expectedVersion, consumedBy)
             }
 
-            // Replay path
-            if (req.consumedAt == null || req.consumedBy == null) {
-                throw ApprovalStoreNotConsumableException(approvalId)
-            }
-            if (req.consumedBy != consumedBy) throw ApprovalStoreNotConsumableException(approvalId)
-
-            val replayVersion = try {
-                Math.addExact(expectedVersion, 1L)
-            } catch (_: ArithmeticException) {
-                throw ApprovalStoreConflictException(approvalId)
-            }
-            if (req.version != replayVersion) throw ApprovalStoreConflictException(approvalId)
-
-            return ApprovalConsumptionReceipt(request = req, replayed = true)
+            return consumeReplayApproval(approvalId, expectedVersion, consumedBy, req)
         }
+    }
+
+    private fun consumeFreshApproval(
+        conn: Connection,
+        current: ApprovalRow,
+        req: ApprovalRequest,
+        expectedVersion: Long,
+        consumedBy: String,
+    ): ApprovalConsumptionReceipt {
+        val approvalId = req.approvalId
+        if (req.version != expectedVersion) throw ApprovalStoreConflictException(approvalId)
+
+        val now = clock.instant()
+        if (now >= req.expiresAt) throw ApprovalStoreNotConsumableException(approvalId)
+
+        val metadataJson = consumedMetadataJson(current, consumedBy, now)
+        updateConsumedRow(conn, approvalId, expectedVersion, incrementVersion(approvalId, req.version), metadataJson)
+
+        val updatedCurrent = readCurrent(conn, approvalId) ?: throw ApprovalStoreNotFoundException(approvalId)
+        return ApprovalConsumptionReceipt(
+            request = mapToApprovalRequest(updatedCurrent),
+            replayed = false,
+        )
+    }
+
+    private fun consumedMetadataJson(
+        current: ApprovalRow,
+        consumedBy: String,
+        now: Instant,
+    ): String {
+        val metadata = parseMetadata(current.sanitizedMetadataJson)
+        return mapper.writeValueAsString(
+            metadata.copy(
+                consumedBy = consumedBy,
+                consumedAt = now.toString(),
+            ),
+        )
+    }
+
+    private fun updateConsumedRow(
+        conn: Connection,
+        approvalId: String,
+        expectedVersion: Long,
+        nextVersion: Long,
+        metadataJson: String,
+    ) {
+        val sql = """
+            UPDATE approvals
+            SET sanitized_metadata = ?::jsonb,
+                version = ?
+            WHERE approval_id = ? AND version = ?
+        """.trimIndent()
+        conn.prepareStatement(sql).use { stmt ->
+            stmt.setString(1, metadataJson)
+            stmt.setLong(2, nextVersion)
+            stmt.setString(3, approvalId)
+            stmt.setLong(4, expectedVersion)
+
+            val updated = stmt.executeUpdate()
+            if (updated == 0) throw ApprovalStoreConflictException(approvalId)
+        }
+    }
+
+    private fun consumeReplayApproval(
+        approvalId: String,
+        expectedVersion: Long,
+        consumedBy: String,
+        req: ApprovalRequest,
+    ): ApprovalConsumptionReceipt {
+        if (req.consumedAt == null || req.consumedBy == null) {
+            throw ApprovalStoreNotConsumableException(approvalId)
+        }
+        if (req.consumedBy != consumedBy) throw ApprovalStoreNotConsumableException(approvalId)
+
+        val replayVersion = try {
+            Math.addExact(expectedVersion, 1L)
+        } catch (_: ArithmeticException) {
+            throw ApprovalStoreConflictException(approvalId)
+        }
+        if (req.version != replayVersion) throw ApprovalStoreConflictException(approvalId)
+
+        return ApprovalConsumptionReceipt(request = req, replayed = true)
     }
 
     // ── Internal helpers ──────────────────────────────────────────
