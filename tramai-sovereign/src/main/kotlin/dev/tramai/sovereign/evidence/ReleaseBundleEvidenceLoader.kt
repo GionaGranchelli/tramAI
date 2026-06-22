@@ -296,22 +296,38 @@ object ReleaseBundleEvidenceLoader {
 
         private fun parseNumber(): Number {
             val start = pos
-            if (text[pos] == '-') pos++
-            while (pos < text.length && text[pos].isDigit()) pos++
-            if (pos < text.length && text[pos] == '.') {
-                pos++
-                while (pos < text.length && text[pos].isDigit()) pos++
-            }
-            if (pos < text.length && (text[pos] == 'e' || text[pos] == 'E')) {
-                pos++
-                if (pos < text.length && (text[pos] == '+' || text[pos] == '-')) pos++
-                while (pos < text.length && text[pos].isDigit()) pos++
-            }
+            consumeOptionalNumberSign()
+            consumeDigits()
+            consumeFraction()
+            consumeExponent()
             val numStr = text.substring(start, pos)
             return if (numStr.contains('.') || numStr.contains('e') || numStr.contains('E')) {
                 numStr.toDouble()
             } else {
                 numStr.toLong()
+            }
+        }
+
+        private fun consumeOptionalNumberSign() {
+            if (text[pos] == '-') pos++
+        }
+
+        private fun consumeDigits() {
+            while (pos < text.length && text[pos].isDigit()) pos++
+        }
+
+        private fun consumeFraction() {
+            if (pos < text.length && text[pos] == '.') {
+                pos++
+                consumeDigits()
+            }
+        }
+
+        private fun consumeExponent() {
+            if (pos < text.length && (text[pos] == 'e' || text[pos] == 'E')) {
+                pos++
+                if (pos < text.length && (text[pos] == '+' || text[pos] == '-')) pos++
+                consumeDigits()
             }
         }
 
