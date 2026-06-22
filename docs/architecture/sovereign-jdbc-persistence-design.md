@@ -8,7 +8,13 @@ The current Sovereign Runtime RC uses encrypted file-backed persistence suitable
 
 This document is a **design target**. It does **not** claim that JDBC persistence is implemented yet.
 
-The first implementation foundation is the [`tramai-persistence-jdbc`](../../tramai-persistence-jdbc) module, which introduces the PostgreSQL schema skeleton, schema contract tests, and minimal module structure. Full JDBC stores (`JdbcApprovalStore`, `JdbcAuditStore`, etc.) are not yet implemented.
+The implementation is in the [`tramai-persistence-jdbc`](../../tramai-persistence-jdbc) module, which provides the PostgreSQL schema (V1 foundation + V2 approval continuations) and the following JDBC stores:
+
+- `JdbcApprovalStore` — approval request/decision persistence
+- `JdbcSuspendedInvocationStore` — replay-safe suspended continuation persistence
+- `JdbcApprovalContinuationStore` — approval continuation lifecycle with encrypted arguments
+
+Audit stream and audit outbox stores are not yet implemented.
 
 ## Current State
 
@@ -17,16 +23,24 @@ The Sovereign Runtime RC currently provides:
 - encrypted file-backed persistence
 - approval persistence
 - suspended invocation persistence
+- approval continuation persistence (human-in-the-loop resume)
 - audit chain persistence
 - audit outbox persistence
 - worker recovery and dispatch
 - local verification through `verifySovereignRuntimeReleaseCandidate`
 
+Current JDBC stores (implemented):
+
+- `JdbcApprovalStore` — approval request/decision persistence (PR #80)
+- `JdbcSuspendedInvocationStore` — replay-safe suspended continuation persistence (PR #81)
+- `JdbcApprovalContinuationStore` — approval continuation lifecycle with encrypted arguments (PR #83)
+
 Current limitations:
 
 - local-node persistence only
-- no JDBC / Postgres-backed store
-- no schema migrations
+- no JDBC audit stream store
+- no JDBC audit outbox store
+- no Spring Boot auto-configuration for JDBC stores
 - no multi-node worker coordination
 - no database transaction boundary
 - no production deployment certification
@@ -51,6 +65,7 @@ The production-hardening target is to support:
 | Area | Purpose | Production Requirement |
 |------|---------|------------------------|
 | Approvals | Store approval requests and decisions | Durable, queryable, auditable |
+| Approval continuations | Store human-in-the-loop approval lifecycle state | Durable, restart-safe, concurrency-safe |
 | Suspended invocations | Store replay-safe continuations | Encrypted, tamper-resistant, resumable |
 | Audit stream | Store ordered audit events | Append-only, hash-chain verifiable |
 | Audit outbox | Store dispatchable operational events | Durable retry, duplicate protection |
@@ -73,6 +88,7 @@ The first JDBC implementation should define at least:
 
 - `approvals`: primary key on `approval_id`; optimistic update on `version`
 - `suspended_invocations`: primary key on `invocation_id`; unique `replay_envelope_digest`
+- `approval_continuations`: primary key on `approval_id`; optimistic update on `version`; status-version index; claimed-at index
 - `audit_events`: primary key on (`stream_id`, `sequence_number`); unique `event_id`
 - `audit_outbox`: primary key on `outbox_id`; unique `event_key`
 - `worker_leases`: primary key on `lease_name`
@@ -133,6 +149,35 @@ Required fields (conceptual):
 - `encryption_nonce`
 - `encrypted_replay_envelope`
 - `version`
+
+### approval_continuations
+
+Purpose: store human-in-the-loop approval continuation lifecycle state (PENDING → CLAIMED → COMPLETED / EXPIRED / CANCELLED / CANCELLED_UNCERTAIN).
+
+Implemented as `JdbcApprovalContinuationStore` (PR #83) using the V2 schema.
+
+Concurrency model: optimistic locking via `UPDATE ... WHERE version = ? AND status = ?` (CAS).
+
+Required fields (conceptual):
+
+- `approval_id` — primary key
+- `status` — PENDING, CLAIMED, COMPLETED, EXPIRED, CANCELLED, CANCELLED_UNCERTAIN
+- `version` — optimistic lock counter
+- `created_at` — domain timestamp (preserves caller's value)
+- `approval_expires_at` — deadline for PENDING→EXPIRED transition
+- `claimed_by` — actor who claimed for execution
+- `claimed_at` — when claimed
+- `completed_at` — when completed
+- `workflow_run_id`, `correlation_id` — workflow tracing
+- `tool_call_id`, `tool_name` — tool identity
+- `arguments_digest` — SHA-256 digest of tool arguments
+- `policy_version`, `workflow_digest` — policy identity
+- `recovery_resolved_by`, `recovery_resolved_at`, `recovery_reason_code` — force-cancel recovery metadata
+- `encrypted_arguments` — AES-GCM encrypted tool arguments (BYTEA)
+- `encryption_key_id`, `encryption_algorithm`, `encryption_nonce`, `payload_digest` — encryption metadata
+
+Non-goal: arguments are not exposed via `get()` — only through `claimForExecution()`.
+Non-goal: CLAIMED continuations must never lazy-expire (only PENDING).
 
 ### audit_events
 
@@ -295,13 +340,14 @@ Suggested implementation sequence:
 
 1. Add `tramai-persistence-jdbc` module skeleton.
 2. Add JDBC schema and migration layout.
-3. Add approval JDBC store.
-4. Add suspended invocation JDBC store.
-5. Add audit stream JDBC store.
-6. Add audit outbox JDBC store.
-7. Add Testcontainers-based integration tests.
-8. Add optional worker lease support.
-9. Add production deployment documentation.
+3. Add approval JDBC store. ✅ `JdbcApprovalStore` (PR #80)
+4. Add suspended invocation JDBC store. ✅ `JdbcSuspendedInvocationStore` (PR #81)
+5. Add approval continuation JDBC store. ✅ `JdbcApprovalContinuationStore` (PR #83)
+6. Add audit stream JDBC store.
+7. Add audit outbox JDBC store.
+8. Add Testcontainers-based integration tests.
+9. Add optional worker lease support.
+10. Add production deployment documentation.
 
 ## Non-Goals
 
