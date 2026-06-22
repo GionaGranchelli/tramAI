@@ -111,16 +111,11 @@ internal fun appendJsonString(builder: StringBuilder, value: String) {
             '\r' -> builder.append("\\r")
             '\t' -> builder.append("\\t")
             else -> {
-                when {
-                    character.code in 0xD800..0xDFFF -> {
-                        // Escape every surrogate code unit as \uXXXX
-                        builder.append("\\u")
-                        builder.append(character.code.toString(16).padStart(4, '0'))
-                    }
-                    character < ' ' -> {
-                        builder.append("\\u")
-                        builder.append(character.code.toString(16).padStart(4, '0'))
-                    }
+                    when {
+                        character.code in 0xD800..0xDFFF || character < ' ' -> {
+                            builder.append("\\u")
+                            builder.append(character.code.toString(16).padStart(4, '0'))
+                        }
                     else -> builder.append(character)
                 }
             }

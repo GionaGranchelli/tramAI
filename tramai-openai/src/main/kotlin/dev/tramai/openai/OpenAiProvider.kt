@@ -366,7 +366,7 @@ open class OpenAiCompatibleProvider(
         )
 
         val msgParts = message.contentParts
-        if (msgParts != null && msgParts.isNotEmpty()) {
+        if (!msgParts.isNullOrEmpty()) {
             msgMap["content"] = msgParts.map { part ->
                 when (part) {
                     is ContentPart.TextPart -> mapOf(

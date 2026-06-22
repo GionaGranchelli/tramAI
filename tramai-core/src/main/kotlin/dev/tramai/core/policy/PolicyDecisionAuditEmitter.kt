@@ -8,10 +8,4 @@ fun interface PolicyDecisionAuditEmitter {
     )
 }
 
-object NoOpPolicyDecisionAuditEmitter : PolicyDecisionAuditEmitter {
-    override suspend fun emit(
-        enforcementPoint: EnforcementPoint,
-        context: PolicyContext,
-        decision: PolicyDecision,
-    ) = Unit
-}
+val NoOpPolicyDecisionAuditEmitter: PolicyDecisionAuditEmitter = PolicyDecisionAuditEmitter { _, _, _ -> Unit }

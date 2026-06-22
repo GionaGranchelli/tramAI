@@ -7,9 +7,4 @@ fun interface EngineEventObserver {
     )
 }
 
-object NoOpEngineEventObserver : EngineEventObserver {
-    override fun onEngineEvent(
-        name: String,
-        attributes: Map<String, Any?>,
-    ) = Unit
-}
+val NoOpEngineEventObserver: EngineEventObserver = EngineEventObserver { _, _ -> Unit }

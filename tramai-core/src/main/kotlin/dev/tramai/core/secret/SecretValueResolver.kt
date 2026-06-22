@@ -18,11 +18,10 @@ fun interface SecretValueResolver {
 /**
  * Resolves secrets from environment variables using the "env:" prefix.
  */
-object EnvironmentSecretValueResolver : SecretValueResolver {
-    override fun resolve(secretRef: String): String? {
-        val name = secretRef.removePrefix("env:").takeIf { secretRef.startsWith("env:") && it.isNotBlank() } ?: return null
-        return System.getenv(name)
-    }
+val EnvironmentSecretValueResolver: SecretValueResolver = SecretValueResolver { secretRef ->
+    val name = secretRef.removePrefix("env:")
+        .takeIf { secretRef.startsWith("env:") && it.isNotBlank() }
+    if (name == null) null else System.getenv(name)
 }
 
 /**

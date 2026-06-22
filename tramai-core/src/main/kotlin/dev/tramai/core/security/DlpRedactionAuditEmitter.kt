@@ -7,9 +7,4 @@ fun interface DlpRedactionAuditEmitter {
     )
 }
 
-object NoOpDlpRedactionAuditEmitter : DlpRedactionAuditEmitter {
-    override suspend fun emit(
-        context: DlpContext,
-        redactions: List<DlpRedaction>,
-    ) = Unit
-}
+val NoOpDlpRedactionAuditEmitter: DlpRedactionAuditEmitter = DlpRedactionAuditEmitter { _, _ -> Unit }

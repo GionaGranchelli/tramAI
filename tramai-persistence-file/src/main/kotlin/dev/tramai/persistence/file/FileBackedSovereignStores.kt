@@ -80,7 +80,7 @@ class FileBackedSovereignStores private constructor(
             // ── 1. Create root directory with strict permissions if missing ──
             if (root.notExists()) {
                 Files.createDirectories(root, PosixFilePermissions.asFileAttribute(
-                    PosixFilePermissions.fromString(STRICT_PERMISSIONS),
+                    DIR_PERMS_0700,
                 ))
             }
 
@@ -88,8 +88,8 @@ class FileBackedSovereignStores private constructor(
             require(Files.isDirectory(root)) { "root-not-directory" }
             require(!Files.isSymbolicLink(root)) { "root-symlink-rejected" }
 
-            val rootPerms = Files.getPosixFilePermissions(root)
-            val expectedRootPerms = PosixFilePermissions.fromString(STRICT_PERMISSIONS)
+            val rootPerms = Files.getPosixFilePermissions(root).toSet()
+            val expectedRootPerms = DIR_PERMS_0700
             require(rootPerms == expectedRootPerms) { "root-permission-denied" }
 
             // ── 3. Acquire exclusive lock on .tramai.lock ──
@@ -136,14 +136,14 @@ class FileBackedSovereignStores private constructor(
                     val path = root.resolve(dir)
                     if (path.notExists()) {
                         Files.createDirectories(path, PosixFilePermissions.asFileAttribute(
-                            PosixFilePermissions.fromString(STRICT_PERMISSIONS),
+                            DIR_PERMS_0700,
                         ))
                     }
                     require(!path.isSymbolicLink()) {
                         throw FileStorePermissionException("$dir-symlink-rejected")
                     }
-                    val dirPerms = Files.getPosixFilePermissions(path)
-                    check(dirPerms == PosixFilePermissions.fromString(STRICT_PERMISSIONS)) {
+                    val dirPerms = Files.getPosixFilePermissions(path).toSet()
+                    check(dirPerms == DIR_PERMS_0700) {
                         throw FileStorePermissionException("$dir-permission-denied")
                     }
                 }
@@ -276,6 +276,3 @@ class FileBackedSovereignStores private constructor(
         }
     }
 }
-
-/** @see FileBackedSovereignStores */
-private const val STRICT_PERMISSIONS = "rwx------"

@@ -11,17 +11,18 @@ fun interface DlpAuditStreamIdResolver {
     fun resolve(context: DlpContext): String
 }
 
-object DefaultDlpAuditStreamIdResolver : DlpAuditStreamIdResolver {
-    override fun resolve(context: DlpContext): String {
-        val workflowRunId = context.workflowRunId
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-        if (workflowRunId != null) return workflowRunId
-
+val DefaultDlpAuditStreamIdResolver: DlpAuditStreamIdResolver = DlpAuditStreamIdResolver { context ->
+    val workflowRunId = context.workflowRunId
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+    if (workflowRunId != null) {
+        workflowRunId
+    } else {
         val id = context.correlationId.trim()
         require(id.isNotEmpty()) { "DLP audit stream ID must not be blank" }
         require(id.length <= 256) { "DLP audit stream ID exceeds maximum length of 256" }
-        return id
+
+        id
     }
 }
 

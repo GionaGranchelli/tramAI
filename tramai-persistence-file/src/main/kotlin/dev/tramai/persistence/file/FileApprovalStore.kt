@@ -324,22 +324,22 @@ class FileApprovalStore internal constructor(
 
                 writeCurrent(approvalId, updated.toPersistedV1())
                 return ApprovalConsumptionReceipt(request = updated, replayed = false)
-            } else {
-                // Replay path
-                if (req.consumedAt == null || req.consumedBy == null) {
-                    throw ApprovalStoreNotConsumableException(approvalId)
-                }
-                if (req.consumedBy != consumedBy) throw ApprovalStoreNotConsumableException(approvalId)
-
-                val replayVersion = try {
-                    Math.addExact(expectedVersion, 1L)
-                } catch (_: ArithmeticException) {
-                    throw ApprovalStoreConflictException(approvalId)
-                }
-                if (req.version != replayVersion) throw ApprovalStoreConflictException(approvalId)
-
-                return ApprovalConsumptionReceipt(request = req, replayed = true)
             }
+
+            // Replay path
+            if (req.consumedAt == null || req.consumedBy == null) {
+                throw ApprovalStoreNotConsumableException(approvalId)
+            }
+            if (req.consumedBy != consumedBy) throw ApprovalStoreNotConsumableException(approvalId)
+
+            val replayVersion = try {
+                Math.addExact(expectedVersion, 1L)
+            } catch (_: ArithmeticException) {
+                throw ApprovalStoreConflictException(approvalId)
+            }
+            if (req.version != replayVersion) throw ApprovalStoreConflictException(approvalId)
+
+            return ApprovalConsumptionReceipt(request = req, replayed = true)
         } finally {
             lock.unlock()
         }

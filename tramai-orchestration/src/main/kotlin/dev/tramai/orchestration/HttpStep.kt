@@ -67,6 +67,7 @@ internal data class HttpWorkflowStep<S>(
     val requestBuilder: suspend (S, WorkflowContext) -> HttpRequest,
     val merge: suspend (S, HttpResponse, WorkflowContext) -> S,
     val config: HttpStepConfig = HttpStepConfig(),
+    val blockingDispatcher: CoroutineContext = Dispatchers.IO,
 ) : InternalWorkflowStep<S> {
     suspend fun execute(
         workflowName: String,
@@ -204,7 +205,7 @@ internal data class HttpWorkflowStep<S>(
                 }
             }
             .build()
-        val response = withContext(Dispatchers.IO) {
+        val response = withContext(blockingDispatcher) {
             httpClient.send(httpRequest, BodyHandlers.ofInputStream())
         }
         val bodyBytes = ByteArrayOutputStream(min(config.maxResponseBytes.toInt(), responseChunkSize))

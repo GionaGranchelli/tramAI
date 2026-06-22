@@ -90,6 +90,4 @@ fun interface DlpInterceptor {
 /**
  * No-op DLP interceptor that passes all text through unmodified.
  */
-object NoOpDlpInterceptor : DlpInterceptor {
-    override fun inspect(context: DlpContext, text: String): DlpResult = DlpResult(text)
-}
+val NoOpDlpInterceptor: DlpInterceptor = DlpInterceptor { _, text -> DlpResult(text) }

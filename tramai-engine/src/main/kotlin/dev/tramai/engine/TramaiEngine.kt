@@ -608,7 +608,6 @@ internal class TramaiInvocationHandler(
                         operation = operation,
                         route = route,
                         attempt = attempt,
-                        routeIndex = routeIndex,
                         observation = observation,
                         tokenBudgetTracker = tokenBudgetTracker,
                         emitChunk = { emit(it) },
@@ -671,7 +670,6 @@ internal class TramaiInvocationHandler(
         operation: OperationDefinition,
         route: ResolvedProviderRoute,
         attempt: Int,
-        routeIndex: Int,
         observation: OperationObservation,
         tokenBudgetTracker: TokenBudgetTracker,
         emitChunk: suspend (StreamChunk) -> Unit,
@@ -1307,7 +1305,7 @@ internal class TramaiInvocationHandler(
      */
     private fun persistMemory(
         loopResult: ProviderCallResult,
-        messages: MutableList<Message>,
+        messages: List<Message>,
         historySize: Int,
         conversationId: String?,
     ) {
@@ -2200,17 +2198,15 @@ internal class TramaiInvocationHandler(
                 }
             }
 
-            when (result) {
-                is ToolResult.TransientFailure -> {
-                    if (attemptIndex < maxAttempts - 1) {
-                        return@repeat
-                    }
-                    return ToolResult.PermanentFailure(
-                        result.cause.message ?: "Tool execution failed after $maxAttempts attempt(s)",
-                    )
+            if (result is ToolResult.TransientFailure) {
+                if (attemptIndex < maxAttempts - 1) {
+                    return@repeat
                 }
-                else -> return result
+                return ToolResult.PermanentFailure(
+                    result.cause.message ?: "Tool execution failed after $maxAttempts attempt(s)",
+                )
             }
+            return result
         }
 
         error("Tool retry loop exited without returning")
@@ -2789,7 +2785,6 @@ internal class TramaiInvocationHandler(
             result
         } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
             if (!uncertainOutcomeEmitted) {
-                uncertainOutcomeEmitted = true
                 approvalLifecycleAuditEmitter.onUncertainOutcome(
                     approvalId = e.approvalId,
                     workflowRunId = metadata.identity.workflowRunId,
@@ -2800,7 +2795,6 @@ internal class TramaiInvocationHandler(
             throw e
         } catch (e: dev.tramai.core.exception.StructuredOutputException) {
             if (!uncertainOutcomeEmitted) {
-                uncertainOutcomeEmitted = true
                 approvalLifecycleAuditEmitter.onUncertainOutcome(
                     approvalId = command.approvalId,
                     workflowRunId = metadata.identity.workflowRunId,
@@ -3053,6 +3047,7 @@ internal class TramaiInvocationHandler(
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
+            // Engine-event observer failures must not prevent resume completion.
         }
     }
 
@@ -3333,9 +3328,11 @@ internal class TramaiInvocationHandler(
         for (i in parameters.indices) {
             if (parameters[i].isAnnotationPresent(ConversationId::class.java)) {
                 val argument = args[i]
-                    ?: throw IllegalArgumentException(
-                        "@ConversationId parameter '${parameters[i].name}' at index $i is null"
+                if (argument == null) {
+                    throw IllegalArgumentException(
+                        "@ConversationId parameter '${parameters[i].name}' at index $i is null",
                     )
+                }
                 return argument.toString()
             }
         }

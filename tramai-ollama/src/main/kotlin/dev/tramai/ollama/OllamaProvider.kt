@@ -202,7 +202,7 @@ class OllamaProvider(
         )
 
         val msgParts = message.contentParts
-        if (msgParts != null && msgParts.isNotEmpty()) {
+        if (!msgParts.isNullOrEmpty()) {
             // Extract text from parts for the content field
             val textParts = msgParts.filterIsInstance<ContentPart.TextPart>()
             msgMap["content"] = if (textParts.isNotEmpty()) {

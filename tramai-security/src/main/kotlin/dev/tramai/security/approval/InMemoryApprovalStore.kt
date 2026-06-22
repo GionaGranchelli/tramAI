@@ -97,31 +97,14 @@ class InMemoryApprovalStore(
         validateIdField(approvalId, "approvalId", maxIdLength)
 
         // Validate comment length
-        when (transition) {
-            is ApprovalTransition.Approve -> transition.comment?.let {
-                require(it.length <= maxCommentLength) { "Comment exceeds maximum length of $maxCommentLength" }
-            }
-            is ApprovalTransition.Deny -> transition.comment?.let {
-                require(it.length <= maxCommentLength) { "Comment exceeds maximum length of $maxCommentLength" }
-            }
-            is ApprovalTransition.Timeout -> {
-                // Timeout transitions do not carry comments.
-            }
+        transitionComment(transition)?.let {
+            require(it.length <= maxCommentLength) { "Comment exceeds maximum length of $maxCommentLength" }
         }
 
         // Validate decidedBy for non-timeout transitions
-        when (transition) {
-            is ApprovalTransition.Approve -> {
-                validateIdField(transition.decidedBy, "decidedBy", maxIdLength)
-                SafeActorIdPolicy.validateActorId(transition.decidedBy, "decidedBy")
-            }
-            is ApprovalTransition.Deny -> {
-                validateIdField(transition.decidedBy, "decidedBy", maxIdLength)
-                SafeActorIdPolicy.validateActorId(transition.decidedBy, "decidedBy")
-            }
-            is ApprovalTransition.Timeout -> {
-                // Timeout transitions are system-driven and have no deciding actor.
-            }
+        transitionDecidedBy(transition)?.let { decidedBy ->
+            validateIdField(decidedBy, "decidedBy", maxIdLength)
+            SafeActorIdPolicy.validateActorId(decidedBy, "decidedBy")
         }
 
         val result = store.compute(approvalId) { _, current ->
@@ -283,6 +266,18 @@ class InMemoryApprovalStore(
                 "approval already timed out",
             )
         }
+    }
+
+    private fun transitionComment(transition: ApprovalTransition): String? {
+        if (transition is ApprovalTransition.Approve) return transition.comment
+        if (transition is ApprovalTransition.Deny) return transition.comment
+        return null
+    }
+
+    private fun transitionDecidedBy(transition: ApprovalTransition): String? {
+        if (transition is ApprovalTransition.Approve) return transition.decidedBy
+        if (transition is ApprovalTransition.Deny) return transition.decidedBy
+        return null
     }
 
     private fun validateIdField(value: String, fieldName: String, maxLength: Int): String {

@@ -302,6 +302,7 @@ private fun applyOwnerOnlyDirectoryPermissions(path: Path) {
     try {
         Files.setPosixFilePermissions(path, ownerOnlyDirectoryPermissions)
     } catch (_: UnsupportedOperationException) {
+        // POSIX file permissions are unavailable on this filesystem.
     }
 }
 
@@ -309,6 +310,7 @@ private fun applyOwnerOnlyFilePermissions(path: Path) {
     try {
         Files.setPosixFilePermissions(path, ownerOnlyFilePermissions)
     } catch (_: UnsupportedOperationException) {
+        // POSIX file permissions are unavailable on this filesystem.
     }
 }
 

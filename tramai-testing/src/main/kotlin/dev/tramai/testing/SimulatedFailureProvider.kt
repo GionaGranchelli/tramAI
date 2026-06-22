@@ -4,6 +4,9 @@ import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.provider.ModelProvider
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Deterministic provider that can return responses or throw configured failures in sequence.
@@ -11,8 +14,8 @@ import dev.tramai.core.provider.ModelProvider
 class SimulatedFailureProvider private constructor(
     private val outcomesByMethod: Map<String, List<Outcome>>,
 ) : ModelProvider, RecordedRequestProvider {
-    override val requests: MutableList<ModelRequest> = mutableListOf()
-    private val outcomeIndexByMethod = mutableMapOf<String, Int>()
+    override val requests: MutableList<ModelRequest> = CopyOnWriteArrayList()
+    private val outcomeIndexByMethod = ConcurrentHashMap<String, AtomicInteger>()
 
     override suspend fun complete(request: ModelRequest): ModelResponse {
         requests += request
@@ -20,11 +23,10 @@ class SimulatedFailureProvider private constructor(
             ?: throw ProviderException("SimulatedFailureProvider requires request.operationMethod to be present")
         val outcomes = outcomesByMethod[method]
             ?: throw ProviderException("No simulated outcome configured for method '$method'")
-        val index = outcomeIndexByMethod.getOrDefault(method, 0)
+        val index = outcomeIndexByMethod.computeIfAbsent(method) { AtomicInteger(0) }.getAndIncrement()
         val outcome = outcomes.getOrNull(index)
             ?: outcomes.lastOrNull()
             ?: throw ProviderException("No simulated outcomes configured for method '$method'")
-        outcomeIndexByMethod[method] = index + 1
 
         return when (outcome) {
             is Outcome.Response -> outcome.response
@@ -47,7 +49,7 @@ class SimulatedFailureProvider private constructor(
      * Builder for [SimulatedFailureProvider].
      */
     class Builder {
-        private val outcomesByMethod = linkedMapOf<String, MutableList<Outcome>>()
+        private val outcomesByMethod = ConcurrentHashMap<String, CopyOnWriteArrayList<Outcome>>()
 
         /**
          * Starts configuring outcomes for a service method name.
@@ -125,7 +127,7 @@ class SimulatedFailureProvider private constructor(
             }
 
             private fun append(outcome: Outcome) {
-                outcomesByMethod.getOrPut(methodName) { mutableListOf() } += outcome
+                outcomesByMethod.computeIfAbsent(methodName) { CopyOnWriteArrayList() } += outcome
             }
         }
     }

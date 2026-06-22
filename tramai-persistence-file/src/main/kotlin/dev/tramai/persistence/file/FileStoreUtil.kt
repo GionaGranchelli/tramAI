@@ -19,11 +19,11 @@ import kotlin.io.path.readText
 
 /** POSIX permission set for directories (0700). */
 internal val DIR_PERMS_0700: Set<PosixFilePermission> =
-    PosixFilePermissions.fromString("rwx------")
+    PosixFilePermissions.fromString("rwx------").toSet()
 
 /** POSIX permission set for files (0600). */
 internal val FILE_PERMS_0600: Set<PosixFilePermission> =
-    PosixFilePermissions.fromString("rw-------")
+    PosixFilePermissions.fromString("rw-------").toSet()
 
 /**
  * Shared utilities for file-backed stores.
@@ -248,7 +248,7 @@ internal object FileStoreUtil {
         if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
             throw FileStorePermissionException("$description-not-regular-file")
         }
-        val perms = Files.getPosixFilePermissions(path, LinkOption.NOFOLLOW_LINKS)
+        val perms = Files.getPosixFilePermissions(path, LinkOption.NOFOLLOW_LINKS).toSet()
         if (perms != FILE_PERMS_0600) throw FileStorePermissionException("$description-permission-denied")
     }
 
@@ -267,7 +267,7 @@ internal object FileStoreUtil {
         if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
             throw FileStorePermissionException("$description-not-directory")
         }
-        if (Files.getPosixFilePermissions(path, LinkOption.NOFOLLOW_LINKS) != DIR_PERMS_0700) {
+        if (Files.getPosixFilePermissions(path, LinkOption.NOFOLLOW_LINKS).toSet() != DIR_PERMS_0700) {
             throw FileStorePermissionException("$description-permission-denied")
         }
     }
