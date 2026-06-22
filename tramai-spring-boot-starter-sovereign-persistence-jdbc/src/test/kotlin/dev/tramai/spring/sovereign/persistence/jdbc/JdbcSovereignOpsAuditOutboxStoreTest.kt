@@ -16,6 +16,7 @@ import org.postgresql.ds.PGSimpleDataSource
 import org.testcontainers.containers.PostgreSQLContainer
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.sql.Timestamp
 import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -774,6 +775,250 @@ class JdbcSovereignOpsAuditOutboxStoreTest {
             val result = store.get("tstamp-test")
             assertThat(result).isNotNull
             assertThat(result!!.createdAt).isEqualTo(createdAt)
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Claim-time tamper detection (P1)
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun claimPendingFailsClosedWhenDbStatusTamperedFromPreparedToPending() {
+        runBlocking {
+            store.append(record("claim-tamper-status"))
+            // Tamper DB status from PREPARED to PENDING without updating payload
+            tamperColumn("claim-tamper-status", "status", "PENDING")
+            assertThatThrownBy {
+                runBlocking {
+                    store.claimPending("worker-1", 10, BASE_NOW)
+                }
+            }.isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("audit-outbox-column-status-mismatch")
+        }
+    }
+
+    @Test
+    fun claimPendingFailsClosedWhenDbEventKeyDiffersFromEncryptedPayload() {
+        runBlocking {
+            store.append(record("claim-tamper-key"))
+            store.markReadyForDispatch("claim-tamper-key", SovereignOpsAuditOutboxStatus.PREPARED)
+            tamperColumn("claim-tamper-key", "event_key", "tampered-key")
+            assertThatThrownBy {
+                runBlocking {
+                    store.claimPending("worker-1", 10, BASE_NOW)
+                }
+            }.isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("audit-outbox-column-event-key-mismatch")
+        }
+    }
+
+    @Test
+    fun claimPendingFailsClosedWhenDbAttemptCountDiffersFromEncryptedPayload() {
+        runBlocking {
+            store.append(record("claim-tamper-attempts"))
+            store.markReadyForDispatch("claim-tamper-attempts", SovereignOpsAuditOutboxStatus.PREPARED)
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    "UPDATE audit_outbox SET attempt_count = 99 WHERE outbox_id = ?"
+                ).use { stmt ->
+                    stmt.setString(1, "claim-tamper-attempts")
+                    stmt.executeUpdate()
+                }
+            }
+            assertThatThrownBy {
+                runBlocking {
+                    store.claimPending("worker-1", 10, BASE_NOW)
+                }
+            }.isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("audit-outbox-column-attempt-count-mismatch")
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Lifecycle transition guard tests (P2)
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun markReadyForDispatchCannotMoveFailedPermanentBackToPending() {
+        runBlocking {
+            store.append(record("fail-perm-guard"))
+            store.markReadyForDispatch("fail-perm-guard", SovereignOpsAuditOutboxStatus.PREPARED)
+            store.claimPending("worker-1", 10, BASE_NOW)
+            store.markFailed(
+                "fail-perm-guard",
+                SovereignOpsAuditOutboxStatus.EMITTING,
+                errorCode = "FATAL",
+                retryable = false,
+            )
+            assertThatThrownBy {
+                runBlocking {
+                    store.markReadyForDispatch("fail-perm-guard", SovereignOpsAuditOutboxStatus.PREPARED)
+                }
+            }.isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("tramai-sovereign-ops-outbox-status-mismatch")
+        }
+    }
+
+    @Test
+    fun markEmittedRejectsExpectedStatusPending() {
+        runBlocking {
+            store.append(record("emit-guard"))
+            store.markReadyForDispatch("emit-guard", SovereignOpsAuditOutboxStatus.PREPARED)
+            assertThatThrownBy {
+                runBlocking {
+                    store.markEmitted("emit-guard", SovereignOpsAuditOutboxStatus.PENDING, BASE_NOW)
+                }
+            }.isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("tramai-sovereign-ops-outbox-status-mismatch")
+        }
+    }
+
+    @Test
+    fun markFailedRejectsPreparedWithRetryableTrue() {
+        runBlocking {
+            store.append(record("fail-retry-guard"))
+            assertThatThrownBy {
+                runBlocking {
+                    store.markFailed(
+                        "fail-retry-guard",
+                        SovereignOpsAuditOutboxStatus.PREPARED,
+                        errorCode = "ERR",
+                        retryable = true,
+                    )
+                }
+            }.isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("tramai-sovereign-ops-outbox-status-mismatch")
+        }
+    }
+
+    @Test
+    fun markFailedRejectsEmittedWithRetryableTrue() {
+        runBlocking {
+            store.append(record("fail-emitted-guard"))
+            assertThatThrownBy {
+                runBlocking {
+                    store.markFailed(
+                        "fail-emitted-guard",
+                        SovereignOpsAuditOutboxStatus.EMITTED,
+                        errorCode = "ERR",
+                        retryable = true,
+                    )
+                }
+            }.isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("tramai-sovereign-ops-outbox-status-mismatch")
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Claim-time lastErrorCode / last_failure_type consistency (P1/P2)
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun claimPendingClearsLastErrorCodeInPayload() {
+        runBlocking {
+            store.append(record("claim-clear-error"))
+            store.markReadyForDispatch("claim-clear-error", SovereignOpsAuditOutboxStatus.PREPARED)
+            store.claimPending("worker-1", 10, BASE_NOW)
+            store.markFailed(
+                "claim-clear-error",
+                SovereignOpsAuditOutboxStatus.EMITTING,
+                errorCode = "TIMEOUT",
+                retryable = true,
+            )
+            val afterLease = BASE_NOW.plus(Duration.ofMinutes(6))
+            val claimed = store.claimPending("worker-2", 10, afterLease)
+            assertThat(claimed).hasSize(1)
+            assertThat(claimed[0].lastErrorCode).isNull()
+            // Verify DB column matches
+            val stored = store.get("claim-clear-error")
+            assertThat(stored!!.lastErrorCode).isNull()
+        }
+    }
+
+    @Test
+    fun tamperedLastFailureTypeDetectedOnRead() {
+        runBlocking {
+            store.append(record("tamper-last-fail"))
+            store.markReadyForDispatch("tamper-last-fail", SovereignOpsAuditOutboxStatus.PREPARED)
+            store.claimPending("worker-1", 10, BASE_NOW)
+            store.markFailed(
+                "tamper-last-fail",
+                SovereignOpsAuditOutboxStatus.EMITTING,
+                errorCode = "NET_ERR",
+                retryable = true,
+            )
+            // DB now has last_failure_type = 'NET_ERR', payload has lastErrorCode = 'NET_ERR'
+            // Now tamper DB column to something different
+            tamperColumn("tamper-last-fail", "last_failure_type", "TAMPERED")
+            assertThatThrownBy {
+                runBlocking { store.get("tamper-last-fail") }
+            }.isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("audit-outbox-column-last-failure-type-mismatch")
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Timestamp append consistency (P2)
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun appendUsesRecordCreatedAtInDbColumn() {
+        runBlocking {
+            val createdAt = Instant.parse("2026-03-15T08:00:00Z")
+            val record = SovereignOpsAuditOutboxRecord(
+                outboxId = "db-created-at",
+                aggregateIdDigest = AGGREGATE_DIGEST,
+                eventKey = "db-created-at-key",
+                actor = "operator-1",
+                workflowRunId = null,
+                correlationId = null,
+                approvalStatus = "DENIED",
+                approvalVersion = 1L,
+                reasonDigest = REASON_DIGEST,
+                reasonLength = 5,
+                createdAt = createdAt,
+            )
+            store.append(record)
+            // Read the DB column directly to verify it matches the payload
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    "SELECT created_at FROM audit_outbox WHERE outbox_id = 'db-created-at'"
+                ).use { stmt ->
+                    stmt.executeQuery().use { rs ->
+                        rs.next()
+                        val dbCreatedAt = rs.getTimestamp("created_at").toInstant()
+                        val diff = Duration.between(dbCreatedAt, createdAt).abs()
+                        assertThat(diff.seconds).isLessThanOrEqualTo(1)
+                    }
+                }
+            }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Nullable timestamp symmetry (P2)
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun tamperedClaimedAtToNonNullDetectedOnPreparedRecord() {
+        runBlocking {
+            store.append(record("null-claimed-at"))
+            // DB claimed_at and next_attempt_at are NULL (PREPARED record)
+            // Tamper both to non-null — payload still has null
+            dataSource.connection.use { conn ->
+                conn.prepareStatement(
+                    "UPDATE audit_outbox SET claimed_at = ?, next_attempt_at = ? WHERE outbox_id = ?"
+                ).use { stmt ->
+                    stmt.setTimestamp(1, Timestamp.from(BASE_NOW))
+                    stmt.setTimestamp(2, Timestamp.from(BASE_NOW))
+                    stmt.setString(3, "null-claimed-at")
+                    stmt.executeUpdate()
+                }
+            }
+            assertThatThrownBy {
+                runBlocking { store.get("null-claimed-at") }
+            }.isInstanceOf(IllegalArgumentException::class.java)
+                .hasMessageContaining("claimed_at-mismatch")
         }
     }
 
