@@ -249,11 +249,9 @@ internal data class HttpWorkflowStep<S>(
         }
         return ExecutedHttpResponse(
             status = response.statusCode(),
-            headers = mapOf(
-                *response.headers().map().map { (name, values) ->
-                    name to values.joinToString(",")
-                }.toTypedArray()
-            ),
+            headers = response.headers().map().toMap().map { (name, values) ->
+                name to values.joinToString(",")
+            }.toMap(),
             bodyBytes = bodyBytes.toByteArray(),
             responseSizeBytes = responseSizeBytes,
         )
