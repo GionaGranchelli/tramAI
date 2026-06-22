@@ -64,20 +64,22 @@ internal data class CodexWorkflowStep<S>(
 
         val result = try {
             executeAgentCli(
-                workflowName = workflowName,
-                stepName = name,
-                eventPrefix = "tramai.workflow.codex",
-                agentType = "codex",
-                processBuilder = ProcessBuilder(
-                    listOf(config.cliPath, "exec", "--", resolvedSecurity.defendedPrompt),
-                ).apply {
-                    config.workdir?.let { directory(File(it)) }
-                },
-                timeoutSeconds = config.timeoutSeconds,
-                maxOutputBytes = config.maxOutputBytes,
-                promptLength = resolvedSecurity.defendedPrompt.length,
-                context = context,
-                observer = observer,
+                AgentCliRequest(
+                    workflowName = workflowName,
+                    stepName = name,
+                    eventPrefix = "tramai.workflow.codex",
+                    agentType = "codex",
+                    processBuilder = ProcessBuilder(
+                        listOf(config.cliPath, "exec", "--", resolvedSecurity.defendedPrompt),
+                    ).apply {
+                        config.workdir?.let { directory(File(it)) }
+                    },
+                    timeoutSeconds = config.timeoutSeconds,
+                    maxOutputBytes = config.maxOutputBytes,
+                    promptLength = resolvedSecurity.defendedPrompt.length,
+                    context = context,
+                    observer = observer,
+                ),
             )
         } catch (error: Throwable) {
             error.rethrowAgentCancellation()

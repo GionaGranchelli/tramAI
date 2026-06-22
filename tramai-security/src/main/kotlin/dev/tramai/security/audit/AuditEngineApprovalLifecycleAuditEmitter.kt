@@ -38,7 +38,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             "argumentsDigest" to bounded(argumentsDigest.value),
             "expiresAt" to expiresAt.toString(),
         )
-        auditEngine.emit(
+        auditEngine.emit(AuditEmission(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = correlationId,
@@ -49,7 +49,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             workflowDigest = null,
             reasonCode = "approval_pending",
             metadata = metadata,
-        )
+        ))
     }
 
     override suspend fun onToolExecutionResumed(
@@ -64,7 +64,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             "toolName" to bounded(toolName),
             "resumedBy" to bounded(safeActor),
         )
-        auditEngine.emit(
+        auditEngine.emit(AuditEmission(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
@@ -75,7 +75,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             workflowDigest = null,
             reasonCode = "approval_authorized",
             metadata = metadata,
-        )
+        ))
     }
 
     override suspend fun onToolExecutionCompleted(
@@ -90,7 +90,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             "toolName" to bounded(toolName),
             "completedBy" to bounded(safeActor),
         )
-        auditEngine.emit(
+        auditEngine.emit(AuditEmission(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
@@ -101,7 +101,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             workflowDigest = null,
             reasonCode = "approval_completed",
             metadata = metadata,
-        )
+        ))
     }
 
     override suspend fun onUncertainOutcome(
@@ -115,7 +115,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             "toolName" to bounded(toolName),
             "reasonCode" to safeReasonCode(reason),
         )
-        auditEngine.emit(
+        auditEngine.emit(AuditEmission(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
@@ -126,7 +126,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             workflowDigest = null,
             reasonCode = safeReasonCode(reason),
             metadata = metadata,
-        )
+        ))
     }
 
     override suspend fun onSuspensionCancelled(
@@ -140,7 +140,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             "toolName" to bounded(toolName),
             "reasonCode" to safeReasonCode(reason),
         )
-        auditEngine.emit(
+        auditEngine.emit(AuditEmission(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
@@ -151,7 +151,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             workflowDigest = null,
             reasonCode = safeReasonCode(reason),
             metadata = metadata,
-        )
+        ))
     }
 
     override suspend fun onStaleClaimDetected(
@@ -165,7 +165,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             "toolName" to bounded(toolName),
             "claimedAt" to claimedAt.toString(),
         )
-        auditEngine.emit(
+        auditEngine.emit(AuditEmission(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
@@ -176,7 +176,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             workflowDigest = null,
             reasonCode = "approval_stale_detected",
             metadata = metadata,
-        )
+        ))
     }
 
     override suspend fun onClaimedContinuationForceCancellationRequested(
@@ -193,7 +193,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             "cancelledBy" to bounded(safeActor),
             "reasonCode" to safeReasonCode(reasonCode),
         )
-        auditEngine.emit(
+        auditEngine.emit(AuditEmission(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
@@ -204,7 +204,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             workflowDigest = null,
             reasonCode = "approval_force_cancel_requested",
             metadata = metadata,
-        )
+        ))
     }
 
     override suspend fun onClaimedContinuationForceCancelled(
@@ -221,7 +221,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             "cancelledBy" to bounded(safeActor),
             "reasonCode" to safeReasonCode(reasonCode),
         )
-        auditEngine.emit(
+        auditEngine.emit(AuditEmission(
             auditStreamId = safeStreamId(workflowRunId),
             workflowRunId = workflowRunId,
             correlationId = null,
@@ -232,7 +232,7 @@ class AuditEngineApprovalLifecycleAuditEmitter(
             workflowDigest = null,
             reasonCode = "approval_force_cancelled",
             metadata = metadata,
-        )
+        ))
     }
 
     companion object {

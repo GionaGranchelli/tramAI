@@ -30,19 +30,33 @@ internal class AgentCliTimeoutException(
     val timeoutSeconds: Long,
 ) : RuntimeException("timed out after ${timeoutSeconds}s")
 
+internal data class AgentCliRequest(
+    val workflowName: String,
+    val stepName: String,
+    val eventPrefix: String,
+    val agentType: String,
+    val processBuilder: ProcessBuilder,
+    val timeoutSeconds: Long,
+    val maxOutputBytes: Long,
+    val promptLength: Int,
+    val context: WorkflowContext,
+    val observer: WorkflowObserver,
+)
+
 internal suspend fun executeAgentCli(
-    workflowName: String,
-    stepName: String,
-    eventPrefix: String,
-    agentType: String,
-    processBuilder: ProcessBuilder,
-    timeoutSeconds: Long,
-    maxOutputBytes: Long,
-    promptLength: Int,
-    context: WorkflowContext,
-    observer: WorkflowObserver,
+    request: AgentCliRequest,
     ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ): AgentCliExecution {
+    val workflowName = request.workflowName
+    val stepName = request.stepName
+    val eventPrefix = request.eventPrefix
+    val agentType = request.agentType
+    val processBuilder = request.processBuilder
+    val timeoutSeconds = request.timeoutSeconds
+    val maxOutputBytes = request.maxOutputBytes
+    val promptLength = request.promptLength
+    val context = request.context
+    val observer = request.observer
     val process = withContext(ioDispatcher) {
         processBuilder
             .redirectErrorStream(false)

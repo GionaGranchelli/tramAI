@@ -40,6 +40,37 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import java.nio.file.Path
 
+private data class TramaiBeanDependencies(
+    val modelProviders: ObjectProvider<ModelProvider>,
+    val operationResponseCache: ObjectProvider<OperationResponseCache>,
+    val operationInterceptors: ObjectProvider<OperationInterceptor>,
+    val dlpInterceptors: ObjectProvider<DlpInterceptor>,
+    val dlpRedactionAuditEmitters: ObjectProvider<DlpRedactionAuditEmitter>,
+    val engineEventObservers: ObjectProvider<EngineEventObserver>,
+    val auditEmitters: ObjectProvider<PolicyDecisionAuditEmitter>,
+    val policyEngines: ObjectProvider<PolicyEngine>,
+    val modelRegistries: ObjectProvider<ModelRegistry>,
+    val modelRegistrySettingsProvider: ObjectProvider<ModelRegistrySettings>,
+    val secretResolvers: ObjectProvider<SecretValueResolver>,
+) {
+    companion object {
+        fun from(applicationContext: org.springframework.context.ApplicationContext): TramaiBeanDependencies =
+            TramaiBeanDependencies(
+                modelProviders = applicationContext.getBeanProvider(ModelProvider::class.java),
+                operationResponseCache = applicationContext.getBeanProvider(OperationResponseCache::class.java),
+                operationInterceptors = applicationContext.getBeanProvider(OperationInterceptor::class.java),
+                dlpInterceptors = applicationContext.getBeanProvider(DlpInterceptor::class.java),
+                dlpRedactionAuditEmitters = applicationContext.getBeanProvider(DlpRedactionAuditEmitter::class.java),
+                engineEventObservers = applicationContext.getBeanProvider(EngineEventObserver::class.java),
+                auditEmitters = applicationContext.getBeanProvider(PolicyDecisionAuditEmitter::class.java),
+                policyEngines = applicationContext.getBeanProvider(PolicyEngine::class.java),
+                modelRegistries = applicationContext.getBeanProvider(ModelRegistry::class.java),
+                modelRegistrySettingsProvider = applicationContext.getBeanProvider(ModelRegistrySettings::class.java),
+                secretResolvers = applicationContext.getBeanProvider(SecretValueResolver::class.java),
+            )
+    }
+}
+
 /**
  * Spring Boot auto-configuration for standalone Tramai usage.
  */
@@ -51,22 +82,12 @@ class TramaiAutoConfiguration {
     @ConditionalOnMissingBean
     fun tramai(
         properties: TramaiProperties,
-        modelProviders: ObjectProvider<ModelProvider>,
-        operationResponseCache: ObjectProvider<OperationResponseCache>,
-        operationInterceptors: ObjectProvider<OperationInterceptor>,
-        dlpInterceptors: ObjectProvider<DlpInterceptor>,
-        dlpRedactionAuditEmitters: ObjectProvider<DlpRedactionAuditEmitter>,
-        engineEventObservers: ObjectProvider<EngineEventObserver>,
-        auditEmitters: ObjectProvider<PolicyDecisionAuditEmitter>,
-        policyEngines: ObjectProvider<PolicyEngine>,
-        modelRegistries: ObjectProvider<ModelRegistry>,
-        modelRegistrySettingsProvider: ObjectProvider<ModelRegistrySettings>,
-        secretResolvers: ObjectProvider<SecretValueResolver>,
         applicationContext: org.springframework.context.ApplicationContext,
     ): Tramai {
+        val dependencies = TramaiBeanDependencies.from(applicationContext)
         val builder = Tramai.builder()
-        val interceptorChain = operationInterceptors.orderedStream().toList()
-        val userSecretResolvers = secretResolvers.orderedStream().toList()
+        val interceptorChain = dependencies.operationInterceptors.orderedStream().toList()
+        val userSecretResolvers = dependencies.secretResolvers.orderedStream().toList()
         val fileSecretResolver = FileSecretValueResolver(
             allowedDirectory = properties.secrets.file.allowedDirectory
                 ?.trim()
@@ -94,7 +115,7 @@ class TramaiAutoConfiguration {
         builder.tools(AiToolScanner.fromApplicationContext(applicationContext))
 
         builder.cache(
-            operationResponseCache.ifAvailable
+            dependencies.operationResponseCache.ifAvailable
                 ?: if (properties.cache.inMemory.enabled) {
                     InMemoryOperationResponseCache(maxEntries = properties.cache.inMemory.maxEntries)
                 } else {
@@ -108,17 +129,17 @@ class TramaiAutoConfiguration {
                 CompositeOperationInterceptor(interceptorChain)
             },
         )
-        resolveDlpInterceptor(applicationContext, dlpInterceptors)?.let(builder::dlp)
-        resolveDlpRedactionAuditEmitter(dlpRedactionAuditEmitters)?.let(builder::dlpRedactionAudit)
+        resolveDlpInterceptor(applicationContext, dependencies.dlpInterceptors)?.let(builder::dlp)
+        resolveDlpRedactionAuditEmitter(dependencies.dlpRedactionAuditEmitters)?.let(builder::dlpRedactionAudit)
         builder.toolResultFiltering(
             applicationContext.getBeanProvider(ToolResultFilteringSettings::class.java).ifAvailable
                 ?: ToolResultFilteringSettings()
         )
-        resolveEngineEventObserver(engineEventObservers)?.let(builder::engineEventObserver)
-        resolvePolicyDecisionAuditEmitter(auditEmitters)?.let(builder::policyDecisionAudit)
-        resolvePolicyEngine(policyEngines)?.let(builder::policyEngine)
-        resolveModelRegistry(modelRegistries)?.let(builder::modelRegistry)
-        val settings = resolveModelRegistrySettings(modelRegistrySettingsProvider)
+        resolveEngineEventObserver(dependencies.engineEventObservers)?.let(builder::engineEventObserver)
+        resolvePolicyDecisionAuditEmitter(dependencies.auditEmitters)?.let(builder::policyDecisionAudit)
+        resolvePolicyEngine(dependencies.policyEngines)?.let(builder::policyEngine)
+        resolveModelRegistry(dependencies.modelRegistries)?.let(builder::modelRegistry)
+        val settings = resolveModelRegistrySettings(dependencies.modelRegistrySettingsProvider)
             ?: ModelRegistrySettings(enabled = properties.security.modelRegistry.enabled)
         builder.modelRegistrySettings(settings)
 
@@ -153,7 +174,7 @@ class TramaiAutoConfiguration {
             )
         }
 
-        modelProviders.orderedStream().forEach { provider ->
+        dependencies.modelProviders.orderedStream().forEach { provider ->
             builder.provider(provider, name = provider.providerId())
         }
 

@@ -603,14 +603,16 @@ internal class TramaiInvocationHandler(
 
                 when (
                     val result = collectStreamingRoute(
-                        streamCapable = streamCapable,
-                        request = memoryInjectedRequest,
-                        operation = operation,
-                        route = route,
-                        attempt = attempt,
-                        observation = observation,
-                        tokenBudgetTracker = tokenBudgetTracker,
-                        emitChunk = { emit(it) },
+                        StreamingRouteCall(
+                            streamCapable = streamCapable,
+                            request = memoryInjectedRequest,
+                            operation = operation,
+                            route = route,
+                            attempt = attempt,
+                            observation = observation,
+                            tokenBudgetTracker = tokenBudgetTracker,
+                            emitChunk = { emit(it) },
+                        ),
                     )
                 ) {
                     is StreamingRouteResult.Completed -> {
@@ -665,15 +667,16 @@ internal class TramaiInvocationHandler(
     }
 
     private suspend fun collectStreamingRoute(
-        streamCapable: StreamCapable,
-        request: ModelRequest,
-        operation: OperationDefinition,
-        route: ResolvedProviderRoute,
-        attempt: Int,
-        observation: OperationObservation,
-        tokenBudgetTracker: TokenBudgetTracker,
-        emitChunk: suspend (StreamChunk) -> Unit,
+        call: StreamingRouteCall,
     ): StreamingRouteResult {
+        val streamCapable = call.streamCapable
+        val request = call.request
+        val operation = call.operation
+        val route = call.route
+        val attempt = call.attempt
+        val observation = call.observation
+        val tokenBudgetTracker = call.tokenBudgetTracker
+        val emitChunk = call.emitChunk
         var emittedAnyTokens = false
         val callContext = streamingCallContext(operation, route.providerName, attempt)
         val interceptedRequest = request.copy(
@@ -725,6 +728,17 @@ internal class TramaiInvocationHandler(
             handleFallbackResult(normalized, emittedAnyTokens, route.providerName, observation)
         }
     }
+
+    private data class StreamingRouteCall(
+        val streamCapable: StreamCapable,
+        val request: ModelRequest,
+        val operation: OperationDefinition,
+        val route: ResolvedProviderRoute,
+        val attempt: Int,
+        val observation: OperationObservation,
+        val tokenBudgetTracker: TokenBudgetTracker,
+        val emitChunk: suspend (StreamChunk) -> Unit,
+    )
 
     private fun streamingCallContext(
         operation: OperationDefinition,
@@ -1045,14 +1059,16 @@ internal class TramaiInvocationHandler(
         val effectiveMutableMessages = effectiveMessages.toMutableList()
 
         val result = executeWithTools(
-            operation = operation,
-            messages = effectiveMutableMessages,
-            tokenBudgetTracker = tokenBudgetTracker,
-            correlationId = correlationId,
-            securityContext = securityContext,
-            identity = effectiveIdentity,
-            conversationId = conversationId,
-            historySize = history.size,
+            ToolLoopContext(
+                operation = operation,
+                messages = effectiveMutableMessages,
+                tokenBudgetTracker = tokenBudgetTracker,
+                correlationId = correlationId,
+                securityContext = securityContext,
+                identity = effectiveIdentity,
+                conversationId = conversationId,
+                historySize = history.size,
+            ),
         )
 
         // DLP is already applied inside callProviderWithRetries — use the sanitized response directly
@@ -1139,31 +1155,25 @@ internal class TramaiInvocationHandler(
         val initialTurnCount = history.size
 
         return executeStructuredRetryLoop(
-            operation = operation,
-            cacheKey = cacheKey,
-            handler = handler,
-            messages = messages,
-            historySize = initialTurnCount,
-            tokenBudgetTracker = tokenBudgetTracker,
-            conversationId = conversationId,
-            correlationId = correlationId,
-            securityContext = securityContext,
-            identity = effectiveIdentity,
+            StructuredRetryContext(
+                operation = operation,
+                cacheKey = cacheKey,
+                handler = handler,
+                messages = messages,
+                historySize = initialTurnCount,
+                tokenBudgetTracker = tokenBudgetTracker,
+                conversationId = conversationId,
+                correlationId = correlationId,
+                securityContext = securityContext,
+                identity = effectiveIdentity,
+            ),
         )
     }
 
     private suspend fun executeStructuredRetryLoop(
-        operation: OperationDefinition,
-        cacheKey: OperationCacheKey?,
-        handler: StructuredOutputHandler,
-        messages: MutableList<Message>,
-        historySize: Int,
-        tokenBudgetTracker: TokenBudgetTracker,
-        conversationId: String?,
-        correlationId: String,
-        securityContext: ExecutionSecurityContext,
-        identity: EngineExecutionIdentity,
+        context: StructuredRetryContext,
     ): Any {
+        val operation = context.operation
         val maxAttempts = operation.operation.maxRetries + 1
         val targetType = requireNotNull(operation.returnType) {
             "Structured return type ${operation.returnTypeDescription} could not be inspected without Kotlin reflection metadata"
@@ -1171,19 +1181,12 @@ internal class TramaiInvocationHandler(
 
         repeat(maxAttempts) { attemptIndex ->
             val value = executeStructuredAttempt(
-                operation = operation,
-                cacheKey = cacheKey,
-                handler = handler,
-                messages = messages,
-                historySize = historySize,
-                tokenBudgetTracker = tokenBudgetTracker,
-                conversationId = conversationId,
-                targetType = targetType,
-                attemptIndex = attemptIndex,
-                maxAttempts = maxAttempts,
-                correlationId = correlationId,
-                securityContext = securityContext,
-                identity = identity,
+                StructuredRetryAttemptContext(
+                    retry = context,
+                    targetType = targetType,
+                    attemptIndex = attemptIndex,
+                    maxAttempts = maxAttempts,
+                ),
             )
             if (value != null) {
                 return value
@@ -1193,31 +1196,54 @@ internal class TramaiInvocationHandler(
         error("Structured retry loop exited without returning or throwing")
     }
 
+    private data class StructuredRetryContext(
+        val operation: OperationDefinition,
+        val cacheKey: OperationCacheKey?,
+        val handler: StructuredOutputHandler,
+        val messages: MutableList<Message>,
+        val historySize: Int,
+        val tokenBudgetTracker: TokenBudgetTracker,
+        val conversationId: String?,
+        val correlationId: String,
+        val securityContext: ExecutionSecurityContext,
+        val identity: EngineExecutionIdentity,
+    )
+
+    private data class StructuredRetryAttemptContext(
+        val retry: StructuredRetryContext,
+        val targetType: kotlin.reflect.KType,
+        val attemptIndex: Int,
+        val maxAttempts: Int,
+    )
+
     private suspend fun executeStructuredAttempt(
-        operation: OperationDefinition,
-        cacheKey: OperationCacheKey?,
-        handler: StructuredOutputHandler,
-        messages: MutableList<Message>,
-        historySize: Int,
-        tokenBudgetTracker: TokenBudgetTracker,
-        conversationId: String?,
-        targetType: kotlin.reflect.KType,
-        attemptIndex: Int,
-        maxAttempts: Int,
-        correlationId: String,
-        securityContext: ExecutionSecurityContext,
-        identity: EngineExecutionIdentity,
+        context: StructuredRetryAttemptContext,
     ): Any? {
+        val operation = context.retry.operation
+        val cacheKey = context.retry.cacheKey
+        val handler = context.retry.handler
+        val messages = context.retry.messages
+        val historySize = context.retry.historySize
+        val tokenBudgetTracker = context.retry.tokenBudgetTracker
+        val conversationId = context.retry.conversationId
+        val targetType = context.targetType
+        val attemptIndex = context.attemptIndex
+        val maxAttempts = context.maxAttempts
+        val correlationId = context.retry.correlationId
+        val securityContext = context.retry.securityContext
+        val identity = context.retry.identity
         val messagesBeforeCall = messages.size
         val result = executeWithTools(
-            operation = operation,
-            messages = messages,
-            tokenBudgetTracker = tokenBudgetTracker,
-            correlationId = correlationId,
-            securityContext = securityContext,
-            identity = identity,
-            conversationId = conversationId,
-            historySize = historySize,
+            ToolLoopContext(
+                operation = operation,
+                messages = messages,
+                tokenBudgetTracker = tokenBudgetTracker,
+                correlationId = correlationId,
+                securityContext = securityContext,
+                identity = identity,
+                conversationId = conversationId,
+                historySize = historySize,
+            ),
         )
 
         // DLP is already applied inside callProviderWithRetries — use the sanitized response directly
@@ -1348,17 +1374,13 @@ internal class TramaiInvocationHandler(
     }
 
     private suspend fun executeWithTools(
-        operation: OperationDefinition,
-        messages: MutableList<Message>,
-        tokenBudgetTracker: TokenBudgetTracker,
-        correlationId: String,
-        securityContext: ExecutionSecurityContext,
-        identity: EngineExecutionIdentity,
-        conversationId: String? = null,
-        historySize: Int = 0,
-        resumingApproval: Boolean = false,
-        parentApprovalId: String? = null,
+        context: ToolLoopContext,
     ): ProviderCallResult {
+        val operation = context.operation
+        val messages = context.messages
+        val tokenBudgetTracker = context.tokenBudgetTracker
+        val correlationId = context.correlationId
+        val securityContext = context.securityContext
         val maxToolLoops = 5 // Guard against infinite tool loops
         val attemptCounter = AttemptCounter()
         repeat(maxToolLoops) {
@@ -1405,41 +1427,69 @@ internal class TramaiInvocationHandler(
                 toolCalls = normalizedToolCalls,
             )
             processToolCalls(
-                operation = operation,
-                toolCalls = normalizedToolCalls,
-                messages = messages,
-                correlationId = correlationId,
-                securityContext = securityContext,
-                identity = identity,
-                tokenBudgetTracker = tokenBudgetTracker,
-                conversationId = conversationId,
-                historySize = historySize,
-                resumingApproval = resumingApproval,
-                parentApprovalId = parentApprovalId,
+                ToolCallsContext(
+                    loop = context,
+                    toolCalls = normalizedToolCalls,
+                ),
             )
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
     }
 
+    private data class ToolLoopContext(
+        val operation: OperationDefinition,
+        val messages: MutableList<Message>,
+        val tokenBudgetTracker: TokenBudgetTracker,
+        val correlationId: String,
+        val securityContext: ExecutionSecurityContext,
+        val identity: EngineExecutionIdentity,
+        val conversationId: String? = null,
+        val historySize: Int = 0,
+        val resumingApproval: Boolean = false,
+        val parentApprovalId: String? = null,
+    )
+
+    private data class ToolCallsContext(
+        val loop: ToolLoopContext,
+        val toolCalls: List<ToolCall>,
+    )
+
     private suspend fun processToolCalls(
-        operation: OperationDefinition,
-        toolCalls: List<ToolCall>,
-        messages: MutableList<Message>,
-        correlationId: String,
-        securityContext: ExecutionSecurityContext,
-        identity: EngineExecutionIdentity,
-        tokenBudgetTracker: TokenBudgetTracker,
-        conversationId: String? = null,
-        historySize: Int = 0,
-        resumingApproval: Boolean = false,
-        parentApprovalId: String? = null,
+        context: ToolCallsContext,
     ) {
+        val operation = context.loop.operation
+        val toolCalls = context.toolCalls
+        val messages = context.loop.messages
+        val correlationId = context.loop.correlationId
+        val securityContext = context.loop.securityContext
+        val identity = context.loop.identity
+        val tokenBudgetTracker = context.loop.tokenBudgetTracker
+        val conversationId = context.loop.conversationId
+        val historySize = context.loop.historySize
+        val resumingApproval = context.loop.resumingApproval
+        val parentApprovalId = context.loop.parentApprovalId
         for ((index, toolCall) in toolCalls.withIndex()) {
             val tool = toolRegistry.resolve(toolCall.name)
             val toolResult = if (tool == null) {
                 ToolResult.PermanentFailure("Tool '<unregistered>' not found")
             } else {
-                executeTool(tool, toolCall, operation, correlationId, securityContext, identity, messages, index, tokenBudgetTracker, conversationId, historySize, resumingApproval, parentApprovalId = parentApprovalId)
+                executeTool(
+                    ToolExecutionRequest(
+                        tool = tool,
+                        toolCall = toolCall,
+                        operation = operation,
+                        correlationId = correlationId,
+                        securityContext = securityContext,
+                        identity = identity,
+                        messages = messages,
+                        toolCallIndex = index,
+                        tokenBudgetTracker = tokenBudgetTracker,
+                        conversationId = conversationId,
+                        historySize = historySize,
+                        resumingApproval = resumingApproval,
+                        parentApprovalId = parentApprovalId,
+                    ),
+                )
             }
 
             // Enforce BEFORE_TOOL_RESULT_REINJECTION
@@ -1828,21 +1878,23 @@ internal class TramaiInvocationHandler(
                 }
 
                 return callProviderWithRetries(
-                    providerId = route.providerName,
-                    provider = route.provider,
-                    request = ModelRequest(
-                        model = route.effectiveModelName,
-                        messages = messages.toList(),
-                        tools = operation.toolDefinitions.takeIf { it.isNotEmpty() },
-                        timeoutMillis = operation.operation.timeoutMillis,
-                        operationInterface = operation.method.declaringClass.name,
-                        operationMethod = operation.method.name,
+                    ProviderRetryRequest(
+                        providerId = route.providerName,
+                        provider = route.provider,
+                        request = ModelRequest(
+                            model = route.effectiveModelName,
+                            messages = messages.toList(),
+                            tools = operation.toolDefinitions.takeIf { it.isNotEmpty() },
+                            timeoutMillis = operation.operation.timeoutMillis,
+                            operationInterface = operation.method.declaringClass.name,
+                            operationMethod = operation.method.name,
+                        ),
+                        operation = operation,
+                        attemptCounter = attemptCounter,
+                        routeIndex = routeIndex,
+                        correlationId = correlationId,
+                        securityContext = securityContext,
                     ),
-                    operation = operation,
-                    attemptCounter = attemptCounter,
-                    routeIndex = routeIndex,
-                    correlationId = correlationId,
-                    securityContext = securityContext,
                 )
             } catch (error: Throwable) {
                 if (!shouldFallbackFrom(error)) {
@@ -1878,16 +1930,15 @@ internal class TramaiInvocationHandler(
             )
     }
 
-    private suspend fun callProviderWithRetries(
-        providerId: String,
-        provider: ModelProvider,
-        request: ModelRequest,
-        operation: OperationDefinition,
-        attemptCounter: AttemptCounter,
-        routeIndex: Int,
-        correlationId: String,
-        securityContext: ExecutionSecurityContext,
-    ): ProviderCallResult {
+    private suspend fun callProviderWithRetries(retry: ProviderRetryRequest): ProviderCallResult {
+        val providerId = retry.providerId
+        val provider = retry.provider
+        val request = retry.request
+        val operation = retry.operation
+        val attemptCounter = retry.attemptCounter
+        val routeIndex = retry.routeIndex
+        val correlationId = retry.correlationId
+        val securityContext = retry.securityContext
         val maxAttempts = operation.operation.providerRetries + 1
 
         repeat(maxAttempts) { retryIndex ->
@@ -1998,6 +2049,17 @@ internal class TramaiInvocationHandler(
         error("Provider retry loop exited without returning or throwing")
     }
 
+    private data class ProviderRetryRequest(
+        val providerId: String,
+        val provider: ModelProvider,
+        val request: ModelRequest,
+        val operation: OperationDefinition,
+        val attemptCounter: AttemptCounter,
+        val routeIndex: Int,
+        val correlationId: String,
+        val securityContext: ExecutionSecurityContext,
+    )
+
     /**
      * Applies authoritative DLP inspection to model output without marking failures as provider failures.
      */
@@ -2068,23 +2130,22 @@ internal class TramaiInvocationHandler(
         }
     }
 
-    private suspend fun executeTool(
-        tool: ResolvedTool,
-        toolCall: ToolCall,
-        operation: OperationDefinition,
-        correlationId: String,
-        securityContext: ExecutionSecurityContext,
-        identity: EngineExecutionIdentity,
-        messages: List<Message>,
-        toolCallIndex: Int = -1,
-        tokenBudgetTracker: TokenBudgetTracker? = null,
-        conversationId: String? = null,
-        historySize: Int = 0,
-        resumingApproval: Boolean = false,
-        parentApprovalId: String? = null,
-        idempotencyKey: String? = null,
-        allowRenewedApprovedBindingDuringResume: Boolean = false,
-    ): ToolResult {
+    private suspend fun executeTool(request: ToolExecutionRequest): ToolResult {
+        val tool = request.tool
+        val toolCall = request.toolCall
+        val operation = request.operation
+        val correlationId = request.correlationId
+        val securityContext = request.securityContext
+        val identity = request.identity
+        val messages = request.messages
+        val toolCallIndex = request.toolCallIndex
+        val tokenBudgetTracker = request.tokenBudgetTracker
+        val conversationId = request.conversationId
+        val historySize = request.historySize
+        val resumingApproval = request.resumingApproval
+        val parentApprovalId = request.parentApprovalId
+        val idempotencyKey = request.idempotencyKey
+        val allowRenewedApprovedBindingDuringResume = request.allowRenewedApprovedBindingDuringResume
         val input = toolCall.argumentsJson
         val maxAttempts = if (tool.idempotent) IDEMPOTENT_TOOL_MAX_ATTEMPTS else 1
 
@@ -2162,20 +2223,22 @@ internal class TramaiInvocationHandler(
                         "Approval requirement timeout must be positive"
                     }
                     return suspendToolExecution(
-                        tool = tool,
-                        toolCall = toolCall,
-                        operation = operation,
-                        correlationId = correlationId,
-                        input = input,
-                        identity = identity,
-                        toolCallIndex = toolCallIndex,
-                        messages = messages,
-                        argumentsDigest = rawDigest,
-                        timeoutMillis = policyDecision.requirement.timeoutMillis,
-                        securityContext = securityContext,
-                        tokenBudgetTracker = tokenBudgetTracker,
-                        conversationId = conversationId,
-                        historySize = historySize,
+                        SuspendToolExecutionRequest(
+                            tool = tool,
+                            toolCall = toolCall,
+                            operation = operation,
+                            correlationId = correlationId,
+                            input = input,
+                            identity = identity,
+                            toolCallIndex = toolCallIndex,
+                            messages = messages,
+                            argumentsDigest = rawDigest,
+                            timeoutMillis = policyDecision.requirement.timeoutMillis,
+                            securityContext = securityContext,
+                            tokenBudgetTracker = tokenBudgetTracker,
+                            conversationId = conversationId,
+                            historySize = historySize,
+                        ),
                     )
                 }
             }
@@ -2212,26 +2275,45 @@ internal class TramaiInvocationHandler(
         error("Tool retry loop exited without returning")
     }
 
+    private data class ToolExecutionRequest(
+        val tool: ResolvedTool,
+        val toolCall: ToolCall,
+        val operation: OperationDefinition,
+        val correlationId: String,
+        val securityContext: ExecutionSecurityContext,
+        val identity: EngineExecutionIdentity,
+        val messages: List<Message>,
+        val toolCallIndex: Int = -1,
+        val tokenBudgetTracker: TokenBudgetTracker? = null,
+        val conversationId: String? = null,
+        val historySize: Int = 0,
+        val resumingApproval: Boolean = false,
+        val parentApprovalId: String? = null,
+        val idempotencyKey: String? = null,
+        val allowRenewedApprovedBindingDuringResume: Boolean = false,
+    )
+
     /**
      * Suspends tool execution by creating an approval challenge, persisting
      * the continuation and suspended invocation, then throwing [ApprovalSuspendedException].
      */
     private suspend fun suspendToolExecution(
-        tool: ResolvedTool,
-        toolCall: ToolCall,
-        operation: OperationDefinition,
-        correlationId: String,
-        input: String,
-        identity: EngineExecutionIdentity,
-        toolCallIndex: Int,
-        messages: List<Message>,
-        argumentsDigest: Sha256Digest,
-        timeoutMillis: Long,
-        securityContext: ExecutionSecurityContext,
-        tokenBudgetTracker: TokenBudgetTracker? = null,
-        conversationId: String? = null,
-        historySize: Int = 0,
+        request: SuspendToolExecutionRequest,
     ): Nothing {
+        val tool = request.tool
+        val toolCall = request.toolCall
+        val operation = request.operation
+        val correlationId = request.correlationId
+        val input = request.input
+        val identity = request.identity
+        val toolCallIndex = request.toolCallIndex
+        val messages = request.messages
+        val argumentsDigest = request.argumentsDigest
+        val timeoutMillis = request.timeoutMillis
+        val securityContext = request.securityContext
+        val tokenBudgetTracker = request.tokenBudgetTracker
+        val conversationId = request.conversationId
+        val historySize = request.historySize
         val approvalGateCoordinator = approvalGateCoordinator
             ?: throw dev.tramai.core.exception.ConfigurationException(
                 "ApprovalGateCoordinator is required for tool execution suspension"
@@ -2381,6 +2463,23 @@ internal class TramaiInvocationHandler(
             throw failure
         }
     }
+
+    private data class SuspendToolExecutionRequest(
+        val tool: ResolvedTool,
+        val toolCall: ToolCall,
+        val operation: OperationDefinition,
+        val correlationId: String,
+        val input: String,
+        val identity: EngineExecutionIdentity,
+        val toolCallIndex: Int,
+        val messages: List<Message>,
+        val argumentsDigest: Sha256Digest,
+        val timeoutMillis: Long,
+        val securityContext: ExecutionSecurityContext,
+        val tokenBudgetTracker: TokenBudgetTracker? = null,
+        val conversationId: String? = null,
+        val historySize: Int = 0,
+    )
 
     private suspend fun callProviderOnce(
         providerId: String,
@@ -2679,20 +2778,22 @@ internal class TramaiInvocationHandler(
 
             val toolResult = try {
                 executeTool(
-                    tool = resolvedTool,
-                    toolCall = validatedToolCall,
-                    operation = registered.operation,
-                    correlationId = metadata.correlationId,
-                    securityContext = metadata.securityContext,
-                    identity = metadata.identity,
-                    messages = rehydratedPayload.messages,
-                    tokenBudgetTracker = tokenBudgetTracker,
-                    conversationId = metadata.conversationId,
-                    historySize = metadata.historySize,
-                    resumingApproval = true,
-                    parentApprovalId = command.approvalId,
-                    idempotencyKey = idempotencyKey,
-                    allowRenewedApprovedBindingDuringResume = true,
+                    ToolExecutionRequest(
+                        tool = resolvedTool,
+                        toolCall = validatedToolCall,
+                        operation = registered.operation,
+                        correlationId = metadata.correlationId,
+                        securityContext = metadata.securityContext,
+                        identity = metadata.identity,
+                        messages = rehydratedPayload.messages,
+                        tokenBudgetTracker = tokenBudgetTracker,
+                        conversationId = metadata.conversationId,
+                        historySize = metadata.historySize,
+                        resumingApproval = true,
+                        parentApprovalId = command.approvalId,
+                        idempotencyKey = idempotencyKey,
+                        allowRenewedApprovedBindingDuringResume = true,
+                    ),
                 )
             } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
                 throw e
@@ -2711,20 +2812,22 @@ internal class TramaiInvocationHandler(
             val securityContext = metadata.securityContext
             val messages = rehydratedPayload.messages.toMutableList()
             val loopResult = continueAfterToolResult(
-                operation = registered.operation,
-                messages = messages,
-                toolResult = toolResult,
-                toolCallId = metadata.toolCallId,
-                toolCallIndex = metadata.toolCallIndex,
-                correlationId = metadata.correlationId,
-                securityContext = securityContext,
-                identity = metadata.identity,
-                tokenBudgetTracker = tokenBudgetTracker,
-                suspendedToolName = metadata.toolName,
-                approvalId = command.approvalId,
-                conversationId = metadata.conversationId,
-                historySize = metadata.historySize,
-                resumingApproval = true,
+                ContinueAfterToolResultRequest(
+                    operation = registered.operation,
+                    messages = messages,
+                    toolResult = toolResult,
+                    toolCallId = metadata.toolCallId,
+                    toolCallIndex = metadata.toolCallIndex,
+                    correlationId = metadata.correlationId,
+                    securityContext = securityContext,
+                    identity = metadata.identity,
+                    tokenBudgetTracker = tokenBudgetTracker,
+                    suspendedToolName = metadata.toolName,
+                    approvalId = command.approvalId,
+                    conversationId = metadata.conversationId,
+                    historySize = metadata.historySize,
+                    resumingApproval = true,
+                ),
             )
 
             // Finalize result
@@ -3200,22 +3303,21 @@ internal class TramaiInvocationHandler(
      * 4. Processes any remaining unprocessed tool calls from the same batch
      * 5. Continues the provider loop via [executeWithTools]
      */
-    private suspend fun continueAfterToolResult(
-        operation: OperationDefinition,
-        messages: MutableList<Message>,
-        toolResult: ToolResult,
-        toolCallId: String,
-        toolCallIndex: Int,
-        correlationId: String,
-        securityContext: ExecutionSecurityContext,
-        identity: EngineExecutionIdentity,
-        tokenBudgetTracker: TokenBudgetTracker,
-        suspendedToolName: String = "",
-        approvalId: String = "",
-        conversationId: String? = null,
-        historySize: Int = 0,
-        resumingApproval: Boolean = false,
-    ): ProviderCallResult {
+    private suspend fun continueAfterToolResult(request: ContinueAfterToolResultRequest): ProviderCallResult {
+        val operation = request.operation
+        val messages = request.messages
+        val toolResult = request.toolResult
+        val toolCallId = request.toolCallId
+        val toolCallIndex = request.toolCallIndex
+        val correlationId = request.correlationId
+        val securityContext = request.securityContext
+        val identity = request.identity
+        val tokenBudgetTracker = request.tokenBudgetTracker
+        val suspendedToolName = request.suspendedToolName
+        val approvalId = request.approvalId
+        val conversationId = request.conversationId
+        val historySize = request.historySize
+        val resumingApproval = request.resumingApproval
         // Tool name is provided by the caller from the stored SuspendedInvocationMetadata.toolName,
         // which is more reliable than searching through messages by toolCallId.
         // The caller (resumeApproval) already has the metadata and passes it through.
@@ -3257,7 +3359,23 @@ internal class TramaiInvocationHandler(
                     ToolResult.PermanentFailure("Tool '<unregistered>' not found")
                 } else {
                     try {
-                        executeTool(t, tc, operation, correlationId, securityContext, identity, messages, actualIndex, tokenBudgetTracker, conversationId, historySize, resumingApproval, parentApprovalId = approvalId)
+                        executeTool(
+                            ToolExecutionRequest(
+                                tool = t,
+                                toolCall = tc,
+                                operation = operation,
+                                correlationId = correlationId,
+                                securityContext = securityContext,
+                                identity = identity,
+                                messages = messages,
+                                toolCallIndex = actualIndex,
+                                tokenBudgetTracker = tokenBudgetTracker,
+                                conversationId = conversationId,
+                                historySize = historySize,
+                                resumingApproval = resumingApproval,
+                                parentApprovalId = approvalId,
+                            ),
+                        )
                     } catch (e: dev.tramai.core.exception.NestedApprovalNotSupportedException) {
                         // Uncertain-outcome already emitted by executeTool — re-throw for outer handling
                         throw dev.tramai.core.exception.NestedApprovalNotSupportedException(
@@ -3299,18 +3417,37 @@ internal class TramaiInvocationHandler(
 
         // 5. Continue the provider loop
         return executeWithTools(
-            operation = operation,
-            messages = messages,
-            tokenBudgetTracker = tokenBudgetTracker,
-            correlationId = correlationId,
-            securityContext = securityContext,
-            identity = identity,
-            conversationId = conversationId,
-            historySize = historySize,
-            resumingApproval = resumingApproval,
-            parentApprovalId = approvalId,
+            ToolLoopContext(
+                operation = operation,
+                messages = messages,
+                tokenBudgetTracker = tokenBudgetTracker,
+                correlationId = correlationId,
+                securityContext = securityContext,
+                identity = identity,
+                conversationId = conversationId,
+                historySize = historySize,
+                resumingApproval = resumingApproval,
+                parentApprovalId = approvalId,
+            ),
         )
     }
+
+    private data class ContinueAfterToolResultRequest(
+        val operation: OperationDefinition,
+        val messages: MutableList<Message>,
+        val toolResult: ToolResult,
+        val toolCallId: String,
+        val toolCallIndex: Int,
+        val correlationId: String,
+        val securityContext: ExecutionSecurityContext,
+        val identity: EngineExecutionIdentity,
+        val tokenBudgetTracker: TokenBudgetTracker,
+        val suspendedToolName: String = "",
+        val approvalId: String = "",
+        val conversationId: String? = null,
+        val historySize: Int = 0,
+        val resumingApproval: Boolean = false,
+    )
 
     private fun handleObjectMethod(
         proxy: Any,

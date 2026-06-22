@@ -63,7 +63,7 @@ class AuditEngineDlpRedactionAuditEmitter(
         val sharedMetadata = buildSharedMetadata(normalizedContext)
 
         normalized.forEach { redaction ->
-            auditEngine.emit(
+            auditEngine.emit(AuditEmission(
                 auditStreamId = streamId,
                 workflowRunId = normalizedWorkflowRunId,
                 correlationId = normalizedCorrelationId,
@@ -77,7 +77,7 @@ class AuditEngineDlpRedactionAuditEmitter(
                     METADATA_RULE_ID to redaction.ruleId,
                     METADATA_REPLACEMENT_COUNT to redaction.replacementCount.toString(),
                 ),
-            )
+            ))
         }
     }
 

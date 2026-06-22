@@ -1,5 +1,6 @@
 package dev.tramai.spring.sovereign.ops
 
+import dev.tramai.security.audit.AuditEmission
 import dev.tramai.security.audit.AuditEngine
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import java.security.MessageDigest
@@ -40,16 +41,18 @@ class AuditEngineSovereignOpsAuditEmitter(
         )
 
         auditEngine.emit(
-            auditStreamId = "sovereign-ops-approval:$approvalIdDigest",
-            workflowRunId = workflowRunId,
-            correlationId = correlationId,
-            actor = actor,
-            enforcementPoint = "sovereign-ops.approval.deny",
-            decision = "DENIED",
-            policyVersion = null,
-            workflowDigest = null,
-            reasonCode = "sovereign-ops-admin-denial",
-            metadata = metadata,
+            AuditEmission(
+                auditStreamId = "sovereign-ops-approval:$approvalIdDigest",
+                workflowRunId = workflowRunId,
+                correlationId = correlationId,
+                actor = actor,
+                enforcementPoint = "sovereign-ops.approval.deny",
+                decision = "DENIED",
+                policyVersion = null,
+                workflowDigest = null,
+                reasonCode = "sovereign-ops-admin-denial",
+                metadata = metadata,
+            )
         )
     }
 
@@ -70,16 +73,18 @@ class AuditEngineSovereignOpsAuditEmitter(
         )
 
         auditEngine.emit(
-            auditStreamId = "sovereign-ops-approval:${record.aggregateIdDigest}",
-            workflowRunId = record.workflowRunId,
-            correlationId = record.correlationId,
-            actor = record.actor,
-            enforcementPoint = "sovereign-ops.approval.deny",
-            decision = "DENIED",
-            policyVersion = null,
-            workflowDigest = null,
-            reasonCode = "sovereign-ops-admin-denial",
-            metadata = metadata,
+            AuditEmission(
+                auditStreamId = "sovereign-ops-approval:${record.aggregateIdDigest}",
+                workflowRunId = record.workflowRunId,
+                correlationId = record.correlationId,
+                actor = record.actor,
+                enforcementPoint = "sovereign-ops.approval.deny",
+                decision = "DENIED",
+                policyVersion = null,
+                workflowDigest = null,
+                reasonCode = "sovereign-ops-admin-denial",
+                metadata = metadata,
+            )
         )
     }
 

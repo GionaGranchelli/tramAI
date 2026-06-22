@@ -123,17 +123,19 @@ internal data class HttpWorkflowStep<S>(
         var retryAttempt = 0
         while (true) {
             val attemptNumber = retryAttempt + 1
-            val response = try {
-                executeRequest(
-                    request = request,
-                    uri = uri,
-                    method = method,
-                    observer = observer,
-                    workflowName = workflowName,
-                    context = context,
-                    httpClient = httpClient,
-                    redactedUrl = redactedUrl,
-                )
+                val response = try {
+                    executeRequest(
+                        HttpRequestExecution(
+                            request = request,
+                            uri = uri,
+                            method = method,
+                            observer = observer,
+                            workflowName = workflowName,
+                            context = context,
+                            httpClient = httpClient,
+                            redactedUrl = redactedUrl,
+                        ),
+                    )
             } catch (error: Throwable) {
                 throw wrapHttpError(
                     error = error,
@@ -185,16 +187,15 @@ internal data class HttpWorkflowStep<S>(
         }
     }
 
-    private suspend fun executeRequest(
-        request: HttpRequest,
-        uri: URI,
-        method: String,
-        observer: WorkflowObserver,
-        workflowName: String,
-        context: WorkflowContext,
-        httpClient: HttpClient,
-        redactedUrl: String,
-    ): ExecutedHttpResponse {
+    private suspend fun executeRequest(execution: HttpRequestExecution): ExecutedHttpResponse {
+        val request = execution.request
+        val uri = execution.uri
+        val method = execution.method
+        val observer = execution.observer
+        val workflowName = execution.workflowName
+        val context = execution.context
+        val httpClient = execution.httpClient
+        val redactedUrl = execution.redactedUrl
         val bodyPublisher = request.body?.let(BodyPublishers::ofString) ?: BodyPublishers.noBody()
         val httpRequest = java.net.http.HttpRequest.newBuilder(uri)
             .timeout(Duration.ofSeconds(config.timeoutSeconds))
@@ -253,6 +254,17 @@ internal data class HttpWorkflowStep<S>(
             responseSizeBytes = responseSizeBytes,
         )
     }
+
+    private data class HttpRequestExecution(
+        val request: HttpRequest,
+        val uri: URI,
+        val method: String,
+        val observer: WorkflowObserver,
+        val workflowName: String,
+        val context: WorkflowContext,
+        val httpClient: HttpClient,
+        val redactedUrl: String,
+    )
 
     private fun validateMethod(method: String, originalMethod: String) {
         require(method in supportedHttpMethods) {
