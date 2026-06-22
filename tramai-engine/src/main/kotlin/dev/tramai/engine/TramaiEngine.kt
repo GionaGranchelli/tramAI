@@ -540,7 +540,16 @@ internal class TramaiInvocationHandler(
                     )
                 ) {
                     is StreamingRouteResult.Completed -> {
-                        persistStreamingMemory(result.fullText, memoryMessages, historySize, conversationId)
+                        if (chatMemory != null && conversationId != null) {
+                            val assistantMessage = Message(
+                                role = MessageRole.ASSISTANT,
+                                content = result.fullText,
+                            )
+                            val turnMessages = operation.initialMessages(arguments)
+                                .drop(historySize)
+                                .filter { it.role != MessageRole.SYSTEM }
+                            chatMemory.add(conversationId, turnMessages + assistantMessage)
+                        }
                         return@flow
                     }
                     is StreamingRouteResult.StartupFailure -> {
