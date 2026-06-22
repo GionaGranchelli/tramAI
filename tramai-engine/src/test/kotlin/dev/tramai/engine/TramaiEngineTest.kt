@@ -1341,6 +1341,71 @@ class TramaiEngineTest {
             assertThat(request.messages[1].content).isEqualTo("first answer")
             assertThat(request.messages[2].content).contains("second question")
         }
+
+        @Test
+        fun `streaming fallback before first token persists memory once from successful fallback`() {
+            val memoryStore = mutableListOf<Message>()
+            val addCalls = AtomicInteger(0)
+            val chatMemory = object : ChatMemory {
+                override fun get(conversationId: String): List<Message> = memoryStore.toList()
+
+                override fun add(conversationId: String, messages: List<Message>) {
+                    addCalls.incrementAndGet()
+                    memoryStore += messages
+                }
+
+                override fun add(conversationId: String, message: Message) {
+                    error("Unexpected single-message add in streaming fallback test")
+                }
+
+                override fun clear(conversationId: String) {
+                    memoryStore.clear()
+                }
+            }
+            val primary = NamedStreamingProvider("primary") {
+                flow {
+                    emit(StreamChunk.Error(ProviderException("rate limited", statusCode = 429, retryable = true)))
+                }
+            }
+            val fallback = NamedStreamingProvider("fallback") {
+                flow {
+                    emit(StreamChunk.Token("fallback "))
+                    emit(StreamChunk.Token("answer"))
+                    emit(StreamChunk.Complete("fallback answer", UsageMetrics(outputTokens = 2)))
+                }
+            }
+            val registry = ProviderRegistry.builder()
+                .provider("primary", primary)
+                .provider("fallback", fallback)
+                .model("claude-sonnet-4-20250514", "primary")
+                .fallbackProvider("claude-sonnet-4-20250514", "fallback")
+                .build()
+            val engine = TramaiEngine(
+                providerRegistry = registry,
+                chatMemory = chatMemory,
+                conversationIdProvider = ConversationIdProvider { "session-1" },
+            )
+            val service = engine.create<StreamingService>()
+
+            val chunks = runBlocking { service.stream("my question").toList() }
+
+            assertThat(chunks).containsExactly(
+                StreamChunk.Token("fallback "),
+                StreamChunk.Token("answer"),
+                StreamChunk.Complete("fallback answer", UsageMetrics(outputTokens = 2)),
+            )
+
+            assertThat(primary.streamRequests).hasSize(1)
+            assertThat(fallback.streamRequests).hasSize(1)
+
+            // Memory must be persisted exactly once from the successful fallback
+            assertThat(addCalls.get()).isEqualTo(1)
+            assertThat(memoryStore).hasSize(2)
+            assertThat(memoryStore[0].role).isEqualTo(MessageRole.USER)
+            assertThat(memoryStore[0].content).contains("my question")
+            assertThat(memoryStore[1].role).isEqualTo(MessageRole.ASSISTANT)
+            assertThat(memoryStore[1].content).isEqualTo("fallback answer")
+        }
     }
 
     // ── DLP Integration Tests ───────────────────────────────────────────
