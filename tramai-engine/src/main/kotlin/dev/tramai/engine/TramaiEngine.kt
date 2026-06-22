@@ -3733,11 +3733,8 @@ internal class TramaiInvocationHandler(
         val parameters = method.parameters
         for (i in parameters.indices) {
             if (parameters[i].isAnnotationPresent(ConversationId::class.java)) {
-                val argument = args[i]
-                if (argument == null) {
-                    throw IllegalArgumentException(
-                        "@ConversationId parameter '${parameters[i].name}' at index $i is null",
-                    )
+                val argument = requireNotNull(args[i]) {
+                    "@ConversationId parameter '${parameters[i].name}' at index $i is null"
                 }
                 return argument.toString()
             }
