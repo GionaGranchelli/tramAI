@@ -8,14 +8,13 @@ The current Sovereign Runtime RC uses encrypted file-backed persistence suitable
 
 This document is a **design target**. It does **not** claim that JDBC persistence is implemented yet.
 
-The implementation is in the [`tramai-persistence-jdbc`](../../tramai-persistence-jdbc) module, which provides the PostgreSQL schema (V1 foundation + V2 approval continuations + V3 audit hardening) and the following JDBC stores:
+The implementation is in the [`tramai-persistence-jdbc`](../../tramai-persistence-jdbc) module, which provides the PostgreSQL schema (V1 foundation + V2 approval continuations + V3 audit hardening + V4 outbox hardening) and the following JDBC stores:
 
 - `JdbcApprovalStore` — approval request/decision persistence
 - `JdbcSuspendedInvocationStore` — replay-safe suspended continuation persistence
 - `JdbcApprovalContinuationStore` — approval continuation lifecycle with encrypted arguments
 - `JdbcAuditStore` — tamper-evident audit event stream with hash-chain validation
-
-Audit outbox store is not yet implemented.
+- `JdbcSovereignOpsAuditOutboxStore` — audit outbox store (in `tramai-spring-boot-starter-sovereign-persistence-jdbc` module)
 
 ## Current State
 
@@ -36,10 +35,10 @@ Current JDBC stores (implemented):
 - `JdbcSuspendedInvocationStore` — replay-safe suspended continuation persistence (PR #81)
 - `JdbcApprovalContinuationStore` — approval continuation lifecycle with encrypted arguments (PR #83)
 - `JdbcAuditStore` — tamper-evident audit event stream with hash-chain validation (PR #84)
+- `JdbcSovereignOpsAuditOutboxStore` — audit outbox store with SKIP LOCKED dispatch (PR #85)
 
 Current limitations:
 
-- no JDBC audit outbox store
 - no multi-node worker coordination
 - no database transaction boundary
 - no production deployment certification
@@ -343,8 +342,8 @@ Suggested implementation sequence:
 4. Add suspended invocation JDBC store. ✅ `JdbcSuspendedInvocationStore` (PR #81)
 5. Add approval continuation JDBC store. ✅ `JdbcApprovalContinuationStore` (PR #83)
 6. Add audit stream JDBC store. ✅ `JdbcAuditStore` (PR #84)
-7. Add audit outbox JDBC store.
-8. Add Testcontainers-based integration tests.
+7. Add audit outbox JDBC store. ✅ `JdbcSovereignOpsAuditOutboxStore` (PR #85)
+8. Add Testcontainers-based integration tests. ✅ (per-store coverage)
 9. Add optional worker lease support.
 10. Add production deployment documentation.
 
