@@ -160,7 +160,6 @@ class JdbcWorkflowSchedulerStore(
     ) {
         updateClaimedTick(
             tickId = tickId,
-            claimToken = claimToken,
             terminalAction = "start",
             sql = """
                 UPDATE workflow_schedule_ticks
@@ -189,7 +188,6 @@ class JdbcWorkflowSchedulerStore(
     ) {
         updateClaimedTick(
             tickId = tickId,
-            claimToken = claimToken,
             terminalAction = "release",
             sql = """
                 UPDATE workflow_schedule_ticks
@@ -347,7 +345,6 @@ class JdbcWorkflowSchedulerStore(
         updateClaimedDelayWakeup(
             runId = runId,
             stepId = stepId,
-            claimToken = claimToken,
             action = "release",
             sql = """
                 UPDATE workflow_delay_wakeups
@@ -375,7 +372,6 @@ class JdbcWorkflowSchedulerStore(
         updateClaimedDelayWakeup(
             runId = runId,
             stepId = stepId,
-            claimToken = claimToken,
             action = "complete",
             sql = """
                 UPDATE workflow_delay_wakeups
@@ -844,7 +840,6 @@ class JdbcWorkflowSchedulerStore(
     ) {
         updateClaimedTick(
             tickId = tickId,
-            claimToken = claimToken,
             terminalAction = status.lowercase(),
             sql = """
                 UPDATE workflow_schedule_ticks
@@ -864,7 +859,6 @@ class JdbcWorkflowSchedulerStore(
 
     private fun updateClaimedTick(
         tickId: String,
-        claimToken: String,
         terminalAction: String,
         sql: String,
         bind: (PreparedStatement) -> Unit,
@@ -873,8 +867,8 @@ class JdbcWorkflowSchedulerStore(
             connection.prepareStatement(sql).use { statement ->
                 bind(statement)
                 val updated = statement.executeUpdate()
-                if (updated == 0) {
-                    throw IllegalArgumentException("Cannot $terminalAction scheduled tick '$tickId'; claim token does not match")
+                require(updated != 0) {
+                    "Cannot $terminalAction scheduled tick '$tickId'; claim token does not match"
                 }
             }
         }
@@ -883,7 +877,6 @@ class JdbcWorkflowSchedulerStore(
     private fun updateClaimedDelayWakeup(
         runId: String,
         stepId: String,
-        claimToken: String,
         action: String,
         sql: String,
         bind: (PreparedStatement) -> Unit,
@@ -892,10 +885,8 @@ class JdbcWorkflowSchedulerStore(
             connection.prepareStatement(sql).use { statement ->
                 bind(statement)
                 val updated = statement.executeUpdate()
-                if (updated == 0) {
-                    throw IllegalArgumentException(
-                        "Cannot $action delay wakeup '${delayWakeupId(runId, stepId)}'; claim token does not match",
-                    )
+                require(updated != 0) {
+                    "Cannot $action delay wakeup '${delayWakeupId(runId, stepId)}'; claim token does not match"
                 }
             }
         }

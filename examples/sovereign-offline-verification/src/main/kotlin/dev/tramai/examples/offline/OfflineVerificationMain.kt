@@ -146,7 +146,7 @@ internal fun executeVerificationInternal(
     val sizeBytes = Files.size(artifactFile)
 
     // d. Compute SHA-256 digest of the artifact file manually
-    val sha256 = MessageDigest.getInstance("SHA-256")
+    val sha256 = MessageDigest.getInstance(HASH_ALGORITHM)
     val fileDigestBytes = sha256.digest(artifactContent.toByteArray(Charsets.UTF_8))
     val fileDigestHex = fileDigestBytes.joinToString("") { "%02x".format(it) }
     val fileDigest = ModelArtifactDigest.of("sha256:$fileDigestHex")
@@ -160,24 +160,24 @@ internal fun executeVerificationInternal(
     // e. Construct manifest
     val manifest = LocalModelArtifactManifestV1(
         schemaVersion = 1,
-        registryEntryId = "offline-entry",
-        providerId = "loopback-local-provider",
-        modelName = "offline-test-model",
+        registryEntryId = OFFLINE_ENTRY,
+        providerId = LOOPBACK_PROVIDER,
+        modelName = OFFLINE_TEST_MODEL,
         revision = "1.0",
         artifacts = listOf(artifactFileV1),
     )
 
     // f. Compute manifest canonical bytes digest
-    val manifestDigestBytes = MessageDigest.getInstance("SHA-256")
+    val manifestDigestBytes = MessageDigest.getInstance(HASH_ALGORITHM)
         .digest(manifest.canonicalBytes())
     val manifestDigestHex = manifestDigestBytes.joinToString("") { "%02x".format(it) }
     val manifestDigest = ModelArtifactDigest.of("sha256:$manifestDigestHex")
 
     // g. Create InMemoryModelRegistry with the registered model
     val registeredModel = RegisteredModel(
-        registryEntryId = "offline-entry",
-        providerId = "loopback-local-provider",
-        modelName = "offline-test-model",
+        registryEntryId = OFFLINE_ENTRY,
+        providerId = LOOPBACK_PROVIDER,
+        modelName = OFFLINE_TEST_MODEL,
         revision = "1.0",
         artifactDigest = manifestDigest,
     )
@@ -199,7 +199,7 @@ internal fun executeVerificationInternal(
         // k. Create FileSystemModelArtifactVerifier
         val verifier = FileSystemModelArtifactVerifier(
             allowedRootDirectories = setOf(tempDir),
-            manifests = mapOf("offline-entry" to manifest),
+            manifests = mapOf(OFFLINE_ENTRY to manifest),
             clock = Clock.systemUTC(),
         )
 
@@ -207,18 +207,18 @@ internal fun executeVerificationInternal(
         val tramai = SovereignTramai.builder()
             .profile(
                 SovereignProfileConfiguration(
-                    allowedModels = setOf("offline-test-model"),
-                    allowedProviders = setOf("loopback-local-provider"),
+                    allowedModels = setOf(OFFLINE_TEST_MODEL),
+                    allowedProviders = setOf(LOOPBACK_PROVIDER),
                     providerZones = mapOf(
-                        "loopback-local-provider" to ProviderTrustZone.LOCAL,
+                        LOOPBACK_PROVIDER to ProviderTrustZone.LOCAL,
                     ),
                     deploymentMode = SovereignDeploymentMode.OFFLINE,
                 ),
             )
             .modelRegistry(registry)
             .auditStore(auditStore)
-            .provider(loopbackProvider, name = "loopback-local-provider", default = true)
-            .model("offline-test-model", "loopback-local-provider")
+            .provider(loopbackProvider, name = LOOPBACK_PROVIDER, default = true)
+            .model(OFFLINE_TEST_MODEL, LOOPBACK_PROVIDER)
             .clock(Clock.systemUTC())
             .modelArtifactVerifier(verifier)
             .modelArtifactVerificationSettings(
@@ -237,7 +237,6 @@ internal fun executeVerificationInternal(
 
         // n. Create runtime and service proxy
         val runtime = tramai.runtime()
-        var providerSucceeded = false
         try {
             val service = runtime.create(OfflineEchoService::class)
 
@@ -249,16 +248,16 @@ internal fun executeVerificationInternal(
                 "loopback-service-response-invalid"
             }
 
-            providerSucceeded = true
         } finally {
             // p. Close the runtime
             runtime.close()
         }
+        val providerSucceeded = true
 
         // q. External network probes
         val tcpBlocked: Boolean = try {
             Socket().use { socket ->
-                socket.connect(InetSocketAddress("1.1.1.1", 443), 1000)
+                socket.connect(InetSocketAddress(EXTERNAL_PROBE_IP, 443), 1000)
             }
             false // connection succeeded — not blocked
         } catch (_: Exception) {
@@ -286,7 +285,7 @@ internal fun executeVerificationInternal(
             externalTcpProbeBlocked = tcpBlocked,
             externalDnsProbeBlocked = dnsBlocked,
             configuredProviderZones = mapOf(
-                "loopback-local-provider" to ProviderTrustZone.LOCAL.name,
+                LOOPBACK_PROVIDER to ProviderTrustZone.LOCAL.name,
             ),
             artifactVerificationReceiptCount = receipts.size,
             auditChainValid = auditValid,
@@ -324,7 +323,7 @@ internal fun executeVerificationInternal(
             githubWorkflow != null && githubRunId != null &&
             githubRepository != null && githubSha != null
         ) {
-            val sha256 = MessageDigest.getInstance("SHA-256")
+            val sha256 = MessageDigest.getInstance(HASH_ALGORITHM)
             val subjects = mutableListOf<AttestedSubjectV1>()
 
             // NOTE: The evidence pack itself is attested by GitHub Actions
@@ -415,7 +414,7 @@ internal fun readAllAuditEvents(auditStore: InMemoryAuditStore): List<AuditEvent
     val streams = streamsField.get(auditStore) as ConcurrentHashMap<String, *>
     val allEvents = mutableListOf<AuditEvent>()
     for (key in streams.keys) {
-        val state = streams.get(key)!!
+        val state = streams.getValue(key)
         val stateClass = state::class.java
         val eventsField = stateClass.getDeclaredField("events")
         eventsField.isAccessible = true
@@ -425,3 +424,18 @@ internal fun readAllAuditEvents(auditStore: InMemoryAuditStore): List<AuditEvent
     }
     return allEvents.sortedBy { it.sequenceNumber }
 }
+
+/** @see main */
+private const val HASH_ALGORITHM = "SHA-256"
+
+/** @see main */
+private const val OFFLINE_ENTRY = "offline-entry"
+
+/** @see main */
+private const val LOOPBACK_PROVIDER = "loopback-local-provider"
+
+/** @see main */
+private const val OFFLINE_TEST_MODEL = "offline-test-model"
+
+/** @see main */
+private const val EXTERNAL_PROBE_IP = "1.1.1.1" // NOSONAR — example constant for offline test

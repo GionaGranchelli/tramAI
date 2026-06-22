@@ -4,6 +4,9 @@ import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.provider.ModelProvider
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Deterministic in-memory provider for tests.
@@ -12,8 +15,8 @@ class MockAiProvider private constructor(
     private val responsesByMethod: Map<String, List<String>>,
 ) : ModelProvider, RecordedRequestProvider {
     /** Requests captured in invocation order. */
-    override val requests: MutableList<ModelRequest> = mutableListOf()
-    private val responseIndexByMethod = mutableMapOf<String, Int>()
+    override val requests: MutableList<ModelRequest> = CopyOnWriteArrayList()
+    private val responseIndexByMethod = ConcurrentHashMap<String, AtomicInteger>()
 
     override suspend fun complete(request: ModelRequest): ModelResponse {
         requests += request
@@ -21,11 +24,10 @@ class MockAiProvider private constructor(
             ?: throw ProviderException("MockAiProvider requires request.operationMethod to be present")
         val responses = responsesByMethod[method]
             ?: throw ProviderException("No mock response configured for method '$method'")
-        val index = responseIndexByMethod.getOrDefault(method, 0)
+        val index = responseIndexByMethod.computeIfAbsent(method) { AtomicInteger(0) }.getAndIncrement()
         val response = responses.getOrNull(index)
             ?: responses.lastOrNull()
             ?: throw ProviderException("No mock responses configured for method '$method'")
-        responseIndexByMethod[method] = index + 1
         return ModelResponse(content = response)
     }
 
@@ -44,7 +46,7 @@ class MockAiProvider private constructor(
      * Builder for [MockAiProvider].
      */
     class Builder {
-        private val responsesByMethod = linkedMapOf<String, MutableList<String>>()
+        private val responsesByMethod = ConcurrentHashMap<String, CopyOnWriteArrayList<String>>()
 
         /**
          * Starts configuring responses for a service method name.
@@ -68,7 +70,7 @@ class MockAiProvider private constructor(
              * Appends a response returned on the next invocation of the configured method.
              */
             infix fun respondWith(response: String) {
-                responsesByMethod.getOrPut(methodName) { mutableListOf() } += response
+                responsesByMethod.computeIfAbsent(methodName) { CopyOnWriteArrayList() } += response
             }
         }
     }

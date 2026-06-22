@@ -63,16 +63,16 @@ class FileSystemModelArtifactVerifier(
         registeredModel: RegisteredModel,
     ) {
         check(manifest.registryEntryId == registeredModel.registryEntryId) {
-            "artifact-manifest-identity-drift"
+            ERROR_MANIFEST_DRIFT
         }
         check(manifest.providerId == registeredModel.providerId) {
-            "artifact-manifest-identity-drift"
+            ERROR_MANIFEST_DRIFT
         }
         check(manifest.modelName == registeredModel.modelName) {
-            "artifact-manifest-identity-drift"
+            ERROR_MANIFEST_DRIFT
         }
         check(manifest.revision == registeredModel.revision) {
-            "artifact-manifest-identity-drift"
+            ERROR_MANIFEST_DRIFT
         }
     }
 
@@ -154,3 +154,6 @@ class FileSystemModelArtifactVerifier(
         const val HASH_BUFFER_SIZE = 64 * 1024
     }
 }
+
+/** @see FileSystemModelArtifactVerifier */
+private const val ERROR_MANIFEST_DRIFT = "artifact-manifest-identity-drift"

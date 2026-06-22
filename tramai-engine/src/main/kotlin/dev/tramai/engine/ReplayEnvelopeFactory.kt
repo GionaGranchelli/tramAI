@@ -63,10 +63,10 @@ internal object ReplayEnvelopeFactory {
     ): PreparedReplayEnvelope {
         // Select latest assistant message with tool calls (fail closed if none)
         val assistantMsgIndex = messages.indexOfLast { it.role == MessageRole.ASSISTANT && !it.toolCalls.isNullOrEmpty() }
-        require(assistantMsgIndex >= 0) { "replay-envelope-assistant-batch-not-found" }
+        require(assistantMsgIndex >= 0) { ERROR_ASSISTANT_BATCH_NOT_FOUND }
 
         val assistantMsg = messages[assistantMsgIndex]
-        val toolCalls = checkNotNull(assistantMsg.toolCalls) { "replay-envelope-assistant-batch-not-found" }
+        val toolCalls = checkNotNull(assistantMsg.toolCalls) { ERROR_ASSISTANT_BATCH_NOT_FOUND }
 
         // Validate toolCallIndex is in bounds
         require(toolCallIndex in toolCalls.indices) { "replay-envelope-tool-call-index-out-of-bounds" }
@@ -74,7 +74,7 @@ internal object ReplayEnvelopeFactory {
         // Validate selected call matches expected identity
         val selectedCall = toolCalls[toolCallIndex]
         require(selectedCall.id == toolCallId) { "replay-envelope-tool-call-id-mismatch" }
-        require(selectedCall.name == toolName) { "replay-envelope-tool-call-name-mismatch" }
+        require(selectedCall.name == toolName) { ERROR_TOOL_CALL_NAME_MISMATCH }
 
         // Full-envelope uniqueness: toolCallId must be globally unique across ALL messages
         val allSlots = messages.flatMapIndexed { msgIdx, msg ->
@@ -87,7 +87,7 @@ internal object ReplayEnvelopeFactory {
         require(matchingIdSlots.size == 1) { "replay-envelope-duplicate-tool-call-id" }
 
         val selectedSlot = matchingIdSlots.single()
-        require(selectedSlot.call.name == toolName) { "replay-envelope-tool-call-name-mismatch" }
+        require(selectedSlot.call.name == toolName) { ERROR_TOOL_CALL_NAME_MISMATCH }
         require(selectedSlot.messageIndex == assistantMsgIndex &&
             selectedSlot.toolCallIndex == toolCallIndex) {
             "replay-envelope-tool-call-slot-mismatch"
@@ -122,16 +122,16 @@ internal object ReplayEnvelopeFactory {
 
         // Find the matching assistant message with tool calls
         val assistantMsgIndex = messages.indexOfLast { it.role == MessageRole.ASSISTANT && !it.toolCalls.isNullOrEmpty() }
-        require(assistantMsgIndex >= 0) { "replay-envelope-assistant-batch-not-found" }
+        require(assistantMsgIndex >= 0) { ERROR_ASSISTANT_BATCH_NOT_FOUND }
 
         val assistantMsg = messages[assistantMsgIndex]
-        val toolCalls = checkNotNull(assistantMsg.toolCalls) { "replay-envelope-assistant-batch-not-found" }
+        val toolCalls = checkNotNull(assistantMsg.toolCalls) { ERROR_ASSISTANT_BATCH_NOT_FOUND }
 
         // Validate tool-call slot
         require(metadata.toolCallIndex in toolCalls.indices) { "replay-envelope-tool-call-index-out-of-bounds" }
         val selectedCall = toolCalls[metadata.toolCallIndex]
         require(selectedCall.id == metadata.toolCallId) { "replay-envelope-tool-call-id-mismatch" }
-        require(selectedCall.name == metadata.toolName) { "replay-envelope-tool-call-name-mismatch" }
+        require(selectedCall.name == metadata.toolName) { ERROR_TOOL_CALL_NAME_MISMATCH }
         require(selectedCall.argumentsJson == REDACTED_APPROVAL_CONTINUATION_ARGUMENTS) { "replay-envelope-tool-call-not-redacted" }
 
         // Full-envelope uniqueness: toolCallId must be globally unique
@@ -200,3 +200,9 @@ internal object ReplayEnvelopeFactory {
 data class RehydratedReplayPayload(
     val messages: List<Message>,
 )
+
+/** @see ReplayEnvelopeFactory */
+private const val ERROR_ASSISTANT_BATCH_NOT_FOUND = "replay-envelope-assistant-batch-not-found"
+
+/** @see ReplayEnvelopeFactory */
+private const val ERROR_TOOL_CALL_NAME_MISMATCH = "replay-envelope-tool-call-name-mismatch"

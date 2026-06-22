@@ -2,6 +2,7 @@ package dev.tramai.orchestration
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
@@ -85,6 +86,7 @@ internal data class ShellWorkflowStep<S>(
     val commandBuilder: suspend (S, WorkflowContext) -> ShellCommand,
     val merge: suspend (S, ShellResult, WorkflowContext) -> S,
     val config: ShellStepConfig = ShellStepConfig(),
+    val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : InternalWorkflowStep<S> {
 
     suspend fun execute(
@@ -184,18 +186,18 @@ internal data class ShellWorkflowStep<S>(
                 environment().putAll(shellCommand.env)
             }
             .run {
-                withContext(Dispatchers.IO) { start() }
+                withContext(ioDispatcher) { start() }
             }
         process.outputStream.close()
 
         try {
             return coroutineScope {
-                val stdoutDeferred = async(Dispatchers.IO) { process.inputStream.captureStream(config.maxOutputBytes) }
-                val stderrDeferred = async(Dispatchers.IO) { process.errorStream.captureStream(config.maxOutputBytes) }
+                val stdoutDeferred = async(ioDispatcher) { process.inputStream.captureStream(config.maxOutputBytes) }
+                val stderrDeferred = async(ioDispatcher) { process.errorStream.captureStream(config.maxOutputBytes) }
 
                 try {
                     withTimeout(config.timeoutSeconds.seconds) {
-                        runInterruptible(Dispatchers.IO) {
+                        runInterruptible(ioDispatcher) {
                             process.waitFor()
                         }
                     }
@@ -208,7 +210,7 @@ internal data class ShellWorkflowStep<S>(
                         ),
                         context = context,
                     )
-                    withContext(NonCancellable + Dispatchers.IO) {
+                    withContext(NonCancellable + ioDispatcher) {
                         terminateProcessTree(process)
                     }
                     throw WorkflowShellException(
@@ -243,7 +245,7 @@ internal data class ShellWorkflowStep<S>(
                 )
             }
         } finally {
-            withContext(NonCancellable + Dispatchers.IO) {
+            withContext(NonCancellable + ioDispatcher) {
                 if (process.toHandle().isAlive) {
                     terminateProcessTree(process)
                 } else {

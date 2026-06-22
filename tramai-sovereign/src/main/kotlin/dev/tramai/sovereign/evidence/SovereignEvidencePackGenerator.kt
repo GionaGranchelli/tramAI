@@ -12,6 +12,69 @@ import java.time.Instant
  * Designed to be called from [dev.tramai.sovereign.SovereignTramai.evidencePack].
  */
 object SovereignEvidencePackGenerator {
+    data class GenerationParams(
+        val deploymentMode: SovereignDeploymentMode,
+        val allowedModels: Set<String>,
+        val allowedProviders: Set<String>,
+        val providerZones: Map<String, String>,
+        val verification: VerificationEvidence,
+        val optionalEvidence: OptionalEvidence = OptionalEvidence(),
+    )
+
+    data class VerificationEvidence(
+        val verificationSettings: ModelArtifactVerificationSettings,
+        val verificationReceipts: List<VerifiedLocalModelArtifact>,
+    )
+
+    data class OptionalEvidence(
+        val zeroEgress: ZeroEgressEvidenceV1? = null,
+        val auditChain: AuditChainEvidenceV1? = null,
+        val supplyChain: SupplyChainEvidenceV1? = null,
+        val releaseBundle: ReleaseBundleEvidenceV1? = null,
+        val attestation: AttestationEvidenceV1? = null,
+    )
+
+    /**
+     * Legacy overload that accepts individual parameters.
+     * Prefer [generate] with [GenerationParams].
+     */
+    @Deprecated(
+        "Use GenerationParams overload",
+        ReplaceWith(
+            "generate(SovereignEvidencePackGenerator.GenerationParams(...))",
+        ),
+    )
+    fun generate(
+        deploymentMode: SovereignDeploymentMode,
+        allowedModels: Set<String>,
+        allowedProviders: Set<String>,
+        providerZones: Map<String, String>,
+        verificationSettings: ModelArtifactVerificationSettings,
+        verificationReceipts: List<VerifiedLocalModelArtifact>,
+        zeroEgress: ZeroEgressEvidenceV1? = null,
+        auditChain: AuditChainEvidenceV1? = null,
+        supplyChain: SupplyChainEvidenceV1? = null,
+        releaseBundle: ReleaseBundleEvidenceV1? = null,
+        attestation: AttestationEvidenceV1? = null,
+    ): SovereignEvidencePackV1 = generate(
+        GenerationParams(
+            deploymentMode = deploymentMode,
+            allowedModels = allowedModels,
+            allowedProviders = allowedProviders,
+            providerZones = providerZones,
+            verification = VerificationEvidence(
+                verificationSettings = verificationSettings,
+                verificationReceipts = verificationReceipts,
+            ),
+            optionalEvidence = OptionalEvidence(
+                zeroEgress = zeroEgress,
+                auditChain = auditChain,
+                supplyChain = supplyChain,
+                releaseBundle = releaseBundle,
+                attestation = attestation,
+            ),
+        ),
+    )
 
     private fun sanitizeFileNameOnly(value: String): String {
         val sanitized = EvidenceSafeString.sanitize(value)
@@ -37,26 +100,14 @@ object SovereignEvidencePackGenerator {
      * @return A fully populated [SovereignEvidencePackV1] with the [generatedAt] timestamp
      * set to the current wall-clock time when this method is called.
      */
-     fun generate(
-        deploymentMode: SovereignDeploymentMode,
-        allowedModels: Set<String>,
-        allowedProviders: Set<String>,
-        providerZones: Map<String, String>,
-        verificationSettings: ModelArtifactVerificationSettings,
-        verificationReceipts: List<VerifiedLocalModelArtifact>,
-        zeroEgress: ZeroEgressEvidenceV1? = null,
-        auditChain: AuditChainEvidenceV1? = null,
-        supplyChain: SupplyChainEvidenceV1? = null,
-        releaseBundle: ReleaseBundleEvidenceV1? = null,
-        attestation: AttestationEvidenceV1? = null,
-     ): SovereignEvidencePackV1 {
+     fun generate(params: GenerationParams): SovereignEvidencePackV1 {
         // Sanitize all string identifiers before building DTOs
-        val sanitizedModels = allowedModels.map { EvidenceSafeString.sanitize(it) }.toSet()
-        val sanitizedProviders = allowedProviders.map { EvidenceSafeString.sanitize(it) }.toSet()
-        val sanitizedZones = providerZones.mapKeys { EvidenceSafeString.sanitize(it.key) }
+        val sanitizedModels = params.allowedModels.map { EvidenceSafeString.sanitize(it) }.toSet()
+        val sanitizedProviders = params.allowedProviders.map { EvidenceSafeString.sanitize(it) }.toSet()
+        val sanitizedZones = params.providerZones.mapKeys { EvidenceSafeString.sanitize(it.key) }
             .mapValues { EvidenceSafeString.sanitize(it.value) }
 
-        val artifacts = verificationReceipts.map { receipt ->
+        val artifacts = params.verification.verificationReceipts.map { receipt ->
             ArtifactEvidenceV1(
                 registryEntryId = EvidenceSafeString.sanitize(receipt.registryEntryId),
                 manifestDigest = EvidenceSafeString.sanitize(receipt.manifestDigest.value),
@@ -68,17 +119,17 @@ object SovereignEvidencePackGenerator {
         }
 
         val settingsMap = linkedMapOf<String, Any?>(
-            "enabled" to verificationSettings.enabled,
-            "requireDigestForLocalModels" to verificationSettings.requireDigestForLocalModels,
+            "enabled" to params.verification.verificationSettings.enabled,
+            "requireDigestForLocalModels" to params.verification.verificationSettings.requireDigestForLocalModels,
         )
 
         // Validate and sanitize supply-chain evidence
-        val sanitizedSupplyChain = supplyChain?.let { sc ->
+        val sanitizedSupplyChain = params.optionalEvidence.supplyChain?.let { sc ->
             // sbomSha256 must match "sha256:<hex>" format — do NOT run through EvidenceSafeString
             // (hex could contain substrings like "token" coincidentally)
-            val digestRegex = Regex("^sha256:[a-fA-F0-9]{64}$")
+            val digestRegex = Regex(SHA256_REGEX)
             require(digestRegex.matches(sc.sbomSha256)) {
-                "evidence-unsafe-digest-format"
+                ERROR_UNSAFE_DIGEST
             }
 
             require(sc.schemaVersion == 1) {
@@ -96,7 +147,7 @@ object SovereignEvidencePackGenerator {
         }
 
         // Validate and sanitize attestation evidence
-        val sanitizedAttestation = attestation?.let { a ->
+        val sanitizedAttestation = params.optionalEvidence.attestation?.let { a ->
             require(a.schemaVersion == 1) {
                 "evidence-unsupported-attestation-schema-version"
             }
@@ -120,10 +171,10 @@ object SovereignEvidencePackGenerator {
                 "evidence-unsafe-attestation-subjects"
             }
 
-            val sha256Regex = Regex("^sha256:[a-fA-F0-9]{64}$")
+            val sha256Regex = Regex(SHA256_REGEX)
             val sanitizedSubjects = a.attestedSubjects.map { subject ->
                 require(sha256Regex.matches(subject.sha256)) {
-                    "evidence-unsafe-digest-format"
+                    ERROR_UNSAFE_DIGEST
                 }
                 require(
                     subject.attestationType == "build-provenance" ||
@@ -151,7 +202,7 @@ object SovereignEvidencePackGenerator {
         }
 
         // Validate and sanitize release-bundle evidence
-        val sanitizedReleaseBundle = releaseBundle?.let { r ->
+        val sanitizedReleaseBundle = params.optionalEvidence.releaseBundle?.let { r ->
             require(r.schemaVersion == 1) {
                 "evidence-unsupported-release-bundle-schema-version"
             }
@@ -160,10 +211,10 @@ object SovereignEvidencePackGenerator {
                 "evidence-unsafe-release-artifacts-empty"
             }
 
-            val digestRegex = Regex("^sha256:[a-fA-F0-9]{64}$")
+            val digestRegex = Regex(SHA256_REGEX)
             val sanitizedArtifacts = r.artifacts.map { artifact ->
                 require(digestRegex.matches(artifact.sha256)) {
-                    "evidence-unsafe-digest-format"
+                    ERROR_UNSAFE_DIGEST
                 }
 
                 require(artifact.sizeBytes >= 0) {
@@ -193,14 +244,14 @@ object SovereignEvidencePackGenerator {
 
         return SovereignEvidencePackV1(
             schemaVersion = 1,
-            deploymentMode = deploymentMode.name,
+            deploymentMode = params.deploymentMode.name,
             allowedModels = sanitizedModels.toList().sorted(),
             allowedProviders = sanitizedProviders.toList().sorted(),
             providerZones = sanitizedZones,
             artifactVerificationSettings = settingsMap,
             artifacts = artifacts,
-            zeroEgress = zeroEgress,
-            auditChain = auditChain,
+            zeroEgress = params.optionalEvidence.zeroEgress,
+            auditChain = params.optionalEvidence.auditChain,
             supplyChain = sanitizedSupplyChain,
             releaseBundle = sanitizedReleaseBundle,
             attestation = sanitizedAttestation,
@@ -208,3 +259,9 @@ object SovereignEvidencePackGenerator {
         )
     }
 }
+
+/** @see SovereignEvidencePackGenerator */
+private const val SHA256_REGEX = "^sha256:[a-fA-F0-9]{64}$"
+
+/** @see SovereignEvidencePackGenerator */
+private const val ERROR_UNSAFE_DIGEST = "evidence-unsafe-digest-format"

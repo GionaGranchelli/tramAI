@@ -12,7 +12,7 @@ class PersistentChatMemory(
     override fun get(conversationId: String): List<Message> {
         require(conversationId.isNotBlank())
         val cached = cache?.get(conversationId)
-        if (cached != null && cached.isNotEmpty()) return cached
+        if (!cached.isNullOrEmpty()) return cached
         return store.getMessages(conversationId)
     }
 

@@ -158,8 +158,8 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
     AutoCloseable {
 
     companion object {
-        private const val RECORD_TYPE = "ops-audit-outbox"
-        private const val OUTBOX_DIR = "ops-audit-outbox"
+        private const val RECORD_TYPE = STORAGE_NAME
+        private const val OUTBOX_DIR = STORAGE_NAME
         private const val FILE_EXTENSION = ".tram.enc"
         private const val KEY_ID = "default"
         private val COMMITTED_FILENAME = Regex("[a-f0-9]{64}\\.tram\\.enc")
@@ -173,7 +173,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
     private val eventKeyIndex = ConcurrentHashMap<String, String>()
 
     init {
-        ensureManagedDirectory(outboxDir, "ops-audit-outbox")
+        ensureManagedDirectory(outboxDir, STORAGE_NAME)
         rebuildIndex()
     }
 
@@ -192,7 +192,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
     fun rebuildIndex() = lease.withOpenOperation {
         eventKeyIndex.clear()
         if (!Files.exists(outboxDir, LinkOption.NOFOLLOW_LINKS)) return@withOpenOperation
-        validateManagedDirectory(outboxDir, "ops-audit-outbox")
+        validateManagedDirectory(outboxDir, STORAGE_NAME)
         for (entry in committedEntries()) {
             val digest = digestFromPath(entry)
             validatePersistedDto(readCurrentByDigest(entry, digest), digest)
@@ -205,18 +205,18 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
     override suspend fun append(
         record: SovereignOpsAuditOutboxRecord,
     ): SovereignOpsAuditOutboxRecord = lease.withOpenOperation {
-        validateManagedDirectory(outboxDir, "ops-audit-outbox")
+        validateManagedDirectory(outboxDir, STORAGE_NAME)
         require(record.status == SovereignOpsAuditOutboxStatus.PREPARED) {
             "tramai-sovereign-ops-outbox-invalid-status"
         }
 
         appendLock.lock()
         try {
-            if (Files.exists(storePath(record.outboxId), LinkOption.NOFOLLOW_LINKS)) {
-                throw IllegalArgumentException("tramai-sovereign-ops-outbox-duplicate-id")
+            require(!Files.exists(storePath(record.outboxId), LinkOption.NOFOLLOW_LINKS)) {
+                "tramai-sovereign-ops-outbox-duplicate-id"
             }
-            if (eventKeyIndex.containsKey(record.eventKey)) {
-                throw IllegalArgumentException("tramai-sovereign-ops-outbox-duplicate-event-key")
+            require(!eventKeyIndex.containsKey(record.eventKey)) {
+                "tramai-sovereign-ops-outbox-duplicate-event-key"
             }
 
             createAtomically(record.toPersistedV1(outboxRecordVersion = 0L))
@@ -232,10 +232,10 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         expectedStatus: SovereignOpsAuditOutboxStatus,
     ): SovereignOpsAuditOutboxRecord = mutate(outboxId) { dto ->
         require(expectedStatus == SovereignOpsAuditOutboxStatus.PREPARED) {
-            "tramai-sovereign-ops-outbox-status-mismatch"
+            ERROR_OUTBOX_STATUS_MISMATCH
         }
         require(dto.status == expectedStatus.name) {
-            "tramai-sovereign-ops-outbox-status-mismatch"
+            ERROR_OUTBOX_STATUS_MISMATCH
         }
         dto.toDomain().copy(status = SovereignOpsAuditOutboxStatus.PENDING)
     }
@@ -246,7 +246,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         now: Instant,
     ): List<SovereignOpsAuditOutboxRecord> = lease.withOpenOperation {
         if (limit <= 0) return@withOpenOperation emptyList()
-        validateManagedDirectory(outboxDir, "ops-audit-outbox")
+        validateManagedDirectory(outboxDir, STORAGE_NAME)
 
         val claimed = mutableListOf<SovereignOpsAuditOutboxRecord>()
         for (entry in committedEntries()) {
@@ -281,7 +281,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         emittedAt: Instant,
     ): SovereignOpsAuditOutboxRecord = mutate(outboxId) { dto ->
         require(dto.status == expectedStatus.name) {
-            "tramai-sovereign-ops-outbox-status-mismatch"
+            ERROR_OUTBOX_STATUS_MISMATCH
         }
         dto.toDomain().copy(
             status = SovereignOpsAuditOutboxStatus.EMITTED,
@@ -296,7 +296,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         retryable: Boolean,
     ): SovereignOpsAuditOutboxRecord = mutate(outboxId) { dto ->
         require(dto.status == expectedStatus.name) {
-            "tramai-sovereign-ops-outbox-status-mismatch"
+            ERROR_OUTBOX_STATUS_MISMATCH
         }
         val targetStatus = if (retryable) {
             SovereignOpsAuditOutboxStatus.FAILED_RETRYABLE
@@ -352,7 +352,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
 
     fun verifyAll() = lease.withOpenOperation {
         if (!Files.exists(outboxDir, LinkOption.NOFOLLOW_LINKS)) return@withOpenOperation
-        validateManagedDirectory(outboxDir, "ops-audit-outbox")
+        validateManagedDirectory(outboxDir, STORAGE_NAME)
         for (entry in committedEntries()) {
             val digest = digestFromPath(entry)
             validatePersistedDto(readCurrentByDigest(entry, digest), digest).toDomain()
@@ -367,7 +367,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         outboxId: String,
         update: (PersistedSovereignOpsAuditOutboxRecordV1) -> SovereignOpsAuditOutboxRecord,
     ): SovereignOpsAuditOutboxRecord = lease.withOpenOperation {
-        validateManagedDirectory(outboxDir, "ops-audit-outbox")
+        validateManagedDirectory(outboxDir, STORAGE_NAME)
         val lock = getLockForOutboxId(outboxId)
         lock.lock()
         try {
@@ -392,18 +392,18 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         path: Path,
         digest: String,
     ): PersistedSovereignOpsAuditOutboxRecordV1 {
-        validateRegularFile(path, "ops-audit-outbox")
+        validateRegularFile(path, STORAGE_NAME)
         val plaintext = try {
             readAndDecrypt(path, digest)
         } catch (e: FileStoreCorruptionException) {
-            throw FileStoreCorruptionException("ops-audit-outbox-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("ops-audit-outbox-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
         return try {
             PersistedSovereignOpsAuditOutboxRecordV1.fromJson(String(plaintext, Charsets.UTF_8))
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("ops-audit-outbox-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
     }
 
@@ -513,7 +513,7 @@ class FileSovereignOpsAuditOutboxStore internal constructor(
         predicate: (PersistedSovereignOpsAuditOutboxRecordV1) -> Boolean,
     ): List<SovereignOpsAuditOutboxRecord> = lease.withOpenOperation {
         if (limit <= 0) return@withOpenOperation emptyList()
-        validateManagedDirectory(outboxDir, "ops-audit-outbox")
+        validateManagedDirectory(outboxDir, STORAGE_NAME)
         val results = mutableListOf<SovereignOpsAuditOutboxRecord>()
         for (entry in committedEntries()) {
             if (results.size >= limit) break
@@ -671,3 +671,12 @@ private fun forceParentDirectory(dir: Path?) {
         // best effort
     }
 }
+
+/** @see FileSovereignOpsAuditOutboxStore */
+private const val STORAGE_NAME = "ops-audit-outbox"
+
+/** @see FileSovereignOpsAuditOutboxStore */
+private const val ERROR_OUTBOX_STATUS_MISMATCH = "tramai-sovereign-ops-outbox-status-mismatch"
+
+/** @see FileSovereignOpsAuditOutboxStore */
+private const val ERROR_CORRUPTED_RECORD = "ops-audit-outbox-record-corrupted"

@@ -63,18 +63,20 @@ internal data class HermesWorkflowStep<S>(
 
         val result = try {
             executeAgentCli(
-                workflowName = workflowName,
-                stepName = name,
-                eventPrefix = "tramai.workflow.hermes",
-                agentType = "hermes",
-                processBuilder = ProcessBuilder(
-                    listOf(config.cliPath, "chat", "-q", resolvedSecurity.defendedPrompt, "--model", config.model),
+                AgentCliRequest(
+                    workflowName = workflowName,
+                    stepName = name,
+                    eventPrefix = "tramai.workflow.hermes",
+                    agentType = "hermes",
+                    processBuilder = ProcessBuilder(
+                        listOf(config.cliPath, "chat", "-q", resolvedSecurity.defendedPrompt, "--model", config.model),
+                    ),
+                    timeoutSeconds = config.timeoutSeconds,
+                    maxOutputBytes = config.maxOutputBytes,
+                    promptLength = resolvedSecurity.defendedPrompt.length,
+                    context = context,
+                    observer = observer,
                 ),
-                timeoutSeconds = config.timeoutSeconds,
-                maxOutputBytes = config.maxOutputBytes,
-                promptLength = resolvedSecurity.defendedPrompt.length,
-                context = context,
-                observer = observer,
             )
         } catch (error: Throwable) {
             error.rethrowAgentCancellation()

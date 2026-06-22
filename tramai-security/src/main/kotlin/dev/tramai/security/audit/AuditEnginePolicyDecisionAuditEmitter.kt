@@ -56,7 +56,7 @@ class AuditEnginePolicyDecisionAuditEmitter(
 
         val metadata = buildSafeMetadata(context)
 
-        auditEngine.emit(
+        auditEngine.emit(AuditEmission(
             auditStreamId = streamId,
             workflowRunId = context.workflowRunId,
             correlationId = context.correlationId,
@@ -67,7 +67,7 @@ class AuditEnginePolicyDecisionAuditEmitter(
             workflowDigest = context.workflowDigest,
             reasonCode = reasonCode,
             metadata = metadata,
-        )
+        ))
     }
 
     private fun resolveSafeStreamId(context: PolicyContext): String {

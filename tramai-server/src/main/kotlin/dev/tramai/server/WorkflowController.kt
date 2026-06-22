@@ -349,19 +349,15 @@ class WorkflowErrorHandler {
 
     @ExceptionHandler(BadWorkflowRequestException::class, IllegalArgumentException::class)
     fun badRequest(error: RuntimeException): ResponseEntity<ProblemDetail> =
-        problem(HttpStatus.BAD_REQUEST, "Invalid workflow request", error.message ?: "Request is invalid")
+        problem(HttpStatus.BAD_REQUEST, ERROR_INVALID_REQUEST, error.message ?: "Request is invalid")
 
     @ExceptionHandler(HandlerMethodValidationException::class)
     fun validation(error: HandlerMethodValidationException): ResponseEntity<ProblemDetail> =
         problem(
             HttpStatus.BAD_REQUEST,
-            "Invalid workflow request",
-            error.allValidationResults
-                .flatMap { result ->
-                    result.resolvableErrors.mapNotNull { resolvable ->
-                        resolvable.defaultMessage?.takeIf(String::isNotBlank)
-                    }
-                }
+            ERROR_INVALID_REQUEST,
+            error.allErrors
+                .mapNotNull { it.defaultMessage?.takeIf(String::isNotBlank) }
                 .ifEmpty { listOf(error.message ?: "Request is invalid") }
                 .joinToString("; "),
         )
@@ -370,7 +366,7 @@ class WorkflowErrorHandler {
     fun argumentTypeMismatch(error: MethodArgumentTypeMismatchException): ResponseEntity<ProblemDetail> =
         problem(
             HttpStatus.BAD_REQUEST,
-            "Invalid workflow request",
+            ERROR_INVALID_REQUEST,
             "Parameter '${error.name}' has an invalid value",
         )
 
@@ -499,3 +495,6 @@ private fun WorkflowRunRecord.toDetail(): WorkflowRunDetail = WorkflowRunDetail(
 
 /** @see WorkflowController */
 private const val VERSION = "0.2.0"
+
+/** @see WorkflowController */
+private const val ERROR_INVALID_REQUEST = "Invalid workflow request"

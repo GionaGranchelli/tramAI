@@ -25,7 +25,7 @@ class FileSuspendedInvocationStore internal constructor(
     )
 
     companion object {
-        private const val RECORD_TYPE = "suspended-invocation"
+        private const val RECORD_TYPE = STORAGE_NAME
         private const val SUSPENDED_DIR = "suspended"
         private const val FILE_EXTENSION = ".tram.enc"
         private val COMMITTED_FILENAME = Regex("[a-f0-9]{64}\\.tram\\.enc")
@@ -51,19 +51,19 @@ class FileSuspendedInvocationStore internal constructor(
     private fun readCurrent(approvalId: String): PersistedSuspendedInvocationRecordV1? {
         val path = storePath(approvalId)
         if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return null
-        FileStoreUtil.validateRegularFile(path, "suspended-invocation")
+        FileStoreUtil.validateRegularFile(path, STORAGE_NAME)
         val rkd = recordKeyDigest(approvalId)
         val plaintext = try {
             FileStoreUtil.readAndDecrypt(path, RECORD_TYPE, rkd, encryptionKey, keyId)
         } catch (e: FileStoreCorruptionException) {
-            throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
         val record = try {
             PersistedSuspendedInvocationRecordV1.fromJson(String(plaintext, Charsets.UTF_8))
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
         validateRecordSchemas(record)
         val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.metadata.approvalId)
@@ -79,7 +79,7 @@ class FileSuspendedInvocationStore internal constructor(
         try {
             validateRecordSchemas(record)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
 
         val metadata = try {
@@ -106,40 +106,63 @@ class FileSuspendedInvocationStore internal constructor(
     fun verifyAll() = lease.withOpenOperation {
         if (!suspendedDir.exists()) return@withOpenOperation
         FileStoreUtil.validateManagedDirectory(suspendedDir, "suspended")
-        for (entry in FileStoreUtil.strictCommittedEntries(
+        FileStoreUtil.strictCommittedEntries(
             suspendedDir,
             COMMITTED_FILENAME,
-            "suspended-invocation",
-        )) {
-            val fileName = entry.fileName.toString()
-            val digestHex = fileName.removeSuffix(FILE_EXTENSION)
-            if (digestHex.length != 64 || digestHex.any { it !in '0'..'9' && it !in 'a'..'f' }) {
-                throw FileStoreCorruptionException("suspended-invocation-invalid-filename")
-            }
-            FileStoreUtil.validateRegularFile(entry, "suspended-invocation")
-            val plaintext = try {
-                FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, digestHex, encryptionKey, keyId)
-            } catch (e: FileStoreCorruptionException) {
-                throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
-            } catch (e: Exception) {
-                throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
-            }
-            val record = try {
-                PersistedSuspendedInvocationRecordV1.fromJson(String(plaintext, Charsets.UTF_8))
-            } catch (e: Exception) {
-                throw FileStoreCorruptionException("suspended-invocation-record-corrupted", e)
-            }
-            val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.metadata.approvalId)
-            if (expectedDigest != digestHex) {
-                throw FileStoreCorruptionException("suspended-invocation-id-filename-digest-mismatch")
-            }
-            validateRecordSchemas(record)
-            val validated = decodeAndValidateRecord(record)
-            try {
-                ReplayEnvelopePersistenceCodec.snapshotForPersistence(validated.metadata, validated.envelope)
-            } catch (e: Exception) {
-                throw FileStoreCorruptionException("suspended-invocation-replay-envelope-invalid", e)
-            }
+            STORAGE_NAME,
+        ).forEach { entry ->
+            verifyCommittedEntry(entry)
+        }
+    }
+
+    private fun verifyCommittedEntry(entry: Path) {
+        val digestHex = entry.fileName.toString().removeSuffix(FILE_EXTENSION)
+        validateCommittedDigest(digestHex)
+        FileStoreUtil.validateRegularFile(entry, STORAGE_NAME)
+
+        val record = readRecordFromEntry(entry, digestHex)
+        validateRecordFilenameBinding(record, digestHex)
+        validateRecordSchemas(record)
+
+        val validated = decodeAndValidateRecord(record)
+        try {
+            ReplayEnvelopePersistenceCodec.snapshotForPersistence(validated.metadata, validated.envelope)
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException("suspended-invocation-replay-envelope-invalid", e)
+        }
+    }
+
+    private fun validateCommittedDigest(digestHex: String) {
+        if (digestHex.length != 64 || digestHex.any { it !in '0'..'9' && it !in 'a'..'f' }) {
+            throw FileStoreCorruptionException("suspended-invocation-invalid-filename")
+        }
+    }
+
+    private fun readRecordFromEntry(
+        entry: Path,
+        digestHex: String,
+    ): PersistedSuspendedInvocationRecordV1 {
+        val plaintext = try {
+            FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, digestHex, encryptionKey, keyId)
+        } catch (e: FileStoreCorruptionException) {
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
+        }
+        return try {
+            PersistedSuspendedInvocationRecordV1.fromJson(String(plaintext, Charsets.UTF_8))
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
+        }
+    }
+
+    private fun validateRecordFilenameBinding(
+        record: PersistedSuspendedInvocationRecordV1,
+        digestHex: String,
+    ) {
+        val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, record.metadata.approvalId)
+        if (expectedDigest != digestHex) {
+            throw FileStoreCorruptionException("suspended-invocation-id-filename-digest-mismatch")
         }
     }
 
@@ -229,51 +252,35 @@ class FileSuspendedInvocationStore internal constructor(
     }
 
     private fun validateRecordSchemas(record: PersistedSuspendedInvocationRecordV1) {
-        if (record.schemaVersion != 1) {
-            throw FileStoreUnsupportedFormatException("unsupported-suspended-invocation-schema-version")
-        }
-        if (record.metadata.schemaVersion != 1) {
-            throw FileStoreUnsupportedFormatException("unsupported-suspended-invocation-metadata-schema-version")
-        }
-        if (record.metadata.identity.schemaVersion != 1) {
-            throw FileStoreUnsupportedFormatException("unsupported-engine-execution-identity-schema-version")
-        }
-        if (record.metadata.securityContext.schemaVersion != 1) {
-            throw FileStoreUnsupportedFormatException("unsupported-execution-security-context-schema-version")
-        }
-        if (record.metadata.operationReference.schemaVersion != 1) {
-            throw FileStoreUnsupportedFormatException("unsupported-resume-operation-reference-schema-version")
-        }
-        if (record.metadata.toolReference.schemaVersion != 1) {
-            throw FileStoreUnsupportedFormatException("unsupported-resume-tool-reference-schema-version")
-        }
+        requireSchemaVersion(record.schemaVersion, "unsupported-suspended-invocation-schema-version")
+        requireSchemaVersion(record.metadata.schemaVersion, "unsupported-suspended-invocation-metadata-schema-version")
+        requireSchemaVersion(record.metadata.identity.schemaVersion, "unsupported-engine-execution-identity-schema-version")
+        requireSchemaVersion(record.metadata.securityContext.schemaVersion, "unsupported-execution-security-context-schema-version")
+        requireSchemaVersion(record.metadata.operationReference.schemaVersion, "unsupported-resume-operation-reference-schema-version")
+        requireSchemaVersion(record.metadata.toolReference.schemaVersion, "unsupported-resume-tool-reference-schema-version")
         record.metadata.tokenBudgetSnapshot?.let {
-            if (it.schemaVersion != 1) {
-                throw FileStoreUnsupportedFormatException("unsupported-token-budget-snapshot-schema-version")
-            }
+            requireSchemaVersion(it.schemaVersion, "unsupported-token-budget-snapshot-schema-version")
         }
         record.metadata.toolSecurity?.let {
-            if (it.schemaVersion != 1) {
-                throw FileStoreUnsupportedFormatException("unsupported-tool-security-metadata-schema-version")
-            }
+            requireSchemaVersion(it.schemaVersion, "unsupported-tool-security-metadata-schema-version")
         }
-        if (record.replayEnvelope.schemaVersion != 1) {
-            throw FileStoreUnsupportedFormatException("unsupported-replay-envelope-schema-version")
+        requireSchemaVersion(record.replayEnvelope.schemaVersion, "unsupported-replay-envelope-schema-version")
+        record.replayEnvelope.messages.forEach(::validateReplayMessageSchema)
+    }
+
+    private fun validateReplayMessageSchema(message: PersistedMessageV1) {
+        requireSchemaVersion(message.schemaVersion, "unsupported-replay-message-schema-version")
+        message.toolCalls?.forEach { toolCall ->
+            requireSchemaVersion(toolCall.schemaVersion, "unsupported-replay-tool-call-schema-version")
         }
-        record.replayEnvelope.messages.forEach { message ->
-            if (message.schemaVersion != 1) {
-                throw FileStoreUnsupportedFormatException("unsupported-replay-message-schema-version")
-            }
-            message.toolCalls?.forEach { toolCall ->
-                if (toolCall.schemaVersion != 1) {
-                    throw FileStoreUnsupportedFormatException("unsupported-replay-tool-call-schema-version")
-                }
-            }
-            message.contentParts?.forEach { contentPart ->
-                if (contentPart.schemaVersion != 1) {
-                    throw FileStoreUnsupportedFormatException("unsupported-replay-content-part-schema-version")
-                }
-            }
+        message.contentParts?.forEach { contentPart ->
+            requireSchemaVersion(contentPart.schemaVersion, "unsupported-replay-content-part-schema-version")
+        }
+    }
+
+    private fun requireSchemaVersion(version: Int, errorCode: String) {
+        if (version != 1) {
+            throw FileStoreUnsupportedFormatException(errorCode)
         }
     }
 
@@ -286,3 +293,9 @@ class FileSuspendedInvocationStore internal constructor(
         return trimmed
     }
 }
+
+/** @see FileSuspendedInvocationStore */
+private const val STORAGE_NAME = "suspended-invocation"
+
+/** @see FileSuspendedInvocationStore */
+private const val ERROR_CORRUPTED_RECORD = "suspended-invocation-record-corrupted"

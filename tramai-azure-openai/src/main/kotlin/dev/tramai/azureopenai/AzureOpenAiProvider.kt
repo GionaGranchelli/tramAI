@@ -327,7 +327,7 @@ class AzureOpenAiProvider @JvmOverloads constructor(
         val msgMap = mutableMapOf<String, Any?>("role" to message.role.name.lowercase())
 
         val msgParts = message.contentParts
-        if (msgParts != null && msgParts.isNotEmpty()) {
+        if (!msgParts.isNullOrEmpty()) {
             msgMap["content"] = msgParts.map { part ->
                 when (part) {
                     is ContentPart.TextPart -> mapOf("type" to "text", "text" to part.text)

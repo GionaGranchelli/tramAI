@@ -123,7 +123,7 @@ class PgVectorStore(
             dataSource.connection.use { conn ->
                 ensureTable(conn, tableName)
 
-                val query = buildSearchQuery(tableName, filter, topK)
+                val query = buildSearchQuery(tableName, filter)
 
                 conn.prepareStatement(query.sql).use { stmt ->
                     bindSearchParameters(stmt, vectorText, topK, filter)
@@ -180,10 +180,9 @@ class PgVectorStore(
     private fun buildSearchQuery(
         tableName: String,
         filter: Map<String, String>?,
-        topK: Int,
     ): SearchQuery {
-        val filterClause = if (filter != null && filter.isNotEmpty()) {
-            val conditions = filter.entries.mapIndexed { i, _ ->
+        val filterClause = if (!filter.isNullOrEmpty()) {
+            val conditions = filter.entries.map {
                 "metadata->>? = ?"
             }
             "WHERE ${conditions.joinToString(" AND ")}"
@@ -204,7 +203,7 @@ class PgVectorStore(
         try {
             dataSource.connection.use { conn ->
                 ensureTable(conn, tableName)
-                val placeholders = ids.mapIndexed { i, _ -> "?" }.joinToString(", ")
+                val placeholders = ids.joinToString(", ") { "?" }
                 val sql = "DELETE FROM $tableName WHERE id IN ($placeholders)"
 
                 conn.prepareStatement(sql).use { stmt ->

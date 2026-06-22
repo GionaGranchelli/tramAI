@@ -75,25 +75,25 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserver(
     private fun recordRecovery(r: SovereignOpsAuditOutboxRecoverySummary) {
         if (r.inspected > 0) {
             registry.counter(
-                "tramai.sovereign.ops.outbox.worker.recovered.records",
+                METRIC_RECOVERED,
                 listOf(Tag.of("result", "inspected")),
             ).increment(r.inspected.toDouble())
         }
         if (r.movedToPending > 0) {
             registry.counter(
-                "tramai.sovereign.ops.outbox.worker.recovered.records",
+                METRIC_RECOVERED,
                 listOf(Tag.of("result", "moved_to_pending")),
             ).increment(r.movedToPending.toDouble())
         }
         if (r.markedFailedPermanent > 0) {
             registry.counter(
-                "tramai.sovereign.ops.outbox.worker.recovered.records",
+                METRIC_RECOVERED,
                 listOf(Tag.of("result", "failed_permanent")),
             ).increment(r.markedFailedPermanent.toDouble())
         }
         if (r.resolverFailures > 0) {
             registry.counter(
-                "tramai.sovereign.ops.outbox.worker.recovered.records",
+                METRIC_RECOVERED,
                 listOf(Tag.of("result", "resolver_failure")),
             ).increment(r.resolverFailures.toDouble())
         }
@@ -102,27 +102,33 @@ class MicrometerSovereignOpsAuditOutboxWorkerObserver(
     private fun recordDispatch(d: SovereignOpsAuditOutboxDispatchResult) {
         if (d.claimed > 0) {
             registry.counter(
-                "tramai.sovereign.ops.outbox.worker.dispatched.records",
+                METRIC_DISPATCHED,
                 listOf(Tag.of("result", "claimed")),
             ).increment(d.claimed.toDouble())
         }
         if (d.emitted > 0) {
             registry.counter(
-                "tramai.sovereign.ops.outbox.worker.dispatched.records",
+                METRIC_DISPATCHED,
                 listOf(Tag.of("result", "emitted")),
             ).increment(d.emitted.toDouble())
         }
         if (d.failedRetryable > 0) {
             registry.counter(
-                "tramai.sovereign.ops.outbox.worker.dispatched.records",
+                METRIC_DISPATCHED,
                 listOf(Tag.of("result", "failed_retryable")),
             ).increment(d.failedRetryable.toDouble())
         }
         if (d.failedPermanent > 0) {
             registry.counter(
-                "tramai.sovereign.ops.outbox.worker.dispatched.records",
+                METRIC_DISPATCHED,
                 listOf(Tag.of("result", "failed_permanent")),
             ).increment(d.failedPermanent.toDouble())
         }
     }
 }
+
+/** @see MicrometerSovereignOpsAuditOutboxWorkerObserver */
+private const val METRIC_RECOVERED = "tramai.sovereign.ops.outbox.worker.recovered.records"
+
+/** @see MicrometerSovereignOpsAuditOutboxWorkerObserver */
+private const val METRIC_DISPATCHED = "tramai.sovereign.ops.outbox.worker.dispatched.records"

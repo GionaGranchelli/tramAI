@@ -82,15 +82,15 @@ class FileApprovalStore internal constructor(
         val plaintext: ByteArray = try {
             FileStoreUtil.readAndDecrypt(path, RECORD_TYPE, rkd, encryptionKey, keyId)
         } catch (e: FileStoreCorruptionException) {
-            throw FileStoreCorruptionException("approval-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("approval-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
         val json = String(plaintext, Charsets.UTF_8)
         val dto = try {
             PersistedApprovalRequestV1.fromJson(json)
         } catch (e: Exception) {
-            throw FileStoreCorruptionException("approval-record-corrupted", e)
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
         }
         // Enforce schema version on every decode
         require(dto.schemaVersion == 1) { "unsupported-approval-schema-version" }
@@ -132,43 +132,65 @@ class FileApprovalStore internal constructor(
         if (!approvalsDir.exists()) return@withOpenOperation
         FileStoreUtil.validateManagedDirectory(approvalsDir, "approvals")
         for (entry in FileStoreUtil.strictCommittedEntries(approvalsDir, COMMITTED_FILENAME, "approval")) {
-            val fileName = entry.fileName.toString()
-            val digestHex = fileName.removeSuffix(FILE_EXTENSION)
-            require(digestHex.length == 64 && digestHex.all { it in '0'..'9' || it in 'a'..'f' }) {
-                throw FileStoreCorruptionException("approval-invalid-filename")
-            }
-            FileStoreUtil.validateRegularFile(entry, "approval")
-            val plaintext: ByteArray = try {
-                FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, digestHex, encryptionKey, keyId)
-            } catch (e: FileStoreCorruptionException) {
-                throw FileStoreCorruptionException("approval-record-corrupted", e)
-            } catch (e: Exception) {
-                throw FileStoreCorruptionException("approval-record-corrupted", e)
-            }
-            // Parse DTO and validate schema version + domain conversion
-            val dto = try {
-                PersistedApprovalRequestV1.fromJson(String(plaintext, Charsets.UTF_8))
-            } catch (e: Exception) {
-                throw FileStoreCorruptionException("approval-record-corrupted", e)
-            }
-            require(dto.schemaVersion == 1) {
-                throw FileStoreUnsupportedFormatException("unsupported-approval-schema-version: ${dto.schemaVersion}")
-            }
-            // Validate binding schema version
-            require(dto.binding.schemaVersion == 1) {
-                throw FileStoreUnsupportedFormatException("unsupported-approval-binding-schema-version: ${dto.binding.schemaVersion}")
-            }
-            // Validate filename digest matches DTO ID
-            val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, dto.approvalId)
-            require(expectedDigest == digestHex) {
-                throw FileStoreCorruptionException("approval-id-filename-digest-mismatch")
-            }
-            // Domain conversion must succeed
-            try {
-                dto.toDomain()
-            } catch (e: Exception) {
-                throw FileStoreCorruptionException("approval-domain-conversion-failed", e)
-            }
+            verifyCommittedApprovalEntry(entry)
+        }
+    }
+
+    private fun verifyCommittedApprovalEntry(entry: Path) {
+        val digestHex = entry.fileName.toString().removeSuffix(FILE_EXTENSION)
+        if (digestHex.length != 64 || digestHex.any { it !in '0'..'9' && it !in 'a'..'f' }) {
+            throw FileStoreCorruptionException("approval-invalid-filename")
+        }
+        FileStoreUtil.validateRegularFile(entry, "approval")
+
+        val dto = readApprovalEntry(entry, digestHex)
+        validateApprovalRecordSchema(dto)
+        validateApprovalFilenameBinding(dto, digestHex)
+        validateApprovalDomain(dto)
+    }
+
+    private fun readApprovalEntry(
+        entry: Path,
+        digestHex: String,
+    ): PersistedApprovalRequestV1 {
+        val plaintext = try {
+            FileStoreUtil.readAndDecrypt(entry, RECORD_TYPE, digestHex, encryptionKey, keyId)
+        } catch (e: FileStoreCorruptionException) {
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
+        }
+        return try {
+            PersistedApprovalRequestV1.fromJson(String(plaintext, Charsets.UTF_8))
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException(ERROR_CORRUPTED_RECORD, e)
+        }
+    }
+
+    private fun validateApprovalRecordSchema(dto: PersistedApprovalRequestV1) {
+        if (dto.schemaVersion != 1) {
+            throw FileStoreUnsupportedFormatException("unsupported-approval-schema-version: ${dto.schemaVersion}")
+        }
+        if (dto.binding.schemaVersion != 1) {
+            throw FileStoreUnsupportedFormatException("unsupported-approval-binding-schema-version: ${dto.binding.schemaVersion}")
+        }
+    }
+
+    private fun validateApprovalFilenameBinding(
+        dto: PersistedApprovalRequestV1,
+        digestHex: String,
+    ) {
+        val expectedDigest = FileStoreSha256.digest(RECORD_TYPE, dto.approvalId)
+        if (expectedDigest != digestHex) {
+            throw FileStoreCorruptionException("approval-id-filename-digest-mismatch")
+        }
+    }
+
+    private fun validateApprovalDomain(dto: PersistedApprovalRequestV1) {
+        try {
+            dto.toDomain()
+        } catch (e: Exception) {
+            throw FileStoreCorruptionException("approval-domain-conversion-failed", e)
         }
     }
 
@@ -251,28 +273,13 @@ class FileApprovalStore internal constructor(
         FileStoreUtil.validateManagedDirectory(approvalsDir, "approvals")
         validateIdField(approvalId, "approvalId", MAX_ID_LENGTH)
 
-        // Validate comment length
-        when (transition) {
-            is ApprovalTransition.Approve -> transition.comment?.let {
-                require(it.length <= MAX_COMMENT_LENGTH) { "Comment exceeds maximum length of $MAX_COMMENT_LENGTH" }
-            }
-            is ApprovalTransition.Deny -> transition.comment?.let {
-                require(it.length <= MAX_COMMENT_LENGTH) { "Comment exceeds maximum length of $MAX_COMMENT_LENGTH" }
-            }
-            is ApprovalTransition.Timeout -> {}
+        transition.commentOrNull()?.let {
+            require(it.length <= MAX_COMMENT_LENGTH) { "Comment exceeds maximum length of $MAX_COMMENT_LENGTH" }
         }
 
-        // Validate decidedBy for non-timeout transitions
-        when (transition) {
-            is ApprovalTransition.Approve -> {
-                validateIdField(transition.decidedBy, "decidedBy", MAX_ID_LENGTH)
-                SafeActorIdPolicy.validateActorId(transition.decidedBy, "decidedBy")
-            }
-            is ApprovalTransition.Deny -> {
-                validateIdField(transition.decidedBy, "decidedBy", MAX_ID_LENGTH)
-                SafeActorIdPolicy.validateActorId(transition.decidedBy, "decidedBy")
-            }
-            is ApprovalTransition.Timeout -> {}
+        transition.decidedByOrNull()?.let { decidedBy ->
+            validateIdField(decidedBy, "decidedBy", MAX_ID_LENGTH)
+            SafeActorIdPolicy.validateActorId(decidedBy, "decidedBy")
         }
 
         val lock = getLock(approvalId)
@@ -289,21 +296,9 @@ class FileApprovalStore internal constructor(
             val updated = req.copy(
                 status = nextStatus,
                 version = incrementVersion(approvalId, req.version),
-                decidedAt = when (transition) {
-                    is ApprovalTransition.Approve -> now
-                    is ApprovalTransition.Deny -> now
-                    is ApprovalTransition.Timeout -> now
-                },
-                decidedBy = when (transition) {
-                    is ApprovalTransition.Approve -> transition.decidedBy
-                    is ApprovalTransition.Deny -> transition.decidedBy
-                    is ApprovalTransition.Timeout -> null
-                },
-                decisionComment = when (transition) {
-                    is ApprovalTransition.Approve -> transition.comment
-                    is ApprovalTransition.Deny -> transition.comment
-                    is ApprovalTransition.Timeout -> null
-                },
+                decidedAt = now,
+                decidedBy = transition.decidedByOrNull(),
+                decisionComment = transition.commentOrNull(),
             )
 
             writeCurrent(approvalId, updated.toPersistedV1())
@@ -337,39 +332,55 @@ class FileApprovalStore internal constructor(
             }
 
             if (req.consumedAt == null && req.consumedBy == null) {
-                // Fresh consumption
-                if (req.version != expectedVersion) throw ApprovalStoreConflictException(approvalId)
-
-                val now = clock.instant()
-                if (now >= req.expiresAt) throw ApprovalStoreNotConsumableException(approvalId)
-
-                val updated = req.copy(
-                    consumedBy = consumedBy,
-                    consumedAt = now,
-                    version = incrementVersion(approvalId, req.version),
-                )
-
-                writeCurrent(approvalId, updated.toPersistedV1())
-                return ApprovalConsumptionReceipt(request = updated, replayed = false)
-            } else {
-                // Replay path
-                if (req.consumedAt == null || req.consumedBy == null) {
-                    throw ApprovalStoreNotConsumableException(approvalId)
-                }
-                if (req.consumedBy != consumedBy) throw ApprovalStoreNotConsumableException(approvalId)
-
-                val replayVersion = try {
-                    Math.addExact(expectedVersion, 1L)
-                } catch (_: ArithmeticException) {
-                    throw ApprovalStoreConflictException(approvalId)
-                }
-                if (req.version != replayVersion) throw ApprovalStoreConflictException(approvalId)
-
-                return ApprovalConsumptionReceipt(request = req, replayed = true)
+                return consumeFreshApproval(approvalId, expectedVersion, consumedBy, req)
             }
+
+            return consumeReplayApproval(approvalId, expectedVersion, consumedBy, req)
         } finally {
             lock.unlock()
         }
+    }
+
+    private fun consumeFreshApproval(
+        approvalId: String,
+        expectedVersion: Long,
+        consumedBy: String,
+        req: ApprovalRequest,
+    ): ApprovalConsumptionReceipt {
+        if (req.version != expectedVersion) throw ApprovalStoreConflictException(approvalId)
+
+        val now = clock.instant()
+        if (now >= req.expiresAt) throw ApprovalStoreNotConsumableException(approvalId)
+
+        val updated = req.copy(
+            consumedBy = consumedBy,
+            consumedAt = now,
+            version = incrementVersion(approvalId, req.version),
+        )
+
+        writeCurrent(approvalId, updated.toPersistedV1())
+        return ApprovalConsumptionReceipt(request = updated, replayed = false)
+    }
+
+    private fun consumeReplayApproval(
+        approvalId: String,
+        expectedVersion: Long,
+        consumedBy: String,
+        req: ApprovalRequest,
+    ): ApprovalConsumptionReceipt {
+        if (req.consumedAt == null || req.consumedBy == null) {
+            throw ApprovalStoreNotConsumableException(approvalId)
+        }
+        if (req.consumedBy != consumedBy) throw ApprovalStoreNotConsumableException(approvalId)
+
+        val replayVersion = try {
+            Math.addExact(expectedVersion, 1L)
+        } catch (_: ArithmeticException) {
+            throw ApprovalStoreConflictException(approvalId)
+        }
+        if (req.version != replayVersion) throw ApprovalStoreConflictException(approvalId)
+
+        return ApprovalConsumptionReceipt(request = req, replayed = true)
     }
 
     // ── Internal helpers ──────────────────────────────────────────
@@ -389,6 +400,18 @@ class FileApprovalStore internal constructor(
             presentedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
             storedTokenDigest.value.toByteArray(StandardCharsets.US_ASCII),
         )
+
+    private fun ApprovalTransition.decidedByOrNull(): String? = when (this) {
+        is ApprovalTransition.Approve -> decidedBy
+        is ApprovalTransition.Deny -> decidedBy
+        is ApprovalTransition.Timeout -> null
+    }
+
+    private fun ApprovalTransition.commentOrNull(): String? = when (this) {
+        is ApprovalTransition.Approve -> comment
+        is ApprovalTransition.Deny -> comment
+        is ApprovalTransition.Timeout -> null
+    }
 
     private fun resolveNextStatus(
         current: ApprovalRequest,
@@ -444,3 +467,6 @@ class FileApprovalStore internal constructor(
         return trimmed
     }
 }
+
+/** @see FileApprovalStore */
+private const val ERROR_CORRUPTED_RECORD = "approval-record-corrupted"

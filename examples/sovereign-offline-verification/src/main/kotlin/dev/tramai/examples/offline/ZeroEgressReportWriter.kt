@@ -25,16 +25,16 @@ object ZeroEgressReportWriter {
         val sb = StringBuilder()
         sb.appendLine("{")
 
-        appendField(sb, "schemaVersion", report.schemaVersion.toString(), 1, 10)
-        appendStringField(sb, "deploymentMode", report.deploymentMode, 2, 10)
-        appendField(sb, "runtimeBuildSucceeded", report.runtimeBuildSucceeded.toString(), 3, 10)
-        appendField(sb, "loopbackProviderInvocationSucceeded", report.loopbackProviderInvocationSucceeded.toString(), 4, 10)
-        appendField(sb, "loopbackProviderInvocationCount", report.loopbackProviderInvocationCount.toString(), 5, 10)
-        appendField(sb, "externalTcpProbeBlocked", report.externalTcpProbeBlocked.toString(), 6, 10)
-        appendField(sb, "externalDnsProbeBlocked", report.externalDnsProbeBlocked.toString(), 7, 10)
-        appendObjectField(sb, "configuredProviderZones", report.configuredProviderZones, 8, 10)
-        appendField(sb, "artifactVerificationReceiptCount", report.artifactVerificationReceiptCount.toString(), 9, 10)
-        appendField(sb, "auditChainValid", report.auditChainValid.toString(), 10, 10, last = true)
+        appendField(sb, "schemaVersion", report.schemaVersion.toString())
+        appendStringField(sb, "deploymentMode", report.deploymentMode)
+        appendField(sb, "runtimeBuildSucceeded", report.runtimeBuildSucceeded.toString())
+        appendField(sb, "loopbackProviderInvocationSucceeded", report.loopbackProviderInvocationSucceeded.toString())
+        appendField(sb, "loopbackProviderInvocationCount", report.loopbackProviderInvocationCount.toString())
+        appendField(sb, "externalTcpProbeBlocked", report.externalTcpProbeBlocked.toString())
+        appendField(sb, "externalDnsProbeBlocked", report.externalDnsProbeBlocked.toString())
+        appendObjectField(sb, "configuredProviderZones", report.configuredProviderZones)
+        appendField(sb, "artifactVerificationReceiptCount", report.artifactVerificationReceiptCount.toString())
+        appendField(sb, "auditChainValid", report.auditChainValid.toString(), last = true)
 
         sb.append("}")
         sb.appendLine()
@@ -45,8 +45,6 @@ object ZeroEgressReportWriter {
         sb: StringBuilder,
         key: String,
         value: String,
-        index: Int,
-        total: Int,
         last: Boolean = false,
     ) {
         val indent = "    "
@@ -59,8 +57,6 @@ object ZeroEgressReportWriter {
         sb: StringBuilder,
         key: String,
         value: String,
-        index: Int,
-        total: Int,
         last: Boolean = false,
     ) {
         val indent = "    "
@@ -73,8 +69,6 @@ object ZeroEgressReportWriter {
         sb: StringBuilder,
         key: String,
         map: Map<String, String>,
-        index: Int,
-        total: Int,
         last: Boolean = false,
     ) {
         val indent = "    "

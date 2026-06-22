@@ -19,11 +19,11 @@ import kotlin.io.path.readText
 
 /** POSIX permission set for directories (0700). */
 internal val DIR_PERMS_0700: Set<PosixFilePermission> =
-    PosixFilePermissions.fromString("rwx------")
+    PosixFilePermissions.fromString("rwx------").toSet()
 
 /** POSIX permission set for files (0600). */
 internal val FILE_PERMS_0600: Set<PosixFilePermission> =
-    PosixFilePermissions.fromString("rw-------")
+    PosixFilePermissions.fromString("rw-------").toSet()
 
 /**
  * Shared utilities for file-backed stores.
@@ -80,7 +80,11 @@ internal object FileStoreUtil {
             writeTempFileWith0600(temp, envelopeBytes)
             atomicMove(temp, targetPath)
         } finally {
-            try { Files.deleteIfExists(temp) } catch (_: Exception) {}
+            try {
+                Files.deleteIfExists(temp)
+            } catch (_: Exception) {
+                // Best-effort cleanup of a temporary sibling after the real write path has completed or failed.
+            }
         }
     }
 
@@ -209,19 +213,19 @@ internal object FileStoreUtil {
      * @throws FileStorePermissionException if a matched file fails permission validation.
      */
     fun strictCommittedEntries(directory: Path, filenamePattern: Regex, recordDescription: String): List<Path> {
-        val entries = mutableListOf<Path>()
-        for (entry in directory.toFile().listFiles()!!) {
-            if (entry.isDirectory) {
-                throw FileStoreCorruptionException("$recordDescription-unexpected-directory-entry")
+        return buildList {
+            for (entry in directory.toFile().listFiles()!!) {
+                if (entry.isDirectory) {
+                    throw FileStoreCorruptionException("$recordDescription-unexpected-directory-entry")
+                }
+                val path = entry.toPath()
+                val name = path.fileName.toString()
+                if (!filenamePattern.matches(name)) {
+                    throw FileStoreCorruptionException("$recordDescription-unexpected-entry")
+                }
+                add(path)
             }
-            val path = entry.toPath()
-            val name = path.fileName.toString()
-            if (!filenamePattern.matches(name)) {
-                throw FileStoreCorruptionException("$recordDescription-unexpected-entry")
-            }
-            entries.add(path)
         }
-        return entries
     }
 
     /** Fsync a directory. */
@@ -244,7 +248,7 @@ internal object FileStoreUtil {
         if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
             throw FileStorePermissionException("$description-not-regular-file")
         }
-        val perms = Files.getPosixFilePermissions(path, LinkOption.NOFOLLOW_LINKS)
+        val perms = Files.getPosixFilePermissions(path, LinkOption.NOFOLLOW_LINKS).toSet()
         if (perms != FILE_PERMS_0600) throw FileStorePermissionException("$description-permission-denied")
     }
 
@@ -263,7 +267,7 @@ internal object FileStoreUtil {
         if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
             throw FileStorePermissionException("$description-not-directory")
         }
-        if (Files.getPosixFilePermissions(path, LinkOption.NOFOLLOW_LINKS) != DIR_PERMS_0700) {
+        if (Files.getPosixFilePermissions(path, LinkOption.NOFOLLOW_LINKS).toSet() != DIR_PERMS_0700) {
             throw FileStorePermissionException("$description-permission-denied")
         }
     }

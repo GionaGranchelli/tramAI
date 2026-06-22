@@ -258,7 +258,7 @@ class AnthropicProvider(
      */
     private fun messageToMap(message: dev.tramai.core.model.Message): Map<String, Any?> {
         val msgParts = message.contentParts
-        val content: Any = if (msgParts != null && msgParts.isNotEmpty()) {
+        val content: Any = if (!msgParts.isNullOrEmpty()) {
             msgParts.map { part ->
                 when (part) {
                     is ContentPart.TextPart -> mapOf(

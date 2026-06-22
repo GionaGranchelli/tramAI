@@ -95,10 +95,7 @@ class DefaultApprovalGateCoordinator(
             throw e
         } catch (e: Exception) {
             observeFailure("createApproval", approvalId, e)
-            throw when (e) {
-                is ApprovalStoreConflictException -> ApprovalCreationException(approvalId)
-                else -> ApprovalCreationException(approvalId)
-            }
+            throw ApprovalCreationException(approvalId)
         }
 
         return ApprovalChallenge(
@@ -137,16 +134,18 @@ class DefaultApprovalGateCoordinator(
 
     override suspend fun authorizeResume(command: AuthorizeResumeCommand): ApprovalAuthorization {
         val (request, presentedTokenDigest) = prepareResumeAuthorization(
-            approvalId = command.approvalId,
-            expectedVersion = command.expectedVersion,
-            presentedToken = command.presentedToken,
-            consumedBy = command.consumedBy,
-            workflowRunId = command.workflowRunId,
-            toolName = command.toolName,
-            argumentsDigest = command.argumentsDigest,
-            policyVersion = command.policyVersion,
-            workflowDigest = command.workflowDigest,
-            operationName = "authorizeResume",
+            ResumeAuthorizationPreparation(
+                approvalId = command.approvalId,
+                expectedVersion = command.expectedVersion,
+                presentedToken = command.presentedToken,
+                consumedBy = command.consumedBy,
+                workflowRunId = command.workflowRunId,
+                toolName = command.toolName,
+                argumentsDigest = command.argumentsDigest,
+                policyVersion = command.policyVersion,
+                workflowDigest = command.workflowDigest,
+                operationName = "authorizeResume",
+            ),
         )
 
         val receipt = try {
@@ -187,16 +186,18 @@ class DefaultApprovalGateCoordinator(
 
     override suspend fun validateResume(command: ValidateResumeCommand): ApprovalValidation {
         val (request, _) = prepareResumeAuthorization(
-            approvalId = command.approvalId,
-            expectedVersion = command.expectedVersion,
-            presentedToken = command.presentedToken,
-            consumedBy = command.consumedBy,
-            workflowRunId = command.workflowRunId,
-            toolName = command.toolName,
-            argumentsDigest = command.argumentsDigest,
-            policyVersion = command.policyVersion,
-            workflowDigest = command.workflowDigest,
-            operationName = "validateResume",
+            ResumeAuthorizationPreparation(
+                approvalId = command.approvalId,
+                expectedVersion = command.expectedVersion,
+                presentedToken = command.presentedToken,
+                consumedBy = command.consumedBy,
+                workflowRunId = command.workflowRunId,
+                toolName = command.toolName,
+                argumentsDigest = command.argumentsDigest,
+                policyVersion = command.policyVersion,
+                workflowDigest = command.workflowDigest,
+                operationName = "validateResume",
+            ),
         )
 
         return ApprovalValidation(
@@ -234,17 +235,18 @@ class DefaultApprovalGateCoordinator(
     }
 
     private suspend fun prepareResumeAuthorization(
-        approvalId: String,
-        expectedVersion: Long,
-        presentedToken: dev.tramai.core.approval.ApprovalToken,
-        consumedBy: String,
-        workflowRunId: String,
-        toolName: String,
-        argumentsDigest: dev.tramai.core.approval.Sha256Digest,
-        policyVersion: String,
-        workflowDigest: dev.tramai.core.approval.Sha256Digest,
-        operationName: String,
+        preparation: ResumeAuthorizationPreparation,
     ): Pair<ApprovalRequest, dev.tramai.core.approval.Sha256Digest> {
+        val approvalId = preparation.approvalId
+        val expectedVersion = preparation.expectedVersion
+        val presentedToken = preparation.presentedToken
+        val consumedBy = preparation.consumedBy
+        val workflowRunId = preparation.workflowRunId
+        val toolName = preparation.toolName
+        val argumentsDigest = preparation.argumentsDigest
+        val policyVersion = preparation.policyVersion
+        val workflowDigest = preparation.workflowDigest
+        val operationName = preparation.operationName
         validateIdField(approvalId, "approvalId")
         validateActorId(consumedBy)
         validateIdField(workflowRunId, "workflowRunId")
@@ -283,6 +285,19 @@ class DefaultApprovalGateCoordinator(
         decisionValidator.validate(request, consumedBy)
         return request to presentedTokenDigest
     }
+
+    private data class ResumeAuthorizationPreparation(
+        val approvalId: String,
+        val expectedVersion: Long,
+        val presentedToken: dev.tramai.core.approval.ApprovalToken,
+        val consumedBy: String,
+        val workflowRunId: String,
+        val toolName: String,
+        val argumentsDigest: dev.tramai.core.approval.Sha256Digest,
+        val policyVersion: String,
+        val workflowDigest: dev.tramai.core.approval.Sha256Digest,
+        val operationName: String,
+    )
 
     private fun validateAuthorizationCandidate(
         request: ApprovalRequest,

@@ -822,16 +822,11 @@ private class LeaseFencedCheckpointStore(
     private val leaseProvider: () -> WorkflowLease?,
     private val tracker: ExecutionTracker,
     private val revisionSink: (Long?) -> Unit,
-) : WorkflowCheckpointStore {
+) : WorkflowCheckpointStore by delegate {
     private val leaseFence = leaseStore as? WorkflowLeaseCheckpointFence
         ?: throw IllegalArgumentException(
             "TramaiWorker requires a WorkflowLeaseStore that can atomically fence checkpoint mutations",
         )
-
-    override suspend fun load(
-        workflowName: String,
-        workflowId: String,
-    ): WorkflowCheckpoint? = delegate.load(workflowName, workflowId)
 
     override suspend fun save(
         checkpoint: WorkflowCheckpoint,

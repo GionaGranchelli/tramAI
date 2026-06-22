@@ -39,19 +39,19 @@ internal val ExampleFixedClock: Clock = Clock.fixed(
 )
 
 internal fun exampleProfile(): SovereignProfileConfiguration = SovereignProfileConfiguration(
-    allowedModels = setOf("local-invoice-model"),
-    allowedProviders = setOf("local-provider"),
+    allowedModels = setOf(LOCAL_INVOICE_MODEL),
+    allowedProviders = setOf(LOCAL_PROVIDER),
     allowedTools = setOf("schedule-payment"),
     allowedPermissions = setOf("payment.schedule"),
-    providerZones = mapOf("local-provider" to ProviderTrustZone.LOCAL),
+    providerZones = mapOf(LOCAL_PROVIDER to ProviderTrustZone.LOCAL),
 )
 
 internal fun exampleModelRegistry() = InMemoryModelRegistry.builder()
     .register(
         RegisteredModel(
             registryEntryId = "invoice-model-local-v1",
-            providerId = "local-provider",
-            modelName = "local-invoice-model",
+            providerId = LOCAL_PROVIDER,
+            modelName = LOCAL_INVOICE_MODEL,
             revision = "1.0",
         ),
     )
@@ -65,12 +65,7 @@ internal class SovereignDocumentIntelligenceHarness(
     val approvalStore: InMemoryApprovalStore,
     val continuationStore: InMemoryApprovalContinuationStore,
     val auditStore: InMemoryAuditStore,
-) : AutoCloseable {
-
-    override fun close() {
-        runtime.close()
-    }
-}
+) : AutoCloseable by runtime
 
 internal fun buildExampleHarness(
     clock: Clock = ExampleFixedClock,
@@ -96,8 +91,8 @@ internal fun buildExampleHarness(
         .profile(exampleProfile())
         .modelRegistry(exampleModelRegistry())
         .auditStore(auditStore)
-        .provider(provider, name = "local-provider", default = true)
-        .model("local-invoice-model", "local-provider")
+        .provider(provider, name = LOCAL_PROVIDER, default = true)
+        .model(LOCAL_INVOICE_MODEL, LOCAL_PROVIDER)
         .tools(SchedulePaymentTool(ledger))
         .approvalContinuationStore(continuationStore)
         .toolArgumentsDigester(toolArgumentsDigester)
@@ -267,3 +262,9 @@ private fun json(value: String): String = buildString {
     }
     append('"')
 }
+
+/** @see SovereignDocumentIntelligenceHarness */
+private const val LOCAL_INVOICE_MODEL = "local-invoice-model"
+
+/** @see SovereignDocumentIntelligenceHarness */
+private const val LOCAL_PROVIDER = "local-provider"

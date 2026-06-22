@@ -11,6 +11,5 @@ import dev.tramai.core.policy.PolicyEngine
  * Will be removed or replaced in TramAI Enterprise 1.0.
  */
 object LegacyPermissivePolicyEngine : PolicyEngine {
-    override suspend fun evaluate(context: PolicyContext): PolicyDecision =
-        PolicyDecision.Allow
+    override suspend fun evaluate(context: PolicyContext): PolicyDecision = PolicyDecision.Allow
 }

@@ -78,7 +78,6 @@ data object DefaultPromptSanitizer : PromptSanitizer {
             val char = value[index]
             if (atLineStart) {
                 append("> ")
-                atLineStart = false
             }
             append(char)
             atLineStart = when {

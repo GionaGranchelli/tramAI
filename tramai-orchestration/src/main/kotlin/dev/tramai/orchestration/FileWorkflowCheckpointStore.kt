@@ -2,6 +2,7 @@ package dev.tramai.orchestration
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CoroutineDispatcher
 import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -188,8 +189,9 @@ internal inline fun <T> withFileLock(
 
 internal suspend inline fun <T> withFileLockSuspending(
     checkpointPath: Path,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     crossinline block: suspend () -> T,
-): T = withContext(Dispatchers.IO) {
+): T = withContext(ioDispatcher) {
     val lockPath = checkpointPath.resolveSibling("${checkpointPath.fileName}.lock")
     ensureOwnerOnlyDirectory(lockPath.parent)
     ensureOwnerOnlyFile(lockPath)
@@ -300,6 +302,7 @@ private fun applyOwnerOnlyDirectoryPermissions(path: Path) {
     try {
         Files.setPosixFilePermissions(path, ownerOnlyDirectoryPermissions)
     } catch (_: UnsupportedOperationException) {
+        // POSIX file permissions are unavailable on this filesystem.
     }
 }
 
@@ -307,6 +310,7 @@ private fun applyOwnerOnlyFilePermissions(path: Path) {
     try {
         Files.setPosixFilePermissions(path, ownerOnlyFilePermissions)
     } catch (_: UnsupportedOperationException) {
+        // POSIX file permissions are unavailable on this filesystem.
     }
 }
 

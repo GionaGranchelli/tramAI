@@ -494,11 +494,11 @@ private fun createResolvedTool(
             handler.deserialize(input, tool.inputType.createType())
         } catch (e: ToolInvalidInputException) {
             return ToolResult.InvalidInput(
-                e.message ?: "Invalid tool input",
+                e.message ?: ERROR_INVALID_TOOL_INPUT,
             )
         } catch (e: Exception) {
             return ToolResult.InvalidInput(
-                e.message ?: "Invalid tool input",
+                e.message ?: ERROR_INVALID_TOOL_INPUT,
             )
         }
 
@@ -506,7 +506,7 @@ private fun createResolvedTool(
             val result = typedTool.execute(typedInput, context)
             ToolResult.Success(handler.serialize(result))
         } catch (e: ToolInvalidInputException) {
-            ToolResult.InvalidInput(e.message ?: "Invalid tool input")
+            ToolResult.InvalidInput(e.message ?: ERROR_INVALID_TOOL_INPUT)
         } catch (e: Exception) {
             if (tool.idempotent) {
                 ToolResult.TransientFailure(e)
@@ -516,3 +516,6 @@ private fun createResolvedTool(
         }
     }
 }
+
+/** @see Tramai */
+private const val ERROR_INVALID_TOOL_INPUT = "Invalid tool input"

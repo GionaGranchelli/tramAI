@@ -1,6 +1,6 @@
 package dev.tramai.core.policy
 
-fun interface PolicyDecisionAuditEmitter {
+interface PolicyDecisionAuditEmitter {
     suspend fun emit(
         enforcementPoint: EnforcementPoint,
         context: PolicyContext,

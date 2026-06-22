@@ -4,56 +4,72 @@ import java.security.MessageDigest
 import java.time.format.DateTimeFormatter
 
 fun AuditEvent.toCanonicalJson(): String {
-    val builder = StringBuilder()
-    builder.append('{')
+    val writer = CanonicalJsonWriter()
+    writer.appendIntField("schemaVersion", schemaVersion)
+    writer.appendStringField("hashAlgorithm", hashAlgorithm.wireName)
+    writer.appendStringField("auditStreamId", auditStreamId)
+    writer.appendStringField("eventId", eventId)
+    writer.appendLongField("sequenceNumber", sequenceNumber)
+    writer.appendNullableStringField("workflowRunId", workflowRunId)
+    writer.appendNullableStringField("correlationId", correlationId)
+    writer.appendNullableStringField("actor", actor)
+    writer.appendStringField("enforcementPoint", enforcementPoint)
+    writer.appendStringField("decision", decision)
+    writer.appendNullableStringField("policyVersion", policyVersion)
+    writer.appendNullableStringField("workflowDigest", workflowDigest)
+    writer.appendNullableStringField("previousEventHash", previousEventHash)
+    writer.appendStringField("eventHash", eventHash)
+    writer.appendStringField("timestamp", DateTimeFormatter.ISO_INSTANT.format(timestamp))
+    writer.appendNullableStringField("reasonCode", reasonCode)
+    writer.appendMetadataField("metadata", metadata)
+    return writer.finish()
+}
 
-    var needsComma = false
+private class CanonicalJsonWriter {
+    private val builder = StringBuilder().append('{')
+    private var needsComma = false
 
     fun appendStringField(name: String, value: String) {
-        if (needsComma) builder.append(',')
-        builder.append('"')
-        builder.append(name)
-        builder.append("\":")
+        appendFieldName(name)
         appendJsonString(builder, value)
-        needsComma = true
     }
 
     fun appendIntField(name: String, value: Int) {
-        if (needsComma) builder.append(',')
-        builder.append('"')
-        builder.append(name)
-        builder.append("\":")
+        appendFieldName(name)
         builder.append(value)
-        needsComma = true
     }
 
     fun appendLongField(name: String, value: Long) {
-        if (needsComma) builder.append(',')
-        builder.append('"')
-        builder.append(name)
-        builder.append("\":")
+        appendFieldName(name)
         builder.append(value)
-        needsComma = true
     }
 
     fun appendNullableStringField(name: String, value: String?) {
-        if (needsComma) builder.append(',')
-        builder.append('"')
-        builder.append(name)
-        builder.append("\":")
+        appendFieldName(name)
         if (value != null) {
             appendJsonString(builder, value)
         } else {
             builder.append("null")
         }
-        needsComma = true
     }
 
     fun appendMetadataField(name: String, value: Map<String, String>) {
+        appendFieldName(name)
+        builder.append('{')
+        appendMetadataEntries(value)
+        builder.append('}')
+    }
+
+    fun finish(): String = builder.append('}').toString()
+
+    private fun appendFieldName(name: String) {
         if (needsComma) builder.append(',')
-        builder.append('"')
-        builder.append(name)
-        builder.append("\":{")
+        appendJsonString(builder, name)
+        builder.append(':')
+        needsComma = true
+    }
+
+    private fun appendMetadataEntries(value: Map<String, String>) {
         var metadataNeedsComma = false
         for ((key, mapValue) in value.toSortedMap()) {
             if (metadataNeedsComma) builder.append(',')
@@ -62,30 +78,7 @@ fun AuditEvent.toCanonicalJson(): String {
             appendJsonString(builder, mapValue)
             metadataNeedsComma = true
         }
-        builder.append('}')
-        needsComma = true
     }
-
-    appendIntField("schemaVersion", schemaVersion)
-    appendStringField("hashAlgorithm", hashAlgorithm.wireName)
-    appendStringField("auditStreamId", auditStreamId)
-    appendStringField("eventId", eventId)
-    appendLongField("sequenceNumber", sequenceNumber)
-    appendNullableStringField("workflowRunId", workflowRunId)
-    appendNullableStringField("correlationId", correlationId)
-    appendNullableStringField("actor", actor)
-    appendStringField("enforcementPoint", enforcementPoint)
-    appendStringField("decision", decision)
-    appendNullableStringField("policyVersion", policyVersion)
-    appendNullableStringField("workflowDigest", workflowDigest)
-    appendNullableStringField("previousEventHash", previousEventHash)
-    appendStringField("eventHash", eventHash)
-    appendStringField("timestamp", DateTimeFormatter.ISO_INSTANT.format(timestamp))
-    appendNullableStringField("reasonCode", reasonCode)
-    appendMetadataField("metadata", metadata)
-
-    builder.append('}')
-    return builder.toString()
 }
 
 fun AuditEvent.calculateHash(): String {
@@ -111,16 +104,11 @@ internal fun appendJsonString(builder: StringBuilder, value: String) {
             '\r' -> builder.append("\\r")
             '\t' -> builder.append("\\t")
             else -> {
-                when {
-                    character.code in 0xD800..0xDFFF -> {
-                        // Escape every surrogate code unit as \uXXXX
-                        builder.append("\\u")
-                        builder.append(character.code.toString(16).padStart(4, '0'))
-                    }
-                    character < ' ' -> {
-                        builder.append("\\u")
-                        builder.append(character.code.toString(16).padStart(4, '0'))
-                    }
+                    when {
+                        character.code in 0xD800..0xDFFF || character < ' ' -> {
+                            builder.append("\\u")
+                            builder.append(character.code.toString(16).padStart(4, '0'))
+                        }
                     else -> builder.append(character)
                 }
             }

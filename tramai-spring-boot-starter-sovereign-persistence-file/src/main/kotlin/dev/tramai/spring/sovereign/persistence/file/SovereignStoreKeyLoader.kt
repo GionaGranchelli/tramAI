@@ -53,18 +53,14 @@ object SovereignStoreKeyLoader {
         val base64Key: String = when {
             keyEnv != null -> {
                 val value = System.getenv(keyEnv)
-                if (value.isNullOrBlank()) {
-                    throw IllegalStateException(
-                        "tramai-sovereign-file-persistence-missing-key-env",
-                    )
+                check(!value.isNullOrBlank()) {
+                    "tramai-sovereign-file-persistence-missing-key-env"
                 }
                 value.trim()
             }
             keyFile != null -> {
-                if (!Files.exists(keyFile)) {
-                    throw IllegalStateException(
-                        "tramai-sovereign-file-persistence-key-file-missing",
-                    )
+                check(Files.exists(keyFile)) {
+                    "tramai-sovereign-file-persistence-key-file-missing"
                 }
                 try {
                     keyFile.toFile().readText().trim()
@@ -88,10 +84,8 @@ object SovereignStoreKeyLoader {
         }
 
         // ── Must be exactly 32 bytes (256 bits) ──
-        if (rawKey.size != 32) {
-            throw IllegalStateException(
-                "tramai-sovereign-file-persistence-invalid-key",
-            )
+        check(rawKey.size == 32) {
+            "tramai-sovereign-file-persistence-invalid-key"
         }
 
         return rawKey

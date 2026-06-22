@@ -32,12 +32,14 @@ import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.policy.ClassificationSource
 import dev.tramai.core.policy.DataClassification
 import dev.tramai.core.policy.EnforcementPoint
+import dev.tramai.core.policy.PolicyContext
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.security.DlpContentType
 import dev.tramai.core.security.DlpContext
 import dev.tramai.core.security.DlpInterceptor
+import dev.tramai.core.security.DlpRedaction
 import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.DlpResult
 import dev.tramai.core.security.NoOpDlpInterceptor
@@ -1271,6 +1273,139 @@ class TramaiEngineTest {
                 StreamChunk.Complete("hello", UsageMetrics(outputTokens = 1)),
             )
         }
+        @Test
+        fun `streaming success with prior history persists current user message and preserves history`() {
+            val historyMessages = mutableListOf(
+                Message(role = MessageRole.USER, content = "first question"),
+                Message(role = MessageRole.ASSISTANT, content = "first answer"),
+            )
+            val addCalls = AtomicInteger(0)
+            val chatMemory = object : ChatMemory {
+                override fun get(conversationId: String): List<Message> = historyMessages.toList()
+
+                override fun add(conversationId: String, messages: List<Message>) {
+                    addCalls.incrementAndGet()
+                    historyMessages += messages
+                }
+
+                override fun add(conversationId: String, message: Message) {
+                    error("Unexpected single-message add in streaming persistence test")
+                }
+
+                override fun clear(conversationId: String) {
+                    historyMessages.clear()
+                }
+            }
+            val provider = NamedStreamingProvider("test") {
+                flow {
+                    emit(StreamChunk.Token("second "))
+                    emit(StreamChunk.Token("answer"))
+                    emit(StreamChunk.Complete("second answer", UsageMetrics(outputTokens = 2)))
+                }
+            }
+            val engine = TramaiEngine(
+                provider = provider,
+                chatMemory = chatMemory,
+                conversationIdProvider = ConversationIdProvider { "session-1" },
+            )
+            val service = engine.create<StreamingService>()
+
+            val chunks = runBlocking { service.stream("second question").toList() }
+
+            assertThat(chunks).containsExactly(
+                StreamChunk.Token("second "),
+                StreamChunk.Token("answer"),
+                StreamChunk.Complete("second answer", UsageMetrics(outputTokens = 2)),
+            )
+            assertThat(addCalls.get()).isEqualTo(1)
+
+            // Verify persisted messages contain prior history plus new turn
+            assertThat(historyMessages).hasSize(4)
+            assertThat(historyMessages.map { it.role }).containsExactly(
+                MessageRole.USER, MessageRole.ASSISTANT,
+                MessageRole.USER, MessageRole.ASSISTANT,
+            )
+            assertThat(historyMessages[0].content).isEqualTo("first question")
+            assertThat(historyMessages[1].content).isEqualTo("first answer")
+            assertThat(historyMessages[2].content).contains("second question")
+            assertThat(historyMessages[3].content).isEqualTo("second answer")
+
+            // Verify the streaming provider received history + current user turn
+            assertThat(provider.streamRequests).hasSize(1)
+            val request = provider.streamRequests.single()
+            assertThat(request.messages).hasSize(3)
+            assertThat(request.messages.map { it.role }).containsExactly(
+                MessageRole.USER, MessageRole.ASSISTANT, MessageRole.USER,
+            )
+            assertThat(request.messages[0].content).isEqualTo("first question")
+            assertThat(request.messages[1].content).isEqualTo("first answer")
+            assertThat(request.messages[2].content).contains("second question")
+        }
+
+        @Test
+        fun `streaming fallback before first token persists memory once from successful fallback`() {
+            val memoryStore = mutableListOf<Message>()
+            val addCalls = AtomicInteger(0)
+            val chatMemory = object : ChatMemory {
+                override fun get(conversationId: String): List<Message> = memoryStore.toList()
+
+                override fun add(conversationId: String, messages: List<Message>) {
+                    addCalls.incrementAndGet()
+                    memoryStore += messages
+                }
+
+                override fun add(conversationId: String, message: Message) {
+                    error("Unexpected single-message add in streaming fallback test")
+                }
+
+                override fun clear(conversationId: String) {
+                    memoryStore.clear()
+                }
+            }
+            val primary = NamedStreamingProvider("primary") {
+                flow {
+                    emit(StreamChunk.Error(ProviderException("rate limited", statusCode = 429, retryable = true)))
+                }
+            }
+            val fallback = NamedStreamingProvider("fallback") {
+                flow {
+                    emit(StreamChunk.Token("fallback "))
+                    emit(StreamChunk.Token("answer"))
+                    emit(StreamChunk.Complete("fallback answer", UsageMetrics(outputTokens = 2)))
+                }
+            }
+            val registry = ProviderRegistry.builder()
+                .provider("primary", primary)
+                .provider("fallback", fallback)
+                .model("claude-sonnet-4-20250514", "primary")
+                .fallbackProvider("claude-sonnet-4-20250514", "fallback")
+                .build()
+            val engine = TramaiEngine(
+                providerRegistry = registry,
+                chatMemory = chatMemory,
+                conversationIdProvider = ConversationIdProvider { "session-1" },
+            )
+            val service = engine.create<StreamingService>()
+
+            val chunks = runBlocking { service.stream("my question").toList() }
+
+            assertThat(chunks).containsExactly(
+                StreamChunk.Token("fallback "),
+                StreamChunk.Token("answer"),
+                StreamChunk.Complete("fallback answer", UsageMetrics(outputTokens = 2)),
+            )
+
+            assertThat(primary.streamRequests).hasSize(1)
+            assertThat(fallback.streamRequests).hasSize(1)
+
+            // Memory must be persisted exactly once from the successful fallback
+            assertThat(addCalls.get()).isEqualTo(1)
+            assertThat(memoryStore).hasSize(2)
+            assertThat(memoryStore[0].role).isEqualTo(MessageRole.USER)
+            assertThat(memoryStore[0].content).contains("my question")
+            assertThat(memoryStore[1].role).isEqualTo(MessageRole.ASSISTANT)
+            assertThat(memoryStore[1].content).isEqualTo("fallback answer")
+        }
     }
 
     // ── DLP Integration Tests ───────────────────────────────────────────
@@ -1292,8 +1427,8 @@ class TramaiEngineTest {
         private fun inconsistentDlpInterceptor(
             sanitizedText: String,
             redactions: Boolean,
-        ) = DlpInterceptor { _, _ ->
-            DlpResult(
+        ) = object : DlpInterceptor {
+            override fun inspect(context: DlpContext, text: String): DlpResult = DlpResult(
                 sanitizedText = sanitizedText,
                 redactions = if (redactions) listOf(dev.tramai.core.security.DlpRedaction("email", 1)) else emptyList(),
             )
@@ -1314,7 +1449,9 @@ class TramaiEngineTest {
             streamId: String = "stream-1",
         ) = AuditEngineDlpRedactionAuditEmitter(
             AuditEngine(store, clock = fixedAuditClock),
-            dev.tramai.security.audit.DlpAuditStreamIdResolver { streamId },
+            object : dev.tramai.security.audit.DlpAuditStreamIdResolver {
+                override fun resolve(context: DlpContext): String = streamId
+            },
         ) to store
 
         private fun filteringEngine(
@@ -1390,8 +1527,10 @@ class TramaiEngineTest {
         fun `DLP audit emission failure blocks response return without retry fallback or circuit poisoning`() {
             val primary = NamedProvider("primary") { ModelResponse(content = "Contact me at user@example.com for info") }
             val fallback = NamedProvider("fallback") { ModelResponse(content = "fallback response") }
-            val failingEmitter = DlpRedactionAuditEmitter { _, _ ->
-                throw RuntimeException("audit bridge failed")
+            val failingEmitter = object : DlpRedactionAuditEmitter {
+                override suspend fun emit(context: DlpContext, redactions: List<DlpRedaction>) {
+                    throw RuntimeException("audit bridge failed")
+                }
             }
             val engine = TramaiEngine(
                 providerRegistry = ProviderRegistry.builder()
@@ -1528,8 +1667,8 @@ class TramaiEngineTest {
             val streamIds = mutableListOf<String>()
             val auditEmitter = AuditEngineDlpRedactionAuditEmitter(
                 AuditEngine(store, clock = fixedAuditClock),
-                dev.tramai.security.audit.DlpAuditStreamIdResolver {
-                    it.correlationId.also(streamIds::add)
+                object : dev.tramai.security.audit.DlpAuditStreamIdResolver {
+                    override fun resolve(context: DlpContext): String = context.correlationId.also(streamIds::add)
                 },
             )
             val provider = RecordingProvider {
@@ -1563,14 +1702,14 @@ class TramaiEngineTest {
             val sharedStreamIds = mutableListOf<String>()
             val policyEmitter = AuditEnginePolicyDecisionAuditEmitter(
                 auditEngine,
-                dev.tramai.security.audit.AuditStreamIdResolver {
-                    it.correlationId.also(sharedStreamIds::add)
+                object : dev.tramai.security.audit.AuditStreamIdResolver {
+                    override fun resolve(context: PolicyContext): String = context.correlationId.also(sharedStreamIds::add)
                 },
             )
             val dlpEmitter = AuditEngineDlpRedactionAuditEmitter(
                 auditEngine,
-                dev.tramai.security.audit.DlpAuditStreamIdResolver {
-                    it.correlationId.also(sharedStreamIds::add)
+                object : dev.tramai.security.audit.DlpAuditStreamIdResolver {
+                    override fun resolve(context: DlpContext): String = context.correlationId.also(sharedStreamIds::add)
                 },
             )
             val provider = RecordingProvider {
@@ -1807,8 +1946,10 @@ class TramaiEngineTest {
                 ),
                 ModelResponse(content = "should not be requested"),
             )
-            val failingEmitter = DlpRedactionAuditEmitter { _, _ ->
-                throw RuntimeException("audit bridge failed")
+            val failingEmitter = object : DlpRedactionAuditEmitter {
+                override suspend fun emit(context: DlpContext, redactions: List<DlpRedaction>) {
+                    throw RuntimeException("audit bridge failed")
+                }
             }
             val engine = TramaiEngine(
                 provider = provider,

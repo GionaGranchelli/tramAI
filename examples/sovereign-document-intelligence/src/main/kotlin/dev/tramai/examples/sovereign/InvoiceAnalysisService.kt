@@ -12,7 +12,7 @@ import dev.tramai.core.model.ClassifiedDocument
  * with HIGH-risk payment actions suspension for human approval.
  */
 @AiService
-interface InvoiceAnalysisService {
+fun interface InvoiceAnalysisService {
 
     /**
      * Analyzes a classified invoice document and returns a typed assessment.

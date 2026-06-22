@@ -1,6 +1,6 @@
 package dev.tramai.engine
 
-fun interface EngineEventObserver {
+interface EngineEventObserver {
     fun onEngineEvent(
         name: String,
         attributes: Map<String, Any?>,

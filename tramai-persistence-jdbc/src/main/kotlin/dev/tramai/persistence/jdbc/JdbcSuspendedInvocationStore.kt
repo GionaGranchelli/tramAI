@@ -84,94 +84,13 @@ class JdbcSuspendedInvocationStore(
         metadata: SuspendedInvocationMetadata,
         replayEnvelope: SensitiveReplayEnvelope,
     ) {
-        validateIdField(metadata.approvalId, "approvalId")
-        validateIdField(metadata.toolCallId, "toolCallId")
-        validateIdField(metadata.toolName, "toolName")
-        validateIdField(metadata.correlationId, "correlationId")
-        metadata.conversationId?.let { validateIdField(it, "conversationId") }
-        validateDigestField(metadata.replayEnvelopeDigest.value)
-
-        // Extract messages and validate replay-envelope invariants
-        val messages = replayEnvelope.revealForResume().messages
-        validateReplayEnvelopeInvariants(metadata, messages)
-
-        // Serialize via explicit DTOs — no polymorphic typing
-        val pm = messages.map { toPersisted(it) }
-
-        // Verify the caller-provided digest matches the canonical digest of the
-        // persisted replay envelope. This prevents callers from using a wrong
-        // digest and bypassing duplicate detection.
-        val canonicalDigest = ReplayEnvelopeDigestHelper.compute(metadata.operationReference, messages)
-        require(canonicalDigest == metadata.replayEnvelopeDigest) {
-            "replay-envelope-digest-mismatch: canonical=$canonicalDigest, provided=${metadata.replayEnvelopeDigest}"
-        }
-
-        val payload = Payload(
-            metadata = PayloadMetadata.fromDomain(metadata),
-            persistedMessages = pm,
-        )
-        val payloadJson = mapper.writeValueAsBytes(payload)
-
+        validateCreateInput(metadata)
+        val payloadJson = buildCreatePayload(metadata, replayEnvelope)
         val encrypted = replayEnvelopeCodec.encode(payloadJson)
-
         val now = OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC)
 
         dataSource.connection.use { conn ->
-            val sql = """
-                INSERT INTO suspended_invocations (
-                    invocation_id, status, service_key, operation_key, descriptor_hash,
-                    replay_envelope_digest, encrypted_replay_envelope,
-                    encryption_key_id, encryption_algorithm, encryption_nonce, payload_digest,
-                    version, created_at
-                ) VALUES (
-                    ?, 'PENDING', ?, ?, ?,
-                    ?, ?,
-                    ?, ?, ?, ?,
-                    1, ?
-                )
-            """.trimIndent()
-            conn.prepareStatement(sql).use { stmt ->
-                stmt.setString(1, metadata.approvalId)
-                stmt.setString(2, metadata.operationReference.serviceInterface)
-                stmt.setString(3, metadata.operationReference.methodName)
-                stmt.setString(4, metadata.operationReference.resumeDefinitionDigest.value)
-                stmt.setString(5, metadata.replayEnvelopeDigest.value)
-                stmt.setBytes(6, encrypted.ciphertext)
-                stmt.setString(7, encrypted.keyId)
-                stmt.setString(8, encrypted.algorithm)
-                stmt.setBytes(9, encrypted.nonce)
-                stmt.setString(10, encrypted.payloadDigest)
-                stmt.setObject(11, now)
-
-                try {
-                    stmt.executeUpdate()
-                } catch (e: SQLException) {
-                    if (e.sqlState == "23505") {
-                        // Check which constraint fired
-                        val constraintName = extractConstraintName(e)
-                        if (constraintName != null) {
-                            when {
-                                constraintName.contains("replay_envelope", ignoreCase = true) ->
-                                    throw IllegalArgumentException(
-                                        "suspended-invocation-replay-envelope-digest-already-exists",
-                                    )
-                                else ->
-                                    throw IllegalArgumentException(
-                                        "suspended-invocation-already-exists",
-                                    )
-                            }
-                        }
-                        // Fallback: check PK existence to distinguish
-                        if (invocationExists(conn, metadata.approvalId)) {
-                            throw IllegalArgumentException("suspended-invocation-already-exists")
-                        }
-                        throw IllegalArgumentException(
-                            "suspended-invocation-replay-envelope-digest-already-exists",
-                        )
-                    }
-                    throw e
-                }
-            }
+            insertSuspendedInvocation(conn, metadata, encrypted, now)
         }
     }
 
@@ -180,6 +99,115 @@ class JdbcSuspendedInvocationStore(
 
         val row = readCurrent(approvalId) ?: return null
         return row.metadata.toDomain()
+    }
+
+    /**
+     * Validates non-sensitive create fields before any replay payload is serialized.
+     */
+    private fun validateCreateInput(metadata: SuspendedInvocationMetadata) {
+        validateIdField(metadata.approvalId, "approvalId")
+        validateIdField(metadata.toolCallId, "toolCallId")
+        validateIdField(metadata.toolName, "toolName")
+        validateIdField(metadata.correlationId, "correlationId")
+        metadata.conversationId?.let { validateIdField(it, "conversationId") }
+        validateDigestField(metadata.replayEnvelopeDigest.value)
+    }
+
+    /**
+     * Serializes the validated replay payload into the encrypted JDBC payload format.
+     */
+    private fun buildCreatePayload(
+        metadata: SuspendedInvocationMetadata,
+        replayEnvelope: SensitiveReplayEnvelope,
+    ): ByteArray {
+        val messages = replayEnvelope.revealForResume().messages
+        validateReplayEnvelopeInvariants(metadata, messages)
+        validateReplayEnvelopeDigest(metadata, messages)
+        val payload = Payload(
+            metadata = PayloadMetadata.fromDomain(metadata),
+            persistedMessages = messages.map { toPersisted(it) },
+        )
+        return mapper.writeValueAsBytes(payload)
+    }
+
+    /**
+     * Verifies the caller-provided replay digest against canonical message content.
+     */
+    private fun validateReplayEnvelopeDigest(
+        metadata: SuspendedInvocationMetadata,
+        messages: List<Message>,
+    ) {
+        val canonicalDigest = ReplayEnvelopeDigestHelper.compute(metadata.operationReference, messages)
+        require(canonicalDigest == metadata.replayEnvelopeDigest) {
+            "replay-envelope-digest-mismatch: canonical=$canonicalDigest, provided=${metadata.replayEnvelopeDigest}"
+        }
+    }
+
+    /**
+     * Inserts a suspended invocation row and maps duplicate constraints to stable error codes.
+     */
+    private fun insertSuspendedInvocation(
+        conn: java.sql.Connection,
+        metadata: SuspendedInvocationMetadata,
+        encrypted: JdbcEncryptedReplayEnvelope,
+        now: OffsetDateTime,
+    ) {
+        val sql = """
+            INSERT INTO suspended_invocations (
+                invocation_id, status, service_key, operation_key, descriptor_hash,
+                replay_envelope_digest, encrypted_replay_envelope,
+                encryption_key_id, encryption_algorithm, encryption_nonce, payload_digest,
+                version, created_at
+            ) VALUES (
+                ?, 'PENDING', ?, ?, ?,
+                ?, ?,
+                ?, ?, ?, ?,
+                1, ?
+            )
+        """.trimIndent()
+        conn.prepareStatement(sql).use { stmt ->
+            stmt.setString(1, metadata.approvalId)
+            stmt.setString(2, metadata.operationReference.serviceInterface)
+            stmt.setString(3, metadata.operationReference.methodName)
+            stmt.setString(4, metadata.operationReference.resumeDefinitionDigest.value)
+            stmt.setString(5, metadata.replayEnvelopeDigest.value)
+            stmt.setBytes(6, encrypted.ciphertext)
+            stmt.setString(7, encrypted.keyId)
+            stmt.setString(8, encrypted.algorithm)
+            stmt.setBytes(9, encrypted.nonce)
+            stmt.setString(10, encrypted.payloadDigest)
+            stmt.setObject(11, now)
+
+            try {
+                stmt.executeUpdate()
+            } catch (e: SQLException) {
+                handleCreateConflict(conn, metadata.approvalId, e)
+            }
+        }
+    }
+
+    /**
+     * Converts PostgreSQL unique-constraint failures into store-level reason codes.
+     */
+    private fun handleCreateConflict(
+        conn: java.sql.Connection,
+        approvalId: String,
+        error: SQLException,
+    ): Nothing {
+        if (error.sqlState != "23505") {
+            throw error
+        }
+        val constraintName = extractConstraintName(error)
+        if (constraintName != null) {
+            require(!constraintName.contains("replay_envelope", ignoreCase = true)) {
+                "suspended-invocation-replay-envelope-digest-already-exists"
+            }
+            throw IllegalArgumentException("suspended-invocation-already-exists")
+        }
+        require(!invocationExists(conn, approvalId)) {
+            "suspended-invocation-already-exists"
+        }
+        throw IllegalArgumentException("suspended-invocation-replay-envelope-digest-already-exists")
     }
 
     override suspend fun revealReplayEnvelope(approvalId: String): SensitiveReplayEnvelope? {

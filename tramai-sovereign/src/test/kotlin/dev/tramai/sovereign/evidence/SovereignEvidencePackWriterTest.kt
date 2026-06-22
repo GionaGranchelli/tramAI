@@ -370,13 +370,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects evidence-unsafe model names`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("/tmp/model"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("/tmp/model"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-identifier")
     }
@@ -385,13 +388,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects evidence-unsafe provider names`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("secret-provider"),
-                providerZones = mapOf("secret-provider" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("secret-provider"),
+            providerZones = mapOf("secret-provider" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-identifier")
     }
@@ -400,13 +406,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects evidence-unsafe home path in model name`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("/home/user/model"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("/home/user/model"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-identifier")
     }
@@ -415,13 +424,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects evidence-unsafe token in provider zone key`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("token-provider"),
-                providerZones = mapOf("token-provider" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("token-provider"),
+            providerZones = mapOf("token-provider" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-identifier")
     }
@@ -439,13 +451,16 @@ class SovereignEvidencePackWriterTest {
                 totalSizeBytes = 100,
             )
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = listOf(receipt),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-identifier")
     }
@@ -454,13 +469,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects Windows drive path with backslash`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("C:\\models\\x"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("C:\\models\\x"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-identifier")
     }
@@ -469,13 +487,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects Windows drive path with forward slash`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("C:/models/x"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("C:/models/x"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-identifier")
     }
@@ -484,13 +505,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects Windows drive path with lowercase drive letter`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("d:\\private\\model"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("d:\\private\\model"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-identifier")
     }
@@ -501,12 +525,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects invalid sbom digest sha256 abc`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 supplyChain = SupplyChainEvidenceV1(
                     sbomFormat = "CycloneDX",
                     sbomSpecVersion = "1.6",
@@ -514,7 +542,8 @@ class SovereignEvidencePackWriterTest {
                     sbomSha256 = "sha256:abc",
                     generatedBy = "test",
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-digest-format")
     }
@@ -523,12 +552,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects invalid sbom digest format abc`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 supplyChain = SupplyChainEvidenceV1(
                     sbomFormat = "CycloneDX",
                     sbomSpecVersion = "1.6",
@@ -536,7 +569,8 @@ class SovereignEvidencePackWriterTest {
                     sbomSha256 = "abc",
                     generatedBy = "test",
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-digest-format")
     }
@@ -545,12 +579,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects wrong digest algorithm sha512`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 supplyChain = SupplyChainEvidenceV1(
                     sbomFormat = "CycloneDX",
                     sbomSpecVersion = "1.6",
@@ -558,7 +596,8 @@ class SovereignEvidencePackWriterTest {
                     sbomSha256 = "sha512:a" + "b".repeat(63),
                     generatedBy = "test",
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-digest-format")
     }
@@ -567,12 +606,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects non-hex sbom digest`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 supplyChain = SupplyChainEvidenceV1(
                     sbomFormat = "CycloneDX",
                     sbomSpecVersion = "1.6",
@@ -580,7 +623,8 @@ class SovereignEvidencePackWriterTest {
                     sbomSha256 = "sha256:zzzz${"a".repeat(60)}",
                     generatedBy = "test",
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-digest-format")
     }
@@ -589,12 +633,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects sbom filename with path`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 supplyChain = SupplyChainEvidenceV1(
                     sbomFormat = "CycloneDX",
                     sbomSpecVersion = "1.6",
@@ -602,7 +650,8 @@ class SovereignEvidencePackWriterTest {
                     sbomSha256 = "sha256:${"a".repeat(64)}",
                     generatedBy = "test",
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-identifier")
     }
@@ -611,12 +660,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects sbom filename with windows path`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 supplyChain = SupplyChainEvidenceV1(
                     sbomFormat = "CycloneDX",
                     sbomSpecVersion = "1.6",
@@ -624,7 +677,8 @@ class SovereignEvidencePackWriterTest {
                     sbomSha256 = "sha256:${"a".repeat(64)}",
                     generatedBy = "test",
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-identifier")
     }
@@ -632,20 +686,25 @@ class SovereignEvidencePackWriterTest {
     @Test
     fun `accepts valid sbom filename`() {
         val pack = SovereignEvidencePackGenerator.generate(
+        SovereignEvidencePackGenerator.GenerationParams(
             deploymentMode = SovereignDeploymentMode.STANDARD,
             allowedModels = setOf("model-a"),
             allowedProviders = setOf("provider-x"),
             providerZones = mapOf("provider-x" to "LOCAL"),
-            verificationSettings = ModelArtifactVerificationSettings(),
-            verificationReceipts = emptyList(),
-            supplyChain = SupplyChainEvidenceV1(
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
+                supplyChain = SupplyChainEvidenceV1(
                 sbomFormat = "CycloneDX",
                 sbomSpecVersion = "1.6",
                 sbomFileName = "tramai-cyclonedx-sbom.json",
                 sbomSha256 = "sha256:${"a".repeat(64)}",
                 generatedBy = "test",
             ),
-        )
+            ),
+        ))
 
         assertThat(pack.supplyChain).isNotNull()
         assertThat(pack.supplyChain!!.sbomFileName).isEqualTo("tramai-cyclonedx-sbom.json")
@@ -692,12 +751,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects sbom filename with subdir relative path`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 supplyChain = SupplyChainEvidenceV1(
                     sbomFormat = "CycloneDX",
                     sbomSpecVersion = "1.6",
@@ -705,7 +768,8 @@ class SovereignEvidencePackWriterTest {
                     sbomSha256 = "sha256:${"a".repeat(64)}",
                     generatedBy = "test",
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-identifier")
     }
@@ -714,12 +778,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects sbom filename with backslash relative path`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 supplyChain = SupplyChainEvidenceV1(
                     sbomFormat = "CycloneDX",
                     sbomSpecVersion = "1.6",
@@ -727,7 +795,8 @@ class SovereignEvidencePackWriterTest {
                     sbomSha256 = "sha256:${"a".repeat(64)}",
                     generatedBy = "test",
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-identifier")
     }
@@ -736,12 +805,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects unsupported supply-chain schema version 0`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 supplyChain = SupplyChainEvidenceV1(
                     schemaVersion = 0,
                     sbomFormat = "CycloneDX",
@@ -750,7 +823,8 @@ class SovereignEvidencePackWriterTest {
                     sbomSha256 = "sha256:${"a".repeat(64)}",
                     generatedBy = "test",
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsupported-supply-chain-schema-version")
     }
@@ -759,12 +833,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects unsupported supply-chain schema version 2`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 supplyChain = SupplyChainEvidenceV1(
                     schemaVersion = 2,
                     sbomFormat = "CycloneDX",
@@ -773,7 +851,8 @@ class SovereignEvidencePackWriterTest {
                     sbomSha256 = "sha256:${"a".repeat(64)}",
                     generatedBy = "test",
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsupported-supply-chain-schema-version")
     }
@@ -784,12 +863,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects unsupported attestation schema version`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 attestation = AttestationEvidenceV1(
                     schemaVersion = 2,
                     provider = "GitHub Artifact Attestations",
@@ -805,7 +888,8 @@ class SovereignEvidencePackWriterTest {
                         ),
                     ),
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsupported-attestation-schema-version")
     }
@@ -814,12 +898,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects invalid attestation workflow run id`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 attestation = AttestationEvidenceV1(
                     provider = "GitHub Artifact Attestations",
                     workflowName = "CI",
@@ -834,7 +922,8 @@ class SovereignEvidencePackWriterTest {
                         ),
                     ),
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-attestation-workflow-run-id")
     }
@@ -843,12 +932,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects invalid attestation repository format`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 attestation = AttestationEvidenceV1(
                     provider = "GitHub Artifact Attestations",
                     workflowName = "CI",
@@ -863,7 +956,8 @@ class SovereignEvidencePackWriterTest {
                         ),
                     ),
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-attestation-repository")
     }
@@ -872,12 +966,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects invalid attestation commit sha`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 attestation = AttestationEvidenceV1(
                     provider = "GitHub Artifact Attestations",
                     workflowName = "CI",
@@ -892,7 +990,8 @@ class SovereignEvidencePackWriterTest {
                         ),
                     ),
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-attestation-commit-sha")
     }
@@ -901,12 +1000,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects empty attestation subjects`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 attestation = AttestationEvidenceV1(
                     provider = "GitHub Artifact Attestations",
                     workflowName = "CI",
@@ -915,7 +1018,8 @@ class SovereignEvidencePackWriterTest {
                     commitSha = "a".repeat(40),
                     attestedSubjects = emptyList(),
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-attestation-subjects")
     }
@@ -924,12 +1028,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects invalid digest format in attestation subject`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 attestation = AttestationEvidenceV1(
                     provider = "GitHub Artifact Attestations",
                     workflowName = "CI",
@@ -944,7 +1052,8 @@ class SovereignEvidencePackWriterTest {
                         ),
                     ),
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-digest-format")
     }
@@ -953,12 +1062,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects invalid subject name with path separator`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 attestation = AttestationEvidenceV1(
                     provider = "GitHub Artifact Attestations",
                     workflowName = "CI",
@@ -973,7 +1086,8 @@ class SovereignEvidencePackWriterTest {
                         ),
                     ),
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-identifier")
     }
@@ -982,12 +1096,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects unsupported attestation type`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 attestation = AttestationEvidenceV1(
                     provider = "GitHub Artifact Attestations",
                     workflowName = "CI",
@@ -1002,7 +1120,8 @@ class SovereignEvidencePackWriterTest {
                         ),
                     ),
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsupported-attestation-type")
     }
@@ -1010,13 +1129,17 @@ class SovereignEvidencePackWriterTest {
     @Test
     fun `accepts valid full attestation`() {
         val pack = SovereignEvidencePackGenerator.generate(
+        SovereignEvidencePackGenerator.GenerationParams(
             deploymentMode = SovereignDeploymentMode.STANDARD,
             allowedModels = setOf("model-a"),
             allowedProviders = setOf("provider-x"),
             providerZones = mapOf("provider-x" to "LOCAL"),
-            verificationSettings = ModelArtifactVerificationSettings(),
-            verificationReceipts = emptyList(),
-            attestation = AttestationEvidenceV1(
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
+                attestation = AttestationEvidenceV1(
                 provider = "GitHub Artifact Attestations",
                 workflowName = "CI",
                 workflowRunId = "123456789",
@@ -1035,7 +1158,8 @@ class SovereignEvidencePackWriterTest {
                     ),
                 ),
             ),
-        )
+            ),
+        ))
 
         assertThat(pack.attestation).isNotNull()
         assertThat(pack.attestation!!.provider).isEqualTo("GitHub Artifact Attestations")
@@ -1139,12 +1263,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects unsupported release bundle schema version`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 releaseBundle = ReleaseBundleEvidenceV1(
                     schemaVersion = 2,
                     buildTool = "Gradle",
@@ -1163,7 +1291,8 @@ class SovereignEvidencePackWriterTest {
                         ),
                     ),
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsupported-release-bundle-schema-version")
     }
@@ -1172,19 +1301,24 @@ class SovereignEvidencePackWriterTest {
     fun `rejects empty artifact list in release bundle`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 releaseBundle = ReleaseBundleEvidenceV1(
                     buildTool = "Gradle",
                     javaVersion = "25",
                     gradleVersion = "8.10",
                     artifacts = emptyList(),
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-release-artifacts-empty")
     }
@@ -1193,12 +1327,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects negative artifact size in release bundle`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 releaseBundle = ReleaseBundleEvidenceV1(
                     buildTool = "Gradle",
                     javaVersion = "25",
@@ -1216,7 +1354,8 @@ class SovereignEvidencePackWriterTest {
                         ),
                     ),
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-artifact-size-negative")
     }
@@ -1225,12 +1364,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects invalid digest format in release artifact`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 releaseBundle = ReleaseBundleEvidenceV1(
                     buildTool = "Gradle",
                     javaVersion = "25",
@@ -1248,7 +1391,8 @@ class SovereignEvidencePackWriterTest {
                         ),
                     ),
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-digest-format")
     }
@@ -1257,12 +1401,16 @@ class SovereignEvidencePackWriterTest {
     fun `rejects filename with path separator in release artifact`() {
         assertThatThrownBy {
             SovereignEvidencePackGenerator.generate(
-                deploymentMode = SovereignDeploymentMode.STANDARD,
-                allowedModels = setOf("model-a"),
-                allowedProviders = setOf("provider-x"),
-                providerZones = mapOf("provider-x" to "LOCAL"),
+        SovereignEvidencePackGenerator.GenerationParams(
+            deploymentMode = SovereignDeploymentMode.STANDARD,
+            allowedModels = setOf("model-a"),
+            allowedProviders = setOf("provider-x"),
+            providerZones = mapOf("provider-x" to "LOCAL"),
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
                 verificationSettings = ModelArtifactVerificationSettings(),
                 verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
                 releaseBundle = ReleaseBundleEvidenceV1(
                     buildTool = "Gradle",
                     javaVersion = "25",
@@ -1280,7 +1428,8 @@ class SovereignEvidencePackWriterTest {
                         ),
                     ),
                 ),
-            )
+            ),
+        ))
         }.isInstanceOf(IllegalArgumentException::class.java)
             .hasMessage("evidence-unsafe-identifier")
     }
@@ -1288,13 +1437,17 @@ class SovereignEvidencePackWriterTest {
     @Test
     fun `accepts valid full release bundle`() {
         val pack = SovereignEvidencePackGenerator.generate(
+        SovereignEvidencePackGenerator.GenerationParams(
             deploymentMode = SovereignDeploymentMode.STANDARD,
             allowedModels = setOf("model-a"),
             allowedProviders = setOf("provider-x"),
             providerZones = mapOf("provider-x" to "LOCAL"),
-            verificationSettings = ModelArtifactVerificationSettings(),
-            verificationReceipts = emptyList(),
-            releaseBundle = ReleaseBundleEvidenceV1(
+            verification = SovereignEvidencePackGenerator.VerificationEvidence(
+                verificationSettings = ModelArtifactVerificationSettings(),
+                verificationReceipts = emptyList(),
+            ),
+            optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
+                releaseBundle = ReleaseBundleEvidenceV1(
                 buildTool = "Gradle",
                 javaVersion = "25.0.1",
                 gradleVersion = "8.10",
@@ -1311,7 +1464,8 @@ class SovereignEvidencePackWriterTest {
                     ),
                 ),
             ),
-        )
+            ),
+        ))
 
         assertThat(pack.releaseBundle).isNotNull()
         assertThat(pack.releaseBundle!!.schemaVersion).isEqualTo(1)

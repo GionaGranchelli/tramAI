@@ -383,7 +383,77 @@ class SovereignEvidencePackIntegrationTest {
         assertThat(pack.releaseBundle!!.artifacts[0].sha256).isEqualTo("sha256:${"a".repeat(64)}")
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    @Test
+    fun `legacy overload produces same result as GenerationParams API`() {
+        val deploymentMode = SovereignDeploymentMode.STANDARD
+        val allowedModels = setOf("model-a", "model-b")
+        val allowedProviders = setOf("provider-a")
+        val providerZones = mapOf("provider-a" to "LOCAL")
+        val verificationSettings = ModelArtifactVerificationSettings(enabled = true)
+        val verificationReceipts = listOf(
+            VerifiedLocalModelArtifact(
+                registryEntryId = "entry-1",
+                manifestDigest = dev.tramai.core.model.ModelArtifactDigest.of("sha256:${"a".repeat(64)}"),
+                modelName = "model-a",
+                verifiedAt = java.time.Instant.parse("2026-01-02T03:04:05Z"),
+                artifactCount = 2,
+                totalSizeBytes = 1024,
+            ),
+        )
+        val zeroEgress = ZeroEgressEvidenceV1(
+            deploymentMode = "STANDARD",
+            runtimeBuildSucceeded = true,
+            loopbackProviderInvocationSucceeded = true,
+            loopbackProviderInvocationCount = 1,
+            externalTcpProbeBlocked = true,
+            externalDnsProbeBlocked = true,
+        )
+        val auditChain = AuditChainEvidenceV1(isValid = true, totalEvents = 3)
+
+        val legacyResult = SovereignEvidencePackGenerator.generate(
+            deploymentMode = deploymentMode,
+            allowedModels = allowedModels,
+            allowedProviders = allowedProviders,
+            providerZones = providerZones,
+            verificationSettings = verificationSettings,
+            verificationReceipts = verificationReceipts,
+            zeroEgress = zeroEgress,
+            auditChain = auditChain,
+        )
+
+        val newResult = SovereignEvidencePackGenerator.generate(
+            SovereignEvidencePackGenerator.GenerationParams(
+                deploymentMode = deploymentMode,
+                allowedModels = allowedModels,
+                allowedProviders = allowedProviders,
+                providerZones = providerZones,
+                verification = SovereignEvidencePackGenerator.VerificationEvidence(
+                    verificationSettings = verificationSettings,
+                    verificationReceipts = verificationReceipts,
+                ),
+                optionalEvidence = SovereignEvidencePackGenerator.OptionalEvidence(
+                    zeroEgress = zeroEgress,
+                    auditChain = auditChain,
+                ),
+            ),
+        )
+
+        // Compare all fields except generatedAt (wall-clock time)
+        assertThat(legacyResult.schemaVersion).isEqualTo(newResult.schemaVersion)
+        assertThat(legacyResult.deploymentMode).isEqualTo(newResult.deploymentMode)
+        assertThat(legacyResult.allowedModels).isEqualTo(newResult.allowedModels)
+        assertThat(legacyResult.allowedProviders).isEqualTo(newResult.allowedProviders)
+        assertThat(legacyResult.providerZones).isEqualTo(newResult.providerZones)
+        assertThat(legacyResult.artifactVerificationSettings).isEqualTo(newResult.artifactVerificationSettings)
+        assertThat(legacyResult.artifacts).isEqualTo(newResult.artifacts)
+        assertThat(legacyResult.zeroEgress).isEqualTo(newResult.zeroEgress)
+        assertThat(legacyResult.auditChain).isEqualTo(newResult.auditChain)
+        assertThat(legacyResult.supplyChain).isEqualTo(newResult.supplyChain)
+        assertThat(legacyResult.releaseBundle).isEqualTo(newResult.releaseBundle)
+        assertThat(legacyResult.attestation).isEqualTo(newResult.attestation)
+    }
+
+    // -- Helpers -----------------------------------------------------------------
 
     private fun buildOfflineTramai(): SovereignTramai {
         val registeredModel = RegisteredModel(

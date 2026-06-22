@@ -8,9 +8,7 @@ package dev.tramai.spring.sovereign.ops.outbox
  * committed. Custom resolvers are expected for production use.
  */
 object UnknownSovereignOpsApprovalRecoveryResolver : SovereignOpsApprovalRecoveryResolver {
-
     override suspend fun resolvePreparedOutboxRecord(
         record: SovereignOpsAuditOutboxRecord,
-    ): SovereignOpsPreparedRecoveryDecision =
-        SovereignOpsPreparedRecoveryDecision.UNKNOWN
+    ): SovereignOpsPreparedRecoveryDecision = SovereignOpsPreparedRecoveryDecision.UNKNOWN
 }

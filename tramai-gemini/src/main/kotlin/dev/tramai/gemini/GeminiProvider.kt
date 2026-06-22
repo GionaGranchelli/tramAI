@@ -77,7 +77,7 @@ class GeminiProvider(
             val payload = buildPayload(request)
             val httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create(url))
-                .header("Content-Type", "application/json")
+                .header("Content-Type", APPLICATION_JSON)
                 .header("X-Goog-Api-Key", apiKey)
                 .applyTramaiTimeout(request)
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
@@ -113,7 +113,7 @@ class GeminiProvider(
 
         val httpRequest = HttpRequest.newBuilder()
             .uri(URI.create(url))
-            .header("Content-Type", "application/json")
+            .header("Content-Type", APPLICATION_JSON)
             .header("X-Goog-Api-Key", apiKey)
             .applyTramaiTimeout(request)
             .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
@@ -272,7 +272,7 @@ class GeminiProvider(
         request.temperature?.let { generationConfig["temperature"] = it }
         val schema = responseSchema
         if (schema != null) {
-            generationConfig["responseMimeType"] = "application/json"
+            generationConfig["responseMimeType"] = APPLICATION_JSON
             generationConfig["responseSchema"] = objectMapper.readTree(schema)
         }
 
@@ -404,3 +404,6 @@ class GeminiProvider(
         const val DEFAULT_API_VERSION: String = "v1beta"
     }
 }
+
+/** @see GeminiProvider */
+private const val APPLICATION_JSON = "application/json"

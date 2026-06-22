@@ -106,7 +106,7 @@ class AwsSecretsManagerSecretValueResolver(
                         "AWS Secrets Manager accessKeyId and secretAccessKey must be configured together when using static credentials",
                     )
                 }
-                else -> builder.credentialsProvider(DefaultCredentialsProvider.create())
+                else -> builder.credentialsProvider(DefaultCredentialsProvider.builder().build())
             }
 
             return AwsSecretsManagerSecretValueResolver(

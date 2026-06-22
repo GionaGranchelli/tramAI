@@ -54,11 +54,11 @@ internal object ResumeToolDeclarationDigestHelper {
             val sec = tool.security
             if (sec != null) {
                 appendField("permission", sec.permission)
-                appendField("risk", sec.risk?.name)
-                appendField("approval", sec.approval?.name)
-                appendField("network_egress", sec.managedNetworkEgress?.name)
-                appendField("audit", sec.audit?.name)
-                appendField("compat_mode", sec.compatibilityMode?.name)
+                appendField("risk", sec.risk?.name ?: "null")
+                appendField("approval", sec.approval?.name ?: "null")
+                appendField("network_egress", sec.managedNetworkEgress?.name ?: "null")
+                appendField("audit", sec.audit?.name ?: "null")
+                appendField("compat_mode", sec.compatibilityMode?.name ?: "null")
             }
         }
         val digest = MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(StandardCharsets.UTF_8))

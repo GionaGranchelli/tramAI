@@ -216,7 +216,9 @@ class AuditEnginePolicyDecisionAuditEmitterTest {
 
     @Test
     fun `blank correlationId and blank workflowRunId uses custom resolver fallback`() = runTest {
-        val customResolver = AuditStreamIdResolver { "custom-fallback" }
+        val customResolver = object : AuditStreamIdResolver {
+            override fun resolve(context: PolicyContext): String = "custom-fallback"
+        }
         val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, customResolver)
         val ctx = baseCtx.copy(workflowRunId = "", correlationId = "")
         emitter.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctx, PolicyDecision.Allow)
@@ -313,7 +315,9 @@ class AuditEnginePolicyDecisionAuditEmitterTest {
 
     @Test
     fun `blank workflowRunId and correlationId use custom resolver when configured`() = runTest {
-        val resolver = AuditStreamIdResolver { "gen-run-abc" }
+        val resolver = object : AuditStreamIdResolver {
+            override fun resolve(context: PolicyContext): String = "gen-run-abc"
+        }
         val emitterWithResolver = AuditEnginePolicyDecisionAuditEmitter(auditEngine, resolver)
         val ctx = baseCtx.copy(workflowRunId = "", correlationId = "")
         emitterWithResolver.emit(EnforcementPoint.BEFORE_PROVIDER_INVOCATION, ctx, PolicyDecision.Allow)
@@ -341,7 +345,9 @@ class AuditEnginePolicyDecisionAuditEmitterTest {
 
     @Test
     fun `blank stream ID from custom resolver throws`() = runTest {
-        val blankResolver = AuditStreamIdResolver { "" }
+        val blankResolver = object : AuditStreamIdResolver {
+            override fun resolve(context: PolicyContext): String = ""
+        }
         val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, blankResolver)
 
         val ex = Assertions.assertThrows(IllegalArgumentException::class.java) {
@@ -354,7 +360,9 @@ class AuditEnginePolicyDecisionAuditEmitterTest {
 
     @Test
     fun `oversize stream ID from custom resolver throws`() = runTest {
-        val longResolver = AuditStreamIdResolver { "a".repeat(257) }
+        val longResolver = object : AuditStreamIdResolver {
+            override fun resolve(context: PolicyContext): String = "a".repeat(257)
+        }
         val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, longResolver)
 
         val ex = Assertions.assertThrows(IllegalArgumentException::class.java) {

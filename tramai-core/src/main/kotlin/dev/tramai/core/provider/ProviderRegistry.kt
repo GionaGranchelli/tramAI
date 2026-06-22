@@ -105,7 +105,7 @@ class ProviderRegistry private constructor(
      */
     class Builder {
         private val providersByName = linkedMapOf<String, ModelProvider>()
-        private val routesByRequestedModel = linkedMapOf<String, MutableList<ProviderRoute>>()
+        private val routesByRequestedModel = linkedMapOf<String, List<ProviderRoute>>()
         private var defaultProviderName: String? = null
 
         /**
@@ -133,14 +133,12 @@ class ProviderRegistry private constructor(
             val existingFallbacks = routesByRequestedModel[modelName]
                 ?.drop(1)
                 .orEmpty()
-            routesByRequestedModel[modelName] = mutableListOf(
+            routesByRequestedModel[modelName] = listOf(
                 ProviderRoute(
                     providerName = providerName,
                     effectiveModelName = modelName,
                 ),
-            ).apply {
-                addAll(existingFallbacks)
-            }
+            ) + existingFallbacks
             return this
         }
 
@@ -152,12 +150,10 @@ class ProviderRegistry private constructor(
             fallbackModelName: String,
             providerName: String,
         ): Builder = apply {
-            routesByRequestedModel.getOrPut(requestedModelName) { mutableListOf() }
-                .add(
-                    ProviderRoute(
-                        providerName = providerName,
-                        effectiveModelName = fallbackModelName,
-                    ),
+            routesByRequestedModel[requestedModelName] =
+                routesByRequestedModel.getOrPut(requestedModelName) { emptyList() } + ProviderRoute(
+                    providerName = providerName,
+                    effectiveModelName = fallbackModelName,
                 )
         }
 

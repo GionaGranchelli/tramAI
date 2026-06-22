@@ -81,23 +81,23 @@ private class OpenTelemetryMetrics(
 
     val inputTokens: LongCounter = meter.counterBuilder("tramai.operation.input_tokens")
         .setDescription("Total provider input tokens observed by Tramai")
-        .setUnit("{token}")
+        .setUnit(TOKEN_MASK)
         .build()
 
     val outputTokens: LongCounter = meter.counterBuilder("tramai.operation.output_tokens")
         .setDescription("Total provider output tokens observed by Tramai")
-        .setUnit("{token}")
+        .setUnit(TOKEN_MASK)
         .build()
 
     val inputTokensPerAttempt: LongHistogram = meter.histogramBuilder("tramai.operation.input_tokens.per_attempt")
         .setDescription("Distribution of input tokens per Tramai provider attempt")
-        .setUnit("{token}")
+        .setUnit(TOKEN_MASK)
         .ofLongs()
         .build()
 
     val outputTokensPerAttempt: LongHistogram = meter.histogramBuilder("tramai.operation.output_tokens.per_attempt")
         .setDescription("Distribution of output tokens per Tramai provider attempt")
-        .setUnit("{token}")
+        .setUnit(TOKEN_MASK)
         .ofLongs()
         .build()
 
@@ -207,3 +207,6 @@ private class SpanBackedObservation(
         else -> "unknown"
     }
 }
+
+/** @see OpenTelemetryOperationObserver */
+private const val TOKEN_MASK = "{token}"

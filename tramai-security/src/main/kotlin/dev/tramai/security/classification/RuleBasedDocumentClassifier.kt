@@ -23,10 +23,9 @@ class RuleBasedDocumentClassifier(
 
     override fun classify(input: ClassificationInput): ClassificationDecision {
         val text = input.text
-        if (text != null && text.length > configuration.maxTextLength) {
-            throw IllegalArgumentException(
-                "Input text length ${text.length} exceeds maximum ${configuration.maxTextLength}"
-            )
+        val textLength = text?.length
+        require(textLength == null || textLength <= configuration.maxTextLength) {
+            "Input text length $textLength exceeds maximum ${configuration.maxTextLength}"
         }
 
         val matches = compiledRules

@@ -392,14 +392,16 @@ class Workflow<S, R> internal constructor(
         for (index in startIndex until steps.size) {
             val step = steps[index]
             when (val result = executeStep(
-                step = step,
-                state = currentState,
-                context = context,
-                observer = observer,
-                stepCounter = stepCounter,
-                persistenceSession = persistenceSession,
-                topLevelStepIndex = index,
-                resumedCheckpointMetadata = if (index == startIndex) resumedCheckpointMetadata else null,
+                StepExecutionRequest(
+                    step = step,
+                    state = currentState,
+                    context = context,
+                    observer = observer,
+                    stepCounter = stepCounter,
+                    persistenceSession = persistenceSession,
+                    topLevelStepIndex = index,
+                    resumedCheckpointMetadata = if (index == startIndex) resumedCheckpointMetadata else null,
+                ),
             )) {
                 is StepExecutionResult.Completed -> currentState = result.state
                 StepExecutionResult.Suspended -> throw WorkflowSuspendedException(
@@ -425,14 +427,16 @@ class Workflow<S, R> internal constructor(
         var currentState = state
         for (step in steps) {
             when (val result = executeStep(
-                step = step,
-                state = currentState,
-                context = context,
-                observer = observer,
-                stepCounter = stepCounter,
-                persistenceSession = null,
-                topLevelStepIndex = null,
-                resumedCheckpointMetadata = null,
+                StepExecutionRequest(
+                    step = step,
+                    state = currentState,
+                    context = context,
+                    observer = observer,
+                    stepCounter = stepCounter,
+                    persistenceSession = null,
+                    topLevelStepIndex = null,
+                    resumedCheckpointMetadata = null,
+                ),
             )) {
                 is StepExecutionResult.Completed -> currentState = result.state
                 StepExecutionResult.Suspended -> throw WorkflowSuspendedException(
@@ -442,16 +446,12 @@ class Workflow<S, R> internal constructor(
         }
         return currentState
     }
-    private suspend fun executeStep(
-        step: InternalWorkflowStep<S>,
-        state: S,
-        context: WorkflowContext,
-        observer: WorkflowObserver,
-        stepCounter: StepCounter,
-        persistenceSession: WorkflowPersistenceSession<S>?,
-        topLevelStepIndex: Int?,
-        resumedCheckpointMetadata: Map<String, String>?,
-    ): StepExecutionResult<S> {
+    private suspend fun executeStep(request: StepExecutionRequest<S>): StepExecutionResult<S> {
+        val step = request.step
+        val state = request.state
+        val context = request.context
+        val observer = request.observer
+        val stepCounter = request.stepCounter
         stepCounter.beforeStep(name, step.name)
         observer.onStepStarted(name, step.name, context)
         val nextState = try {
@@ -498,15 +498,17 @@ class Workflow<S, R> internal constructor(
                 is GateWorkflowStep -> step.execute(state, context)
                 is DelayWorkflowStep -> {
                     val result = step.execute(
-                        workflowName = name,
-                        state = state,
-                        context = context,
-                        observer = observer,
-                        persistenceSession = persistenceSession,
-                        topLevelStepIndex = topLevelStepIndex,
-                        stepExecutions = stepCounter.stepExecutions,
-                        resumedCheckpointMetadata = resumedCheckpointMetadata,
-                        clock = clock,
+                        DelayExecutionRequest(
+                            workflowName = name,
+                            state = state,
+                            context = context,
+                            observer = observer,
+                            persistenceSession = request.persistenceSession,
+                            topLevelStepIndex = request.topLevelStepIndex,
+                            stepExecutions = stepCounter.stepExecutions,
+                            resumedCheckpointMetadata = request.resumedCheckpointMetadata,
+                            clock = clock,
+                        ),
                     )
                     if (result == DelayExecutionResult.Suspended) {
                         return StepExecutionResult.Suspended
@@ -1037,19 +1039,13 @@ private data class DelayWorkflowStep<S>(
     val duration: Long,
     val unit: TimeUnit,
 ) : InternalWorkflowStep<S> {
-    suspend fun execute(
-        workflowName: String,
-        state: S,
-        context: WorkflowContext,
-        observer: WorkflowObserver,
-        persistenceSession: WorkflowPersistenceSession<S>?,
-        topLevelStepIndex: Int?,
-        stepExecutions: Int,
-        resumedCheckpointMetadata: Map<String, String>?,
-        clock: Clock,
-    ): DelayExecutionResult {
+    suspend fun execute(request: DelayExecutionRequest<S>): DelayExecutionResult {
+        val workflowName = request.workflowName
+        val context = request.context
+        val observer = request.observer
+        val clock = request.clock
         val now = clock.instant()
-        val resumedResumeAt = resumedCheckpointMetadata?.delayResumeAt(workflowName, context.workflowId, name)
+        val resumedResumeAt = request.resumedCheckpointMetadata?.delayResumeAt(workflowName, context.workflowId, name)
         val resumeAt = resumedResumeAt ?: now.plusMillis(unit.toMillis(duration))
         if (!resumeAt.isAfter(now)) {
             observer.onWorkflowEvent(
@@ -1060,19 +1056,19 @@ private data class DelayWorkflowStep<S>(
             )
             return DelayExecutionResult.Completed
         }
-        val session = persistenceSession
+        val session = request.persistenceSession
             ?: throw WorkflowResumeException(
                 "Workflow '$workflowName' delay step '$name' requires WorkflowPersistence to checkpoint the delayed run",
             )
-        val stepIndex = topLevelStepIndex
+        val stepIndex = request.topLevelStepIndex
             ?: throw WorkflowResumeException(
                 "Workflow '$workflowName' delay step '$name' must be a top-level step because checkpoints resume at top-level step boundaries",
             )
         session.saveCheckpoint(
-            state = state,
+            state = request.state,
             nextStepIndex = stepIndex,
             lastCompletedStepName = null,
-            stepExecutions = stepExecutions,
+            stepExecutions = request.stepExecutions,
             extraMetadata = delayMetadata(name, resumeAt),
         )
         session.scheduleDelayWakeup(
@@ -1160,6 +1156,30 @@ private sealed interface StepExecutionResult<out S> {
     data class Completed<S>(val state: S) : StepExecutionResult<S>
     data object Suspended : StepExecutionResult<Nothing>
 }
+
+private data class StepExecutionRequest<S>(
+    val step: InternalWorkflowStep<S>,
+    val state: S,
+    val context: WorkflowContext,
+    val observer: WorkflowObserver,
+    val stepCounter: StepCounter,
+    val persistenceSession: WorkflowPersistenceSession<S>?,
+    val topLevelStepIndex: Int?,
+    val resumedCheckpointMetadata: Map<String, String>?,
+)
+
+private data class DelayExecutionRequest<S>(
+    val workflowName: String,
+    val state: S,
+    val context: WorkflowContext,
+    val observer: WorkflowObserver,
+    val persistenceSession: WorkflowPersistenceSession<S>?,
+    val topLevelStepIndex: Int?,
+    val stepExecutions: Int,
+    val resumedCheckpointMetadata: Map<String, String>?,
+    val clock: Clock,
+)
+
 private data class ParallelWorkflowStep<S, I, O>(
     override val name: String,
     val items: (S) -> Iterable<I>,
@@ -1871,7 +1891,7 @@ private fun <S> mergePluginStepResult(
         putAll(state as Map<String, Any?>)
         putAll(result)
     } as S
-    else -> throw IllegalStateException(
+    else -> error(
         "Workflow plugin steps without an explicit merge function require a Map state. " +
             "State type '${state?.let { it::class.qualifiedName } ?: "null"}' is not supported.",
     )

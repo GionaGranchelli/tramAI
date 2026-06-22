@@ -97,27 +97,14 @@ class InMemoryApprovalStore(
         validateIdField(approvalId, "approvalId", maxIdLength)
 
         // Validate comment length
-        when (transition) {
-            is ApprovalTransition.Approve -> transition.comment?.let {
-                require(it.length <= maxCommentLength) { "Comment exceeds maximum length of $maxCommentLength" }
-            }
-            is ApprovalTransition.Deny -> transition.comment?.let {
-                require(it.length <= maxCommentLength) { "Comment exceeds maximum length of $maxCommentLength" }
-            }
-            is ApprovalTransition.Timeout -> {}
+        transitionComment(transition)?.let {
+            require(it.length <= maxCommentLength) { "Comment exceeds maximum length of $maxCommentLength" }
         }
 
         // Validate decidedBy for non-timeout transitions
-        when (transition) {
-            is ApprovalTransition.Approve -> {
-                validateIdField(transition.decidedBy, "decidedBy", maxIdLength)
-                SafeActorIdPolicy.validateActorId(transition.decidedBy, "decidedBy")
-            }
-            is ApprovalTransition.Deny -> {
-                validateIdField(transition.decidedBy, "decidedBy", maxIdLength)
-                SafeActorIdPolicy.validateActorId(transition.decidedBy, "decidedBy")
-            }
-            is ApprovalTransition.Timeout -> {}
+        transitionDecidedBy(transition)?.let { decidedBy ->
+            validateIdField(decidedBy, "decidedBy", maxIdLength)
+            SafeActorIdPolicy.validateActorId(decidedBy, "decidedBy")
         }
 
         val result = store.compute(approvalId) { _, current ->
@@ -173,39 +160,57 @@ class InMemoryApprovalStore(
             }
 
             if (req.consumedAt == null && req.consumedBy == null) {
-                if (req.version != expectedVersion) throw ApprovalStoreConflictException(approvalId)
-
-                val now = clock.instant()
-                if (now >= req.expiresAt) throw ApprovalStoreNotConsumableException(approvalId)
-
                 replayed.set(false)
-                req.copy(
-                    consumedBy = consumedBy,
-                    consumedAt = now,
-                    version = incrementVersion(approvalId, req.version),
-                )
-            } else {
-                if (req.consumedAt == null || req.consumedBy == null) {
-                    throw ApprovalStoreNotConsumableException(approvalId)
-                }
-                if (req.consumedBy != consumedBy) throw ApprovalStoreNotConsumableException(approvalId)
-
-                val replayVersion = try {
-                    Math.addExact(expectedVersion, 1L)
-                } catch (_: ArithmeticException) {
-                    throw ApprovalStoreConflictException(approvalId)
-                }
-                if (req.version != replayVersion) throw ApprovalStoreConflictException(approvalId)
-
-                replayed.set(true)
-                req
+                return@compute consumeFreshApproval(approvalId, expectedVersion, consumedBy, req)
             }
+
+            replayed.set(true)
+            consumeReplayApproval(approvalId, expectedVersion, consumedBy, req)
         }
 
         return ApprovalConsumptionReceipt(
             request = result ?: throw ApprovalStoreNotFoundException(approvalId),
             replayed = replayed.get(),
         )
+    }
+
+    private fun consumeFreshApproval(
+        approvalId: String,
+        expectedVersion: Long,
+        consumedBy: String,
+        req: ApprovalRequest,
+    ): ApprovalRequest {
+        if (req.version != expectedVersion) throw ApprovalStoreConflictException(approvalId)
+
+        val now = clock.instant()
+        if (now >= req.expiresAt) throw ApprovalStoreNotConsumableException(approvalId)
+
+        return req.copy(
+            consumedBy = consumedBy,
+            consumedAt = now,
+            version = incrementVersion(approvalId, req.version),
+        )
+    }
+
+    private fun consumeReplayApproval(
+        approvalId: String,
+        expectedVersion: Long,
+        consumedBy: String,
+        req: ApprovalRequest,
+    ): ApprovalRequest {
+        if (req.consumedAt == null || req.consumedBy == null) {
+            throw ApprovalStoreNotConsumableException(approvalId)
+        }
+        if (req.consumedBy != consumedBy) throw ApprovalStoreNotConsumableException(approvalId)
+
+        val replayVersion = try {
+            Math.addExact(expectedVersion, 1L)
+        } catch (_: ArithmeticException) {
+            throw ApprovalStoreConflictException(approvalId)
+        }
+        if (req.version != replayVersion) throw ApprovalStoreConflictException(approvalId)
+
+        return req
     }
 
     private fun incrementVersion(
@@ -279,6 +284,18 @@ class InMemoryApprovalStore(
                 "approval already timed out",
             )
         }
+    }
+
+    private fun transitionComment(transition: ApprovalTransition): String? {
+        if (transition is ApprovalTransition.Approve) return transition.comment
+        if (transition is ApprovalTransition.Deny) return transition.comment
+        return null
+    }
+
+    private fun transitionDecidedBy(transition: ApprovalTransition): String? {
+        if (transition is ApprovalTransition.Approve) return transition.decidedBy
+        if (transition is ApprovalTransition.Deny) return transition.decidedBy
+        return null
     }
 
     private fun validateIdField(value: String, fieldName: String, maxLength: Int): String {

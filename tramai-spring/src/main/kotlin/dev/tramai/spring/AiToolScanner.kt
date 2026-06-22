@@ -93,15 +93,15 @@ object AiToolScanner {
         val annotation = try { function.findAnnotation<AiTool>() } catch (e: Exception) { null } ?: return null
 
         val parameters = function.valueParameters
-        if (parameters.size != 1) {
-            throw IllegalStateException("Tool method ${function.name} in bean $beanName must have exactly one parameter")
+        check(parameters.size == 1) {
+            "Tool method ${function.name} in bean $beanName must have exactly one parameter"
         }
 
         val inputType = parameters.first().type.classifier as? KClass<*>
             ?: throw IllegalStateException("Could not resolve input type for tool ${function.name}")
 
-        if (!inputType.isData) {
-            throw IllegalStateException("Tool input type ${inputType.qualifiedName} must be a data class")
+        check(inputType.isData) {
+            "Tool input type ${inputType.qualifiedName} must be a data class"
         }
 
         val toolName = annotation.name.takeIf { it.isNotBlank() } ?: function.name
@@ -111,23 +111,23 @@ object AiToolScanner {
             function = function,
             name = toolName,
             description = annotation.description,
-            inputType = inputType as KClass<Any>,
+            inputType = inputType,
             idempotent = annotation.idempotent,
             sideEffectLevel = annotation.sideEffectLevel
         )
     }
 
-    private class MethodBackedTramaiTool(
+    private class MethodBackedTramaiTool<I : Any>(
         private val bean: Any,
         private val function: KFunction<*>,
         override val name: String,
         override val description: String,
-        override val inputType: KClass<Any>,
+        override val inputType: KClass<I>,
         override val idempotent: Boolean,
         override val sideEffectLevel: SideEffectLevel
-    ) : TramaiTool<Any, Any> {
+    ) : TramaiTool<I, Any> {
 
-        override suspend fun execute(input: Any, context: ToolExecutionContext): Any {
+        override suspend fun execute(input: I, context: ToolExecutionContext): Any {
             return if (function.isSuspend) {
                 function.callSuspend(bean, input) ?: Unit
             } else {

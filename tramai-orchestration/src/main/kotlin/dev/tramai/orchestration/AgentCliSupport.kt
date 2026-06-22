@@ -1,6 +1,7 @@
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
@@ -29,19 +30,34 @@ internal class AgentCliTimeoutException(
     val timeoutSeconds: Long,
 ) : RuntimeException("timed out after ${timeoutSeconds}s")
 
+internal data class AgentCliRequest(
+    val workflowName: String,
+    val stepName: String,
+    val eventPrefix: String,
+    val agentType: String,
+    val processBuilder: ProcessBuilder,
+    val timeoutSeconds: Long,
+    val maxOutputBytes: Long,
+    val promptLength: Int,
+    val context: WorkflowContext,
+    val observer: WorkflowObserver,
+)
+
 internal suspend fun executeAgentCli(
-    workflowName: String,
-    stepName: String,
-    eventPrefix: String,
-    agentType: String,
-    processBuilder: ProcessBuilder,
-    timeoutSeconds: Long,
-    maxOutputBytes: Long,
-    promptLength: Int,
-    context: WorkflowContext,
-    observer: WorkflowObserver,
+    request: AgentCliRequest,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ): AgentCliExecution {
-    val process = withContext(Dispatchers.IO) {
+    val workflowName = request.workflowName
+    val stepName = request.stepName
+    val eventPrefix = request.eventPrefix
+    val agentType = request.agentType
+    val processBuilder = request.processBuilder
+    val timeoutSeconds = request.timeoutSeconds
+    val maxOutputBytes = request.maxOutputBytes
+    val promptLength = request.promptLength
+    val context = request.context
+    val observer = request.observer
+    val process = withContext(ioDispatcher) {
         processBuilder
             .redirectErrorStream(false)
             .start()
@@ -62,17 +78,17 @@ internal suspend fun executeAgentCli(
     val startedAtNanos = System.nanoTime()
     try {
         return coroutineScope {
-            val stdoutDeferred = async(Dispatchers.IO) { process.inputStream.captureAgentOutput(maxOutputBytes) }
-            val stderrDeferred = async(Dispatchers.IO) { process.errorStream.captureAgentOutput(maxOutputBytes) }
+            val stdoutDeferred = async(ioDispatcher) { process.inputStream.captureAgentOutput(maxOutputBytes) }
+            val stderrDeferred = async(ioDispatcher) { process.errorStream.captureAgentOutput(maxOutputBytes) }
 
             try {
                 withTimeout(timeoutSeconds.seconds) {
-                    runInterruptible(Dispatchers.IO) {
+                    runInterruptible(ioDispatcher) {
                         process.waitFor()
                     }
                 }
             } catch (_: TimeoutCancellationException) {
-                terminateAgentProcessTree(process)
+                terminateAgentProcessTree(process, ioDispatcher)
                 throw AgentCliTimeoutException(timeoutSeconds)
             }
 
@@ -106,7 +122,7 @@ internal suspend fun executeAgentCli(
             )
         }
     } finally {
-        terminateAgentProcessTree(process)
+        terminateAgentProcessTree(process, ioDispatcher)
     }
 }
 
@@ -169,8 +185,11 @@ private fun InputStream.captureAgentOutput(
     )
 }
 
-private suspend fun terminateAgentProcessTree(process: Process) {
-    withContext(NonCancellable + Dispatchers.IO) {
+private suspend fun terminateAgentProcessTree(
+    process: Process,
+    ioDispatcher: CoroutineDispatcher,
+) {
+    withContext(NonCancellable + ioDispatcher) {
         terminateProcessTree(
             process = process,
             gracePeriodMillis = agentCliTerminationGracePeriodMillis,

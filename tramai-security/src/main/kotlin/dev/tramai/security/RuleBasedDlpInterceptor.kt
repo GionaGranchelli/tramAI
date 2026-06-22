@@ -57,8 +57,8 @@ class RuleBasedDlpInterceptor(
     }
 
     override fun inspect(context: DlpContext, text: String): DlpResult {
-        if (text.length > maxTextLength) {
-            throw IllegalArgumentException("Input text exceeds maximum allowed length")
+        require(text.length <= maxTextLength) {
+            "Input text exceeds maximum allowed length"
         }
 
         val redactions = mutableListOf<DlpRedaction>()
