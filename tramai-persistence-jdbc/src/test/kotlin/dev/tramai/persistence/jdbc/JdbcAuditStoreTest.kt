@@ -164,7 +164,7 @@ class JdbcAuditStoreTest {
             enforcementPoint = "approval",
             decision = decision,
             policyVersion = "v1",
-            workflowDigest = "sha256:a".repeat(64),
+            workflowDigest = "sha256:${"a".repeat(64)}",
             previousEventHash = previousEventHash,
             eventHash = "", // will be computed
             timestamp = fixedClock.instant(),
@@ -629,7 +629,7 @@ class JdbcAuditStoreTest {
             conn.prepareStatement(
                 """INSERT INTO audit_events
                    (stream_id, sequence_number, event_id, event_type, event_hash, schema_version)
-                   VALUES ('test', -1, 'neg-seq', 'APPROVED', 'a'.repeat(64), '1')"""
+                   VALUES ('test', -1, 'neg-seq', 'APPROVED', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '1')"""
             ).use { stmt -> stmt.executeUpdate() }
         }
     }
@@ -643,7 +643,7 @@ class JdbcAuditStoreTest {
             conn.prepareStatement(
                 """INSERT INTO audit_events
                    (stream_id, sequence_number, event_id, event_type, event_hash, schema_version)
-                   VALUES ('', 1, 'blank-stream', 'APPROVED', 'a'.repeat(64), '1')"""
+                   VALUES ('', 1, 'blank-stream', 'APPROVED', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '1')"""
             ).use { stmt -> stmt.executeUpdate() }
         }
     }
@@ -657,7 +657,7 @@ class JdbcAuditStoreTest {
             conn.prepareStatement(
                 """INSERT INTO audit_events
                    (stream_id, sequence_number, event_id, event_type, event_hash, schema_version)
-                   VALUES ('test', 1, 'bad-schema', 'APPROVED', 'a'.repeat(64), '0')"""
+                   VALUES ('test', 1, 'bad-schema', 'APPROVED', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '0')"""
             ).use { stmt -> stmt.executeUpdate() }
         }
     }
@@ -717,5 +717,207 @@ class JdbcAuditStoreTest {
         assertEquals(4L, page2[0].sequenceNumber)
         assertEquals(6L, page2[2].sequenceNumber)
         assertTrue(checkChain(page2))
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // P1 regression — tampered queryable DB columns fail closed
+    // ═══════════════════════════════════════════════════════════════
+
+    @Test
+    fun `tampered event_hash column fails read`() = runBlocking {
+        val s = store()
+        s.appendNext("stream-1", eventFactory("stream-1"))
+
+        val conn: Connection = DriverManager.getConnection(
+            postgres.jdbcUrl, postgres.username, postgres.password,
+        )
+        conn.use { c ->
+            c.prepareStatement(
+                "UPDATE audit_events SET event_hash = 'corrupted' WHERE event_id = 'evt-stream-1-1'",
+            ).use { stmt -> stmt.executeUpdate() }
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            s.readStream("stream-1")
+        }
+    }
+
+    @Test
+    fun `tampered previous_event_hash column fails read`() = runBlocking {
+        val s = store()
+        s.appendNext("stream-1", eventFactory("stream-1"))
+        s.appendNext("stream-1", eventFactory("stream-1"))
+
+        val conn: Connection = DriverManager.getConnection(
+            postgres.jdbcUrl, postgres.username, postgres.password,
+        )
+        conn.use { c ->
+            c.prepareStatement(
+                "UPDATE audit_events SET previous_event_hash = 'corrupted' WHERE event_id = 'evt-stream-1-2'",
+            ).use { stmt -> stmt.executeUpdate() }
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            s.readStream("stream-1")
+        }
+    }
+
+    @Test
+    fun `tampered event_type column fails read`() = runBlocking {
+        val s = store()
+        s.appendNext("stream-1", eventFactory("stream-1"))
+
+        val conn: Connection = DriverManager.getConnection(
+            postgres.jdbcUrl, postgres.username, postgres.password,
+        )
+        conn.use { c ->
+            c.prepareStatement(
+                "UPDATE audit_events SET event_type = 'TAMPERED' WHERE event_id = 'evt-stream-1-1'",
+            ).use { stmt -> stmt.executeUpdate() }
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            s.readStream("stream-1")
+        }
+    }
+
+    @Test
+    fun `tampered schema_version column fails read`() = runBlocking {
+        val s = store()
+        s.appendNext("stream-1", eventFactory("stream-1"))
+
+        val conn: Connection = DriverManager.getConnection(
+            postgres.jdbcUrl, postgres.username, postgres.password,
+        )
+        conn.use { c ->
+            c.prepareStatement(
+                "UPDATE audit_events SET schema_version = '0' WHERE event_id = 'evt-stream-1-1'",
+            ).use { stmt -> stmt.executeUpdate() }
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            s.readStream("stream-1")
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // P1 regression — sanitized_actor stores hash, not raw actor
+    // ═══════════════════════════════════════════════════════════════
+
+    @Test
+    fun `sanitized_actor stores hash not raw actor`() = runBlocking {
+        val s = store()
+        s.appendNext("stream-1", eventFactory("stream-1", actor = "user:secret-agent"))
+
+        val conn: Connection = DriverManager.getConnection(
+            postgres.jdbcUrl, postgres.username, postgres.password,
+        )
+        conn.use { c ->
+            c.prepareStatement(
+                "SELECT sanitized_actor FROM audit_events WHERE event_id = 'evt-stream-1-1'",
+            ).use { stmt ->
+                stmt.executeQuery().use { rs ->
+                    assertTrue(rs.next())
+                    val actorValue = rs.getString("sanitized_actor")
+                    assertNotNull(actorValue)
+                    assertTrue(actorValue.startsWith("sha256:"),
+                        "sanitized_actor must be a hash, got: $actorValue")
+                    assertTrue(actorValue != "user:secret-agent",
+                        "sanitized_actor must not contain raw actor ID")
+                    assertEquals(71, actorValue.length,
+                        "sha256 hex should be 64 chars + 'sha256:' prefix = 71")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `sanitized_actor is null when actor is null`() = runBlocking {
+        val s = store()
+        s.appendNext("stream-1", eventFactory("stream-1", actor = null))
+
+        val conn: Connection = DriverManager.getConnection(
+            postgres.jdbcUrl, postgres.username, postgres.password,
+        )
+        conn.use { c ->
+            c.prepareStatement(
+                "SELECT sanitized_actor FROM audit_events WHERE event_id = 'evt-stream-1-1'",
+            ).use { stmt ->
+                stmt.executeQuery().use { rs ->
+                    assertTrue(rs.next())
+                    assertNull(rs.getString("sanitized_actor"),
+                        "sanitized_actor must be null when actor is null")
+                }
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // P1/P2 regression — stream head integrity
+    // ═══════════════════════════════════════════════════════════════
+
+    @Test
+    fun `append fails when stream head points to missing event`() = runBlocking {
+        val s = store()
+        s.appendNext("stream-1", eventFactory("stream-1"))
+
+        // Delete the event directly (bypassing store)
+        val conn: Connection = DriverManager.getConnection(
+            postgres.jdbcUrl, postgres.username, postgres.password,
+        )
+        conn.use { c ->
+            c.createStatement().use { stmt ->
+                stmt.execute("DELETE FROM audit_events WHERE event_id = 'evt-stream-1-1'")
+            }
+        }
+
+        // Append on the corrupted stream must fail before calling eventFactory
+        assertFailsWith<IllegalStateException> {
+            s.appendNext("stream-1", eventFactory("stream-1"))
+        }
+    }
+
+    @Test
+    fun `append fails when stream head event_id mismatches latest event`() = runBlocking {
+        val s = store()
+        s.appendNext("stream-1", eventFactory("stream-1"))
+        s.appendNext("stream-1", eventFactory("stream-1"))
+
+        // Corrupt the head to point to a wrong event_id
+        val conn: Connection = DriverManager.getConnection(
+            postgres.jdbcUrl, postgres.username, postgres.password,
+        )
+        conn.use { c ->
+            c.createStatement().use { stmt ->
+                stmt.execute(
+                    "UPDATE audit_stream_heads SET latest_event_id = 'evt-stream-1-1' WHERE stream_id = 'stream-1'"
+                )
+            }
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            s.appendNext("stream-1", eventFactory("stream-1"))
+        }
+    }
+
+    @Test
+    fun `append fails when stream head event_hash mismatches latest event`() = runBlocking {
+        val s = store()
+        s.appendNext("stream-1", eventFactory("stream-1"))
+
+        val conn: Connection = DriverManager.getConnection(
+            postgres.jdbcUrl, postgres.username, postgres.password,
+        )
+        conn.use { c ->
+            c.createStatement().use { stmt ->
+                stmt.execute(
+                    "UPDATE audit_stream_heads SET latest_event_hash = 'corrupted' WHERE stream_id = 'stream-1'"
+                )
+            }
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            s.appendNext("stream-1", eventFactory("stream-1"))
+        }
     }
 }

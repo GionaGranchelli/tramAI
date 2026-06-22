@@ -108,11 +108,7 @@ class JdbcAuditStore(
                 // Acquire the stream-level lock via FOR UPDATE on the head row.
                 // This serializes all concurrent appenders to the same stream.
                 val head = selectHeadForUpdate(conn, auditStreamId)
-                val latest = if (head.latestSequence > 0) {
-                    readEventBySequence(conn, auditStreamId, head.latestSequence)
-                } else {
-                    null
-                }
+                val latest = resolveLatestFromHead(conn, auditStreamId, head)
 
                 // eventFactory is called INSIDE the transaction, AFTER the
                 // stream-level lock is acquired. Factories should be
@@ -187,7 +183,6 @@ class JdbcAuditStore(
     ): List<AuditEvent> {
         require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
         require(limit > 0) { "audit-store-invalid-limit" }
-        require(auditStreamId.isNotBlank()) { "audit-store-invalid-stream-id" }
         require(afterSequenceNumber == null || afterSequenceNumber >= 0) {
             "audit-store-invalid-cursor"
         }
@@ -337,6 +332,9 @@ class JdbcAuditStore(
         updatedAt = rs.getObject("updated_at", OffsetDateTime::class.java),
     )
 
+    /**
+     * Updates the stream head after a successful event append.
+     */
     private fun updateHead(
         conn: Connection,
         auditStreamId: String,
@@ -357,7 +355,8 @@ class JdbcAuditStore(
             stmt.setString(3, event.eventHash)
             stmt.setObject(4, nowOdt)
             stmt.setString(5, auditStreamId)
-            stmt.executeUpdate()
+            val updated = stmt.executeUpdate()
+            require(updated == 1) { "audit-stream-head-update-failed" }
         }
     }
 
@@ -475,7 +474,7 @@ class JdbcAuditStore(
             stmt.setString(5, event.eventHash)
             stmt.setString(6, event.previousEventHash)
             stmt.setObject(7, nowOdt)
-            stmt.setString(8, event.actor)
+            stmt.setString(8, event.actor?.let { sha256Hex(it) })
             stmt.setBytes(9, encrypted.ciphertext)
             stmt.setString(10, encrypted.keyId)
             stmt.setString(11, encrypted.algorithm)
@@ -495,6 +494,34 @@ class JdbcAuditStore(
     }
 
     // ── Event reads ──────────────────────────────────────────────────
+
+    /**
+     * Resolves the latest event from the stream head, validating that the head
+     * metadata matches the actual latest event row. Fails closed on corruption.
+     */
+    private fun resolveLatestFromHead(
+        conn: Connection,
+        auditStreamId: String,
+        head: StreamHead,
+    ): AuditEvent? {
+        if (head.latestSequence == 0L) {
+            require(head.latestEventId == null) { "audit-stream-head-corrupted: sequence 0 with non-null event id" }
+            require(head.latestEventHash == null) { "audit-stream-head-corrupted: sequence 0 with non-null event hash" }
+            return null
+        }
+
+        val latest = readEventBySequence(conn, auditStreamId, head.latestSequence)
+            ?: throw IllegalStateException("audit-stream-head-latest-event-missing")
+
+        require(latest.eventId == head.latestEventId) {
+            "audit-stream-head-event-id-mismatch"
+        }
+        require(latest.eventHash == head.latestEventHash) {
+            "audit-stream-head-event-hash-mismatch"
+        }
+
+        return latest
+    }
 
     private fun readAllEvents(conn: Connection, auditStreamId: String): List<AuditEvent> {
         val sql = """
@@ -632,6 +659,18 @@ class JdbcAuditStore(
         require(domainEvent.eventId == rs.getString("event_id")) {
             "audit-event-id-mismatch"
         }
+        require(domainEvent.eventHash == rs.getString("event_hash")) {
+            "audit-event-hash-column-mismatch"
+        }
+        require(domainEvent.previousEventHash == rs.getString("previous_event_hash")) {
+            "audit-previous-event-hash-column-mismatch"
+        }
+        require(domainEvent.schemaVersion.toString() == rs.getString("schema_version")) {
+            "audit-schema-version-column-mismatch"
+        }
+        require(domainEvent.decision == rs.getString("event_type")) {
+            "audit-event-type-column-mismatch"
+        }
         return domainEvent
     }
 
@@ -639,4 +678,10 @@ class JdbcAuditStore(
 
     private fun immutableCopy(event: AuditEvent): AuditEvent =
         event.copy(metadata = java.util.Collections.unmodifiableMap(java.util.LinkedHashMap(event.metadata)))
+
+    private fun sha256Hex(input: String): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        val hashBytes = digest.digest(input.toByteArray(java.nio.charset.StandardCharsets.UTF_8))
+        return "sha256:${hashBytes.joinToString("") { "%02x".format(it) }}"
+    }
 }

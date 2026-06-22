@@ -14,7 +14,18 @@ CREATE TABLE IF NOT EXISTS audit_stream_heads (
     latest_sequence     BIGINT      NOT NULL DEFAULT 0,
     latest_event_id     TEXT,
     latest_event_hash   TEXT,
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_audit_stream_heads_latest_sequence CHECK (
+        latest_sequence >= 0
+    ),
+    CONSTRAINT ck_audit_stream_heads_empty_consistency CHECK (
+        (latest_sequence = 0 AND latest_event_id IS NULL AND latest_event_hash IS NULL)
+        OR
+        (latest_sequence > 0 AND latest_event_id IS NOT NULL AND latest_event_hash IS NOT NULL)
+    ),
+    CONSTRAINT ck_audit_stream_heads_stream_id_non_blank CHECK (
+        length(trim(stream_id)) > 0
+    )
 );
 
 -- ──────────────────────────────────────────────
