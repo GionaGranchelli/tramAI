@@ -40,6 +40,7 @@ TramAI exists to make those concerns explicit, testable, and composable in JVM a
 | Model registry verification | Verify local model artifacts before they can be used. |
 | Audit chain | Record governance-relevant events with tamper-evident sequencing. |
 | Encrypted file-backed persistence | Durable encrypted stores for approvals, suspended invocations, audit streams, and outbox records. |
+| JDBC persistence | PostgreSQL-backed sovereign stores: approvals, audit events, suspended invocations, approval continuations, and audit outbox. Spring Boot auto-configuration via `type=jdbc`. |
 | Audit outbox recovery | Persist audit emission intent and safely recover/dispatch it via a configurable background worker. |
 
 ## Quick Example

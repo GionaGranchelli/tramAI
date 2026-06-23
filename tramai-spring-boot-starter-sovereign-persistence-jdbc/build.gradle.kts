@@ -20,15 +20,16 @@ kotlin {
 }
 
 dependencies {
+    api(project(":tramai-spring-boot-starter-sovereign"))
     api(project(":tramai-spring-boot-starter-sovereign-ops"))
     api(project(":tramai-persistence-jdbc"))
     api(project(":tramai-security"))
+    api(libs.spring.boot.autoconfigure)
 
     implementation(libs.coroutines.core)
     implementation(libs.jackson.databind)
     implementation(libs.jackson.module.kotlin)
     implementation(libs.jackson.datatype.jsr310)
-    implementation(libs.spring.boot.autoconfigure)
 
     annotationProcessor(libs.spring.boot.configuration.processor)
 
@@ -39,6 +40,7 @@ dependencies {
     testImplementation(libs.coroutines.core)
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.junit.platform:junit-platform-launcher")
+    testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.junit.jupiter)
     testImplementation(libs.postgresql)

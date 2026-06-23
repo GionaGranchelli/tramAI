@@ -344,8 +344,85 @@ Suggested implementation sequence:
 6. Add audit stream JDBC store. ✅ `JdbcAuditStore` (PR #84)
 7. Add audit outbox JDBC store. ✅ `JdbcSovereignOpsAuditOutboxStore` (PR #85)
 8. Add Testcontainers-based integration tests. ✅ (per-store coverage)
-9. Add optional worker lease support.
-10. Add production deployment documentation.
+9. Add Spring Boot auto-configuration for JDBC persistence. ✅ `SovereignJdbcPersistenceAutoConfiguration` (PR #86)
+10. Add optional worker lease support.
+11. Add production deployment documentation.
+
+## Spring Boot Auto-Configuration (PR #86)
+
+The `tramai-spring-boot-starter-sovereign-persistence-jdbc` module provides Spring Boot auto-configuration for JDBC-backed sovereign stores.
+
+### Activation
+
+The auto-configuration activates when:
+- `tramai.sovereign.persistence.type=jdbc` is configured
+- A `DataSource` bean is available in the application context
+
+If `type=jdbc` is set without a `DataSource`, startup **fails loudly** — the base starter cannot silently fall back to in-memory stores.
+
+### Configuration example
+
+```yaml
+tramai:
+  sovereign:
+    persistence:
+      type: jdbc
+      jdbc:
+        claim-lease-duration: 5m
+        max-claim-limit: 500
+      encryption:
+        key-env: TRAMAI_SOVEREIGN_STORE_KEY
+```
+
+### Store beans registered
+
+| Store | Implementation | Condition |
+|-------|---------------|-----------|
+| `ApprovalStore` | `JdbcApprovalStore` | `@ConditionalOnMissingBean` |
+| `ApprovalContinuationStore` | `JdbcApprovalContinuationStore` | `@ConditionalOnMissingBean` |
+| `SuspendedInvocationStore` | `JdbcSuspendedInvocationStore` | `@ConditionalOnMissingBean` |
+| `AuditStore` | `JdbcAuditStore` | `@ConditionalOnMissingBean` |
+| `SovereignOpsAuditOutboxStore` | `JdbcSovereignOpsAuditOutboxStore` | `@ConditionalOnMissingBean` |
+
+All store beans are `@ConditionalOnMissingBean` — user-provided stores always take precedence.
+
+### Default AES-GCM codecs
+
+Default codec beans are provided for each encrypted column:
+
+| Codec interface | Default implementation |
+|----------------|----------------------|
+| `JdbcAuditPayloadCodec` | `DefaultJdbcAuditPayloadCodec` (AES-256-GCM) |
+| `JdbcReplayEnvelopeCodec` | `DefaultJdbcSuspendedInvocationPayloadCodec` (AES-256-GCM) |
+| `JdbcContinuationArgumentsCodec` | `DefaultJdbcApprovalContinuationPayloadCodec` (AES-256-GCM) |
+| `JdbcOpsAuditOutboxPayloadCodec` | `DefaultJdbcOpsAuditOutboxPayloadCodec` (AES-256-GCM) |
+
+All codec beans are `@ConditionalOnMissingBean` — user-provided codecs always take precedence.
+
+### Key requirements
+
+- Exactly one key source: `key-env` or `key-file`
+- Key must be base64-encoded 256-bit AES key (decodes to 32 bytes)
+- Plaintext keys in YAML are not supported
+- Keys are never logged or exposed in exception messages
+
+### Required dependencies
+
+```kotlin
+implementation("dev.tramai:tramai-spring-boot-starter-sovereign-persistence-jdbc")
+runtimeOnly("org.postgresql:postgresql")
+```
+
+### Database migration expectation
+
+The application database must have the TramAI JDBC schema migrations applied before runtime startup.
+
+### Non-goals of PR #86
+
+- Database migration execution and restart-proof E2E scenarios
+- Multi-node worker coordination
+- Transaction boundary hardening
+- Production deployment certification
 
 ## Non-Goals
 

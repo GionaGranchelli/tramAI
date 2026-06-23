@@ -8,6 +8,7 @@
 - Approval gates and replay-safe resume.
 - Encrypted file-backed persistence (`tramai-persistence-file`).
 - File-backed audit outbox and recovery workflow (`tramai-spring-boot-starter-sovereign-ops`).
+- JDBC-backed sovereign persistence with Spring Boot auto-configuration (`tramai-spring-boot-starter-sovereign-persistence-jdbc`). Activated via `tramai.sovereign.persistence.type=jdbc`.
 - Background worker for audit outbox recovery and dispatch.
 - Observer SPI and composite observer pipeline for sovereign ops audit outbox worker cycles and failures.
 - OpenTelemetry worker metrics (`tramai-spring-boot-starter-sovereign-ops-observability`).
