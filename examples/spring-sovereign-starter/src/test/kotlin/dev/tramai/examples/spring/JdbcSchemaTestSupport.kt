@@ -25,7 +25,8 @@ object JdbcSchemaTestSupport {
 
     /**
      * Applies all TramAI JDBC schema migrations to the given [dataSource].
-     * Each migration is read from the classpath and executed as a batch.
+     * Each migration is read from the classpath and its statements are
+     * executed sequentially in one transaction.
      *
      * @throws IllegalStateException if any migration fails.
      */
