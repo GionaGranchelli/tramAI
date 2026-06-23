@@ -19,17 +19,19 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import java.io.PrintWriter
-import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
 import java.sql.SQLException
+import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 import java.util.logging.Logger
+import javax.crypto.SecretKey
 import javax.sql.DataSource
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
@@ -97,17 +99,24 @@ class SovereignJdbcPersistenceAutoConfigurationTest {
     // ── type=jdbc without DataSource fails ────────────────────────────
 
     @Test
-    fun `type is jdbc without DataSource fails`() {
+    fun `type is jdbc without DataSource fails with deterministic error`() {
+        val keyFile = prepareKeyFile("no-datasource-key.b64")
+
         ApplicationContextRunner()
             .withConfiguration(
                 AutoConfigurations.of(SovereignJdbcPersistenceAutoConfiguration::class.java),
             )
             .withPropertyValues(
                 "tramai.sovereign.persistence.type=jdbc",
-                "tramai.sovereign.persistence.encryption.key-env=TRAMAI_SOVEREIGN_STORE_KEY",
+                "tramai.sovereign.persistence.encryption.key-file=${keyFile.toAbsolutePath()}",
             )
             .run { ctx ->
                 assertThat(ctx).hasFailed()
+                val failure = requireNotNull(ctx.startupFailure)
+                assertThat(failure)
+                    .hasMessageContaining(
+                        "tramai-sovereign-jdbc-persistence-missing-datasource",
+                    )
             }
     }
 
@@ -490,11 +499,8 @@ class SovereignJdbcPersistenceAutoConfigurationTest {
                     .toTypedArray(),
             )
             .run { ctx ->
-                // Outbox store is created; the property is consumed in the constructor.
-                // We verify the bean exists and is correctly typed.
-                assertThat(ctx).hasSingleBean(SovereignOpsAuditOutboxStore::class.java)
-                val store = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
-                assertThat(store).isExactlyInstanceOf(JdbcSovereignOpsAuditOutboxStore::class.java)
+                val props = ctx.getBean(SovereignJdbcPersistenceProperties::class.java)
+                assertThat(props.jdbc.claimLeaseDuration).isEqualTo(Duration.ofMinutes(10))
             }
     }
 
@@ -509,17 +515,41 @@ class SovereignJdbcPersistenceAutoConfigurationTest {
                     .toTypedArray(),
             )
             .run { ctx ->
+                val props = ctx.getBean(SovereignJdbcPersistenceProperties::class.java)
+                assertThat(props.jdbc.maxClaimLimit).isEqualTo(1000)
+            }
+    }
+
+    // ── P1 regression: unrelated SecretKey bean ───────────────────────
+
+    @Test
+    fun `default codecs use sovereign JDBC encryption key when another SecretKey bean exists`() {
+        val keyFile = prepareKeyFile()
+
+        ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(SovereignJdbcPersistenceAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(TestDataSourceConfig::class.java, UnrelatedSecretKeyConfig::class.java)
+            .withPropertyValues(
+                *validJdbcProps(keyFile).entries
+                    .map { "${it.key}=${it.value}" }
+                    .toTypedArray(),
+            )
+            .run { ctx ->
+                // Context starts successfully despite an unrelated SecretKey bean
+                assertThat(ctx).hasSingleBean(JdbcAuditPayloadCodec::class.java)
+                assertThat(ctx).hasSingleBean(JdbcReplayEnvelopeCodec::class.java)
+                assertThat(ctx).hasSingleBean(JdbcContinuationArgumentsCodec::class.java)
+                assertThat(ctx).hasSingleBean(JdbcOpsAuditOutboxPayloadCodec::class.java)
                 assertThat(ctx).hasSingleBean(SovereignOpsAuditOutboxStore::class.java)
-                val store = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
-                assertThat(store).isExactlyInstanceOf(JdbcSovereignOpsAuditOutboxStore::class.java)
             }
     }
 
     // ── Helpers ────────────────────────────────────────────────────────
 
-    private fun prepareKeyFile(): Path {
-        val keyDir = Files.createTempDirectory("tramai-jdbc-test-key-")
-        val keyFile = keyDir.resolve("key.b64")
+    private fun prepareKeyFile(name: String = "key.b64"): Path {
+        val keyFile = tempDir.resolve(name)
         keyFile.toFile().writeText(validBase64Key)
         return keyFile
     }
@@ -554,6 +584,19 @@ open class CustomAuditPayloadCodecConfig {
     @Bean
     @Primary
     open fun customAuditPayloadCodec(): JdbcAuditPayloadCodec = CustomAuditPayloadCodec()
+}
+
+/**
+ * Configuration that provides an unrelated [SecretKey] bean to verify that
+ * the JDBC auto-configuration codec beans correctly qualify their key injection
+ * and do not accidentally bind to a non-sovereign key.
+ */
+open class UnrelatedSecretKeyConfig {
+    @Bean
+    open fun unrelatedAppSecretKey(): SecretKey {
+        val raw = javax.crypto.spec.SecretKeySpec(ByteArray(32) { 0x01 }, "AES")
+        return raw
+    }
 }
 
 // ── DataSource that never actually connects ──────────────────────────

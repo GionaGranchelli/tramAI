@@ -15,7 +15,9 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
 import javax.sql.DataSource
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.autoconfigure.AutoConfiguration
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -44,6 +46,10 @@ import org.springframework.context.annotation.Bean
  * ## Encryption codec beans
  * All payload codecs are `@ConditionalOnMissingBean` — user-provided codecs
  * always take precedence.
+ *
+ * The codec beans explicitly qualify their [SecretKey] injection with
+ * `@Qualifier("sovereignJdbcEncryptionKey")` to avoid binding to an
+ * unrelated `SecretKey` bean from another part of the application.
  *
  * ## Configuration example
  * ```yaml
@@ -78,6 +84,24 @@ import org.springframework.context.annotation.Bean
 )
 class SovereignJdbcPersistenceAutoConfiguration {
 
+    // ── Fail-fast: missing DataSource ─────────────────────────────────
+
+    /**
+     * Fail-fast guard: when `type=jdbc` is configured but no [DataSource]
+     * bean exists, startup fails with `tramai-sovereign-jdbc-persistence-missing-datasource`.
+     *
+     * This is a `@ConditionalOnMissingBean` — it only runs when DataSource
+     * is absent. When a DataSource is present, this method is skipped and
+     * the store beans below use it directly.
+     */
+    @Bean
+    @ConditionalOnMissingBean(DataSource::class)
+    fun missingJdbcDataSourceFailure(): Nothing {
+        throw IllegalStateException(
+            "tramai-sovereign-jdbc-persistence-missing-datasource",
+        )
+    }
+
     // ── Encryption key ────────────────────────────────────────────────
 
     /**
@@ -96,11 +120,14 @@ class SovereignJdbcPersistenceAutoConfiguration {
     }
 
     // ── Default codec beans ───────────────────────────────────────────
+    //
+    // All codec beans qualify their SecretKey injection to avoid binding
+    // to an unrelated SecretKey bean from another part of the application.
 
     @Bean
     @ConditionalOnMissingBean
     fun jdbcAuditPayloadCodec(
-        key: SecretKey,
+        @Qualifier("sovereignJdbcEncryptionKey") key: SecretKey,
         properties: SovereignJdbcPersistenceProperties,
     ): JdbcAuditPayloadCodec =
         DefaultJdbcAuditPayloadCodec(key, properties.encryption.keyId)
@@ -108,7 +135,7 @@ class SovereignJdbcPersistenceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     fun jdbcReplayEnvelopeCodec(
-        key: SecretKey,
+        @Qualifier("sovereignJdbcEncryptionKey") key: SecretKey,
         properties: SovereignJdbcPersistenceProperties,
     ): JdbcReplayEnvelopeCodec =
         DefaultJdbcSuspendedInvocationPayloadCodec(key, properties.encryption.keyId)
@@ -116,7 +143,7 @@ class SovereignJdbcPersistenceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     fun jdbcContinuationArgumentsCodec(
-        key: SecretKey,
+        @Qualifier("sovereignJdbcEncryptionKey") key: SecretKey,
         properties: SovereignJdbcPersistenceProperties,
     ): JdbcContinuationArgumentsCodec =
         DefaultJdbcApprovalContinuationPayloadCodec(key, properties.encryption.keyId)
@@ -124,21 +151,26 @@ class SovereignJdbcPersistenceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     fun jdbcOpsAuditOutboxPayloadCodec(
-        key: SecretKey,
+        @Qualifier("sovereignJdbcEncryptionKey") key: SecretKey,
         properties: SovereignJdbcPersistenceProperties,
     ): JdbcOpsAuditOutboxPayloadCodec =
         DefaultJdbcOpsAuditOutboxPayloadCodec(key, properties.encryption.keyId)
 
     // ── Store beans ───────────────────────────────────────────────────
+    //
+    // All store beans require a DataSource and back off via
+    // @ConditionalOnMissingBean when a user-provided store exists.
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnBean(DataSource::class)
     fun approvalStore(
         dataSource: DataSource,
     ): ApprovalStore = JdbcApprovalStore(dataSource)
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnBean(DataSource::class)
     fun approvalContinuationStore(
         dataSource: DataSource,
         argumentsCodec: JdbcContinuationArgumentsCodec,
@@ -146,6 +178,7 @@ class SovereignJdbcPersistenceAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnBean(DataSource::class)
     fun suspendedInvocationStore(
         dataSource: DataSource,
         replayEnvelopeCodec: JdbcReplayEnvelopeCodec,
@@ -153,6 +186,7 @@ class SovereignJdbcPersistenceAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnBean(DataSource::class)
     fun auditStore(
         dataSource: DataSource,
         payloadCodec: JdbcAuditPayloadCodec,
@@ -160,6 +194,7 @@ class SovereignJdbcPersistenceAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnBean(DataSource::class)
     fun sovereignOpsAuditOutboxStore(
         dataSource: DataSource,
         payloadCodec: JdbcOpsAuditOutboxPayloadCodec,
