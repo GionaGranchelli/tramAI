@@ -21,6 +21,7 @@ object JdbcSchemaTestSupport {
         "/tramai/persistence/jdbc/postgres/V2__approval_continuations.sql",
         "/tramai/persistence/jdbc/postgres/V3__audit_events_hardening.sql",
         "/tramai/persistence/jdbc/postgres/V4__audit_outbox_hardening.sql",
+        "/tramai/persistence/jdbc/postgres/V5__worker_leases_hardening.sql",
     )
 
     /**

@@ -11,6 +11,8 @@ import dev.tramai.spring.sovereign.ops.outbox.CompositeSovereignOpsAuditOutboxWo
 import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsAuditOutboxStore
 import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsAuditOutboxWorkerStatusStore
+import dev.tramai.spring.sovereign.ops.outbox.LeasedSovereignOpsAuditOutboxBackgroundWorker
+import dev.tramai.spring.sovereign.ops.outbox.LeasedSovereignOpsAuditOutboxWorkerLifecycle
 import dev.tramai.spring.sovereign.ops.outbox.RecordingSovereignOpsAuditOutboxWorkerObserver
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRecoveryResolver
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
@@ -25,9 +27,11 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerObser
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerStatusStore
 import dev.tramai.spring.sovereign.ops.outbox.UnknownSovereignOpsApprovalRecoveryResolver
 import dev.tramai.spring.sovereign.ops.outbox.validateSovereignOpsAuditOutboxWorkerProperties
+import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseStore
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -202,6 +206,41 @@ class SovereignOpsAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnExpression(
+        "'\${tramai.sovereign.ops.outbox.worker.enabled:false}' == 'true' " +
+            "&& '\${tramai.sovereign.ops.outbox.worker.lease-enabled:false}' == 'true'",
+    )
+    @ConditionalOnBean(SovereignOpsWorkerLeaseStore::class)
+    fun sovereignOpsAuditOutboxLeasedWorker(
+        delegate: SovereignOpsAuditOutboxBackgroundWorker,
+        leaseStore: SovereignOpsWorkerLeaseStore,
+        properties: SovereignOpsProperties,
+    ): LeasedSovereignOpsAuditOutboxBackgroundWorker =
+        LeasedSovereignOpsAuditOutboxBackgroundWorker(
+            delegate = delegate,
+            leaseStore = leaseStore,
+            properties = properties.outbox.worker,
+        )
+
+    /**
+     * Fails loudly when lease is enabled but no [SovereignOpsWorkerLeaseStore]
+     * bean is available. Do not silently run unleased when the user explicitly
+     * enabled leasing.
+     */
+    @Bean
+    @ConditionalOnExpression(
+        "'\${tramai.sovereign.ops.outbox.worker.enabled:false}' == 'true' " +
+            "&& '\${tramai.sovereign.ops.outbox.worker.lease-enabled:false}' == 'true'",
+    )
+    @ConditionalOnMissingBean(SovereignOpsWorkerLeaseStore::class)
+    fun missingLeaseStoreFailure(): Nothing {
+        throw IllegalStateException(
+            "tramai-sovereign-ops-worker-lease-store-missing",
+        )
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     fun sovereignOpsAuditOutboxWorkerStatusStore(
         properties: SovereignOpsProperties,
         outboxDispatcher: ObjectProvider<SovereignOpsAuditOutboxDispatcher>,
@@ -212,10 +251,6 @@ class SovereignOpsAutoConfiguration {
                 dispatcherAvailable = outboxDispatcher.ifAvailable != null,
             )
         } catch (_: IllegalStateException) {
-            // If the worker config is invalid (e.g. dispatch-pending=true but
-            // no dispatcher and failOnMissingDispatcher=true), the status store
-            // should still exist to report the raw configuration. Fall back to
-            // raw properties so the store always bootstraps.
             properties.outbox.worker
         }
         return InMemorySovereignOpsAuditOutboxWorkerStatusStore(effectiveWorkerProps)
@@ -245,12 +280,17 @@ class SovereignOpsAutoConfiguration {
         )
     }
 
+    // ── Unleased lifecycle (lease-enabled=false or missing, the default) ──
+
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(
         prefix = "tramai.sovereign.ops.outbox.worker",
         name = ["enabled"],
         havingValue = "true",
+    )
+    @ConditionalOnExpression(
+        "'\${tramai.sovereign.ops.outbox.worker.lease-enabled:false}' == 'false'",
     )
     fun sovereignOpsAuditOutboxWorkerLifecycle(
         worker: SovereignOpsAuditOutboxBackgroundWorker,
@@ -266,6 +306,35 @@ class SovereignOpsAutoConfiguration {
 
         return SovereignOpsAuditOutboxWorkerLifecycle(
             worker = worker,
+            properties = effectiveWorkerProps,
+            observer = observer,
+            statusStore = statusStore,
+        )
+    }
+
+    // ── Leased lifecycle (lease-enabled=true + store exists) ──
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnExpression(
+        "'\${tramai.sovereign.ops.outbox.worker.enabled:false}' == 'true' " +
+            "&& '\${tramai.sovereign.ops.outbox.worker.lease-enabled:false}' == 'true'",
+    )
+    @ConditionalOnBean(SovereignOpsWorkerLeaseStore::class)
+    fun sovereignOpsAuditOutboxLeasedWorkerLifecycle(
+        leasedWorker: LeasedSovereignOpsAuditOutboxBackgroundWorker,
+        properties: SovereignOpsProperties,
+        outboxDispatcher: ObjectProvider<SovereignOpsAuditOutboxDispatcher>,
+        observer: SovereignOpsAuditOutboxWorkerObserver,
+        statusStore: SovereignOpsAuditOutboxWorkerStatusStore,
+    ): LeasedSovereignOpsAuditOutboxWorkerLifecycle {
+        val effectiveWorkerProps = effectiveWorkerProperties(
+            rawProps = properties.outbox.worker,
+            dispatcherAvailable = outboxDispatcher.ifAvailable != null,
+        )
+
+        return LeasedSovereignOpsAuditOutboxWorkerLifecycle(
+            worker = leasedWorker,
             properties = effectiveWorkerProps,
             observer = observer,
             statusStore = statusStore,

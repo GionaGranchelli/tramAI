@@ -91,6 +91,7 @@ This activates:
 - sovereign runtime policy engine and routing
 - encrypted file-backed persistence (approvals, continuations, audit stream, outbox)
 - audit outbox background worker (recovery + dispatch loop)
+- multi-node worker lease coordination (prevents duplicate dispatch cycles)
 - optional read-only Actuator worker status endpoint
 - optional Actuator worker health component
 
@@ -113,7 +114,13 @@ tramai:
       audit-outbox:
         worker:
           enabled: true
+          lease-enabled: true
+          lease-name: sovereign-ops-audit-outbox-worker
+          worker-id: ${HOSTNAME:node-1}
+          lease-duration: 2m
+```
 
+This activates JDBC-backed stores and multi-node worker coordination via the `worker_leases` table. Set `lease-enabled: false` to run without lease coordination (single-node mode).
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/tramai
@@ -206,8 +213,6 @@ It does **not** publish remotely, create a tag, or claim Maven Central availabil
 For a regulated-domain walkthrough, see [Regulated Claim Triage Reference Scenario](../scenarios/regulated-claim-triage.md).
 
 - Production deployment and operational runbooks
-- Distributed worker coordination and leader election
-- Database-backed persistence or outbox (JDBC / Postgres)
 - Key rotation and secrets lifecycle
 - Maven Central release or public artifact publication
 - Stable 1.0 API — interfaces are still evolving

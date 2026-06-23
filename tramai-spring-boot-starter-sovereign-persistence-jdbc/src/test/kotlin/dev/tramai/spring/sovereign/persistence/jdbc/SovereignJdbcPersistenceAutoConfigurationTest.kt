@@ -10,6 +10,7 @@ import dev.tramai.persistence.jdbc.JdbcAuditStore
 import dev.tramai.persistence.jdbc.JdbcContinuationArgumentsCodec
 import dev.tramai.persistence.jdbc.JdbcReplayEnvelopeCodec
 import dev.tramai.persistence.jdbc.JdbcSuspendedInvocationStore
+import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseStore
 import dev.tramai.security.approval.InMemoryApprovalContinuationStore
 import dev.tramai.security.approval.InMemoryApprovalStore
 import dev.tramai.security.audit.AuditEvent
@@ -546,6 +547,43 @@ class SovereignJdbcPersistenceAutoConfigurationTest {
             }
     }
 
+    // ── Worker lease store ────────────────────────────────────────────
+
+    @Test
+    fun `type=jdbc + DataSource creates SovereignOpsWorkerLeaseStore`() {
+        val keyFile = prepareKeyFile()
+
+        contextRunner
+            .withPropertyValues(
+                *validJdbcProps(keyFile).entries
+                    .map { "${it.key}=${it.value}" }
+                    .toTypedArray(),
+            )
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(SovereignOpsWorkerLeaseStore::class.java)
+                val store = ctx.getBean(SovereignOpsWorkerLeaseStore::class.java)
+                assertThat(store).isExactlyInstanceOf(JdbcSovereignOpsWorkerLeaseStore::class.java)
+            }
+    }
+
+    @Test
+    fun `user-provided lease store wins`() {
+        val keyFile = prepareKeyFile()
+
+        contextRunner
+            .withUserConfiguration(CustomLeaseStoreConfig::class.java)
+            .withPropertyValues(
+                *validJdbcProps(keyFile).entries
+                    .map { "${it.key}=${it.value}" }
+                    .toTypedArray(),
+            )
+            .run { ctx ->
+                assertThat(ctx.getBeansOfType(SovereignOpsWorkerLeaseStore::class.java)).hasSize(1)
+                val store = ctx.getBean(SovereignOpsWorkerLeaseStore::class.java)
+                assertThat(store).isInstanceOf(CustomLeaseStore::class.java)
+            }
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private fun prepareKeyFile(name: String = "key.b64"): Path {
@@ -738,4 +776,37 @@ class CustomAuditPayloadCodec : JdbcAuditPayloadCodec {
         )
     override fun decode(envelope: dev.tramai.persistence.jdbc.JdbcEncryptedAuditPayload): ByteArray =
         envelope.ciphertext
+}
+
+// ── Worker lease store stubs ───────────────────────────────────────
+
+open class CustomLeaseStoreConfig {
+    @Bean
+    @Primary
+    open fun customLeaseStore(): SovereignOpsWorkerLeaseStore = CustomLeaseStore()
+}
+
+class CustomLeaseStore : SovereignOpsWorkerLeaseStore {
+    override suspend fun tryAcquire(
+        leaseName: String,
+        ownerId: String,
+        now: Instant,
+        leaseDuration: Duration,
+    ) = throw UnsupportedOperationException("custom stub")
+
+    override suspend fun heartbeat(
+        leaseName: String,
+        ownerId: String,
+        now: Instant,
+        leaseDuration: Duration,
+    ) = throw UnsupportedOperationException("custom stub")
+
+    override suspend fun release(
+        leaseName: String,
+        ownerId: String,
+        now: Instant,
+    ) = throw UnsupportedOperationException("custom stub")
+
+    override suspend fun get(leaseName: String) =
+        throw UnsupportedOperationException("custom stub")
 }

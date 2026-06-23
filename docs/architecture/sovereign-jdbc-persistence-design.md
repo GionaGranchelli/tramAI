@@ -223,13 +223,16 @@ Required fields (conceptual):
 
 ### worker_leases
 
-Purpose: future multi-node coordination.
+Purpose: multi-node worker coordination via lease-based leader election.
 
-This is **not** required for the first JDBC implementation, but the design should reserve space for it.
+Status: **Implemented** (PR #88). The table exists in V1, hardened in V5.
+The `JdbcSovereignOpsWorkerLeaseStore` provides atomic lease acquisition
+with `SELECT ... FOR UPDATE`. The `LeasedSovereignOpsAuditOutboxBackgroundWorker`
+wraps the audit outbox worker with lease coordination.
 
-Required fields (conceptual):
+Required fields:
 
-- `lease_name`
+- `lease_name` (PK)
 - `owner_id`
 - `acquired_at`
 - `expires_at`

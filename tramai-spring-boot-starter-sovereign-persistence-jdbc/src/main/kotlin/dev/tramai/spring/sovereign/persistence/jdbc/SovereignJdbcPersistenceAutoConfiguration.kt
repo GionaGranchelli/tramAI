@@ -11,6 +11,7 @@ import dev.tramai.persistence.jdbc.JdbcContinuationArgumentsCodec
 import dev.tramai.persistence.jdbc.JdbcReplayEnvelopeCodec
 import dev.tramai.persistence.jdbc.JdbcSuspendedInvocationStore
 import dev.tramai.security.audit.AuditStore
+import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
@@ -208,4 +209,12 @@ class SovereignJdbcPersistenceAutoConfiguration {
             maxClaimLimit = jdbcConfig.maxClaimLimit,
         )
     }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(DataSource::class)
+    fun sovereignOpsWorkerLeaseStore(
+        dataSource: DataSource,
+    ): SovereignOpsWorkerLeaseStore =
+        JdbcSovereignOpsWorkerLeaseStore(dataSource)
 }

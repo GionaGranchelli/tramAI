@@ -10,14 +10,21 @@ import kotlinx.coroutines.launch
 import org.apache.commons.logging.LogFactory
 import org.springframework.context.SmartLifecycle
 
-class SovereignOpsAuditOutboxWorkerLifecycle(
-    private val worker: SovereignOpsAuditOutboxBackgroundWorker,
+/**
+ * [SmartLifecycle] wrapper that drives [LeasedSovereignOpsAuditOutboxBackgroundWorker]
+ * on a periodic schedule.
+ *
+ * Identical in structure to [SovereignOpsAuditOutboxWorkerLifecycle] but
+ * parameterized for the lease-coordinated worker type.
+ */
+class LeasedSovereignOpsAuditOutboxWorkerLifecycle(
+    private val worker: LeasedSovereignOpsAuditOutboxBackgroundWorker,
     private val properties: SovereignOpsOutboxWorkerProperties,
     private val observer: SovereignOpsAuditOutboxWorkerObserver = SovereignOpsAuditOutboxWorkerObserver.Noop,
     private val statusStore: SovereignOpsAuditOutboxWorkerStatusStore? = null,
 ) : SmartLifecycle {
 
-    private val logger = LogFactory.getLog(SovereignOpsAuditOutboxWorkerLifecycle::class.java)
+    private val logger = LogFactory.getLog(LeasedSovereignOpsAuditOutboxWorkerLifecycle::class.java)
     private val scope = CoroutineScope(Dispatchers.Default)
     private var job: Job? = null
 
@@ -26,7 +33,7 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
 
     override fun start() {
         if (!properties.enabled) {
-            logger.debug("Sovereign ops audit outbox worker is disabled - not starting")
+            logger.debug("Leased sovereign ops audit outbox worker is disabled - not starting")
             return
         }
         if (running) return
@@ -45,7 +52,7 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
                     summary.failure?.let {
                         notifyCycleFailed(it.action, it.errorCode)
                         logger.warn(
-                            "Sovereign ops audit outbox worker cycle failed: action=${it.action}, errorCode=${it.errorCode}",
+                            "Leased sovereign ops audit outbox worker cycle failed: action=${it.action}, errorCode=${it.errorCode}",
                         )
                     }
                 } catch (e: CancellationException) {
@@ -54,7 +61,7 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
                     val errorCode = e::class.simpleName ?: "Exception"
                     notifyCycleFailed("unexpected", errorCode)
                     logger.warn(
-                        "Sovereign ops audit outbox worker cycle failed unexpectedly: " +
+                        "Leased sovereign ops audit outbox worker cycle failed unexpectedly: " +
                             "errorCode=$errorCode",
                     )
                 }
@@ -79,13 +86,6 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
 
     // ── Safe observer notification ─────────────────────────────────────
 
-    /**
-     * Notify the observer of a completed cycle, isolating observer failures
-     * so they cannot kill the worker loop.
-     *
-     * [CancellationException] is always rethrown — observer failures on
-     * cancellation do not provide useful signal.
-     */
     private fun notifyCycleCompleted(summary: SovereignOpsAuditOutboxWorkerRunSummary) {
         try {
             observer.onCycleCompleted(summary)
@@ -93,18 +93,12 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
             throw e
         } catch (e: Exception) {
             logger.warn(
-                "Sovereign ops audit outbox worker observer callback failed: " +
+                "Leased sovereign ops audit outbox worker observer callback failed: " +
                     "callback=onCycleCompleted, errorCode=${e::class.simpleName ?: "Exception"}",
             )
         }
     }
 
-    /**
-     * Notify the observer of a cycle failure, isolating observer failures
-     * so they cannot kill the worker loop.
-     *
-     * [CancellationException] is always rethrown.
-     */
     private fun notifyCycleFailed(
         action: String,
         errorCode: String,
@@ -115,41 +109,9 @@ class SovereignOpsAuditOutboxWorkerLifecycle(
             throw e
         } catch (e: Exception) {
             logger.warn(
-                "Sovereign ops audit outbox worker observer callback failed: " +
+                "Leased sovereign ops audit outbox worker observer callback failed: " +
                     "callback=onCycleFailed, errorCode=${e::class.simpleName ?: "Exception"}",
             )
-        }
-    }
-}
-
-fun validateSovereignOpsAuditOutboxWorkerProperties(
-    properties: SovereignOpsOutboxWorkerProperties,
-) {
-    require(!properties.interval.isZero && !properties.interval.isNegative) {
-        "tramai-sovereign-ops-outbox-worker-invalid-interval"
-    }
-    require(!properties.initialDelay.isNegative) {
-        "tramai-sovereign-ops-outbox-worker-invalid-initial-delay"
-    }
-    require(properties.batchSize in 1..500) {
-        "tramai-sovereign-ops-outbox-worker-invalid-batch-size"
-    }
-    require(properties.recoverPrepared || properties.dispatchPending) {
-        "tramai-sovereign-ops-outbox-worker-invalid-actions: at least one of recoverPrepared or dispatchPending must be true when worker is enabled"
-    }
-
-    // ── Lease validation (only when leasing is enabled) ─────────────
-
-    if (properties.leaseEnabled) {
-        require(!properties.leaseDuration.isZero && !properties.leaseDuration.isNegative) {
-            "tramai-sovereign-ops-worker-lease-duration-invalid"
-        }
-        require(!properties.leaseHeartbeatInterval.isZero && !properties.leaseHeartbeatInterval.isNegative) {
-            "tramai-sovereign-ops-worker-lease-heartbeat-interval-invalid"
-        }
-        require(properties.leaseHeartbeatInterval < properties.leaseDuration) {
-            "tramai-sovereign-ops-worker-lease-heartbeat-interval-must-be-less-than-duration: " +
-                "heartbeat interval (${properties.leaseHeartbeatInterval}) must be less than lease duration (${properties.leaseDuration})"
         }
     }
 }
