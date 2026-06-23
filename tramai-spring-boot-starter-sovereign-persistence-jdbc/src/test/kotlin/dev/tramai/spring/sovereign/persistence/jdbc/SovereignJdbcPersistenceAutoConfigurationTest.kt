@@ -16,6 +16,7 @@ import dev.tramai.security.approval.InMemoryApprovalStore
 import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.InMemoryAuditStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
@@ -330,7 +331,7 @@ class SovereignJdbcPersistenceAutoConfigurationTest {
     // ── all beans created with valid config ───────────────────────────
 
     @Test
-    fun `valid config creates all five store beans`() {
+    fun `valid config creates all six store beans`() {
         val keyFile = prepareKeyFile()
 
         contextRunner
@@ -345,6 +346,7 @@ class SovereignJdbcPersistenceAutoConfigurationTest {
                 assertThat(ctx).hasSingleBean(ApprovalContinuationStore::class.java)
                 assertThat(ctx).hasSingleBean(AuditStore::class.java)
                 assertThat(ctx).hasSingleBean(SovereignOpsAuditOutboxStore::class.java)
+                assertThat(ctx).hasSingleBean(SovereignOpsApprovalMutationStore::class.java)
             }
     }
 
@@ -563,6 +565,23 @@ class SovereignJdbcPersistenceAutoConfigurationTest {
                 assertThat(ctx).hasSingleBean(SovereignOpsWorkerLeaseStore::class.java)
                 val store = ctx.getBean(SovereignOpsWorkerLeaseStore::class.java)
                 assertThat(store).isExactlyInstanceOf(JdbcSovereignOpsWorkerLeaseStore::class.java)
+            }
+    }
+
+    @Test
+    fun `type=jdbc + DataSource creates SovereignOpsApprovalMutationStore`() {
+        val keyFile = prepareKeyFile()
+
+        contextRunner
+            .withPropertyValues(
+                *validJdbcProps(keyFile).entries
+                    .map { "${it.key}=${it.value}" }
+                    .toTypedArray(),
+            )
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(SovereignOpsApprovalMutationStore::class.java)
+                val store = ctx.getBean(SovereignOpsApprovalMutationStore::class.java)
+                assertThat(store).isExactlyInstanceOf(JdbcSovereignOpsApprovalMutationStore::class.java)
             }
     }
 

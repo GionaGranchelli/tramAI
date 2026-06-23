@@ -251,6 +251,10 @@ Documented expected transaction behaviour:
 - When audit event append and outbox record creation use the same JDBC `DataSource`, they must occur in the **same database transaction**. If the application uses different persistence backends, TramAI must document that atomicity is not guaranteed and must fail closed or expose an explicit degraded mode.
 - Outbox dispatch should use **claim / lease semantics** to avoid duplicate dispatch.
 
+Status: **Implemented** (PR #89) for sovereign approval denial via
+`JdbcSovereignOpsApprovalMutationStore`, which commits the approval denial and
+audit outbox intent inside one PostgreSQL transaction on one JDBC `Connection`.
+
 ## Idempotency and Duplicate Protection
 
 The JDBC design must protect against:
