@@ -48,6 +48,7 @@ import org.springframework.context.annotation.Configuration
  * and runs two separate Spring contexts to simulate restart.
  */
 @Testcontainers
+@org.junit.jupiter.api.Tag("e2e")
 class JdbcSovereignRuntimeE2ETest {
 
     companion object {

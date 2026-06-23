@@ -45,7 +45,6 @@ dependencies {
 
     // Spring Boot
     implementation("org.springframework.boot:spring-boot-starter")
-    implementation("org.springframework.boot:spring-boot-starter-jdbc")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$kotlinxCoroutinesVersion")
 
@@ -61,9 +60,24 @@ dependencies {
 }
 
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags("e2e")
+    }
     testLogging {
         showStandardStreams = true
         events("passed", "skipped", "failed")
     }
+}
+
+val e2eTest by tasks.registering(Test::class) {
+    description = "Runs end-to-end tests (requires Docker for Testcontainers)."
+    group = "verification"
+    useJUnitPlatform {
+        includeTags("e2e")
+    }
+    testLogging {
+        showStandardStreams = true
+        events("passed", "skipped", "failed")
+    }
+    shouldRunAfter(tasks.test)
 }
