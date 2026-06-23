@@ -137,4 +137,19 @@ fun validateSovereignOpsAuditOutboxWorkerProperties(
     require(properties.recoverPrepared || properties.dispatchPending) {
         "tramai-sovereign-ops-outbox-worker-invalid-actions: at least one of recoverPrepared or dispatchPending must be true when worker is enabled"
     }
+
+    // ── Lease validation (only when leasing is enabled) ─────────────
+
+    if (properties.leaseEnabled) {
+        require(!properties.leaseDuration.isZero && !properties.leaseDuration.isNegative) {
+            "tramai-sovereign-ops-worker-lease-duration-invalid"
+        }
+        require(!properties.leaseHeartbeatInterval.isZero && !properties.leaseHeartbeatInterval.isNegative) {
+            "tramai-sovereign-ops-worker-lease-heartbeat-interval-invalid"
+        }
+        require(properties.leaseHeartbeatInterval < properties.leaseDuration) {
+            "tramai-sovereign-ops-worker-lease-heartbeat-interval-must-be-less-than-duration: " +
+                "heartbeat interval (${properties.leaseHeartbeatInterval}) must be less than lease duration (${properties.leaseDuration})"
+        }
+    }
 }

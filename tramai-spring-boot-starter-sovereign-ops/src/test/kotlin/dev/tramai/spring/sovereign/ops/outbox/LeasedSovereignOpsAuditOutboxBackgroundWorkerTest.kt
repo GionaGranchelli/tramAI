@@ -6,6 +6,7 @@ import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseAcquisition
 import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseHeartbeat
 import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseRelease
 import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseStore
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
@@ -130,6 +131,40 @@ class LeasedSovereignOpsAuditOutboxBackgroundWorkerTest {
 
         worker().runOnce()
         assertThat(leaseStore.heartbeatCalled).isTrue
+    }
+
+    @Test
+    fun `lost lease during run cancels delegate`() = runBlocking {
+        leaseStore.acquireResult = SovereignOpsWorkerLeaseAcquisition.Acquired(
+            SovereignOpsWorkerLease(
+                leaseName = "test-lease",
+                ownerId = "worker-a",
+                acquiredAt = BASE_NOW,
+                expiresAt = BASE_NOW.plus(LEASE_DURATION),
+                heartbeatAt = BASE_NOW,
+                version = 1,
+            ),
+        )
+        leaseStore.heartbeatResult = SovereignOpsWorkerLeaseHeartbeat.Expired
+
+        var cancelledDuringRun = false
+        operations.beforeRun = {
+            try {
+                delay(200)  // long enough for heartbeat coroutine to fire
+            } finally {
+                cancelledDuringRun = true
+            }
+        }
+
+        val thrown = try {
+            worker().runOnce()
+            throw AssertionError("expected SovereignOpsWorkerLeaseLostException")
+        } catch (e: SovereignOpsWorkerLeaseLostException) {
+            e
+        }
+
+        assertThat(thrown.message).contains("tramai-sovereign-ops-worker-lease-lost")
+        assertThat(cancelledDuringRun).isTrue()
     }
 
     // ── Fakes ──────────────────────────────────────────────────────────

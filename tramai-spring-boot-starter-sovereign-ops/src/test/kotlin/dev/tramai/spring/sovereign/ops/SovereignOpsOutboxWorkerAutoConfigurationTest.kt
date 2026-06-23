@@ -393,6 +393,69 @@ class SovereignOpsOutboxWorkerAutoConfigurationTest {
                 assertThat(props.outbox.worker.leaseDuration).isEqualTo(Duration.ofSeconds(90))
             }
     }
+
+    @Test
+    fun `lease enabled with heartbeat interval greater-or-equal duration fails`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                TestAuditEngineConfig::class.java,
+                MockLeaseStoreConfig::class.java,
+            )
+            .withPropertyValues(
+                "tramai.sovereign.ops.outbox.worker.enabled=true",
+                "tramai.sovereign.ops.outbox.worker.initial-delay=1h",
+                "tramai.sovereign.ops.outbox.worker.lease-enabled=true",
+                "tramai.sovereign.ops.outbox.worker.lease-duration=30s",
+                "tramai.sovereign.ops.outbox.worker.lease-heartbeat-interval=30s",
+            )
+            .run { ctx ->
+                assertThat(ctx).hasFailed()
+                assertThat(ctx.startupFailure)
+                    .hasMessageContaining("tramai-sovereign-ops-worker-lease-heartbeat-interval-must-be-less-than-duration")
+            }
+    }
+
+    @Test
+    fun `lease disabled ignores lease interval validation`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                TestAuditEngineConfig::class.java,
+            )
+            .withPropertyValues(
+                "tramai.sovereign.ops.outbox.worker.enabled=true",
+                "tramai.sovereign.ops.outbox.worker.initial-delay=1h",
+                "tramai.sovereign.ops.outbox.worker.lease-enabled=false",
+                "tramai.sovereign.ops.outbox.worker.lease-duration=30s",
+                "tramai.sovereign.ops.outbox.worker.lease-heartbeat-interval=2m",
+            )
+            .run { ctx ->
+                assertThat(ctx).hasNotFailed()
+                assertThat(ctx).hasSingleBean(SovereignOpsAuditOutboxBackgroundWorker::class.java)
+            }
+    }
+
+    @Test
+    fun `lease enabled with zero duration fails`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                TestAuditEngineConfig::class.java,
+                MockLeaseStoreConfig::class.java,
+            )
+            .withPropertyValues(
+                "tramai.sovereign.ops.outbox.worker.enabled=true",
+                "tramai.sovereign.ops.outbox.worker.initial-delay=1h",
+                "tramai.sovereign.ops.outbox.worker.lease-enabled=true",
+                "tramai.sovereign.ops.outbox.worker.lease-duration=0s",
+            )
+            .run { ctx ->
+                assertThat(ctx).hasFailed()
+                assertThat(ctx.startupFailure)
+                    .hasMessageContaining("tramai-sovereign-ops-worker-lease-duration-invalid")
+            }
+    }
 }
 
 open class CustomOutboxBackgroundWorkerConfig {
