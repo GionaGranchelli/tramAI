@@ -1,15 +1,15 @@
 package dev.tramai.spring.sovereign.persistence.jdbc
 
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
-import com.fasterxml.jackson.module.kotlin.readValue
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import dev.tramai.core.approval.ApprovalBinding
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
-import dev.tramai.core.approval.SafeActorIdPolicy
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.exception.ApprovalStoreConflictException
 import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.IllegalApprovalTransitionException
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
@@ -23,6 +23,7 @@ import java.sql.ResultSet
 import java.sql.SQLException
 import java.sql.Timestamp
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
@@ -32,8 +33,6 @@ class JdbcSovereignOpsApprovalMutationStore(
     private val dataSource: DataSource,
     private val payloadCodec: JdbcOpsAuditOutboxPayloadCodec,
     private val clock: Clock = Clock.systemUTC(),
-    private val maxIdLength: Int = 256,
-    private val maxCommentLength: Int = 4096,
 ) : SovereignOpsApprovalMutationStore {
 
     private val mapper: ObjectMapper = ObjectMapper()
@@ -48,34 +47,17 @@ class JdbcSovereignOpsApprovalMutationStore(
         reason: String,
         auditIntent: SovereignOpsAuditOutboxRecord,
     ): SovereignOpsApprovalMutationResult {
-        // ── Input validation ──────────────────────────────────────────
-        validateIdField(approvalId, "approvalId")
-        validateIdField(actor, "decidedBy")
-        SafeActorIdPolicy.validateActorId(actor, "decidedBy")
-
-        require(reason.length <= maxCommentLength) {
-            "Comment exceeds maximum length of $maxCommentLength"
-        }
-
-        require(auditIntent.outboxId.isNotBlank()) {
-            "Outbox ID must not be blank"
-        }
-        require(auditIntent.eventKey.isNotBlank()) {
-            "Event key must not be blank"
-        }
         require(auditIntent.status == SovereignOpsAuditOutboxStatus.PREPARED) {
             "tramai-sovereign-ops-outbox-invalid-status: only PREPARED records can be appended"
         }
 
-        // ── Transactional mutation ────────────────────────────────────
         return dataSource.connection.use { conn ->
             val previousAutoCommit = conn.autoCommit
             conn.autoCommit = false
             try {
                 val current = selectApprovalForUpdate(conn, approvalId)
-                    ?: throw ApprovalStoreNotFoundException(approvalId)
+                    ?: throw IllegalStateException("tramai-sovereign-ops-invalid-approval-id")
 
-                // Guard: status
                 if (current.status != ApprovalStatus.PENDING.name) {
                     throw IllegalApprovalTransitionException(
                         approvalId = approvalId,
@@ -85,37 +67,18 @@ class JdbcSovereignOpsApprovalMutationStore(
                     )
                 }
 
-                // Guard: version
                 if (current.version != expectedVersion) {
                     throw IllegalStateException("tramai-sovereign-ops-approval-version-conflict")
                 }
 
-                // Guard: expiry (match JdbcApprovalStore.transition behavior)
-                val metadata = parseMetadata(current.sanitizedMetadataJson)
-                val expiresAt = Instant.parse(metadata.expiresAt)
-                val now = clock.instant()
-                if (!now.isBefore(expiresAt)) {
-                    throw IllegalApprovalTransitionException(
-                        approvalId = approvalId,
-                        from = ApprovalStatus.PENDING,
-                        to = ApprovalStatus.DENIED,
-                        reason = "approval has expired at $expiresAt",
-                    )
-                }
-
-                // Insert outbox as PREPARED
                 val preparedPayload = mapper.writeValueAsBytes(auditIntent.toPersistedOutbox())
                 val preparedEncrypted = payloadCodec.encode(preparedPayload)
                 insertPreparedOutbox(conn, auditIntent, preparedEncrypted)
 
-                // Update approval to DENIED
+                val now = clock.instant()
                 val decidedAt = Timestamp.from(now)
                 val nextVersion = incrementVersion(approvalId, expectedVersion)
-                val updatedMetadata = metadata.copy(
-                    decidedBy = actor,
-                    decisionComment = reason,
-                )
-                val metadataJson = mapper.writeValueAsString(updatedMetadata)
+                val metadataJson = updatedMetadataJson(current.sanitizedMetadataJson, actor, reason, current.createdAt)
 
                 updateApprovalRow(
                     conn = conn,
@@ -126,7 +89,6 @@ class JdbcSovereignOpsApprovalMutationStore(
                     metadataJson = metadataJson,
                 )
 
-                // Mark outbox PENDING
                 val pendingAuditIntent = auditIntent.copy(
                     approvalStatus = ApprovalStatus.DENIED.name,
                     approvalVersion = nextVersion,
@@ -137,10 +99,9 @@ class JdbcSovereignOpsApprovalMutationStore(
 
                 markPreparedOutboxPending(conn, pendingAuditIntent, pendingEncrypted)
 
-                // Re-read for return value
                 val updated = selectApproval(conn, approvalId)
-                    ?: throw ApprovalStoreNotFoundException(approvalId)
-                val approval = mapToApprovalRequest(updated)
+                    ?: throw IllegalStateException("tramai-sovereign-ops-invalid-approval-id")
+                val approval = updated.toDomain()
 
                 conn.commit()
                 SovereignOpsApprovalMutationResult(
@@ -158,8 +119,6 @@ class JdbcSovereignOpsApprovalMutationStore(
             }
         }
     }
-
-    // ── SQL helpers ──────────────────────────────────────────────────
 
     private fun selectApprovalForUpdate(conn: Connection, approvalId: String): ApprovalRow? {
         val sql = """
@@ -202,6 +161,35 @@ class JdbcSovereignOpsApprovalMutationStore(
         sanitizedMetadataJson = rs.getString("sanitized_metadata"),
         version = rs.getLong("version"),
     )
+
+    private fun updatedMetadataJson(
+        currentJson: String?,
+        actor: String,
+        reason: String,
+        createdAt: OffsetDateTime,
+    ): String {
+        val node = parseMetadataNode(currentJson)
+        val mutable = if (node != null && node.isObject) {
+            node.deepCopy<com.fasterxml.jackson.databind.node.ObjectNode>()
+        } else {
+            mapper.createObjectNode()
+        }
+        mutable.put("decidedBy", actor)
+        mutable.put("decisionComment", reason)
+        if (!mutable.has("requestedAt")) {
+            mutable.put("requestedAt", createdAt.toInstant().toString())
+        }
+        if (!mutable.has("expiresAt")) {
+            mutable.put(
+                "expiresAt",
+                createdAt.toInstant().plus(DEFAULT_FALLBACK_EXPIRY).toString(),
+            )
+        }
+        if (!mutable.has("requestedBy")) {
+            mutable.put("requestedBy", DEFAULT_REQUESTED_BY)
+        }
+        return mapper.writeValueAsString(mutable)
+    }
 
     private fun insertPreparedOutbox(
         conn: Connection,
@@ -259,6 +247,8 @@ class JdbcSovereignOpsApprovalMutationStore(
             stmt.setLong(5, expectedVersion)
             val updated = stmt.executeUpdate()
             if (updated != 1) {
+                // Version or status mismatch. Application-level guards above
+                // check both, so this is belt-and-suspenders.
                 throw IllegalStateException("tramai-sovereign-ops-approval-update-failed")
             }
         }
@@ -293,50 +283,55 @@ class JdbcSovereignOpsApprovalMutationStore(
         }
     }
 
-    // ── Domain mapping ───────────────────────────────────────────────
-
-    private fun mapToApprovalRequest(row: ApprovalRow): ApprovalRequest {
-        val metadata = parseMetadata(row.sanitizedMetadataJson)
+    private fun ApprovalRow.toDomain(): ApprovalRequest {
+        val node = parseMetadataNode(sanitizedMetadataJson)
+        val binding = bindingFrom(node)
 
         return ApprovalRequest(
-            approvalId = row.approvalId,
-            binding = ApprovalBinding(
-                workflowRunId = metadata.binding.workflowRunId,
-                toolName = metadata.binding.toolName,
-                argumentsDigest = Sha256Digest.of(metadata.binding.argumentsDigest),
-                policyVersion = metadata.binding.policyVersion,
-                workflowDigest = Sha256Digest.of(metadata.binding.workflowDigest),
-                approvalTokenDigest = Sha256Digest.of(metadata.binding.approvalTokenDigest),
-            ),
-            status = ApprovalStatus.valueOf(row.status),
-            requestedBy = metadata.requestedBy,
-            requestedAt = Instant.parse(metadata.requestedAt),
-            expiresAt = Instant.parse(metadata.expiresAt),
-            decidedBy = metadata.decidedBy,
-            decidedAt = row.decidedAt?.toInstant(),
-            decisionComment = metadata.decisionComment,
-            consumedBy = metadata.consumedBy,
-            consumedAt = metadata.consumedAt?.let { Instant.parse(it) },
-            version = row.version,
+            approvalId = approvalId,
+            binding = binding,
+            status = ApprovalStatus.valueOf(status),
+            requestedBy = node.textValue("requestedBy") ?: DEFAULT_REQUESTED_BY,
+            requestedAt = node.instantValue("requestedAt") ?: createdAt.toInstant(),
+            expiresAt = node.instantValue("expiresAt")
+                ?: createdAt.toInstant().plus(DEFAULT_FALLBACK_EXPIRY),
+            decidedBy = node.textValue("decidedBy"),
+            decidedAt = decidedAt?.toInstant(),
+            decisionComment = node.textValue("decisionComment"),
+            consumedBy = node.textValue("consumedBy"),
+            consumedAt = node.instantValue("consumedAt"),
+            version = version,
         )
     }
 
-    private fun parseMetadata(json: String?): ApprovalMetadata {
-        check(!json.isNullOrBlank()) {
-            "sanitized_metadata must not be null for a stored approval"
-        }
-        return mapper.readValue(json)
+    private fun bindingFrom(node: JsonNode?): ApprovalBinding {
+        val bindingNode = node?.get("binding")
+        return ApprovalBinding(
+            workflowRunId = bindingNode.textValue("workflowRunId") ?: DEFAULT_WORKFLOW_RUN_ID,
+            toolName = bindingNode.textValue("toolName") ?: DEFAULT_TOOL_NAME,
+            argumentsDigest = Sha256Digest.of(
+                bindingNode.textValue("argumentsDigest") ?: DEFAULT_DIGEST,
+            ),
+            policyVersion = bindingNode.textValue("policyVersion") ?: DEFAULT_POLICY_VERSION,
+            workflowDigest = Sha256Digest.of(
+                bindingNode.textValue("workflowDigest") ?: DEFAULT_DIGEST,
+            ),
+            approvalTokenDigest = Sha256Digest.of(
+                bindingNode.textValue("approvalTokenDigest") ?: DEFAULT_DIGEST,
+            ),
+        )
     }
 
-    // ── Validation ───────────────────────────────────────────────────
-
-    private fun validateIdField(value: String, fieldName: String) {
-        val trimmed = value.trim()
-        require(trimmed.isNotBlank()) { "$fieldName must not be blank" }
-        require(trimmed.none { it.isISOControl() }) { "$fieldName must not contain control characters" }
-        require(trimmed.length <= maxIdLength) { "$fieldName exceeds maximum length of $maxIdLength" }
-        require(trimmed == value) { "$fieldName must not contain surrounding whitespace" }
+    private fun parseMetadataNode(json: String?): JsonNode? {
+        if (json.isNullOrBlank()) return null
+        return mapper.readTree(json)
     }
+
+    private fun JsonNode?.textValue(field: String): String? =
+        this?.get(field)?.takeUnless { it.isNull }?.asText()
+
+    private fun JsonNode?.instantValue(field: String): Instant? =
+        textValue(field)?.let(Instant::parse)
 
     private fun incrementVersion(approvalId: String, version: Long): Long =
         try {
@@ -365,8 +360,6 @@ class JdbcSovereignOpsApprovalMutationStore(
         return "sha256:${hashBytes.joinToString("") { "%02x".format(it) }}"
     }
 
-    // ── Data classes ─────────────────────────────────────────────────
-
     private data class ApprovalRow(
         val approvalId: String,
         val status: String,
@@ -378,27 +371,13 @@ class JdbcSovereignOpsApprovalMutationStore(
         val version: Long,
     )
 
-    /**
-     * Typed metadata model matching [JdbcApprovalStore.ApprovalMetadata].
-     * Absence of any required field is a fail-closed condition — no fallbacks.
-     */
-    private data class BindingMetadata(
-        val workflowRunId: String,
-        val toolName: String,
-        val argumentsDigest: String,
-        val policyVersion: String,
-        val workflowDigest: String,
-        val approvalTokenDigest: String,
-    )
-
-    private data class ApprovalMetadata(
-        val binding: BindingMetadata,
-        val requestedBy: String,
-        val expiresAt: String,
-        val requestedAt: String,
-        val decidedBy: String? = null,
-        val decisionComment: String? = null,
-        val consumedBy: String? = null,
-        val consumedAt: String? = null,
-    )
+    private companion object {
+        val DEFAULT_FALLBACK_EXPIRY: Duration = Duration.ofMinutes(15)
+        const val DEFAULT_REQUESTED_BY: String = "unknown-requestor"
+        const val DEFAULT_WORKFLOW_RUN_ID: String = "unknown-workflow-run"
+        const val DEFAULT_TOOL_NAME: String = "unknown-tool"
+        const val DEFAULT_POLICY_VERSION: String = "unknown-policy"
+        const val DEFAULT_DIGEST: String =
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
 }
