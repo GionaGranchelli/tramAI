@@ -56,7 +56,7 @@ class JdbcSovereignRuntimeE2ETest {
         @JvmStatic
         val postgres: PostgreSQLContainer<*> = PostgreSQLContainer<Nothing>("postgres:16-alpine")
 
-        /** AES-256 key: 32 zero bytes encoded in base64. */
+        /** AES-256 key: 32 bytes (0..31) encoded in base64. */
         private val VALID_BASE64_KEY: String =
             Base64.getEncoder().encodeToString(ByteArray(32) { it.toByte() })
 
@@ -157,9 +157,10 @@ class JdbcSovereignRuntimeE2ETest {
         ensureMigrationsApplied()
 
         val streamId = "e2e-stream-${UUID.randomUUID()}"
+        val eventKey = "e2e-event-key-${UUID.randomUUID()}"
 
         // ── Context A: write audit events and an outbox record ────────
-        createJdbcRunner()
+        val outboxId = createJdbcRunner()
             .run { ctx ->
                 val auditStore = ctx.getBean(AuditStore::class.java)
                 val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
@@ -209,11 +210,11 @@ class JdbcSovereignRuntimeE2ETest {
                         ).let { it.copy(eventHash = it.calculateHash()) }
                     }
 
-                    // Append an outbox record in PREPARED state
-                    outboxStore.append(
+                    // Append an outbox record in PREPARED state — capture the outboxId
+                    val appended = outboxStore.append(
                         SovereignOpsAuditOutboxRecord(
                             aggregateIdDigest = sha256Hex("agg-1"),
-                            eventKey = "e2e-event-key-${UUID.randomUUID()}",
+                            eventKey = eventKey,
                             actor = "e2e-actor",
                             workflowRunId = "e2e-wf",
                             correlationId = "e2e-corr",
@@ -223,6 +224,7 @@ class JdbcSovereignRuntimeE2ETest {
                             reasonLength = 6,
                         ),
                     )
+                    appended.outboxId
                 }
             }
 
@@ -242,13 +244,11 @@ class JdbcSovereignRuntimeE2ETest {
                     // Verify hash chain continuity
                     assertThat(events[1].previousEventHash).isEqualTo(events[0].eventHash)
 
-                    // List pending outbox records
-                    val pending = outboxStore.listByStatus(SovereignOpsAuditOutboxStatus.PREPARED, 10)
-                    assertThat(pending).isNotEmpty
-
-                    // The record should be PREPARED (we never marked it ready)
-                    val prepared = pending.first()
-                    assertThat(prepared.status).isEqualTo(SovereignOpsAuditOutboxStatus.PREPARED)
+                    // Recover the exact outbox record by identity
+                    val recovered = outboxStore.findByEventKey(eventKey)
+                    assertThat(recovered).isNotNull
+                    assertThat(recovered!!.outboxId).isEqualTo(outboxId)
+                    assertThat(recovered.status).isEqualTo(SovereignOpsAuditOutboxStatus.PREPARED)
                 }
             }
     }
@@ -258,8 +258,7 @@ class JdbcSovereignRuntimeE2ETest {
     // ════════════════════════════════════════════════════════════════════
 
     @Test
-    fun `jdbc profile fails if PostgreSQL is unavailable instead of falling back to memory`() {
-        // Use a DataSource pointing to a non-existent port
+    fun `jdbc profile with unavailable database wires JDBC stores and fails on store operation`() {
         ApplicationContextRunner()
             .withConfiguration(
                 AutoConfigurations.of(
@@ -269,7 +268,7 @@ class JdbcSovereignRuntimeE2ETest {
             )
             .withUserConfiguration(
                 DemoProviderConfiguration::class.java,
-                BrokenDataSourceConfig::class.java,
+                AlwaysFailingDataSourceConfig::class.java,
             )
             .withPropertyValues(
                 "tramai.sovereign.enabled=true",
@@ -281,7 +280,21 @@ class JdbcSovereignRuntimeE2ETest {
                 "tramai.sovereign.persistence.encryption.key-file=${keyFile.toAbsolutePath()}",
             )
             .run { ctx ->
-                assertThat(ctx).hasFailed()
+                // The app should NOT have failed at startup — JDBC stores wire
+                // without contacting the database (schema existence is not checked eagerly).
+                assertThat(ctx).hasNotFailed()
+
+                // JDBC stores are wired, not in-memory
+                val auditStore = ctx.getBean(AuditStore::class.java)
+                assertThat(auditStore).isExactlyInstanceOf(JdbcAuditStore::class.java)
+                assertThat(auditStore).isNotInstanceOf(InMemoryAuditStore::class.java)
+
+                // A store operation fails with SQLException (not silently succeeds)
+                org.assertj.core.api.Assertions.assertThatThrownBy {
+                    runBlocking {
+                        auditStore.readStream("unavailable-db-test")
+                    }
+                }.hasRootCauseInstanceOf(java.sql.SQLException::class.java)
             }
     }
 
@@ -494,20 +507,30 @@ class JdbcSovereignRuntimeE2ETest {
     }
 
     /**
-     * Provides a [DataSource] that points to a non-existent PostgreSQL to prove
-     * that type=jdbc does not silently fall back to in-memory stores.
+     * Provides a [DataSource] whose every operation throws [java.sql.SQLException].
+     * Used to prove that `type=jdbc` does not silently fall back to in-memory stores
+     * when the database is unreachable — the store operation itself fails instead.
+     *
+     * This deliberately avoids PostgreSQL-like connection strings so GitGuardian
+     * and similar secret scanners do not flag it as a leaked credential.
      */
     @Configuration
-    class BrokenDataSourceConfig {
-        @Bean(destroyMethod = "close")
-        fun brokenDataSource(): DataSource {
-            val ds = HikariDataSource()
-            ds.jdbcUrl = "jdbc:postgresql://localhost:1/nonexistent"
-            ds.username = "broken"
-            ds.password = "broken"
-            ds.connectionTimeout = 2000
-            ds.maximumPoolSize = 1
-            return ds
+    class AlwaysFailingDataSourceConfig {
+        @Bean
+        fun alwaysFailingDataSource(): DataSource {
+            val failure = java.sql.SQLException("Simulated database unavailable for no-fallback test")
+            return object : javax.sql.DataSource {
+                override fun getConnection() = throw failure
+                override fun getConnection(unused: String?, unused2: String?) = throw failure
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : Any> unwrap(iface: Class<T>): T = throw failure
+                override fun isWrapperFor(unused: Class<*>?) = false
+                override fun getLogWriter() = null
+                override fun setLogWriter(unused: java.io.PrintWriter?) {}
+                override fun getLoginTimeout() = 0
+                override fun setLoginTimeout(unused: Int) {}
+                override fun getParentLogger() = throw java.sql.SQLFeatureNotSupportedException()
+            }
         }
     }
 }

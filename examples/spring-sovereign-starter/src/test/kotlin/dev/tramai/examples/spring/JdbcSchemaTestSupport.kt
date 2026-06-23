@@ -1,10 +1,7 @@
 package dev.tramai.examples.spring
 
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.sql.Connection
 import java.sql.SQLException
-import java.util.stream.Collectors
 import javax.sql.DataSource
 
 /**
@@ -12,9 +9,10 @@ import javax.sql.DataSource
  * Testcontainers-managed PostgreSQL database.
  *
  * Reads the SQL migration resources from `tramai-persistence-jdbc` and
- * executes them in order on the given [DataSource]. This is intentionally
- * kept as test support only — production migration execution is a separate
- * concern (Flyway/Liquibase integration, runbook).
+ * executes their statements sequentially in one transaction per resource
+ * on the given [DataSource]. This is intentionally kept as test support
+ * only — production migration execution is a separate concern
+ * (Flyway/Liquibase integration, runbook).
  */
 object JdbcSchemaTestSupport {
 
@@ -70,9 +68,10 @@ object JdbcSchemaTestSupport {
     private fun readResource(resource: String): String {
         val inputStream = JdbcSchemaTestSupport::class.java.getResourceAsStream(resource)
             ?: throw IllegalStateException("Migration resource not found: $resource")
-        return BufferedReader(InputStreamReader(inputStream))
-            .lines()
-            .collect(Collectors.joining("\n"))
+
+        return inputStream.bufferedReader().use { reader ->
+            reader.readText()
+        }
     }
 
     /**

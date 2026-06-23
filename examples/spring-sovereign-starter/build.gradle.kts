@@ -71,13 +71,23 @@ tasks.test {
 
 val e2eTest by tasks.registering(Test::class) {
     description = "Runs end-to-end tests (requires Docker for Testcontainers)."
-    group = "verification"
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+
     useJUnitPlatform {
         includeTags("e2e")
     }
+
     testLogging {
         showStandardStreams = true
         events("passed", "skipped", "failed")
     }
+
     shouldRunAfter(tasks.test)
+}
+
+tasks.check {
+    dependsOn(e2eTest)
 }
