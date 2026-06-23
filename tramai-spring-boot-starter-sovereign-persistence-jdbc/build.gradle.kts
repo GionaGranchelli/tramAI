@@ -25,6 +25,7 @@ dependencies {
     api(project(":tramai-persistence-jdbc"))
     api(project(":tramai-security"))
     api(libs.spring.boot.autoconfigure)
+    api(libs.spring.boot.starter.jdbc)
 
     implementation(libs.coroutines.core)
     implementation(libs.jackson.databind)

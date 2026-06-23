@@ -9,6 +9,7 @@
 - Encrypted file-backed persistence (`tramai-persistence-file`).
 - File-backed audit outbox and recovery workflow (`tramai-spring-boot-starter-sovereign-ops`).
 - JDBC-backed sovereign persistence with Spring Boot auto-configuration (`tramai-spring-boot-starter-sovereign-persistence-jdbc`). Activated via `tramai.sovereign.persistence.type=jdbc`.
+- JDBC E2E restart proof: Spring Boot example with Testcontainers PostgreSQL, five E2E tests proving sovereign state survives context restart, outbox dispatch recovery, and audit stream hash-chain validation.
 - Background worker for audit outbox recovery and dispatch.
 - Observer SPI and composite observer pipeline for sovereign ops audit outbox worker cycles and failures.
 - OpenTelemetry worker metrics (`tramai-spring-boot-starter-sovereign-ops-observability`).

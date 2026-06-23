@@ -10,7 +10,10 @@ import org.springframework.boot.test.context.SpringBootTest
 /**
  * Verifies that the sovereign Spring Boot starter example works end to end.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.NONE,
+    properties = ["spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration"],
+)
 class SpringSovereignStarterExampleTest {
 
     @Autowired
