@@ -82,10 +82,13 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
         )
     }
 
+    // ── Happy path ───────────────────────────────────────────────────
+
     @Test
     fun `deny approval commits approval denial and pending outbox record atomically`() = runBlocking {
         val approvalId = "approval-a"
-        insertApproval(approvalId)
+        val expiresAt = BASE_NOW.plusSeconds(600) // far in the future
+        insertApproval(approvalId, expiresAt = expiresAt)
         val auditIntent = auditIntent(approvalId, "test-key-a")
 
         val result = store.denyApprovalWithAuditIntent(
@@ -110,11 +113,14 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
         assertThat(countOutboxRowsForEventKey(auditIntent.eventKey)).isEqualTo(1)
     }
 
+    // ── Rollback guards ──────────────────────────────────────────────
+
     @Test
     fun `outbox conflict prevents approval denial`() = runBlocking {
         val approvalId = "approval-b"
         val eventKey = "test-key-b"
-        insertApproval(approvalId)
+        val expiresAt = BASE_NOW.plusSeconds(600)
+        insertApproval(approvalId, expiresAt = expiresAt)
         insertOutboxRecord(auditIntent(approvalId, eventKey))
 
         assertThatThrownBy {
@@ -139,7 +145,8 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
     fun `approval version conflict rolls back outbox insert`() = runBlocking {
         val approvalId = "approval-c"
         val auditIntent = auditIntent(approvalId, "test-key-c")
-        insertApproval(approvalId)
+        val expiresAt = BASE_NOW.plusSeconds(600)
+        insertApproval(approvalId, expiresAt = expiresAt)
 
         assertThatThrownBy {
             runBlocking {
@@ -163,7 +170,8 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
     fun `non pending approval denial is rejected`() = runBlocking {
         val approvalId = "approval-d"
         val auditIntent = auditIntent(approvalId, "test-key-d")
-        insertApproval(approvalId, status = "APPROVED")
+        val expiresAt = BASE_NOW.plusSeconds(600)
+        insertApproval(approvalId, status = "APPROVED", expiresAt = expiresAt)
 
         assertThatThrownBy {
             runBlocking {
@@ -186,7 +194,8 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
     fun `payload codec failure rolls back approval mutation`() = runBlocking {
         val approvalId = "approval-e"
         val auditIntent = auditIntent(approvalId, "test-key-e")
-        insertApproval(approvalId)
+        val expiresAt = BASE_NOW.plusSeconds(600)
+        insertApproval(approvalId, expiresAt = expiresAt)
         val failingStore = JdbcSovereignOpsApprovalMutationStore(
             dataSource = dataSource,
             payloadCodec = object : JdbcOpsAuditOutboxPayloadCodec {
@@ -216,6 +225,116 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
         assertThat(selectApprovalVersion(approvalId)).isEqualTo(1L)
         assertThat(countOutboxRowsForEventKey(auditIntent.eventKey)).isZero()
     }
+
+    // ── Expiry guard (P1) ────────────────────────────────────────────
+
+    @Test
+    fun `expired pending approval denial is rejected and no outbox is inserted`() = runBlocking {
+        val approvalId = "approval-f"
+        val auditIntent = auditIntent(approvalId, "test-key-f")
+        // expiresAt is in the past relative to clock (BASE_NOW + 30s)
+        val expiresAt = BASE_NOW.plusSeconds(10) // expired 20s ago
+        insertApproval(approvalId, expiresAt = expiresAt)
+
+        assertThatThrownBy {
+            runBlocking {
+                store.denyApprovalWithAuditIntent(
+                    approvalId = approvalId,
+                    expectedVersion = 1,
+                    actor = "admin",
+                    reason = "reason",
+                    auditIntent = auditIntent,
+                )
+            }
+        }.isInstanceOf(IllegalApprovalTransitionException::class.java)
+            .hasMessageContaining("expired")
+
+        assertThat(selectApprovalStatus(approvalId)).isEqualTo("PENDING")
+        assertThat(selectApprovalVersion(approvalId)).isEqualTo(1L)
+        assertThat(countOutboxRowsForEventKey(auditIntent.eventKey)).isZero()
+    }
+
+    // ── Metadata integrity (P2) ──────────────────────────────────────
+
+    @Test
+    fun `malformed approval metadata fails closed and rolls back outbox insert`() = runBlocking {
+        val approvalId = "approval-g"
+        val auditIntent = auditIntent(approvalId, "test-key-g")
+        // Insert with '{}'::jsonb — missing binding, requestedBy, expiresAt, requestedAt
+        insertApprovalWithJsonMetadata(approvalId, """{}""")
+
+        assertThatThrownBy {
+            runBlocking {
+                store.denyApprovalWithAuditIntent(
+                    approvalId = approvalId,
+                    expectedVersion = 1,
+                    actor = "admin",
+                    reason = "reason",
+                    auditIntent = auditIntent,
+                )
+            }
+        }.isInstanceOf(IllegalStateException::class.java)
+
+        assertThat(selectApprovalStatus(approvalId)).isEqualTo("PENDING")
+        assertThat(selectApprovalVersion(approvalId)).isEqualTo(1L)
+        assertThat(countOutboxRowsForEventKey(auditIntent.eventKey)).isZero()
+    }
+
+    // ── Actor/reason validation (P2) ─────────────────────────────────
+
+    @Test
+    fun `invalid actor is rejected before mutation and no outbox is inserted`() = runBlocking {
+        val approvalId = "approval-h"
+        val auditIntent = auditIntent(approvalId, "test-key-h")
+        val expiresAt = BASE_NOW.plusSeconds(600)
+        insertApproval(approvalId, expiresAt = expiresAt)
+
+        // Space is not allowed by SafeActorIdPolicy
+        assertThatThrownBy {
+            runBlocking {
+                store.denyApprovalWithAuditIntent(
+                    approvalId = approvalId,
+                    expectedVersion = 1,
+                    actor = "bad actor",
+                    reason = "reason",
+                    auditIntent = auditIntent,
+                )
+            }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+
+        assertThat(selectApprovalStatus(approvalId)).isEqualTo("PENDING")
+        assertThat(selectApprovalVersion(approvalId)).isEqualTo(1L)
+        assertThat(countOutboxRowsForEventKey(auditIntent.eventKey)).isZero()
+    }
+
+    @Test
+    fun `oversized reason is rejected before mutation and no outbox is inserted`() = runBlocking {
+        val approvalId = "approval-i"
+        val auditIntent = auditIntent(approvalId, "test-key-i")
+        val expiresAt = BASE_NOW.plusSeconds(600)
+        insertApproval(approvalId, expiresAt = expiresAt)
+
+        val hugeReason = "x".repeat(5000)
+
+        assertThatThrownBy {
+            runBlocking {
+                store.denyApprovalWithAuditIntent(
+                    approvalId = approvalId,
+                    expectedVersion = 1,
+                    actor = "admin",
+                    reason = hugeReason,
+                    auditIntent = auditIntent,
+                )
+            }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("Comment exceeds maximum length")
+
+        assertThat(selectApprovalStatus(approvalId)).isEqualTo("PENDING")
+        assertThat(selectApprovalVersion(approvalId)).isEqualTo(1L)
+        assertThat(countOutboxRowsForEventKey(auditIntent.eventKey)).isZero()
+    }
+
+    // ── Test infrastructure ──────────────────────────────────────────
 
     private fun testCodec(): JdbcOpsAuditOutboxPayloadCodec =
         object : JdbcOpsAuditOutboxPayloadCodec {
@@ -250,23 +369,56 @@ class JdbcSovereignOpsApprovalMutationStoreTest {
             }
         }
 
+    /**
+     * Insert an approval with valid metadata matching [JdbcApprovalStore]'s
+     * [ApprovalMetadata] shape.
+     */
     private fun insertApproval(
         approvalId: String,
+        status: String = "PENDING",
+        expiresAt: Instant = BASE_NOW.plusSeconds(600),
+    ) {
+        val metadata = validApprovalMetadata(expiresAt)
+        insertApprovalWithJsonMetadata(approvalId, mapper.writeValueAsString(metadata), status)
+    }
+
+    private fun insertApprovalWithJsonMetadata(
+        approvalId: String,
+        metadataJson: String,
         status: String = "PENDING",
     ) {
         dataSource.connection.use { conn ->
             val sql = """
                 INSERT INTO approvals (approval_id, status, created_at, sanitized_metadata, version)
-                VALUES (?, ?, ?, '{}'::jsonb, 1)
+                VALUES (?, ?, ?, ?::jsonb, 1)
             """.trimIndent()
             conn.prepareStatement(sql).use { stmt ->
                 stmt.setString(1, approvalId)
                 stmt.setString(2, status)
                 stmt.setTimestamp(3, Timestamp.from(BASE_NOW))
+                stmt.setString(4, metadataJson)
                 stmt.executeUpdate()
             }
         }
     }
+
+    /**
+     * Produces metadata matching the shape JdbcApprovalStore writes:
+     * { binding: {...}, requestedBy, expiresAt, requestedAt }
+     */
+    private fun validApprovalMetadata(expiresAt: Instant): Map<String, Any?> = mapOf(
+        "binding" to mapOf(
+            "workflowRunId" to "run-1",
+            "toolName" to "test-tool",
+            "argumentsDigest" to "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "policyVersion" to "1.0.0",
+            "workflowDigest" to "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "approvalTokenDigest" to "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        ),
+        "requestedBy" to "test-user",
+        "expiresAt" to expiresAt.toString(),
+        "requestedAt" to BASE_NOW.toString(),
+    )
 
     private fun insertOutboxRecord(record: SovereignOpsAuditOutboxRecord) {
         val encrypted = codec.encode(mapper.writeValueAsBytes(record.toPersistedOutbox()))
