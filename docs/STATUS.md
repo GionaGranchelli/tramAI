@@ -24,6 +24,7 @@ This document describes the state of the repository, not a formal release contra
 | Audit outbox background worker (recovery + dispatch loop) | Implemented / evolving |
 | JDBC sovereign persistence (PostgreSQL-backed approval, audit, outbox stores) | Implemented / evolving |
 | Spring Boot auto-configuration for JDBC persistence | Implemented |
+| JDBC E2E restart proof (Testcontainers, audit/outbox recovery) | Implemented |
 | Sovereign ops worker observability runbook | Implemented |
 | Sovereign ops audit outbox OpenTelemetry metrics | Implemented |
 | Evidence generation (bundles, release artifacts) | Implemented / evolving |

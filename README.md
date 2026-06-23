@@ -41,6 +41,7 @@ TramAI exists to make those concerns explicit, testable, and composable in JVM a
 | Audit chain | Record governance-relevant events with tamper-evident sequencing. |
 | Encrypted file-backed persistence | Durable encrypted stores for approvals, suspended invocations, audit streams, and outbox records. |
 | JDBC persistence | PostgreSQL-backed sovereign stores: approvals, audit events, suspended invocations, approval continuations, and audit outbox. Spring Boot auto-configuration via `type=jdbc`. |
+| JDBC E2E restart proof | Spring Boot example with Testcontainers PostgreSQL: persist state, restart, recover — audit and outbox survive context restart. |
 | Audit outbox recovery | Persist audit emission intent and safely recover/dispatch it via a configurable background worker. |
 
 ## Quick Example
