@@ -9,6 +9,7 @@
 - Encrypted file-backed persistence (`tramai-persistence-file`).
 - File-backed audit outbox and recovery workflow (`tramai-spring-boot-starter-sovereign-ops`).
 - JDBC-backed sovereign persistence with Spring Boot auto-configuration (`tramai-spring-boot-starter-sovereign-persistence-jdbc`). Activated via `tramai.sovereign.persistence.type=jdbc`.
+- JDBC transactional approval mutation outbox boundary via `JdbcSovereignOpsApprovalMutationStore`, committing approval denial and audit intent in one PostgreSQL transaction.
 - JDBC E2E restart proof: Spring Boot example with Testcontainers PostgreSQL, five E2E tests proving sovereign state survives context restart, outbox dispatch recovery, and audit stream hash-chain validation.
 - JDBC worker lease support for multi-node audit outbox worker coordination via the `worker_leases` table, with atomic lease acquisition (`SELECT ... FOR UPDATE`), heartbeat extension, release, and lease-aware worker wrapper.
 - Background worker for audit outbox recovery and dispatch.

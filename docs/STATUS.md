@@ -23,6 +23,7 @@ This document describes the state of the repository, not a formal release contra
 | Audit outbox (atomic mutation + audit intent, claim-based dispatch) | Implemented / evolving |
 | Audit outbox background worker (recovery + dispatch loop) | Implemented / evolving |
 | JDBC sovereign persistence (PostgreSQL-backed approval, audit, outbox stores) | Implemented / evolving |
+| JDBC transactional approval mutation outbox boundary | Implemented / evolving |
 | Spring Boot auto-configuration for JDBC persistence | Implemented |
 | JDBC E2E restart proof (Testcontainers, audit/outbox recovery) | Implemented |
 | JDBC worker lease coordination (multi-node audit outbox worker coordination) | Implemented |
