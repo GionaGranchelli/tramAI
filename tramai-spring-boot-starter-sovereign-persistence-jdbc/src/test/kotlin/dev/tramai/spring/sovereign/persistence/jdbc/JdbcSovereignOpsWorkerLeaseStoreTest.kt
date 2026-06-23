@@ -72,6 +72,7 @@ class JdbcSovereignOpsWorkerLeaseStoreTest {
         assertThat(acquired.lease.ownerId).isEqualTo("worker-a")
         assertThat(acquired.lease.leaseName).isEqualTo("my-lease")
         assertThat(acquired.lease.expiresAt).isEqualTo(BASE_NOW.plus(LEASE_DURATION))
+        assertThat(acquired.lease.version).isEqualTo(2)
     }
 
     @Test
@@ -122,12 +123,15 @@ class JdbcSovereignOpsWorkerLeaseStoreTest {
     @Test
     fun `heartbeat by owner extends expiry`() = runBlocking {
         val s = store()
-        s.tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
+        val acquired = (s.tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
+            as SovereignOpsWorkerLeaseAcquisition.Acquired)
+        val originalVersion = acquired.lease.version
         val later = BASE_NOW.plusSeconds(30)
         val result = s.heartbeat("my-lease", "worker-a", later, LEASE_DURATION)
         assertThat(result).isInstanceOf(SovereignOpsWorkerLeaseHeartbeat.Extended::class.java)
         val extended = result as SovereignOpsWorkerLeaseHeartbeat.Extended
         assertThat(extended.lease.expiresAt).isEqualTo(later.plus(LEASE_DURATION))
+        assertThat(extended.lease.version).isGreaterThan(originalVersion)
     }
 
     @Test
@@ -144,14 +148,30 @@ class JdbcSovereignOpsWorkerLeaseStoreTest {
         assertThat(result).isEqualTo(SovereignOpsWorkerLeaseHeartbeat.Missing)
     }
 
+    @Test
+    fun `heartbeat by owner after expiry is rejected`() = runBlocking {
+        val s = store()
+        s.tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
+        val afterExpiry = BASE_NOW.plus(LEASE_DURATION).plusSeconds(1)
+        val result = s.heartbeat("my-lease", "worker-a", afterExpiry, LEASE_DURATION)
+        assertThat(result).isEqualTo(SovereignOpsWorkerLeaseHeartbeat.Expired)
+    }
+
     // ── Release ────────────────────────────────────────────────────────
 
     @Test
     fun `release by owner clears ownership`() = runBlocking {
         val s = store()
-        s.tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
+        val firstAcquire = (s.tryAcquire("my-lease", "worker-a", BASE_NOW, LEASE_DURATION)
+            as SovereignOpsWorkerLeaseAcquisition.Acquired)
+        val versionAfterAcquire = firstAcquire.lease.version
         val result = s.release("my-lease", "worker-a", BASE_NOW.plusSeconds(10))
         assertThat(result).isEqualTo(SovereignOpsWorkerLeaseRelease.Released)
+
+        // Verify version incremented after release
+        val afterRelease = s.get("my-lease")
+        assertThat(afterRelease).isNotNull
+        assertThat(afterRelease!!.version).isGreaterThan(versionAfterAcquire)
 
         // Verify cleared: another worker can now acquire
         val acquired = s.tryAcquire("my-lease", "worker-b", BASE_NOW.plusSeconds(20), LEASE_DURATION)
@@ -234,7 +254,7 @@ class JdbcSovereignOpsWorkerLeaseStoreTest {
                     .getResourceAsStream("tramai/persistence/jdbc/postgres/V5__worker_leases_hardening.sql")
                     ?.bufferedReader()?.readText()
                     ?: error("V5 migration not found")
-                runCatching { stmt.execute(v5) }
+                stmt.execute(v5)
             }
         }
     }

@@ -58,6 +58,7 @@ data class SovereignOpsOutboxWorkerProperties(
     val leaseName: String = "sovereign-ops-audit-outbox-worker",
     var workerId: String = defaultWorkerId(),
     val leaseDuration: Duration = Duration.ofMinutes(2),
+    val leaseHeartbeatInterval: Duration = Duration.ofSeconds(30),
 )
 
 /**

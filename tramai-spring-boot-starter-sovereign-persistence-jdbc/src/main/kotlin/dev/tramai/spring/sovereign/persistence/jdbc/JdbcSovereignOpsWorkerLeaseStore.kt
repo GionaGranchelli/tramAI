@@ -23,16 +23,21 @@ import javax.sql.DataSource
  *    - Same owner + not expired → heartbeat/extend → AlreadyOwned
  *    - No owner or expired → take ownership → Acquired
  *    - Different owner + not expired → HeldByOther
- * 4. `UPDATE ... SET ...` — applies the decision.
+ * 4. `UPDATE ... SET ...` — applies the decision, asserts exactly 1 row updated.
+ * 5. Re-reads the updated row so returned lease version matches the committed DB state.
  *
  * ## Concurrency
  * The `FOR UPDATE` row lock ensures exactly one concurrent caller wins
  * for a given `lease_name`. The loser receives `HeldByOther`.
  *
+ * ## Heartbeat
+ * Rejected if the lease is expired or held by a different owner.
+ *
  * ## Security
  * - [ownerId] is stored as plaintext — this is a machine coordination lease,
  *   not a user credential. Use hostnames or instance IDs.
  * - No encryption is applied to lease rows (they contain no user data).
+ * - All mutation helpers assert exactly 1 row updated (fail-closed).
  *
  * @param dataSource A JDBC [DataSource] (usually HikariCP in Spring Boot).
  *   The caller is responsible for providing a pooled, production-grade source.
@@ -57,7 +62,13 @@ class JdbcSovereignOpsWorkerLeaseStore(
                 if (result is SovereignOpsWorkerLeaseAcquisition.Acquired ||
                     result is SovereignOpsWorkerLeaseAcquisition.AlreadyOwned
                 ) {
-                    updateOwnership(conn, leaseName, ownerId, now, expiresAt)
+                    val updated = updateOwnership(conn, leaseName, ownerId, now, expiresAt)
+                    return@inTransaction when (result) {
+                        is SovereignOpsWorkerLeaseAcquisition.Acquired ->
+                            SovereignOpsWorkerLeaseAcquisition.Acquired(updated)
+                        is SovereignOpsWorkerLeaseAcquisition.AlreadyOwned ->
+                            SovereignOpsWorkerLeaseAcquisition.AlreadyOwned(updated)
+                    }
                 }
                 result
             }
@@ -75,14 +86,14 @@ class JdbcSovereignOpsWorkerLeaseStore(
             inTransaction(conn) {
                 val lease = selectForUpdate(conn, leaseName)
                     ?: return@inTransaction SovereignOpsWorkerLeaseHeartbeat.Missing
-                if (lease.ownerId != ownerId) return@inTransaction SovereignOpsWorkerLeaseHeartbeat.NotOwner
-                updateOwnership(conn, leaseName, ownerId, now, expiresAt)
-                SovereignOpsWorkerLeaseHeartbeat.Extended(
-                    lease.copy(
-                        expiresAt = expiresAt,
-                        heartbeatAt = now,
-                    ),
-                )
+                if (lease.ownerId != ownerId) {
+                    return@inTransaction SovereignOpsWorkerLeaseHeartbeat.NotOwner
+                }
+                if (lease.isExpired(now)) {
+                    return@inTransaction SovereignOpsWorkerLeaseHeartbeat.Expired
+                }
+                val updated = updateOwnership(conn, leaseName, ownerId, now, expiresAt)
+                SovereignOpsWorkerLeaseHeartbeat.Extended(updated)
             }
         }
     }
@@ -190,13 +201,17 @@ class JdbcSovereignOpsWorkerLeaseStore(
         }
     }
 
+    /**
+     * Applies the ownership update and returns the re-read row so the
+     * returned lease version matches the committed DB state.
+     */
     private fun updateOwnership(
         conn: Connection,
         leaseName: String,
         ownerId: String,
         now: Instant,
         expiresAt: Instant,
-    ) {
+    ): SovereignOpsWorkerLease {
         conn.prepareStatement(
             "UPDATE worker_leases SET owner_id = ?, acquired_at = ?, heartbeat_at = ?, expires_at = ?, version = version + 1 " +
                 "WHERE lease_name = ?",
@@ -206,8 +221,13 @@ class JdbcSovereignOpsWorkerLeaseStore(
             stmt.setTimestamp(3, Timestamp.from(now))
             stmt.setTimestamp(4, Timestamp.from(expiresAt))
             stmt.setString(5, leaseName)
-            stmt.executeUpdate()
+            val updated = stmt.executeUpdate()
+            require(updated == 1) {
+                "tramai-sovereign-worker-lease-update-failed: expected 1 row, got $updated"
+            }
         }
+        return selectForUpdate(conn, leaseName)
+            ?: throw IllegalStateException("worker_leases row disappeared after update: $leaseName")
     }
 
     private fun clearOwnership(conn: Connection, leaseName: String) {
@@ -216,7 +236,10 @@ class JdbcSovereignOpsWorkerLeaseStore(
                 "WHERE lease_name = ?",
         ).use { stmt ->
             stmt.setString(1, leaseName)
-            stmt.executeUpdate()
+            val updated = stmt.executeUpdate()
+            require(updated == 1) {
+                "tramai-sovereign-worker-lease-release-failed: expected 1 row, got $updated"
+            }
         }
     }
 

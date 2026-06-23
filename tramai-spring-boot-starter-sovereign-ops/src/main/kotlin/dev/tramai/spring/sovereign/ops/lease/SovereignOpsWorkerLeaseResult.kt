@@ -21,6 +21,7 @@ sealed interface SovereignOpsWorkerLeaseHeartbeat {
     data class Extended(val lease: SovereignOpsWorkerLease) : SovereignOpsWorkerLeaseHeartbeat
     data object NotOwner : SovereignOpsWorkerLeaseHeartbeat
     data object Missing : SovereignOpsWorkerLeaseHeartbeat
+    data object Expired : SovereignOpsWorkerLeaseHeartbeat
 }
 
 /**
