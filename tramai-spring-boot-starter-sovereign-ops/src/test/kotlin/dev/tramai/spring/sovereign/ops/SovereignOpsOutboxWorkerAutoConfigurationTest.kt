@@ -13,6 +13,8 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerRunSu
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerStatusStore
 import dev.tramai.spring.sovereign.ops.outbox.RecordingSovereignOpsAuditOutboxWorkerObserver
 import dev.tramai.spring.sovereign.ops.outbox.TestAuditEngineConfig
+import dev.tramai.spring.sovereign.ops.outbox.LeasedSovereignOpsAuditOutboxBackgroundWorker
+import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseStore
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -316,6 +318,81 @@ class SovereignOpsOutboxWorkerAutoConfigurationTest {
                     .containsKey("customObserver")
             }
     }
+    // ── Worker lease support ──────────────────────────────────────────
+
+    @Test
+    fun `lease disabled — normal worker`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                TestAuditEngineConfig::class.java,
+            )
+            .withPropertyValues(
+                "tramai.sovereign.ops.outbox.worker.enabled=true",
+                "tramai.sovereign.ops.outbox.worker.initial-delay=1h",
+                "tramai.sovereign.ops.outbox.worker.lease-enabled=false",
+            )
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(SovereignOpsAuditOutboxBackgroundWorker::class.java)
+                assertThat(ctx).doesNotHaveBean(LeasedSovereignOpsAuditOutboxBackgroundWorker::class.java)
+            }
+    }
+
+    @Test
+    fun `lease enabled + store exists — leased worker`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                TestAuditEngineConfig::class.java,
+                MockLeaseStoreConfig::class.java,
+            )
+            .withPropertyValues(
+                "tramai.sovereign.ops.outbox.worker.enabled=true",
+                "tramai.sovereign.ops.outbox.worker.initial-delay=1h",
+                "tramai.sovereign.ops.outbox.worker.lease-enabled=true",
+            )
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(LeasedSovereignOpsAuditOutboxBackgroundWorker::class.java)
+            }
+    }
+
+    @Test
+    fun `lease enabled + no store — fail loudly`() {
+        contextRunner
+            .withUserConfiguration(
+                MinimalStoreConfig::class.java,
+                TestAuditEngineConfig::class.java,
+            )
+            .withPropertyValues(
+                "tramai.sovereign.ops.outbox.worker.enabled=true",
+                "tramai.sovereign.ops.outbox.worker.initial-delay=1h",
+                "tramai.sovereign.ops.outbox.worker.lease-enabled=true",
+            )
+            .run { ctx ->
+                assertThat(ctx).hasFailed()
+                val failure = requireNotNull(ctx.startupFailure)
+                assertThat(failure)
+                    .hasMessageContaining("tramai-sovereign-ops-worker-lease-store-missing")
+            }
+    }
+
+    @Test
+    fun `lease properties bind`() {
+        contextRunner
+            .withUserConfiguration(MinimalStoreConfig::class.java)
+            .withPropertyValues(
+                "tramai.sovereign.ops.outbox.worker.lease-enabled=false",
+                "tramai.sovereign.ops.outbox.worker.lease-name=custom-lease",
+                "tramai.sovereign.ops.outbox.worker.worker-id=worker-42",
+                "tramai.sovereign.ops.outbox.worker.lease-duration=90s",
+            )
+            .run { ctx ->
+                val props = ctx.getBean(SovereignOpsProperties::class.java)
+                assertThat(props.outbox.worker.leaseName).isEqualTo("custom-lease")
+                assertThat(props.outbox.worker.workerId).isEqualTo("worker-42")
+                assertThat(props.outbox.worker.leaseDuration).isEqualTo(Duration.ofSeconds(90))
+            }
+    }
 }
 
 open class CustomOutboxBackgroundWorkerConfig {
@@ -410,4 +487,35 @@ private class CounterContributionObserver(
     }
 
     override fun onCycleFailed(action: String, errorCode: String) = Unit
+}
+
+// ── Worker lease store mock ────────────────────────────────────────
+
+open class MockLeaseStoreConfig {
+    @Bean
+    open fun mockLeaseStore(): SovereignOpsWorkerLeaseStore =
+        object : SovereignOpsWorkerLeaseStore {
+            override suspend fun tryAcquire(
+                leaseName: String,
+                ownerId: String,
+                now: Instant,
+                leaseDuration: Duration,
+            ) = throw UnsupportedOperationException("mock stub")
+
+            override suspend fun heartbeat(
+                leaseName: String,
+                ownerId: String,
+                now: Instant,
+                leaseDuration: Duration,
+            ) = throw UnsupportedOperationException("mock stub")
+
+            override suspend fun release(
+                leaseName: String,
+                ownerId: String,
+                now: Instant,
+            ) = throw UnsupportedOperationException("mock stub")
+
+            override suspend fun get(leaseName: String) =
+                throw UnsupportedOperationException("mock stub")
+        }
 }

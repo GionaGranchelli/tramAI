@@ -75,6 +75,7 @@ data class SovereignOpsAuditOutboxWorkerRunSummary(
     val recovered: SovereignOpsAuditOutboxRecoverySummary?,
     val dispatched: SovereignOpsAuditOutboxDispatchResult?,
     val failure: SovereignOpsAuditOutboxWorkerFailureSummary? = null,
+    val skipped: SovereignOpsAuditOutboxWorkerSkippedSummary? = null,
     val startedAt: Instant,
     val completedAt: Instant,
 )
@@ -82,4 +83,8 @@ data class SovereignOpsAuditOutboxWorkerRunSummary(
 data class SovereignOpsAuditOutboxWorkerFailureSummary(
     val action: String,
     val errorCode: String,
+)
+
+data class SovereignOpsAuditOutboxWorkerSkippedSummary(
+    val reason: String,
 )

@@ -19,9 +19,12 @@ import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAuto
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
+import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseAcquisition
+import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseStore
 import com.zaxxer.hikari.HikariDataSource
 import java.nio.file.Path
 import java.security.MessageDigest
+import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 import java.util.UUID
@@ -452,6 +455,58 @@ class JdbcSovereignRuntimeE2ETest {
 
                     // Stream identity
                     assertThat(events).allMatch { it.auditStreamId == streamId }
+                }
+            }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    // Test 6 — Two-worker lease coordination
+    // ════════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `two JDBC-backed workers coordinate through worker lease`() {
+        ensureMigrationsApplied()
+
+        val leaseName = "test-coordination"
+        val now = Instant.now()
+        val leaseDuration = Duration.ofSeconds(30)
+
+        // ── Context A: worker-a acquires the lease ──────────────────────
+        createJdbcRunner()
+            .run { ctx ->
+                val leaseStore = ctx.getBean(SovereignOpsWorkerLeaseStore::class.java)
+                runBlocking {
+                    val result = leaseStore.tryAcquire(leaseName, "worker-a", now, leaseDuration)
+                    assertThat(result)
+                        .isInstanceOf(SovereignOpsWorkerLeaseAcquisition.Acquired::class.java)
+                    val acquired = result as SovereignOpsWorkerLeaseAcquisition.Acquired
+                    assertThat(acquired.lease.ownerId).isEqualTo("worker-a")
+                    assertThat(acquired.lease.isExpired(now)).isFalse()
+                }
+            }
+
+        // ── Context B: worker-b attempts to acquire → HeldByOther ───────
+        createJdbcRunner()
+            .run { ctx ->
+                val leaseStore = ctx.getBean(SovereignOpsWorkerLeaseStore::class.java)
+                runBlocking {
+                    val result = leaseStore.tryAcquire(leaseName, "worker-b", now, leaseDuration)
+                    assertThat(result)
+                        .isInstanceOf(SovereignOpsWorkerLeaseAcquisition.HeldByOther::class.java)
+                    val held = result as SovereignOpsWorkerLeaseAcquisition.HeldByOther
+                    assertThat(held.lease.ownerId).isEqualTo("worker-a")
+                }
+            }
+
+        // ── Context A re-check: worker-a still owns the lease ───────────
+        createJdbcRunner()
+            .run { ctx ->
+                val leaseStore = ctx.getBean(SovereignOpsWorkerLeaseStore::class.java)
+                runBlocking {
+                    val lease = leaseStore.get(leaseName)
+                    assertThat(lease).isNotNull
+                    assertThat(lease!!.ownerId).isEqualTo("worker-a")
+                    assertThat(lease.isExpired(now)).isFalse()
                 }
             }
     }

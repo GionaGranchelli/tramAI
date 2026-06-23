@@ -2,6 +2,7 @@ package dev.tramai.spring.sovereign.ops
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 import java.time.Duration
+import java.util.UUID
 
 /**
  * Externalized configuration for TramAI sovereign operations.
@@ -53,4 +54,16 @@ data class SovereignOpsOutboxWorkerProperties(
     val recoverPrepared: Boolean = true,
     val dispatchPending: Boolean = true,
     val failOnMissingDispatcher: Boolean = true,
+    val leaseEnabled: Boolean = false,
+    val leaseName: String = "sovereign-ops-audit-outbox-worker",
+    var workerId: String = defaultWorkerId(),
+    val leaseDuration: Duration = Duration.ofMinutes(2),
 )
+
+/**
+ * Computes a default worker ID from the HOSTNAME env var, falling back
+ * to a random UUID. Used as the [SovereignOpsOutboxWorkerProperties.workerId]
+ * default so that each node gets a stable identity without explicit config.
+ */
+fun defaultWorkerId(): String =
+    System.getenv("HOSTNAME") ?: UUID.randomUUID().toString()
