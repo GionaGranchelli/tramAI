@@ -22,6 +22,8 @@ This document describes the state of the repository, not a formal release contra
 | Audit chain (tamper-evident sequencing) | Implemented / evolving |
 | Audit outbox (atomic mutation + audit intent, claim-based dispatch) | Implemented / evolving |
 | Audit outbox background worker (recovery + dispatch loop) | Implemented / evolving |
+| JDBC sovereign persistence (PostgreSQL-backed approval, audit, outbox stores) | Implemented / evolving |
+| Spring Boot auto-configuration for JDBC persistence | Implemented |
 | Sovereign ops worker observability runbook | Implemented |
 | Sovereign ops audit outbox OpenTelemetry metrics | Implemented |
 | Evidence generation (bundles, release artifacts) | Implemented / evolving |
@@ -83,7 +85,7 @@ The following are intentionally not claimed as complete. Some are planned, some 
 - stable 1.0 public API
 - Maven Central release of sovereign-runtime modules
 - REST/Actuator operational endpoints
-- database-backed outbox or persistence
+- database-backed outbox worker E2E scheduling or transaction-boundary hardening
 - distributed worker leader election
 - key rotation
 - full production deployment guide

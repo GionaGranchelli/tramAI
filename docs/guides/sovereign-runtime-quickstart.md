@@ -45,6 +45,18 @@ dependencies {
 }
 ```
 
+For JDBC-backed persistence (alternative to file-backed), replace the file persistence dependency:
+
+```kotlin
+dependencies {
+    // ... core, sovereign, security, ops dependencies ...
+
+    // Replace tramai-spring-boot-starter-sovereign-persistence-file with:
+    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-persistence-jdbc:<version>")
+    runtimeOnly("org.postgresql:postgresql")
+}
+```
+
 > **Important:** These coordinates are shown as a conceptual example. The exact published coordinates, versioning scheme, and Maven Central availability are still evolving. For local evaluation, depend on source modules via the project's local publication workflow.
 
 ## Minimal configuration
@@ -81,6 +93,35 @@ This activates:
 - audit outbox background worker (recovery + dispatch loop)
 - optional read-only Actuator worker status endpoint
 - optional Actuator worker health component
+
+### JDBC persistence configuration
+
+To use JDBC-backed persistence instead of file-backed, set `type: jdbc` and provide a DataSource and encryption key:
+
+```yaml
+tramai:
+  sovereign:
+    enabled: true
+    persistence:
+      type: jdbc
+      jdbc:
+        claim-lease-duration: 5m
+        max-claim-limit: 500
+      encryption:
+        key-env: TRAMAI_SOVEREIGN_STORE_KEY
+    ops:
+      audit-outbox:
+        worker:
+          enabled: true
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tramai
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+```
+
+> **Important:** The application database must have the TramAI JDBC schema migrations applied before runtime startup. Database migration execution is not covered by this quickstart — expect a dedicated migration guide in a future PR.
 
 ## Define a governed operation
 
