@@ -212,7 +212,7 @@ It does **not** publish remotely, create a tag, or claim Maven Central availabil
 
 For a regulated-domain walkthrough, see [Regulated Claim Triage Reference Scenario](../scenarios/regulated-claim-triage.md).
 
-- Production deployment and operational runbooks
+- [Production deployment and operational runbooks](../runbooks/sovereign-jdbc-production-deployment.md) (now available)
 - Key rotation and secrets lifecycle
 - Maven Central release or public artifact publication
 - Stable 1.0 API — interfaces are still evolving

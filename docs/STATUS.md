@@ -91,7 +91,6 @@ The following are intentionally not claimed as complete. Some are planned, some 
 - database-backed outbox worker E2E scheduling or transaction-boundary hardening
 - distributed worker leader election
 - key rotation
-- full production deployment guide
 - complete API reference documentation
 
 No timelines are committed for these items.
@@ -118,6 +117,8 @@ For first-time integration, see [Sovereign Runtime Quickstart](./guides/sovereig
 For a regulated workflow reference scenario, see [Regulated Claim Triage Reference Scenario](./scenarios/regulated-claim-triage.md).
 
 For the production-hardening direction toward database-backed persistence, see [Sovereign JDBC Persistence Design](./architecture/sovereign-jdbc-persistence-design.md).
+
+For production deployment guidance, see [Sovereign JDBC Production Deployment Runbook](./runbooks/sovereign-jdbc-production-deployment.md).
 
 These documents cover included capability areas, representative modules, validation commands, explicit non-goals, and known release risks.
 

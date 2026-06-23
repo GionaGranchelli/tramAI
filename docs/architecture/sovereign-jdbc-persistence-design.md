@@ -353,7 +353,7 @@ Suggested implementation sequence:
 8. Add Testcontainers-based integration tests. ✅ (per-store coverage)
 9. Add Spring Boot auto-configuration for JDBC persistence. ✅ `SovereignJdbcPersistenceAutoConfiguration` (PR #86)
 10. Add optional worker lease support.
-11. Add production deployment documentation.
+11. Add production deployment documentation. ✅ [Sovereign JDBC Production Deployment Runbook](../runbooks/sovereign-jdbc-production-deployment.md) (PR #90)
 
 ## Spring Boot Auto-Configuration (PR #86)
 
