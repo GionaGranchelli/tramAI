@@ -39,8 +39,6 @@ Current JDBC stores (implemented):
 
 Current limitations:
 
-- no multi-node worker coordination
-- no database transaction boundary
 - no production deployment certification
 
 ## Target Capabilities
@@ -353,7 +351,7 @@ Suggested implementation sequence:
 8. Add Testcontainers-based integration tests. ✅ (per-store coverage)
 9. Add Spring Boot auto-configuration for JDBC persistence. ✅ `SovereignJdbcPersistenceAutoConfiguration` (PR #86)
 10. Add optional worker lease support.
-11. Add production deployment documentation.
+11. Add production deployment documentation. ✅ [Sovereign JDBC Production Deployment Runbook](../runbooks/sovereign-jdbc-production-deployment.md) (PR #90)
 
 ## Spring Boot Auto-Configuration (PR #86)
 
@@ -390,6 +388,8 @@ tramai:
 | `SuspendedInvocationStore` | `JdbcSuspendedInvocationStore` | `@ConditionalOnMissingBean` |
 | `AuditStore` | `JdbcAuditStore` | `@ConditionalOnMissingBean` |
 | `SovereignOpsAuditOutboxStore` | `JdbcSovereignOpsAuditOutboxStore` | `@ConditionalOnMissingBean` |
+| `SovereignOpsApprovalMutationStore` | `JdbcSovereignOpsApprovalMutationStore` | `@ConditionalOnMissingBean` |
+| `SovereignOpsWorkerLeaseStore` | `JdbcSovereignOpsWorkerLeaseStore` | `@ConditionalOnMissingBean` |
 
 All store beans are `@ConditionalOnMissingBean` — user-provided stores always take precedence.
 
@@ -435,11 +435,9 @@ The application database must have the TramAI JDBC schema migrations applied bef
 
 This design does **not** claim:
 
-- JDBC persistence is already implemented
-- Production readiness
-- Distributed worker coordination
 - Key rotation
 - Cloud database certification
 - Cross-database distributed transactions / XA coordination
+- Kubernetes/cloud-provider deployment templates
 - Stable 1.0 API
 - Maven Central availability

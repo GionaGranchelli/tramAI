@@ -20,6 +20,7 @@
 - Optional Actuator worker health component (`tramaiSovereignOpsWorker`, registered in real `HealthContributorRegistry`).
 - Sovereign document intelligence reference workflow (`examples:sovereign-document-intelligence`).
 - Worker observability runbook covering Actuator status, health component, Micrometer, OpenTelemetry, PromQL, and example alerts.
+- Sovereign JDBC production deployment runbook: deployment topology, configuration reference, encryption key requirements, migration order, worker lease setup, health checks, failure modes, rollback strategy, and verification checklist.
 - Sovereign runtime release-candidate evidence chain and evidence index generation.
 - Sovereign runtime release-readiness documentation and module matrix.
 
@@ -37,9 +38,7 @@
 - Maven Central release of sovereign runtime modules (not verified).
 - Broad REST/Actuator operational control endpoints beyond worker status and health.
 - Full dashboard integration and production monitoring runbook.
-- Database-backed persistence or outbox.
 - Key rotation.
-- Full production deployment guide.
 - Complete API reference documentation.
 
 For the current release-readiness boundary, see [docs/releases/sovereign-runtime-release-readiness.md](docs/releases/sovereign-runtime-release-readiness.md).
@@ -49,6 +48,7 @@ For the current release-readiness boundary, see [docs/releases/sovereign-runtime
 - Added Sovereign Runtime Quickstart for first-time RC evaluation and integration.
 - Added a regulated claim triage reference scenario for Sovereign Runtime RC evaluation.
 - Added Sovereign JDBC persistence design as the first production-hardening target after the Sovereign Runtime RC boundary.
+- Added Sovereign JDBC production deployment runbook covering topology, configuration, encryption, migrations, worker leases, health checks, failure modes, and verification checklist.
 
 ### Added
 - Added `tramai-persistence-jdbc` module with PostgreSQL schema skeleton and schema contract tests for the five sovereign persistence areas.

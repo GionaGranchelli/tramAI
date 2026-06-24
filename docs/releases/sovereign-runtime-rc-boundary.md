@@ -59,21 +59,21 @@ The following are intentionally **not included** in this RC:
 - Stable 1.0 public API
 - Maven Central release
 - Production deployment certification
-- Database-backed persistence or outbox
-- Distributed worker leader election
 - Key rotation
 - Broad REST/Actuator control-plane endpoints
 - Production dashboard
 - Complete API reference documentation
 
+> **Note:** The production deployment runbook now exists for the JDBC persistence stack ([Sovereign JDBC Production Deployment Runbook](../runbooks/sovereign-jdbc-production-deployment.md)). This RC boundary document has not been updated to reflect the now-complete JDBC stack — it represents the original encrypted file-backed RC baseline.
+
 ## Post-RC Roadmap
 
 After this RC boundary, the next roadmap area is production hardening:
 
-1. JDBC/database-backed persistence and outbox
-2. Distributed worker coordination
+1. JDBC/database-backed persistence and outbox ✅ (PRs #80–#89)
+2. Distributed worker coordination ✅ (PR #88, worker leases)
 3. Key rotation
-4. Production deployment guide
+4. Production deployment guide ✅ (PR #90, [runbook](../runbooks/sovereign-jdbc-production-deployment.md))
 5. End-to-end regulated workflow examples
 6. API stabilization based on integration feedback
 
