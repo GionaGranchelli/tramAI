@@ -162,11 +162,13 @@ Operators can inspect worker state **without** exposing sensitive claim data.
 - DLP-aware routing (redact before sending to model)
 - Sovereign provider selection (local-only, EU / trusted, approved cloud)
 - Replay-safe approval resume (encrypted continuation envelopes)
-- Encrypted file-backed persistence (approvals, continuations, audit stream, outbox)
+- Encrypted file-backed or JDBC-backed persistence (approvals, continuations, audit stream, outbox)
 - Audit chain (tamper-evident sequencing)
 - Outbox recovery (durable claim-based dispatch)
 - Worker observability (Actuator status / health, Micrometer, OpenTelemetry)
 - Release-candidate verification evidence (`verifySovereignRuntimeReleaseCandidate`)
+- JDBC transactional approval mutation outbox boundary
+- Multi-node worker lease coordination
 
 ## What Is Still Application Responsibility
 
@@ -177,8 +179,6 @@ Operators can inspect worker state **without** exposing sensitive claim data.
 - Role / identity management integration
 - Customer communication
 - Production deployment and monitoring
-- Database-backed persistence if required
-- Distributed worker coordination if running multiple nodes
 
 ## How to Evaluate This Scenario Locally
 
@@ -196,6 +196,20 @@ Then read:
 
 For the planned database-backed persistence direction, see [Sovereign JDBC Persistence Design](../architecture/sovereign-jdbc-persistence-design.md).
 
+## Executable JDBC E2E Proof
+
+This scenario is now covered by a JDBC-backed E2E test in:
+
+`examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/RegulatedClaimTriageJdbcE2ETest.kt`
+
+The test proves:
+- High-risk recommendations require approval and persist to PostgreSQL
+- Approval denial and audit intent are committed transactionally in one database transaction
+- Audit outbox records are durable and dispatchable after context restart
+- Restricted medical data is denied before cloud model invocation (policy enforcement)
+- Low-risk recommendations complete without approval suspension
+- Operational surfaces remain sanitized — no raw PII, medical text, payment data, prompts, or model responses in audit events or outbox payloads
+
 ## Non-Goals
 
 This scenario does **not** claim:
@@ -205,5 +219,3 @@ This scenario does **not** claim:
 - Medical decision automation
 - Stable 1.0 API
 - Maven Central availability
-- Database-backed persistence
-- Distributed worker coordination

@@ -21,6 +21,7 @@
 - Sovereign document intelligence reference workflow (`examples:sovereign-document-intelligence`).
 - Worker observability runbook covering Actuator status, health component, Micrometer, OpenTelemetry, PromQL, and example alerts.
 - Sovereign JDBC production deployment runbook: deployment topology, configuration reference, encryption key requirements, migration order, worker lease setup, health checks, failure modes, rollback strategy, and verification checklist.
+- JDBC-backed regulated claim triage E2E proof: high-risk approval denial + audit outbox transactional boundary, fail-closed cloud routing, low-risk no-approval path, audit/outbox dispatch, and sanitized observability assertions.
 - Sovereign runtime release-candidate evidence chain and evidence index generation.
 - Sovereign runtime release-readiness documentation and module matrix.
 

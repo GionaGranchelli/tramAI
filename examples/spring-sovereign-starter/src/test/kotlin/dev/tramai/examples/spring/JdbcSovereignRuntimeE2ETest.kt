@@ -34,9 +34,8 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
-import org.testcontainers.containers.PostgreSQLContainer
-import org.testcontainers.junit.jupiter.Container
-import org.testcontainers.junit.jupiter.Testcontainers
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.BeforeAll
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
@@ -47,24 +46,28 @@ import org.springframework.context.annotation.Configuration
  * `tramai.sovereign.persistence.type=jdbc` survives context restart and recovers
  * all sovereign state from PostgreSQL.
  *
- * Uses Testcontainers PostgreSQL, applies TramAI JDBC schema migrations,
+ * Uses embedded PostgreSQL (no Docker required), applies TramAI JDBC schema migrations,
  * and runs two separate Spring contexts to simulate restart.
  */
-@Testcontainers
 @org.junit.jupiter.api.Tag("e2e")
 class JdbcSovereignRuntimeE2ETest {
 
     companion object {
-        @Container
         @JvmStatic
-        val postgres: PostgreSQLContainer<*> = PostgreSQLContainer<Nothing>("postgres:16-alpine")
+        @BeforeAll
+        fun startPg() {
+            PgEmbeddedTestSupport.start()
+        }
+
+        @JvmStatic
+        @AfterAll
+        fun stopPg() {
+            PgEmbeddedTestSupport.stop()
+        }
 
         /** AES-256 key: 32 bytes (0..31) encoded in base64. */
         private val VALID_BASE64_KEY: String =
             Base64.getEncoder().encodeToString(ByteArray(32) { it.toByte() })
-
-        /** True if migrations have already been applied to the shared container. */
-        private var migrationsApplied = false
     }
 
     @TempDir
@@ -78,11 +81,11 @@ class JdbcSovereignRuntimeE2ETest {
         keyFile.toFile().writeText(VALID_BASE64_KEY)
     }
 
-    // ── Shared JDBC URL ────────────────────────────────────────────────
+    // ── Shared JDBC URL (provided by embedded PG) ───────────────────────
 
-    private val postgresJdbcUrl: String get() = postgres.jdbcUrl
-    private val postgresUser: String get() = postgres.username
-    private val postgresPassword: String get() = postgres.password
+    private val postgresJdbcUrl: String get() = PgEmbeddedTestSupport.jdbcUrl
+    private val postgresUser: String get() = PgEmbeddedTestSupport.username
+    private val postgresPassword: String get() = PgEmbeddedTestSupport.password
 
     // ── ApplicationContextRunner factory ────────────────────────────────
 
@@ -163,7 +166,8 @@ class JdbcSovereignRuntimeE2ETest {
         val eventKey = "e2e-event-key-${UUID.randomUUID()}"
 
         // ── Context A: write audit events and an outbox record ────────
-        val outboxId = createJdbcRunner()
+        lateinit var outboxId: String
+        createJdbcRunner()
             .run { ctx ->
                 val auditStore = ctx.getBean(AuditStore::class.java)
                 val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
@@ -227,7 +231,7 @@ class JdbcSovereignRuntimeE2ETest {
                             reasonLength = 6,
                         ),
                     )
-                    appended.outboxId
+                    outboxId = appended.outboxId
                 }
             }
 
@@ -297,7 +301,7 @@ class JdbcSovereignRuntimeE2ETest {
                     runBlocking {
                         auditStore.readStream("unavailable-db-test")
                     }
-                }.hasRootCauseInstanceOf(java.sql.SQLException::class.java)
+                }.isInstanceOf(java.sql.SQLException::class.java)
             }
     }
 
@@ -514,16 +518,11 @@ class JdbcSovereignRuntimeE2ETest {
     // ── Helpers ────────────────────────────────────────────────────────
 
     /**
-     * Applies TramAI JDBC schema migrations to the shared Testcontainers
-     * PostgreSQL once per test class.
+     * No-op: migrations are applied once by [PgEmbeddedTestSupport.start].
+     * Kept for call-site compatibility.
      */
     private fun ensureMigrationsApplied() {
-        if (!migrationsApplied) {
-            val ds = createDataSource()
-            JdbcSchemaTestSupport.applyMigrations(ds)
-            (ds as? AutoCloseable)?.close()
-            migrationsApplied = true
-        }
+        // Migrations already applied by PgEmbeddedTestSupport.start()
     }
 
     private fun createDataSource(): DataSource {
@@ -545,17 +544,16 @@ class JdbcSovereignRuntimeE2ETest {
     // ════════════════════════════════════════════════════════════════════
 
     /**
-     * Provides a [DataSource] bean pointing to the shared Testcontainers PostgreSQL.
-     * The container's dynamic port is resolved at bean creation time.
+     * Provides a [DataSource] bean pointing to the shared embedded PostgreSQL.
      */
     @Configuration
     class JdbcE2eDataSourceConfig {
         @Bean(destroyMethod = "close")
         fun e2eDataSource(): DataSource {
             val ds = HikariDataSource()
-            ds.jdbcUrl = postgres.jdbcUrl
-            ds.username = postgres.username
-            ds.password = postgres.password
+            ds.jdbcUrl = PgEmbeddedTestSupport.jdbcUrl
+            ds.username = PgEmbeddedTestSupport.username
+            ds.password = PgEmbeddedTestSupport.password
             ds.maximumPoolSize = 3
             return ds
         }

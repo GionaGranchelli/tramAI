@@ -78,21 +78,37 @@ object JdbcSchemaTestSupport {
 
     /**
      * Splits a SQL script into individual statements on semicolons,
-     * skipping comment lines and blank lines.
+     * skipping comment lines and blank lines, and handling DO $$ ... END $$ blocks
+     * as indivisible statements.
      */
     private fun splitStatements(sql: String): List<String> {
         val statements = mutableListOf<String>()
         val current = StringBuilder()
+        var inDollarQuote = false
+
         for (line in sql.lines()) {
             val trimmed = line.trim()
-            // Skip comments and blank lines
-            if (trimmed.isEmpty() || trimmed.startsWith("--")) continue
+
+            // Detect start/end of DO $$ ... END $$ blocks
+            if (!inDollarQuote && trimmed.startsWith("DO $$ BEGIN")) {
+                inDollarQuote = true
+            }
+
+            // Skip comments and blank lines (but NOT inside dollar-quoted blocks)
+            if (!inDollarQuote && (trimmed.isEmpty() || trimmed.startsWith("--"))) continue
+
             current.append(line).append("\n")
-            if (trimmed.endsWith(";")) {
+
+            if (inDollarQuote && trimmed == "END $$;") {
+                inDollarQuote = false
+                statements.add(current.toString())
+                current.clear()
+            } else if (!inDollarQuote && trimmed.endsWith(";")) {
                 statements.add(current.toString())
                 current.clear()
             }
         }
+
         if (current.isNotBlank()) {
             statements.add(current.toString())
         }

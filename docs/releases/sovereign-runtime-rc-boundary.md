@@ -74,7 +74,7 @@ After this RC boundary, the next roadmap area is production hardening:
 2. Distributed worker coordination ✅ (PR #88, worker leases)
 3. Key rotation
 4. Production deployment guide ✅ (PR #90, [runbook](../runbooks/sovereign-jdbc-production-deployment.md))
-5. End-to-end regulated workflow examples
+5. End-to-end regulated workflow examples ✅ (PR #91, [Regulated Claim Triage JDBC E2E](../scenarios/regulated-claim-triage.md#executable-jdbc-e2e-proof))
 6. API stabilization based on integration feedback
 
 The first production-hardening design target is database-backed persistence. See [Sovereign JDBC Persistence Design](../architecture/sovereign-jdbc-persistence-design.md).
