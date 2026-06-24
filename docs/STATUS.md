@@ -27,6 +27,7 @@ This document describes the state of the repository, not a formal release contra
 | Spring Boot auto-configuration for JDBC persistence | Implemented |
 | JDBC E2E restart proof (Testcontainers, audit/outbox recovery) | Implemented |
 | JDBC worker lease coordination (multi-node audit outbox worker coordination) | Implemented |
+| Regulated claim triage JDBC E2E proof | Implemented |
 | Sovereign ops worker observability runbook | Implemented |
 | Sovereign ops audit outbox OpenTelemetry metrics | Implemented |
 | Evidence generation (bundles, release artifacts) | Implemented / evolving |
