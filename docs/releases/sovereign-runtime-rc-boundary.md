@@ -64,17 +64,18 @@ The following are intentionally **not included** in this RC:
 - Production dashboard
 - Complete API reference documentation
 
-> **Note:** The production deployment runbook now exists for the JDBC persistence stack ([Sovereign JDBC Production Deployment Runbook](../runbooks/sovereign-jdbc-production-deployment.md)). This RC boundary document has not been updated to reflect the now-complete JDBC stack — it represents the original encrypted file-backed RC baseline.
+> This document describes the **original** Sovereign Runtime RC boundary established before JDBC persistence, worker coordination, and the regulated JDBC E2E proof were completed.
+>
+> For the **current** completed roadmap boundary, see [Sovereign Runtime Closure Boundary](./sovereign-runtime-closure-boundary.md).
 
-## Post-RC Roadmap
+## Historical Context
 
-After this RC boundary, the next roadmap area is production hardening:
+The original post-RC roadmap listed:
+1. JDBC/database-backed persistence and outbox ✅
+2. Distributed worker coordination ✅
+3. Key rotation *(deferred)*
+4. Production deployment guide ✅
+5. End-to-end regulated workflow examples ✅
+6. API stabilization *(next roadmap)*
 
-1. JDBC/database-backed persistence and outbox ✅ (PRs #80–#89)
-2. Distributed worker coordination ✅ (PR #88, worker leases)
-3. Key rotation
-4. Production deployment guide ✅ (PR #90, [runbook](../runbooks/sovereign-jdbc-production-deployment.md))
-5. End-to-end regulated workflow examples ✅ (PR #91, [Regulated Claim Triage JDBC E2E](../scenarios/regulated-claim-triage.md#executable-jdbc-e2e-proof))
-6. API stabilization based on integration feedback
-
-The first production-hardening design target is database-backed persistence. See [Sovereign JDBC Persistence Design](../architecture/sovereign-jdbc-persistence-design.md).
+Items 1, 2, 4, and 5 are now complete. Item 3 (key rotation) is deferred to the future GA roadmap. See the [Sovereign Runtime Closure Boundary](./sovereign-runtime-closure-boundary.md) for the full closure boundary.
