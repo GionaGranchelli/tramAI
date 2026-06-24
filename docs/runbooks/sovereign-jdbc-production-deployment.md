@@ -104,7 +104,6 @@ tramai:
           enabled: true
           dispatch-pending: true
           recover-prepared: true
-          recover-expired-emitting: true
           lease-enabled: true
           lease-name: sovereign-audit-outbox
           worker-id: ${HOSTNAME}
@@ -218,13 +217,15 @@ tramai:
 
 ## Audit outbox dispatch model
 
-The audit outbox worker runs a continuous loop:
+The audit outbox worker runs a continuous loop with two runtime toggles:
 
 ```
 runOnce()
-  ├── recoverPrepared()    — recover stale PREPARED records
-  └── retryPending()       — claim and dispatch PENDING records
+  ├── recoverPrepared()    — recover stale PREPARED records (toggle: recover-prepared)
+  └── retryPending()       — claim and dispatch PENDING records (toggle: dispatch-pending)
 ```
+
+Retryable or expired EMITTING records are handled by the outbox claim/retry logic (SKIP LOCKED + attempt count + next_attempt_at), not by a separate worker configuration property.
 
 **Dispatch is claim-based:** each dispatch uses `SELECT ... FOR UPDATE SKIP LOCKED` on the `audit_outbox` table. Multiple workers (with lease disabled) cannot claim the same row — PostgreSQL row-level locking prevents that. The lease prevents multiple workers from *running the recovery/dispatch cycle* simultaneously, which is the higher-level coordination concern.
 
