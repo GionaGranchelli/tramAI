@@ -3,6 +3,8 @@
 > This document defines the formal closure boundary for the Sovereignty roadmap.
 > The Sovereign Runtime is considered functionally complete as an RC+ / enterprise proof milestone.
 > It is **not** a GA-certified production release.
+>
+> This is not a GA-certified production release.
 
 ---
 
@@ -10,7 +12,7 @@
 
 Sovereign Runtime is **functionally complete as an enterprise proof / RC+ milestone**.
 
-It is not yet a GA-certified production release. The next roadmap focuses on API stabilization and workflow ergonomics.
+**This is not a GA-certified production release.** The next roadmap focuses on API stabilization and workflow ergonomics.
 
 ---
 

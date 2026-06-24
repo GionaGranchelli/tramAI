@@ -2041,7 +2041,7 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
 
         val requiredPhrases = listOf(
             "RC+ / enterprise proof",
-            "GA-certified",
+            "not a GA-certified production release",
             "Key rotation",
             "verifySovereignRuntimeReleaseCandidate",
             ":examples:spring-sovereign-starter:e2eTest",
@@ -2053,6 +2053,27 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             require(closureText.contains(phrase)) {
                 "Sovereign Runtime closure boundary is missing required phrase: $phrase"
             }
+        }
+
+        // Verify that GA is explicitly not claimed — positive check above already
+        // requires "not a GA-certified production release". These negative guards
+        // prevent accidental overclaiming if the document is later edited.
+        // Note: "stable 1.0 API" appears legitimately in the non-goals section,
+        // so we only guard against affirmative claims.
+        val forbiddenClaims = listOf(
+            "is GA-certified",
+            "production certified",
+        )
+
+        forbiddenClaims.forEach { forbidden ->
+            require(!closureText.contains(forbidden, ignoreCase = true)) {
+                "Sovereign Runtime closure boundary must not claim: $forbidden"
+            }
+        }
+
+        // Key rotation must be explicitly deferred, not merely mentioned
+        require(closureText.contains("deferred", ignoreCase = true)) {
+            "Closure boundary must explicitly defer key rotation (found 'Key rotation' but not 'deferred')."
         }
 
         val rcBoundary = file("docs/releases/sovereign-runtime-rc-boundary.md").readText()
