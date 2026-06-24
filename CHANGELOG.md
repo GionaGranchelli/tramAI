@@ -45,7 +45,8 @@
 For the current release-readiness boundary, see [docs/releases/sovereign-runtime-release-readiness.md](docs/releases/sovereign-runtime-release-readiness.md).
 
 ### Documentation
-- Added Sovereign Runtime Release Candidate boundary declaration and linked it to the canonical verification task.
+- Added Sovereign Runtime release-candidate boundary declaration and linked it to the canonical verification task.
+- Added Sovereign Runtime closure boundary defining the completed RC+ / enterprise proof scope, closure evidence, explicit non-goals, and deferred GA items.
 - Added Sovereign Runtime Quickstart for first-time RC evaluation and integration.
 - Added a regulated claim triage reference scenario for Sovereign Runtime RC evaluation.
 - Added Sovereign JDBC persistence design as the first production-hardening target after the Sovereign Runtime RC boundary.

@@ -198,6 +198,9 @@ For the planned database-backed persistence direction, see [Sovereign JDBC Persi
 
 ## Executable JDBC E2E Proof
 
+This scenario is one of the closure evidence items for the Sovereign Runtime roadmap.
+See [Sovereign Runtime Closure Boundary](../releases/sovereign-runtime-closure-boundary.md).
+
 This scenario is now covered by a JDBC-backed E2E test in:
 
 `examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/RegulatedClaimTriageJdbcE2ETest.kt`

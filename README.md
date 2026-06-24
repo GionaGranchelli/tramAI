@@ -214,28 +214,24 @@ The following are intentionally not claimed as complete:
 
 - stable 1.0 API
 - write/control-plane operational endpoints
-- database-backed outbox or persistence
-- distributed worker leader election
 - key rotation
-- full production deployment guide
 - complete API reference documentation
 
-### Sovereign Runtime Release Candidate
+### Sovereign Runtime
 
-The current `master` branch contains a Sovereign Runtime Release Candidate boundary.
+The Sovereign Runtime roadmap is **functionally complete as an RC+ / enterprise proof milestone**.
 
 See:
 
-- [Sovereign Runtime RC Boundary](docs/releases/sovereign-runtime-rc-boundary.md)
-- [Sovereign Runtime Release Readiness](docs/releases/sovereign-runtime-release-readiness.md)
+- [Sovereign Runtime Closure Boundary](docs/releases/sovereign-runtime-closure-boundary.md)
+- [Regulated Claim Triage Scenario](docs/scenarios/regulated-claim-triage.md)
+- [Sovereign JDBC Production Deployment Runbook](docs/runbooks/sovereign-jdbc-production-deployment.md)
 
-Run the full local verification chain with:
+Run the full closure verification chain with:
 
 ```bash
 ./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks
 ```
-
-This is **not** a stable 1.0 API declaration, **not** a Maven Central release, and **not** a production deployment certification.
 
 ## Sovereign Runtime Release Readiness
 

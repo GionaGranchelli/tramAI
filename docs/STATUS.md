@@ -4,6 +4,30 @@ TramAI is under **active development**.
 
 This document describes the state of the repository, not a formal release contract. It tracks what is implemented and evolving on `master`, and what is intentionally not yet complete.
 
+## Sovereign Runtime Closure Status
+
+The Sovereign Runtime roadmap is **functionally complete as an RC+ / enterprise proof milestone**.
+
+Closure boundary:
+- [Sovereign Runtime Closure Boundary](releases/sovereign-runtime-closure-boundary.md)
+
+### Included Proof Points
+- JDBC-backed runtime persistence (approval, audit, outbox stores)
+- Transactional approval mutation + audit outbox boundary
+- Worker lease coordination for multi-node deployments
+- Production deployment runbook (JDBC stack)
+- Regulated claim triage JDBC E2E proof
+- CI-backed E2E execution
+
+### Deferred from Closure
+- Key rotation
+- Production certification
+- Reviewer UI
+- Full REST control plane
+- Maven Central release
+
+The next roadmap after this closure is API stabilization and workflow ergonomics.
+
 ## Implemented / Evolving
 
 | Area | Status |
