@@ -27,13 +27,12 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.sql.DataSource
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
-import org.testcontainers.containers.PostgreSQLContainer
-import org.testcontainers.junit.jupiter.Container
-import org.testcontainers.junit.jupiter.Testcontainers
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.context.annotation.Bean
@@ -50,20 +49,27 @@ import org.springframework.context.annotation.Configuration
  * - Transactional approval denial + audit outbox intent
  * - Durable outbox record claimable after context restart
  * - Sanitized operational boundaries
+ *
+ * Uses embedded PostgreSQL (no Docker required).
  */
-@Testcontainers
 @Tag("e2e")
 class RegulatedClaimTriageJdbcE2ETest {
 
     companion object {
-        @Container
-        @JvmStatic
-        val postgres: PostgreSQLContainer<*> = PostgreSQLContainer<Nothing>("postgres:16-alpine")
-
         private val VALID_BASE64_KEY: String =
             Base64.getEncoder().encodeToString(ByteArray(32) { it.toByte() })
 
-        private var migrationsApplied = false
+        @JvmStatic
+        @BeforeAll
+        fun startPg() {
+            PgEmbeddedTestSupport.start()
+        }
+
+        @JvmStatic
+        @AfterAll
+        fun stopPg() {
+            PgEmbeddedTestSupport.stop()
+        }
     }
 
     @TempDir
@@ -107,8 +113,6 @@ class RegulatedClaimTriageJdbcE2ETest {
 
     @Test
     fun `high risk claim is classified routed locally approved denied transactionally and survives restart`() {
-        ensureMigrationsApplied()
-
         val claimId = "claim-hr-${UUID.randomUUID()}"
         val workflowRunId = "wf-$claimId"
         val input = ClaimTriageInput(
@@ -224,8 +228,6 @@ class RegulatedClaimTriageJdbcE2ETest {
 
     @Test
     fun `restricted medical claim is denied before cloud model invocation`() {
-        ensureMigrationsApplied()
-
         val claimId = "claim-fc-${UUID.randomUUID()}"
         val cloudModel = RecordingCloudClaimModel()
         val input = ClaimTriageInput(
@@ -263,8 +265,6 @@ class RegulatedClaimTriageJdbcE2ETest {
 
     @Test
     fun `low risk missing document recommendation completes without approval suspension`() {
-        ensureMigrationsApplied()
-
         val claimId = "claim-lr-${UUID.randomUUID()}"
         val workflowRunId = "wf-$claimId"
         val input = ClaimTriageInput(
@@ -289,9 +289,12 @@ class RegulatedClaimTriageJdbcE2ETest {
                 val approvalCount = workflow.countApprovalsForWorkflowRun(workflowRunId)
                 assertThat(approvalCount).isZero()
 
-                // Audit event emitted
+                // Audit events: policy decision + recommendation
                 val events = workflow.auditStore.readStream(result.auditStreamId)
-                assertThat(events).hasSize(1)
+                assertThat(events).hasSize(2)
+                assertThat(events[0].decision).isEqualTo("allow-route")
+                assertThat(events[1].decision).contains("request_missing_document")
+                assertThat(events[1].previousEventHash).isEqualTo(events[0].eventHash)
 
                 // Outbox dispatchable
                 val claimed = workflow.outboxStore.claimPending(
@@ -303,24 +306,6 @@ class RegulatedClaimTriageJdbcE2ETest {
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
-
-    private fun ensureMigrationsApplied() {
-        if (!migrationsApplied) {
-            val ds = createDataSource()
-            JdbcSchemaTestSupport.applyMigrations(ds)
-            (ds as? AutoCloseable)?.close()
-            migrationsApplied = true
-        }
-    }
-
-    private fun createDataSource(): DataSource {
-        val ds = HikariDataSource()
-        ds.jdbcUrl = postgres.jdbcUrl
-        ds.username = postgres.username
-        ds.password = postgres.password
-        ds.maximumPoolSize = 5
-        return ds
-    }
 
     private fun sha256Hex(input: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -335,9 +320,9 @@ class RegulatedClaimTriageJdbcE2ETest {
         @Bean(destroyMethod = "close")
         fun e2eDataSource(): DataSource {
             val ds = HikariDataSource()
-            ds.jdbcUrl = postgres.jdbcUrl
-            ds.username = postgres.username
-            ds.password = postgres.password
+            ds.jdbcUrl = PgEmbeddedTestSupport.jdbcUrl
+            ds.username = PgEmbeddedTestSupport.username
+            ds.password = PgEmbeddedTestSupport.password
             ds.maximumPoolSize = 3
             return ds
         }

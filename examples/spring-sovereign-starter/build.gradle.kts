@@ -54,9 +54,7 @@ dependencies {
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:$kotlinxCoroutinesVersion")
-    testImplementation(platform("org.testcontainers:testcontainers-bom:1.20.6"))
-    testImplementation("org.testcontainers:postgresql")
-    testImplementation("org.testcontainers:junit-jupiter")
+    testImplementation("io.zonky.test:embedded-postgres:2.0.7")
 }
 
 tasks.test {
@@ -70,7 +68,7 @@ tasks.test {
 }
 
 val e2eTest by tasks.registering(Test::class) {
-    description = "Runs end-to-end tests (requires Docker for Testcontainers)."
+    description = "Runs end-to-end tests (uses embedded PostgreSQL, no Docker required)."
     group = LifecycleBasePlugin.VERIFICATION_GROUP
 
     testClassesDirs = sourceSets["test"].output.classesDirs
