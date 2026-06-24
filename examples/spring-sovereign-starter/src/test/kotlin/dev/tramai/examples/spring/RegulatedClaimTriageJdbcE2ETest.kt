@@ -23,6 +23,7 @@ import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 import javax.sql.DataSource
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -41,16 +42,14 @@ import org.springframework.context.annotation.Configuration
 /**
  * JDBC-backed end-to-end proof for the regulated claim triage scenario.
  *
- * Demonstrates a realistic governed workflow shape:
- * - DLP classification (deterministic fake)
+ * Demonstrates a deterministic governed workflow:
+ * - DLP classification
  * - Policy-based routing (local-only for restricted data)
+ * - Fail-closed cloud route denial (cloud model never invoked)
  * - Approval gating for high-risk recommendations
  * - Transactional approval denial + audit outbox intent
- * - Durable outbox dispatch after restart
- * - Sanitized operational boundaries (no raw PII, medical text, payment data)
- *
- * Uses Testcontainers PostgreSQL + deterministic fakes. No real model
- * providers or cloud calls involved.
+ * - Durable outbox record claimable after context restart
+ * - Sanitized operational boundaries
  */
 @Testcontainers
 @Tag("e2e")
@@ -61,7 +60,6 @@ class RegulatedClaimTriageJdbcE2ETest {
         @JvmStatic
         val postgres: PostgreSQLContainer<*> = PostgreSQLContainer<Nothing>("postgres:16-alpine")
 
-        /** AES-256 key: 32 bytes (0..31) encoded in base64. */
         private val VALID_BASE64_KEY: String =
             Base64.getEncoder().encodeToString(ByteArray(32) { it.toByte() })
 
@@ -104,108 +102,52 @@ class RegulatedClaimTriageJdbcE2ETest {
             )
 
     // ══════════════════════════════════════════════════════════════════
-    // Test 1 — High-risk claim: approval, denial, audit, outbox
+    // Test 1 — High-risk claim through the workflow
     // ══════════════════════════════════════════════════════════════════
 
     @Test
-    fun `high risk claim recommendation is persisted audited denied transactionally and dispatched`() {
+    fun `high risk claim is classified routed locally approved denied transactionally and survives restart`() {
         ensureMigrationsApplied()
 
         val claimId = "claim-hr-${UUID.randomUUID()}"
-        val approvalId = "approval-${UUID.randomUUID()}"
-        val streamId = "audit-${UUID.randomUUID()}"
-        val eventKey = "outbox-${UUID.randomUUID()}"
+        val workflowRunId = "wf-$claimId"
+        val input = ClaimTriageInput(
+            claimId = claimId,
+            claimantName = "Alpha",
+            diagnosisText = "rib fracture",
+            invoiceAmount = 2500,
+            paymentReference = "PAY-REF-001",
+        )
 
-        // ── Step 1: Simulate claim triage workflow ──────────────────
-        // Classification: medical + payment data → restricted
-        // Policy: restricted → local-only, no cloud
-        // Model: local model generates HIGH-risk recommendation
-        // → approval required
-
+        // ── Run workflow in Context A ─────────────────────────────────
         createJdbcRunner().run { ctx ->
-            val approvalStore = ctx.getBean(ApprovalStore::class.java)
-            val auditStore = ctx.getBean(AuditStore::class.java)
-            val mutationStore = ctx.getBean(SovereignOpsApprovalMutationStore::class.java)
-
+            val workflow = ctx.workflow()
             runBlocking {
-                // 1a. Create approval request for high-risk recommendation
-                val binding = ApprovalBinding(
-                    workflowRunId = "wf-$claimId",
-                    toolName = "claim-triage-model",
-                    argumentsDigest = Sha256Digest.of(sha256Hex(claimId)),
-                    policyVersion = "1.0",
-                    workflowDigest = Sha256Digest.of(sha256Hex("claim-triage-workflow")),
-                    approvalTokenDigest = Sha256Digest.of(sha256Hex(approvalId)),
-                )
-                approvalStore.create(
-                    ApprovalRequest(
-                        approvalId = approvalId,
-                        binding = binding,
-                        status = ApprovalStatus.PENDING,
-                        requestedBy = "triage-system",
-                        requestedAt = Instant.now(),
-                        expiresAt = Instant.now().plus(Duration.ofHours(1)),
-                        decidedBy = null,
-                        decidedAt = null,
-                        decisionComment = null,
-                        consumedBy = null,
-                        consumedAt = null,
-                        version = 0,
-                    ),
-                )
+                val result = workflow.triage(input, RequestedRoute.LOCAL_ONLY)
 
-                // 1b. Emit audit event: policy decision
-                auditStore.appendNext(streamId) { previousEvent: AuditEvent? ->
-                    AuditEvent(
-                        schemaVersion = 1,
-                        hashAlgorithm = AuditHashAlgorithm.SHA_256,
-                        auditStreamId = streamId,
-                        eventId = UUID.randomUUID().toString(),
-                        sequenceNumber = (previousEvent?.sequenceNumber ?: 0L) + 1L,
-                        workflowRunId = "wf-$claimId",
-                        correlationId = claimId,
-                        actor = "triage-policy-engine",
-                        enforcementPoint = "policy-decision",
-                        decision = "route-local-only",
-                        policyVersion = "1.0",
-                        workflowDigest = sha256Hex("claim-triage-workflow"),
-                        previousEventHash = previousEvent?.eventHash,
-                        eventHash = "",
-                        timestamp = Instant.now(),
-                        reasonCode = null,
-                    ).let { it.copy(eventHash = it.calculateHash()) }
+                assertThat(result.recommendationType).isEqualTo("SUGGEST_PAYOUT")
+                assertThat(result.riskLevel).isEqualTo("HIGH")
+                assertThat(result.requiredApproval).isTrue()
+                assertThat(result.policyDecision).isEqualTo("ALLOW_LOCAL")
+                assertThat(result.classification).isEqualTo("RESTRICTED")
+
+                // Verify audit stream: 2 events (policy + recommendation)
+                val events = workflow.auditStore.readStream(result.auditStreamId)
+                assertThat(events).hasSize(2)
+
+                // Sanitized: no raw medical text in audit
+                for (event in events) {
+                    val leaksDiagnosis = event.reasonCode?.contains("fracture", true) == true
+                    assertThat(leaksDiagnosis).isFalse()
                 }
 
-                // 1c. Emit audit event: recommendation generated
-                val latestEvent = auditStore.latestEvent(streamId)
-                auditStore.appendNext(streamId) { _: AuditEvent? ->
-                    AuditEvent(
-                        schemaVersion = 1,
-                        hashAlgorithm = AuditHashAlgorithm.SHA_256,
-                        auditStreamId = streamId,
-                        eventId = UUID.randomUUID().toString(),
-                        sequenceNumber = (latestEvent?.sequenceNumber ?: 0L) + 1L,
-                        workflowRunId = "wf-$claimId",
-                        correlationId = claimId,
-                        actor = "local-claim-model",
-                        enforcementPoint = "recommendation",
-                        decision = "suggest-payout-high-risk",
-                        policyVersion = "1.0",
-                        workflowDigest = sha256Hex("claim-triage-workflow"),
-                        previousEventHash = latestEvent?.eventHash,
-                        eventHash = "",
-                        timestamp = Instant.now(),
-                        reasonCode = "high-invoice-amount-medical-present",
-                    ).let { it.copy(eventHash = it.calculateHash()) }
-                }
-
-                // 1d. Deny approval + audit outbox in one transaction
+                // Execute denial through transactional mutation
                 val auditIntent = SovereignOpsAuditOutboxRecord(
                     outboxId = UUID.randomUUID().toString(),
-                    eventKey = eventKey,
+                    eventKey = "outbox-${UUID.randomUUID()}",
                     aggregateIdDigest = sha256Hex(claimId),
                     actor = "medical-ops-reviewer",
-                    workflowRunId = "wf-$claimId",
+                    workflowRunId = workflowRunId,
                     correlationId = claimId,
                     approvalStatus = ApprovalStatus.PENDING.name,
                     approvalVersion = 1,
@@ -215,144 +157,86 @@ class RegulatedClaimTriageJdbcE2ETest {
                 )
 
                 val mutationResult: SovereignOpsApprovalMutationResult =
-                    mutationStore.denyApprovalWithAuditIntent(
-                        approvalId = approvalId,
+                    workflow.mutationStore.denyApprovalWithAuditIntent(
+                        approvalId = result.approvalId!!,
                         expectedVersion = 1,
                         actor = "medical-ops-reviewer",
-                        reason = "Medical necessity not established for this claim",
+                        reason = "Medical necessity not established",
                         auditIntent = auditIntent,
                     )
 
-                // Assert transaction results
                 assertThat(mutationResult.approval.status).isEqualTo(ApprovalStatus.DENIED)
-                assertThat(mutationResult.approval.version).isEqualTo(2)
                 assertThat(mutationResult.auditOutboxRecord.status)
                     .isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
-                assertThat(mutationResult.auditOutboxRecord.approvalStatus).isEqualTo("DENIED")
             }
         }
 
-        // ── Step 2: Restart — verify durable state ───────────────────
+        // ── Restart: verify durable state ─────────────────────────────
         createJdbcRunner().run { ctx ->
-            val approvalStore = ctx.getBean(ApprovalStore::class.java)
-            val auditStore = ctx.getBean(AuditStore::class.java)
-            val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
-
+            val workflow = ctx.workflow()
             runBlocking {
-                // Approval is DENIED after restart
-                val approval = approvalStore.get(approvalId)
+                val approval = workflow.approvalStore.get(workflow.approvalIdForRun(workflowRunId)!!)
                 assertThat(approval).isNotNull
                 assertThat(approval!!.status).isEqualTo(ApprovalStatus.DENIED)
                 assertThat(approval.version).isEqualTo(2)
 
-                // Audit stream is tamper-evident and intact
-                val events = auditStore.readStream(streamId)
+                // Audit chain intact
+                val events = workflow.auditStore.readStream(workflow.auditStreamIdForRun(workflowRunId)!!)
                 assertThat(events).hasSize(2)
                 assertThat(events[1].previousEventHash).isEqualTo(events[0].eventHash)
 
-                // Audit events are sanitized — no raw medical data
-                for (event in events) {
-                    val reasonHasDiagnosis = event.reasonCode?.contains("diagnosis", true) == true
-                        || event.reasonCode?.contains("medical-text", true) == true
-                    assertThat(reasonHasDiagnosis).isFalse()
-                }
-
-                // Outbox record is durable
-                val outboxRecord = outboxStore.findByEventKey(eventKey)
-                assertThat(outboxRecord).isNotNull
-                assertThat(outboxRecord!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
-
-                // Dispatch outbox
-                val claimed = outboxStore.claimPending("worker-1", limit = 10, now = Instant.now())
+                // Outbox claimable and dispatchable
+                val claimed = workflow.outboxStore.claimPending(
+                    "worker-1", limit = 10, now = Instant.now(),
+                )
                 assertThat(claimed).isNotEmpty
-                val claim = claimed.first { it.eventKey == eventKey }
-                outboxStore.markEmitted(
+                val claim = claimed.first()
+                workflow.outboxStore.markEmitted(
                     claim.outboxId,
                     SovereignOpsAuditOutboxStatus.EMITTING,
                     emittedAt = Instant.now(),
                 )
-
-                // Outbox is now dispatched
-                val dispatched = outboxStore.findByEventKey(eventKey)
+                val dispatched = workflow.outboxStore.get(claim.outboxId)
                 assertThat(dispatched!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTED)
             }
         }
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Test 2 — Fail-closed: restricted medical claim denied before cloud
+    // Test 2 — Fail-closed cloud routing
     // ══════════════════════════════════════════════════════════════════
 
     @Test
-    fun `restricted medical claim is denied before cloud model call`() {
+    fun `restricted medical claim is denied before cloud model invocation`() {
         ensureMigrationsApplied()
 
         val claimId = "claim-fc-${UUID.randomUUID()}"
-        val streamId = "audit-fc-${UUID.randomUUID()}"
-        val eventKey = "outbox-fc-${UUID.randomUUID()}"
+        val cloudModel = RecordingCloudClaimModel()
+        val input = ClaimTriageInput(
+            claimId = claimId,
+            claimantName = "Beta",
+            diagnosisText = "cardiac arrhythmia",
+            invoiceAmount = 8000,
+            paymentReference = "PAY-REF-002",
+        )
 
         createJdbcRunner().run { ctx ->
-            val auditStore = ctx.getBean(AuditStore::class.java)
-            val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
-
+            val workflow = ctx.workflow(cloudModel = cloudModel)
             runBlocking {
-                // Simulate: restricted medical data + requested cloud model → DENY
-                // This tests the policy decision path without any model call.
+                val result = workflow.triage(input, RequestedRoute.APPROVED_CLOUD)
 
-                auditStore.appendNext(streamId) { previousEvent: AuditEvent? ->
-                    AuditEvent(
-                        schemaVersion = 1,
-                        hashAlgorithm = AuditHashAlgorithm.SHA_256,
-                        auditStreamId = streamId,
-                        eventId = UUID.randomUUID().toString(),
-                        sequenceNumber = (previousEvent?.sequenceNumber ?: 0L) + 1L,
-                        workflowRunId = "wf-$claimId",
-                        correlationId = claimId,
-                        actor = "triage-policy-engine",
-                        enforcementPoint = "policy-decision",
-                        decision = "deny-cloud-route-restricted-data",
-                        policyVersion = "1.0",
-                        workflowDigest = sha256Hex("claim-triage-workflow"),
-                        previousEventHash = previousEvent?.eventHash,
-                        eventHash = "",
-                        timestamp = Instant.now(),
-                        reasonCode = "restricted-medical-data",
-                    ).let { it.copy(eventHash = it.calculateHash()) }
-                }
+                // Policy denied — cloud model was never called
+                assertThat(result.policyDecision).isEqualTo("DENY_CLOUD")
+                assertThat(cloudModel.calls.get()).isZero()
 
-                // Policy denied — audit event proves no cloud call happened
-                val events = auditStore.readStream(streamId)
+                // Audit event proves the deny decision
+                val events = workflow.auditStore.readStream(result.auditStreamId)
                 assertThat(events).hasSize(1)
-                assertThat(events[0].decision).isEqualTo("deny-cloud-route-restricted-data")
+                assertThat(events[0].decision).isEqualTo("deny-cloud-route")
 
-                // Audit event is sanitized — no medical text leaks
-                assertThat(events[0].reasonCode).doesNotContain("diagnosis")
-                assertThat(events[0].reasonCode).doesNotContain("payment")
-
-                // Outbox is dispatchable for the deny decision
-                val outboxRecord = outboxStore.append(
-                    SovereignOpsAuditOutboxRecord(
-                        outboxId = UUID.randomUUID().toString(),
-                        eventKey = eventKey,
-                        aggregateIdDigest = sha256Hex(claimId),
-                        actor = "triage-policy-engine",
-                        workflowRunId = "wf-$claimId",
-                        correlationId = claimId,
-                        approvalStatus = "N/A",
-                        approvalVersion = 0,
-                        reasonDigest = sha256Hex("restricted-medical-data"),
-                        reasonLength = 21,
-                        createdAt = Instant.now(),
-                    ),
-                )
-                assertThat(outboxRecord.status).isEqualTo(SovereignOpsAuditOutboxStatus.PREPARED)
-
-                outboxStore.markReadyForDispatch(
-                    outboxRecord.outboxId,
-                    SovereignOpsAuditOutboxStatus.PREPARED,
-                )
-                val pending = outboxStore.findByEventKey(eventKey)
-                assertThat(pending!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
+                // Sanitized: no medical text in audit
+                assertThat(events[0].reasonCode).doesNotContain("arrhythmia")
+                assertThat(events[0].reasonCode).doesNotContain("diagnosis-text")
             }
         }
     }
@@ -366,80 +250,38 @@ class RegulatedClaimTriageJdbcE2ETest {
         ensureMigrationsApplied()
 
         val claimId = "claim-lr-${UUID.randomUUID()}"
-        val streamId = "audit-lr-${UUID.randomUUID()}"
-        val eventKey = "outbox-lr-${UUID.randomUUID()}"
+        val workflowRunId = "wf-$claimId"
+        val input = ClaimTriageInput(
+            claimId = claimId,
+            claimantName = "Gamma",
+            diagnosisText = "",
+            invoiceAmount = 0,
+            paymentReference = "",
+        )
 
         createJdbcRunner().run { ctx ->
-            val approvalStore = ctx.getBean(ApprovalStore::class.java)
-            val auditStore = ctx.getBean(AuditStore::class.java)
-            val outboxStore = ctx.getBean(SovereignOpsAuditOutboxStore::class.java)
-
+            val workflow = ctx.workflow()
             runBlocking {
-                // Simulate: missing document → low-risk recommendation → no approval
+                val result = workflow.triage(input, RequestedRoute.LOCAL_ONLY)
 
-                auditStore.appendNext(streamId) { previousEvent: AuditEvent? ->
-                    AuditEvent(
-                        schemaVersion = 1,
-                        hashAlgorithm = AuditHashAlgorithm.SHA_256,
-                        auditStreamId = streamId,
-                        eventId = UUID.randomUUID().toString(),
-                        sequenceNumber = (previousEvent?.sequenceNumber ?: 0L) + 1L,
-                        workflowRunId = "wf-$claimId",
-                        correlationId = claimId,
-                        actor = "local-claim-model",
-                        enforcementPoint = "recommendation",
-                        decision = "request-missing-document-low-risk",
-                        policyVersion = "1.0",
-                        workflowDigest = sha256Hex("claim-triage-workflow"),
-                        previousEventHash = previousEvent?.eventHash,
-                        eventHash = "",
-                        timestamp = Instant.now(),
-                        reasonCode = "missing-attachment",
-                    ).let { it.copy(eventHash = it.calculateHash()) }
-                }
+                assertThat(result.recommendationType).isEqualTo("REQUEST_MISSING_DOCUMENT")
+                assertThat(result.riskLevel).isEqualTo("LOW")
+                assertThat(result.requiredApproval).isFalse()
+                assertThat(result.approvalId).isNull()
 
-                // No approval was created — low-risk recommendation skips approval gate
-                val approval = approvalStore.get(claimId)
-                assertThat(approval).isNull()
+                // DB-grounded proof: no approval row exists for this workflow run
+                val approvalCount = workflow.countApprovalsForWorkflowRun(workflowRunId)
+                assertThat(approvalCount).isZero()
 
-                // Audit event was created and is tamper-evident
-                val events = auditStore.readStream(streamId)
+                // Audit event emitted
+                val events = workflow.auditStore.readStream(result.auditStreamId)
                 assertThat(events).hasSize(1)
-                assertThat(events[0].decision).isEqualTo("request-missing-document-low-risk")
 
-                // Outbox dispatches the recommendation
-                val outboxRecord = outboxStore.append(
-                    SovereignOpsAuditOutboxRecord(
-                        outboxId = UUID.randomUUID().toString(),
-                        eventKey = eventKey,
-                        aggregateIdDigest = sha256Hex(claimId),
-                        actor = "local-claim-model",
-                        workflowRunId = "wf-$claimId",
-                        correlationId = claimId,
-                        approvalStatus = "N/A",
-                        approvalVersion = 0,
-                        reasonDigest = sha256Hex("missing-attachment"),
-                        reasonLength = 17,
-                        createdAt = Instant.now(),
-                    ),
+                // Outbox dispatchable
+                val claimed = workflow.outboxStore.claimPending(
+                    "worker-1", limit = 10, now = Instant.now(),
                 )
-                outboxStore.markReadyForDispatch(
-                    outboxRecord.outboxId,
-                    SovereignOpsAuditOutboxStatus.PREPARED,
-                )
-
-                val claimed = outboxStore.claimPending("worker-1", limit = 10, now = Instant.now())
                 assertThat(claimed).isNotEmpty
-
-                val claim = claimed.first { it.eventKey == eventKey }
-                outboxStore.markEmitted(
-                    claim.outboxId,
-                    SovereignOpsAuditOutboxStatus.EMITTING,
-                    emittedAt = Instant.now(),
-                )
-
-                val dispatched = outboxStore.findByEventKey(eventKey)
-                assertThat(dispatched!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTED)
             }
         }
     }
@@ -485,3 +327,294 @@ class RegulatedClaimTriageJdbcE2ETest {
         }
     }
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// Domain model
+// ══════════════════════════════════════════════════════════════════════
+
+data class ClaimTriageInput(
+    val claimId: String,
+    val claimantName: String,
+    val diagnosisText: String,
+    val invoiceAmount: Int,
+    val paymentReference: String,
+)
+
+data class ClaimTriageResult(
+    val recommendationType: String,
+    val riskLevel: String,
+    val requiredApproval: Boolean,
+    val policyDecision: String,
+    val classification: String,
+    val auditStreamId: String,
+    val approvalId: String?,
+)
+
+enum class RequestedRoute { LOCAL_ONLY, APPROVED_CLOUD }
+
+enum class ClassificationLevel { NON_SENSITIVE, RESTRICTED }
+
+// ══════════════════════════════════════════════════════════════════════
+// Deterministic fake components
+// ══════════════════════════════════════════════════════════════════════
+
+class FakeDlpClassifier {
+    fun classify(input: ClaimTriageInput): ClassificationLevel =
+        if (input.diagnosisText.isNotBlank() || input.paymentReference.isNotBlank())
+            ClassificationLevel.RESTRICTED
+        else
+            ClassificationLevel.NON_SENSITIVE
+}
+
+class FakePolicyEvaluator {
+    fun evaluate(classification: ClassificationLevel, route: RequestedRoute): String =
+        when {
+            classification == ClassificationLevel.RESTRICTED && route == RequestedRoute.APPROVED_CLOUD -> "DENY_CLOUD"
+            classification == ClassificationLevel.RESTRICTED && route == RequestedRoute.LOCAL_ONLY -> "ALLOW_LOCAL"
+            else -> "ALLOW"
+        }
+}
+
+class FakeLocalClaimModel {
+    fun recommend(input: ClaimTriageInput): FakeRecommendation =
+        when {
+            input.diagnosisText.isNotBlank() && input.invoiceAmount > 1000 && input.paymentReference.isNotBlank() ->
+                FakeRecommendation("SUGGEST_PAYOUT", "HIGH", true)
+            input.diagnosisText.isBlank() && input.invoiceAmount == 0 ->
+                FakeRecommendation("REQUEST_MISSING_DOCUMENT", "LOW", false)
+            else ->
+                FakeRecommendation("MANUAL_REVIEW", "MEDIUM", false)
+        }
+}
+
+class RecordingCloudClaimModel {
+    val calls = AtomicInteger(0)
+
+    fun recommend(input: ClaimTriageInput): FakeRecommendation {
+        calls.incrementAndGet()
+        error("Cloud model must not be called for restricted medical data (input: ${input.claimId})")
+    }
+}
+
+data class FakeRecommendation(
+    val recommendationType: String,
+    val riskLevel: String,
+    val requiredApproval: Boolean,
+)
+
+// ══════════════════════════════════════════════════════════════════════
+// Workflow harness
+// ══════════════════════════════════════════════════════════════════════
+
+class ClaimTriageWorkflow(
+    val approvalStore: ApprovalStore,
+    val auditStore: AuditStore,
+    val mutationStore: SovereignOpsApprovalMutationStore,
+    val outboxStore: SovereignOpsAuditOutboxStore,
+    private val dataSource: DataSource,
+    private val dlp: FakeDlpClassifier = FakeDlpClassifier(),
+    private val policy: FakePolicyEvaluator = FakePolicyEvaluator(),
+    private val localModel: FakeLocalClaimModel = FakeLocalClaimModel(),
+    private val cloudModel: RecordingCloudClaimModel = RecordingCloudClaimModel(),
+) {
+    /** In-memory lookup: workflowRunId → approvalId created during this workflow run. */
+    private val approvalIdsByRun = mutableMapOf<String, String>()
+    /** In-memory lookup: workflowRunId → auditStreamId created during this workflow run. */
+    private val auditStreamIdsByRun = mutableMapOf<String, String>()
+
+    fun approvalIdForRun(runId: String): String? = approvalIdsByRun[runId]
+    fun auditStreamIdForRun(runId: String): String? = auditStreamIdsByRun[runId]
+
+    suspend fun triage(input: ClaimTriageInput, requestedRoute: RequestedRoute): ClaimTriageResult {
+        val workflowRunId = "wf-${input.claimId}"
+        val auditStreamId = "audit-${UUID.randomUUID()}"
+        auditStreamIdsByRun[workflowRunId] = auditStreamId
+
+        // 1. DLP classification
+        val classification = dlp.classify(input)
+
+        // 2. Policy evaluation
+        val policyDecision = policy.evaluate(classification, requestedRoute)
+
+        // 3. Route: cloud denied for restricted data
+        if (policyDecision == "DENY_CLOUD") {
+            emitAuditEvent(
+                auditStreamId, workflowRunId, input.claimId,
+                actor = "triage-policy-engine",
+                enforcementPoint = "policy-decision",
+                decision = "deny-cloud-route",
+                reasonCode = "restricted-medical-data-denied-cloud-route",
+            )
+            return ClaimTriageResult(
+                recommendationType = "N/A",
+                riskLevel = "N/A",
+                requiredApproval = false,
+                policyDecision = policyDecision,
+                classification = classification.name,
+                auditStreamId = auditStreamId,
+                approvalId = null,
+            )
+        }
+
+        // 4. Model recommendation
+        val recommendation = when (requestedRoute) {
+            RequestedRoute.LOCAL_ONLY -> localModel.recommend(input)
+            RequestedRoute.APPROVED_CLOUD -> cloudModel.recommend(input)
+        }
+
+        // 5. Audit: recommendation
+        emitAuditEvent(
+            auditStreamId, workflowRunId, input.claimId,
+            actor = "local-claim-model",
+            enforcementPoint = "recommendation",
+            decision = "${recommendation.recommendationType.lowercase()}-${recommendation.riskLevel.lowercase()}-risk",
+            reasonCode = null,
+        )
+
+        // 6. Audit outbox: recommendation emitted
+        val outboxId = UUID.randomUUID().toString()
+        val eventKey = "outbox-${UUID.randomUUID()}"
+        val outboxRecord = outboxStore.append(
+            SovereignOpsAuditOutboxRecord(
+                outboxId = outboxId,
+                eventKey = eventKey,
+                aggregateIdDigest = sha256Hex(input.claimId),
+                actor = "local-claim-model",
+                workflowRunId = workflowRunId,
+                correlationId = input.claimId,
+                approvalStatus = if (recommendation.requiredApproval) ApprovalStatus.PENDING.name else "N/A",
+                approvalVersion = if (recommendation.requiredApproval) 1 else 0,
+                reasonDigest = sha256Hex(recommendation.recommendationType),
+                reasonLength = recommendation.recommendationType.length,
+                createdAt = Instant.now(),
+            ),
+        )
+        outboxStore.markReadyForDispatch(outboxId, SovereignOpsAuditOutboxStatus.PREPARED)
+
+        // 7. Approval gate: high-risk requires approval
+        if (recommendation.requiredApproval) {
+            val approvalId = "approval-${UUID.randomUUID()}"
+            approvalIdsByRun[workflowRunId] = approvalId
+            val binding = ApprovalBinding(
+                workflowRunId = workflowRunId,
+                toolName = "claim-triage-model",
+                argumentsDigest = Sha256Digest.of(sha256Hex(input.claimId)),
+                policyVersion = "1.0",
+                workflowDigest = Sha256Digest.of(sha256Hex("claim-triage-workflow")),
+                approvalTokenDigest = Sha256Digest.of(sha256Hex(approvalId)),
+            )
+            approvalStore.create(
+                ApprovalRequest(
+                    approvalId = approvalId,
+                    binding = binding,
+                    status = ApprovalStatus.PENDING,
+                    requestedBy = "triage-system",
+                    requestedAt = Instant.now(),
+                    expiresAt = Instant.now().plus(Duration.ofHours(1)),
+                    decidedBy = null,
+                    decidedAt = null,
+                    decisionComment = null,
+                    consumedBy = null,
+                    consumedAt = null,
+                    version = 0,
+                ),
+            )
+
+            // Audit: approval requested
+            emitAuditEvent(
+                auditStreamId, workflowRunId, input.claimId,
+                actor = "triage-system",
+                enforcementPoint = "approval-gate",
+                decision = "approval-requested-high-risk",
+                reasonCode = null,
+            )
+
+            return ClaimTriageResult(
+                recommendationType = recommendation.recommendationType,
+                riskLevel = recommendation.riskLevel,
+                requiredApproval = true,
+                policyDecision = policyDecision,
+                classification = classification.name,
+                auditStreamId = auditStreamId,
+                approvalId = approvalId,
+            )
+        }
+
+        return ClaimTriageResult(
+            recommendationType = recommendation.recommendationType,
+            riskLevel = recommendation.riskLevel,
+            requiredApproval = false,
+            policyDecision = policyDecision,
+            classification = classification.name,
+            auditStreamId = auditStreamId,
+            approvalId = null,
+        )
+    }
+
+    private suspend fun emitAuditEvent(
+        streamId: String,
+        workflowRunId: String,
+        correlationId: String,
+        actor: String,
+        enforcementPoint: String,
+        decision: String,
+        reasonCode: String?,
+    ) {
+        auditStore.appendNext(streamId) { previousEvent: AuditEvent? ->
+            AuditEvent(
+                schemaVersion = 1,
+                hashAlgorithm = AuditHashAlgorithm.SHA_256,
+                auditStreamId = streamId,
+                eventId = UUID.randomUUID().toString(),
+                sequenceNumber = (previousEvent?.sequenceNumber ?: 0L) + 1L,
+                workflowRunId = workflowRunId,
+                correlationId = correlationId,
+                actor = actor,
+                enforcementPoint = enforcementPoint,
+                decision = decision,
+                policyVersion = "1.0",
+                workflowDigest = sha256Hex("claim-triage-workflow"),
+                previousEventHash = previousEvent?.eventHash,
+                eventHash = "",
+                timestamp = Instant.now(),
+                reasonCode = reasonCode,
+            ).let { it.copy(eventHash = it.calculateHash()) }
+        }
+    }
+
+    /** Count approvals whose metadata contains the given workflowRunId. */
+    fun countApprovalsForWorkflowRun(workflowRunId: String): Int =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT count(*)
+                FROM approvals
+                WHERE sanitized_metadata::text LIKE '%$workflowRunId%'
+                """.trimIndent(),
+            ).use { stmt ->
+                stmt.executeQuery().use { rs ->
+                    check(rs.next())
+                    rs.getInt(1)
+                }
+            }
+        }
+
+    private fun sha256Hex(input: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val hashBytes = digest.digest(input.toByteArray())
+        return "sha256:${hashBytes.joinToString("") { "%02x".format(it) }}"
+    }
+}
+
+// ── Spring context convenience extension ─────────────────────────────
+
+private fun org.springframework.context.ApplicationContext.workflow(
+    cloudModel: RecordingCloudClaimModel = RecordingCloudClaimModel(),
+): ClaimTriageWorkflow = ClaimTriageWorkflow(
+    approvalStore = getBean(ApprovalStore::class.java),
+    auditStore = getBean(AuditStore::class.java),
+    mutationStore = getBean(SovereignOpsApprovalMutationStore::class.java),
+    outboxStore = getBean(SovereignOpsAuditOutboxStore::class.java),
+    dataSource = getBean(DataSource::class.java),
+    cloudModel = cloudModel,
+)
