@@ -119,7 +119,12 @@ class RegulatedClaimTriageJdbcE2ETest {
             paymentReference = "PAY-REF-001",
         )
 
-        // ── Run workflow in Context A ─────────────────────────────────
+        // IDs to carry across context restart (durable, not in-memory)
+        lateinit var persistedApprovalId: String
+        lateinit var persistedAuditStreamId: String
+        lateinit var denialOutboxId: String
+
+        // ── Context A: run workflow, deny, capture durable IDs ────────
         createJdbcRunner().run { ctx ->
             val workflow = ctx.workflow()
             runBlocking {
@@ -131,9 +136,12 @@ class RegulatedClaimTriageJdbcE2ETest {
                 assertThat(result.policyDecision).isEqualTo("ALLOW_LOCAL")
                 assertThat(result.classification).isEqualTo("RESTRICTED")
 
-                // Verify audit stream: 2 events (policy + recommendation)
+                // Audit: policy decision (allow-local) + recommendation + approval-requested → 3 events
                 val events = workflow.auditStore.readStream(result.auditStreamId)
-                assertThat(events).hasSize(2)
+                assertThat(events).hasSize(3)
+                assertThat(events[0].decision).isEqualTo("allow-local-route")
+                assertThat(events[1].decision).contains("suggest")
+                assertThat(events[2].decision).isEqualTo("approval-requested-high-risk")
 
                 // Sanitized: no raw medical text in audit
                 for (event in events) {
@@ -141,7 +149,7 @@ class RegulatedClaimTriageJdbcE2ETest {
                     assertThat(leaksDiagnosis).isFalse()
                 }
 
-                // Execute denial through transactional mutation
+                // Execute denial — version 0 → deny → version 1
                 val auditIntent = SovereignOpsAuditOutboxRecord(
                     outboxId = UUID.randomUUID().toString(),
                     eventKey = "outbox-${UUID.randomUUID()}",
@@ -150,53 +158,61 @@ class RegulatedClaimTriageJdbcE2ETest {
                     workflowRunId = workflowRunId,
                     correlationId = claimId,
                     approvalStatus = ApprovalStatus.PENDING.name,
-                    approvalVersion = 1,
+                    approvalVersion = 0,
                     reasonDigest = sha256Hex("medical-necessity-not-established"),
                     reasonLength = 34,
                     createdAt = Instant.now(),
                 )
 
-                val mutationResult: SovereignOpsApprovalMutationResult =
-                    workflow.mutationStore.denyApprovalWithAuditIntent(
-                        approvalId = result.approvalId!!,
-                        expectedVersion = 1,
-                        actor = "medical-ops-reviewer",
-                        reason = "Medical necessity not established",
-                        auditIntent = auditIntent,
-                    )
+                val mutationResult = workflow.mutationStore.denyApprovalWithAuditIntent(
+                    approvalId = result.approvalId!!,
+                    expectedVersion = 0,
+                    actor = "medical-ops-reviewer",
+                    reason = "Medical necessity not established",
+                    auditIntent = auditIntent,
+                )
 
                 assertThat(mutationResult.approval.status).isEqualTo(ApprovalStatus.DENIED)
+                assertThat(mutationResult.approval.version).isEqualTo(1)
                 assertThat(mutationResult.auditOutboxRecord.status)
                     .isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
+
+                // Capture durable IDs for restart proof
+                persistedApprovalId = result.approvalId!!
+                persistedAuditStreamId = result.auditStreamId
+                denialOutboxId = auditIntent.outboxId
             }
         }
 
-        // ── Restart: verify durable state ─────────────────────────────
+        // ── Context B: restart, verify durable state ──────────────────
         createJdbcRunner().run { ctx ->
             val workflow = ctx.workflow()
             runBlocking {
-                val approval = workflow.approvalStore.get(workflow.approvalIdForRun(workflowRunId)!!)
+                // Approval durable and DENIED
+                val approval = workflow.approvalStore.get(persistedApprovalId)
                 assertThat(approval).isNotNull
                 assertThat(approval!!.status).isEqualTo(ApprovalStatus.DENIED)
-                assertThat(approval.version).isEqualTo(2)
+                assertThat(approval.version).isEqualTo(1)
 
-                // Audit chain intact
-                val events = workflow.auditStore.readStream(workflow.auditStreamIdForRun(workflowRunId)!!)
-                assertThat(events).hasSize(2)
+                // Audit chain intact across restart
+                val events = workflow.auditStore.readStream(persistedAuditStreamId)
+                assertThat(events).hasSize(3)
                 assertThat(events[1].previousEventHash).isEqualTo(events[0].eventHash)
+                assertThat(events[2].previousEventHash).isEqualTo(events[1].eventHash)
 
-                // Outbox claimable and dispatchable
+                // Exact denial outbox is claimable and dispatchable
                 val claimed = workflow.outboxStore.claimPending(
                     "worker-1", limit = 10, now = Instant.now(),
                 )
-                assertThat(claimed).isNotEmpty
-                val claim = claimed.first()
+                assertThat(claimed.map { it.outboxId }).contains(denialOutboxId)
+
+                val claim = claimed.first { it.outboxId == denialOutboxId }
                 workflow.outboxStore.markEmitted(
                     claim.outboxId,
                     SovereignOpsAuditOutboxStatus.EMITTING,
                     emittedAt = Instant.now(),
                 )
-                val dispatched = workflow.outboxStore.get(claim.outboxId)
+                val dispatched = workflow.outboxStore.get(denialOutboxId)
                 assertThat(dispatched!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTED)
             }
         }
@@ -417,18 +433,9 @@ class ClaimTriageWorkflow(
     private val localModel: FakeLocalClaimModel = FakeLocalClaimModel(),
     private val cloudModel: RecordingCloudClaimModel = RecordingCloudClaimModel(),
 ) {
-    /** In-memory lookup: workflowRunId → approvalId created during this workflow run. */
-    private val approvalIdsByRun = mutableMapOf<String, String>()
-    /** In-memory lookup: workflowRunId → auditStreamId created during this workflow run. */
-    private val auditStreamIdsByRun = mutableMapOf<String, String>()
-
-    fun approvalIdForRun(runId: String): String? = approvalIdsByRun[runId]
-    fun auditStreamIdForRun(runId: String): String? = auditStreamIdsByRun[runId]
-
     suspend fun triage(input: ClaimTriageInput, requestedRoute: RequestedRoute): ClaimTriageResult {
         val workflowRunId = "wf-${input.claimId}"
         val auditStreamId = "audit-${UUID.randomUUID()}"
-        auditStreamIdsByRun[workflowRunId] = auditStreamId
 
         // 1. DLP classification
         val classification = dlp.classify(input)
@@ -456,13 +463,25 @@ class ClaimTriageWorkflow(
             )
         }
 
-        // 4. Model recommendation
+        // 4. Audit: policy decision for allowed routes
+        emitAuditEvent(
+            auditStreamId, workflowRunId, input.claimId,
+            actor = "triage-policy-engine",
+            enforcementPoint = "policy-decision",
+            decision = when (policyDecision) {
+                "ALLOW_LOCAL" -> "allow-local-route"
+                else -> "allow-route"
+            },
+            reasonCode = if (policyDecision == "ALLOW_LOCAL") "restricted-medical-data-local-only" else null,
+        )
+
+        // 5. Model recommendation
         val recommendation = when (requestedRoute) {
             RequestedRoute.LOCAL_ONLY -> localModel.recommend(input)
             RequestedRoute.APPROVED_CLOUD -> cloudModel.recommend(input)
         }
 
-        // 5. Audit: recommendation
+        // 6. Audit: recommendation
         emitAuditEvent(
             auditStreamId, workflowRunId, input.claimId,
             actor = "local-claim-model",
@@ -471,7 +490,7 @@ class ClaimTriageWorkflow(
             reasonCode = null,
         )
 
-        // 6. Audit outbox: recommendation emitted
+        // 7. Audit outbox: recommendation emitted
         val outboxId = UUID.randomUUID().toString()
         val eventKey = "outbox-${UUID.randomUUID()}"
         val outboxRecord = outboxStore.append(
@@ -491,10 +510,9 @@ class ClaimTriageWorkflow(
         )
         outboxStore.markReadyForDispatch(outboxId, SovereignOpsAuditOutboxStatus.PREPARED)
 
-        // 7. Approval gate: high-risk requires approval
+        // 8. Approval gate: high-risk requires approval
         if (recommendation.requiredApproval) {
             val approvalId = "approval-${UUID.randomUUID()}"
-            approvalIdsByRun[workflowRunId] = approvalId
             val binding = ApprovalBinding(
                 workflowRunId = workflowRunId,
                 toolName = "claim-triage-model",
@@ -510,7 +528,7 @@ class ClaimTriageWorkflow(
                     status = ApprovalStatus.PENDING,
                     requestedBy = "triage-system",
                     requestedAt = Instant.now(),
-                    expiresAt = Instant.now().plus(Duration.ofHours(1)),
+                    expiresAt = Instant.now().plus(Duration.ofMinutes(5)),
                     decidedBy = null,
                     decidedAt = null,
                     decisionComment = null,
@@ -589,9 +607,10 @@ class ClaimTriageWorkflow(
                 """
                 SELECT count(*)
                 FROM approvals
-                WHERE sanitized_metadata::text LIKE '%$workflowRunId%'
+                WHERE sanitized_metadata::text LIKE ?
                 """.trimIndent(),
             ).use { stmt ->
+                stmt.setString(1, "%$workflowRunId%")
                 stmt.executeQuery().use { rs ->
                     check(rs.next())
                     rs.getInt(1)
