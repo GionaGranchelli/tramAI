@@ -79,7 +79,7 @@ This includes governed runtime execution, sovereign routing, DLP, replay-safe ap
 
 For the full RC boundary declaration, see [docs/releases/sovereign-runtime-rc-boundary.md](./releases/sovereign-runtime-rc-boundary.md).
 
-Not yet included: stable 1.0 API, Maven Central release, database-backed persistence, distributed worker coordination, key rotation, and production deployment certification.
+Not yet included: stable 1.0 API, Maven Central release, key rotation, and cloud-provider production certification.
 
 ## Planned / Not Complete
 
@@ -88,10 +88,9 @@ The following are intentionally not claimed as complete. Some are planned, some 
 - stable 1.0 public API
 - Maven Central release of sovereign-runtime modules
 - REST/Actuator operational endpoints
-- database-backed outbox worker E2E scheduling or transaction-boundary hardening
-- distributed worker leader election
 - key rotation
 - complete API reference documentation
+- production dashboards
 
 No timelines are committed for these items.
 

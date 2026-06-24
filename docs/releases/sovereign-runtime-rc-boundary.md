@@ -59,8 +59,6 @@ The following are intentionally **not included** in this RC:
 - Stable 1.0 public API
 - Maven Central release
 - Production deployment certification
-- Database-backed persistence or outbox
-- Distributed worker leader election
 - Key rotation
 - Broad REST/Actuator control-plane endpoints
 - Production dashboard
