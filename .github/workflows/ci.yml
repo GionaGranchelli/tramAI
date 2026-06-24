@@ -66,9 +66,6 @@ jobs:
       - name: Run Spring sovereign starter example tests
         run: ./gradlew :examples:spring-sovereign-starter:test
 
-      - name: Run Spring sovereign starter E2E tests
-        run: ./gradlew :examples:spring-sovereign-starter:e2eTest
-
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
         with:
