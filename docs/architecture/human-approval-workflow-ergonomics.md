@@ -37,9 +37,9 @@ A developer should be able to write:
 
 ```kotlin
 val result = approvalGateway.requestApproval(
-    subject = input.claimId,
-    recommendation = recommendation,
-    requiredRole = "medical-reviewer",
+    subject = ApprovalSubject(input.claimId),
+    recommendation = route.recommendation,
+    requiredRole = ApproverRole("medical-reviewer"),
 )
 ```
 
@@ -48,6 +48,31 @@ And get back a type that makes the suspension explicit — without understanding
 ---
 
 ## 3. Target API Shape
+
+### 3.0. Domain Types
+
+```kotlin
+@JvmInline
+value class ApprovalSubject(val value: String)
+
+@JvmInline
+value class Recommendation(val value: String)
+
+@JvmInline
+value class ApproverRole(val value: String)
+
+@JvmInline
+value class ApprovalId(val value: String)
+
+@JvmInline
+value class WorkflowRunId(val value: String)
+
+@JvmInline
+value class AuditStreamId(val value: String)
+
+@JvmInline
+value class ResumeToken(val value: String)
+```
 
 ### 3.1. Approval Gateway
 
@@ -104,6 +129,16 @@ sealed interface ApprovalRequestResult {
     data class AlreadyDenied(
         val decision: HumanDecision,
     ) : ApprovalRequestResult
+
+    /**
+     * The approval request expired before a human decision was recorded.
+     * The caller decides whether to restart, reject, or request a new approval.
+     */
+    data class Expired(
+        val approvalId: ApprovalId,
+        val expiredAt: Instant,
+        val reason: String,
+    ) : ApprovalRequestResult
 }
 ```
 
@@ -125,6 +160,10 @@ sealed interface SovereignWorkflowResult<out T> {
     data class Rejected(
         val reason: String,
     ) : SovereignWorkflowResult<Nothing>
+
+    data class Expired(
+        val reason: String,
+    ) : SovereignWorkflowResult<Nothing>
 }
 ```
 
@@ -142,9 +181,9 @@ class ClaimTriageWorkflow(
 
         if (route.requiresHumanApproval) {
             return approvalGateway.requestApproval(
-                subject = input.claimId,
+                subject = ApprovalSubject(input.claimId),
                 recommendation = route.recommendation,
-                requiredRole = "medical-reviewer",
+                requiredRole = ApproverRole("medical-reviewer"),
             ).toWorkflowResult()
         }
 
@@ -162,9 +201,10 @@ class ClaimTriageWorkflow(
 The call:
 
 1. Persists the approval request to `ApprovalStore`.
-2. Persists continuation/resume metadata to `ApprovalContinuationStore` (durable state).
-3. Emits audit intent via the audit outbox.
-4. Returns `ApprovalRequestResult.Suspended` immediately.
+2. Persists the suspended invocation replay envelope (safe invocation metadata) to `SuspendedInvocationStore`.
+3. Persists approval-specific continuation metadata (sensitive or claimed arguments required to resume safely) to `ApprovalContinuationStore`.
+4. Emits audit intent via the audit outbox.
+5. Returns `ApprovalRequestResult.Suspended` immediately.
 
 The coroutine suspension is a **data model suspension**, not a thread-blocking wait. The workflow must be able to:
 
@@ -228,7 +268,7 @@ Start with **Approach A** (single `resumeApproval` method) for simplicity. Appro
 | Approval version conflict | Reject stale decision with explicit `ApprovalVersionConflictException` |
 | Restart before human decision | Resume from durable state — no data loss |
 | Denial | Audit event emitted through outbox; workflow terminates with `Rejected` |
-| Approval expired | Return explicit expired state; caller decides how to proceed |
+| Approval expired | Return `ApprovalRequestResult.Expired`; caller decides whether to restart, reject, or request a new approval |
 | Audit outbox dispatch failure | Retried through the background worker |
 | Worker lease loss | Current worker cycle is cancelled; next cycle picks up pending work |
 | Resume token tampered | Fail closed — refuse to reconstruct context from untrusted data |
@@ -243,7 +283,7 @@ Per the [Sovereign Runtime API Stability Boundary](../architecture/sovereign-api
 |---|---|---|
 | Store SPIs (`ApprovalStore`, etc.) | **RC+ Stable** | RC+ Stable |
 | `ApprovalGateway` (API shape in this doc) | **Preview** | RC+ Stable (after implementation) |
-| Workflow ergonomics (SovereignWorkflow, etc.) | **Preview** | Stable (post-roadmap) |
+| Workflow ergonomics (SovereignWorkflow, etc.) | **Preview** | RC+ Stable (post-roadmap) |
 | Concrete JDBC implementations | **Internal** | Internal |
 | Key rotation, reviewer UI, etc. | **Deferred** | Deferred |
 
