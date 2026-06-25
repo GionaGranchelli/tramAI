@@ -1,16 +1,24 @@
 package dev.tramai.examples.spring
 
 import com.zaxxer.hikari.HikariDataSource
-import dev.tramai.core.approval.ApprovalBinding
-import dev.tramai.core.approval.ApprovalRequest
+import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
-import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.approval.gateway.ApprovalGateway
+import dev.tramai.core.approval.gateway.ApprovalRecommendation
+import dev.tramai.core.approval.gateway.ApprovalRequestResult
+import dev.tramai.core.approval.gateway.ApprovalSubject
+import dev.tramai.core.approval.gateway.ApproverRole
+import dev.tramai.core.approval.gateway.WorkflowRunId
+import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.AuditHashAlgorithm
 import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.calculateHash
+import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
+import dev.tramai.engine.approval.DefaultApprovalGateway
 import dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration
+import dev.tramai.spring.sovereign.ops.ApprovalGatewayAutoConfiguration
 import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
@@ -19,7 +27,6 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import java.nio.file.Path
 import java.security.MessageDigest
-import java.time.Duration
 import java.time.Instant
 import java.util.Base64
 import java.util.UUID
@@ -91,11 +98,13 @@ class RegulatedClaimTriageJdbcE2ETest {
                 AutoConfigurations.of(
                     SovereignJdbcPersistenceAutoConfiguration::class.java,
                     SovereignTramaiAutoConfiguration::class.java,
+                    ApprovalGatewayAutoConfiguration::class.java,
                 ),
             )
             .withUserConfiguration(
                 JdbcE2eDataSourceConfig::class.java,
                 DemoProviderConfiguration::class.java,
+                RegulatedClaimTriageGatewayConfig::class.java,
             )
             .withPropertyValues(
                 "tramai.sovereign.enabled=true",
@@ -112,7 +121,7 @@ class RegulatedClaimTriageJdbcE2ETest {
     // ══════════════════════════════════════════════════════════════════
 
     @Test
-    fun `high risk claim is classified routed locally approved denied transactionally and survives restart`() {
+    fun `high risk claim suspends through approval gateway and survives restart`() {
         val claimId = "claim-hr-${UUID.randomUUID()}"
         val workflowRunId = "wf-$claimId"
         val input = ClaimTriageInput(
@@ -139,6 +148,20 @@ class RegulatedClaimTriageJdbcE2ETest {
                 assertThat(result.requiredApproval).isTrue()
                 assertThat(result.policyDecision).isEqualTo("ALLOW_LOCAL")
                 assertThat(result.classification).isEqualTo("RESTRICTED")
+
+                val pendingApproval = workflow.approvalStore.get(result.approvalId!!)
+                assertThat(pendingApproval).isNotNull
+                assertThat(pendingApproval!!.status).isEqualTo(ApprovalStatus.PENDING)
+
+                // Gateway also persisted suspended invocation and continuation
+                val suspended = workflow.suspendedInvocationStore.get(result.approvalId!!)
+                assertThat(suspended).isNotNull
+                assertThat(suspended!!.approvalId).isEqualTo(result.approvalId)
+                val continuation = workflow.approvalContinuationStore.get(result.approvalId!!)
+                assertThat(continuation).isNotNull
+                assertThat(continuation!!.workflowRunId).isEqualTo(workflowRunId)
+                assertThat(continuation.argumentsDigest)
+                    .isEqualTo(pendingApproval.binding.argumentsDigest)
 
                 // Audit: policy decision (allow-local) + recommendation + approval-requested → 3 events
                 val events = workflow.auditStore.readStream(result.auditStreamId)
@@ -198,6 +221,15 @@ class RegulatedClaimTriageJdbcE2ETest {
                 assertThat(approval!!.status).isEqualTo(ApprovalStatus.DENIED)
                 assertThat(approval.version).isEqualTo(1)
 
+                // Suspended invocation survives restart
+                val suspendedAfterRestart = workflow.suspendedInvocationStore.get(persistedApprovalId)
+                assertThat(suspendedAfterRestart).isNotNull
+
+                // Continuation survives restart
+                val continuationAfterRestart = workflow.approvalContinuationStore.get(persistedApprovalId)
+                assertThat(continuationAfterRestart).isNotNull
+                assertThat(continuationAfterRestart!!.workflowRunId).isEqualTo(workflowRunId)
+
                 // Audit chain intact across restart
                 val events = workflow.auditStore.readStream(persistedAuditStreamId)
                 assertThat(events).hasSize(3)
@@ -219,6 +251,15 @@ class RegulatedClaimTriageJdbcE2ETest {
                 val dispatched = workflow.outboxStore.get(denialOutboxId)
                 assertThat(dispatched!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.EMITTED)
             }
+        }
+    }
+
+    @Test
+    fun `spring auto-configures DefaultApprovalGateway when factory is present`() {
+        createJdbcRunner().run { ctx ->
+            assertThat(ctx).hasSingleBean(ApprovalGateway::class.java)
+            assertThat(ctx.getBean(ApprovalGateway::class.java))
+                .isInstanceOf(DefaultApprovalGateway::class.java)
         }
     }
 
@@ -327,6 +368,13 @@ class RegulatedClaimTriageJdbcE2ETest {
             return ds
         }
     }
+
+    @Configuration
+    class RegulatedClaimTriageGatewayConfig {
+        @Bean
+        fun regulatedClaimTriageApprovalGatewayRequestFactory(): ApprovalGatewayRequestFactory =
+            RegulatedClaimTriageApprovalGatewayRequestFactory()
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -412,6 +460,9 @@ class ClaimTriageWorkflow(
     val auditStore: AuditStore,
     val mutationStore: SovereignOpsApprovalMutationStore,
     val outboxStore: SovereignOpsAuditOutboxStore,
+    val suspendedInvocationStore: SuspendedInvocationStore,
+    val approvalContinuationStore: ApprovalContinuationStore,
+    private val approvalGateway: ApprovalGateway,
     private val dataSource: DataSource,
     private val dlp: FakeDlpClassifier = FakeDlpClassifier(),
     private val policy: FakePolicyEvaluator = FakePolicyEvaluator(),
@@ -497,38 +548,40 @@ class ClaimTriageWorkflow(
 
         // 8. Approval gate: high-risk requires approval
         if (recommendation.requiredApproval) {
-            val approvalId = "approval-${UUID.randomUUID()}"
-            val binding = ApprovalBinding(
-                workflowRunId = workflowRunId,
-                toolName = "claim-triage-model",
-                argumentsDigest = Sha256Digest.of(sha256Hex(input.claimId)),
-                policyVersion = "1.0",
-                workflowDigest = Sha256Digest.of(sha256Hex("claim-triage-workflow")),
-                approvalTokenDigest = Sha256Digest.of(sha256Hex(approvalId)),
-            )
-            approvalStore.create(
-                ApprovalRequest(
-                    approvalId = approvalId,
-                    binding = binding,
-                    status = ApprovalStatus.PENDING,
-                    requestedBy = "triage-system",
-                    requestedAt = Instant.now(),
-                    expiresAt = Instant.now().plus(Duration.ofMinutes(5)),
-                    decidedBy = null,
-                    decidedAt = null,
-                    decisionComment = null,
-                    consumedBy = null,
-                    consumedAt = null,
-                    version = 0,
+            val approvalResult = approvalGateway.requestApproval(
+                subject = ApprovalSubject(input.claimId),
+                recommendation = ApprovalRecommendation(
+                    type = "regulated-claim-triage",
+                    summary = recommendation.recommendationType,
+                    payload = mapOf(
+                        "riskLevel" to recommendation.riskLevel,
+                        "requiredApprover" to if (recommendation.riskLevel == "HIGH") "medical-reviewer" else "reviewer",
+                    ),
                 ),
+                requiredRole = ApproverRole(
+                    if (recommendation.riskLevel == "HIGH") "medical-reviewer" else "reviewer",
+                ),
+                workflowRunId = WorkflowRunId(workflowRunId),
             )
+            val approvalId = when (approvalResult) {
+                is ApprovalRequestResult.Suspended -> approvalResult.approvalId.value
+                is ApprovalRequestResult.AlreadyApproved -> approvalResult.decision.approvalId.value
+                is ApprovalRequestResult.AlreadyDenied -> approvalResult.decision.approvalId.value
+                is ApprovalRequestResult.Expired -> approvalResult.approvalId.value
+            }
+            val approvalAuditDecision = when (approvalResult) {
+                is ApprovalRequestResult.Suspended -> "approval-requested-high-risk"
+                is ApprovalRequestResult.AlreadyApproved -> "approval-already-approved"
+                is ApprovalRequestResult.AlreadyDenied -> "approval-already-denied"
+                is ApprovalRequestResult.Expired -> "approval-expired"
+            }
 
             // Audit: approval requested
             emitAuditEvent(
                 auditStreamId, workflowRunId, input.claimId,
                 actor = "triage-system",
                 enforcementPoint = "approval-gate",
-                decision = "approval-requested-high-risk",
+                decision = approvalAuditDecision,
                 reasonCode = null,
             )
 
@@ -619,6 +672,9 @@ private fun org.springframework.context.ApplicationContext.workflow(
     auditStore = getBean(AuditStore::class.java),
     mutationStore = getBean(SovereignOpsApprovalMutationStore::class.java),
     outboxStore = getBean(SovereignOpsAuditOutboxStore::class.java),
+    suspendedInvocationStore = getBean(SuspendedInvocationStore::class.java),
+    approvalContinuationStore = getBean(ApprovalContinuationStore::class.java),
+    approvalGateway = getBean(ApprovalGateway::class.java),
     dataSource = getBean(DataSource::class.java),
     cloudModel = cloudModel,
 )

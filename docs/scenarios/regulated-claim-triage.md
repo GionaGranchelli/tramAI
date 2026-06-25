@@ -206,7 +206,7 @@ This scenario is now covered by a JDBC-backed E2E test in:
 `examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/RegulatedClaimTriageJdbcE2ETest.kt`
 
 The test proves:
-- High-risk recommendations require approval and persist to PostgreSQL
+- High-risk recommendations are suspended through the Preview ApprovalGateway API instead of manual store creation
 - Approval denial and audit intent are committed transactionally in one database transaction
 - Audit outbox records are durable and dispatchable after context restart
 - Restricted medical data is denied before cloud model invocation (policy enforcement)
