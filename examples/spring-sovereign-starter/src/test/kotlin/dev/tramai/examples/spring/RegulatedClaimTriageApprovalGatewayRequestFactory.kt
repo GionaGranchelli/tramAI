@@ -24,6 +24,7 @@ import dev.tramai.engine.SensitiveReplayEnvelope
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
 import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
+import dev.tramai.security.approval.Sha256ToolArgumentsDigester
 import java.time.Clock
 import java.time.Duration
 
@@ -47,6 +48,9 @@ class RegulatedClaimTriageApprovalGatewayRequestFactory(
         val toolName = "claim-triage-model"
         val expiresAt = now.plus(Duration.ofMinutes(5))
         val sensitiveArgumentsJson = """{"claimId":"$claimId","recommendationType":"${recommendation.summary}","summary":"${recommendation.summary}"}"""
+
+        val sensitiveArguments = SensitiveToolArguments.of(sensitiveArgumentsJson)
+        val computedArgumentsDigest = Sha256ToolArgumentsDigester().digest(sensitiveArguments)
 
         val operationReference = ResumeOperationReference(
             serviceInterface = "dev.tramai.examples.spring.ClaimTriageWorkflow",
@@ -77,7 +81,7 @@ class RegulatedClaimTriageApprovalGatewayRequestFactory(
                 binding = ApprovalBinding(
                     workflowRunId = workflowRun.value,
                     toolName = toolName,
-                    argumentsDigest = ARGUMENTS_DIGEST,
+                    argumentsDigest = computedArgumentsDigest,
                     policyVersion = "1.0",
                     workflowDigest = WORKFLOW_DIGEST,
                     approvalTokenDigest = APPROVAL_TOKEN_DIGEST,
@@ -99,7 +103,7 @@ class RegulatedClaimTriageApprovalGatewayRequestFactory(
                 correlationId = correlationId,
                 toolCallId = toolCallId,
                 toolName = toolName,
-                argumentsDigest = ARGUMENTS_DIGEST,
+                argumentsDigest = computedArgumentsDigest,
                 policyVersion = "1.0",
                 workflowDigest = WORKFLOW_DIGEST,
                 status = ApprovalContinuationStatus.PENDING,
@@ -110,7 +114,7 @@ class RegulatedClaimTriageApprovalGatewayRequestFactory(
                 completedAt = null,
                 version = 0L,
             ),
-            sensitiveArguments = SensitiveToolArguments.of(sensitiveArgumentsJson),
+            sensitiveArguments = sensitiveArguments,
             suspendedInvocationMetadata = SuspendedInvocationMetadata(
                 approvalId = approvalId,
                 toolCallId = toolCallId,
@@ -140,7 +144,6 @@ class RegulatedClaimTriageApprovalGatewayRequestFactory(
     private companion object {
         private val ZERO_DIGEST = Sha256Digest.of("sha256:${"0".repeat(64)}")
         private val WORKFLOW_DIGEST = Sha256Digest.of("sha256:${"1".repeat(64)}")
-        private val ARGUMENTS_DIGEST = Sha256Digest.of("sha256:${"2".repeat(64)}")
         private val APPROVAL_TOKEN_DIGEST = Sha256Digest.of("sha256:${"3".repeat(64)}")
     }
 }

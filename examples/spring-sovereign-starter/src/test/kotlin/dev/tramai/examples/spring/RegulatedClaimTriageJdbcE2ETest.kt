@@ -1,6 +1,7 @@
 package dev.tramai.examples.spring
 
 import com.zaxxer.hikari.HikariDataSource
+import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalGateway
@@ -9,6 +10,7 @@ import dev.tramai.core.approval.gateway.ApprovalRequestResult
 import dev.tramai.core.approval.gateway.ApprovalSubject
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.WorkflowRunId
+import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.AuditHashAlgorithm
 import dev.tramai.security.audit.AuditStore
@@ -151,6 +153,16 @@ class RegulatedClaimTriageJdbcE2ETest {
                 assertThat(pendingApproval).isNotNull
                 assertThat(pendingApproval!!.status).isEqualTo(ApprovalStatus.PENDING)
 
+                // Gateway also persisted suspended invocation and continuation
+                val suspended = workflow.suspendedInvocationStore.get(result.approvalId!!)
+                assertThat(suspended).isNotNull
+                assertThat(suspended!!.approvalId).isEqualTo(result.approvalId)
+                val continuation = workflow.approvalContinuationStore.get(result.approvalId!!)
+                assertThat(continuation).isNotNull
+                assertThat(continuation!!.workflowRunId).isEqualTo(workflowRunId)
+                assertThat(continuation.argumentsDigest)
+                    .isEqualTo(pendingApproval.binding.argumentsDigest)
+
                 // Audit: policy decision (allow-local) + recommendation + approval-requested → 3 events
                 val events = workflow.auditStore.readStream(result.auditStreamId)
                 assertThat(events).hasSize(3)
@@ -208,6 +220,15 @@ class RegulatedClaimTriageJdbcE2ETest {
                 assertThat(approval).isNotNull
                 assertThat(approval!!.status).isEqualTo(ApprovalStatus.DENIED)
                 assertThat(approval.version).isEqualTo(1)
+
+                // Suspended invocation survives restart
+                val suspendedAfterRestart = workflow.suspendedInvocationStore.get(persistedApprovalId)
+                assertThat(suspendedAfterRestart).isNotNull
+
+                // Continuation survives restart
+                val continuationAfterRestart = workflow.approvalContinuationStore.get(persistedApprovalId)
+                assertThat(continuationAfterRestart).isNotNull
+                assertThat(continuationAfterRestart!!.workflowRunId).isEqualTo(workflowRunId)
 
                 // Audit chain intact across restart
                 val events = workflow.auditStore.readStream(persistedAuditStreamId)
@@ -439,6 +460,8 @@ class ClaimTriageWorkflow(
     val auditStore: AuditStore,
     val mutationStore: SovereignOpsApprovalMutationStore,
     val outboxStore: SovereignOpsAuditOutboxStore,
+    val suspendedInvocationStore: SuspendedInvocationStore,
+    val approvalContinuationStore: ApprovalContinuationStore,
     private val approvalGateway: ApprovalGateway,
     private val dataSource: DataSource,
     private val dlp: FakeDlpClassifier = FakeDlpClassifier(),
@@ -546,13 +569,19 @@ class ClaimTriageWorkflow(
                 is ApprovalRequestResult.AlreadyDenied -> approvalResult.decision.approvalId.value
                 is ApprovalRequestResult.Expired -> approvalResult.approvalId.value
             }
+            val approvalAuditDecision = when (approvalResult) {
+                is ApprovalRequestResult.Suspended -> "approval-requested-high-risk"
+                is ApprovalRequestResult.AlreadyApproved -> "approval-already-approved"
+                is ApprovalRequestResult.AlreadyDenied -> "approval-already-denied"
+                is ApprovalRequestResult.Expired -> "approval-expired"
+            }
 
             // Audit: approval requested
             emitAuditEvent(
                 auditStreamId, workflowRunId, input.claimId,
                 actor = "triage-system",
                 enforcementPoint = "approval-gate",
-                decision = "approval-requested-high-risk",
+                decision = approvalAuditDecision,
                 reasonCode = null,
             )
 
@@ -643,6 +672,8 @@ private fun org.springframework.context.ApplicationContext.workflow(
     auditStore = getBean(AuditStore::class.java),
     mutationStore = getBean(SovereignOpsApprovalMutationStore::class.java),
     outboxStore = getBean(SovereignOpsAuditOutboxStore::class.java),
+    suspendedInvocationStore = getBean(SuspendedInvocationStore::class.java),
+    approvalContinuationStore = getBean(ApprovalContinuationStore::class.java),
     approvalGateway = getBean(ApprovalGateway::class.java),
     dataSource = getBean(DataSource::class.java),
     cloudModel = cloudModel,
