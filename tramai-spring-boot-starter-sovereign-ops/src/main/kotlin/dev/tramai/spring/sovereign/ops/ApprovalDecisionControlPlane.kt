@@ -35,7 +35,10 @@ interface ApprovalDecisionControlPlane {
  * @param approvalId The approval to decide on.
  * @param actorId The identity of the actor making the decision.
  * @param actorRole The role of the actor making the decision.
- * @param comment Optional human-readable comment (never stored raw — only digested in outbox).
+ * @param comment Optional human-readable decision comment.
+ * The comment may be persisted in approval metadata.
+ * Do not include secrets, raw medical details, credentials, or unnecessary PII.
+ * The audit outbox stores only digest/length metadata.
  * @param expectedVersion Expected approval version for optimistic concurrency (null = auto-detect).
  * @param correlationId Optional correlation ID for the decision audit trail.
  */

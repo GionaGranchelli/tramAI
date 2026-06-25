@@ -322,7 +322,7 @@ class RegulatedClaimTriageJdbcE2ETest {
                     assertThat(approval).isNotNull
                     assertThat(approval!!.status).isEqualTo(ApprovalStatus.DENIED)
 
-                    val denialOutbox = workflow.outboxStore.findByEventKey("approval-denied")
+                    val denialOutbox = workflow.outboxStore.findByEventKey("approval-denied.${result.approvalId!!}")
                     assertThat(denialOutbox).isNotNull
                     assertThat(denialOutbox!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
                     assertThat(denialOutbox.approvalStatus).isEqualTo(ApprovalStatus.DENIED.name)

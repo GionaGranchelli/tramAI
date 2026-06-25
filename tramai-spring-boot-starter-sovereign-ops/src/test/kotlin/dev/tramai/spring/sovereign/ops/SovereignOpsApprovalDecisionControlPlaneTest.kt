@@ -130,6 +130,58 @@ class SovereignOpsApprovalDecisionControlPlaneTest {
     }
 
     @Test
+    fun `already approved expired approval returns AlreadyApproved`() = runBlocking {
+        val store = MutableApprovalStore(
+            mutableMapOf("approval-1" to approvedApproval(
+                approvalId = "approval-1",
+                decidedBy = "existing-reviewer",
+                decidedAt = now.minusSeconds(60),
+            ).copy(expiresAt = now)),
+        )
+        val controlPlane = SovereignOpsApprovalDecisionControlPlane(
+            approvalStore = store,
+            mutationStore = StubApprovalMutationStore(store),
+            clock = clock,
+        )
+
+        val result = controlPlane.deny(decisionCommand("approval-1"))
+
+        assertThat(result).isEqualTo(
+            ApprovalDecisionResult.AlreadyApproved(
+                approvalId = ApprovalId("approval-1"),
+                decidedBy = "existing-reviewer",
+                decidedAt = now.minusSeconds(60),
+            ),
+        )
+    }
+
+    @Test
+    fun `already denied expired approval returns AlreadyDenied`() = runBlocking {
+        val store = MutableApprovalStore(
+            mutableMapOf("approval-1" to deniedApproval(
+                approvalId = "approval-1",
+                decidedBy = "existing-reviewer",
+                decidedAt = now.minusSeconds(60),
+            ).copy(expiresAt = now)),
+        )
+        val controlPlane = SovereignOpsApprovalDecisionControlPlane(
+            approvalStore = store,
+            mutationStore = StubApprovalMutationStore(store),
+            clock = clock,
+        )
+
+        val result = controlPlane.approve(decisionCommand("approval-1"))
+
+        assertThat(result).isEqualTo(
+            ApprovalDecisionResult.AlreadyDenied(
+                approvalId = ApprovalId("approval-1"),
+                decidedBy = "existing-reviewer",
+                decidedAt = now.minusSeconds(60),
+            ),
+        )
+    }
+
+    @Test
     fun `missing approval returns NotFound`() = runBlocking {
         val store = MutableApprovalStore()
         val controlPlane = SovereignOpsApprovalDecisionControlPlane(

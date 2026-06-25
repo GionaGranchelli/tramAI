@@ -46,10 +46,6 @@ class SovereignOpsApprovalDecisionControlPlane(
 
         val now = clock.instant()
 
-        if (!approval.expiresAt.isAfter(now)) {
-            return ApprovalDecisionResult.Expired(command.approvalId, approval.expiresAt)
-        }
-
         if (approval.status == ApprovalStatus.APPROVED) {
             return ApprovalDecisionResult.AlreadyApproved(
                 approvalId = ApprovalId(approval.approvalId),
@@ -70,6 +66,9 @@ class SovereignOpsApprovalDecisionControlPlane(
                 reason = "approval-invalid-status-${approval.status.name}",
             )
         }
+        if (!approval.expiresAt.isAfter(now)) {
+            return ApprovalDecisionResult.Expired(command.approvalId, approval.expiresAt)
+        }
 
         if (!authorizer.canDecide(approval, command.actorId, command.actorRole, decisionType)) {
             return ApprovalDecisionResult.Conflict(
@@ -79,8 +78,8 @@ class SovereignOpsApprovalDecisionControlPlane(
         }
 
         val eventKey = when (decisionType) {
-            ApprovalDecisionType.APPROVE -> "approval-approved"
-            ApprovalDecisionType.DENY -> "approval-denied"
+            ApprovalDecisionType.APPROVE -> "approval-approved.${command.approvalId.value}"
+            ApprovalDecisionType.DENY -> "approval-denied.${command.approvalId.value}"
         }
         val auditIntent = SovereignOpsAuditOutboxRecord(
             outboxId = UUID.randomUUID().toString(),
