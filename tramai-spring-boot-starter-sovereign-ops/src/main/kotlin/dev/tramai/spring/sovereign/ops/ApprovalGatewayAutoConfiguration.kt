@@ -10,6 +10,7 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutatio
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.context.annotation.Bean
 
 /**
@@ -22,6 +23,10 @@ import org.springframework.context.annotation.Bean
  *    [ApprovalGatewayRequestFactory] are available. This path commits approval,
  *    suspended invocation, continuation, and optional audit outbox records in a single
  *    database transaction.
+ *
+ *    If an [ApprovalGatewayAuditIntentFactory] bean is also available, it is wired into
+ *    the transactional gateway so that approval-requested audit outbox intent is created
+ *    atomically alongside the core records.
  *
  * 2. **Default gateway** — [DefaultApprovalGateway] is created as fallback when the
  *    generic backing stores ([ApprovalStore], [ApprovalContinuationStore],
@@ -40,13 +45,14 @@ import org.springframework.context.annotation.Bean
  *
  * Missing any single dependency → no [ApprovalGateway] bean is created, startup unaffected.
  *
- * Does **not** create a default [ApprovalGatewayRequestFactory] — applications must
- * provide one because request construction depends on workflow-specific metadata
- * (replay envelopes, digests, resume tokens, correlation IDs).
+ * Does **not** create a default [ApprovalGatewayRequestFactory] or
+ * [ApprovalGatewayAuditIntentFactory] — applications must provide these because request
+ * construction and audit intent depend on workflow-specific metadata.
  *
  * @see SovereignOpsTransactionalApprovalGateway
  * @see DefaultApprovalGateway
  * @see ApprovalGatewayRequestFactory
+ * @see ApprovalGatewayAuditIntentFactory
  */
 @AutoConfiguration(
     after = [SovereignOpsAutoConfiguration::class],
@@ -65,10 +71,12 @@ class ApprovalGatewayAutoConfiguration {
     fun transactionalApprovalGateway(
         mutationStore: SovereignOpsApprovalRequestMutationStore,
         requestFactory: ApprovalGatewayRequestFactory,
+        auditIntentFactory: ObjectProvider<ApprovalGatewayAuditIntentFactory>,
     ): ApprovalGateway =
         SovereignOpsTransactionalApprovalGateway(
             mutationStore = mutationStore,
             requestFactory = requestFactory,
+            auditIntentFactory = auditIntentFactory.ifAvailable,
         )
 
     @Bean

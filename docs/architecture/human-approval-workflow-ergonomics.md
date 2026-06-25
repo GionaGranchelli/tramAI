@@ -321,8 +321,17 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 > **Limitations:**
 > - Does not implement full workflow resume.
 > - JDBC-backed approval-request creation now has a transactional boundary, but the generic fallback gateway still does not.
-> - Does not yet emit approval-requested audit outbox intent.
 > - Spring Boot auto-configuration is Preview and requires an application-provided `ApprovalGatewayRequestFactory`.
+>
+> **PR #102** adds approval-requested audit outbox intent emission from the transactional gateway:
+> - `ApprovalGatewayAuditIntentFactory` — Preview SPI for creating approval-requested audit outbox records
+> - `SovereignOpsTransactionalApprovalGateway` now creates audit intent when an `ApprovalGatewayAuditIntentFactory` is present
+> - `RegulatedClaimTriageApprovalGatewayAuditIntentFactory` — example factory that creates `regulated-claim-triage.approval-requested` outbox records
+> - The E2E test now asserts the gateway-created approval-requested outbox record exists
+>
+> **Limitations remaining:**
+> - Does not implement full workflow resume.
+> - Generic fallback gateway (`DefaultApprovalGateway`) still has no cross-store transaction boundary and does not emit audit intent.
 
 ---
 
@@ -360,3 +369,4 @@ The following are explicitly **not covered** by this design:
 | #99 | Regulated claim triage through gateway | Real example using the gateway |
 | #100 | Golden path example | Polished developer-facing example |
 | #101 | Transactional request creation boundary | Add JDBC-backed atomic approval-request creation and prefer the transactional gateway when available |
+| #102 | Approval-requested audit intent from gateway | Emit approval-requested audit outbox intent atomically from the transactional gateway when an `ApprovalGatewayAuditIntentFactory` is present |

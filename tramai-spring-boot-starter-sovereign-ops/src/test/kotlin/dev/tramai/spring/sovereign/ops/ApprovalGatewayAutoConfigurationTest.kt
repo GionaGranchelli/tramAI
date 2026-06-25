@@ -15,6 +15,7 @@ import dev.tramai.core.approval.gateway.ApprovalRecommendation
 import dev.tramai.core.approval.gateway.ApprovalSubject
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.ResumeToken
+import dev.tramai.core.approval.gateway.WorkflowRunId
 import dev.tramai.engine.EngineExecutionIdentity
 import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ResumeOperationReference
@@ -27,6 +28,8 @@ import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
 import dev.tramai.engine.approval.DefaultApprovalGateway
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import java.time.Clock
 import java.time.Instant
 import kotlinx.coroutines.runBlocking
@@ -77,6 +80,46 @@ class ApprovalGatewayAutoConfigurationTest {
                 val gateway = ctx.getBean(ApprovalGateway::class.java)
                 assertThat(gateway).isInstanceOf(SovereignOpsTransactionalApprovalGateway::class.java)
                 assertThat(gateway).isNotInstanceOf(DefaultApprovalGateway::class.java)
+            }
+    }
+
+    @Test
+    fun `creates transactional gateway with audit intent factory when available`() {
+        contextRunner
+            .withUserConfiguration(TransactionalWithAuditIntentConfig::class.java)
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(ApprovalGateway::class.java)
+                val gateway = ctx.getBean(ApprovalGateway::class.java)
+                assertThat(gateway).isInstanceOf(SovereignOpsTransactionalApprovalGateway::class.java)
+            }
+    }
+
+    @Test
+    fun `transactional gateway passes audit intent from factory to mutation store`() {
+        contextRunner
+            .withUserConfiguration(RecordingAuditIntentConfig::class.java)
+            .run { ctx ->
+                val gateway = ctx.getBean(ApprovalGateway::class.java)
+                val recordingStore = ctx.getBean(RecordingApprovalRequestMutationStore::class.java)
+
+                runBlocking {
+                    gateway.requestApproval(
+                        subject = ApprovalSubject("test-claim"),
+                        recommendation = ApprovalRecommendation(
+                            type = "test",
+                            summary = "test recommendation",
+                            payload = emptyMap(),
+                        ),
+                        requiredRole = ApproverRole("reviewer"),
+                        workflowRunId = WorkflowRunId("wf-test"),
+                    )
+                }
+
+                val captured = recordingStore.lastAuditIntent
+                assertThat(captured).isNotNull
+                assertThat(captured!!.eventKey).isEqualTo("test.approval-requested")
+                assertThat(captured.status).isEqualTo(SovereignOpsAuditOutboxStatus.PREPARED)
+                assertThat(captured.approvalStatus).isEqualTo("PENDING")
             }
     }
 
@@ -251,6 +294,68 @@ private open class TransactionalGatewayConfig : FullGatewayConfig() {
                     correlationId = request.suspendedInvocationMetadata.correlationId,
                     resumeToken = request.resumeToken,
                 )
+        }
+}
+
+private open class TransactionalWithAuditIntentConfig : TransactionalGatewayConfig() {
+    @Bean open fun testAuditIntentFactory(): ApprovalGatewayAuditIntentFactory =
+        ApprovalGatewayAuditIntentFactory { _, _, _, _ ->
+            SovereignOpsAuditOutboxRecord(
+                aggregateIdDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                eventKey = "test.approval-requested",
+                actor = "test",
+                workflowRunId = "wf-test",
+                correlationId = "corr-test",
+                approvalStatus = "PENDING",
+                approvalVersion = 0L,
+                reasonDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                reasonLength = 18,
+            )
+        }
+}
+
+/**
+ * Recording mutation store that captures the last audit intent passed to
+ * [createApprovalRequest] for verification in the recording test.
+ */
+private class RecordingApprovalRequestMutationStore(
+    var lastAuditIntent: SovereignOpsAuditOutboxRecord? = null,
+) : SovereignOpsApprovalRequestMutationStore {
+    override suspend fun createApprovalRequest(
+        request: ApprovalGatewayPersistenceRequest,
+        auditIntent: SovereignOpsAuditOutboxRecord?,
+    ): SovereignOpsApprovalRequestMutationResult {
+        lastAuditIntent = auditIntent
+        return SovereignOpsApprovalRequestMutationResult.Created(
+            approvalId = request.approvalRequest.approvalId,
+            correlationId = request.suspendedInvocationMetadata.correlationId,
+            resumeToken = request.resumeToken,
+        )
+    }
+}
+
+private open class RecordingAuditIntentConfig {
+    @Bean
+    @Primary
+    open fun testApprovalMutationStore(): RecordingApprovalRequestMutationStore =
+        RecordingApprovalRequestMutationStore()
+
+    @Bean open fun testGatewayRequestFactory(): ApprovalGatewayRequestFactory =
+        TestApprovalGatewayRequestFactory()
+
+    @Bean open fun testAuditIntentFactory(): ApprovalGatewayAuditIntentFactory =
+        ApprovalGatewayAuditIntentFactory { _, _, _, _ ->
+            SovereignOpsAuditOutboxRecord(
+                aggregateIdDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                eventKey = "test.approval-requested",
+                actor = "test",
+                workflowRunId = "wf-test",
+                correlationId = "corr-test",
+                approvalStatus = "PENDING",
+                approvalVersion = 0L,
+                reasonDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                reasonLength = 18,
+            )
         }
 }
 

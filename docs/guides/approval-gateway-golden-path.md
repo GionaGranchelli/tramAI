@@ -80,8 +80,9 @@ When `requestApproval()` returns `Suspended`, the gateway creates the three core
 | `ApprovalStore` | Approval request lifecycle | ✓ Same, atomically committed |
 | `SuspendedInvocationStore` | Replay-safe invocation metadata | ✓ Same, atomically committed |
 | `ApprovalContinuationStore` | Continuation metadata | ✓ Same, atomically committed |
+| `AuditOutbox (approval-requested)` | Not emitted — no cross-store transaction boundary | ✓ Emitted atomically when `ApprovalGatewayAuditIntentFactory` is present |
 
-The **surrounding workflow** may also emit audit records and durable operational audit intent:
+The **surrounding workflow** may also emit additional audit records and operational outbox intent:
 
 | Store | Written by surrounding workflow / application code |
 |-------|------------------------------------------------------|
@@ -172,7 +173,7 @@ The Preview approval gateway has the following limitations:
 | REST control plane for approvals | Not implemented yet |
 | Generic workflow DSL | Not implemented yet |
 | Cross-store transaction boundary at creation | ✅ Implemented for JDBC-backed stores via `SovereignOpsApprovalRequestMutationStore` |
-| Approval-requested audit outbox mutation boundary | Not implemented yet |
+| Approval-requested audit outbox mutation boundary | ✅ Implemented for JDBC-backed stores when an `ApprovalGatewayAuditIntentFactory` bean is provided |
 | Generic global `ApprovalGatewayRequestFactory` | Not provided — applications must supply one |
 | Production certification / GA stability | Preview — APIs may change |
 

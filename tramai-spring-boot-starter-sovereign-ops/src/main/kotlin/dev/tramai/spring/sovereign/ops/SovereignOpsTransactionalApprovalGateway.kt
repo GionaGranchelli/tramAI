@@ -18,9 +18,26 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutatio
 import java.time.Clock
 import kotlinx.coroutines.CancellationException
 
+/**
+ * Transactional [ApprovalGateway] implementation backed by
+ * [SovereignOpsApprovalRequestMutationStore].
+ *
+ * This gateway writes approval, suspended invocation, continuation, and (optionally)
+ * approval-requested audit outbox records in a single database transaction.
+ *
+ * When an [ApprovalGatewayAuditIntentFactory] is provided, the gateway creates a
+ * durable "approval-requested" outbox intent during request creation and passes it
+ * to the mutation store for atomic persistence alongside the core records.
+ *
+ * @param mutationStore atomic creation store
+ * @param requestFactory builds low-level persistence records from the ergonomic SPI input
+ * @param auditIntentFactory optional factory for approval-requested audit outbox intent
+ * @param clock clock for temporal decisions
+ */
 class SovereignOpsTransactionalApprovalGateway(
     private val mutationStore: SovereignOpsApprovalRequestMutationStore,
     private val requestFactory: ApprovalGatewayRequestFactory,
+    private val auditIntentFactory: ApprovalGatewayAuditIntentFactory? = null,
     private val clock: Clock = Clock.systemUTC(),
 ) : ApprovalGateway {
 
@@ -37,8 +54,15 @@ class SovereignOpsTransactionalApprovalGateway(
             workflowRunId = workflowRunId,
         )
 
+        val auditIntent = auditIntentFactory?.approvalRequested(
+            request = request,
+            subject = subject,
+            recommendation = recommendation,
+            requiredRole = requiredRole,
+        )
+
         return try {
-            when (val result = mutationStore.createApprovalRequest(request)) {
+            when (val result = mutationStore.createApprovalRequest(request, auditIntent)) {
                 is SovereignOpsApprovalRequestMutationResult.Created ->
                     ApprovalRequestResult.Suspended(
                         approvalId = ApprovalId(result.approvalId),

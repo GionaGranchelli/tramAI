@@ -17,7 +17,9 @@ import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.calculateHash
 import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
 import dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration
+import dev.tramai.spring.sovereign.ops.ApprovalGatewayAuditIntentFactory
 import dev.tramai.spring.sovereign.ops.ApprovalGatewayAutoConfiguration
+import dev.tramai.spring.sovereign.ops.SovereignOpsTransactionalApprovalGateway
 import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
@@ -162,6 +164,18 @@ class RegulatedClaimTriageJdbcE2ETest {
                 assertThat(continuation.argumentsDigest)
                     .isEqualTo(pendingApproval.binding.argumentsDigest)
 
+                // Gateway also created approval-requested audit outbox intent atomically
+                val approvalRequestedOutbox = workflow.outboxStore.findByEventKey(
+                    "regulated-claim-triage.approval-requested",
+                )
+                assertThat(approvalRequestedOutbox).isNotNull
+                assertThat(approvalRequestedOutbox!!.status)
+                    .isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
+                assertThat(approvalRequestedOutbox.operation).isEqualTo("approvalRequested")
+                assertThat(approvalRequestedOutbox.approvalStatus).isEqualTo("PENDING")
+                assertThat(approvalRequestedOutbox.approvalVersion).isEqualTo(0L)
+                assertThat(approvalRequestedOutbox.actor).isEqualTo("triage-system")
+
                 // Audit: policy decision (allow-local) + recommendation + approval-requested → 3 events
                 val events = workflow.auditStore.readStream(result.auditStreamId)
                 assertThat(events).hasSize(3)
@@ -258,11 +272,9 @@ class RegulatedClaimTriageJdbcE2ETest {
         createJdbcRunner().run { ctx ->
             assertThat(ctx).hasSingleBean(ApprovalGateway::class.java)
             val gateway = ctx.getBean(ApprovalGateway::class.java)
-            // The bean may be DefaultApprovalGateway or
-            // SovereignOpsTransactionalApprovalGateway depending on whether
-            // SovereignOpsApprovalRequestMutationStore is present. Both implement
-            // ApprovalGateway — the key invariant is that at least one bean exists.
-            assertThat(gateway).isNotNull()
+            // With JDBC persistence, the mutation store is available and auto-config
+            // prefers SovereignOpsTransactionalApprovalGateway over DefaultApprovalGateway.
+            assertThat(gateway).isInstanceOf(SovereignOpsTransactionalApprovalGateway::class.java)
         }
     }
 
@@ -377,6 +389,10 @@ class RegulatedClaimTriageJdbcE2ETest {
         @Bean
         fun regulatedClaimTriageApprovalGatewayRequestFactory(): ApprovalGatewayRequestFactory =
             RegulatedClaimTriageApprovalGatewayRequestFactory()
+
+        @Bean
+        fun regulatedClaimTriageApprovalGatewayAuditIntentFactory(): ApprovalGatewayAuditIntentFactory =
+            RegulatedClaimTriageApprovalGatewayAuditIntentFactory()
     }
 }
 
