@@ -71,10 +71,7 @@ class ApprovalGatewayAutoConfigurationTest {
     @Test
     fun `prefers transactional approval gateway over default fallback`() {
         contextRunner
-            .withUserConfiguration(
-                FullGatewayConfig::class.java,
-                TransactionalGatewayConfig::class.java,
-            )
+            .withUserConfiguration(TransactionalGatewayConfig::class.java)
             .run { ctx ->
                 assertThat(ctx).hasSingleBean(ApprovalGateway::class.java)
                 val gateway = ctx.getBean(ApprovalGateway::class.java)
@@ -242,8 +239,8 @@ private open class FullGatewayConfig {
     @Bean open fun testGatewayRequestFactory(): ApprovalGatewayRequestFactory = TestApprovalGatewayRequestFactory()
 }
 
-private open class TransactionalGatewayConfig {
-    @Bean open fun testApprovalRequestMutationStore(): SovereignOpsApprovalRequestMutationStore =
+private open class TransactionalGatewayConfig : FullGatewayConfig() {
+    @Bean open fun transactionalMutationStore(): SovereignOpsApprovalRequestMutationStore =
         object : SovereignOpsApprovalRequestMutationStore {
             override suspend fun createApprovalRequest(
                 request: ApprovalGatewayPersistenceRequest,
@@ -255,8 +252,6 @@ private open class TransactionalGatewayConfig {
                     resumeToken = request.resumeToken,
                 )
         }
-
-    @Bean open fun testGatewayRequestFactory(): ApprovalGatewayRequestFactory = TestApprovalGatewayRequestFactory()
 }
 
 private open class StoresOnlyConfig {
