@@ -5,7 +5,6 @@ import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
-import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.gateway.ApprovalRecommendation
@@ -31,7 +30,6 @@ import java.time.Duration
 
 class RegulatedClaimTriageApprovalGatewayRequestFactory(
     private val clock: Clock = Clock.systemUTC(),
-    private val objectMapper: ObjectMapper = ObjectMapper(),
 ) : ApprovalGatewayRequestFactory {
 
     override suspend fun createRequest(
@@ -49,12 +47,10 @@ class RegulatedClaimTriageApprovalGatewayRequestFactory(
         val toolCallId = "tool-call-$claimId"
         val toolName = "claim-triage-model"
         val expiresAt = now.plus(Duration.ofMinutes(5))
-        val sensitiveArgumentsJson = objectMapper.writeValueAsString(
-            mapOf(
-                "claimId" to claimId,
-                "recommendationType" to recommendation.summary,
-                "summary" to recommendation.summary,
-            ),
+        val sensitiveArgumentsJson = safeJsonObject(
+            "claimId" to claimId,
+            "recommendationType" to recommendation.summary,
+            "summary" to recommendation.summary,
         )
 
         val sensitiveArguments = SensitiveToolArguments.of(sensitiveArgumentsJson)
@@ -148,6 +144,23 @@ class RegulatedClaimTriageApprovalGatewayRequestFactory(
             resumeToken = resumeToken,
         )
     }
+
+    private fun safeJsonObject(vararg pairs: Pair<String, String>): String =
+        buildString {
+            append('{')
+            pairs.forEachIndexed { index, (key, value) ->
+                if (index > 0) append(',')
+                append('"')
+                append(jsonEscape(key))
+                append("\":\"")
+                append(jsonEscape(value))
+                append('"')
+            }
+            append('}')
+        }
+
+    private fun jsonEscape(s: String): String =
+        s.replace("\\", "\\\\").replace("\"", "\\\"")
 
     private companion object {
         private val ZERO_DIGEST = Sha256Digest.of("sha256:${"0".repeat(64)}")
