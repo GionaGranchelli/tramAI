@@ -71,6 +71,16 @@ These gates prove that all included capabilities are functional, the release evi
 
 ---
 
+## API Stability Boundary
+
+The Sovereign Runtime closure boundary does not imply that every TramAI API is stable.
+
+For the classification of stable, preview, internal, and deferred surfaces, see:
+
+[Sovereign Runtime API Stability Boundary](../architecture/sovereign-api-stability-boundary.md)
+
+---
+
 ## Explicit Non-Goals
 
 The closure boundary explicitly does **not** include:

@@ -38,6 +38,21 @@ Closure boundary:
 
 The next roadmap after this closure is API stabilization and workflow ergonomics.
 
+## Sovereign Runtime API Stability
+
+The Sovereign Runtime RC+ / enterprise proof milestone has a documented API stability boundary.
+
+See:
+
+- [Sovereign Runtime API Stability Boundary](architecture/sovereign-api-stability-boundary.md)
+
+Summary:
+
+- Store and runtime SPIs are **RC+ stable**.
+- Workflow ergonomics are **preview**.
+- Concrete JDBC implementations are **internal**.
+- Key rotation, reviewer UI, full REST control plane, and 1.0-wide API stability are **deferred**.
+
 ## Implemented / Evolving
 
 | Area | Status |
