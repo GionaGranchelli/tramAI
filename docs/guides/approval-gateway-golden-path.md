@@ -73,13 +73,13 @@ return when (approvalResult) {
 
 ## What Gets Persisted
 
-When `requestApproval()` returns `Suspended`, `DefaultApprovalGateway` creates the three core suspension records:
+When `requestApproval()` returns `Suspended`, the gateway creates the three core suspension records:
 
-| Store | Written by `DefaultApprovalGateway` |
-|-------|--------------------------------------|
-| `ApprovalStore` | Approval request lifecycle (status, version, expiry, binding metadata) |
-| `SuspendedInvocationStore` | Replay-safe invocation metadata and encrypted replay envelope |
-| `ApprovalContinuationStore` | Continuation metadata and encrypted sensitive tool arguments |
+| Store | Written by `DefaultApprovalGateway` | Written by `SovereignOpsTransactionalApprovalGateway` (JDBC) |
+|-------|--------------------------------------|--------------------------------------------------------------|
+| `ApprovalStore` | Approval request lifecycle | ✓ Same, atomically committed |
+| `SuspendedInvocationStore` | Replay-safe invocation metadata | ✓ Same, atomically committed |
+| `ApprovalContinuationStore` | Continuation metadata | ✓ Same, atomically committed |
 
 The **surrounding workflow** may also emit audit records and durable operational audit intent:
 
@@ -90,7 +90,7 @@ The **surrounding workflow** may also emit audit records and durable operational
 
 See the [regulated claim triage E2E test](https://github.com/GionaGranchelli/tramAI/blob/master/examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/RegulatedClaimTriageJdbcE2ETest.kt) for a complete example that exercises both gateway-written and workflow-emitted records.
 
-**Preview limitation:** `DefaultApprovalGateway` does not yet provide one atomic transaction across all three core stores and does not emit approval-requested outbox intent. See [current limitations](#current-limitations) below.
+**Note:** When JDBC-backed sovereign stores are active, `SovereignOpsTransactionalApprovalGateway` automatically replaces `DefaultApprovalGateway` and commits all three core records in a single database transaction. See [current limitations](#current-limitations) below for what this does not yet handle.
 
 ---
 
@@ -106,12 +106,10 @@ implementation(project(":tramai-spring-boot-starter-sovereign-ops"))
 
 ### Provide an ApprovalGatewayRequestFactory
 
-Spring Boot auto-configuration creates a `DefaultApprovalGateway` bean when **all** of the following are available:
+Spring Boot auto-configuration creates an `ApprovalGateway` bean when the required stores and an `ApprovalGatewayRequestFactory` are available:
 
-- `ApprovalStore`
-- `ApprovalContinuationStore`
-- `SuspendedInvocationStore`
-- `ApprovalGatewayRequestFactory`
+- With JDBC-backed stores: auto-config creates `SovereignOpsTransactionalApprovalGateway`, which commits all three records in a single database transaction.
+- With generic stores: auto-config creates `DefaultApprovalGateway`, which writes the three stores sequentially.
 
 TramAI does **not** auto-create a generic request factory because the factory depends on workflow-specific metadata: replay envelopes, argument digests, correlation IDs, and resume-token generation.
 
@@ -173,7 +171,7 @@ The Preview approval gateway has the following limitations:
 | Reviewer UI | Not implemented yet |
 | REST control plane for approvals | Not implemented yet |
 | Generic workflow DSL | Not implemented yet |
-| Cross-store transaction boundary at creation | Not implemented — approval, suspension, and continuation writes are not atomic |
+| Cross-store transaction boundary at creation | ✅ Implemented for JDBC-backed stores via `SovereignOpsApprovalRequestMutationStore` |
 | Approval-requested audit outbox mutation boundary | Not implemented yet |
 | Generic global `ApprovalGatewayRequestFactory` | Not provided — applications must supply one |
 | Production certification / GA stability | Preview — APIs may change |

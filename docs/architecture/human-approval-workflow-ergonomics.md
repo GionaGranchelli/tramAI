@@ -310,9 +310,17 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 >
 > **PR #100** adds a [developer-facing golden path guide](../guides/approval-gateway-golden-path.md) explaining how to use the Preview ApprovalGateway, how Spring Boot auto-configuration wires it, and what persistence records are created underneath.
 >
+> **PR #100** adds a developer-facing golden-path guide for the Preview gateway.
+>
+> **PR #101** adds a JDBC-backed transactional creation boundary for approval requests:
+> - `SovereignOpsApprovalRequestMutationStore` — Preview atomic creation seam for approval, suspended invocation, continuation, and optional audit outbox intent
+> - `JdbcSovereignOpsApprovalRequestMutationStore` — PostgreSQL implementation that commits approval request creation inside one transaction
+> - `SovereignOpsTransactionalApprovalGateway` — Preview gateway adapter that prefers the atomic creation seam when available
+> - Spring Boot auto-configuration now prefers the transactional gateway over `DefaultApprovalGateway` when the request mutation store is present
+>
 > **Limitations:**
 > - Does not implement full workflow resume.
-> - Does not provide a single transactional boundary across all stores.
+> - JDBC-backed approval-request creation now has a transactional boundary, but the generic fallback gateway still does not.
 > - Does not yet emit approval-requested audit outbox intent.
 > - Spring Boot auto-configuration is Preview and requires an application-provided `ApprovalGatewayRequestFactory`.
 
@@ -351,3 +359,4 @@ The following are explicitly **not covered** by this design:
 | #98 | Spring Boot auto-configuration | Wire preview gateway as a Spring bean (`ApprovalGatewayAutoConfiguration`) |
 | #99 | Regulated claim triage through gateway | Real example using the gateway |
 | #100 | Golden path example | Polished developer-facing example |
+| #101 | Transactional request creation boundary | Add JDBC-backed atomic approval-request creation and prefer the transactional gateway when available |

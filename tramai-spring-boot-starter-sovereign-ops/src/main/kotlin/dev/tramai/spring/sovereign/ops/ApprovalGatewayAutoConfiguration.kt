@@ -6,6 +6,7 @@ import dev.tramai.core.approval.gateway.ApprovalGateway
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
 import dev.tramai.engine.approval.DefaultApprovalGateway
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
@@ -39,6 +40,28 @@ class ApprovalGatewayAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(ApprovalGateway::class)
+    @ConditionalOnBean(
+        value = [
+            SovereignOpsApprovalRequestMutationStore::class,
+            ApprovalGatewayRequestFactory::class,
+        ],
+    )
+    fun transactionalApprovalGateway(
+        mutationStore: SovereignOpsApprovalRequestMutationStore,
+        requestFactory: ApprovalGatewayRequestFactory,
+    ): ApprovalGateway =
+        SovereignOpsTransactionalApprovalGateway(
+            mutationStore = mutationStore,
+            requestFactory = requestFactory,
+        )
+
+    @Bean
+    @ConditionalOnMissingBean(
+        value = [
+            ApprovalGateway::class,
+            SovereignOpsApprovalRequestMutationStore::class,
+        ],
+    )
     @ConditionalOnBean(
         value = [
             ApprovalStore::class,

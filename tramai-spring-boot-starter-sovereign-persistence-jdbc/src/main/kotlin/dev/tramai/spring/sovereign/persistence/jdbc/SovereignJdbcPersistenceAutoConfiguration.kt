@@ -13,6 +13,7 @@ import dev.tramai.persistence.jdbc.JdbcSuspendedInvocationStore
 import dev.tramai.security.audit.AuditStore
 import dev.tramai.spring.sovereign.ops.lease.SovereignOpsWorkerLeaseStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
@@ -220,6 +221,22 @@ class SovereignJdbcPersistenceAutoConfiguration {
         outboxPayloadCodec: JdbcOpsAuditOutboxPayloadCodec,
     ): SovereignOpsApprovalMutationStore =
         JdbcSovereignOpsApprovalMutationStore(dataSource, outboxPayloadCodec)
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(DataSource::class)
+    fun sovereignOpsApprovalRequestMutationStore(
+        dataSource: DataSource,
+        replayEnvelopeCodec: JdbcReplayEnvelopeCodec,
+        continuationArgumentsCodec: JdbcContinuationArgumentsCodec,
+        outboxPayloadCodec: JdbcOpsAuditOutboxPayloadCodec,
+    ): SovereignOpsApprovalRequestMutationStore =
+        JdbcSovereignOpsApprovalRequestMutationStore(
+            dataSource = dataSource,
+            replayEnvelopeCodec = replayEnvelopeCodec,
+            continuationArgumentsCodec = continuationArgumentsCodec,
+            outboxPayloadCodec = outboxPayloadCodec,
+        )
 
     @Bean
     @ConditionalOnMissingBean
