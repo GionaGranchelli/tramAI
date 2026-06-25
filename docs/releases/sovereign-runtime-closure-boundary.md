@@ -3,6 +3,8 @@
 > This document defines the formal closure boundary for the Sovereignty roadmap.
 > The Sovereign Runtime is considered functionally complete as an RC+ / enterprise proof milestone.
 > It is **not** a GA-certified production release.
+>
+> This is not a GA-certified production release.
 
 ---
 
@@ -10,7 +12,7 @@
 
 Sovereign Runtime is **functionally complete as an enterprise proof / RC+ milestone**.
 
-It is not yet a GA-certified production release. The next roadmap focuses on API stabilization and workflow ergonomics.
+**This is not a GA-certified production release.** The next roadmap focuses on API stabilization and workflow ergonomics.
 
 ---
 
@@ -52,20 +54,20 @@ The following capabilities are included in the closure boundary:
 
 ## Closure Evidence
 
-The Sovereignty roadmap is considered **closed** when the following verification commands pass:
+The Sovereign Runtime closure boundary is verified by:
 
 ```bash
-# Full test suite
-./gradlew check
-
-# Release-candidate verification chain
-./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks
-
-# JDBC E2E restart proof
-./gradlew :examples:spring-sovereign-starter:e2eTest
+./gradlew verifySovereignRuntimeClosure
 ```
 
-These gates prove that all included capabilities are functional, the release evidence chain is intact, and the regulated JDBC scenario works end-to-end.
+This task depends on:
+
+- `./gradlew check` — full test suite
+- `./gradlew verifySovereignRuntimeReleaseCandidate` — release-candidate verification chain
+- `./gradlew :examples:spring-sovereign-starter:e2eTest` — JDBC E2E restart proof
+- closure documentation consistency checks
+
+These gates prove that all included capabilities are functional, the release evidence chain is intact, the regulated JDBC scenario works end-to-end, and the closure documentation is internally consistent.
 
 ---
 

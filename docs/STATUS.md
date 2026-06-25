@@ -4,6 +4,16 @@ TramAI is under **active development**.
 
 This document describes the state of the repository, not a formal release contract. It tracks what is implemented and evolving on `master`, and what is intentionally not yet complete.
 
+## Sovereign Runtime Closure Verification
+
+The closure boundary can be verified with:
+
+```bash
+./gradlew verifySovereignRuntimeClosure
+```
+
+This is the canonical local verification command for the Sovereign Runtime RC+ / enterprise proof milestone.
+
 ## Sovereign Runtime Closure Status
 
 The Sovereign Runtime roadmap is **functionally complete as an RC+ / enterprise proof milestone**.

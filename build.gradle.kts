@@ -2022,3 +2022,100 @@ tasks.register("verifySovereignRuntimeReleaseCandidate") {
         logger.lifecycle("No tag or GitHub release was created.")
     }
 }
+
+// ──────────────────────────────────────────────
+// Task: verifySovereignRuntimeClosureDocs
+// ──────────────────────────────────────────────
+
+tasks.register("verifySovereignRuntimeClosureDocs") {
+    group = "verification"
+    description = "Verifies Sovereign Runtime closure documentation links and required claims."
+
+    doLast {
+        val closureDoc = file("docs/releases/sovereign-runtime-closure-boundary.md")
+        require(closureDoc.exists()) {
+            "Missing Sovereign Runtime closure boundary document at ${closureDoc.absolutePath}."
+        }
+
+        val closureText = closureDoc.readText()
+
+        val requiredPhrases = listOf(
+            "RC+ / enterprise proof",
+            "not a GA-certified production release",
+            "Key rotation",
+            "verifySovereignRuntimeReleaseCandidate",
+            ":examples:spring-sovereign-starter:e2eTest",
+            "Regulated Claim Triage",
+            "Sovereign JDBC Production Deployment Runbook",
+        )
+
+        requiredPhrases.forEach { phrase ->
+            require(closureText.contains(phrase)) {
+                "Sovereign Runtime closure boundary is missing required phrase: $phrase"
+            }
+        }
+
+        // Verify that GA is explicitly not claimed — positive check above already
+        // requires "not a GA-certified production release". These negative guards
+        // prevent accidental overclaiming if the document is later edited.
+        // Note: "stable 1.0 API" appears legitimately in the non-goals section,
+        // so we only guard against affirmative claims.
+        val forbiddenClaims = listOf(
+            "is GA-certified",
+            "production certified",
+        )
+
+        forbiddenClaims.forEach { forbidden ->
+            require(!closureText.contains(forbidden, ignoreCase = true)) {
+                "Sovereign Runtime closure boundary must not claim: $forbidden"
+            }
+        }
+
+        // Key rotation must be explicitly deferred, not merely mentioned
+        require(closureText.contains("deferred", ignoreCase = true)) {
+            "Closure boundary must explicitly defer key rotation (found 'Key rotation' but not 'deferred')."
+        }
+
+        val rcBoundary = file("docs/releases/sovereign-runtime-rc-boundary.md").readText()
+        require(rcBoundary.contains("sovereign-runtime-closure-boundary.md")) {
+            "RC boundary must link to the closure boundary."
+        }
+
+        val status = file("docs/STATUS.md").readText()
+        require(status.contains("Sovereign Runtime Closure Status")) {
+            "docs/STATUS.md must include Sovereign Runtime Closure Status section."
+        }
+
+        logger.lifecycle("verifySovereignRuntimeClosureDocs: all documentation consistency checks passed.")
+    }
+}
+
+// ──────────────────────────────────────────────
+// Task: verifySovereignRuntimeClosure
+// ──────────────────────────────────────────────
+
+tasks.register("verifySovereignRuntimeClosure") {
+    group = "verification"
+    description = "Verifies the Sovereign Runtime closure boundary — the canonical gate for the Sovereignty RC+ / enterprise proof milestone."
+
+    notCompatibleWithConfigurationCache(
+        "Sovereign runtime closure verification aggregates execution-time verification tasks.",
+    )
+
+    dependsOn(
+        "check",
+        "verifySovereignRuntimeReleaseCandidate",
+        ":examples:spring-sovereign-starter:e2eTest",
+        "verifySovereignRuntimeClosureDocs",
+    )
+
+    doLast {
+        logger.lifecycle("Sovereign runtime closure verification complete.")
+        logger.lifecycle("Validated:")
+        logger.lifecycle("  - check (full test suite)")
+        logger.lifecycle("  - verifySovereignRuntimeReleaseCandidate")
+        logger.lifecycle("  - :examples:spring-sovereign-starter:e2eTest")
+        logger.lifecycle("  - verifySovereignRuntimeClosureDocs (documentation consistency)")
+        logger.lifecycle("Sovereignty roadmap is closed at the RC+ / enterprise proof level.")
+    }
+}
