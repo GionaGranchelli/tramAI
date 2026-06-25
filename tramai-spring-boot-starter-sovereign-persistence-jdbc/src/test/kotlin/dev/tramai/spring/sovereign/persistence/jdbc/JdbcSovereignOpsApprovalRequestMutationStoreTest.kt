@@ -240,6 +240,76 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         assertThat(continuationStore.get("approval-e")).isNull()
     }
 
+    @Test
+    fun `rejects replay envelope digest mismatch and rolls back all records`() = runBlocking {
+        val request = request("approval-f").copy(
+            suspendedInvocationMetadata = request("approval-f").suspendedInvocationMetadata.copy(
+                replayEnvelopeDigest = Sha256Digest.of("sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+            ),
+        )
+
+        assertThatThrownBy {
+            runBlocking {
+                mutationStore.createApprovalRequest(request)
+            }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("replay-envelope-digest-mismatch")
+
+        assertThat(approvalStore.get("approval-f")).isNull()
+        assertThat(suspendedInvocationStore.get("approval-f")).isNull()
+        assertThat(continuationStore.get("approval-f")).isNull()
+        assertThat(selectCount("SELECT count(*) FROM audit_outbox")).isZero()
+    }
+
+    @Test
+    fun `rejects already expired approval request and rolls back all records`() = runBlocking {
+        val now = BASE_NOW.plusSeconds(30)
+        val clockAtNow = Clock.fixed(now, ZoneOffset.UTC)
+        val storeWithExpiryCheck = JdbcSovereignOpsApprovalRequestMutationStore(
+            dataSource = dataSource,
+            replayEnvelopeCodec = replayCodec,
+            continuationArgumentsCodec = continuationCodec,
+            outboxPayloadCodec = outboxCodec,
+            clock = clockAtNow,
+        )
+        val request = request("approval-g").copy(
+            approvalRequest = request("approval-g").approvalRequest.copy(
+                expiresAt = now.minusSeconds(1),
+            ),
+        )
+
+        assertThatThrownBy {
+            runBlocking {
+                storeWithExpiryCheck.createApprovalRequest(request)
+            }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("approval-request-expired-at-creation")
+
+        assertThat(approvalStore.get("approval-g")).isNull()
+        assertThat(suspendedInvocationStore.get("approval-g")).isNull()
+        assertThat(continuationStore.get("approval-g")).isNull()
+    }
+
+    @Test
+    fun `rejects invalid continuation metadata and rolls back all records`() = runBlocking {
+        val request = request("approval-h").copy(
+            continuation = request("approval-h").continuation.copy(
+                workflowRunId = "  ",
+            ),
+        )
+
+        assertThatThrownBy {
+            runBlocking {
+                mutationStore.createApprovalRequest(request)
+            }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("continuation.workflowRunId")
+
+        assertThat(approvalStore.get("approval-h")).isNull()
+        assertThat(suspendedInvocationStore.get("approval-h")).isNull()
+        assertThat(continuationStore.get("approval-h")).isNull()
+    }
+
     private fun request(approvalId: String): ApprovalGatewayPersistenceRequest {
         val requestedAt = BASE_NOW
         val expiresAt = BASE_NOW.plusSeconds(600)
@@ -434,7 +504,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
                         ?.bufferedReader()
                         ?.readText()
                         ?: error("Migration not found: $resource")
-                    runCatching { stmt.execute(sql) }
+                    stmt.execute(sql)
                 }
             }
         }

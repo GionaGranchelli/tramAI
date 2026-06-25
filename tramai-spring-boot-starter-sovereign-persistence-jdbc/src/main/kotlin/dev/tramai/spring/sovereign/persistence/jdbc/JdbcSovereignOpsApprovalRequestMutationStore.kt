@@ -21,6 +21,7 @@ import dev.tramai.engine.ExecutionSecurityContext
 import dev.tramai.engine.ResumeOperationReference
 import dev.tramai.engine.ResumeToolReference
 import dev.tramai.engine.SensitiveReplayEnvelope
+import dev.tramai.engine.ReplayEnvelopeDigestHelper
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.TokenBudgetSnapshot
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
@@ -152,11 +153,31 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         require(approval.requestedAt <= now) {
             "tramai-sovereign-ops-approval-request-requested-at-in-future"
         }
+        require(approval.expiresAt > now) {
+            "tramai-sovereign-ops-approval-request-expired-at-creation"
+        }
         require(approval.expiresAt > approval.requestedAt) {
             "tramai-sovereign-ops-approval-request-invalid-expiry"
         }
         require(Duration.between(approval.requestedAt, approval.expiresAt) <= Duration.ofMinutes(15)) {
             "tramai-sovereign-ops-approval-request-exceeds-max-ttl"
+        }
+
+        require(continuation.approvalExpiresAt > now) {
+            "tramai-sovereign-ops-approval-request-continuation-expired-at-creation"
+        }
+
+        // Replay-envelope digest verification: recompute canonical digest from actual
+        // replay-envelope messages and verify it matches the metadata digest.
+        // This mirrors JdbcSuspendedInvocationStore.validateReplayEnvelopeDigest.
+        val replayMessages = request.replayEnvelope.revealForResume().messages
+        val canonicalDigest = ReplayEnvelopeDigestHelper.compute(
+            request.suspendedInvocationMetadata.operationReference,
+            replayMessages,
+        )
+        require(canonicalDigest == request.suspendedInvocationMetadata.replayEnvelopeDigest) {
+            "tramai-sovereign-ops-replay-envelope-digest-mismatch: " +
+                "canonical=$canonicalDigest, provided=${request.suspendedInvocationMetadata.replayEnvelopeDigest}"
         }
 
         require(continuation.approvalId == approval.approvalId) {
@@ -167,6 +188,28 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         }
         require(continuation.version == 0L) {
             "tramai-sovereign-ops-approval-request-invalid-continuation-version"
+        }
+        // Mirrors JdbcApprovalContinuationStore.create validation
+        require(continuation.claimedBy == null && continuation.claimedAt == null) {
+            "tramai-sovereign-ops-approval-request-continuation-must-not-be-claimed"
+        }
+        require(continuation.completedAt == null) {
+            "tramai-sovereign-ops-approval-request-continuation-must-not-be-completed"
+        }
+        validateIdField(continuation.workflowRunId, "continuation.workflowRunId")
+        validateIdField(continuation.correlationId, "continuation.correlationId")
+        validateIdField(continuation.toolCallId, "continuation.toolCallId")
+        validateIdField(continuation.toolName, "continuation.toolName")
+        validateDigestField(continuation.argumentsDigest.value)
+        require(!continuation.policyVersion.isNullOrBlank()) {
+            "tramai-sovereign-ops-approval-request-continuation-missing-policy-version"
+        }
+        validateDigestField(continuation.workflowDigest.value)
+        require(continuation.approvalExpiresAt > continuation.createdAt) {
+            "tramai-sovereign-ops-approval-request-continuation-invalid-expiry"
+        }
+        require(Duration.between(continuation.createdAt, continuation.approvalExpiresAt) <= Duration.ofMinutes(15)) {
+            "tramai-sovereign-ops-approval-request-continuation-exceeds-max-ttl"
         }
         require(suspended.approvalId == approval.approvalId) {
             "tramai-sovereign-ops-approval-request-suspended-id-mismatch"
@@ -180,6 +223,8 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
     }
 
     private fun insertApproval(conn: Connection, request: ApprovalRequest) {
+        val now = clock.instant()
+        val nowOdt = OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
         val metadata = ApprovalMetadata(
             binding = BindingMetadata(
                 workflowRunId = request.binding.workflowRunId,
@@ -203,7 +248,7 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
             stmt.setString(1, request.approvalId)
-            stmt.setObject(2, OffsetDateTime.ofInstant(request.requestedAt, ZoneOffset.UTC))
+            stmt.setObject(2, nowOdt)
             stmt.setString(3, mapper.writeValueAsString(metadata))
             stmt.executeUpdate()
         }
@@ -409,6 +454,12 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         require(trimmed == value) { "$fieldName must not contain surrounding whitespace" }
         require(trimmed.none { it.isISOControl() }) { "$fieldName must not contain control characters" }
         require(trimmed.length <= 256) { "$fieldName exceeds maximum length of 256" }
+    }
+
+    private fun validateDigestField(value: String) {
+        require(value.matches(Regex("^sha256:[0-9a-f]{64}$"))) {
+            "tramai-sovereign-ops-digest-field-must-be-sha256"
+        }
     }
 }
 
