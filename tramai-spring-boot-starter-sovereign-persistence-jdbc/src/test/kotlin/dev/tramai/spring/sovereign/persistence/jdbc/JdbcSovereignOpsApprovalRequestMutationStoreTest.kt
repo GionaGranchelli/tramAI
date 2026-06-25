@@ -339,6 +339,37 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         assertThat(continuationStore.get("approval-i")).isNull()
     }
 
+    @Test
+    fun `audit outbox failure rolls back approval request creation`() = runBlocking {
+        val request = request("approval-j")
+        val auditIntent = auditIntent("approval-j", "outbox-failure-test")
+        val failingCodec = object : JdbcOpsAuditOutboxPayloadCodec {
+            override fun encode(plaintext: ByteArray): JdbcEncryptedAuditOutboxPayload =
+                throw IllegalStateException("simulated-outbox-codec-failure")
+            override fun decode(envelope: JdbcEncryptedAuditOutboxPayload): ByteArray =
+                throw UnsupportedOperationException()
+        }
+        val storeWithFailingOutbox = JdbcSovereignOpsApprovalRequestMutationStore(
+            dataSource = dataSource,
+            replayEnvelopeCodec = replayCodec,
+            continuationArgumentsCodec = continuationCodec,
+            outboxPayloadCodec = failingCodec,
+            clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
+        )
+
+        assertThatThrownBy {
+            runBlocking {
+                storeWithFailingOutbox.createApprovalRequest(request, auditIntent)
+            }
+        }.isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("simulated-outbox-codec-failure")
+
+        assertThat(approvalStore.get("approval-j")).isNull()
+        assertThat(suspendedInvocationStore.get("approval-j")).isNull()
+        assertThat(continuationStore.get("approval-j")).isNull()
+        assertThat(selectCount("SELECT count(*) FROM audit_outbox WHERE event_key = 'outbox-failure-test'")).isZero()
+    }
+
     private fun request(approvalId: String): ApprovalGatewayPersistenceRequest {
         val requestedAt = BASE_NOW
         val expiresAt = BASE_NOW.plusSeconds(600)

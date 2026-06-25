@@ -173,7 +173,7 @@ The Preview approval gateway has the following limitations:
 | REST control plane for approvals | Not implemented yet |
 | Generic workflow DSL | Not implemented yet |
 | Cross-store transaction boundary at creation | ✅ Implemented for JDBC-backed stores via `SovereignOpsApprovalRequestMutationStore` |
-| Approval-requested audit outbox mutation boundary | ✅ Implemented for JDBC-backed stores via `ApprovalGatewayAuditIntentFactory` |
+| Approval-requested audit outbox mutation boundary | ✅ Implemented for JDBC-backed stores when an `ApprovalGatewayAuditIntentFactory` bean is provided |
 | Generic global `ApprovalGatewayRequestFactory` | Not provided — applications must supply one |
 | Production certification / GA stability | Preview — APIs may change |
 

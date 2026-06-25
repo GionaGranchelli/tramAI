@@ -19,6 +19,7 @@ import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
 import dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration
 import dev.tramai.spring.sovereign.ops.ApprovalGatewayAuditIntentFactory
 import dev.tramai.spring.sovereign.ops.ApprovalGatewayAutoConfiguration
+import dev.tramai.spring.sovereign.ops.SovereignOpsTransactionalApprovalGateway
 import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
@@ -271,11 +272,9 @@ class RegulatedClaimTriageJdbcE2ETest {
         createJdbcRunner().run { ctx ->
             assertThat(ctx).hasSingleBean(ApprovalGateway::class.java)
             val gateway = ctx.getBean(ApprovalGateway::class.java)
-            // The bean may be DefaultApprovalGateway or
-            // SovereignOpsTransactionalApprovalGateway depending on whether
-            // SovereignOpsApprovalRequestMutationStore is present. Both implement
-            // ApprovalGateway — the key invariant is that at least one bean exists.
-            assertThat(gateway).isNotNull()
+            // With JDBC persistence, the mutation store is available and auto-config
+            // prefers SovereignOpsTransactionalApprovalGateway over DefaultApprovalGateway.
+            assertThat(gateway).isInstanceOf(SovereignOpsTransactionalApprovalGateway::class.java)
         }
     }
 
