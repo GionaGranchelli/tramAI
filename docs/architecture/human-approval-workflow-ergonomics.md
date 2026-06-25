@@ -292,9 +292,19 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 > **Current implementation status:** The minimal SPI described here is now represented by concrete Preview APIs in:
 > - `dev.tramai.core.approval.gateway.ApprovalGateway`
 > - `dev.tramai.core.approval.gateway.ApprovalRequestResult`
+> - `dev.tramai.core.approval.gateway.ApprovalGatewayTypes`
 > - `dev.tramai.core.workflow.SovereignWorkflowResult`
 >
-> The implementation remains intentionally minimal. Persistence wiring, resume runtime, and example refactoring are handled by later PRs.
+> **PR #97** adds a minimal store-backed adapter:
+> - `DefaultApprovalGateway` — Preview implementation of `ApprovalGateway` that delegates to `ApprovalStore`, `SuspendedInvocationStore`, and `ApprovalContinuationStore`
+> - `ApprovalGatewayRequestFactory` — internal seam for constructing low-level persistence records from the ergonomic SPI input
+> - `ApprovalGatewayPersistenceRequest` — transport object aggregating records for all three stores
+>
+> **Limitations:**
+> - Does not implement full workflow resume.
+> - Does not provide a single transactional boundary across all stores.
+> - Does not yet emit approval-requested audit outbox intent.
+> - Is not Spring Boot auto-configured yet.
 
 ---
 
@@ -327,5 +337,7 @@ The following are explicitly **not covered** by this design:
 |---|---|---|
 | #95 | Workflow ergonomics design boundary | This document |
 | #96 | Minimal approval gateway SPI | Introduce `ApprovalGateway` interface over existing stores |
-| #97 | Refactor regulated claim triage through gateway | Real example using the gateway |
-| #98 | Golden path example | Polished developer-facing example |
+| #97 | Store-backed approval gateway adapter | Implement `DefaultApprovalGateway` over approval, suspended invocation, and continuation stores |
+| #98 | Spring Boot auto-configuration | Wire preview gateway as a Spring bean |
+| #99 | Regulated claim triage through gateway | Real example using the gateway |
+| #100 | Golden path example | Polished developer-facing example |
