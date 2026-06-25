@@ -83,12 +83,37 @@ class ApprovalGatewayAutoConfigurationTest {
             }
     }
 
-    // ── 4. Missing store guard documented in auto-config KDoc ──────────
+    // ── 4. Missing store → no bean, no startup failure ─────────────────
 
-    // Store-absence tests are documented at the bean-method level:
-    // Each store dependency uses ObjectProvider so missing-store scenarios
-    // produce a deterministic error code (tramai-sovereign-approval-gateway-missing-*)
-    // rather than creating a partially-initialised gateway.
+    @Test
+    fun `does not create gateway without approval store`() {
+        contextRunner
+            .withUserConfiguration(MissingApprovalStoreConfig::class.java)
+            .run { ctx ->
+                assertThat(ctx).doesNotHaveBean(ApprovalGateway::class.java)
+                assertThat(ctx).hasNotFailed()
+            }
+    }
+
+    @Test
+    fun `does not create gateway without continuation store`() {
+        contextRunner
+            .withUserConfiguration(MissingContinuationStoreConfig::class.java)
+            .run { ctx ->
+                assertThat(ctx).doesNotHaveBean(ApprovalGateway::class.java)
+                assertThat(ctx).hasNotFailed()
+            }
+    }
+
+    @Test
+    fun `does not create gateway without suspended invocation store`() {
+        contextRunner
+            .withUserConfiguration(MissingSuspendedInvocationStoreConfig::class.java)
+            .run { ctx ->
+                assertThat(ctx).doesNotHaveBean(ApprovalGateway::class.java)
+                assertThat(ctx).hasNotFailed()
+            }
+    }
 }
 
 // ── Test configurations ─────────────────────────────────────────────────
