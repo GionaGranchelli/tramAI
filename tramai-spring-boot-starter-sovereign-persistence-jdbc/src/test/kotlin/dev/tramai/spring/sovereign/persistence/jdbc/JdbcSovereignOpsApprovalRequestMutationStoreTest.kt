@@ -310,6 +310,35 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         assertThat(continuationStore.get("approval-h")).isNull()
     }
 
+    @Test
+    fun `rejects future continuation createdAt and rolls back all records`() = runBlocking {
+        val now = BASE_NOW.plusSeconds(30)
+        val clockAtNow = Clock.fixed(now, ZoneOffset.UTC)
+        val storeWithTimeCheck = JdbcSovereignOpsApprovalRequestMutationStore(
+            dataSource = dataSource,
+            replayEnvelopeCodec = replayCodec,
+            continuationArgumentsCodec = continuationCodec,
+            outboxPayloadCodec = outboxCodec,
+            clock = clockAtNow,
+        )
+        val request = request("approval-i").copy(
+            continuation = request("approval-i").continuation.copy(
+                createdAt = now.plusSeconds(60),
+            ),
+        )
+
+        assertThatThrownBy {
+            runBlocking {
+                storeWithTimeCheck.createApprovalRequest(request)
+            }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("continuation-created-at-in-future")
+
+        assertThat(approvalStore.get("approval-i")).isNull()
+        assertThat(suspendedInvocationStore.get("approval-i")).isNull()
+        assertThat(continuationStore.get("approval-i")).isNull()
+    }
+
     private fun request(approvalId: String): ApprovalGatewayPersistenceRequest {
         val requestedAt = BASE_NOW
         val expiresAt = BASE_NOW.plusSeconds(600)

@@ -163,6 +163,9 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
             "tramai-sovereign-ops-approval-request-exceeds-max-ttl"
         }
 
+        require(!continuation.createdAt.isAfter(now)) {
+            "tramai-sovereign-ops-approval-request-continuation-created-at-in-future"
+        }
         require(continuation.approvalExpiresAt > now) {
             "tramai-sovereign-ops-approval-request-continuation-expired-at-creation"
         }
