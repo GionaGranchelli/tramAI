@@ -35,7 +35,7 @@ class RegulatedClaimTriageApprovalGatewayAuditIntentFactory(
             aggregateType = "approval",
             operation = "approvalRequested",
             aggregateIdDigest = sha256Hex(claimId),
-            eventKey = "regulated-claim-triage.approval-requested",
+            eventKey = "regulated-claim-triage.approval-requested.${request.approvalRequest.approvalId}",
             actor = "triage-system",
             workflowRunId = request.approvalRequest.binding.workflowRunId,
             correlationId = request.suspendedInvocationMetadata.correlationId,

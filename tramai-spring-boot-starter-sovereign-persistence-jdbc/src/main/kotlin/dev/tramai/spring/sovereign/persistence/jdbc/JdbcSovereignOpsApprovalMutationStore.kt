@@ -8,6 +8,7 @@ import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import dev.tramai.core.approval.ApprovalBinding
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
+import dev.tramai.core.approval.ApprovalTransition
 import dev.tramai.core.approval.SafeActorIdPolicy
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.exception.ApprovalStoreNotFoundException
@@ -48,6 +49,41 @@ class JdbcSovereignOpsApprovalMutationStore(
         reason: String,
         auditIntent: SovereignOpsAuditOutboxRecord,
     ): SovereignOpsApprovalMutationResult {
+        return mutateApprovalWithAuditIntent(
+            approvalId = approvalId,
+            expectedVersion = expectedVersion,
+            actor = actor,
+            reason = reason,
+            auditIntent = auditIntent,
+            transition = ApprovalTransition.Deny(decidedBy = actor, comment = reason),
+        )
+    }
+
+    override suspend fun approveApprovalWithAuditIntent(
+        approvalId: String,
+        expectedVersion: Long,
+        actor: String,
+        reason: String,
+        auditIntent: SovereignOpsAuditOutboxRecord,
+    ): SovereignOpsApprovalMutationResult {
+        return mutateApprovalWithAuditIntent(
+            approvalId = approvalId,
+            expectedVersion = expectedVersion,
+            actor = actor,
+            reason = reason,
+            auditIntent = auditIntent,
+            transition = ApprovalTransition.Approve(decidedBy = actor, comment = reason),
+        )
+    }
+
+    private suspend fun mutateApprovalWithAuditIntent(
+        approvalId: String,
+        expectedVersion: Long,
+        actor: String,
+        reason: String,
+        auditIntent: SovereignOpsAuditOutboxRecord,
+        transition: ApprovalTransition,
+    ): SovereignOpsApprovalMutationResult {
         // ── Input validation ──────────────────────────────────────────
         validateIdField(approvalId, "approvalId")
         validateIdField(actor, "decidedBy")
@@ -77,10 +113,11 @@ class JdbcSovereignOpsApprovalMutationStore(
 
                 // Guard: status
                 if (current.status != ApprovalStatus.PENDING.name) {
+                    val targetStatus = transition.targetStatus()
                     throw IllegalApprovalTransitionException(
                         approvalId = approvalId,
                         from = ApprovalStatus.valueOf(current.status),
-                        to = ApprovalStatus.DENIED,
+                        to = targetStatus,
                         reason = "approval already ${current.status.lowercase()}",
                     )
                 }
@@ -95,10 +132,11 @@ class JdbcSovereignOpsApprovalMutationStore(
                 val expiresAt = Instant.parse(metadata.expiresAt)
                 val now = clock.instant()
                 if (!now.isBefore(expiresAt)) {
+                    val targetStatus = transition.targetStatus()
                     throw IllegalApprovalTransitionException(
                         approvalId = approvalId,
                         from = ApprovalStatus.PENDING,
-                        to = ApprovalStatus.DENIED,
+                        to = targetStatus,
                         reason = "approval has expired at $expiresAt",
                     )
                 }
@@ -108,7 +146,7 @@ class JdbcSovereignOpsApprovalMutationStore(
                 val preparedEncrypted = payloadCodec.encode(preparedPayload)
                 insertPreparedOutbox(conn, auditIntent, preparedEncrypted)
 
-                // Update approval to DENIED
+                // Update approval
                 val decidedAt = Timestamp.from(now)
                 val nextVersion = incrementVersion(approvalId, expectedVersion)
                 val updatedMetadata = metadata.copy(
@@ -116,6 +154,7 @@ class JdbcSovereignOpsApprovalMutationStore(
                     decisionComment = reason,
                 )
                 val metadataJson = mapper.writeValueAsString(updatedMetadata)
+                val targetStatus = transition.targetStatus()
 
                 updateApprovalRow(
                     conn = conn,
@@ -124,11 +163,12 @@ class JdbcSovereignOpsApprovalMutationStore(
                     decidedAt = decidedAt,
                     actorHash = sha256Hex(actor),
                     metadataJson = metadataJson,
+                    targetStatus = targetStatus,
                 )
 
                 // Mark outbox PENDING
                 val pendingAuditIntent = auditIntent.copy(
-                    approvalStatus = ApprovalStatus.DENIED.name,
+                    approvalStatus = targetStatus.name,
                     approvalVersion = nextVersion,
                     status = SovereignOpsAuditOutboxStatus.PENDING,
                 )
@@ -239,24 +279,27 @@ class JdbcSovereignOpsApprovalMutationStore(
         decidedAt: Timestamp,
         actorHash: String,
         metadataJson: String,
+        targetStatus: ApprovalStatus,
     ) {
         val sql = """
             UPDATE approvals
-            SET status = 'DENIED',
+            SET status = ?,
                 decided_at = ?,
                 decision_actor_hash = ?,
-                decision_type = 'DENIED',
+                decision_type = ?,
                 sanitized_metadata = ?::jsonb,
                 version = version + 1
             WHERE approval_id = ? AND version = ? AND status = 'PENDING'
         """.trimIndent()
 
         conn.prepareStatement(sql).use { stmt ->
-            stmt.setTimestamp(1, decidedAt)
-            stmt.setString(2, actorHash)
-            stmt.setString(3, metadataJson)
-            stmt.setString(4, approvalId)
-            stmt.setLong(5, expectedVersion)
+            stmt.setString(1, targetStatus.name)
+            stmt.setTimestamp(2, decidedAt)
+            stmt.setString(3, actorHash)
+            stmt.setString(4, targetStatus.name)
+            stmt.setString(5, metadataJson)
+            stmt.setString(6, approvalId)
+            stmt.setLong(7, expectedVersion)
             val updated = stmt.executeUpdate()
             if (updated != 1) {
                 throw IllegalStateException("tramai-sovereign-ops-approval-update-failed")
