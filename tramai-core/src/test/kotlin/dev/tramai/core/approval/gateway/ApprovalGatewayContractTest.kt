@@ -139,7 +139,7 @@ class ApprovalGatewayContractTest {
 
         val result = ApprovalRequestResult.AlreadyDenied(decision)
 
-        assertThat((result.decision as HumanApprovalDecision.Denied).reason).isEqualTo("requires-legal-review")
+        assertThat(result.decision.reason).isEqualTo("requires-legal-review")
     }
 
     // ── Gateway contract returns without blocking ──

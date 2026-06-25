@@ -6,8 +6,7 @@ package dev.tramai.core.approval.gateway
  * Implementations persist durable suspension state and return immediately;
  * they must not block a thread waiting for a human decision.
  *
- * This SPI is [Preview] — the API shape is usable but may evolve.
- * See [docs/architecture/sovereign-api-stability-boundary.md](../../../../../../docs/architecture/sovereign-api-stability-boundary.md).
+ * Preview API. See docs/architecture/sovereign-api-stability-boundary.md.
  */
 interface ApprovalGateway {
 

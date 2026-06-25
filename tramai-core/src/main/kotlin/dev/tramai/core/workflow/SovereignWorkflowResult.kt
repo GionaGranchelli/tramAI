@@ -8,8 +8,7 @@ import dev.tramai.core.approval.gateway.WorkflowRunId
 /**
  * Top-level result type for sovereign workflows that may suspend for human approval.
  *
- * This SPI is [Preview] — the API shape is usable but may evolve.
- * See [docs/architecture/sovereign-api-stability-boundary.md](../../../../../docs/architecture/sovereign-api-stability-boundary.md).
+ * Preview API. See docs/architecture/sovereign-api-stability-boundary.md.
  */
 sealed interface SovereignWorkflowResult<out T> {
 

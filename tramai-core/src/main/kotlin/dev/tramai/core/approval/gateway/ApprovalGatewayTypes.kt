@@ -72,15 +72,24 @@ sealed interface HumanApprovalDecision {
         override val decidedBy: String,
         override val decidedAt: Instant,
         override val comment: String? = null,
-    ) : HumanApprovalDecision
+    ) : HumanApprovalDecision {
+        init {
+            require(decidedBy.isNotBlank()) { "human-approval-decision-decided-by-blank" }
+        }
+    }
 
     data class Denied(
         override val approvalId: ApprovalId,
         override val decidedBy: String,
         override val decidedAt: Instant,
-        override val comment: String? = null,
         val reason: String,
-    ) : HumanApprovalDecision
+        override val comment: String? = null,
+    ) : HumanApprovalDecision {
+        init {
+            require(decidedBy.isNotBlank()) { "human-approval-decision-decided-by-blank" }
+            require(reason.isNotBlank()) { "human-approval-denial-reason-blank" }
+        }
+    }
 }
 
 // ── Approval request result ──
@@ -94,11 +103,11 @@ sealed interface ApprovalRequestResult {
     ) : ApprovalRequestResult
 
     data class AlreadyApproved(
-        val decision: HumanApprovalDecision,
+        val decision: HumanApprovalDecision.Approved,
     ) : ApprovalRequestResult
 
     data class AlreadyDenied(
-        val decision: HumanApprovalDecision,
+        val decision: HumanApprovalDecision.Denied,
     ) : ApprovalRequestResult
 
     data class Expired(
