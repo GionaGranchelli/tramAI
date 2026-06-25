@@ -66,6 +66,9 @@ The following capabilities are proven by working examples, but the developer-fac
 - `ApprovalGateway` — front-door contract for non-blocking human approval (`dev.tramai.core.approval.gateway`)
 - `ApprovalRequestResult` — sealed type for approval request outcomes (`dev.tramai.core.approval.gateway`)
 - `SovereignWorkflowResult` — sealed type for workflow-level outcomes (`dev.tramai.core.workflow`)
+- `DefaultApprovalGateway` — minimal store-backed adapter for the preview gateway SPI (`dev.tramai.engine.approval`)
+- `ApprovalGatewayRequestFactory` — internal seam for constructing low-level persistence records (`dev.tramai.engine.approval`)
+- `ApprovalGatewayPersistenceRequest` — transport object aggregating persistence records (`dev.tramai.engine.approval`)
 - Workflow ergonomics
 - Approval gateway abstractions
 - Human suspension / resume workflow shape
