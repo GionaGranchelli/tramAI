@@ -4,6 +4,7 @@
 
 ### Added
 - Added `verifySovereignRuntimeClosure`, a canonical verification task for the Sovereign Runtime RC+ / enterprise proof closure boundary.
+- Added Sovereign Runtime API stability boundary documenting RC+ stable, preview, internal, and deferred surfaces.
 - Sovereign runtime profile and routing foundation (`tramai-sovereign`).
 - Policy enforcement and DLP/redaction support (`tramai-security`).
 - Approval gates and replay-safe resume.

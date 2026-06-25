@@ -2086,6 +2086,49 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             "docs/STATUS.md must include Sovereign Runtime Closure Status section."
         }
 
+        // ── API stability boundary ──
+
+        val apiStabilityDoc = file("docs/architecture/sovereign-api-stability-boundary.md")
+        require(apiStabilityDoc.exists()) {
+            "Missing Sovereign Runtime API stability boundary document at ${apiStabilityDoc.absolutePath}."
+        }
+
+        val apiStabilityText = apiStabilityDoc.readText()
+
+        val requiredApiStabilityPhrases = listOf(
+            "RC+ Stable",
+            "Preview",
+            "Internal",
+            "Deferred",
+            "ApprovalStore",
+            "SuspendedInvocationStore",
+            "ApprovalContinuationStore",
+            "AuditStore",
+            "SovereignOpsAuditOutboxStore",
+            "SovereignOpsApprovalMutationStore",
+            "SovereignOpsWorkerLeaseStore",
+            "concrete JDBC store implementations",
+            "workflow ergonomics",
+            "key rotation",
+            "not a GA-certified production release",
+        )
+
+        requiredApiStabilityPhrases.forEach { phrase ->
+            require(apiStabilityText.contains(phrase, ignoreCase = true)) {
+                "Sovereign Runtime API stability boundary is missing required phrase: $phrase"
+            }
+        }
+
+        // Closure boundary must link to the API stability boundary
+        require(closureText.contains("sovereign-api-stability-boundary.md")) {
+            "Closure boundary must link to the Sovereign Runtime API stability boundary."
+        }
+
+        // STATUS.md must mention the API stability boundary
+        require(status.contains("Sovereign Runtime API Stability")) {
+            "docs/STATUS.md must include Sovereign Runtime API Stability section."
+        }
+
         logger.lifecycle("verifySovereignRuntimeClosureDocs: all documentation consistency checks passed.")
     }
 }
