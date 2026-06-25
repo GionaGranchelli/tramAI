@@ -47,7 +47,11 @@ class RegulatedClaimTriageApprovalGatewayRequestFactory(
         val toolCallId = "tool-call-$claimId"
         val toolName = "claim-triage-model"
         val expiresAt = now.plus(Duration.ofMinutes(5))
-        val sensitiveArgumentsJson = """{"claimId":"$claimId","recommendationType":"${recommendation.summary}","summary":"${recommendation.summary}"}"""
+        val sensitiveArgumentsJson = safeJsonObject(
+            "claimId" to claimId,
+            "recommendationType" to recommendation.summary,
+            "summary" to recommendation.summary,
+        )
 
         val sensitiveArguments = SensitiveToolArguments.of(sensitiveArgumentsJson)
         val computedArgumentsDigest = Sha256ToolArgumentsDigester().digest(sensitiveArguments)
@@ -140,6 +144,23 @@ class RegulatedClaimTriageApprovalGatewayRequestFactory(
             resumeToken = resumeToken,
         )
     }
+
+    private fun safeJsonObject(vararg pairs: Pair<String, String>): String =
+        buildString {
+            append('{')
+            pairs.forEachIndexed { index, (key, value) ->
+                if (index > 0) append(',')
+                append('"')
+                append(jsonEscape(key))
+                append("\":\"")
+                append(jsonEscape(value))
+                append('"')
+            }
+            append('}')
+        }
+
+    private fun jsonEscape(s: String): String =
+        s.replace("\\", "\\\\").replace("\"", "\\\"")
 
     private companion object {
         private val ZERO_DIGEST = Sha256Digest.of("sha256:${"0".repeat(64)}")
