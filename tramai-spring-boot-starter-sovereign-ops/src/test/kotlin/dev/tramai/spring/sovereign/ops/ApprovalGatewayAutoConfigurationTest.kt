@@ -27,6 +27,8 @@ import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
 import dev.tramai.engine.approval.DefaultApprovalGateway
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import java.time.Clock
 import java.time.Instant
 import kotlinx.coroutines.runBlocking
@@ -77,6 +79,17 @@ class ApprovalGatewayAutoConfigurationTest {
                 val gateway = ctx.getBean(ApprovalGateway::class.java)
                 assertThat(gateway).isInstanceOf(SovereignOpsTransactionalApprovalGateway::class.java)
                 assertThat(gateway).isNotInstanceOf(DefaultApprovalGateway::class.java)
+            }
+    }
+
+    @Test
+    fun `creates transactional gateway with audit intent factory when available`() {
+        contextRunner
+            .withUserConfiguration(TransactionalWithAuditIntentConfig::class.java)
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(ApprovalGateway::class.java)
+                val gateway = ctx.getBean(ApprovalGateway::class.java)
+                assertThat(gateway).isInstanceOf(SovereignOpsTransactionalApprovalGateway::class.java)
             }
     }
 
@@ -251,6 +264,23 @@ private open class TransactionalGatewayConfig : FullGatewayConfig() {
                     correlationId = request.suspendedInvocationMetadata.correlationId,
                     resumeToken = request.resumeToken,
                 )
+        }
+}
+
+private open class TransactionalWithAuditIntentConfig : TransactionalGatewayConfig() {
+    @Bean open fun testAuditIntentFactory(): ApprovalGatewayAuditIntentFactory =
+        ApprovalGatewayAuditIntentFactory { _, _, _, _ ->
+            SovereignOpsAuditOutboxRecord(
+                aggregateIdDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                eventKey = "test.approval-requested",
+                actor = "test",
+                workflowRunId = "wf-test",
+                correlationId = "corr-test",
+                approvalStatus = "PENDING",
+                approvalVersion = 0L,
+                reasonDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                reasonLength = 18,
+            )
         }
 }
 

@@ -17,6 +17,7 @@ import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.calculateHash
 import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
 import dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration
+import dev.tramai.spring.sovereign.ops.ApprovalGatewayAuditIntentFactory
 import dev.tramai.spring.sovereign.ops.ApprovalGatewayAutoConfiguration
 import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
@@ -161,6 +162,18 @@ class RegulatedClaimTriageJdbcE2ETest {
                 assertThat(continuation!!.workflowRunId).isEqualTo(workflowRunId)
                 assertThat(continuation.argumentsDigest)
                     .isEqualTo(pendingApproval.binding.argumentsDigest)
+
+                // Gateway also created approval-requested audit outbox intent atomically
+                val approvalRequestedOutbox = workflow.outboxStore.findByEventKey(
+                    "regulated-claim-triage.approval-requested",
+                )
+                assertThat(approvalRequestedOutbox).isNotNull
+                assertThat(approvalRequestedOutbox!!.status)
+                    .isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
+                assertThat(approvalRequestedOutbox.operation).isEqualTo("approvalRequested")
+                assertThat(approvalRequestedOutbox.approvalStatus).isEqualTo("PENDING")
+                assertThat(approvalRequestedOutbox.approvalVersion).isEqualTo(0L)
+                assertThat(approvalRequestedOutbox.actor).isEqualTo("triage-system")
 
                 // Audit: policy decision (allow-local) + recommendation + approval-requested → 3 events
                 val events = workflow.auditStore.readStream(result.auditStreamId)
@@ -377,6 +390,10 @@ class RegulatedClaimTriageJdbcE2ETest {
         @Bean
         fun regulatedClaimTriageApprovalGatewayRequestFactory(): ApprovalGatewayRequestFactory =
             RegulatedClaimTriageApprovalGatewayRequestFactory()
+
+        @Bean
+        fun regulatedClaimTriageApprovalGatewayAuditIntentFactory(): ApprovalGatewayAuditIntentFactory =
+            RegulatedClaimTriageApprovalGatewayAuditIntentFactory()
     }
 }
 
