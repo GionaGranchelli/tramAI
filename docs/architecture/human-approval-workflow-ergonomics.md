@@ -289,6 +289,13 @@ Per the [Sovereign Runtime API Stability Boundary](../architecture/sovereign-api
 
 This design proposes the path to move workflow ergonomics from **Preview** toward **RC+ Stable**.
 
+> **Current implementation status:** The minimal SPI described here is now represented by concrete Preview APIs in:
+> - `dev.tramai.core.approval.gateway.ApprovalGateway`
+> - `dev.tramai.core.approval.gateway.ApprovalRequestResult`
+> - `dev.tramai.core.workflow.SovereignWorkflowResult`
+>
+> The implementation remains intentionally minimal. Persistence wiring, resume runtime, and example refactoring are handled by later PRs.
+
 ---
 
 ## 8. Out of Scope

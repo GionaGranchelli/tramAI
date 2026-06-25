@@ -63,6 +63,9 @@ These are the APIs that form the Sovereign Runtime contract surface for the clos
 
 The following capabilities are proven by working examples, but the developer-facing API is **not** final.
 
+- `ApprovalGateway` — front-door contract for non-blocking human approval (`dev.tramai.core.approval.gateway`)
+- `ApprovalRequestResult` — sealed type for approval request outcomes (`dev.tramai.core.approval.gateway`)
+- `SovereignWorkflowResult` — sealed type for workflow-level outcomes (`dev.tramai.core.workflow`)
 - Workflow ergonomics
 - Approval gateway abstractions
 - Human suspension / resume workflow shape
