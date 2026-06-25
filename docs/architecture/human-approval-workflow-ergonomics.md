@@ -304,6 +304,10 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 >
 > The auto-configuration does not create a generic request factory. Applications must provide one because request construction depends on workflow-specific metadata, replay envelopes, digests, and resume-token generation.
 >
+> **PR #99** proves the Preview gateway can drive the regulated claim triage E2E scenario while preserving restart safety, durable approval state, continuation persistence, audit chain validation, and outbox dispatch.
+>
+> The example provides an [RegulatedClaimTriageApprovalGatewayRequestFactory] that translates ergonomic gateway calls into low-level persistence records. Spring Auto-configuration creates [DefaultApprovalGateway] when the factory bean is present alongside the JDBC stores.
+>
 > **Limitations:**
 > - Does not implement full workflow resume.
 > - Does not provide a single transactional boundary across all stores.

@@ -9,6 +9,7 @@
 - Added Preview approval gateway SPI for non-blocking human approval workflow ergonomics (`ApprovalGateway`, `ApprovalRequestResult`, `ApprovalGatewayTypes`, `SovereignWorkflowResult`).
 - Added Preview store-backed approval gateway adapter over the existing approval, suspended invocation, and continuation stores (`DefaultApprovalGateway`, `ApprovalGatewayRequestFactory`, `ApprovalGatewayPersistenceRequest`).
 - Added Preview Spring Boot auto-configuration for the store-backed approval gateway when required stores and an `ApprovalGatewayRequestFactory` are available (`ApprovalGatewayAutoConfiguration`).
+- Refactored the regulated claim triage E2E proof to request human approval through the Preview ApprovalGateway (`PR #99`). The workflow now calls `approvalGateway.requestApproval(...)` instead of manually creating low-level store records. An `RegulatedClaimTriageApprovalGatewayRequestFactory` provides the persistence records, and Spring auto-configuration creates the `DefaultApprovalGateway` bean.
 - Sovereign runtime profile and routing foundation (`tramai-sovereign`).
 - Policy enforcement and DLP/redaction support (`tramai-security`).
 - Approval gates and replay-safe resume.
