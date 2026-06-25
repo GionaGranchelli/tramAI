@@ -17,6 +17,7 @@ import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.InMemoryAuditStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
@@ -229,6 +230,23 @@ class SovereignJdbcPersistenceAutoConfigurationTest {
                 assertThat(ctx).hasSingleBean(ApprovalStore::class.java)
                 val store = ctx.getBean(ApprovalStore::class.java)
                 assertThat(store).isExactlyInstanceOf(JdbcApprovalStore::class.java)
+            }
+    }
+
+    @Test
+    fun `valid config creates SovereignOpsApprovalRequestMutationStore instance of Jdbc implementation`() {
+        val keyFile = prepareKeyFile()
+
+        contextRunner
+            .withPropertyValues(
+                *validJdbcProps(keyFile).entries
+                    .map { "${it.key}=${it.value}" }
+                    .toTypedArray(),
+            )
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(SovereignOpsApprovalRequestMutationStore::class.java)
+                val store = ctx.getBean(SovereignOpsApprovalRequestMutationStore::class.java)
+                assertThat(store).isExactlyInstanceOf(JdbcSovereignOpsApprovalRequestMutationStore::class.java)
             }
     }
 

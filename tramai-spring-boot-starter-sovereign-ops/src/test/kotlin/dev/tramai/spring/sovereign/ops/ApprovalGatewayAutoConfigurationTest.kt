@@ -25,6 +25,8 @@ import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
 import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
 import dev.tramai.engine.approval.DefaultApprovalGateway
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationResult
+import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import java.time.Clock
 import java.time.Instant
 import kotlinx.coroutines.runBlocking
@@ -52,6 +54,29 @@ class ApprovalGatewayAutoConfigurationTest {
                 assertThat(ctx).hasSingleBean(ApprovalGateway::class.java)
                 assertThat(ctx.getBean(ApprovalGateway::class.java))
                     .isInstanceOf(DefaultApprovalGateway::class.java)
+            }
+    }
+
+    @Test
+    fun `creates transactional approval gateway when mutation store and factory present`() {
+        contextRunner
+            .withUserConfiguration(TransactionalGatewayConfig::class.java)
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(ApprovalGateway::class.java)
+                assertThat(ctx.getBean(ApprovalGateway::class.java))
+                    .isInstanceOf(SovereignOpsTransactionalApprovalGateway::class.java)
+            }
+    }
+
+    @Test
+    fun `prefers transactional approval gateway over default fallback`() {
+        contextRunner
+            .withUserConfiguration(TransactionalGatewayConfig::class.java)
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(ApprovalGateway::class.java)
+                val gateway = ctx.getBean(ApprovalGateway::class.java)
+                assertThat(gateway).isInstanceOf(SovereignOpsTransactionalApprovalGateway::class.java)
+                assertThat(gateway).isNotInstanceOf(DefaultApprovalGateway::class.java)
             }
     }
 
@@ -212,6 +237,21 @@ private open class FullGatewayConfig {
     @Bean open fun testApprovalContinuationStore(): ApprovalContinuationStore = GatewayTestApprovalContinuationStore()
     @Bean open fun testSuspendedInvocationStore(): SuspendedInvocationStore = GatewayTestSuspendedInvocationStore()
     @Bean open fun testGatewayRequestFactory(): ApprovalGatewayRequestFactory = TestApprovalGatewayRequestFactory()
+}
+
+private open class TransactionalGatewayConfig : FullGatewayConfig() {
+    @Bean open fun transactionalMutationStore(): SovereignOpsApprovalRequestMutationStore =
+        object : SovereignOpsApprovalRequestMutationStore {
+            override suspend fun createApprovalRequest(
+                request: ApprovalGatewayPersistenceRequest,
+                auditIntent: dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord?,
+            ): SovereignOpsApprovalRequestMutationResult =
+                SovereignOpsApprovalRequestMutationResult.Created(
+                    approvalId = request.approvalRequest.approvalId,
+                    correlationId = request.suspendedInvocationMetadata.correlationId,
+                    resumeToken = request.resumeToken,
+                )
+        }
 }
 
 private open class StoresOnlyConfig {

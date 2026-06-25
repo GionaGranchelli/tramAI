@@ -11,6 +11,7 @@
 - Added Preview Spring Boot auto-configuration for the store-backed approval gateway when required stores and an `ApprovalGatewayRequestFactory` are available (`ApprovalGatewayAutoConfiguration`).
 - Refactored the regulated claim triage E2E proof to request human approval through the Preview ApprovalGateway (`PR #99`). The workflow now calls `approvalGateway.requestApproval(...)` instead of manually creating low-level store records. A `RegulatedClaimTriageApprovalGatewayRequestFactory` provides the persistence records, and Spring auto-configuration creates the `DefaultApprovalGateway` bean.
 - Added Approval Gateway Golden Path developer-facing guide (`PR #100`). The guide explains how to request human approval through the Preview ApprovalGateway API, how Spring Boot auto-configuration wires it, what persistence records are created, and what the current Preview limitations are.
+- Added Preview `SovereignOpsApprovalRequestMutationStore` with a JDBC transactional boundary for atomic approval request creation across `ApprovalStore`, `SuspendedInvocationStore`, `ApprovalContinuationStore`, and optional audit outbox intent (`PR #101`). `SovereignOpsTransactionalApprovalGateway` now replaces the sequential `DefaultApprovalGateway` write path when the request mutation store is available.
 - Sovereign runtime profile and routing foundation (`tramai-sovereign`).
 - Policy enforcement and DLP/redaction support (`tramai-security`).
 - Approval gates and replay-safe resume.
