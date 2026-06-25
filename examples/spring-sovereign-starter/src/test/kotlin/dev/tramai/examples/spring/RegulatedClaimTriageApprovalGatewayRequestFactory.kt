@@ -5,6 +5,7 @@ import dev.tramai.core.approval.ApprovalContinuation
 import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStatus
+import com.fasterxml.jackson.databind.ObjectMapper
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.gateway.ApprovalRecommendation
@@ -30,6 +31,7 @@ import java.time.Duration
 
 class RegulatedClaimTriageApprovalGatewayRequestFactory(
     private val clock: Clock = Clock.systemUTC(),
+    private val objectMapper: ObjectMapper = ObjectMapper(),
 ) : ApprovalGatewayRequestFactory {
 
     override suspend fun createRequest(
@@ -47,7 +49,13 @@ class RegulatedClaimTriageApprovalGatewayRequestFactory(
         val toolCallId = "tool-call-$claimId"
         val toolName = "claim-triage-model"
         val expiresAt = now.plus(Duration.ofMinutes(5))
-        val sensitiveArgumentsJson = """{"claimId":"$claimId","recommendationType":"${recommendation.summary}","summary":"${recommendation.summary}"}"""
+        val sensitiveArgumentsJson = objectMapper.writeValueAsString(
+            mapOf(
+                "claimId" to claimId,
+                "recommendationType" to recommendation.summary,
+                "summary" to recommendation.summary,
+            ),
+        )
 
         val sensitiveArguments = SensitiveToolArguments.of(sensitiveArgumentsJson)
         val computedArgumentsDigest = Sha256ToolArgumentsDigester().digest(sensitiveArguments)

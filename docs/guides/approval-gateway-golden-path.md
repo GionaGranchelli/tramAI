@@ -73,17 +73,24 @@ return when (approvalResult) {
 
 ## What Gets Persisted
 
-When `requestApproval()` returns `Suspended`, the following records are created:
+When `requestApproval()` returns `Suspended`, `DefaultApprovalGateway` creates the three core suspension records:
 
-| Store | Records |
-|-------|---------|
+| Store | Written by `DefaultApprovalGateway` |
+|-------|--------------------------------------|
 | `ApprovalStore` | Approval request lifecycle (status, version, expiry, binding metadata) |
 | `SuspendedInvocationStore` | Replay-safe invocation metadata and encrypted replay envelope |
 | `ApprovalContinuationStore` | Continuation metadata and encrypted sensitive tool arguments |
-| `AuditStore` | Tamper-evident audit events |
+
+The **surrounding workflow** may also emit audit records and durable operational audit intent:
+
+| Store | Written by surrounding workflow / application code |
+|-------|------------------------------------------------------|
+| `AuditStore` | Tamper-evident governance events, such as policy decisions and approval-requested events |
 | `SovereignOpsAuditOutboxStore` | Durable operational audit dispatch records |
 
-The gateway creates all three core records in a single call through [`DefaultApprovalGateway`](https://github.com/GionaGranchelli/tramAI/tree/master/tramai-engine/src/main/kotlin/dev/tramai/engine/approval/DefaultApprovalGateway.kt).
+See the [regulated claim triage E2E test](https://github.com/GionaGranchelli/tramAI/blob/master/examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/RegulatedClaimTriageJdbcE2ETest.kt) for a complete example that exercises both gateway-written and workflow-emitted records.
+
+**Preview limitation:** `DefaultApprovalGateway` does not yet provide one atomic transaction across all three core stores and does not emit approval-requested outbox intent. See [current limitations](#current-limitations) below.
 
 ---
 

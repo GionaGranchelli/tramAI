@@ -306,7 +306,7 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 >
 > **PR #99** proves the Preview gateway can drive the regulated claim triage E2E scenario while preserving restart safety, durable approval state, continuation persistence, audit chain validation, and outbox dispatch.
 >
-> The example provides an [RegulatedClaimTriageApprovalGatewayRequestFactory] that translates ergonomic gateway calls into low-level persistence records. Spring Auto-configuration creates [DefaultApprovalGateway] when the factory bean is present alongside the JDBC stores.
+> The example provides a `RegulatedClaimTriageApprovalGatewayRequestFactory` that translates ergonomic gateway calls into low-level persistence records. Spring Auto-configuration creates `DefaultApprovalGateway` when the factory bean is present alongside the JDBC stores.
 >
 > **PR #100** adds a [developer-facing golden path guide](../guides/approval-gateway-golden-path.md) explaining how to use the Preview ApprovalGateway, how Spring Boot auto-configuration wires it, and what persistence records are created underneath.
 >
