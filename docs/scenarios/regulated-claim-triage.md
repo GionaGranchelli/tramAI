@@ -213,6 +213,8 @@ The test proves:
 - Low-risk recommendations complete without approval suspension
 - Operational surfaces remain sanitized — no raw PII, medical text, payment data, prompts, or model responses in audit events or outbox payloads
 
+For a developer-facing walkthrough of the approval gateway flow, see [Approval Gateway Golden Path](../guides/approval-gateway-golden-path.md).
+
 ## Non-Goals
 
 This scenario does **not** claim:

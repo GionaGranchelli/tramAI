@@ -308,6 +308,8 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 >
 > The example provides an [RegulatedClaimTriageApprovalGatewayRequestFactory] that translates ergonomic gateway calls into low-level persistence records. Spring Auto-configuration creates [DefaultApprovalGateway] when the factory bean is present alongside the JDBC stores.
 >
+> **PR #100** adds a [developer-facing golden path guide](../guides/approval-gateway-golden-path.md) explaining how to use the Preview ApprovalGateway, how Spring Boot auto-configuration wires it, and what persistence records are created underneath.
+>
 > **Limitations:**
 > - Does not implement full workflow resume.
 > - Does not provide a single transactional boundary across all stores.
