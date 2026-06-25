@@ -48,10 +48,10 @@ See:
 
 Summary:
 
-- Store and runtime SPIs are **RC+ stable**.
-- Workflow ergonomics are **preview**.
-- Concrete JDBC implementations are **internal**.
-- Key rotation, reviewer UI, full REST control plane, and 1.0-wide API stability are **deferred**.
+- Store and runtime SPIs are **RC+ Stable**.
+- Workflow ergonomics are **Preview**.
+- Concrete JDBC implementations are **Internal**.
+- Key rotation, reviewer UI, full REST control plane, and 1.0-wide API stability are **Deferred**.
 
 ## Implemented / Evolving
 

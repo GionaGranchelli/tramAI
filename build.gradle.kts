@@ -2106,6 +2106,7 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             "AuditStore",
             "SovereignOpsAuditOutboxStore",
             "SovereignOpsApprovalMutationStore",
+            "SovereignOpsWorkerLeaseStore",
             "concrete JDBC store implementations",
             "workflow ergonomics",
             "key rotation",
