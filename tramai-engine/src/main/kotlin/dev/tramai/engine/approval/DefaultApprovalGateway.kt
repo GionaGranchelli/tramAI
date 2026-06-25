@@ -29,12 +29,17 @@ import kotlinx.coroutines.CancellationException
  *   inconsistent state. A future PR should harden the transaction boundary.
  * - Does not emit audit-requested outbox intent.
  * - Does not implement workflow resume.
+ * - Existing pending requests cannot recover the original suspended invocation
+ *   correlation ID from [ApprovalStore] alone, so the adapter currently uses
+ *   the workflow run ID as a temporary audit stream identifier until the
+ *   resume/gateway state model is hardened.
  *
  * @param approvalStore         The store for approval request lifecycle.
  * @param continuationStore     The store for approval continuation records.
  * @param suspendedInvocationStore The store for suspended invocation metadata and replay envelope.
  * @param requestFactory        Internal seam that translates high-level SPI input into low-level
- *                              persistence records.
+ *                              persistence records. Must provide a stable [ResumeToken] — the
+ *                              gateway never derives it from [dev.tramai.core.approval.ApprovalBinding.approvalTokenDigest].
  * @param clock                 Clock for time-based checks. Defaults to system UTC.
  */
 class DefaultApprovalGateway(
@@ -61,7 +66,7 @@ class DefaultApprovalGateway(
         return try {
             val existing = approvalStore.get(request.approvalRequest.approvalId)
             if (existing != null) {
-                return existing.toGatewayResult(clock)
+                return existing.toGatewayResult(request, clock)
             }
 
             approvalStore.create(request.approvalRequest)
@@ -80,7 +85,7 @@ class DefaultApprovalGateway(
                 approvalId = ApprovalId(request.approvalRequest.approvalId),
                 workflowRunId = WorkflowRunId(request.approvalRequest.binding.workflowRunId),
                 auditStreamId = AuditStreamId(request.suspendedInvocationMetadata.correlationId),
-                resumeToken = ResumeToken(request.approvalRequest.binding.approvalTokenDigest.value),
+                resumeToken = request.resumeToken,
             )
         } catch (e: CancellationException) {
             throw e
@@ -89,8 +94,14 @@ class DefaultApprovalGateway(
 
     /**
      * Maps an existing [dev.tramai.core.approval.ApprovalRequest] to a gateway result.
+     *
+     * For the existing-PENDING case, the factory's [resumeToken] is used because the stored
+     * approval binding only contains the digest of the nonce, not the credential itself.
+     * The factory is expected to provide a deterministic token for idempotent calls.
      */
+    @Suppress("unused")
     private fun dev.tramai.core.approval.ApprovalRequest.toGatewayResult(
+        request: ApprovalGatewayPersistenceRequest,
         clock: Clock,
     ): ApprovalRequestResult {
         val approvalId = ApprovalId(approvalId)
@@ -133,8 +144,11 @@ class DefaultApprovalGateway(
             else -> ApprovalRequestResult.Suspended(
                 approvalId = approvalId,
                 workflowRunId = WorkflowRunId(binding.workflowRunId),
+                // Existing pending cannot recover the original correlation ID from
+                // ApprovalStore alone, so workflowRunId serves as a temporary audit
+                // stream identifier until the resume/gateway state model is hardened.
                 auditStreamId = AuditStreamId(binding.workflowRunId),
-                resumeToken = ResumeToken(binding.approvalTokenDigest.value),
+                resumeToken = request.resumeToken,
             )
         }
     }

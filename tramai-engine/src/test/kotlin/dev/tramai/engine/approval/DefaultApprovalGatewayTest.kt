@@ -46,14 +46,12 @@ class DefaultApprovalGatewayTest {
         Instant.parse("2026-06-25T10:00:00Z"),
         ZoneId.of("UTC"),
     )
-    private val digester = Sha256ToolArgumentsDigester()
 
     private lateinit var approvalStore: InMemoryApprovalStore
     private lateinit var continuationStore: InMemoryApprovalContinuationStore
     private lateinit var suspendedInvocationStore: SuspendedInvocationStore
     private lateinit var factory: FakeApprovalGatewayRequestFactory
 
-    // The gateway under test
     private fun createGateway(): DefaultApprovalGateway = DefaultApprovalGateway(
         approvalStore = approvalStore,
         continuationStore = continuationStore,
@@ -95,7 +93,6 @@ class DefaultApprovalGatewayTest {
             requiredRole = ApproverRole("medical-reviewer"),
         )
 
-        // Assert all three stores contain the records
         val storedApproval = approvalStore.get(approvalId)
         assertThat(storedApproval).isNotNull
         assertThat(storedApproval!!.status).isEqualTo(ApprovalStatus.PENDING)
@@ -106,7 +103,6 @@ class DefaultApprovalGatewayTest {
         val storedContinuation = continuationStore.get(approvalId)
         assertThat(storedContinuation).isNotNull
 
-        // Assert result type
         assertThat(result).isInstanceOf(ApprovalRequestResult.Suspended::class.java)
         val suspended = result as ApprovalRequestResult.Suspended
         assertThat(suspended.approvalId.value).isEqualTo(approvalId)
@@ -133,7 +129,7 @@ class DefaultApprovalGatewayTest {
     }
 
     // -----------------------------------------------------------------------
-    // 3. Existing pending request returns Suspended without duplicate create
+    // 3. Existing pending — duplicate does not create, no duplicate store writes
     // -----------------------------------------------------------------------
 
     @Test
@@ -141,6 +137,8 @@ class DefaultApprovalGatewayTest {
         val approvalId = "duplicate-pending"
         factory.defaultApprovalId = approvalId
         val gateway = createGateway()
+        val publicToken = ResumeToken("public-pending-token")
+        factory.defaultResumeToken = publicToken
 
         // First call creates the request
         val firstResult = gateway.requestApproval(
@@ -151,10 +149,12 @@ class DefaultApprovalGatewayTest {
         assertThat(firstResult).isInstanceOf(ApprovalRequestResult.Suspended::class.java)
         val firstSuspended = firstResult as ApprovalRequestResult.Suspended
 
-        // Create separate store reference to track create operations
+        // Capture state after first call
         val initialApprovalVersion = approvalStore.get(approvalId)!!.version
+        assertThat(suspendedInvocationStore.get(approvalId)).isNotNull()
+        assertThat(continuationStore.get(approvalId)).isNotNull()
 
-        // Second call with same data should return Suspended without changing stores
+        // Second call with same data — should not duplicate store writes
         val secondResult = gateway.requestApproval(
             subject = ApprovalSubject("claim-42"),
             recommendation = ApprovalRecommendation("review", "Review"),
@@ -165,9 +165,17 @@ class DefaultApprovalGatewayTest {
         val secondSuspended = secondResult as ApprovalRequestResult.Suspended
         assertThat(secondSuspended.approvalId).isEqualTo(firstSuspended.approvalId)
 
-        // Version should not have changed — create was not called again
+        // Approval version unchanged — create was not called again
         val approvalAfterSecondCall = approvalStore.get(approvalId)!!
         assertThat(approvalAfterSecondCall.version).isEqualTo(initialApprovalVersion)
+
+        // Suspended invocation and continuation still exist and were not duplicated
+        assertThat(suspendedInvocationStore.get(approvalId)).isNotNull()
+        assertThat(continuationStore.get(approvalId)).isNotNull()
+
+        // Resume token from factory, not from stored digest
+        assertThat(secondSuspended.resumeToken).isEqualTo(publicToken)
+        assertThat(secondSuspended.resumeToken.value).isNotEqualTo(twoDigest.value)
     }
 
     // -----------------------------------------------------------------------
@@ -192,7 +200,6 @@ class DefaultApprovalGatewayTest {
             clock = fixedClock,
         )
 
-        // Pre-create an approved request directly
         val pendingRequest = createPendingApprovalRequest(approvalId, workflowRunId = "wf-approved", requestedBy = requestingActor)
         approvalStore.create(pendingRequest)
         approvalStore.transition(
@@ -235,7 +242,6 @@ class DefaultApprovalGatewayTest {
             clock = fixedClock,
         )
 
-        // Pre-create a denied request directly
         val pendingRequest = createPendingApprovalRequest(approvalId, workflowRunId = "wf-denied", requestedBy = requestingActor)
         approvalStore.create(pendingRequest)
         approvalStore.transition(
@@ -265,7 +271,7 @@ class DefaultApprovalGatewayTest {
         val approvalId = "already-timed-out"
         val requestingActor = "test-actor"
         val mutableClock = MutableTestClock(fixedClock.instant())
-        val expiry = mutableClock.instant().plusSeconds(60) // short 60s TTL
+        val expiry = mutableClock.instant().plusSeconds(60)
 
         val timeoutingStore = InMemoryApprovalStore(
             clock = mutableClock,
@@ -288,7 +294,6 @@ class DefaultApprovalGatewayTest {
             clock = mutableClock,
         )
 
-        // Create a PENDING request with a short TTL
         val pendingRequest = createPendingApprovalRequest(
             approvalId = approvalId,
             workflowRunId = "wf-expired",
@@ -298,7 +303,6 @@ class DefaultApprovalGatewayTest {
         )
         timeoutingStore.create(pendingRequest)
 
-        // Advance clock past expiry, then time out
         mutableClock.advance(Duration.ofMinutes(5))
 
         timeoutingStore.transition(
@@ -324,9 +328,8 @@ class DefaultApprovalGatewayTest {
         val approvalId = "clock-expired"
         val requestingActor = "test-actor"
         val mutableClock = MutableTestClock(fixedClock.instant())
-        val pastExpiry = mutableClock.instant().plusSeconds(60) // short 60s TTL
+        val pastExpiry = mutableClock.instant().plusSeconds(60)
 
-        // Create approval store with the mutable clock
         val expiringStore = InMemoryApprovalStore(
             clock = mutableClock,
             maxCreationTtl = Duration.ofHours(2),
@@ -348,7 +351,6 @@ class DefaultApprovalGatewayTest {
             clock = mutableClock,
         )
 
-        // Pre-create a PENDING request with short TTL
         val pendingRequest = createPendingApprovalRequest(
             approvalId = approvalId,
             workflowRunId = "wf-expired-clock",
@@ -358,7 +360,6 @@ class DefaultApprovalGatewayTest {
         )
         expiringStore.create(pendingRequest)
 
-        // Advance clock past expiry — request is now stale but still PENDING
         mutableClock.advance(Duration.ofMinutes(5))
 
         val result = gateway.requestApproval(
@@ -445,10 +446,58 @@ class DefaultApprovalGatewayTest {
         assertThat(thrown).isNotNull
         assertThat(thrown!!.message).isEqualTo("factory-exploded")
 
-        // No stores were written
         assertThat(approvalStore.get("any-id")).isNull()
         assertThat(continuationStore.get("any-id")).isNull()
         assertThat(suspendedInvocationStore.get("any-id")).isNull()
+    }
+
+    // -----------------------------------------------------------------------
+    // 9. ResumeToken is the public credential, not the approval token digest
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `suspended result uses public resume token from factory not approval token digest`(): Unit = runBlocking {
+        val approvalId = "token-test"
+        factory.defaultApprovalId = approvalId
+        val publicToken = ResumeToken("public-resume-token")
+        factory.defaultResumeToken = publicToken
+
+        val result = createGateway().requestApproval(
+            subject = ApprovalSubject("claim-42"),
+            recommendation = ApprovalRecommendation("review", "Review"),
+            requiredRole = ApproverRole("medical-reviewer"),
+        )
+
+        val suspended = result as ApprovalRequestResult.Suspended
+        assertThat(suspended.resumeToken).isEqualTo(publicToken)
+        assertThat(suspended.resumeToken.value).isNotEqualTo(twoDigest.value)
+    }
+
+    @Test
+    fun `existing pending result uses factory resume token not stored digest`(): Unit = runBlocking {
+        val approvalId = "duplicate-token"
+        factory.defaultApprovalId = approvalId
+        val publicToken = ResumeToken("public-existing-pending-token")
+        factory.defaultResumeToken = publicToken
+        val gateway = createGateway()
+
+        // First call creates
+        gateway.requestApproval(
+            subject = ApprovalSubject("claim-42"),
+            recommendation = ApprovalRecommendation("review", "Review"),
+            requiredRole = ApproverRole("medical-reviewer"),
+        )
+
+        // Second call returns existing pending
+        val result = gateway.requestApproval(
+            subject = ApprovalSubject("claim-42"),
+            recommendation = ApprovalRecommendation("review", "Review"),
+            requiredRole = ApproverRole("medical-reviewer"),
+        )
+
+        val suspended = result as ApprovalRequestResult.Suspended
+        assertThat(suspended.resumeToken).isEqualTo(publicToken)
+        assertThat(suspended.resumeToken.value).isNotEqualTo(twoDigest.value)
     }
 
     // -----------------------------------------------------------------------
@@ -457,7 +506,7 @@ class DefaultApprovalGatewayTest {
 
     private val zeroDigest = Sha256Digest.of("sha256:0000000000000000000000000000000000000000000000000000000000000000")
     private val oneDigest = Sha256Digest.of("sha256:1111111111111111111111111111111111111111111111111111111111111111")
-    private val twoDigest = Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222")
+    internal val twoDigest = Sha256Digest.of("sha256:2222222222222222222222222222222222222222222222222222222222222222")
 
     private fun createPendingApprovalRequest(
         approvalId: String,
@@ -497,6 +546,7 @@ internal class FakeApprovalGatewayRequestFactory(
     private val fixedClock: Clock,
     var defaultApprovalId: String = "gateway-test-1",
     var defaultRequestedBy: String = "test-actor",
+    var defaultResumeToken: ResumeToken = ResumeToken("public-resume-token"),
     private val digester: Sha256ToolArgumentsDigester = Sha256ToolArgumentsDigester(),
 ) : ApprovalGatewayRequestFactory {
 
@@ -583,7 +633,6 @@ internal class FakeApprovalGatewayRequestFactory(
             ),
         )
 
-        // Create a minimal SensitiveReplayEnvelope
         val replayEnvelope = SensitiveReplayEnvelope.of(emptyList())
 
         return ApprovalGatewayPersistenceRequest(
@@ -592,6 +641,7 @@ internal class FakeApprovalGatewayRequestFactory(
             sensitiveArguments = sensitiveArgs,
             suspendedInvocationMetadata = suspendedInvocationMetadata,
             replayEnvelope = replayEnvelope,
+            resumeToken = defaultResumeToken,
         )
     }
 }
