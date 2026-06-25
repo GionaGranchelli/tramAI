@@ -8,6 +8,7 @@
 - Added human approval workflow ergonomics design document defining the target API shape for non-blocking human-in-the-loop workflows.
 - Added Preview approval gateway SPI for non-blocking human approval workflow ergonomics (`ApprovalGateway`, `ApprovalRequestResult`, `ApprovalGatewayTypes`, `SovereignWorkflowResult`).
 - Added Preview store-backed approval gateway adapter over the existing approval, suspended invocation, and continuation stores (`DefaultApprovalGateway`, `ApprovalGatewayRequestFactory`, `ApprovalGatewayPersistenceRequest`).
+- Added Preview Spring Boot auto-configuration for the store-backed approval gateway when required stores and an `ApprovalGatewayRequestFactory` are available (`ApprovalGatewayAutoConfiguration`).
 - Sovereign runtime profile and routing foundation (`tramai-sovereign`).
 - Policy enforcement and DLP/redaction support (`tramai-security`).
 - Approval gates and replay-safe resume.

@@ -300,11 +300,15 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 > - `ApprovalGatewayRequestFactory` — internal seam for constructing low-level persistence records from the ergonomic SPI input
 > - `ApprovalGatewayPersistenceRequest` — transport object aggregating records for all three stores
 >
+> **PR #98** auto-configures the Preview `ApprovalGateway` for Spring Boot when all required backing stores and an `ApprovalGatewayRequestFactory` are available.
+>
+> The auto-configuration does not create a generic request factory. Applications must provide one because request construction depends on workflow-specific metadata, replay envelopes, digests, and resume-token generation.
+>
 > **Limitations:**
 > - Does not implement full workflow resume.
 > - Does not provide a single transactional boundary across all stores.
 > - Does not yet emit approval-requested audit outbox intent.
-> - Is not Spring Boot auto-configured yet.
+> - Spring Boot auto-configuration is Preview and requires an application-provided `ApprovalGatewayRequestFactory`.
 
 ---
 
@@ -338,6 +342,6 @@ The following are explicitly **not covered** by this design:
 | #95 | Workflow ergonomics design boundary | This document |
 | #96 | Minimal approval gateway SPI | Introduce `ApprovalGateway` interface over existing stores |
 | #97 | Store-backed approval gateway adapter | Implement `DefaultApprovalGateway` over approval, suspended invocation, and continuation stores |
-| #98 | Spring Boot auto-configuration | Wire preview gateway as a Spring bean |
+| #98 | Spring Boot auto-configuration | Wire preview gateway as a Spring bean (`ApprovalGatewayAutoConfiguration`) |
 | #99 | Regulated claim triage through gateway | Real example using the gateway |
 | #100 | Golden path example | Polished developer-facing example |

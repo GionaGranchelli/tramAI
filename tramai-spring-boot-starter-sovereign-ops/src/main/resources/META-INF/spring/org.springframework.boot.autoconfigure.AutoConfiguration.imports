@@ -1,1 +1,2 @@
 dev.tramai.spring.sovereign.ops.SovereignOpsAutoConfiguration
+dev.tramai.spring.sovereign.ops.ApprovalGatewayAutoConfiguration

@@ -25,6 +25,7 @@ dependencies {
     api(project(":tramai-sovereign"))
     api(project(":tramai-spring-boot-starter-sovereign"))
 
+    implementation(project(":tramai-engine"))
     implementation(libs.coroutines.core)
     implementation(libs.spring.boot.autoconfigure)
 

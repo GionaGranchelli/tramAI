@@ -69,6 +69,7 @@ The following capabilities are proven by working examples, but the developer-fac
 - `DefaultApprovalGateway` — minimal store-backed adapter for the preview gateway SPI (`dev.tramai.engine.approval`)
 - `ApprovalGatewayRequestFactory` — internal seam for constructing low-level persistence records (`dev.tramai.engine.approval`)
 - `ApprovalGatewayPersistenceRequest` — transport object aggregating persistence records (`dev.tramai.engine.approval`)
+- `ApprovalGatewayAutoConfiguration` — Spring Boot auto-configuration for the preview approval gateway (`dev.tramai.spring.sovereign.ops`)
 - Workflow ergonomics
 - Approval gateway abstractions
 - Human suspension / resume workflow shape
