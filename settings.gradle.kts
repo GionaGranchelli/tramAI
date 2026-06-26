@@ -25,6 +25,7 @@ include(
     "tramai-spring-boot-starter-sovereign-persistence-file",
     "tramai-spring-boot-starter-sovereign-persistence-jdbc",
     "tramai-spring-boot-starter-sovereign-ops",
+    "tramai-spring-boot-starter-sovereign-ops-rest",
     "tramai-spring-boot-starter-sovereign-ops-actuator",
     "tramai-spring-boot-starter-sovereign-ops-micrometer",
     "tramai-spring-boot-starter-sovereign-ops-observability",

@@ -105,6 +105,21 @@ Add the sovereign operations starter to your project:
 implementation(project(":tramai-spring-boot-starter-sovereign-ops"))
 ```
 
+For the Preview REST approval control plane, also add:
+
+```kotlin
+implementation(project(":tramai-spring-boot-starter-sovereign-ops-rest"))
+```
+
+And enable it in your configuration:
+
+```yaml
+tramai:
+  sovereign:
+    ops:
+      rest-control-plane-enabled: true
+```
+
 ### Provide an ApprovalGatewayRequestFactory
 
 Spring Boot auto-configuration creates an `ApprovalGateway` bean when the required stores and an `ApprovalGatewayRequestFactory` are available:
@@ -188,3 +203,4 @@ These limitations are tracked in the [post-roadmap design backlog](../architectu
 - [Human Approval Workflow Ergonomics Design](../architecture/human-approval-workflow-ergonomics.md)
 - [Regulated Claim Triage Reference Scenario](../scenarios/regulated-claim-triage.md)
 - [Sovereign Runtime Quickstart](./sovereign-runtime-quickstart.md)
+- [`tramai-spring-boot-starter-sovereign-ops-rest` — Preview REST approval control plane module](https://github.com/GionaGranchelli/tramAI/tree/master/tramai-spring-boot-starter-sovereign-ops-rest)

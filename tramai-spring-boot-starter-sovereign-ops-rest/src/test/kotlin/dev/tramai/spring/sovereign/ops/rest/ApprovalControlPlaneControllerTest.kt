@@ -22,6 +22,7 @@ import java.time.Instant
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.doReturn
+import org.mockito.Mockito.verify
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
 import org.springframework.boot.test.mock.mockito.MockBean
@@ -58,6 +59,12 @@ class ApprovalControlPlaneControllerTest {
 
     @Test
     fun `approve endpoint returns 200 for Approved`() = runBlocking {
+        val expectedCommand = approveCommand(
+            approvalId = "approval-1",
+            comment = "Approved",
+            expectedVersion = 0L,
+            correlationId = "claim-1",
+        )
         doReturn(
             ApprovalDecisionResult.Approved(
                 approvalId = ApprovalId("approval-1"),
@@ -65,9 +72,7 @@ class ApprovalControlPlaneControllerTest {
                 decidedAt = now,
                 version = 1L,
             ),
-        ).`when`(decisionControlPlane).approve(
-            approveCommand(approvalId = "approval-1", expectedVersion = 0L, correlationId = "claim-1"),
-        )
+        ).`when`(decisionControlPlane).approve(expectedCommand)
 
         mockMvc.perform(
             post("/tramai/sovereign/approvals/approval-1/approve")
@@ -89,6 +94,8 @@ class ApprovalControlPlaneControllerTest {
             .andExpect(jsonPath("$.approvalId").value("approval-1"))
             .andExpect(jsonPath("$.actorId").value("medical-ops-reviewer"))
             .andExpect(jsonPath("$.version").value(1))
+
+        verify(decisionControlPlane).approve(expectedCommand)
     }
 
     @Test
@@ -333,6 +340,63 @@ class ApprovalControlPlaneControllerTest {
             .andExpect(jsonPath("$.requestedBy").value("triage-system"))
             .andExpect(jsonPath("$.continuationStatus").value("PENDING"))
     }
+
+    @Test
+    fun `resume Failed returns 500 with safe message not internal exception`() = runBlocking {
+        doReturn(
+            ApprovalResumeResult.Failed(
+                approvalId = ApprovalId("approval-1"),
+                reason = "java.lang.RuntimeException: something sensitive",
+            ),
+        ).`when`(resumeControlPlane).resume(
+            resumeCommand("approval-1"),
+        )
+
+        mockMvc.perform(
+            post("/tramai/sovereign/approvals/approval-1/resume")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        ResumeRequest(
+                            resumeToken = "resume-token-1",
+                            resumedBy = "medical-ops-reviewer",
+                        ),
+                    ),
+                ),
+        )
+            .andExpect(status().isInternalServerError)
+            .andExpect(jsonPath("$.status").value("FAILED"))
+            .andExpect(jsonPath("$.message").value("approval-resume-failed"))
+    }
+
+    @Test
+    fun `Expired maps to 409`() = runBlocking {
+        doReturn(
+            ApprovalDecisionResult.Expired(
+                approvalId = ApprovalId("approval-1"),
+                expiredAt = now,
+            ),
+        ).`when`(decisionControlPlane).approve(
+            approveCommand("approval-1"),
+        )
+
+        mockMvc.perform(
+            post("/tramai/sovereign/approvals/approval-1/approve")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        ApproveDenyRequest(
+                            actorId = "medical-ops-reviewer",
+                            actorRole = "medical-reviewer",
+                        ),
+                    ),
+                ),
+        )
+            .andExpect(status().isConflict)
+            .andExpect(jsonPath("$.status").value("EXPIRED"))
+    }
+
+    // -- test helpers --
 
     private fun approvalRequest(approvalId: String): ApprovalRequest = ApprovalRequest(
         approvalId = approvalId,

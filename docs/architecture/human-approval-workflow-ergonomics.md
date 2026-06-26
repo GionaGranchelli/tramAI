@@ -384,4 +384,4 @@ The following are explicitly **not covered** by this design:
 | #102 | Approval-requested audit intent from gateway | Emit approval-requested audit outbox intent atomically from the transactional gateway when an `ApprovalGatewayAuditIntentFactory` is present |
 | #103 | Preview approval decision control plane | Add application-facing approve/deny service over the transactional mutation and outbox boundary |
 | #104 | Preview approval resume control plane | Add application-facing resume API over the engine resume runtime |
-| #105 | Preview REST approval control plane | Add REST endpoints for approve/deny/resume over the service-level control planes |
+| #105 | Preview REST approval control plane | Add REST endpoints in new `tramai-spring-boot-starter-sovereign-ops-rest` module over the service-level control planes (disabled by default) |

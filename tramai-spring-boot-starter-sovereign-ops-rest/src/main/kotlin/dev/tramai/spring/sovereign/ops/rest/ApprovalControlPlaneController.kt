@@ -11,8 +11,9 @@ import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
 import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
-import java.time.Instant
 import kotlinx.coroutines.runBlocking
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
@@ -21,17 +22,27 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.server.ResponseStatusException
 
 /**
  * Preview REST control plane for approval operations.
  *
- * Disabled by default - enable via `tramai.sovereign.ops.rest-control-plane-enabled=true`.
+ * Disabled by default — enable via `tramai.sovereign.ops.rest-control-plane-enabled=true`.
  *
  * Delegates to [ApprovalDecisionControlPlane] and [ApprovalResumeControlPlane].
  * Does not duplicate decision/resume logic.
+ *
+ * Has its own [ConditionalOnProperty] guard so that component scanning
+ * cannot register the controller when the property is unset or false.
  */
 @RestController
 @RequestMapping("\${tramai.sovereign.ops.rest.base-path:/tramai/sovereign/approvals}")
+@ConditionalOnProperty(
+    prefix = "tramai.sovereign.ops",
+    name = ["rest-control-plane-enabled"],
+    havingValue = "true",
+)
+@ConditionalOnBean(value = [ApprovalDecisionControlPlane::class, ApprovalResumeControlPlane::class])
 class ApprovalControlPlaneController(
     private val decisionControlPlane: ApprovalDecisionControlPlane,
     private val resumeControlPlane: ApprovalResumeControlPlane,
@@ -68,9 +79,9 @@ class ApprovalControlPlaneController(
     ): ResponseEntity<ApprovalControlPlaneResponse> = runBlocking {
         val result = decisionControlPlane.approve(
             ApprovalDecisionCommand(
-                approvalId = ApprovalId(approvalId),
+                approvalId = parseOrBadRequest { ApprovalId(approvalId) },
                 actorId = request.actorId,
-                actorRole = ApproverRole(request.actorRole),
+                actorRole = parseOrBadRequest { ApproverRole(request.actorRole) },
                 comment = request.comment,
                 expectedVersion = request.expectedVersion,
                 correlationId = request.correlationId,
@@ -86,9 +97,9 @@ class ApprovalControlPlaneController(
     ): ResponseEntity<ApprovalControlPlaneResponse> = runBlocking {
         val result = decisionControlPlane.deny(
             ApprovalDecisionCommand(
-                approvalId = ApprovalId(approvalId),
+                approvalId = parseOrBadRequest { ApprovalId(approvalId) },
                 actorId = request.actorId,
-                actorRole = ApproverRole(request.actorRole),
+                actorRole = parseOrBadRequest { ApproverRole(request.actorRole) },
                 comment = request.comment,
                 expectedVersion = request.expectedVersion,
                 correlationId = request.correlationId,
@@ -104,8 +115,8 @@ class ApprovalControlPlaneController(
     ): ResponseEntity<ApprovalControlPlaneResponse> = runBlocking {
         val result = resumeControlPlane.resume(
             ApprovalResumeCommand(
-                approvalId = ApprovalId(approvalId),
-                resumeToken = ResumeToken(request.resumeToken),
+                approvalId = parseOrBadRequest { ApprovalId(approvalId) },
+                resumeToken = parseOrBadRequest { ResumeToken(request.resumeToken) },
                 resumedBy = request.resumedBy,
                 expectedApprovalVersion = request.expectedApprovalVersion,
                 expectedContinuationVersion = request.expectedContinuationVersion,
@@ -113,6 +124,8 @@ class ApprovalControlPlaneController(
         )
         mapResumeResult(result, approvalId)
     }
+
+    // -- helpers --
 
     private fun mapDecisionResult(
         result: ApprovalDecisionResult,
@@ -200,49 +213,19 @@ class ApprovalControlPlaneController(
             ApprovalControlPlaneResponse(
                 status = "FAILED",
                 approvalId = approvalId,
-                message = result.reason,
+                message = "approval-resume-failed",
             ),
         )
     }
 }
 
-data class ApproveDenyRequest(
-    val actorId: String,
-    val actorRole: String,
-    val comment: String? = null,
-    val expectedVersion: Long? = null,
-    val correlationId: String? = null,
-)
-
-data class ResumeRequest(
-    val resumeToken: String,
-    val resumedBy: String,
-    val expectedApprovalVersion: Long? = null,
-    val expectedContinuationVersion: Long? = null,
-)
-
 /**
- * Safe typed REST response.
- *
- * Never exposes: resume tokens, approval token digests, raw tool arguments,
- * replay envelopes, internal stack traces, or sensitive metadata.
+ * Wraps value-type construction and converts [IllegalArgumentException]
+ * to a 400 Bad Request response.
  */
-data class ApprovalControlPlaneResponse(
-    val status: String,
-    val approvalId: String,
-    val actorId: String? = null,
-    val version: Long? = null,
-    val message: String? = null,
-)
-
-data class ApprovalStatusResponse(
-    val approvalId: String,
-    val status: String,
-    val version: Long,
-    val requestedBy: String,
-    val requestedAt: Instant,
-    val expiresAt: Instant,
-    val decidedBy: String? = null,
-    val decidedAt: Instant? = null,
-    val continuationStatus: String? = null,
-)
+private fun <T> parseOrBadRequest(block: () -> T): T =
+    try {
+        block()
+    } catch (e: IllegalArgumentException) {
+        throw ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid-approval-control-plane-request")
+    }
