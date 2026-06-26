@@ -20,16 +20,13 @@ kotlin {
 }
 
 dependencies {
-    api(project(":tramai-core"))
-    api(project(":tramai-security"))
-    api(project(":tramai-sovereign"))
-    api(project(":tramai-spring-boot-starter-sovereign"))
+    api(project(":tramai-spring-boot-starter-sovereign-ops"))
 
-    implementation(project(":tramai-engine"))
-    implementation(libs.coroutines.core)
+    implementation(libs.spring.boot.starter.web)
+    implementation(libs.jackson.module.kotlin)
+    implementation(libs.jackson.datatype.jsr310)
     implementation(libs.spring.boot.autoconfigure)
-    // spring-boot-starter-web is NOT added here.
-    // REST control plane lives in tramai-spring-boot-starter-sovereign-ops-rest
+    implementation(libs.coroutines.core)
 
     annotationProcessor(libs.spring.boot.configuration.processor)
 
