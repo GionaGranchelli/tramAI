@@ -329,6 +329,13 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 > - `RegulatedClaimTriageApprovalGatewayAuditIntentFactory` — example factory that creates `regulated-claim-triage.approval-requested` outbox records
 > - The E2E test now asserts the gateway-created approval-requested outbox record exists
 >
+> **PR #103** adds a preview approval decision control plane service:
+> - `ApprovalDecisionControlPlane` — application-facing service boundary for approving or denying pending approvals
+> - `ApprovalDecisionAuthorizer` — Preview authorization seam for decision actors
+> - `SovereignOpsApprovalDecisionControlPlane` — transactional implementation backed by `ApprovalStore` and `SovereignOpsApprovalMutationStore`
+> - Spring Boot auto-configuration now wires the control plane when approval mutations are enabled
+> - The regulated claim triage E2E now proves denial through the control plane persists both the approval decision and the denial audit outbox intent
+>
 > **Limitations remaining:**
 > - Does not implement full workflow resume.
 > - Generic fallback gateway (`DefaultApprovalGateway`) still has no cross-store transaction boundary and does not emit audit intent.
@@ -370,3 +377,4 @@ The following are explicitly **not covered** by this design:
 | #100 | Golden path example | Polished developer-facing example |
 | #101 | Transactional request creation boundary | Add JDBC-backed atomic approval-request creation and prefer the transactional gateway when available |
 | #102 | Approval-requested audit intent from gateway | Emit approval-requested audit outbox intent atomically from the transactional gateway when an `ApprovalGatewayAuditIntentFactory` is present |
+| #103 | Preview approval decision control plane | Add application-facing approve/deny service over the transactional mutation and outbox boundary |

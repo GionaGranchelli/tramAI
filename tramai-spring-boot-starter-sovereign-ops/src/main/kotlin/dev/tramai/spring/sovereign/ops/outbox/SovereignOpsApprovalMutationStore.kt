@@ -19,13 +19,39 @@ interface SovereignOpsApprovalMutationStore {
      * @param approvalId The approval to deny.
      * @param expectedVersion The version expected for optimistic concurrency.
      * @param actor The identity of the actor performing the denial.
-     * @param reason The human-readable reason (never stored raw — only digested).
+     * @param reason Optional human-readable reason for the decision.
+     * The reason may be persisted in the approval metadata as decisionComment.
+     * Do not include secrets, raw medical details, credentials, or unnecessary PII.
+     * The audit outbox stores only digest/length metadata.
      * @param auditIntent The outbox record to append atomically with the transition.
      * @return The updated approval and the persisted outbox record.
      * @throws IllegalStateException if the approval does not exist or version mismatches.
      * @throws IllegalStateException if the outbox append fails (approval remains unchanged).
      */
     suspend fun denyApprovalWithAuditIntent(
+        approvalId: String,
+        expectedVersion: Long,
+        actor: String,
+        reason: String,
+        auditIntent: SovereignOpsAuditOutboxRecord,
+    ): SovereignOpsApprovalMutationResult
+
+    /**
+     * Atomically approve an approval and persist the audit outbox record.
+     *
+     * @param approvalId The approval to approve.
+     * @param expectedVersion The version expected for optimistic concurrency.
+     * @param actor The identity of the actor performing the approval.
+     * @param reason Optional human-readable reason for the decision.
+     * The reason may be persisted in the approval metadata as decisionComment.
+     * Do not include secrets, raw medical details, credentials, or unnecessary PII.
+     * The audit outbox stores only digest/length metadata.
+     * @param auditIntent The outbox record to append atomically with the transition.
+     * @return The updated approval and the persisted outbox record.
+     * @throws IllegalStateException if the approval does not exist or version mismatches.
+     * @throws IllegalStateException if the outbox append fails (approval remains unchanged).
+     */
+    suspend fun approveApprovalWithAuditIntent(
         approvalId: String,
         expectedVersion: Long,
         actor: String,

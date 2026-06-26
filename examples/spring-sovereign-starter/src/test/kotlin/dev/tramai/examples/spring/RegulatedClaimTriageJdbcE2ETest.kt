@@ -15,6 +15,10 @@ import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.AuditHashAlgorithm
 import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.calculateHash
+import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
+import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
+import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlaneAutoConfiguration
+import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
 import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
 import dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration
 import dev.tramai.spring.sovereign.ops.ApprovalGatewayAuditIntentFactory
@@ -100,6 +104,7 @@ class RegulatedClaimTriageJdbcE2ETest {
                     SovereignJdbcPersistenceAutoConfiguration::class.java,
                     SovereignTramaiAutoConfiguration::class.java,
                     ApprovalGatewayAutoConfiguration::class.java,
+                    ApprovalDecisionControlPlaneAutoConfiguration::class.java,
                 ),
             )
             .withUserConfiguration(
@@ -109,6 +114,7 @@ class RegulatedClaimTriageJdbcE2ETest {
             )
             .withPropertyValues(
                 "tramai.sovereign.enabled=true",
+                "tramai.sovereign.ops.mutations-enabled=true",
                 "tramai.sovereign.allowed-models[0]=local-invoice-model",
                 "tramai.sovereign.allowed-providers[0]=deterministic-local-provider",
                 "tramai.sovereign.provider-zones.deterministic-local-provider=LOCAL",
@@ -166,7 +172,7 @@ class RegulatedClaimTriageJdbcE2ETest {
 
                 // Gateway also created approval-requested audit outbox intent atomically
                 val approvalRequestedOutbox = workflow.outboxStore.findByEventKey(
-                    "regulated-claim-triage.approval-requested",
+                    "regulated-claim-triage.approval-requested.${result.approvalId!!}",
                 )
                 assertThat(approvalRequestedOutbox).isNotNull
                 assertThat(approvalRequestedOutbox!!.status)
@@ -276,6 +282,60 @@ class RegulatedClaimTriageJdbcE2ETest {
             // prefers SovereignOpsTransactionalApprovalGateway over DefaultApprovalGateway.
             assertThat(gateway).isInstanceOf(SovereignOpsTransactionalApprovalGateway::class.java)
         }
+    }
+
+    @Test
+    fun `regulated claim triage denial through control plane persists decision and outbox intent`() {
+        val claimId = "claim-cp-${UUID.randomUUID()}"
+        val input = ClaimTriageInput(
+            claimId = claimId,
+            claimantName = "Delta",
+            diagnosisText = "lumbar radiculopathy",
+            invoiceAmount = 4100,
+            paymentReference = "PAY-REF-CP-001",
+        )
+
+        createJdbcRunner().run { ctx ->
+                val workflow = ctx.workflow()
+                runBlocking {
+                    val result = workflow.triage(input, RequestedRoute.LOCAL_ONLY)
+
+                    assertThat(result.requiredApproval).isTrue()
+                    assertThat(result.approvalId).isNotNull()
+
+                    val decisionResult = workflow.decisionControlPlane.deny(
+                        ApprovalDecisionCommand(
+                            approvalId = dev.tramai.core.approval.gateway.ApprovalId(result.approvalId!!),
+                            actorId = "medical-ops-reviewer",
+                            actorRole = ApproverRole("medical-reviewer"),
+                            comment = "Medical necessity not established",
+                            correlationId = claimId,
+                        ),
+                    )
+
+                    assertThat(decisionResult).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
+                    val denied = decisionResult as ApprovalDecisionResult.Denied
+                    assertThat(denied.approvalId.value).isEqualTo(result.approvalId)
+                    assertThat(denied.decidedBy).isEqualTo("medical-ops-reviewer")
+
+                    val approval = workflow.approvalStore.get(result.approvalId!!)
+                    assertThat(approval).isNotNull
+                    assertThat(approval!!.status).isEqualTo(ApprovalStatus.DENIED)
+
+                    val denialOutbox = workflow.outboxStore.findByEventKey("approval-denied.${result.approvalId!!}")
+                    assertThat(denialOutbox).isNotNull
+                    assertThat(denialOutbox!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
+                    assertThat(denialOutbox.approvalStatus).isEqualTo(ApprovalStatus.DENIED.name)
+                    assertThat(denialOutbox.actor).isEqualTo("medical-ops-reviewer")
+
+                    val approvalRequestedOutbox = workflow.outboxStore.findByEventKey(
+                        "regulated-claim-triage.approval-requested.${result.approvalId!!}",
+                    )
+                    assertThat(approvalRequestedOutbox).isNotNull
+                    assertThat(approvalRequestedOutbox!!.status)
+                        .isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
+                }
+            }
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -393,6 +453,10 @@ class RegulatedClaimTriageJdbcE2ETest {
         @Bean
         fun regulatedClaimTriageApprovalGatewayAuditIntentFactory(): ApprovalGatewayAuditIntentFactory =
             RegulatedClaimTriageApprovalGatewayAuditIntentFactory()
+
+        @Bean
+        fun regulatedClaimTriageApprovalDecisionControlPlaneAuthorizer(): RegulatedClaimTriageApprovalDecisionControlPlaneAuthorizer =
+            RegulatedClaimTriageApprovalDecisionControlPlaneAuthorizer()
     }
 }
 
@@ -479,6 +543,7 @@ class ClaimTriageWorkflow(
     val auditStore: AuditStore,
     val mutationStore: SovereignOpsApprovalMutationStore,
     val outboxStore: SovereignOpsAuditOutboxStore,
+    val decisionControlPlane: ApprovalDecisionControlPlane,
     val suspendedInvocationStore: SuspendedInvocationStore,
     val approvalContinuationStore: ApprovalContinuationStore,
     private val approvalGateway: ApprovalGateway,
@@ -691,6 +756,7 @@ private fun org.springframework.context.ApplicationContext.workflow(
     auditStore = getBean(AuditStore::class.java),
     mutationStore = getBean(SovereignOpsApprovalMutationStore::class.java),
     outboxStore = getBean(SovereignOpsAuditOutboxStore::class.java),
+    decisionControlPlane = getBean(ApprovalDecisionControlPlane::class.java),
     suspendedInvocationStore = getBean(SuspendedInvocationStore::class.java),
     approvalContinuationStore = getBean(ApprovalContinuationStore::class.java),
     approvalGateway = getBean(ApprovalGateway::class.java),

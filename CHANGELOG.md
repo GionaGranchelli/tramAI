@@ -13,6 +13,7 @@
 - Added Approval Gateway Golden Path developer-facing guide (`PR #100`). The guide explains how to request human approval through the Preview ApprovalGateway API, how Spring Boot auto-configuration wires it, what persistence records are created, and what the current Preview limitations are.
 - Added Preview `SovereignOpsApprovalRequestMutationStore` with a JDBC transactional boundary for atomic approval request creation across `ApprovalStore`, `SuspendedInvocationStore`, `ApprovalContinuationStore`, and optional audit outbox intent (`PR #101`). `SovereignOpsTransactionalApprovalGateway` now replaces the sequential `DefaultApprovalGateway` write path when the request mutation store is available.
 - Added Preview `ApprovalGatewayAuditIntentFactory` SPI and wiring — `SovereignOpsTransactionalApprovalGateway` now emits approval-requested audit outbox intent atomically when an audit intent factory is present (`PR #102`). The regulated claim triage E2E test proves a `PENDING` approval-requested outbox record exists after gateway request creation.
+- Added Preview `ApprovalDecisionControlPlane` service for approving or denying pending approvals through the transactional mutation/outbox boundary (`PR #103`).
 - Sovereign runtime profile and routing foundation (`tramai-sovereign`).
 - Policy enforcement and DLP/redaction support (`tramai-security`).
 - Approval gates and replay-safe resume.

@@ -41,6 +41,35 @@ class InMemorySovereignOpsApprovalMutationStore(
         reason: String,
         auditIntent: SovereignOpsAuditOutboxRecord,
     ): SovereignOpsApprovalMutationResult {
+        return mutateApprovalWithAuditIntent(
+            approvalId = approvalId,
+            expectedVersion = expectedVersion,
+            auditIntent = auditIntent,
+            transition = ApprovalTransition.Deny(decidedBy = actor, comment = reason),
+        )
+    }
+
+    override suspend fun approveApprovalWithAuditIntent(
+        approvalId: String,
+        expectedVersion: Long,
+        actor: String,
+        reason: String,
+        auditIntent: SovereignOpsAuditOutboxRecord,
+    ): SovereignOpsApprovalMutationResult {
+        return mutateApprovalWithAuditIntent(
+            approvalId = approvalId,
+            expectedVersion = expectedVersion,
+            auditIntent = auditIntent,
+            transition = ApprovalTransition.Approve(decidedBy = actor, comment = reason),
+        )
+    }
+
+    private suspend fun mutateApprovalWithAuditIntent(
+        approvalId: String,
+        expectedVersion: Long,
+        auditIntent: SovereignOpsAuditOutboxRecord,
+        transition: ApprovalTransition,
+    ): SovereignOpsApprovalMutationResult {
         val lock = approvalLocks.computeIfAbsent(approvalId) { ReentrantLock() }
         lock.lock()
         try {
@@ -62,7 +91,7 @@ class InMemorySovereignOpsApprovalMutationStore(
                 val updated = approvalStore.transition(
                     approvalId = approvalId,
                     expectedVersion = expectedVersion,
-                    transition = ApprovalTransition.Deny(decidedBy = actor, comment = reason),
+                    transition = transition,
                 )
                 // 4. Mark the outbox as PENDING — now dispatchable
                 outboxStore.markReadyForDispatch(
