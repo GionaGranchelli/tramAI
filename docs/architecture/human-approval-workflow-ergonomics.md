@@ -336,8 +336,13 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 > - Spring Boot auto-configuration now wires the control plane when approval mutations are enabled
 > - The regulated claim triage E2E now proves denial through the control plane persists both the approval decision and the denial audit outbox intent
 >
+> **PR #104** adds a preview approval resume control plane:
+> - `ApprovalResumeControlPlane` — application-facing resume boundary
+> - `SovereignOpsApprovalResumeControlPlane` — composes engine `ResumeApprovalCommand` and `TramaiRuntime.resumeApproval`
+> - Spring Boot auto-configuration wires the resume control plane when `resume-enabled=true`
+> - The regulated claim triage E2E now proves request → approve → resume → complete
+>
 > **Limitations remaining:**
-> - Does not implement full workflow resume.
 > - Generic fallback gateway (`DefaultApprovalGateway`) still has no cross-store transaction boundary and does not emit audit intent.
 
 ---
@@ -378,3 +383,4 @@ The following are explicitly **not covered** by this design:
 | #101 | Transactional request creation boundary | Add JDBC-backed atomic approval-request creation and prefer the transactional gateway when available |
 | #102 | Approval-requested audit intent from gateway | Emit approval-requested audit outbox intent atomically from the transactional gateway when an `ApprovalGatewayAuditIntentFactory` is present |
 | #103 | Preview approval decision control plane | Add application-facing approve/deny service over the transactional mutation and outbox boundary |
+| #104 | Preview approval resume control plane | Add application-facing resume API over the engine resume runtime |
