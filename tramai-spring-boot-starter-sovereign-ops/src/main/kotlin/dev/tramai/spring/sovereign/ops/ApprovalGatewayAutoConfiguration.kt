@@ -6,6 +6,7 @@ import dev.tramai.core.approval.gateway.ApprovalGateway
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
 import dev.tramai.engine.approval.DefaultApprovalGateway
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadataFactory
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
@@ -72,11 +73,13 @@ class ApprovalGatewayAutoConfiguration {
         mutationStore: SovereignOpsApprovalRequestMutationStore,
         requestFactory: ApprovalGatewayRequestFactory,
         auditIntentFactory: ObjectProvider<ApprovalGatewayAuditIntentFactory>,
+        inboxMetadataFactory: ObjectProvider<ApprovalInboxMetadataFactory>,
     ): ApprovalGateway =
         SovereignOpsTransactionalApprovalGateway(
             mutationStore = mutationStore,
             requestFactory = requestFactory,
             auditIntentFactory = auditIntentFactory.ifAvailable,
+            inboxMetadataFactory = inboxMetadataFactory.ifAvailable,
         )
 
     @Bean

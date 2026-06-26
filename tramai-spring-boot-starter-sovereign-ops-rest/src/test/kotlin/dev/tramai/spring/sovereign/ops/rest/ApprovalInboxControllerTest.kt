@@ -103,8 +103,19 @@ class ApprovalInboxControllerTest {
     }
 
     @Test
-    fun `GET approvals rejects requiredRole filter with 400`() = runBlocking {
+    fun `GET approvals with requiredRole filter returns matching approvals`() = runBlocking {
+        doReturn(inboxPage()).`when`(queryService).search(
+            ApprovalInboxQuery(requiredRole = ApproverRole("medical-reviewer")),
+        )
+
         mockMvc.perform(get("/tramai/sovereign/approvals?requiredRole=medical-reviewer"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.items[0].requiredRole").value("medical-reviewer"))
+    }
+
+    @Test
+    fun `GET approvals with requiredRole filter returns 400 for invalid role`() = runBlocking {
+        mockMvc.perform(get("/tramai/sovereign/approvals?requiredRole="))
             .andExpect(status().isBadRequest)
     }
 

@@ -12,6 +12,7 @@ import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.gateway.ResumeToken
+import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.engine.EngineExecutionIdentity
@@ -29,6 +30,7 @@ import dev.tramai.persistence.jdbc.JdbcEncryptedContinuationArguments
 import dev.tramai.persistence.jdbc.JdbcEncryptedReplayEnvelope
 import dev.tramai.persistence.jdbc.JdbcReplayEnvelopeCodec
 import dev.tramai.persistence.jdbc.JdbcSuspendedInvocationStore
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
@@ -368,6 +370,106 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         assertThat(suspendedInvocationStore.get("approval-j")).isNull()
         assertThat(continuationStore.get("approval-j")).isNull()
         assertThat(selectCount("SELECT count(*) FROM audit_outbox WHERE event_key = 'outbox-failure-test'")).isZero()
+    }
+
+    // ── Inbox metadata tests ──────────────────────────────────────────
+
+    @Test
+    fun `approval request creation persists inbox metadata atomically`() = runBlocking {
+        val request = request("approval-inbox-1")
+        val metadata = ApprovalInboxMetadata(
+            requiredRole = ApproverRole("medical-reviewer"),
+            riskLevel = "HIGH",
+            subjectType = "claim",
+            subjectId = "claim-123",
+            recommendationType = "claim-payout",
+        )
+
+        val result = mutationStore.createApprovalRequest(request, inboxMetadata = metadata)
+
+        assertThat(result).isInstanceOf(SovereignOpsApprovalRequestMutationResult.Created::class.java)
+
+        // Read sanitized_metadata raw JSON from DB and verify inbox fields
+        val rawJson = selectValue(
+            "SELECT sanitized_metadata::text FROM approvals WHERE approval_id = ?",
+            "approval-inbox-1",
+        )!!
+        assertThat(rawJson).contains(""""inbox"""")
+        assertThat(rawJson).contains("""requiredRole""")
+        assertThat(rawJson).contains("""medical-reviewer""")
+        assertThat(rawJson).contains("""riskLevel""")
+        assertThat(rawJson).contains("""HIGH""")
+        assertThat(rawJson).contains("""subjectType""")
+        assertThat(rawJson).contains("""claim""")
+        assertThat(rawJson).contains("""subjectId""")
+        assertThat(rawJson).contains("""claim-123""")
+        assertThat(rawJson).contains("""recommendationType""")
+        assertThat(rawJson).contains("""claim-payout""")
+
+        // Verify no sensitive metadata leaks into inbox
+        assertThat(rawJson).doesNotContain("""argumentsDigest""")
+        assertThat(rawJson).doesNotContain("""approvalTokenDigest""")
+    }
+
+    @Test
+    fun `rollback removes inbox metadata when continuation insert fails`() = runBlocking {
+        val request = request("approval-inbox-2")
+        val metadata = ApprovalInboxMetadata(
+            requiredRole = ApproverRole("medical-reviewer"),
+            riskLevel = "HIGH",
+            subjectType = "claim",
+            subjectId = "claim-456",
+            recommendationType = "claim-payout",
+        )
+        // Use a failing continuation arguments codec to trigger rollback
+        val failingCodec = object : JdbcContinuationArgumentsCodec {
+            override fun encode(plaintext: ByteArray): JdbcEncryptedContinuationArguments =
+                throw RuntimeException("simulated-codec-failure")
+            override fun decode(envelope: JdbcEncryptedContinuationArguments): ByteArray =
+                throw RuntimeException("simulated-codec-failure")
+        }
+        val storeWithFailingCodec = JdbcSovereignOpsApprovalRequestMutationStore(
+            dataSource = dataSource,
+            replayEnvelopeCodec = replayCodec,
+            continuationArgumentsCodec = failingCodec,
+            outboxPayloadCodec = outboxCodec,
+            clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
+        )
+
+        assertThatThrownBy {
+            runBlocking {
+                storeWithFailingCodec.createApprovalRequest(request, inboxMetadata = metadata)
+            }
+        }.isInstanceOf(RuntimeException::class.java)
+
+        // Verify approval was rolled back (no row)
+        assertThat(approvalStore.get("approval-inbox-2")).isNull()
+    }
+
+    @Test
+    fun `existing approval replay returns existing metadata safely without inbox changes`() = runBlocking {
+        val request = request("approval-inbox-3")
+        val metadata = ApprovalInboxMetadata(
+            requiredRole = ApproverRole("medical-reviewer"),
+            riskLevel = "HIGH",
+            subjectType = "claim",
+            subjectId = "claim-789",
+            recommendationType = "claim-payout",
+        )
+
+        // First create with metadata
+        mutationStore.createApprovalRequest(request, inboxMetadata = metadata)
+
+        // Second call — should return Existing, not Created
+        val result = mutationStore.createApprovalRequest(request, inboxMetadata = metadata)
+
+        assertThat(result).isInstanceOf(SovereignOpsApprovalRequestMutationResult.Existing::class.java)
+        val existing = result as SovereignOpsApprovalRequestMutationResult.Existing
+        assertThat(existing.approval.approvalId).isEqualTo("approval-inbox-3")
+
+        // Only one row exists
+        val count = selectCount("SELECT count(*) FROM approvals WHERE approval_id = 'approval-inbox-3'")
+        assertThat(count).isEqualTo(1)
     }
 
     private fun request(approvalId: String): ApprovalGatewayPersistenceRequest {

@@ -1,5 +1,6 @@
 package dev.tramai.persistence.jdbc
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
@@ -340,6 +341,7 @@ class JdbcApprovalStore(
         val version: Long,
     )
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     private data class BindingMetadata(
         val workflowRunId: String,
         val toolName: String,
@@ -349,6 +351,16 @@ class JdbcApprovalStore(
         val approvalTokenDigest: String,
     )
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private data class ApprovalInboxMetadataJson(
+        val requiredRole: String? = null,
+        val riskLevel: String? = null,
+        val subjectType: String? = null,
+        val subjectId: String? = null,
+        val recommendationType: String? = null,
+    )
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
     private data class ApprovalMetadata(
         val binding: BindingMetadata,
         val requestedBy: String,
@@ -358,6 +370,7 @@ class JdbcApprovalStore(
         val decisionComment: String?,
         val consumedBy: String?,
         val consumedAt: String?,
+        val inbox: ApprovalInboxMetadataJson? = null,
     )
 
     private data class DecisionFields(

@@ -1,5 +1,6 @@
 package dev.tramai.spring.sovereign.persistence.jdbc
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
@@ -29,6 +30,8 @@ import dev.tramai.persistence.jdbc.JdbcContinuationArgumentsCodec
 import dev.tramai.persistence.jdbc.JdbcEncryptedContinuationArguments
 import dev.tramai.persistence.jdbc.JdbcEncryptedReplayEnvelope
 import dev.tramai.persistence.jdbc.JdbcReplayEnvelopeCodec
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadataPolicy
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
@@ -61,8 +64,10 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
     override suspend fun createApprovalRequest(
         request: ApprovalGatewayPersistenceRequest,
         auditIntent: SovereignOpsAuditOutboxRecord?,
+        inboxMetadata: ApprovalInboxMetadata?,
     ): SovereignOpsApprovalRequestMutationResult {
         validateRequest(request, auditIntent)
+        inboxMetadata?.let(ApprovalInboxMetadataPolicy::validate)
 
         return dataSource.connection.use { conn ->
             val previousAutoCommit = conn.autoCommit
@@ -74,7 +79,7 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
                     return@use SovereignOpsApprovalRequestMutationResult.Existing(existing)
                 }
 
-                insertApproval(conn, request.approvalRequest)
+                insertApproval(conn, request.approvalRequest, inboxMetadata)
                 insertSuspendedInvocation(
                     conn = conn,
                     metadata = request.suspendedInvocationMetadata,
@@ -225,9 +230,18 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         }
     }
 
-    private fun insertApproval(conn: Connection, request: ApprovalRequest) {
+    private fun insertApproval(conn: Connection, request: ApprovalRequest, inboxMetadata: ApprovalInboxMetadata?) {
         val now = clock.instant()
         val nowOdt = OffsetDateTime.ofInstant(now, ZoneOffset.UTC)
+        val inbox = inboxMetadata?.let { meta ->
+            InboxMetadata(
+                requiredRole = meta.requiredRole?.value,
+                riskLevel = meta.riskLevel,
+                subjectType = meta.subjectType,
+                subjectId = meta.subjectId,
+                recommendationType = meta.recommendationType,
+            )
+        }
         val metadata = ApprovalMetadata(
             binding = BindingMetadata(
                 workflowRunId = request.binding.workflowRunId,
@@ -244,6 +258,7 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
             decisionComment = null,
             consumedBy = null,
             consumedAt = null,
+            inbox = inbox,
         )
         val sql = """
             INSERT INTO approvals (approval_id, status, created_at, sanitized_metadata, version)
@@ -466,6 +481,7 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
     }
 }
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 private data class BindingMetadata(
     val workflowRunId: String,
     val toolName: String,
@@ -475,6 +491,16 @@ private data class BindingMetadata(
     val approvalTokenDigest: String,
 )
 
+@JsonIgnoreProperties(ignoreUnknown = true)
+private data class InboxMetadata(
+    val requiredRole: String? = null,
+    val riskLevel: String? = null,
+    val subjectType: String? = null,
+    val subjectId: String? = null,
+    val recommendationType: String? = null,
+)
+
+@JsonIgnoreProperties(ignoreUnknown = true)
 private data class ApprovalMetadata(
     val binding: BindingMetadata,
     val requestedBy: String,
@@ -484,6 +510,7 @@ private data class ApprovalMetadata(
     val decisionComment: String?,
     val consumedBy: String?,
     val consumedAt: String?,
+    val inbox: InboxMetadata? = null,
 )
 
 private data class PersistedMessage(
