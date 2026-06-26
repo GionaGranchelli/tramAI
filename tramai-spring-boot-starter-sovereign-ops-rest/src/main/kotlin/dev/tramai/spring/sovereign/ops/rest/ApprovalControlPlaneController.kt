@@ -223,7 +223,7 @@ class ApprovalControlPlaneController(
  * Wraps value-type construction and converts [IllegalArgumentException]
  * to a 400 Bad Request response.
  */
-private fun <T> parseOrBadRequest(block: () -> T): T =
+internal fun <T> parseOrBadRequest(block: () -> T): T =
     try {
         block()
     } catch (e: IllegalArgumentException) {

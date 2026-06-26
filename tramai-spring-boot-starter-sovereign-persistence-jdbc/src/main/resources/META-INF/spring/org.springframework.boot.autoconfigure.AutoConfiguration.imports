@@ -1,1 +1,2 @@
 dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
+dev.tramai.spring.sovereign.persistence.jdbc.inbox.ApprovalInboxQueryAutoConfiguration
