@@ -168,7 +168,7 @@ The Preview approval gateway has the following limitations:
 
 | Area | Status |
 |------|--------|
-| Full workflow resume runtime | Not implemented yet |
+| Full workflow resume runtime | Service-level `ApprovalResumeControlPlane` available |
 | Reviewer UI | Not implemented yet |
 | REST control plane for approvals | Not implemented yet; service-level `ApprovalDecisionControlPlane` available |
 | Generic workflow DSL | Not implemented yet |
