@@ -1,5 +1,6 @@
 package dev.tramai.spring.sovereign.persistence.jdbc.inbox
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
@@ -26,6 +27,11 @@ import javax.sql.DataSource
  * Reads only safe projections. Never returns resume tokens, token digests,
  * raw tool arguments, replay envelopes, or decision comments.
  *
+ * Metadata enrichment fields (`requiredRole`, `riskLevel`, `subjectType`,
+ * `subjectId`, `recommendationType`) are not yet populated by the current
+ * approval-request creation stores. They will appear once a persisted inbox
+ * metadata path exists (tracked as a follow-up).
+ *
  * @param dataSource PostgreSQL DataSource
  * @param clock clock for temporal checks
  */
@@ -36,6 +42,23 @@ class JdbcApprovalInboxQueryService(
 
     private val mapper = ObjectMapper().registerKotlinModule()
 
+    /**
+     * Canonical `effective_expires_at` expression reused for filtering,
+     * ordering, cursor construction, and the mapped [ApprovalInboxWorkItem].
+     *
+     * Precedence:
+     * 1. `c.approval_expires_at` (continuation-level expiry, strongest signal)
+     * 2. `sanitized_metadata->>'expiresAt'` (approval-level expiry, if present)
+     * 3. `created_at + 5 minutes` (fallback so no row has an undefined expiry)
+     */
+    private val effectiveExpiresAtExpr = """
+        COALESCE(
+            c.approval_expires_at,
+            NULLIF(a.sanitized_metadata->>'expiresAt', '')::timestamptz,
+            a.created_at + INTERVAL '5 minutes'
+        )
+    """.trimIndent().replace('\n', ' ')
+
     private val baseSql = """
         SELECT a.approval_id,
                a.status,
@@ -44,7 +67,7 @@ class JdbcApprovalInboxQueryService(
                a.version,
                c.status AS continuation_status,
                c.workflow_run_id,
-               c.approval_expires_at
+               $effectiveExpiresAtExpr AS effective_expires_at
         FROM approvals a
         LEFT JOIN approval_continuations c ON a.approval_id = c.approval_id
     """.trimIndent()
@@ -57,33 +80,33 @@ class JdbcApprovalInboxQueryService(
                 append(baseSql)
                 append(" WHERE 1=1")
                 query.status?.let { append(" AND a.status = ?") }
-                query.requiredRole?.let { append(" AND a.sanitized_metadata->>'requiredRole' = ?") }
                 query.requestedBy?.let { append(" AND a.sanitized_metadata->>'requestedBy' = ?") }
                 if (query.expiresBefore != null) {
-                    append(
-                        " AND COALESCE(c.approval_expires_at, " +
-                            "NULLIF(a.sanitized_metadata->>'expiresAt', '')::timestamptz" +
-                        ") <= ?",
-                    )
+                    append(" AND $effectiveExpiresAtExpr <= ?")
                 }
                 if (cursor != null) {
-                    append(" AND (COALESCE(c.approval_expires_at, a.created_at + INTERVAL '5 minutes'), a.created_at, a.approval_id) > (?, ?, ?)")
+                    append(
+                        " AND ($effectiveExpiresAtExpr, a.sanitized_metadata->>'requestedAt', a.approval_id) > (?, ?, ?)",
+                    )
                 }
-                append(" ORDER BY COALESCE(c.approval_expires_at, a.created_at + INTERVAL '5 minutes') ASC, a.created_at ASC, a.approval_id ASC")
+                append(
+                    " ORDER BY $effectiveExpiresAtExpr ASC, " +
+                        "a.sanitized_metadata->>'requestedAt' ASC, " +
+                        "a.approval_id ASC",
+                )
                 append(" LIMIT ?")
             }
 
             conn.prepareStatement(sql).use { stmt ->
                 var idx = 1
                 query.status?.let { stmt.setString(idx++, it.name) }
-                query.requiredRole?.let { stmt.setString(idx++, it.value) }
                 query.requestedBy?.let { stmt.setString(idx++, it) }
                 if (query.expiresBefore != null) {
                     stmt.setObject(idx++, OffsetDateTime.ofInstant(query.expiresBefore, ZoneOffset.UTC))
                 }
                 if (cursor != null) {
                     stmt.setObject(idx++, OffsetDateTime.ofInstant(cursor.expiresAt, ZoneOffset.UTC))
-                    stmt.setObject(idx++, OffsetDateTime.ofInstant(cursor.requestedAt, ZoneOffset.UTC))
+                    stmt.setString(idx++, cursor.requestedAt)
                     stmt.setString(idx++, cursor.approvalId)
                 }
                 stmt.setInt(idx, effectiveLimit + 1)
@@ -92,22 +115,21 @@ class JdbcApprovalInboxQueryService(
                     val rows = mutableListOf<InboxRow>()
                     while (rs.next()) {
                         rows += InboxRow(
-                            expiresAt = rs.getObject("approval_expires_at", OffsetDateTime::class.java)
-                                ?.toInstant(),
-                            requestedAt = rs.getObject("created_at", OffsetDateTime::class.java).toInstant(),
-                            approvalId = rs.getString("approval_id"),
-                            item = mapRow(rs),
+                            rs.getString("approval_id"),
+                            mapRow(rs),
                         )
                     }
                     val hasMore = rows.size > effectiveLimit
                     val selected = if (hasMore) rows.take(effectiveLimit) else rows
                     val nextCursor = if (hasMore) {
                         val item = selected.last()
-                        encodeCursor(InboxCursor(
-                            expiresAt = item.expiresAt ?: item.requestedAt.plusSeconds(300),
-                            requestedAt = item.requestedAt,
-                            approvalId = item.approvalId,
-                        ))
+                        encodeCursor(
+                            InboxCursor(
+                                expiresAt = item.item.expiresAt,
+                                requestedAt = item.item.requestedAt.toString(),
+                                approvalId = item.approvalId,
+                            ),
+                        )
                     } else null
                     ApprovalInboxPage(selected.map { it.item }, nextCursor)
                 }
@@ -127,10 +149,10 @@ class JdbcApprovalInboxQueryService(
 
     private fun mapRow(rs: ResultSet): ApprovalInboxWorkItem {
         val metadata = parseMetadata(rs.getString("sanitized_metadata"))
+        val requestedAtString = metadata.requestedAt
         val createdAt = rs.getObject("created_at", OffsetDateTime::class.java).toInstant()
-        val expiresAt = rs.getObject("approval_expires_at", OffsetDateTime::class.java)?.toInstant()
-            ?: metadata.expiresAt?.let(Instant::parse)
-            ?: createdAt.plusSeconds(300)
+        val effectiveRequestedAt = requestedAtString?.let(Instant::parse) ?: createdAt
+        val effectiveExpiresAt = rs.getObject("effective_expires_at", OffsetDateTime::class.java).toInstant()
         val workflowRunId = rs.getString("workflow_run_id")
             ?: metadata.binding?.workflowRunId
             ?: error("workflowRunId missing for ${rs.getString("approval_id")}")
@@ -141,13 +163,13 @@ class JdbcApprovalInboxQueryService(
             toolName = metadata.binding?.toolName ?: "unknown",
             status = ApprovalStatus.valueOf(rs.getString("status")),
             requestedBy = metadata.requestedBy ?: "unknown",
-            requestedAt = createdAt,
-            expiresAt = expiresAt,
-            requiredRole = metadata.requiredRole?.let(::ApproverRole),
-            riskLevel = metadata.riskLevel,
-            subjectType = metadata.subjectType,
-            subjectId = metadata.subjectId,
-            recommendationType = metadata.recommendationType,
+            requestedAt = effectiveRequestedAt,
+            expiresAt = effectiveExpiresAt,
+            requiredRole = null,
+            riskLevel = null,
+            subjectType = null,
+            subjectId = null,
+            recommendationType = null,
             continuationStatus = rs.getString("continuation_status")
                 ?.let(ApprovalContinuationStatus::valueOf),
             version = rs.getLong("version"),
@@ -170,31 +192,34 @@ class JdbcApprovalInboxQueryService(
         }
 
     private data class InboxRow(
-        val expiresAt: Instant?,
-        val requestedAt: Instant,
         val approvalId: String,
         val item: ApprovalInboxWorkItem,
     )
 
+    /**
+     * Cursor tuple: encodes the last item's position for pagination.
+     *
+     * `expiresAt` is the [ApprovalInboxWorkItem.expiresAt] instant as an ISO string,
+     * `requestedAt` is the item's [ApprovalInboxWorkItem.requestedAt] ISO string,
+     * `approvalId` is the unique tiebreaker.
+     */
     private data class InboxCursor(
         val expiresAt: Instant,
-        val requestedAt: Instant,
+        val requestedAt: String,
         val approvalId: String,
     )
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     private data class InboxBindingMetadata(
         val workflowRunId: String? = null,
         val toolName: String? = null,
     )
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     private data class InboxMetadata(
         val binding: InboxBindingMetadata? = null,
         val requestedBy: String? = null,
         val expiresAt: String? = null,
-        val requiredRole: String? = null,
-        val riskLevel: String? = null,
-        val subjectType: String? = null,
-        val subjectId: String? = null,
-        val recommendationType: String? = null,
+        val requestedAt: String? = null,
     )
 }
