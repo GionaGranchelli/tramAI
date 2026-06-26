@@ -1,15 +1,36 @@
 package dev.tramai.examples.spring
 
 import com.zaxxer.hikari.HikariDataSource
+import dev.tramai.core.annotations.AiService
+import dev.tramai.core.annotations.Operation
+import dev.tramai.core.annotations.User
 import dev.tramai.core.approval.ApprovalContinuationStore
+import dev.tramai.core.approval.ApprovalContinuationStatus
 import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalGateway
+import dev.tramai.core.approval.gateway.ApprovalId
 import dev.tramai.core.approval.gateway.ApprovalRecommendation
 import dev.tramai.core.approval.gateway.ApprovalRequestResult
+import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.core.approval.gateway.ApprovalSubject
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.WorkflowRunId
+import dev.tramai.core.exception.ApprovalSuspendedException
+import dev.tramai.core.model.FinishReason
+import dev.tramai.core.model.ModelRegistry
+import dev.tramai.core.model.ModelRequest
+import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.model.SideEffectLevel
+import dev.tramai.core.model.ToolCall
+import dev.tramai.core.model.ToolExecutionContext
+import dev.tramai.core.model.TramaiTool
+import dev.tramai.core.policy.ApprovalMode
+import dev.tramai.core.policy.AuditDetail
+import dev.tramai.core.policy.ManagedNetworkEgress
+import dev.tramai.core.policy.RiskLevel
+import dev.tramai.core.policy.ToolSecurityMetadata
+import dev.tramai.core.provider.ModelProvider
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.AuditHashAlgorithm
@@ -19,11 +40,18 @@ import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlaneAutoConfiguration
 import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
+import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
+import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
+import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlaneAutoConfiguration
+import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
 import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
 import dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration
 import dev.tramai.spring.sovereign.ops.ApprovalGatewayAuditIntentFactory
 import dev.tramai.spring.sovereign.ops.ApprovalGatewayAutoConfiguration
 import dev.tramai.spring.sovereign.ops.SovereignOpsTransactionalApprovalGateway
+import dev.tramai.sovereign.SovereignProfileConfiguration
+import dev.tramai.sovereign.SovereignTramai
+import dev.tramai.sovereign.SovereignTramaiRuntime
 import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
@@ -32,9 +60,11 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStore
 import java.nio.file.Path
 import java.security.MessageDigest
+import java.time.Clock
 import java.time.Instant
 import java.util.Base64
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import javax.sql.DataSource
 import kotlinx.coroutines.runBlocking
@@ -105,18 +135,23 @@ class RegulatedClaimTriageJdbcE2ETest {
                     SovereignTramaiAutoConfiguration::class.java,
                     ApprovalGatewayAutoConfiguration::class.java,
                     ApprovalDecisionControlPlaneAutoConfiguration::class.java,
+                    ApprovalResumeControlPlaneAutoConfiguration::class.java,
                 ),
             )
             .withUserConfiguration(
                 JdbcE2eDataSourceConfig::class.java,
                 DemoProviderConfiguration::class.java,
                 RegulatedClaimTriageGatewayConfig::class.java,
+                ApprovalResumeRuntimeConfig::class.java,
             )
             .withPropertyValues(
                 "tramai.sovereign.enabled=true",
                 "tramai.sovereign.ops.mutations-enabled=true",
+                "tramai.sovereign.ops.resume-enabled=true",
                 "tramai.sovereign.allowed-models[0]=local-invoice-model",
                 "tramai.sovereign.allowed-providers[0]=deterministic-local-provider",
+                "tramai.sovereign.allowed-tools[0]=claim-payout",
+                "tramai.sovereign.allowed-permissions[0]=claim.payout",
                 "tramai.sovereign.provider-zones.deterministic-local-provider=LOCAL",
                 "tramai.sovereign.models.local-invoice-model=deterministic-local-provider",
                 "tramai.sovereign.persistence.type=jdbc",
@@ -338,6 +373,61 @@ class RegulatedClaimTriageJdbcE2ETest {
             }
     }
 
+    @Test
+    fun `regulated claim triage approval through control plane resumes workflow`() {
+        val claimId = "claim-resume-${UUID.randomUUID()}"
+
+        createJdbcRunner().run { ctx ->
+            val workflow = ctx.workflow()
+            runBlocking {
+                val suspension = try {
+                    val service = workflow.runtime.create(RegulatedClaimApprovalResumeService::class)
+                    service.triageAndExecutePayout(claimId)
+                    error("Expected approval suspension")
+                } catch (e: ApprovalSuspendedException) {
+                    e
+                }
+
+                assertThat(suspension.approvalId).isNotNull
+                assertThat(workflow.suspendedInvocationStore.get(suspension.approvalId)).isNotNull
+
+                val approvalResult = workflow.decisionControlPlane.approve(
+                    ApprovalDecisionCommand(
+                        approvalId = ApprovalId(suspension.approvalId),
+                        actorId = "medical-ops-reviewer",
+                        actorRole = ApproverRole("medical-reviewer"),
+                        comment = "Approved for regulated claim payout",
+                        correlationId = claimId,
+                    ),
+                )
+
+                assertThat(approvalResult).isInstanceOf(ApprovalDecisionResult.Approved::class.java)
+
+                val approved = workflow.approvalStore.get(suspension.approvalId)
+                assertThat(approved).isNotNull
+                assertThat(approved!!.status).isEqualTo(ApprovalStatus.APPROVED)
+
+                val resumeResult = workflow.resumeControlPlane.resume(
+                    ApprovalResumeCommand(
+                        approvalId = ApprovalId(suspension.approvalId),
+                        resumeToken = ResumeToken(suspension.challenge.token.reveal()),
+                        resumedBy = "medical-ops-reviewer",
+                        expectedApprovalVersion = approved.version,
+                        expectedContinuationVersion = suspension.continuationVersion,
+                    ),
+                )
+
+                assertThat(resumeResult).isInstanceOf(ApprovalResumeResult.Resumed::class.java)
+                val resumed = resumeResult as ApprovalResumeResult.Resumed
+                assertThat(resumed.result).isInstanceOf(String::class.java)
+
+                val continuation = workflow.approvalContinuationStore.get(suspension.approvalId)
+                assertThat(continuation).isNotNull
+                assertThat(continuation!!.status).isEqualTo(ApprovalContinuationStatus.COMPLETED)
+            }
+        }
+    }
+
     // ══════════════════════════════════════════════════════════════════
     // Test 2 — Fail-closed cloud routing
     // ══════════════════════════════════════════════════════════════════
@@ -458,6 +548,38 @@ class RegulatedClaimTriageJdbcE2ETest {
         fun regulatedClaimTriageApprovalDecisionControlPlaneAuthorizer(): RegulatedClaimTriageApprovalDecisionControlPlaneAuthorizer =
             RegulatedClaimTriageApprovalDecisionControlPlaneAuthorizer()
     }
+
+    @Configuration
+    class ApprovalResumeRuntimeConfig {
+        @Bean
+        fun claimPayoutLedger(): ClaimPayoutLedger = ClaimPayoutLedger()
+
+        @Bean
+        fun sovereignTramai(
+            profile: SovereignProfileConfiguration,
+            modelRegistry: ModelRegistry,
+            auditStore: AuditStore,
+            infrastructure: SovereignTramaiAutoConfiguration.SovereignTramaiInfrastructure,
+            clock: Clock,
+            claimPayoutLedger: ClaimPayoutLedger,
+        ): SovereignTramai {
+            val builder = SovereignTramai.builder()
+                .profile(profile)
+                .modelRegistry(modelRegistry)
+                .auditStore(auditStore)
+                .provider(ResumeAwareDemoProvider(), name = "deterministic-local-provider", default = true)
+                .model("local-invoice-model", "deterministic-local-provider")
+                .tools(ClaimPayoutTool(claimPayoutLedger))
+                .approvalContinuationStore(infrastructure.approvalContinuationStore)
+                .approvalGateCoordinator(infrastructure.approvalGateCoordinator)
+                .clock(clock)
+
+            infrastructure.suspendedInvocationStore?.let { builder.suspendedInvocationStore(it) }
+            infrastructure.toolArgumentsDigester?.let { builder.toolArgumentsDigester(it) }
+
+            return builder.build()
+        }
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -528,6 +650,112 @@ class RecordingCloudClaimModel {
     }
 }
 
+@AiService
+fun interface RegulatedClaimApprovalResumeService {
+    @Operation(
+        model = "local-invoice-model",
+        tools = ["claim-payout"],
+    )
+    @User(
+        """
+        Review the regulated claim and execute payout when the claim is approved.
+        Claim ID: {claimId}
+        """
+    )
+    suspend fun triageAndExecutePayout(claimId: String): String
+}
+
+data class ClaimPayoutInput(
+    val claimId: String,
+)
+
+data class ClaimPayoutResult(
+    val claimId: String,
+    val status: String,
+)
+
+class ClaimPayoutLedger {
+    private val executions = ConcurrentHashMap<String, ClaimPayoutResult>()
+
+    fun executeExactlyOnce(
+        idempotencyKey: String,
+        input: ClaimPayoutInput,
+    ): ClaimPayoutResult =
+        executions.computeIfAbsent(idempotencyKey) {
+            ClaimPayoutResult(
+                claimId = input.claimId,
+                status = "PAYOUT_SCHEDULED",
+            )
+        }
+
+    fun executionCount(): Int = executions.size
+}
+
+class ClaimPayoutTool(
+    private val ledger: ClaimPayoutLedger,
+) : TramaiTool<ClaimPayoutInput, ClaimPayoutResult> {
+    override val name: String = "claim-payout"
+    override val description: String = "Execute a regulated claim payout"
+    override val inputType = ClaimPayoutInput::class
+    override val idempotent: Boolean = true
+    override val sideEffectLevel: SideEffectLevel = SideEffectLevel.WRITE
+    override val security: ToolSecurityMetadata = ToolSecurityMetadata(
+        permission = "claim.payout",
+        risk = RiskLevel.HIGH,
+        approval = ApprovalMode.HUMAN_REQUIRED,
+        managedNetworkEgress = ManagedNetworkEgress.DENY,
+        audit = AuditDetail.FULL,
+    )
+
+    override suspend fun execute(
+        input: ClaimPayoutInput,
+        context: ToolExecutionContext,
+    ): ClaimPayoutResult {
+        val idempotencyKey = requireNotNull(context.idempotencyKey) {
+            "claim-payout requires an idempotencyKey from the engine"
+        }
+        return ledger.executeExactlyOnce(idempotencyKey, input)
+    }
+}
+
+class ResumeAwareDemoProvider : ModelProvider {
+    private val callCount = AtomicInteger(0)
+
+    override fun providerId(): String = "deterministic-local-provider"
+
+    override suspend fun complete(request: ModelRequest): ModelResponse {
+        val attempt = callCount.incrementAndGet()
+        if (attempt == 1) {
+            val claimId = extractClaimId(request)
+            return ModelResponse(
+                content = "The claim payout requires tool execution.",
+                toolCalls = listOf(
+                    ToolCall(
+                        id = "call-claim-payout-001",
+                        name = "claim-payout",
+                        argumentsJson = """{"claimId":"$claimId"}""",
+                    ),
+                ),
+                finishReason = FinishReason.OTHER,
+            )
+        }
+
+        return ModelResponse(
+            content = "CLAIM_PAYOUT_COMPLETED",
+            finishReason = FinishReason.STOP,
+        )
+    }
+
+    private fun extractClaimId(request: ModelRequest): String {
+        val content = request.messages.lastOrNull()?.content.orEmpty()
+        return Regex("Claim ID: ([^\\s]+)")
+            .find(content)
+            ?.groupValues
+            ?.get(1)
+            ?: "claim-unknown"
+    }
+}
+
 data class FakeRecommendation(
     val recommendationType: String,
     val riskLevel: String,
@@ -544,8 +772,11 @@ class ClaimTriageWorkflow(
     val mutationStore: SovereignOpsApprovalMutationStore,
     val outboxStore: SovereignOpsAuditOutboxStore,
     val decisionControlPlane: ApprovalDecisionControlPlane,
+    val resumeControlPlane: ApprovalResumeControlPlane,
     val suspendedInvocationStore: SuspendedInvocationStore,
     val approvalContinuationStore: ApprovalContinuationStore,
+    val runtime: SovereignTramaiRuntime,
+    val claimPayoutLedger: ClaimPayoutLedger,
     private val approvalGateway: ApprovalGateway,
     private val dataSource: DataSource,
     private val dlp: FakeDlpClassifier = FakeDlpClassifier(),
@@ -757,8 +988,11 @@ private fun org.springframework.context.ApplicationContext.workflow(
     mutationStore = getBean(SovereignOpsApprovalMutationStore::class.java),
     outboxStore = getBean(SovereignOpsAuditOutboxStore::class.java),
     decisionControlPlane = getBean(ApprovalDecisionControlPlane::class.java),
+    resumeControlPlane = getBean(ApprovalResumeControlPlane::class.java),
     suspendedInvocationStore = getBean(SuspendedInvocationStore::class.java),
     approvalContinuationStore = getBean(ApprovalContinuationStore::class.java),
+    runtime = getBean(SovereignTramaiRuntime::class.java),
+    claimPayoutLedger = ClaimPayoutLedger(),
     approvalGateway = getBean(ApprovalGateway::class.java),
     dataSource = getBean(DataSource::class.java),
     cloudModel = cloudModel,
