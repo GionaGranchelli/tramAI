@@ -389,27 +389,25 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
 
         assertThat(result).isInstanceOf(SovereignOpsApprovalRequestMutationResult.Created::class.java)
 
-        // Read sanitized_metadata raw JSON from DB and verify inbox fields
+        // Read sanitized_metadata JSON from DB and verify inbox fields via parsed tree
         val rawJson = selectValue(
             "SELECT sanitized_metadata::text FROM approvals WHERE approval_id = ?",
             "approval-inbox-1",
         )!!
-        assertThat(rawJson).contains(""""inbox"""")
-        assertThat(rawJson).contains("""requiredRole""")
-        assertThat(rawJson).contains("""medical-reviewer""")
-        assertThat(rawJson).contains("""riskLevel""")
-        assertThat(rawJson).contains("""HIGH""")
-        assertThat(rawJson).contains("""subjectType""")
-        assertThat(rawJson).contains("""claim""")
-        assertThat(rawJson).contains("""subjectId""")
-        assertThat(rawJson).contains("""claim-123""")
-        assertThat(rawJson).contains("""recommendationType""")
-        assertThat(rawJson).contains("""claim-payout""")
+        val root = mapper.readTree(rawJson)
+        val inbox = root["inbox"]
+        assertThat(inbox).isNotNull
+        assertThat(inbox["requiredRole"].asText()).isEqualTo("medical-reviewer")
+        assertThat(inbox["riskLevel"].asText()).isEqualTo("HIGH")
+        assertThat(inbox["subjectType"].asText()).isEqualTo("claim")
+        assertThat(inbox["subjectId"].asText()).isEqualTo("claim-123")
+        assertThat(inbox["recommendationType"].asText()).isEqualTo("claim-payout")
 
-        // Verify no sensitive metadata leaks into inbox
-        assertThat(rawJson).doesNotContain("""argumentsDigest""")
-        assertThat(rawJson).doesNotContain("""approvalTokenDigest""")
+        // Verify inbox does not contain sensitive binding fields (they live under binding)
+        assertThat(inbox.has("argumentsDigest")).isFalse()
+        assertThat(inbox.has("approvalTokenDigest")).isFalse()
     }
+
 
     @Test
     fun `rollback removes inbox metadata when continuation insert fails`() = runBlocking {
