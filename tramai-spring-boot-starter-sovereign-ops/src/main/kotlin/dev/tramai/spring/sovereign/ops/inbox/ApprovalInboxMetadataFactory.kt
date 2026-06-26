@@ -8,8 +8,7 @@ import dev.tramai.core.approval.gateway.ApproverRole
  * Implementations produce labels for the reviewer-facing inbox without exposing
  * raw tool arguments, replay envelopes, token digests, or sensitive payloads.
  *
- * A concrete example is [RegulatedClaimTriageApprovalInboxMetadataFactory] which
- * maps the claim triage workflow's safe correlation ID into subject metadata.
+ * For example, a regulated claim triage workflow can provide claim-safe reviewer labels.
  *
  * @see ApprovalInboxMetadata
  * @see ApprovalInboxMetadataContext
