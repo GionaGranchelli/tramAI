@@ -215,6 +215,95 @@ class SovereignOpsApprovalResumeControlPlaneTest {
     }
 
     @Test
+    fun `resume claimed continuation returns Conflict`() = runBlocking {
+        val approvalStore = ResumeMutableApprovalStore(
+            mutableMapOf("approval-1" to approvedApproval("approval-1")),
+        )
+        val continuationStore = ResumeMutableApprovalContinuationStore(
+            mutableMapOf(
+                "approval-1" to pendingContinuation("approval-1").copy(
+                    status = ApprovalContinuationStatus.CLAIMED,
+                    claimedBy = "worker-1",
+                    claimedAt = now.minusSeconds(10),
+                ),
+            ),
+        )
+        val controlPlane = SovereignOpsApprovalResumeControlPlane(
+            approvalStore = approvalStore,
+            approvalContinuationStore = continuationStore,
+            resumeApproval = { error("should not run") },
+            clock = clock,
+        )
+
+        val result = controlPlane.resume(resumeCommand("approval-1"))
+
+        assertThat(result).isEqualTo(
+            ApprovalResumeResult.Conflict(
+                approvalId = ApprovalId("approval-1"),
+                reason = "approval-continuation-not-pending-CLAIMED",
+            ),
+        )
+    }
+
+    @Test
+    fun `resume expired continuation returns Conflict`() = runBlocking {
+        val approvalStore = ResumeMutableApprovalStore(
+            mutableMapOf("approval-1" to approvedApproval("approval-1")),
+        )
+        val continuationStore = ResumeMutableApprovalContinuationStore(
+            mutableMapOf(
+                "approval-1" to pendingContinuation("approval-1").copy(
+                    status = ApprovalContinuationStatus.EXPIRED,
+                ),
+            ),
+        )
+        val controlPlane = SovereignOpsApprovalResumeControlPlane(
+            approvalStore = approvalStore,
+            approvalContinuationStore = continuationStore,
+            resumeApproval = { error("should not run") },
+            clock = clock,
+        )
+
+        val result = controlPlane.resume(resumeCommand("approval-1"))
+
+        assertThat(result).isEqualTo(
+            ApprovalResumeResult.Conflict(
+                approvalId = ApprovalId("approval-1"),
+                reason = "approval-continuation-not-pending-EXPIRED",
+            ),
+        )
+    }
+
+    @Test
+    fun `resume cancelled continuation returns Conflict`() = runBlocking {
+        val approvalStore = ResumeMutableApprovalStore(
+            mutableMapOf("approval-1" to approvedApproval("approval-1")),
+        )
+        val continuationStore = ResumeMutableApprovalContinuationStore(
+            mutableMapOf(
+                "approval-1" to pendingContinuation("approval-1").copy(
+                    status = ApprovalContinuationStatus.CANCELLED,
+                ),
+            ),
+        )
+        val controlPlane = SovereignOpsApprovalResumeControlPlane(
+            approvalStore = approvalStore,
+            approvalContinuationStore = continuationStore,
+            resumeApproval = { error("should not run") },
+            clock = clock,
+        )
+
+        val result = controlPlane.resume(resumeCommand("approval-1"))
+
+        assertThat(result).isEqualTo(
+            ApprovalResumeResult.Conflict(
+                approvalId = ApprovalId("approval-1"),
+                reason = "approval-continuation-not-pending-CANCELLED",
+            ),
+        )
+    }
+
+    @Test
     fun `resume with invalid resume token returns Conflict`() = runBlocking {
         val approvalStore = ResumeMutableApprovalStore(
             mutableMapOf("approval-1" to approvedApproval("approval-1")),

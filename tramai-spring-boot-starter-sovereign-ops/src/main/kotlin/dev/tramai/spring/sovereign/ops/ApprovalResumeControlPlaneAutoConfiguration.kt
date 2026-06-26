@@ -20,7 +20,12 @@ import org.springframework.context.annotation.Bean
  *
  * @see SovereignOpsApprovalResumeControlPlane
  */
-@AutoConfiguration(after = [SovereignOpsAutoConfiguration::class])
+@AutoConfiguration(
+    after = [SovereignOpsAutoConfiguration::class],
+    afterName = [
+        "dev.tramai.spring.sovereign.SovereignTramaiAutoConfiguration",
+    ],
+)
 @ConditionalOnProperty(
     prefix = "tramai.sovereign.ops",
     name = ["resume-enabled"],

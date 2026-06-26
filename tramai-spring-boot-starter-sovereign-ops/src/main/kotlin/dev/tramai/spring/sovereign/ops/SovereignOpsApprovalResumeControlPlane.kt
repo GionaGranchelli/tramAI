@@ -55,8 +55,17 @@ class SovereignOpsApprovalResumeControlPlane(
                 "approval-continuation-missing",
             )
 
-        if (continuation.status == ApprovalContinuationStatus.COMPLETED) {
-            return ApprovalResumeResult.AlreadyCompleted(command.approvalId)
+        when (continuation.status) {
+            ApprovalContinuationStatus.PENDING -> Unit
+
+            ApprovalContinuationStatus.COMPLETED ->
+                return ApprovalResumeResult.AlreadyCompleted(command.approvalId)
+
+            else ->
+                return ApprovalResumeResult.Conflict(
+                    approvalId = command.approvalId,
+                    reason = "approval-continuation-not-pending-${continuation.status.name}",
+                )
         }
 
         if (continuation.approvalExpiresAt.isBefore(clock.instant())) {

@@ -419,7 +419,23 @@ class RegulatedClaimTriageJdbcE2ETest {
 
                 assertThat(resumeResult).isInstanceOf(ApprovalResumeResult.Resumed::class.java)
                 val resumed = resumeResult as ApprovalResumeResult.Resumed
-                assertThat(resumed.result).isInstanceOf(String::class.java)
+                assertThat(resumed.result).isEqualTo("CLAIM_PAYOUT_COMPLETED")
+
+                // Side-effect executed exactly once
+                assertThat(workflow.claimPayoutLedger.executionCount()).isEqualTo(1)
+
+                // Subsequent resume is AlreadyCompleted — no duplicate side effect
+                val secondResume = workflow.resumeControlPlane.resume(
+                    ApprovalResumeCommand(
+                        approvalId = ApprovalId(suspension.approvalId),
+                        resumeToken = ResumeToken(suspension.challenge.token.reveal()),
+                        resumedBy = "medical-ops-reviewer",
+                        expectedApprovalVersion = approved.version + 1,
+                        expectedContinuationVersion = suspension.continuationVersion + 1,
+                    ),
+                )
+                assertThat(secondResume).isInstanceOf(ApprovalResumeResult.AlreadyCompleted::class.java)
+                assertThat(workflow.claimPayoutLedger.executionCount()).isEqualTo(1)
 
                 val continuation = workflow.approvalContinuationStore.get(suspension.approvalId)
                 assertThat(continuation).isNotNull
@@ -992,7 +1008,7 @@ private fun org.springframework.context.ApplicationContext.workflow(
     suspendedInvocationStore = getBean(SuspendedInvocationStore::class.java),
     approvalContinuationStore = getBean(ApprovalContinuationStore::class.java),
     runtime = getBean(SovereignTramaiRuntime::class.java),
-    claimPayoutLedger = ClaimPayoutLedger(),
+    claimPayoutLedger = getBean(ClaimPayoutLedger::class.java),
     approvalGateway = getBean(ApprovalGateway::class.java),
     dataSource = getBean(DataSource::class.java),
     cloudModel = cloudModel,
