@@ -46,6 +46,12 @@ class ApprovalInboxController(
         if (limit < 1 || limit > 100) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "approval-inbox-limit-out-of-range")
         }
+        if (requiredRole != null) {
+            throw ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "approval-inbox-required-role-filter-not-supported",
+            )
+        }
         val query = ApprovalInboxQuery(
             status = try {
                 status?.let { dev.tramai.core.approval.ApprovalStatus.valueOf(it) }
@@ -53,7 +59,7 @@ class ApprovalInboxController(
             } catch (e: IllegalArgumentException) {
                 throw ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid-approval-inbox-status")
             },
-            requiredRole = requiredRole?.let { parseOrBadRequest { dev.tramai.core.approval.gateway.ApproverRole(it) } },
+            requiredRole = null,
             requestedBy = requestedBy,
             expiresBefore = expiresBefore,
             limit = limit,

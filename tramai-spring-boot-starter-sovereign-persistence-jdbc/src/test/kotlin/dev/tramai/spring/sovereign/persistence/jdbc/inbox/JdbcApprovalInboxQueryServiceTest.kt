@@ -19,6 +19,7 @@ import org.postgresql.ds.PGSimpleDataSource
 import org.testcontainers.containers.PostgreSQLContainer
 import java.sql.Connection
 import java.sql.DriverManager
+import java.util.Base64
 import javax.sql.DataSource
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -324,5 +325,34 @@ class JdbcApprovalInboxQueryServiceTest {
 
         assertThat(item).isNotNull
         assertThat(item!!.workflowRunId).isEqualTo("wf-custom")
+    }
+
+    @Test
+    fun `nextCursor is URL safe`() = runBlocking {
+        repeat(5) { i -> insertApproval("url-safe-$i", requestedAt = baseTime.plusSeconds(i.toLong())) }
+
+        val page = service.search(ApprovalInboxQuery(limit = 2))
+
+        assertThat(page.nextCursor).isNotNull
+        // URL-safe Base64 uses - instead of +, _ instead of /, no padding =
+        val cursor = page.nextCursor!!
+        assertThat(cursor).doesNotContain("+")
+        assertThat(cursor).doesNotContain("/")
+        assertThat(cursor).doesNotContain("=")
+
+        // Can round-trip through URL-safe decoder
+        Base64.getUrlDecoder().decode(cursor)
+    }
+
+    @Test
+    fun `requiredRole filter fails closed`() = runBlocking {
+        insertApproval("role-filter-1")
+
+        val ex = org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            service.search(
+                ApprovalInboxQuery(requiredRole = dev.tramai.core.approval.gateway.ApproverRole("medical-reviewer")),
+            )
+        }
+        assertThat(ex).hasMessageContaining("required-role-filter-not-supported")
     }
 }

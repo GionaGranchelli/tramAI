@@ -4,6 +4,7 @@ import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAuto
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQueryService
 import java.time.Clock
 import javax.sql.DataSource
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
@@ -34,7 +35,10 @@ class ApprovalInboxQueryAutoConfiguration {
     @ConditionalOnMissingBean(ApprovalInboxQueryService::class)
     fun jdbcApprovalInboxQueryService(
         dataSource: DataSource,
-        clock: Clock,
+        clockProvider: ObjectProvider<Clock>,
     ): ApprovalInboxQueryService =
-        JdbcApprovalInboxQueryService(dataSource, clock)
+        JdbcApprovalInboxQueryService(
+            dataSource = dataSource,
+            clock = clockProvider.ifAvailable ?: Clock.systemUTC(),
+        )
 }

@@ -102,6 +102,12 @@ class ApprovalInboxControllerTest {
             .andExpect(status().isBadRequest)
     }
 
+    @Test
+    fun `GET approvals rejects requiredRole filter with 400`() = runBlocking {
+        mockMvc.perform(get("/tramai/sovereign/approvals?requiredRole=medical-reviewer"))
+            .andExpect(status().isBadRequest)
+    }
+
     private fun inboxPage(): ApprovalInboxPage = ApprovalInboxPage(
         items = listOf(inboxItem()),
         nextCursor = null,

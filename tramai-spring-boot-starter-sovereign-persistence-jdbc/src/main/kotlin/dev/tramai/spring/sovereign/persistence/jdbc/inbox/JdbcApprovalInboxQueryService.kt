@@ -2,6 +2,8 @@ package dev.tramai.spring.sovereign.persistence.jdbc.inbox
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.SerializationFeature
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.readValue
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import dev.tramai.core.approval.ApprovalContinuationStatus
@@ -40,7 +42,10 @@ class JdbcApprovalInboxQueryService(
     private val clock: Clock = Clock.systemUTC(),
 ) : ApprovalInboxQueryService {
 
-    private val mapper = ObjectMapper().registerKotlinModule()
+    private val mapper: ObjectMapper = ObjectMapper()
+        .registerKotlinModule()
+        .registerModule(JavaTimeModule())
+        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
 
     /**
      * Canonical `effective_expires_at` expression reused for filtering,
@@ -74,6 +79,9 @@ class JdbcApprovalInboxQueryService(
 
     override suspend fun search(query: ApprovalInboxQuery): ApprovalInboxPage =
         dataSource.connection.use { conn ->
+            require(query.requiredRole == null) {
+                "approval-inbox-required-role-filter-not-supported"
+            }
             val effectiveLimit = query.limit.coerceIn(1, 100)
             val cursor = query.cursor?.let(::decodeCursor)
             val sql = buildString {
@@ -182,11 +190,13 @@ class JdbcApprovalInboxQueryService(
     }
 
     private fun encodeCursor(c: InboxCursor): String =
-        Base64.getEncoder().encodeToString(mapper.writeValueAsBytes(c))
+        Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(mapper.writeValueAsBytes(c))
 
     private fun decodeCursor(raw: String): InboxCursor =
         try {
-            mapper.readValue<InboxCursor>(Base64.getDecoder().decode(raw))
+            mapper.readValue<InboxCursor>(Base64.getUrlDecoder().decode(raw))
         } catch (e: Exception) {
             throw IllegalArgumentException("invalid-approval-inbox-cursor", e)
         }
