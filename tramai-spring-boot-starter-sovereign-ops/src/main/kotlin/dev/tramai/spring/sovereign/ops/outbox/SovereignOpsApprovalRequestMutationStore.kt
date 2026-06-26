@@ -1,6 +1,7 @@
 package dev.tramai.spring.sovereign.ops.outbox
 
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata
 
 /**
  * Atomic approval request creation store that persists all approval-request
@@ -14,5 +15,6 @@ interface SovereignOpsApprovalRequestMutationStore {
     suspend fun createApprovalRequest(
         request: ApprovalGatewayPersistenceRequest,
         auditIntent: SovereignOpsAuditOutboxRecord? = null,
+        inboxMetadata: ApprovalInboxMetadata? = null,
     ): SovereignOpsApprovalRequestMutationResult
 }

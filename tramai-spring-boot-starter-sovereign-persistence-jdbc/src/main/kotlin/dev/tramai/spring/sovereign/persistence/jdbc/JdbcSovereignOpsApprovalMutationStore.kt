@@ -1,5 +1,6 @@
 package dev.tramai.spring.sovereign.persistence.jdbc
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
@@ -425,6 +426,7 @@ class JdbcSovereignOpsApprovalMutationStore(
      * Typed metadata model matching [JdbcApprovalStore.ApprovalMetadata].
      * Absence of any required field is a fail-closed condition — no fallbacks.
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     private data class BindingMetadata(
         val workflowRunId: String,
         val toolName: String,
@@ -434,6 +436,16 @@ class JdbcSovereignOpsApprovalMutationStore(
         val approvalTokenDigest: String,
     )
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private data class ApprovalInboxMetadataJson(
+        val requiredRole: String? = null,
+        val riskLevel: String? = null,
+        val subjectType: String? = null,
+        val subjectId: String? = null,
+        val recommendationType: String? = null,
+    )
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
     private data class ApprovalMetadata(
         val binding: BindingMetadata,
         val requestedBy: String,
@@ -443,5 +455,6 @@ class JdbcSovereignOpsApprovalMutationStore(
         val decisionComment: String? = null,
         val consumedBy: String? = null,
         val consumedAt: String? = null,
+        val inbox: ApprovalInboxMetadataJson? = null,
     )
 }

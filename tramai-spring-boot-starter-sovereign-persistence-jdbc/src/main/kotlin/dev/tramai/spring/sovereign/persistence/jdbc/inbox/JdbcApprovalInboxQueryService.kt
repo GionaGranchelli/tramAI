@@ -29,10 +29,10 @@ import javax.sql.DataSource
  * Reads only safe projections. Never returns resume tokens, token digests,
  * raw tool arguments, replay envelopes, or decision comments.
  *
- * Metadata enrichment fields (`requiredRole`, `riskLevel`, `subjectType`,
- * `subjectId`, `recommendationType`) are not yet populated by the current
- * approval-request creation stores. They will appear once a persisted inbox
- * metadata path exists (tracked as a follow-up).
+ * Inbox metadata fields (`requiredRole`, `riskLevel`, `subjectType`,
+ * `subjectId`, `recommendationType`) are read from the `sanitized_metadata->'inbox'`
+ * JSONB object persisted during transactional approval-request creation.
+ * When inbox metadata is absent (legacy approvals), all metadata fields map to null.
  *
  * @param dataSource PostgreSQL DataSource
  * @param clock clock for temporal checks
@@ -72,22 +72,27 @@ class JdbcApprovalInboxQueryService(
                a.version,
                c.status AS continuation_status,
                c.workflow_run_id,
-               $effectiveExpiresAtExpr AS effective_expires_at
+               $effectiveExpiresAtExpr AS effective_expires_at,
+               a.sanitized_metadata->'inbox'->>'requiredRole' AS inbox_required_role,
+               a.sanitized_metadata->'inbox'->>'riskLevel' AS inbox_risk_level,
+               a.sanitized_metadata->'inbox'->>'subjectType' AS inbox_subject_type,
+               a.sanitized_metadata->'inbox'->>'subjectId' AS inbox_subject_id,
+               a.sanitized_metadata->'inbox'->>'recommendationType' AS inbox_recommendation_type
         FROM approvals a
         LEFT JOIN approval_continuations c ON a.approval_id = c.approval_id
     """.trimIndent()
 
     override suspend fun search(query: ApprovalInboxQuery): ApprovalInboxPage =
         dataSource.connection.use { conn ->
-            require(query.requiredRole == null) {
-                "approval-inbox-required-role-filter-not-supported"
-            }
             val effectiveLimit = query.limit.coerceIn(1, 100)
             val cursor = query.cursor?.let(::decodeCursor)
             val sql = buildString {
                 append(baseSql)
                 append(" WHERE 1=1")
                 query.status?.let { append(" AND a.status = ?") }
+                query.requiredRole?.let {
+                    append(" AND a.sanitized_metadata->'inbox'->>'requiredRole' = ?")
+                }
                 query.requestedBy?.let { append(" AND a.sanitized_metadata->>'requestedBy' = ?") }
                 if (query.expiresBefore != null) {
                     append(" AND $effectiveExpiresAtExpr <= ?")
@@ -108,6 +113,7 @@ class JdbcApprovalInboxQueryService(
             conn.prepareStatement(sql).use { stmt ->
                 var idx = 1
                 query.status?.let { stmt.setString(idx++, it.name) }
+                query.requiredRole?.let { stmt.setString(idx++, it.value) }
                 query.requestedBy?.let { stmt.setString(idx++, it) }
                 if (query.expiresBefore != null) {
                     stmt.setObject(idx++, OffsetDateTime.ofInstant(query.expiresBefore, ZoneOffset.UTC))
@@ -165,6 +171,13 @@ class JdbcApprovalInboxQueryService(
             ?: metadata.binding?.workflowRunId
             ?: error("workflowRunId missing for ${rs.getString("approval_id")}")
 
+        // Read inbox metadata from JSONB columns — null when absent (legacy approvals)
+        val inboxRequiredRole = rs.getString("inbox_required_role")
+        val inboxRiskLevel = rs.getString("inbox_risk_level")
+        val inboxSubjectType = rs.getString("inbox_subject_type")
+        val inboxSubjectId = rs.getString("inbox_subject_id")
+        val inboxRecommendationType = rs.getString("inbox_recommendation_type")
+
         return ApprovalInboxWorkItem(
             approvalId = ApprovalId(rs.getString("approval_id")),
             workflowRunId = workflowRunId,
@@ -173,11 +186,11 @@ class JdbcApprovalInboxQueryService(
             requestedBy = metadata.requestedBy ?: "unknown",
             requestedAt = effectiveRequestedAt,
             expiresAt = effectiveExpiresAt,
-            requiredRole = null,
-            riskLevel = null,
-            subjectType = null,
-            subjectId = null,
-            recommendationType = null,
+            requiredRole = inboxRequiredRole?.let { ApproverRole(it) },
+            riskLevel = inboxRiskLevel,
+            subjectType = inboxSubjectType,
+            subjectId = inboxSubjectId,
+            recommendationType = inboxRecommendationType,
             continuationStatus = rs.getString("continuation_status")
                 ?.let(ApprovalContinuationStatus::valueOf),
             version = rs.getLong("version"),

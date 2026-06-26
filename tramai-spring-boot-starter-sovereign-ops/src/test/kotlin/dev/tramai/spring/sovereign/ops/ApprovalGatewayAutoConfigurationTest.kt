@@ -288,6 +288,7 @@ private open class TransactionalGatewayConfig : FullGatewayConfig() {
             override suspend fun createApprovalRequest(
                 request: ApprovalGatewayPersistenceRequest,
                 auditIntent: dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord?,
+                inboxMetadata: dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata?,
             ): SovereignOpsApprovalRequestMutationResult =
                 SovereignOpsApprovalRequestMutationResult.Created(
                     approvalId = request.approvalRequest.approvalId,
@@ -324,6 +325,7 @@ private class RecordingApprovalRequestMutationStore(
     override suspend fun createApprovalRequest(
         request: ApprovalGatewayPersistenceRequest,
         auditIntent: SovereignOpsAuditOutboxRecord?,
+        inboxMetadata: dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata?,
     ): SovereignOpsApprovalRequestMutationResult {
         lastAuditIntent = auditIntent
         return SovereignOpsApprovalRequestMutationResult.Created(

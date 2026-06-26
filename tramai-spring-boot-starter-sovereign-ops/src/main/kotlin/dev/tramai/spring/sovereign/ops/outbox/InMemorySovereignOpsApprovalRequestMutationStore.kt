@@ -5,6 +5,8 @@ import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadataPolicy
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 
@@ -27,7 +29,9 @@ class InMemorySovereignOpsApprovalRequestMutationStore(
     override suspend fun createApprovalRequest(
         request: ApprovalGatewayPersistenceRequest,
         auditIntent: SovereignOpsAuditOutboxRecord?,
+        inboxMetadata: ApprovalInboxMetadata?,
     ): SovereignOpsApprovalRequestMutationResult {
+        inboxMetadata?.let(ApprovalInboxMetadataPolicy::validate)
         val approvalId = request.approvalRequest.approvalId
         val lock = approvalLocks.computeIfAbsent(approvalId) { ReentrantLock() }
         lock.lock()

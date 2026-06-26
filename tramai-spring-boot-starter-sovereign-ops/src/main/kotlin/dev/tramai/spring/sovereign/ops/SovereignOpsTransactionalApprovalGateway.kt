@@ -13,6 +13,8 @@ import dev.tramai.core.approval.gateway.HumanApprovalDecision
 import dev.tramai.core.approval.gateway.WorkflowRunId
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
 import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadataContext
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadataFactory
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutationStore
 import java.time.Clock
@@ -32,12 +34,14 @@ import kotlinx.coroutines.CancellationException
  * @param mutationStore atomic creation store
  * @param requestFactory builds low-level persistence records from the ergonomic SPI input
  * @param auditIntentFactory optional factory for approval-requested audit outbox intent
+ * @param inboxMetadataFactory optional factory for safe inbox metadata labels
  * @param clock clock for temporal decisions
  */
 class SovereignOpsTransactionalApprovalGateway(
     private val mutationStore: SovereignOpsApprovalRequestMutationStore,
     private val requestFactory: ApprovalGatewayRequestFactory,
     private val auditIntentFactory: ApprovalGatewayAuditIntentFactory? = null,
+    private val inboxMetadataFactory: ApprovalInboxMetadataFactory? = null,
     private val clock: Clock = Clock.systemUTC(),
 ) : ApprovalGateway {
 
@@ -61,8 +65,19 @@ class SovereignOpsTransactionalApprovalGateway(
             requiredRole = requiredRole,
         )
 
+        val inboxMetadata = inboxMetadataFactory?.create(
+            ApprovalInboxMetadataContext(
+                approvalId = request.approvalRequest.approvalId,
+                workflowRunId = request.approvalRequest.binding.workflowRunId,
+                toolName = request.approvalRequest.binding.toolName,
+                requestedBy = request.approvalRequest.requestedBy,
+                requiredRole = requiredRole,
+                correlationId = request.suspendedInvocationMetadata.correlationId,
+            ),
+        )
+
         return try {
-            when (val result = mutationStore.createApprovalRequest(request, auditIntent)) {
+            when (val result = mutationStore.createApprovalRequest(request, auditIntent, inboxMetadata)) {
                 is SovereignOpsApprovalRequestMutationResult.Created ->
                     ApprovalRequestResult.Suspended(
                         approvalId = ApprovalId(result.approvalId),

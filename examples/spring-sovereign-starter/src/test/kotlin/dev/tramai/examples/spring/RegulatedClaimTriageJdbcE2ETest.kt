@@ -53,6 +53,9 @@ import dev.tramai.sovereign.SovereignProfileConfiguration
 import dev.tramai.sovereign.SovereignTramai
 import dev.tramai.sovereign.SovereignTramaiRuntime
 import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadataFactory
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQueryService
+import dev.tramai.spring.sovereign.persistence.jdbc.inbox.ApprovalInboxQueryAutoConfiguration
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationResult
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalMutationStore
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
@@ -132,6 +135,7 @@ class RegulatedClaimTriageJdbcE2ETest {
             .withConfiguration(
                 AutoConfigurations.of(
                     SovereignJdbcPersistenceAutoConfiguration::class.java,
+                    ApprovalInboxQueryAutoConfiguration::class.java,
                     SovereignTramaiAutoConfiguration::class.java,
                     ApprovalGatewayAutoConfiguration::class.java,
                     ApprovalDecisionControlPlaneAutoConfiguration::class.java,
@@ -527,6 +531,75 @@ class RegulatedClaimTriageJdbcE2ETest {
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // Test 4 — Regulated claim inbox metadata
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `regulated claim approval appears in inbox with safe metadata`() {
+        val claimId = "claim-inbox-${UUID.randomUUID()}"
+        val input = ClaimTriageInput(
+            claimId = claimId,
+            claimantName = "Epsilon",
+            diagnosisText = "hip fracture",
+            invoiceAmount = 3200,
+            paymentReference = "PAY-REF-INBOX-001",
+        )
+
+        createJdbcRunner().run { ctx ->
+            val workflow = ctx.workflow()
+            val inboxQueryService = ctx.getBean(ApprovalInboxQueryService::class.java)
+            runBlocking {
+                // 1. Run workflow — creates approval through gateway (with inbox metadata factory)
+                val result = workflow.triage(input, RequestedRoute.LOCAL_ONLY)
+                assertThat(result.requiredApproval).isTrue()
+                assertThat(result.approvalId).isNotNull()
+
+                // 2. Query inbox for pending items
+                val page = inboxQueryService.search(
+                    dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQuery(),
+                )
+                assertThat(page.items).isNotEmpty
+
+                // 3. Find our approval by ID
+                val ourItem = page.items.first { it.approvalId.value == result.approvalId }
+                assertThat(ourItem.requiredRole?.value).isEqualTo("medical-reviewer")
+                assertThat(ourItem.riskLevel).isEqualTo("HIGH")
+                assertThat(ourItem.subjectType).isEqualTo("claim")
+                assertThat(ourItem.recommendationType).isEqualTo("claim-payout")
+
+                // 4. Verify no sensitive data leaked
+                // (We assert through the REST-safe projection — these fields don't exist on ApprovalInboxWorkItem)
+                // The class itself has no resumeToken, tokenDigest, replayEnvelope, raw arguments fields
+
+                // 5. Filter by requiredRole
+                val filteredPage = inboxQueryService.search(
+                    dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQuery(
+                        requiredRole = dev.tramai.core.approval.gateway.ApproverRole("medical-reviewer"),
+                    ),
+                )
+                assertThat(filteredPage.items).isNotEmpty
+                assertThat(filteredPage.items.all { it.requiredRole?.value == "medical-reviewer" }).isTrue()
+
+                // 6. Filter by wrong role returns empty
+                val wrongRolePage = inboxQueryService.search(
+                    dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQuery(
+                        requiredRole = dev.tramai.core.approval.gateway.ApproverRole("fraud-reviewer"),
+                    ),
+                )
+                assertThat(wrongRolePage.items).isEmpty()
+
+                // 7. Work item query returns same fields
+                val workItem = inboxQueryService.getWorkItem(ourItem.approvalId)
+                assertThat(workItem).isNotNull
+                assertThat(workItem!!.requiredRole?.value).isEqualTo("medical-reviewer")
+                assertThat(workItem.riskLevel).isEqualTo("HIGH")
+                assertThat(workItem.subjectType).isEqualTo("claim")
+                assertThat(workItem.recommendationType).isEqualTo("claim-payout")
+            }
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private fun sha256Hex(input: String): String {
@@ -563,6 +636,10 @@ class RegulatedClaimTriageJdbcE2ETest {
         @Bean
         fun regulatedClaimTriageApprovalDecisionControlPlaneAuthorizer(): RegulatedClaimTriageApprovalDecisionControlPlaneAuthorizer =
             RegulatedClaimTriageApprovalDecisionControlPlaneAuthorizer()
+
+        @Bean
+        fun regulatedClaimTriageApprovalInboxMetadataFactory(): ApprovalInboxMetadataFactory =
+            RegulatedClaimTriageApprovalInboxMetadataFactory()
     }
 
     @Configuration
