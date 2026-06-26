@@ -15,6 +15,12 @@ import dev.tramai.spring.sovereign.ops.ApprovalDecisionResult
 import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQueryService
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxPage
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxQuery
+import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxWorkItem
+import dev.tramai.core.approval.ApprovalStatus
+import dev.tramai.core.approval.gateway.ApprovalId
 import java.time.Instant
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -24,7 +30,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 
 /**
- * Verifies the auto-configuration property guard for
+ * Verifies the auto-configuration guards for
  * [ApprovalControlPlaneRestAutoConfiguration].
  *
  * NOTE: ApplicationContextRunner silently catches bean-creation exceptions
@@ -42,6 +48,18 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
             TestControlPlanesConfig::class.java,
             TestStoresConfig::class.java,
         )
+
+    private val contextRunnerWithInbox = ApplicationContextRunner()
+        .withConfiguration(
+            AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
+        )
+        .withUserConfiguration(
+            TestControlPlanesConfig::class.java,
+            TestStoresConfig::class.java,
+            TestInboxQueryServiceConfig::class.java,
+        )
+
+    // ── Control plane controller ──────────────────────────────────
 
     @Test
     fun `rest control plane disabled by default does not create controller`() {
@@ -68,6 +86,52 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
             }
     }
 
+    // ── Inbox controller ──────────────────────────────────────────
+
+    @Test
+    fun `inbox controller not created when property disabled`() {
+        contextRunnerWithInbox.run { ctx ->
+            assertThat(ctx).doesNotHaveBean(ApprovalInboxController::class.java)
+        }
+    }
+
+    @Test
+    fun `inbox controller created when property enabled and query service exists`() {
+        contextRunnerWithInbox
+            .withPropertyValues("tramai.sovereign.ops.rest-control-plane-enabled=true")
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(ApprovalInboxController::class.java)
+            }
+    }
+
+    @Test
+    fun `inbox controller not created when query service missing`() {
+        contextRunner // no TestInboxQueryServiceConfig
+            .withPropertyValues("tramai.sovereign.ops.rest-control-plane-enabled=true")
+            .run { ctx ->
+                assertThat(ctx).doesNotHaveBean(ApprovalInboxController::class.java)
+            }
+    }
+
+    @Test
+    fun `custom ApprovalInboxController backs off`() {
+        ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(
+                TestControlPlanesConfig::class.java,
+                TestStoresConfig::class.java,
+                TestInboxQueryServiceConfig::class.java,
+                CustomInboxControllerConfig::class.java,
+            )
+            .withPropertyValues("tramai.sovereign.ops.rest-control-plane-enabled=true")
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(ApprovalInboxController::class.java)
+                // only the custom bean should exist (back-off works)
+            }
+    }
+
     // -- test configurations --
 
     @Configuration
@@ -84,6 +148,12 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
         open fun testApprovalStore(): ApprovalStore = ApprovalStoreStub()
         @Bean
         open fun testApprovalContinuationStore(): ApprovalContinuationStore = ApprovalContinuationStoreStub()
+    }
+
+    @Configuration
+    open class TestInboxQueryServiceConfig {
+        @Bean
+        open fun testInboxQueryService(): ApprovalInboxQueryService = InboxQueryServiceStub()
     }
 
     @Configuration
@@ -105,6 +175,13 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
         open fun testApprovalStore(): ApprovalStore = ApprovalStoreStub()
         @Bean
         open fun testApprovalContinuationStore(): ApprovalContinuationStore = ApprovalContinuationStoreStub()
+    }
+
+    @Configuration
+    open class CustomInboxControllerConfig {
+        @Bean
+        open fun customApprovalInboxController(): ApprovalInboxController =
+            ApprovalInboxController(InboxQueryServiceStub())
     }
 
     // -- stub implementations --
@@ -143,5 +220,11 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
         override suspend fun findStaleClaimed(claimedBefore: Instant, limit: Int): List<ApprovalContinuation> = emptyList()
         override suspend fun forceCancelClaimed(approvalId: String, expectedVersion: Long, cancelledBy: String, reasonCode: String): ApprovalContinuation = throw UnsupportedOperationException()
         override suspend fun sweepExpired(): Int = 0
+    }
+
+    private class InboxQueryServiceStub : ApprovalInboxQueryService {
+        override suspend fun search(query: ApprovalInboxQuery): ApprovalInboxPage =
+            ApprovalInboxPage(emptyList())
+        override suspend fun getWorkItem(approvalId: ApprovalId): ApprovalInboxWorkItem? = null
     }
 }
