@@ -15,6 +15,7 @@
 - Added Preview `ApprovalGatewayAuditIntentFactory` SPI and wiring — `SovereignOpsTransactionalApprovalGateway` now emits approval-requested audit outbox intent atomically when an audit intent factory is present (`PR #102`). The regulated claim triage E2E test proves a `PENDING` approval-requested outbox record exists after gateway request creation.
 - Added Preview `ApprovalDecisionControlPlane` service for approving or denying pending approvals through the transactional mutation/outbox boundary (`PR #103`).
 - Added Preview `ApprovalResumeControlPlane` service for resuming approved, suspended workflow executions through the engine resume runtime (`PR #104`).
+- Added Preview REST approval control plane with approve, deny, resume, and status endpoints, disabled by default (`PR #105`).
 - Sovereign runtime profile and routing foundation (`tramai-sovereign`).
 - Policy enforcement and DLP/redaction support (`tramai-security`).
 - Approval gates and replay-safe resume.

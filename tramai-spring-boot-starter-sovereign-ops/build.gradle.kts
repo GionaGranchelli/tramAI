@@ -28,6 +28,7 @@ dependencies {
     implementation(project(":tramai-engine"))
     implementation(libs.coroutines.core)
     implementation(libs.spring.boot.autoconfigure)
+    implementation(libs.spring.boot.starter.web)
 
     annotationProcessor(libs.spring.boot.configuration.processor)
 

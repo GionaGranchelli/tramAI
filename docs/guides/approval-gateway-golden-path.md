@@ -170,7 +170,7 @@ The Preview approval gateway has the following limitations:
 |------|--------|
 | Full workflow resume runtime | Service-level `ApprovalResumeControlPlane` available |
 | Reviewer UI | Not implemented yet |
-| REST control plane for approvals | Not implemented yet; service-level `ApprovalDecisionControlPlane` available |
+| REST control plane for approvals | Preview REST control plane available (`POST /tramai/sovereign/approvals/{id}/approve`, `.../deny`, `.../resume`, `GET .../{id}`) |
 | Generic workflow DSL | Not implemented yet |
 | Cross-store transaction boundary at creation | ✅ Implemented for JDBC-backed stores via `SovereignOpsApprovalRequestMutationStore` |
 | Approval-requested audit outbox mutation boundary | ✅ Implemented for JDBC-backed stores when an `ApprovalGatewayAuditIntentFactory` bean is provided |
