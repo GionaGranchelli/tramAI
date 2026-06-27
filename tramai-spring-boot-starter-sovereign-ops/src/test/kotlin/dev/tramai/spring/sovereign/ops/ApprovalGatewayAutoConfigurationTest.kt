@@ -12,6 +12,7 @@ import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.gateway.ApprovalGateway
 import dev.tramai.core.approval.gateway.ApprovalRecommendation
+import dev.tramai.core.approval.gateway.ApprovalResumeCredentialRecord
 import dev.tramai.core.approval.gateway.ApprovalSubject
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.ResumeToken
@@ -289,6 +290,7 @@ private open class TransactionalGatewayConfig : FullGatewayConfig() {
                 request: ApprovalGatewayPersistenceRequest,
                 auditIntent: dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord?,
                 inboxMetadata: dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata?,
+                resumeCredential: ApprovalResumeCredentialRecord?,
             ): SovereignOpsApprovalRequestMutationResult =
                 SovereignOpsApprovalRequestMutationResult.Created(
                     approvalId = request.approvalRequest.approvalId,
@@ -326,6 +328,7 @@ private class RecordingApprovalRequestMutationStore(
         request: ApprovalGatewayPersistenceRequest,
         auditIntent: SovereignOpsAuditOutboxRecord?,
         inboxMetadata: dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata?,
+        resumeCredential: ApprovalResumeCredentialRecord?,
     ): SovereignOpsApprovalRequestMutationResult {
         lastAuditIntent = auditIntent
         return SovereignOpsApprovalRequestMutationResult.Created(

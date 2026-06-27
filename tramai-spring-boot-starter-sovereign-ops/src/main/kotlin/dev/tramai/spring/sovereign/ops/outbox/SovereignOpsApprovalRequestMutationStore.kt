@@ -1,5 +1,6 @@
 package dev.tramai.spring.sovereign.ops.outbox
 
+import dev.tramai.core.approval.gateway.ApprovalResumeCredentialRecord
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata
 
@@ -16,5 +17,6 @@ interface SovereignOpsApprovalRequestMutationStore {
         request: ApprovalGatewayPersistenceRequest,
         auditIntent: SovereignOpsAuditOutboxRecord? = null,
         inboxMetadata: ApprovalInboxMetadata? = null,
+        resumeCredential: ApprovalResumeCredentialRecord? = null,
     ): SovereignOpsApprovalRequestMutationResult
 }

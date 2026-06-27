@@ -13,6 +13,10 @@ import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.Sha256Digest
 import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.core.approval.gateway.ApproverRole
+import dev.tramai.core.approval.gateway.ApprovalId
+import dev.tramai.core.approval.gateway.ApprovalResumeCredentialRecord
+import dev.tramai.core.approval.gateway.SealedResumeToken
+import dev.tramai.core.approval.gateway.WorkflowRunId
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.engine.EngineExecutionIdentity
@@ -52,6 +56,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.util.UUID
 import javax.crypto.Cipher
+import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import javax.sql.DataSource
@@ -75,7 +80,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         private val BASE_NOW: Instant = Instant.parse("2026-01-01T00:00:00Z")
     }
 
-    private val testAesKey = ByteArray(16).also { SecureRandom().nextBytes(it) }
+    private val testAesKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
+    private val testSecretKey: SecretKey = SecretKeySpec(testAesKey, "AES")
     private val mapper: ObjectMapper = ObjectMapper()
         .registerKotlinModule()
         .registerModule(JavaTimeModule())
@@ -113,6 +119,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             replayEnvelopeCodec = replayCodec,
             continuationArgumentsCodec = continuationCodec,
             outboxPayloadCodec = outboxCodec,
+            encryptionKey = testSecretKey,
+            encryptionKeyId = "test-key-1",
             clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
         )
         approvalStore = JdbcApprovalStore(
@@ -228,6 +236,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             },
             continuationArgumentsCodec = continuationCodec,
             outboxPayloadCodec = outboxCodec,
+            encryptionKey = testSecretKey,
+            encryptionKeyId = "test-key-1",
             clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
         )
 
@@ -272,6 +282,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             replayEnvelopeCodec = replayCodec,
             continuationArgumentsCodec = continuationCodec,
             outboxPayloadCodec = outboxCodec,
+            encryptionKey = testSecretKey,
+            encryptionKeyId = "test-key-1",
             clock = clockAtNow,
         )
         val request = request("approval-g").copy(
@@ -321,6 +333,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             replayEnvelopeCodec = replayCodec,
             continuationArgumentsCodec = continuationCodec,
             outboxPayloadCodec = outboxCodec,
+            encryptionKey = testSecretKey,
+            encryptionKeyId = "test-key-1",
             clock = clockAtNow,
         )
         val request = request("approval-i").copy(
@@ -356,6 +370,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             replayEnvelopeCodec = replayCodec,
             continuationArgumentsCodec = continuationCodec,
             outboxPayloadCodec = failingCodec,
+            encryptionKey = testSecretKey,
+            encryptionKeyId = "test-key-1",
             clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
         )
 
@@ -431,6 +447,8 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             replayEnvelopeCodec = replayCodec,
             continuationArgumentsCodec = failingCodec,
             outboxPayloadCodec = outboxCodec,
+            encryptionKey = testSecretKey,
+            encryptionKeyId = "test-key-1",
             clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
         )
 
@@ -468,6 +486,45 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         // Only one row exists
         val count = selectCount("SELECT count(*) FROM approvals WHERE approval_id = 'approval-inbox-3'")
         assertThat(count).isEqualTo(1)
+    }
+
+    @Test
+    fun `transactional resume credential uses configured encryption key id`() {
+        runBlocking {
+            val request = request("cred-key-id-test")
+            val metadata = ApprovalInboxMetadata(
+                requiredRole = ApproverRole("medical-reviewer"),
+                riskLevel = "HIGH",
+                subjectType = "claim",
+                subjectId = "claim-key-id",
+                recommendationType = "claim-payout",
+            )
+            val resumeCredential = ApprovalResumeCredentialRecord(
+                approvalId = ApprovalId("cred-key-id-test"),
+                workflowRunId = WorkflowRunId("wf-cred-key-id-test"),
+                resumeToken = SealedResumeToken.seal(
+                    ResumeToken("test-resume-token"),
+                ),
+                createdAt = BASE_NOW,
+                expiresAt = BASE_NOW.plusSeconds(600),
+                version = 1L,
+            )
+
+            mutationStore.createApprovalRequest(
+                request = request,
+                inboxMetadata = metadata,
+                resumeCredential = resumeCredential,
+            )
+
+            // Read encryption_key_id from the resume credentials table
+            val keyId = selectValue(
+                "SELECT encryption_key_id FROM tramai_approval_resume_credentials WHERE approval_id = ?",
+                "cred-key-id-test",
+            )
+
+            assertThat(keyId).isEqualTo("test-key-1")
+            assertThat(keyId).isNotEqualTo("default")
+        }
     }
 
     private fun request(approvalId: String): ApprovalGatewayPersistenceRequest {
@@ -658,6 +715,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
                     "tramai/persistence/jdbc/postgres/V1__sovereign_persistence.sql",
                     "tramai/persistence/jdbc/postgres/V2__approval_continuations.sql",
                     "tramai/persistence/jdbc/postgres/V4__audit_outbox_hardening.sql",
+                    "tramai/persistence/jdbc/postgres/V6__approval_resume_credential_custody.sql",
                 ).forEach { resource ->
                     val sql = javaClass.classLoader
                         .getResourceAsStream(resource)

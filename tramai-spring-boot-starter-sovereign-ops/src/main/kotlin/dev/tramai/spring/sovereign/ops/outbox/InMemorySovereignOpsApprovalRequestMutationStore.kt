@@ -4,6 +4,7 @@ import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalRequest
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.core.approval.gateway.ApprovalResumeCredentialRecord
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadata
 import dev.tramai.spring.sovereign.ops.inbox.ApprovalInboxMetadataPolicy
@@ -30,6 +31,7 @@ class InMemorySovereignOpsApprovalRequestMutationStore(
         request: ApprovalGatewayPersistenceRequest,
         auditIntent: SovereignOpsAuditOutboxRecord?,
         inboxMetadata: ApprovalInboxMetadata?,
+        resumeCredential: ApprovalResumeCredentialRecord?,
     ): SovereignOpsApprovalRequestMutationResult {
         inboxMetadata?.let(ApprovalInboxMetadataPolicy::validate)
         val approvalId = request.approvalRequest.approvalId
