@@ -2,3 +2,4 @@ dev.tramai.spring.sovereign.ops.SovereignOpsAutoConfiguration
 dev.tramai.spring.sovereign.ops.ApprovalGatewayAutoConfiguration
 dev.tramai.spring.sovereign.ops.ApprovalDecisionControlPlaneAutoConfiguration
 dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlaneAutoConfiguration
+dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeWorkerAutoConfiguration

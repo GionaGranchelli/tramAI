@@ -40,6 +40,9 @@ data class SovereignOpsProperties(
 
     /** Configuration for sovereign ops audit outbox behavior. */
     var outbox: SovereignOpsOutboxProperties = SovereignOpsOutboxProperties(),
+
+    /** Configuration for the approved-continuation auto-resume worker. */
+    var approvedResumeWorker: SovereignOpsApprovedResumeWorkerProperties = SovereignOpsApprovedResumeWorkerProperties(),
 )
 
 data class SovereignOpsOutboxProperties(
@@ -68,3 +71,13 @@ data class SovereignOpsOutboxWorkerProperties(
  */
 fun defaultWorkerId(): String =
     System.getenv("HOSTNAME") ?: UUID.randomUUID().toString()
+
+data class SovereignOpsApprovedResumeWorkerProperties(
+    val enabled: Boolean = false,
+    var workerId: String = defaultWorkerId(),
+    val batchSize: Int = 50,
+    val leaseDuration: Duration = Duration.ofMinutes(2),
+    val leaseHeartbeatInterval: Duration = Duration.ofSeconds(30),
+    val retryDelay: Duration = Duration.ofSeconds(30),
+    val conflictRetryDelay: Duration = Duration.ofSeconds(60),
+)

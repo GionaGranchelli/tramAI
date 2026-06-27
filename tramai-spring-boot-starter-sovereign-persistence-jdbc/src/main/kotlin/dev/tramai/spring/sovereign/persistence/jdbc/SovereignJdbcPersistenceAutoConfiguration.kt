@@ -4,6 +4,7 @@ import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalResumeCredentialStore
 import dev.tramai.engine.SuspendedInvocationStore
+import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueue
 import dev.tramai.persistence.jdbc.JdbcApprovalContinuationStore
 import dev.tramai.persistence.jdbc.JdbcApprovalStore
 import dev.tramai.persistence.jdbc.JdbcAuditPayloadCodec
@@ -264,4 +265,12 @@ class SovereignJdbcPersistenceAutoConfiguration {
             key = key,
             keyId = properties.encryption.keyId,
         )
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(DataSource::class)
+    fun approvedContinuationResumeQueue(
+        dataSource: DataSource,
+    ): ApprovedContinuationResumeQueue =
+        JdbcApprovedContinuationResumeQueue(dataSource)
 }
