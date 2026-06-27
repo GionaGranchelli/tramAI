@@ -61,4 +61,15 @@ class ApprovalControlPlaneRestAutoConfiguration {
         queryService: ApprovalInboxQueryService,
     ): ApprovalInboxController =
         ApprovalInboxController(queryService)
+
+    @Bean
+    @ConditionalOnMissingBean(ApprovalReviewerUiController::class)
+    @ConditionalOnBean(ApprovalInboxQueryService::class, ApprovalDecisionControlPlane::class)
+    @ConditionalOnProperty(
+        prefix = "tramai.sovereign.ops",
+        name = ["reviewer-ui-enabled"],
+        havingValue = "true",
+    )
+    fun approvalReviewerUiController(): ApprovalReviewerUiController =
+        ApprovalReviewerUiController()
 }
