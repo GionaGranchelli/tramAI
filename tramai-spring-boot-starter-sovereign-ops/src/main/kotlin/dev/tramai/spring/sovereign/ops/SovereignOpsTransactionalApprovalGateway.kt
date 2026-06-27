@@ -6,10 +6,12 @@ import dev.tramai.core.approval.gateway.ApprovalGateway
 import dev.tramai.core.approval.gateway.ApprovalId
 import dev.tramai.core.approval.gateway.ApprovalRecommendation
 import dev.tramai.core.approval.gateway.ApprovalRequestResult
+import dev.tramai.core.approval.gateway.ApprovalResumeCredentialRecord
 import dev.tramai.core.approval.gateway.ApprovalSubject
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.AuditStreamId
 import dev.tramai.core.approval.gateway.HumanApprovalDecision
+import dev.tramai.core.approval.gateway.SealedResumeToken
 import dev.tramai.core.approval.gateway.WorkflowRunId
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
 import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
@@ -76,8 +78,17 @@ class SovereignOpsTransactionalApprovalGateway(
             ),
         )
 
+        val resumeCredential = ApprovalResumeCredentialRecord(
+            approvalId = request.approvalRequest.approvalId,
+            workflowRunId = request.approvalRequest.binding.workflowRunId,
+            resumeToken = SealedResumeToken.seal(request.resumeToken),
+            createdAt = request.approvalRequest.requestedAt,
+            expiresAt = request.approvalRequest.expiresAt,
+            version = 1L,
+        )
+
         return try {
-            when (val result = mutationStore.createApprovalRequest(request, auditIntent, inboxMetadata)) {
+            when (val result = mutationStore.createApprovalRequest(request, auditIntent, inboxMetadata, resumeCredential)) {
                 is SovereignOpsApprovalRequestMutationResult.Created ->
                     ApprovalRequestResult.Suspended(
                         approvalId = ApprovalId(result.approvalId),

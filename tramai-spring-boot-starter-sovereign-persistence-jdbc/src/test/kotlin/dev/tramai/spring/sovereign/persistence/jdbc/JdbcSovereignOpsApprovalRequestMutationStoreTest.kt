@@ -52,6 +52,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.util.UUID
 import javax.crypto.Cipher
+import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import javax.sql.DataSource
@@ -76,6 +77,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
     }
 
     private val testAesKey = ByteArray(16).also { SecureRandom().nextBytes(it) }
+    private val testSecretKey: SecretKey = SecretKeySpec(testAesKey, "AES")
     private val mapper: ObjectMapper = ObjectMapper()
         .registerKotlinModule()
         .registerModule(JavaTimeModule())
@@ -113,6 +115,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             replayEnvelopeCodec = replayCodec,
             continuationArgumentsCodec = continuationCodec,
             outboxPayloadCodec = outboxCodec,
+            encryptionKey = testSecretKey,
             clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
         )
         approvalStore = JdbcApprovalStore(
@@ -228,6 +231,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             },
             continuationArgumentsCodec = continuationCodec,
             outboxPayloadCodec = outboxCodec,
+            encryptionKey = testSecretKey,
             clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
         )
 
@@ -272,6 +276,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             replayEnvelopeCodec = replayCodec,
             continuationArgumentsCodec = continuationCodec,
             outboxPayloadCodec = outboxCodec,
+            encryptionKey = testSecretKey,
             clock = clockAtNow,
         )
         val request = request("approval-g").copy(
@@ -321,6 +326,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             replayEnvelopeCodec = replayCodec,
             continuationArgumentsCodec = continuationCodec,
             outboxPayloadCodec = outboxCodec,
+            encryptionKey = testSecretKey,
             clock = clockAtNow,
         )
         val request = request("approval-i").copy(
@@ -356,6 +362,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             replayEnvelopeCodec = replayCodec,
             continuationArgumentsCodec = continuationCodec,
             outboxPayloadCodec = failingCodec,
+            encryptionKey = testSecretKey,
             clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
         )
 
@@ -431,6 +438,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
             replayEnvelopeCodec = replayCodec,
             continuationArgumentsCodec = failingCodec,
             outboxPayloadCodec = outboxCodec,
+            encryptionKey = testSecretKey,
             clock = Clock.fixed(BASE_NOW.plusSeconds(30), ZoneOffset.UTC),
         )
 
@@ -658,6 +666,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
                     "tramai/persistence/jdbc/postgres/V1__sovereign_persistence.sql",
                     "tramai/persistence/jdbc/postgres/V2__approval_continuations.sql",
                     "tramai/persistence/jdbc/postgres/V4__audit_outbox_hardening.sql",
+                    "tramai/persistence/jdbc/postgres/V6__approval_resume_credential_custody.sql",
                 ).forEach { resource ->
                     val sql = javaClass.classLoader
                         .getResourceAsStream(resource)

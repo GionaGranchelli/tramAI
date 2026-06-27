@@ -25,6 +25,9 @@ import dev.tramai.engine.SensitiveReplayEnvelope
 import dev.tramai.engine.ReplayEnvelopeDigestHelper
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.TokenBudgetSnapshot
+import dev.tramai.core.approval.gateway.ApprovalResumeCredentialRecord
+import dev.tramai.core.approval.gateway.SealedResumeToken
+import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
 import dev.tramai.persistence.jdbc.JdbcContinuationArgumentsCodec
 import dev.tramai.persistence.jdbc.JdbcEncryptedContinuationArguments
@@ -46,6 +49,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+import javax.crypto.SecretKey
 import javax.sql.DataSource
 
 class JdbcSovereignOpsApprovalRequestMutationStore(
@@ -53,6 +57,7 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
     private val replayEnvelopeCodec: JdbcReplayEnvelopeCodec,
     private val continuationArgumentsCodec: JdbcContinuationArgumentsCodec,
     private val outboxPayloadCodec: JdbcOpsAuditOutboxPayloadCodec,
+    private val encryptionKey: SecretKey,
     private val clock: Clock = Clock.systemUTC(),
 ) : SovereignOpsApprovalRequestMutationStore {
 
@@ -65,6 +70,7 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         request: ApprovalGatewayPersistenceRequest,
         auditIntent: SovereignOpsAuditOutboxRecord?,
         inboxMetadata: ApprovalInboxMetadata?,
+        resumeCredential: ApprovalResumeCredentialRecord?,
     ): SovereignOpsApprovalRequestMutationResult {
         validateRequest(request, auditIntent)
         inboxMetadata?.let(ApprovalInboxMetadataPolicy::validate)
@@ -90,6 +96,10 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
                     continuation = request.continuation,
                     sensitiveArguments = request.sensitiveArguments,
                 )
+
+                if (resumeCredential != null) {
+                    insertResumeCredential(conn, resumeCredential)
+                }
 
                 if (auditIntent != null) {
                     val preparedPayload = mapper.writeValueAsBytes(auditIntent.toPersistedOutbox())
@@ -458,6 +468,34 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
             check(stmt.executeUpdate() == 1) {
                 "tramai-sovereign-ops-outbox-concurrent-update"
             }
+        }
+    }
+
+    private fun insertResumeCredential(
+        conn: Connection,
+        credential: ApprovalResumeCredentialRecord,
+    ) {
+        val plaintext = credential.resumeToken.revealForInternalResume().value.encodeToByteArray()
+        val encrypted = DefaultJdbcPayloadCrypto.encrypt(plaintext, encryptionKey)
+        val sql = """
+            INSERT INTO tramai_approval_resume_credentials
+                (approval_id, workflow_run_id, encrypted_resume_token,
+                 encryption_key_id, encryption_algorithm, encryption_nonce,
+                 payload_digest, created_at, expires_at, version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """.trimIndent()
+        conn.prepareStatement(sql).use { stmt ->
+            stmt.setString(1, credential.approvalId)
+            stmt.setString(2, credential.workflowRunId)
+            stmt.setBytes(3, encrypted.ciphertext)
+            stmt.setString(4, encrypted.keyId)
+            stmt.setString(5, encrypted.algorithm)
+            stmt.setBytes(6, encrypted.nonce)
+            stmt.setString(7, encrypted.payloadDigest)
+            stmt.setTimestamp(8, java.sql.Timestamp.from(credential.createdAt))
+            stmt.setTimestamp(9, java.sql.Timestamp.from(credential.expiresAt))
+            stmt.setLong(10, credential.version)
+            stmt.executeUpdate()
         }
     }
 
