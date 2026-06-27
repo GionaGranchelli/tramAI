@@ -78,4 +78,6 @@ data class SovereignOpsApprovedResumeWorkerProperties(
     val batchSize: Int = 50,
     val leaseDuration: Duration = Duration.ofMinutes(2),
     val leaseHeartbeatInterval: Duration = Duration.ofSeconds(30),
+    val retryDelay: Duration = Duration.ofSeconds(30),
+    val conflictRetryDelay: Duration = Duration.ofSeconds(60),
 )

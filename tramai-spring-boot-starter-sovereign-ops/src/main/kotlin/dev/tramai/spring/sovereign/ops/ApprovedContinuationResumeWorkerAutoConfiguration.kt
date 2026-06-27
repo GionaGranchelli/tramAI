@@ -2,7 +2,6 @@ package dev.tramai.spring.sovereign.ops
 
 import dev.tramai.core.approval.gateway.ApprovalResumeCredentialStore
 import java.time.Clock
-import java.time.Duration
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
@@ -52,8 +51,8 @@ class ApprovedContinuationResumeWorkerAutoConfiguration {
             resumeControlPlane = resumeControlPlane,
             workerId = properties.approvedResumeWorker.workerId,
             leaseDuration = properties.approvedResumeWorker.leaseDuration,
-            retryDelay = Duration.ofSeconds(30),
-            conflictRetryDelay = Duration.ofSeconds(60),
+            retryDelay = properties.approvedResumeWorker.retryDelay,
+            conflictRetryDelay = properties.approvedResumeWorker.conflictRetryDelay,
             clock = clock,
         )
 }
