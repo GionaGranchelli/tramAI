@@ -2,6 +2,7 @@ package dev.tramai.spring.sovereign.ops
 
 import dev.tramai.core.approval.gateway.ApprovalResumeCredentialStore
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -64,6 +65,62 @@ class ApprovedContinuationResumeWorkerAutoConfigurationTest {
             .run { ctx ->
                 val worker = ctx.getBean(ApprovedContinuationResumeWorker::class.java)
                 assertThat(worker).isInstanceOf(SovereignOpsApprovedContinuationResumeWorker::class.java)
+            }
+    }
+    @Test
+    fun `lifecycle bean is not created by default`() {
+        contextRunner
+            .withUserConfiguration(MinimalDependenciesConfig::class.java)
+            .withPropertyValues("tramai.sovereign.ops.approved-resume-worker.enabled=true")
+            .run { ctx ->
+                assertThat(ctx).doesNotHaveBean(ApprovedContinuationResumeWorkerLifecycle::class.java)
+            }
+    }
+
+    @Test
+    fun `lifecycle bean is created when lifecycle enabled`() {
+        contextRunner
+            .withUserConfiguration(MinimalDependenciesConfig::class.java)
+            .withPropertyValues(
+                "tramai.sovereign.ops.approved-resume-worker.enabled=true",
+                "tramai.sovereign.ops.approved-resume-worker.lifecycle-enabled=true",
+            )
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(ApprovedContinuationResumeWorkerLifecycle::class.java)
+                assertThat(ctx).hasSingleBean(ApprovedContinuationResumeWorkerStatusStore::class.java)
+            }
+    }
+
+    @Test
+    fun `lifecycle bean is not created when lifecycle enabled but worker missing`() {
+        contextRunner
+            .withUserConfiguration(MinimalDependenciesWithoutQueueConfig::class.java)
+            .withPropertyValues(
+                "tramai.sovereign.ops.approved-resume-worker.enabled=true",
+                "tramai.sovereign.ops.approved-resume-worker.lifecycle-enabled=true",
+            )
+            .run { ctx ->
+                assertThat(ctx).doesNotHaveBean(ApprovedContinuationResumeWorker::class.java)
+                assertThat(ctx).doesNotHaveBean(ApprovedContinuationResumeWorkerLifecycle::class.java)
+            }
+    }
+
+    @Test
+    fun `batch size and interval properties are injected into status store`() {
+        contextRunner
+            .withUserConfiguration(MinimalDependenciesConfig::class.java)
+            .withPropertyValues(
+                "tramai.sovereign.ops.approved-resume-worker.enabled=true",
+                "tramai.sovereign.ops.approved-resume-worker.lifecycle-enabled=true",
+                "tramai.sovereign.ops.approved-resume-worker.batch-size=77",
+                "tramai.sovereign.ops.approved-resume-worker.interval=12s",
+            )
+            .run { ctx ->
+                val store = ctx.getBean(ApprovedContinuationResumeWorkerStatusStore::class.java)
+                val snapshot = store.snapshot()
+
+                assertThat(snapshot.batchSize).isEqualTo(77)
+                assertThat(snapshot.intervalMillis).isEqualTo(Duration.ofSeconds(12).toMillis())
             }
     }
 }

@@ -1,5 +1,6 @@
 package dev.tramai.spring.sovereign.ops.actuator
 
+import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeWorkerStatusStore
 import dev.tramai.spring.sovereign.ops.SovereignOpsAutoConfiguration
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerStatusStore
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint
@@ -61,4 +62,18 @@ class SovereignOpsActuatorAutoConfiguration {
         statusStore: SovereignOpsAuditOutboxWorkerStatusStore,
     ): SovereignOpsWorkerHealthIndicator =
         SovereignOpsWorkerHealthIndicator(statusStore)
+
+    @Bean("tramaiApprovedContinuationResumeWorkerHealthIndicator")
+    @ConditionalOnMissingBean(name = ["tramaiApprovedContinuationResumeWorkerHealthIndicator"])
+    @ConditionalOnBean(ApprovedContinuationResumeWorkerStatusStore::class)
+    @ConditionalOnProperty(
+        prefix = "tramai.sovereign.ops.actuator.approved-resume-worker-health",
+        name = ["enabled"],
+        havingValue = "true",
+        matchIfMissing = false,
+    )
+    fun approvedContinuationResumeWorkerHealthIndicator(
+        statusStore: ApprovedContinuationResumeWorkerStatusStore,
+    ): ApprovedContinuationResumeWorkerHealthIndicator =
+        ApprovedContinuationResumeWorkerHealthIndicator(statusStore)
 }
