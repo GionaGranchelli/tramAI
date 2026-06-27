@@ -232,6 +232,7 @@ class SovereignJdbcPersistenceAutoConfiguration {
         continuationArgumentsCodec: JdbcContinuationArgumentsCodec,
         outboxPayloadCodec: JdbcOpsAuditOutboxPayloadCodec,
         @Qualifier("sovereignJdbcEncryptionKey") encryptionKey: SecretKey,
+        properties: SovereignJdbcPersistenceProperties,
     ): SovereignOpsApprovalRequestMutationStore =
         JdbcSovereignOpsApprovalRequestMutationStore(
             dataSource = dataSource,
@@ -239,6 +240,7 @@ class SovereignJdbcPersistenceAutoConfiguration {
             continuationArgumentsCodec = continuationArgumentsCodec,
             outboxPayloadCodec = outboxPayloadCodec,
             encryptionKey = encryptionKey,
+            encryptionKeyId = properties.encryption.keyId,
         )
 
     @Bean

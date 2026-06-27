@@ -56,6 +56,7 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
     private val continuationArgumentsCodec: JdbcContinuationArgumentsCodec,
     private val outboxPayloadCodec: JdbcOpsAuditOutboxPayloadCodec,
     private val encryptionKey: SecretKey,
+    private val encryptionKeyId: String,
     private val clock: Clock = Clock.systemUTC(),
 ) : SovereignOpsApprovalRequestMutationStore {
 
@@ -474,7 +475,7 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
         credential: ApprovalResumeCredentialRecord,
     ) {
         val plaintext = credential.resumeToken.revealForInternalResume().value.encodeToByteArray()
-        val encrypted = DefaultJdbcPayloadCrypto.encrypt(plaintext, encryptionKey)
+        val encrypted = DefaultJdbcPayloadCrypto.encrypt(plaintext, encryptionKey, encryptionKeyId)
         val sql = """
             INSERT INTO tramai_approval_resume_credentials
                 (approval_id, workflow_run_id, encrypted_resume_token,
