@@ -1,8 +1,8 @@
 package dev.tramai.spring.sovereign.ops
 
-import dev.tramai.core.approval.gateway.ApprovalId
 import dev.tramai.core.approval.gateway.ApprovalResumeCredentialStore
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
 
@@ -24,20 +24,28 @@ import kotlinx.coroutines.CancellationException
  * @param queue claim store for approved continuations.
  * @param credentialStore internal encrypted credential store (PR #111).
  * @param resumeControlPlane the approval resume control plane.
+ * @param workerId identity used for claiming and resuming.
+ * @param leaseDuration how long each claimed item's lease lives.
+ * @param retryDelay delay before retrying a transient failure.
+ * @param conflictRetryDelay delay before retrying a conflict.
  * @param clock clock for temporal checks.
  */
 class SovereignOpsApprovedContinuationResumeWorker(
     private val queue: ApprovedContinuationResumeQueue,
     private val credentialStore: ApprovalResumeCredentialStore,
     private val resumeControlPlane: ApprovalResumeControlPlane,
+    private val workerId: String,
+    private val leaseDuration: Duration,
+    private val retryDelay: Duration,
+    private val conflictRetryDelay: Duration,
     private val clock: Clock = Clock.systemUTC(),
 ) : ApprovedContinuationResumeWorker {
 
     override suspend fun runOnce(limit: Int): ApprovedContinuationResumeWorkerResult {
         val now = clock.instant()
-        val leaseUntil = now.plusSeconds(120)
+        val leaseUntil = now.plus(leaseDuration)
         val items = queue.claimApprovedPending(
-            workerId = WORKER_ID,
+            workerId = workerId,
             limit = limit,
             leaseUntil = leaseUntil,
         )
@@ -81,9 +89,9 @@ class SovereignOpsApprovedContinuationResumeWorker(
         } catch (e: Exception) {
             queue.markResumeFailed(
                 item.approvalId,
-                WORKER_ID,
+                workerId,
                 "credential-store-error:${e::class.simpleName}",
-                retryAt = clock.instant().plusSeconds(30),
+                retryAt = clock.instant().plus(retryDelay),
             )
             return Outcome.FAILED
         }
@@ -91,7 +99,7 @@ class SovereignOpsApprovedContinuationResumeWorker(
         if (credential == null) {
             queue.markResumeFailed(
                 item.approvalId,
-                WORKER_ID,
+                workerId,
                 "credential-not-found",
                 retryAt = null,
             )
@@ -103,9 +111,12 @@ class SovereignOpsApprovedContinuationResumeWorker(
         val command = ApprovalResumeCommand(
             approvalId = item.approvalId,
             resumeToken = resumeToken,
-            resumedBy = WORKER_ID,
-            expectedApprovalVersion = item.approvalVersion,
-            expectedContinuationVersion = item.continuationVersion,
+            resumedBy = workerId,
+            // Do not pass expected versions — let the engine auto-detect
+            // from the store. The queue does NOT increment continuation
+            // version during claim, so the engine sees the canonical version.
+            expectedApprovalVersion = null,
+            expectedContinuationVersion = null,
         )
 
         val result = try {
@@ -115,22 +126,22 @@ class SovereignOpsApprovedContinuationResumeWorker(
         } catch (e: Exception) {
             queue.markResumeFailed(
                 item.approvalId,
-                WORKER_ID,
+                workerId,
                 "resume-error:${e::class.simpleName}",
-                retryAt = clock.instant().plusSeconds(30),
+                retryAt = clock.instant().plus(retryDelay),
             )
             return Outcome.FAILED
         }
 
         return when (result) {
             is ApprovalResumeResult.Resumed -> {
-                queue.markResumeSucceeded(item.approvalId, WORKER_ID)
+                queue.markResumeSucceeded(item.approvalId, workerId)
                 credentialStore.delete(item.approvalId)
                 Outcome.RESUMED
             }
 
             is ApprovalResumeResult.AlreadyCompleted -> {
-                queue.markResumeSucceeded(item.approvalId, WORKER_ID)
+                queue.markResumeSucceeded(item.approvalId, workerId)
                 credentialStore.delete(item.approvalId)
                 Outcome.RESUMED
             }
@@ -139,7 +150,7 @@ class SovereignOpsApprovedContinuationResumeWorker(
             is ApprovalResumeResult.NotApproved -> {
                 queue.markResumeFailed(
                     item.approvalId,
-                    WORKER_ID,
+                    workerId,
                     "resume-${result::class.simpleName}",
                     retryAt = null,
                 )
@@ -150,7 +161,7 @@ class SovereignOpsApprovedContinuationResumeWorker(
                 if (result.reason == "approval-continuation-expired") {
                     queue.markResumeFailed(
                         item.approvalId,
-                        WORKER_ID,
+                        workerId,
                         "continuation-expired",
                         retryAt = null,
                     )
@@ -159,9 +170,9 @@ class SovereignOpsApprovedContinuationResumeWorker(
                 } else {
                     queue.markResumeFailed(
                         item.approvalId,
-                        WORKER_ID,
+                        workerId,
                         "resume-conflict:${result.reason}",
-                        retryAt = clock.instant().plusSeconds(60),
+                        retryAt = clock.instant().plus(conflictRetryDelay),
                     )
                     Outcome.FAILED
                 }
@@ -170,9 +181,9 @@ class SovereignOpsApprovedContinuationResumeWorker(
             is ApprovalResumeResult.Failed -> {
                 queue.markResumeFailed(
                     item.approvalId,
-                    WORKER_ID,
+                    workerId,
                     "resume-failed:${result.reason}",
-                    retryAt = clock.instant().plusSeconds(30),
+                    retryAt = clock.instant().plus(retryDelay),
                 )
                 Outcome.FAILED
             }
@@ -180,8 +191,4 @@ class SovereignOpsApprovedContinuationResumeWorker(
     }
 
     private enum class Outcome { RESUMED, SKIPPED, FAILED }
-
-    companion object {
-        const val WORKER_ID: String = "tramai-sovereign-approved-resume-worker"
-    }
 }

@@ -7,6 +7,8 @@ import dev.tramai.core.approval.gateway.ApprovalResumeCredentialStore
 import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.core.approval.gateway.SealedResumeToken
 import dev.tramai.core.approval.gateway.WorkflowRunId
+import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -35,6 +37,11 @@ class SovereignOpsApprovedContinuationResumeWorkerTest {
             queue = queue,
             credentialStore = credentialStore,
             resumeControlPlane = controlPlane,
+            workerId = "test-worker",
+            leaseDuration = Duration.ofMinutes(2),
+            retryDelay = Duration.ofSeconds(30),
+            conflictRetryDelay = Duration.ofSeconds(60),
+            clock = Clock.systemUTC(),
         )
     }
 

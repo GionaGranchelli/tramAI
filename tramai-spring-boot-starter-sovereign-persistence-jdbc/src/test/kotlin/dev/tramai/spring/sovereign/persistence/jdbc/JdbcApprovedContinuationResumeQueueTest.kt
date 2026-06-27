@@ -64,7 +64,7 @@ class JdbcApprovedContinuationResumeQueueTest {
     fun `claim finds approved pending item with credential`() {
         runBlocking {
             insertApprovedPending("item-001", expiryMinutes = 5)
-            insertCredential("item-001")
+            insertCredential("item-001", workflowRunId = "wf-item-001")
 
             val items = queue.claimApprovedPending(
                 workerId = "worker-1",
@@ -83,7 +83,7 @@ class JdbcApprovedContinuationResumeQueueTest {
             for (i in 1..5) {
                 val id = "batch-item-%03d".format(i)
                 insertApprovedPending(id, expiryMinutes = 5)
-                insertCredential(id)
+                insertCredential(id, workflowRunId = "wf-$id")
             }
 
             val items = queue.claimApprovedPending(
@@ -100,11 +100,11 @@ class JdbcApprovedContinuationResumeQueueTest {
     fun `oldest expiry first ordering`() {
         runBlocking {
             insertApprovedPending("oldest", expiryMinutes = 1)
-            insertCredential("oldest")
+            insertCredential("oldest", workflowRunId = "wf-oldest")
             insertApprovedPending("middle", expiryMinutes = 2)
-            insertCredential("middle")
+            insertCredential("middle", workflowRunId = "wf-middle")
             insertApprovedPending("newest", expiryMinutes = 5)
-            insertCredential("newest")
+            insertCredential("newest", workflowRunId = "wf-newest")
 
             val items = queue.claimApprovedPending(
                 workerId = "worker-1",
@@ -123,7 +123,7 @@ class JdbcApprovedContinuationResumeQueueTest {
     fun `two workers claim same item only one gets it`() {
         runBlocking {
             insertApprovedPending("concurrent-001", expiryMinutes = 5)
-            insertCredential("concurrent-001")
+            insertCredential("concurrent-001", workflowRunId = "wf-concurrent-001")
 
             val items1 = queue.claimApprovedPending(
                 workerId = "worker-a",
@@ -163,7 +163,7 @@ class JdbcApprovedContinuationResumeQueueTest {
                     """.trimIndent())
                 }
             }
-            insertCredential("expired-001")
+            insertCredential("expired-001", workflowRunId = "wf-expired-001")
 
             val items = queue.claimApprovedPending(
                 workerId = "worker-1",
@@ -196,7 +196,7 @@ class JdbcApprovedContinuationResumeQueueTest {
                     """.trimIndent())
                 }
             }
-            insertCredential("pending-001")
+            insertCredential("pending-001", workflowRunId = "wf-pending-001")
 
             val items = queue.claimApprovedPending(
                 workerId = "worker-1",
@@ -212,7 +212,7 @@ class JdbcApprovedContinuationResumeQueueTest {
     fun `markResumeSucceeded updates continuation to COMPLETED`() {
         runBlocking {
             insertApprovedPending("succeed-001", expiryMinutes = 5)
-            insertCredential("succeed-001")
+            insertCredential("succeed-001", workflowRunId = "wf-succeed-001")
 
             val items = queue.claimApprovedPending(
                 workerId = "worker-1",
@@ -236,6 +236,74 @@ class JdbcApprovedContinuationResumeQueueTest {
         runBlocking {
             insertApprovedPending("no-cred-001", expiryMinutes = 5)
             // No credential inserted
+
+            val items = queue.claimApprovedPending(
+                workerId = "worker-1",
+                limit = 10,
+                leaseUntil = Instant.now().plusSeconds(120),
+            )
+
+            assertThat(items).isEmpty()
+        }
+    }
+
+    @Test
+    fun `claimed item with expired lease is reclaimable`() {
+        runBlocking {
+            insertApprovedPending("lease-expired-001", expiryMinutes = 5)
+            insertCredential("lease-expired-001", workflowRunId = "wf-lease-expired-001")
+
+            // Claim with worker-a, lease already expired
+            val items1 = queue.claimApprovedPending(
+                workerId = "worker-a",
+                limit = 10,
+                leaseUntil = Instant.now().minusSeconds(10),
+            )
+            assertThat(items1).hasSize(1)
+
+            // worker-b should reclaim the expired lease
+            val items2 = queue.claimApprovedPending(
+                workerId = "worker-b",
+                limit = 10,
+                leaseUntil = Instant.now().plusSeconds(120),
+            )
+
+            assertThat(items2).hasSize(1)
+            assertThat(items2[0].approvalId.value).isEqualTo("lease-expired-001")
+        }
+    }
+
+    @Test
+    fun `claimed item with active lease is not claimable`() {
+        runBlocking {
+            insertApprovedPending("active-lease-001", expiryMinutes = 5)
+            insertCredential("active-lease-001", workflowRunId = "wf-active-lease-001")
+
+            // Claim with worker-a, lease still active
+            val items1 = queue.claimApprovedPending(
+                workerId = "worker-a",
+                limit = 10,
+                leaseUntil = Instant.now().plusSeconds(120),
+            )
+            assertThat(items1).hasSize(1)
+
+            // worker-b should NOT reclaim — lease is still active
+            val items2 = queue.claimApprovedPending(
+                workerId = "worker-b",
+                limit = 10,
+                leaseUntil = Instant.now().plusSeconds(120),
+            )
+
+            assertThat(items2).isEmpty()
+        }
+    }
+
+    @Test
+    fun `credential with wrong workflow run id is not claimed`() {
+        runBlocking {
+            insertApprovedPending("wrong-wf-001", expiryMinutes = 5)
+            // Credential has MISMATCHED workflow_run_id
+            insertCredential("wrong-wf-001", workflowRunId = "wrong-mismatch-wf")
 
             val items = queue.claimApprovedPending(
                 workerId = "worker-1",
@@ -273,7 +341,7 @@ class JdbcApprovedContinuationResumeQueueTest {
         }
     }
 
-    private fun insertCredential(approvalId: String) {
+    private fun insertCredential(approvalId: String, workflowRunId: String) {
         dataSource.connection.use { conn ->
             conn.createStatement().use { stmt ->
                 stmt.execute("""
@@ -281,7 +349,7 @@ class JdbcApprovedContinuationResumeQueueTest {
                         (approval_id, workflow_run_id, encrypted_resume_token,
                          encryption_key_id, encryption_algorithm, encryption_nonce,
                          payload_digest, created_at, expires_at, version)
-                    VALUES ('$approvalId', 'wf-$approvalId',
+                    VALUES ('$approvalId', '$workflowRunId',
                             decode('74657374', 'hex'),
                             'test-key', 'AES-256-GCM', decode('000000000000000000000000', 'hex'),
                             'sha256:0000000000000000000000000000000000000000000000000000000000000000',
@@ -317,6 +385,7 @@ class JdbcApprovedContinuationResumeQueueTest {
                     "tramai/persistence/jdbc/postgres/V1__sovereign_persistence.sql",
                     "tramai/persistence/jdbc/postgres/V2__approval_continuations.sql",
                     "tramai/persistence/jdbc/postgres/V6__approval_resume_credential_custody.sql",
+                    "tramai/persistence/jdbc/postgres/V7__approval_continuations_resume_retry.sql",
                 ).forEach { resource ->
                     val sql = javaClass.classLoader
                         .getResourceAsStream(resource)
