@@ -1,5 +1,7 @@
 package dev.tramai.spring.sovereign.ops.actuator
 
+import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueueSnapshot
+import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueueStatusStore
 import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeWorkerResult
 import dev.tramai.spring.sovereign.ops.InMemoryApprovedContinuationResumeWorkerStatusStore
 import dev.tramai.spring.sovereign.ops.SovereignOpsApprovedResumeWorkerProperties
@@ -119,6 +121,64 @@ class ApprovedContinuationResumeWorkerHealthIndicatorTest {
         )
     }
 
+    @Test
+    fun `health includes queue counts when queue status store is provided`() {
+        val store = statusStore(lifecycleEnabled = true)
+        store.markLifecycleStarted()
+        store.recordCycleCompleted(
+            workerId = "worker-a",
+            result = successfulSummary(),
+            duration = Duration.ofMillis(20),
+        )
+        val queueStore = FakeApprovedContinuationResumeQueueStatusStore(
+            ApprovedContinuationResumeQueueSnapshot(
+                eligibleNow = 3,
+                delayedRetry = 1,
+                activeLeases = 0,
+                expiredLeases = 0,
+                terminalFailures = 0,
+                oldestEligibleAgeSeconds = 42,
+                oldestRetryDueInSeconds = null,
+                lastErrorCodeCounts = mapOf("IllegalStateException" to 2L),
+            ),
+        )
+
+        val health = ApprovedContinuationResumeWorkerHealthIndicator(
+            statusStore = store,
+            queueStatusStore = queueStore,
+        ).health()
+
+        assertThat(health.status).isEqualTo(Status.UP)
+        assertThat(health.details["eligibleNow"]).isEqualTo(3L)
+        assertThat(health.details["oldestEligibleAgeSeconds"]).isEqualTo(42L)
+        assertThat(health.details).doesNotContainKeys("lastErrorCodeCounts")
+    }
+
+    @Test
+    fun `health does not include last error code counts from queue snapshot`() {
+        val store = statusStore(lifecycleEnabled = true)
+        store.markLifecycleStarted()
+        val queueStore = FakeApprovedContinuationResumeQueueStatusStore(
+            ApprovedContinuationResumeQueueSnapshot(
+                eligibleNow = 1,
+                delayedRetry = 0,
+                activeLeases = 0,
+                expiredLeases = 0,
+                terminalFailures = 1,
+                oldestEligibleAgeSeconds = null,
+                oldestRetryDueInSeconds = null,
+                lastErrorCodeCounts = mapOf("TimeoutException" to 1L),
+            ),
+        )
+
+        val health = ApprovedContinuationResumeWorkerHealthIndicator(
+            statusStore = store,
+            queueStatusStore = queueStore,
+        ).health()
+
+        assertThat(health.details).doesNotContainKey("lastErrorCodeCounts")
+    }
+
     private fun statusStore(lifecycleEnabled: Boolean): InMemoryApprovedContinuationResumeWorkerStatusStore =
         InMemoryApprovedContinuationResumeWorkerStatusStore(
             SovereignOpsApprovedResumeWorkerProperties(
@@ -128,4 +188,13 @@ class ApprovedContinuationResumeWorkerHealthIndicatorTest {
                 interval = Duration.ofSeconds(7),
             ),
         )
+
+    private fun successfulSummary(): ApprovedContinuationResumeWorkerResult =
+        ApprovedContinuationResumeWorkerResult(4, 2, 1, 1)
+
+    private class FakeApprovedContinuationResumeQueueStatusStore(
+        private val snapshot: ApprovedContinuationResumeQueueSnapshot,
+    ) : ApprovedContinuationResumeQueueStatusStore {
+        override suspend fun snapshot(now: java.time.Instant): ApprovedContinuationResumeQueueSnapshot = snapshot
+    }
 }

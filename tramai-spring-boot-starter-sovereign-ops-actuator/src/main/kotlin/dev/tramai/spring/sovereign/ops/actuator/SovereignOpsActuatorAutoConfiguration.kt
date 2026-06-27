@@ -1,8 +1,10 @@
 package dev.tramai.spring.sovereign.ops.actuator
 
+import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueueStatusStore
 import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeWorkerStatusStore
 import dev.tramai.spring.sovereign.ops.SovereignOpsAutoConfiguration
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerStatusStore
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint
 import org.springframework.boot.actuate.health.HealthIndicator
 import org.springframework.boot.autoconfigure.AutoConfiguration
@@ -74,6 +76,10 @@ class SovereignOpsActuatorAutoConfiguration {
     )
     fun approvedContinuationResumeWorkerHealthIndicator(
         statusStore: ApprovedContinuationResumeWorkerStatusStore,
+        queueStatusStore: ObjectProvider<ApprovedContinuationResumeQueueStatusStore>,
     ): ApprovedContinuationResumeWorkerHealthIndicator =
-        ApprovedContinuationResumeWorkerHealthIndicator(statusStore)
+        ApprovedContinuationResumeWorkerHealthIndicator(
+            statusStore = statusStore,
+            queueStatusStore = queueStatusStore.ifAvailable,
+        )
 }
