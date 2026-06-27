@@ -295,15 +295,20 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
     }
 
     /**
-     * Tests that require missing service beans (e.g. without ApprovalDecisionControlPlane,
-     * without ApprovalResumeControlPlane) cause context startup failure due to
-     * constructor injection in ReviewerUiConfiguration. This is correct behavior —
-     * the reviewer UI controller cannot exist without its services.
+     * Tests that require missing service beans cause the reviewer UI controller
+     * to not be registered (context still starts because the web auto-config
+     * controllers don't depend on these beans for control plane controllers).
      *
-     * ApplicationContextRunner captures the startup error. The 'not registered without
-     * ApprovalInboxQueryService' test verifies the controller is absent when the
-     * query service bean is missing (context still starts because the web auto-config
-     * controllers don't depend on it for control plane beans).
+     * The reviewer UI requires both ApprovalInboxQueryService and
+     * ApprovalDecisionControlPlane. Resume is not a UI dependency since the
+     * preview UI is approve/deny only (resume tokens are intentionally not
+     * exposed by the safe inbox boundary).
+     *
+     * NOTE: The missing ApprovalDecisionControlPlane case cannot be tested
+     * via ApplicationContextRunner because ApprovalControlPlaneController
+     * requires it as a direct constructor dependency, causing the entire
+     * context to fail on startup (the runner reports an unstartable context
+     * rather than a bean-absent context).
      */
 
     @Test
