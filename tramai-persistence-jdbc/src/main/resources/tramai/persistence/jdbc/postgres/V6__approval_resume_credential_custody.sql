@@ -16,10 +16,10 @@ CREATE TABLE IF NOT EXISTS tramai_approval_resume_credentials (
     approval_id             TEXT NOT NULL PRIMARY KEY,
     workflow_run_id         TEXT NOT NULL,
     encrypted_resume_token  BYTEA NOT NULL,
-    encryption_key_id       TEXT,
-    encryption_algorithm    TEXT,
-    encryption_nonce        BYTEA,
-    payload_digest          TEXT,
+    encryption_key_id       TEXT NOT NULL,
+    encryption_algorithm    TEXT NOT NULL,
+    encryption_nonce        BYTEA NOT NULL,
+    payload_digest          TEXT NOT NULL,
     created_at              TIMESTAMPTZ NOT NULL,
     expires_at              TIMESTAMPTZ NOT NULL,
     version                 BIGINT NOT NULL DEFAULT 0
@@ -34,6 +34,14 @@ DO $$ BEGIN
     ALTER TABLE tramai_approval_resume_credentials
         ADD CONSTRAINT ck_resume_credentials_approval_id_non_blank
         CHECK (length(trim(approval_id)) > 0);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Encryption algorithm must match AES-256-GCM
+DO $$ BEGIN
+    ALTER TABLE tramai_approval_resume_credentials
+        ADD CONSTRAINT ck_resume_credentials_algorithm
+        CHECK (encryption_algorithm = 'AES-256-GCM');
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 

@@ -26,8 +26,6 @@ import dev.tramai.engine.ReplayEnvelopeDigestHelper
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.TokenBudgetSnapshot
 import dev.tramai.core.approval.gateway.ApprovalResumeCredentialRecord
-import dev.tramai.core.approval.gateway.SealedResumeToken
-import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
 import dev.tramai.persistence.jdbc.JdbcContinuationArgumentsCodec
 import dev.tramai.persistence.jdbc.JdbcEncryptedContinuationArguments
@@ -485,8 +483,8 @@ class JdbcSovereignOpsApprovalRequestMutationStore(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """.trimIndent()
         conn.prepareStatement(sql).use { stmt ->
-            stmt.setString(1, credential.approvalId)
-            stmt.setString(2, credential.workflowRunId)
+            stmt.setString(1, credential.approvalId.value)
+            stmt.setString(2, credential.workflowRunId.value)
             stmt.setBytes(3, encrypted.ciphertext)
             stmt.setString(4, encrypted.keyId)
             stmt.setString(5, encrypted.algorithm)

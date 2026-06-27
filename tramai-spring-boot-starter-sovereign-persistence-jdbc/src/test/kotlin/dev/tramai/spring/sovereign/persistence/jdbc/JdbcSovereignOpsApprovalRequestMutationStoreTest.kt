@@ -76,7 +76,7 @@ class JdbcSovereignOpsApprovalRequestMutationStoreTest {
         private val BASE_NOW: Instant = Instant.parse("2026-01-01T00:00:00Z")
     }
 
-    private val testAesKey = ByteArray(16).also { SecureRandom().nextBytes(it) }
+    private val testAesKey = ByteArray(32).also { SecureRandom().nextBytes(it) }
     private val testSecretKey: SecretKey = SecretKeySpec(testAesKey, "AES")
     private val mapper: ObjectMapper = ObjectMapper()
         .registerKotlinModule()

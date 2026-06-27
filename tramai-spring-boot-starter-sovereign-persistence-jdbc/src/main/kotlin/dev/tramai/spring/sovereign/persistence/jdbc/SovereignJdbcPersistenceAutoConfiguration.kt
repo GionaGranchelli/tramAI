@@ -2,6 +2,7 @@ package dev.tramai.spring.sovereign.persistence.jdbc
 
 import dev.tramai.core.approval.ApprovalContinuationStore
 import dev.tramai.core.approval.ApprovalStore
+import dev.tramai.core.approval.gateway.ApprovalResumeCredentialStore
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.persistence.jdbc.JdbcApprovalContinuationStore
 import dev.tramai.persistence.jdbc.JdbcApprovalStore
@@ -247,4 +248,18 @@ class SovereignJdbcPersistenceAutoConfiguration {
         dataSource: DataSource,
     ): SovereignOpsWorkerLeaseStore =
         JdbcSovereignOpsWorkerLeaseStore(dataSource)
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnBean(DataSource::class)
+    fun approvalResumeCredentialStore(
+        dataSource: DataSource,
+        @Qualifier("sovereignJdbcEncryptionKey") key: SecretKey,
+        properties: SovereignJdbcPersistenceProperties,
+    ): ApprovalResumeCredentialStore =
+        JdbcApprovalResumeCredentialStore(
+            dataSourceProvider = { dataSource.connection },
+            key = key,
+            keyId = properties.encryption.keyId,
+        )
 }

@@ -79,8 +79,8 @@ class SovereignOpsTransactionalApprovalGateway(
         )
 
         val resumeCredential = ApprovalResumeCredentialRecord(
-            approvalId = request.approvalRequest.approvalId,
-            workflowRunId = request.approvalRequest.binding.workflowRunId,
+            approvalId = ApprovalId(request.approvalRequest.approvalId),
+            workflowRunId = WorkflowRunId(request.approvalRequest.binding.workflowRunId),
             resumeToken = SealedResumeToken.seal(request.resumeToken),
             createdAt = request.approvalRequest.requestedAt,
             expiresAt = request.approvalRequest.expiresAt,
