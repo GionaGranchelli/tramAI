@@ -6,10 +6,10 @@ package dev.tramai.spring.sovereign.ops
  * Contains only counts and safe scalar values — no approval IDs,
  * workflow run IDs, resume tokens, metadata, or raw error messages.
  *
- * Field semantics mirror the eligibility rules in
- * [dev.tramai.spring.sovereign.persistence.jdbc.JdbcApprovedContinuationResumeQueue.claimApprovedPending] —
- * approved approval + pending continuation + valid credential +
- * non-expired + lease/reclaim eligibility + retry due.
+ * Field semantics mirror the eligibility rules of the active resume queue
+ * implementation's claim query — approved approval, pending continuation,
+ * valid credential with matching workflow_run_id, non-expired,
+ * lease/reclaim eligibility, and retry due.
  *
  * @property eligibleNow items that can be claimed right now.
  * @property delayedRetry items waiting for retry backoff.
@@ -18,7 +18,7 @@ package dev.tramai.spring.sovereign.ops
  * @property terminalFailures continuations cancelled with a resume error code.
  * @property oldestEligibleAgeSeconds age in seconds of the oldest eligible item, or null if none.
  * @property oldestRetryDueInSeconds seconds until the oldest retry is due, or null if none.
- * @property lastErrorCodeCounts safe reason code → count (class names only, no messages).
+ * @property lastErrorCodeCounts safe reason code → count for retryable and terminal resume failures (class names only, no messages).
  */
 data class ApprovedContinuationResumeQueueSnapshot(
     val eligibleNow: Long,

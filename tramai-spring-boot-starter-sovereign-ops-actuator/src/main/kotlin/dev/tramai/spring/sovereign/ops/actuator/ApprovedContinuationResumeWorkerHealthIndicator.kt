@@ -54,6 +54,8 @@ class ApprovedContinuationResumeWorkerHealthIndicator(
                     .withDetail("terminalFailures", queueSnapshot.terminalFailures)
                     .withDetailIfPresent("oldestEligibleAgeSeconds", queueSnapshot.oldestEligibleAgeSeconds)
                     .withDetailIfPresent("oldestRetryDueInSeconds", queueSnapshot.oldestRetryDueInSeconds)
+            } catch (_: TimeoutCancellationException) {
+                healthBuilder.withDetail("queueStatusError", "snapshot-timeout")
             } catch (_: Exception) {
                 healthBuilder.withDetail("queueStatusError", "snapshot-failed")
             }
