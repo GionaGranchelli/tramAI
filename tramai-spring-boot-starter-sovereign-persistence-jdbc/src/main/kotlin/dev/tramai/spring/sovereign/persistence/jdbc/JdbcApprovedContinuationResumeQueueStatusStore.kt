@@ -16,15 +16,15 @@ class JdbcApprovedContinuationResumeQueueStatusStore(
     override suspend fun snapshot(now: Instant): ApprovedContinuationResumeQueueSnapshot =
         withContext(Dispatchers.IO) {
             dataSource.connection.use { conn ->
-                val z = now.atOffset(ZoneOffset.UTC)
+                val snapshotNow = now.atOffset(ZoneOffset.UTC)
                 ApprovedContinuationResumeQueueSnapshot(
-                    eligibleNow = countEligibleNow(conn, z),
-                    delayedRetry = countDelayedRetry(conn, z),
-                    activeLeases = countActiveLeases(conn, z),
-                    expiredLeases = countExpiredLeases(conn, z),
+                    eligibleNow = countEligibleNow(conn, snapshotNow),
+                    delayedRetry = countDelayedRetry(conn, snapshotNow),
+                    activeLeases = countActiveLeases(conn, snapshotNow),
+                    expiredLeases = countExpiredLeases(conn, snapshotNow),
                     terminalFailures = countTerminalFailures(conn),
-                    oldestEligibleAgeSeconds = oldestEligibleAgeSeconds(conn, z),
-                    oldestRetryDueInSeconds = oldestRetryDueInSeconds(conn, z),
+                    oldestEligibleAgeSeconds = oldestEligibleAgeSeconds(conn, snapshotNow),
+                    oldestRetryDueInSeconds = oldestRetryDueInSeconds(conn, snapshotNow),
                     lastErrorCodeCounts = lastErrorCodeCounts(conn),
                 )
             }

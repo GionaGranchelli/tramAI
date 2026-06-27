@@ -209,6 +209,38 @@ class JdbcApprovedContinuationResumeQueueStatusStoreTest {
     }
 
     @Test
+    fun `error code counts include retryable pending and terminal cancelled failures`() {
+        runBlocking {
+            // pending retryable — has resume_last_error_code but still PENDING
+            insertApproval("pending-retryable-a", "APPROVED")
+            insertContinuation(
+                approvalId = "pending-retryable-a",
+                workflowRunId = "wf-pending-retryable-a",
+                status = "PENDING",
+                createdAt = baseNow.minusSeconds(60),
+                approvalExpiresAt = baseNow.plusSeconds(300),
+                resumeLastErrorCode = "TimeoutException",
+            )
+
+            // terminal cancelled — CANCELLED with same error code
+            insertApproval("terminal-retryable-a", "APPROVED")
+            insertContinuation(
+                approvalId = "terminal-retryable-a",
+                workflowRunId = "wf-terminal-retryable-a",
+                status = "CANCELLED",
+                createdAt = baseNow.minusSeconds(60),
+                approvalExpiresAt = baseNow.plusSeconds(300),
+                resumeLastErrorCode = "TimeoutException",
+            )
+
+            val snapshot = queueStatusStore.snapshot(baseNow)
+
+            assertThat(snapshot.lastErrorCodeCounts)
+                .containsEntry("TimeoutException", 2L)
+        }
+    }
+
+    @Test
     fun `error code counts are grouped safely`() {
         runBlocking {
             insertApproval("terminal-a", "APPROVED")
