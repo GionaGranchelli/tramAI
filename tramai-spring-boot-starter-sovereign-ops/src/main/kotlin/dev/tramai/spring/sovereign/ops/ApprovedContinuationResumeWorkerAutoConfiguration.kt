@@ -2,6 +2,7 @@ package dev.tramai.spring.sovereign.ops
 
 import dev.tramai.core.approval.gateway.ApprovalResumeCredentialStore
 import java.time.Clock
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
@@ -54,5 +55,57 @@ class ApprovedContinuationResumeWorkerAutoConfiguration {
             retryDelay = properties.approvedResumeWorker.retryDelay,
             conflictRetryDelay = properties.approvedResumeWorker.conflictRetryDelay,
             clock = clock,
+        )
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun approvedContinuationResumeWorkerStatusStore(
+        properties: SovereignOpsProperties,
+    ): ApprovedContinuationResumeWorkerStatusStore =
+        InMemoryApprovedContinuationResumeWorkerStatusStore(properties.approvedResumeWorker)
+
+    @Bean
+    @ConditionalOnMissingBean
+    fun approvedContinuationResumeWorkerObserver(
+        statusStore: ApprovedContinuationResumeWorkerStatusStore,
+        contributions: ObjectProvider<ApprovedContinuationResumeWorkerObserverContribution>,
+    ): ApprovedContinuationResumeWorkerObserver {
+        val observerContributions: List<ApprovedContinuationResumeWorkerObserverContribution> = buildList {
+            contributions.orderedStream().forEach { contribution ->
+                add(contribution)
+            }
+        }
+        val delegate = if (observerContributions.isEmpty()) {
+            ApprovedContinuationResumeWorkerObserver.Noop
+        } else {
+            CompositeApprovedContinuationResumeWorkerObserver(
+                observerContributions.map { it.observer },
+            )
+        }
+        return RecordingApprovedContinuationResumeWorkerObserver(
+            statusStore = statusStore,
+            delegate = delegate,
+        )
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(
+        prefix = "tramai.sovereign.ops.approved-resume-worker",
+        name = ["lifecycle-enabled"],
+        havingValue = "true",
+    )
+    @ConditionalOnBean(value = [ApprovedContinuationResumeWorker::class])
+    fun approvedContinuationResumeWorkerLifecycle(
+        worker: ApprovedContinuationResumeWorker,
+        properties: SovereignOpsProperties,
+        observer: ApprovedContinuationResumeWorkerObserver,
+        statusStore: ApprovedContinuationResumeWorkerStatusStore,
+    ): ApprovedContinuationResumeWorkerLifecycle =
+        ApprovedContinuationResumeWorkerLifecycle(
+            worker = worker,
+            properties = properties.approvedResumeWorker,
+            observer = observer,
+            statusStore = statusStore,
         )
 }
