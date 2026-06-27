@@ -227,4 +227,113 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
             ApprovalInboxPage(emptyList())
         override suspend fun getWorkItem(approvalId: ApprovalId): ApprovalInboxWorkItem? = null
     }
+
+    // ══════════════════════════════════════════════════════════════
+    //  Reviewer UI controller
+    // ══════════════════════════════════════════════════════════════
+
+    @Test
+    fun `reviewer UI disabled by default`() {
+        contextRunnerWithInbox
+            .withPropertyValues("tramai.sovereign.ops.rest-control-plane-enabled=true")
+            .run { ctx ->
+                assertThat(ctx).doesNotHaveBean(ApprovalReviewerUiController::class.java)
+            }
+    }
+
+    @Test
+    fun `reviewer UI not registered when rest-control-plane-enabled false`() {
+        contextRunnerWithInbox
+            .withPropertyValues(
+                "tramai.sovereign.ops.reviewer-ui-enabled=true",
+                "tramai.sovereign.ops.rest-control-plane-enabled=false",
+            )
+            .run { ctx ->
+                assertThat(ctx).doesNotHaveBean(ApprovalReviewerUiController::class.java)
+            }
+    }
+
+    @Test
+    fun `reviewer UI registered when both properties enabled and required beans exist`() {
+        ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(
+                TestControlPlanesConfig::class.java,
+                TestStoresConfig::class.java,
+                TestInboxQueryServiceConfig::class.java,
+            )
+            .withPropertyValues(
+                "tramai.sovereign.ops.reviewer-ui-enabled=true",
+                "tramai.sovereign.ops.rest-control-plane-enabled=true",
+            )
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(ApprovalReviewerUiController::class.java)
+            }
+    }
+
+    @Test
+    fun `reviewer UI backs off when custom controller bean exists`() {
+        ApplicationContextRunner()
+            .withConfiguration(
+                AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
+            )
+            .withUserConfiguration(
+                TestControlPlanesConfig::class.java,
+                TestStoresConfig::class.java,
+                TestInboxQueryServiceConfig::class.java,
+                CustomReviewerUiControllerConfig::class.java,
+            )
+            .withPropertyValues(
+                "tramai.sovereign.ops.reviewer-ui-enabled=true",
+                "tramai.sovereign.ops.rest-control-plane-enabled=true",
+            )
+            .run { ctx ->
+                assertThat(ctx).hasSingleBean(ApprovalReviewerUiController::class.java)
+            }
+    }
+
+    /**
+     * Tests that require missing service beans (e.g. without ApprovalDecisionControlPlane,
+     * without ApprovalResumeControlPlane) cause context startup failure due to
+     * constructor injection in ReviewerUiConfiguration. This is correct behavior —
+     * the reviewer UI controller cannot exist without its services.
+     *
+     * ApplicationContextRunner captures the startup error. The 'not registered without
+     * ApprovalInboxQueryService' test verifies the controller is absent when the
+     * query service bean is missing (context still starts because the web auto-config
+     * controllers don't depend on it for control plane beans).
+     */
+
+    @Test
+    fun `reviewer UI not registered without ApprovalInboxQueryService`() {
+        contextRunner
+            .withPropertyValues(
+                "tramai.sovereign.ops.reviewer-ui-enabled=true",
+                "tramai.sovereign.ops.rest-control-plane-enabled=true",
+            )
+            .run { ctx ->
+                assertThat(ctx).doesNotHaveBean(ApprovalReviewerUiController::class.java)
+            }
+    }
+
+    @Configuration
+    open class CustomReviewerUiControllerConfig {
+        @Bean
+        open fun customApprovalReviewerUiController(): ApprovalReviewerUiController =
+            ApprovalReviewerUiController()
+    }
+
+    @Configuration
+    open class TestResumeControlPlaneOnlyConfig {
+        @Bean
+        open fun testResumeControlPlane(): ApprovalResumeControlPlane = ResumeControlPlaneStub()
+    }
+
+    @Configuration
+    open class TestDecisionControlPlaneOnlyConfig {
+        @Bean
+        open fun testDecisionControlPlane(): ApprovalDecisionControlPlane = DecisionControlPlaneStub()
+    }
 }
