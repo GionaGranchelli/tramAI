@@ -2293,6 +2293,22 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             "STATUS.md must reference dashboard/alert examples"
         }
 
+        // Forbidden: wrong config prefix for approved-resume worker metrics
+        require(!runbookText.contains("tramai.sovereign.approved-resume.worker.metrics-enabled")) {
+            "Runbook must not use stale prefix tramai.sovereign.approved-resume.worker.metrics-enabled; use tramai.sovereign.ops.actuator.approved-resume-worker-metrics.enabled"
+        }
+        require(!runbookText.contains("tramai.sovereign.approved-resume.queue.snapshot-refresh-interval")) {
+            "Runbook must not use stale prefix tramai.sovereign.approved-resume.queue.snapshot-refresh-interval; use tramai.sovereign.ops.actuator.approved-resume-worker-metrics.queue-snapshot-refresh-interval"
+        }
+
+        // Required: correct config properties in runbook
+        require(runbookText.contains("tramai.sovereign.ops.actuator.approved-resume-worker-metrics.enabled")) {
+            "Runbook must reference the real config property tramai.sovereign.ops.actuator.approved-resume-worker-metrics.enabled"
+        }
+        require(runbookText.contains("tramai.sovereign.ops.actuator.approved-resume-worker-metrics.queue-snapshot-refresh-interval")) {
+            "Runbook must reference the real config property tramai.sovereign.ops.actuator.approved-resume-worker-metrics.queue-snapshot-refresh-interval"
+        }
+
         logger.lifecycle("verifySovereignRuntimeClosureDocs: all documentation consistency checks passed.")
     }
 }

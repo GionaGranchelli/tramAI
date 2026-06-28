@@ -22,8 +22,12 @@ Before the metrics and alerts described in this document become available, the f
 
 | Setting | Value | Description |
 |---------|-------|-------------|
-| `tramai.sovereign.approved-resume.worker.metrics-enabled` | `true` | Enables Micrometer metric export for the approved-resume worker |
-| `tramai.sovereign.approved-resume.queue.snapshot-refresh-interval` | — | Controls how often the in-memory queue snapshot is refreshed (affects staleness of `eligible_now`, `delayed_retry`, etc.) |
+| `tramai.sovereign.ops.approved-resume-worker.enabled` | `true` | Creates/enables the approved-resume worker. |
+| `tramai.sovereign.ops.approved-resume-worker.lifecycle-enabled` | `true` | Starts the worker lifecycle loop. |
+| `tramai.sovereign.ops.actuator.approved-resume-worker-metrics.enabled` | `true` | Enables Micrometer worker metrics and queue gauges. |
+| `tramai.sovereign.ops.actuator.approved-resume-worker-metrics.queue-snapshot-enabled` | `true` | Enables queue snapshot gauges. |
+| `tramai.sovereign.ops.actuator.approved-resume-worker-metrics.queue-snapshot-refresh-interval` | `10s` | Controls queue snapshot refresh interval. |
+| `tramai.sovereign.ops.actuator.approved-resume-worker-metrics.include-worker-id-tag` | `false` | Optional; only enable if worker-id cardinality is acceptable. |
 | Prometheus scrape target | — | The application's `/actuator/prometheus` endpoint must be scraped |
 | Grafana datasource | `prometheus` | A Prometheus datasource with UID `prometheus` must exist if using the example dashboard |
 

@@ -554,12 +554,12 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum(rate(tramai_sovereign_approved_resume_worker_cycle_duration_seconds_bucket[$__rate_interval])) by (le))",
-          "legendFormat": "p95",
+          "expr": "rate(tramai_sovereign_approved_resume_worker_cycle_duration_seconds_sum[$__rate_interval]) / rate(tramai_sovereign_approved_resume_worker_cycle_duration_seconds_count[$__rate_interval])",
+          "legendFormat": "average",
           "refId": "A"
         }
       ],
-      "title": "Cycle Duration (p95)",
+      "title": "Cycle Duration Average",
       "type": "timeseries"
     },
     {
