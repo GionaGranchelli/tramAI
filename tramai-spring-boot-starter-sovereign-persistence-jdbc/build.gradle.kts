@@ -46,6 +46,7 @@ dependencies {
     testImplementation(libs.testcontainers.junit.jupiter)
     testImplementation(libs.postgresql)
     testImplementation(libs.micrometer.core)
+    testImplementation(project(":tramai-spring-boot-starter-sovereign-ops-actuator"))
 }
 
 tasks.test {

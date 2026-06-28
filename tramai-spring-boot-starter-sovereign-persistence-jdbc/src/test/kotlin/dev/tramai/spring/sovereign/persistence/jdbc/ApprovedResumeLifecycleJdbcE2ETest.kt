@@ -1,18 +1,26 @@
 package dev.tramai.spring.sovereign.persistence.jdbc
 
+import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.gateway.ApprovalId
 import dev.tramai.core.approval.gateway.ApprovalResumeCredentialRecord
+import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.ResumeToken
 import dev.tramai.core.approval.gateway.SealedResumeToken
 import dev.tramai.core.approval.gateway.WorkflowRunId
-import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueueSnapshot
-import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeWorker
-import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeWorkerResult
-import dev.tramai.spring.sovereign.ops.SovereignOpsApprovedContinuationResumeWorker
-import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
+import dev.tramai.persistence.jdbc.JdbcApprovalStore
+import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
+import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
+import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueueSnapshot
+import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeWorkerResult
+import dev.tramai.spring.sovereign.ops.SovereignOpsApprovalDecisionControlPlane
+import dev.tramai.spring.sovereign.ops.SovereignOpsApprovedContinuationResumeWorker
 import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueueStatusStore
+import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsApprovalMutationStore
+import dev.tramai.spring.sovereign.ops.outbox.InMemorySovereignOpsAuditOutboxStore
+import dev.tramai.spring.sovereign.ops.actuator.ApprovedContinuationResumeWorkerMetricsObserver
+import dev.tramai.spring.sovereign.ops.actuator.ApprovedContinuationResumeWorkerMetricsProperties
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import java.security.SecureRandom
 import java.time.Clock
@@ -33,19 +41,20 @@ import org.testcontainers.containers.PostgreSQLContainer
 
 /**
  * Comprehensive E2E test proving the full approved-resume lifecycle
- * via real JDBC persistence.
+ * via real JDBC persistence, real decision control plane, and real metrics observer.
  *
  * Proves the entire chain:
- *   seed data → worker resumes → credential deleted → queue snapshot updates
- *   → metrics update → no token leaks
+ *   PENDING approval → real approve → worker resumes → credential deleted
+ *   → queue snapshot updates → metrics update → no token leaks → idempotency
  *
  * Uses:
  * - Real [JdbcApprovedContinuationResumeQueue] (Testcontainers PostgreSQL)
  * - Real [JdbcApprovalResumeCredentialStore] (encrypted at rest)
  * - Real [JdbcApprovedContinuationResumeQueueStatusStore] (queue snapshot)
- * - Real [SovereignOpsApprovedContinuationResumeWorker]
- * - Custom [ApprovalResumeControlPlane] backed by SQL
- * - [SimpleMeterRegistry] for metrics assertions
+ * - Real [JdbcApprovalStore] + [SovereignOpsApprovalDecisionControlPlane] for approval
+ * - Real [SovereignOpsApprovedContinuationResumeWorker] for resume
+ * - Real [ApprovedContinuationResumeWorkerMetricsObserver] + [SimpleMeterRegistry] for metrics
+ * - Stronger [ApprovalResumeControlPlane] with full validation
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ApprovedResumeLifecycleJdbcE2ETest {
@@ -71,7 +80,10 @@ class ApprovedResumeLifecycleJdbcE2ETest {
     private lateinit var queue: JdbcApprovedContinuationResumeQueue
     private lateinit var credentialStore: JdbcApprovalResumeCredentialStore
     private lateinit var queueStatusStore: JdbcApprovedContinuationResumeQueueStatusStore
-    private lateinit var registry: SimpleMeterRegistry
+    private lateinit var approvalStore: JdbcApprovalStore
+    private lateinit var decisionControlPlane: SovereignOpsApprovalDecisionControlPlane
+    private lateinit var meterRegistry: SimpleMeterRegistry
+    private lateinit var metricsObserver: ApprovedContinuationResumeWorkerMetricsObserver
     private val clock: Clock = Clock.systemUTC()
 
     @BeforeAll
@@ -79,6 +91,7 @@ class ApprovedResumeLifecycleJdbcE2ETest {
         postgres.start()
         dataSource = createDataSource()
         runMigrations()
+
         queue = JdbcApprovedContinuationResumeQueue(dataSource)
         credentialStore = JdbcApprovalResumeCredentialStore(
             dataSourceProvider = { dataSource.connection },
@@ -86,7 +99,21 @@ class ApprovedResumeLifecycleJdbcE2ETest {
             keyId = "test-key",
         )
         queueStatusStore = JdbcApprovedContinuationResumeQueueStatusStore(dataSource)
-        registry = SimpleMeterRegistry()
+        approvalStore = JdbcApprovalStore(dataSource, clock)
+        meterRegistry = SimpleMeterRegistry()
+        metricsObserver = ApprovedContinuationResumeWorkerMetricsObserver(
+            meterRegistry = meterRegistry,
+            properties = ApprovedContinuationResumeWorkerMetricsProperties(),
+        )
+
+        // Build the real decision control plane with in-memory outbox
+        val outboxStore = InMemorySovereignOpsAuditOutboxStore()
+        val mutationStore = InMemorySovereignOpsApprovalMutationStore(approvalStore, outboxStore)
+        decisionControlPlane = SovereignOpsApprovalDecisionControlPlane(
+            approvalStore = approvalStore,
+            mutationStore = mutationStore,
+            clock = clock,
+        )
     }
 
     @AfterAll
@@ -100,17 +127,21 @@ class ApprovedResumeLifecycleJdbcE2ETest {
     }
 
     @Test
-    fun `full approved resume lifecycle with jdbc persistence`() {
-        // ── Step 1: Seed data ─────────────────────────────────────
-        val approvalId = ApprovalId("e2e-lifecycle-001")
-        val workflowRunId = WorkflowRunId("wf-e2e-lifecycle-001")
-        val resumeToken = ResumeToken("resume-token-e2e-lifecycle-001")
+    fun `full approval resume lifecycle with real decision control plane and metrics observer`() {
+        // ── Step 1: Seed a PENDING approval + PENDING continuation + credential ──
+        val approvalId = ApprovalId("e2e-lifecycle-002")
+        val workflowRunId = WorkflowRunId("wf-e2e-lifecycle-002")
+        val rawTokenValue = "resume-token-e2e-lifecycle-002"
+        val resumeToken = ResumeToken(rawTokenValue)
         val baseNow = clock.instant()
 
-        // Insert APPROVED approval
+        // Insert PENDING approval (not yet approved — the control plane will approve it)
+        // Version 0 and proper metadata JSON to match JdbcApprovalStore.create() format
         sql(
             """INSERT INTO approvals (approval_id, status, created_at, sanitized_metadata, version)
-               VALUES ('${approvalId.value}', 'APPROVED', now(), '{}'::jsonb, 0)""",
+               VALUES ('${approvalId.value}', 'PENDING', now(),
+                       '{"binding":{"workflowRunId":"${workflowRunId.value}","toolName":"tool-lifecycle-002","argumentsDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","policyVersion":"v1","workflowDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","approvalTokenDigest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"requestedBy":"test-requester","expiresAt":"2026-07-28T10:15:30Z","requestedAt":"2026-06-28T10:15:30Z"}'::jsonb,
+                       0)""",
         )
 
         // Insert PENDING continuation
@@ -120,14 +151,13 @@ class ApprovedResumeLifecycleJdbcE2ETest {
                 arguments_digest, policy_version, workflow_digest,
                 created_at, approval_expires_at, version)
                VALUES ('${approvalId.value}', 'PENDING', '${workflowRunId.value}',
-                       'corr-lifecycle-001', 'tc-lifecycle-001', 'tool-lifecycle-001',
+                       'corr-lifecycle-002', 'tc-lifecycle-002', 'tool-lifecycle-002',
                        'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                        'v1', 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
                        now(), now() + interval '5 minutes', 0)""",
         )
 
         // Create credential via the real encrypted credential store
-        // This proves the encryption path rather than bypassing it with raw SQL
         runBlocking {
             credentialStore.create(
                 ApprovalResumeCredentialRecord(
@@ -143,22 +173,117 @@ class ApprovedResumeLifecycleJdbcE2ETest {
 
         // Verify seed data is in place
         assertThat(readValue("SELECT status FROM approvals WHERE approval_id = ?", approvalId.value))
-            .isEqualTo("APPROVED")
+            .describedAs("initial approval status").isEqualTo("PENDING")
         assertThat(readValue("SELECT status FROM approval_continuations WHERE approval_id = ?", approvalId.value))
-            .isEqualTo("PENDING")
-        assertThat(runBlocking { credentialStore.get(approvalId) }).isNotNull
+            .describedAs("initial continuation status").isEqualTo("PENDING")
+        assertThat(runBlocking { credentialStore.get(approvalId) })
+            .describedAs("initial credential").isNotNull
 
-        // ── Step 2: Queue snapshot before worker ──────────────────
+        // ── Step 2: Approve via real decision control plane ────────────────────
+        val approveResult = runBlocking {
+            decisionControlPlane.approve(
+                ApprovalDecisionCommand(
+                    approvalId = approvalId,
+                    actorId = "e2e-test-actor",
+                    actorRole = ApproverRole("admin"),
+                    comment = "E2E test approval",
+                    correlationId = "corr-lifecycle-002",
+                ),
+            )
+        }
+        assertThat(approveResult)
+            .describedAs("approve result type")
+            .isInstanceOf(dev.tramai.spring.sovereign.ops.ApprovalDecisionResult.Approved::class.java)
+
+        // ── Step 3: Assert approval status = APPROVED (via SQL read) ──────────
+        assertThat(readValue("SELECT status FROM approvals WHERE approval_id = ?", approvalId.value))
+            .describedAs("approval status after approve").isEqualTo("APPROVED")
+
+        // ── Step 4: Assert queue snapshot: eligibleNow == 1 ────────────────────
         val beforeSnapshot = runBlocking { queueStatusStore.snapshot(baseNow) }
-        assertThat(beforeSnapshot.eligibleNow).describedAs("eligibleNow before worker").isEqualTo(1L)
+        assertThat(beforeSnapshot.eligibleNow)
+            .describedAs("eligibleNow before worker").isEqualTo(1L)
         assertThat(beforeSnapshot.activeLeases).isZero()
         assertThat(beforeSnapshot.terminalFailures).isZero()
 
-        // ── Build control plane ───────────────────────────────────
-        val controlPlane = SqlApprovalResumeControlPlane(dataSource)
+        // ── Build the validating resume control plane (Fix 3) ──────────────────
+        val controlPlane = object : ApprovalResumeControlPlane {
+            override suspend fun resume(command: ApprovalResumeCommand): ApprovalResumeResult {
+                val appStatus = readValue(
+                    "SELECT status FROM approvals WHERE approval_id = ?",
+                    command.approvalId.value,
+                )
+                if (appStatus != "APPROVED") {
+                    return ApprovalResumeResult.NotApproved(
+                        command.approvalId,
+                        ApprovalStatus.valueOf(appStatus ?: "PENDING"),
+                    )
+                }
 
-        // ── Build worker with metrics ─────────────────────────────
-        val rawWorker = SovereignOpsApprovedContinuationResumeWorker(
+                // Read continuation with expiry check
+                dataSource.connection.use { conn ->
+                    conn.prepareStatement(
+                        """SELECT status, approval_expires_at
+                           FROM approval_continuations
+                           WHERE approval_id = ?""",
+                    ).use { stmt ->
+                        stmt.setString(1, command.approvalId.value)
+                        stmt.executeQuery().use { rs ->
+                            if (!rs.next()) {
+                                return ApprovalResumeResult.Conflict(
+                                    command.approvalId,
+                                    "approval-continuation-missing",
+                                )
+                            }
+                            val contStatus = rs.getString("status")
+                            val expiresAt = rs.getObject("approval_expires_at", java.time.OffsetDateTime::class.java)
+
+                            if (contStatus != "PENDING") {
+                                return if (contStatus == "COMPLETED") {
+                                    ApprovalResumeResult.AlreadyCompleted(command.approvalId)
+                                } else {
+                                    ApprovalResumeResult.Conflict(
+                                        command.approvalId,
+                                        "approval-continuation-not-pending-$contStatus",
+                                    )
+                                }
+                            }
+
+                            // Check continuation not expired
+                            if (expiresAt != null && expiresAt.toInstant().isBefore(clock.instant())) {
+                                return ApprovalResumeResult.Conflict(
+                                    command.approvalId,
+                                    "approval-continuation-expired",
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // All validations passed — transition to COMPLETED
+                val updated = update(
+                    """UPDATE approval_continuations
+                       SET status = 'COMPLETED', completed_at = now(), version = version + 1
+                       WHERE approval_id = ? AND status = 'PENDING'""",
+                    command.approvalId.value,
+                )
+                if (updated == 0) {
+                    return ApprovalResumeResult.Conflict(
+                        command.approvalId,
+                        "approval-continuation-conflict",
+                    )
+                }
+
+                return ApprovalResumeResult.Resumed(
+                    approvalId = command.approvalId,
+                    resumedBy = command.resumedBy,
+                    result = "workflow-resolved",
+                )
+            }
+        }
+
+        // ── Build worker ───────────────────────────────────────────────────────
+        val worker = SovereignOpsApprovedContinuationResumeWorker(
             queue = queue,
             credentialStore = credentialStore,
             resumeControlPlane = controlPlane,
@@ -168,27 +293,25 @@ class ApprovedResumeLifecycleJdbcE2ETest {
             conflictRetryDelay = Duration.ofSeconds(60),
             clock = clock,
         )
-        val worker = MeteredApprovedContinuationResumeWorker(rawWorker, registry)
 
-        // ── Step 3: Run worker ────────────────────────────────────
+        // ── Step 5: Run worker — scanned=1, resumed=1 ──────────────────────────
         val result = runBlocking { worker.runOnce(limit = 10) }
-
         assertThat(result.scanned).describedAs("scanned items").isEqualTo(1)
         assertThat(result.resumed).describedAs("resumed items").isEqualTo(1)
         assertThat(result.skipped).describedAs("skipped items").isZero()
         assertThat(result.failed).describedAs("failed items").isZero()
 
-        // ── Step 4: Continuation status is COMPLETED ──────────────
+        // ── Step 6: Assert continuation COMPLETED (via SQL) ────────────────────
         assertThat(
             readValue("SELECT status FROM approval_continuations WHERE approval_id = ?", approvalId.value),
         ).describedAs("continuation status after resume").isEqualTo("COMPLETED")
 
-        // ── Step 5: Credential is deleted ─────────────────────────
+        // ── Step 7: Assert credential deleted ──────────────────────────────────
         assertThat(runBlocking { credentialStore.get(approvalId) })
             .describedAs("credential should be null after resume")
             .isNull()
 
-        // ── Step 6: Queue snapshot after worker ───────────────────
+        // ── Step 8: Assert queue snapshot: eligibleNow == 0, terminalFailures == 0 ──
         val afterSnapshot = runBlocking { queueStatusStore.snapshot(baseNow) }
         assertThat(afterSnapshot.eligibleNow).describedAs("eligibleNow after worker").isZero()
         assertThat(afterSnapshot.terminalFailures).describedAs("terminalFailures").isZero()
@@ -196,27 +319,69 @@ class ApprovedResumeLifecycleJdbcE2ETest {
         assertThat(afterSnapshot.delayedRetry).isZero()
         assertThat(afterSnapshot.expiredLeases).isZero()
 
-        // ── Step 7: Metrics assertions ────────────────────────────
-        val cyclesCompleted = registry.counter("cycles.total", "outcome", "completed")
-        assertThat(cyclesCompleted.count()).describedAs("cycles.total{outcome=completed}").isPositive()
+        // ── Step 9: Metrics assertions via real metrics observer ───────────────
+        metricsObserver.cycleCompleted("test-worker", result, Duration.ofMillis(100))
 
-        val itemsResumed = registry.counter("items.resumed.total")
-        assertThat(itemsResumed.count()).describedAs("items.resumed.total").isPositive()
+        val cyclesCounter = meterRegistry.find(
+            "tramai.sovereign.approved_resume_worker.cycles.total",
+        ).counter()!!
+        assertThat(cyclesCounter.count())
+            .describedAs("cycles.total counter count")
+            .isEqualTo(1.0)
 
-        // ── Step 8: Idempotency — second worker run ───────────────
+        val resumedCounter = meterRegistry.find(
+            "tramai.sovereign.approved_resume_worker.items.resumed.total",
+        ).counter()!!
+        assertThat(resumedCounter.count())
+            .describedAs("items.resumed.total counter count")
+            .isEqualTo(1.0)
+
+        // ── Step 10: No resume token leaks ─────────────────────────────────────
+        // 10a. sanitized_metadata JSON — no token
+        val sanitizedMetadata = readText(
+            "SELECT sanitized_metadata::text FROM approvals WHERE approval_id = ?",
+            approvalId.value,
+        )
+        assertThat(sanitizedMetadata)
+            .describedAs("sanitized_metadata does not contain raw token")
+            .doesNotContain(rawTokenValue)
+
+        // 10b. Credential ciphertext columns — no raw token (credential may be null after resume)
+        val encryptedToken = readText(
+            "SELECT encrypted_resume_token FROM tramai_approval_resume_credentials WHERE approval_id = ?",
+            approvalId.value,
+        )
+        val encryptionNonce = readText(
+            "SELECT encryption_nonce FROM tramai_approval_resume_credentials WHERE approval_id = ?",
+            approvalId.value,
+        )
+        if (encryptedToken != null) {
+            assertThat(encryptedToken)
+                .describedAs("encrypted_resume_token does not contain raw token")
+                .doesNotContain(rawTokenValue)
+        }
+        if (encryptionNonce != null) {
+            assertThat(encryptionNonce)
+                .describedAs("encryption_nonce does not contain raw token")
+                .doesNotContain(rawTokenValue)
+        }
+
+        // 10c. Metrics registry meters toString() — no token
+        assertThat(meterRegistry.meters.toString())
+            .describedAs("meter registry meters do not contain raw token")
+            .doesNotContain(rawTokenValue)
+
+        // 10d. Queue snapshot toString() — no token
+        assertThat(afterSnapshot.toString())
+            .describedAs("queue snapshot does not contain raw token")
+            .doesNotContain(rawTokenValue)
+
+        // ── Step 11: Idempotency — second runOnce() scans 0 ────────────────────
         val secondResult = runBlocking { worker.runOnce(limit = 10) }
         assertThat(secondResult.scanned).describedAs("second run scanned (idempotency)").isZero()
         assertThat(secondResult.resumed).isZero()
         assertThat(secondResult.skipped).isZero()
         assertThat(secondResult.failed).isZero()
-
-        // ── Step 9: No resume token leak in sanitized_metadata ────
-        val leakCount = readInt(
-            """SELECT COUNT(*) FROM approvals
-               WHERE approval_id = ? AND sanitized_metadata::text LIKE '%resume%'""",
-            approvalId.value,
-        )
-        assertThat(leakCount).describedAs("resume token leak in sanitized_metadata").isZero()
     }
 
     // ── SQL Helpers ─────────────────────────────────────────────────
@@ -238,6 +403,17 @@ class ApprovedResumeLifecycleJdbcE2ETest {
         }
     }
 
+    private fun readText(sql: String, param: String): String? {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(sql).use { stmt ->
+                stmt.setString(1, param)
+                stmt.executeQuery().use { rs ->
+                    return if (rs.next()) rs.getString(1) else null
+                }
+            }
+        }
+    }
+
     private fun readInt(sql: String, param: String): Int {
         dataSource.connection.use { conn ->
             conn.prepareStatement(sql).use { stmt ->
@@ -246,6 +422,15 @@ class ApprovedResumeLifecycleJdbcE2ETest {
                     check(rs.next())
                     return rs.getInt(1)
                 }
+            }
+        }
+    }
+
+    private fun update(sql: String, param: String): Int {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(sql).use { stmt ->
+                stmt.setString(1, param)
+                return stmt.executeUpdate()
             }
         }
     }
@@ -271,61 +456,6 @@ class ApprovedResumeLifecycleJdbcE2ETest {
                     stmt.execute(sql)
                 }
             }
-        }
-    }
-
-    // ── Inner Types ─────────────────────────────────────────────────
-
-    /**
-     * SQL-backed control plane that transitions a PENDING continuation
-     * to COMPLETED, simulating the engine resume.
-     */
-    private class SqlApprovalResumeControlPlane(
-        private val dataSource: DataSource,
-    ) : ApprovalResumeControlPlane {
-        override suspend fun resume(cmd: ApprovalResumeCommand): ApprovalResumeResult {
-            dataSource.connection.use { conn ->
-                conn.prepareStatement(
-                    "UPDATE approval_continuations SET status = 'COMPLETED', " +
-                    "completed_at = now(), version = version + 1 " +
-                    "WHERE approval_id = ? AND status = 'PENDING'",
-                ).use { stmt ->
-                    stmt.setString(1, cmd.approvalId.value)
-                    val updated = stmt.executeUpdate()
-                    return if (updated > 0) {
-                        ApprovalResumeResult.Resumed(
-                            approvalId = cmd.approvalId,
-                            resumedBy = cmd.resumedBy,
-                            result = "workflow-resolved",
-                        )
-                    } else {
-                        ApprovalResumeResult.Conflict(
-                            approvalId = cmd.approvalId,
-                            reason = "approval-continuation-not-found-or-already-completed",
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Metrics-decorated worker that wraps [SovereignOpsApprovedContinuationResumeWorker]
-     * and records counters to a [SimpleMeterRegistry].
-     */
-    private class MeteredApprovedContinuationResumeWorker(
-        private val delegate: SovereignOpsApprovedContinuationResumeWorker,
-        private val registry: SimpleMeterRegistry,
-    ) : ApprovedContinuationResumeWorker {
-
-        private val cyclesCompleted = registry.counter("cycles.total", "outcome", "completed")
-        private val itemsResumedTotal = registry.counter("items.resumed.total")
-
-        override suspend fun runOnce(limit: Int): ApprovedContinuationResumeWorkerResult {
-            val result = delegate.runOnce(limit)
-            cyclesCompleted.increment()
-            itemsResumedTotal.increment(result.resumed.toDouble())
-            return result
         }
     }
 }
