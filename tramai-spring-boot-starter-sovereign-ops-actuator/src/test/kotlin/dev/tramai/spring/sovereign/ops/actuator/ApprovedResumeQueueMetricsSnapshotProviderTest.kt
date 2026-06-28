@@ -134,7 +134,7 @@ class ApprovedResumeQueueMetricsSnapshotProviderTest {
         // read gauge without calling refreshIfDue() explicitly
         val value = freshRegistry.gaugeValue("tramai.sovereign.approved_resume_queue.eligible_now")
 
-        assertThat(value).isNotZero()
+        assertThat(value).isEqualTo(42.0)
     }
 
     @Test
