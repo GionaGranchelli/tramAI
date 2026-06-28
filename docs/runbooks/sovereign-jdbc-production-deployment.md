@@ -119,7 +119,7 @@ tramai:
 - Decrypts the credential using the same AES-256-GCM key
 - Replays the continuation through `ApprovalResumeControlPlane`
 - On transient failure, the record is retried with exponential backoff (V7 schema)
-- On terminal failure, the record is marked dead
+- On terminal failure, the continuation is marked CANCELLED
 
 **Worker lifecycle metrics:**
 The auto-resume worker participates in the same observability surface as the audit outbox worker — status, health, Micrometer, and OpenTelemetry metrics are available through the existing ops-actuator and ops-micrometer/ops-observability modules.

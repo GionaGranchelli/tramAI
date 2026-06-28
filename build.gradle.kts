@@ -2177,9 +2177,14 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
         val runbook = file("docs/runbooks/sovereign-jdbc-production-deployment.md").readText()
         val allDocs = changelog + "\n" + quickstart + "\n" + runbook
 
-        // Forbidden: nested YAML form of rest-control-plane-enabled
-        require(!changelog.contains(Regex("rest:\\s*\\n\\s*control-plane-enabled"))) {
-            "CHANGELOG.md must not contain nested rest: control-plane-enabled YAML form (use the correct flat property rest-control-plane-enabled)."
+        // Forbidden: nested YAML form of rest-control-plane-enabled (history: quickstart used it)
+        require(!allDocs.contains(Regex("rest:\\s*\\n\\s*control-plane-enabled"))) {
+            "Docs must not contain nested rest: control-plane-enabled YAML form (use the correct flat property rest-control-plane-enabled)."
+        }
+
+        // Forbidden: "marked dead" — the worker marks continuations CANCELLED, not "dead"
+        require(!runbook.contains("marked dead")) {
+            "Runbook must not say 'marked dead'. Terminal failure marks the continuation CANCELLED."
         }
 
         // Forbidden: invented store name
