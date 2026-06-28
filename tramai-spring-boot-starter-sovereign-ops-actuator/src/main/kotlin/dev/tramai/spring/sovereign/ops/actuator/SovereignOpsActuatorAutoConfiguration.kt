@@ -1,15 +1,18 @@
 package dev.tramai.spring.sovereign.ops.actuator
 
 import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueueStatusStore
+import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeWorkerObserverContribution
 import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeWorkerStatusStore
 import dev.tramai.spring.sovereign.ops.SovereignOpsAutoConfiguration
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxWorkerStatusStore
+import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint
 import org.springframework.boot.actuate.health.HealthIndicator
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -34,7 +37,10 @@ import org.springframework.context.annotation.Bean
  */
 @AutoConfiguration(after = [SovereignOpsAutoConfiguration::class])
 @ConditionalOnClass(Endpoint::class, HealthIndicator::class)
-@EnableConfigurationProperties(SovereignOpsWorkerStatusEndpointProperties::class)
+@EnableConfigurationProperties(
+    SovereignOpsWorkerStatusEndpointProperties::class,
+    ApprovedContinuationResumeWorkerMetricsProperties::class,
+)
 class SovereignOpsActuatorAutoConfiguration {
 
     @Bean
@@ -82,4 +88,44 @@ class SovereignOpsActuatorAutoConfiguration {
             statusStore = statusStore,
             queueStatusStore = queueStatusStore.ifAvailable,
         )
+
+    @Bean
+    @ConditionalOnBean(MeterRegistry::class)
+    @ConditionalOnProperty(
+        prefix = "tramai.sovereign.ops.actuator.approved-resume-worker-metrics",
+        name = ["enabled"],
+        havingValue = "true",
+        matchIfMissing = false,
+    )
+    fun approvedContinuationResumeWorkerMetricsObserverContribution(
+        meterRegistry: MeterRegistry,
+        metricsProperties: ApprovedContinuationResumeWorkerMetricsProperties,
+    ): ApprovedContinuationResumeWorkerObserverContribution =
+        ApprovedContinuationResumeWorkerObserverContribution(
+            ApprovedContinuationResumeWorkerMetricsObserver(
+                meterRegistry = meterRegistry,
+                properties = metricsProperties,
+            ),
+        )
+
+    @Bean
+    @ConditionalOnBean(
+        value = [MeterRegistry::class, ApprovedContinuationResumeQueueStatusStore::class],
+    )
+    @ConditionalOnExpression(
+        "'\${tramai.sovereign.ops.actuator.approved-resume-worker-metrics.enabled:false}' == 'true' " +
+        "&& '\${tramai.sovereign.ops.actuator.approved-resume-worker-metrics.queue-snapshot-enabled:true}' == 'true'"
+    )
+    fun approvedResumeQueueMetricsSnapshotProvider(
+        queueStatusStore: ApprovedContinuationResumeQueueStatusStore,
+        meterRegistry: MeterRegistry,
+        metricsProperties: ApprovedContinuationResumeWorkerMetricsProperties,
+    ): ApprovedResumeQueueMetricsSnapshotProvider {
+        val provider = ApprovedResumeQueueMetricsSnapshotProvider(
+            queueStatusStore = queueStatusStore,
+            refreshInterval = metricsProperties.queueSnapshotRefreshInterval,
+        )
+        provider.registerGauges(meterRegistry)
+        return provider
+    }
 }
