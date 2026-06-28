@@ -41,6 +41,7 @@ The following capabilities are included in the closure boundary:
 - Micrometer / Prometheus metrics bridge
 - OpenTelemetry worker metrics
 - Worker observability runbook with PromQL examples and alert definitions
+- Approved-resume worker dashboard and alert examples
 - Sovereign document intelligence reference workflow (file-backed example)
 - Regulated claim triage executable JDBC E2E proof
 - CI-backed E2E verification

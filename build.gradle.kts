@@ -2219,6 +2219,80 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             "CHANGELOG.md must reference rest-control-plane-enabled (the correct flat property name)."
         }
 
+        // ── PR #119: Approved-resume worker dashboards and alerts ──
+
+        // File existence checks
+        val dashboardsDir = file("docs/observability")
+        val alertFile = file("docs/observability/prometheus-approved-resume-worker-alerts.yml")
+        val dashboardFile = file("docs/observability/grafana-approved-resume-worker-dashboard.json")
+        val runbookFile = file("docs/runbooks/approved-resume-worker-observability.md")
+        require(alertFile.exists()) { "Prometheus alert file missing at ${alertFile.absolutePath}" }
+        require(dashboardFile.exists()) { "Grafana dashboard file missing at ${dashboardFile.absolutePath}" }
+        require(runbookFile.exists()) { "Observability runbook missing at ${runbookFile.absolutePath}" }
+
+        // Required phrases in alerts
+        val alerts = alertFile.readText()
+        require(alerts.contains("TramAIApprovedResumeWorkerFailures")) {
+            "Prometheus alerts must contain TramAIApprovedResumeWorkerFailures"
+        }
+        require(alerts.contains("TramAIApprovedResumeExpiredLeases")) {
+            "Prometheus alerts must contain TramAIApprovedResumeExpiredLeases"
+        }
+        require(alerts.contains("TramAIApprovedResumeTerminalFailures")) {
+            "Prometheus alerts must contain TramAIApprovedResumeTerminalFailures"
+        }
+
+        // Forbidden: no individual identifiers as labels in alerts or dashboard
+        val dashboard = dashboardFile.readText()
+        val runbookText = runbookFile.readText()
+        require(!alerts.contains("approval_id")) {
+            "Prometheus alerts must not contain approval_id as a label"
+        }
+        require(!dashboard.contains("\"approval_id\"")) {
+            "Grafana dashboard must not contain approval_id as a label"
+        }
+        require(!runbookText.contains("approval_id")) {
+            "Observability runbook must not contain approval_id"
+        }
+        require(!alerts.contains("workflow_run_id")) {
+            "Prometheus alerts must not contain workflow_run_id as a label"
+        }
+        require(!dashboard.contains("\"workflow_run_id\"")) {
+            "Grafana dashboard must not contain workflow_run_id as a label"
+        }
+        require(!runbookText.contains("workflow_run_id")) {
+            "Observability runbook must not contain workflow_run_id"
+        }
+        require(!alerts.contains("resume_token")) {
+            "Prometheus alerts must not contain resume_token as a label"
+        }
+        require(!dashboard.contains("\"resume_token\"")) {
+            "Grafana dashboard must not contain resume_token as a label"
+        }
+        require(!runbookText.contains("resume_token")) {
+            "Observability runbook must not contain resume_token"
+        }
+        require(!alerts.contains("exception_message")) {
+            "Prometheus alerts must not contain exception_message as a label"
+        }
+        require(!dashboard.contains("\"exception_message\"")) {
+            "Grafana dashboard must not contain exception_message as a label"
+        }
+        require(!runbookText.contains("exception_message")) {
+            "Observability runbook must not contain exception_message"
+        }
+
+        // Alert file must not claim production certification
+        require(!alerts.contains("production certified")) {
+            "Prometheus alerts must not claim production certification"
+        }
+
+        // STATUS.md must reference the new dashboard and alert examples
+        val statusText = file("docs/STATUS.md").readText()
+        require(statusText.contains("dashboard and alert examples")) {
+            "STATUS.md must reference dashboard/alert examples"
+        }
+
         logger.lifecycle("verifySovereignRuntimeClosureDocs: all documentation consistency checks passed.")
     }
 }
