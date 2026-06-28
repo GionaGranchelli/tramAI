@@ -12,8 +12,6 @@ import dev.tramai.spring.sovereign.ops.ApprovalDecisionCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeCommand
 import dev.tramai.spring.sovereign.ops.ApprovalResumeControlPlane
 import dev.tramai.spring.sovereign.ops.ApprovalResumeResult
-import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueueSnapshot
-import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeWorkerResult
 import dev.tramai.spring.sovereign.ops.SovereignOpsApprovalDecisionControlPlane
 import dev.tramai.spring.sovereign.ops.SovereignOpsApprovedContinuationResumeWorker
 import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeQueueStatusStore
@@ -260,20 +258,7 @@ class ApprovedResumeLifecycleJdbcE2ETest {
                     }
                 }
 
-                // All validations passed — transition to COMPLETED
-                val updated = update(
-                    """UPDATE approval_continuations
-                       SET status = 'COMPLETED', completed_at = now(), version = version + 1
-                       WHERE approval_id = ? AND status = 'PENDING'""",
-                    command.approvalId.value,
-                )
-                if (updated == 0) {
-                    return ApprovalResumeResult.Conflict(
-                        command.approvalId,
-                        "approval-continuation-conflict",
-                    )
-                }
-
+                // All validations passed — delegate completion to worker/queue path
                 return ApprovalResumeResult.Resumed(
                     approvalId = command.approvalId,
                     resumedBy = command.resumedBy,
