@@ -138,6 +138,48 @@ class ApprovedContinuationResumeWorkerMetricsObserverTest {
         // should not throw
         observer.cycleStarted("worker-a")
     }
+
+    @Test
+    fun `worker_id tag present when includeWorkerIdTag=true`() {
+        val observerWithTag = ApprovedContinuationResumeWorkerMetricsObserver(
+            meterRegistry = meterRegistry,
+            properties = ApprovedContinuationResumeWorkerMetricsProperties(
+                includeWorkerIdTag = true,
+            ),
+        )
+        observerWithTag.cycleCompleted(
+            "worker-a",
+            ApprovedContinuationResumeWorkerResult(1, 1, 0, 0),
+            Duration.ofMillis(5),
+        )
+
+        val counter = meterRegistry.counter(
+            ApprovedContinuationResumeWorkerMetricsObserver.CYCLES_TOTAL,
+            "outcome", "completed",
+            "worker_id", "worker-a",
+        )
+        assertThat(counter.count()).isEqualTo(1.0)
+    }
+
+    @Test
+    fun `worker_id tag absent when includeWorkerIdTag=false`() {
+        observer.cycleCompleted(
+            "worker-a",
+            ApprovedContinuationResumeWorkerResult(1, 1, 0, 0),
+            Duration.ofMillis(5),
+        )
+
+        val allMeters = meterRegistry.meters
+        var hasWorkerIdTag = false
+        for (meter in allMeters) {
+            for (tag in meter.id.tags) {
+                if (tag.key == "worker_id") {
+                    hasWorkerIdTag = true
+                }
+            }
+        }
+        assertThat(hasWorkerIdTag).isFalse()
+    }
 }
 
 private fun within(value: Double) =

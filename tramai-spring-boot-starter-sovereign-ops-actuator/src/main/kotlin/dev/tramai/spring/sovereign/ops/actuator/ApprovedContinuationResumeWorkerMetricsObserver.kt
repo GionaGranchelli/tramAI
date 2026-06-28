@@ -2,11 +2,8 @@ package dev.tramai.spring.sovereign.ops.actuator
 
 import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeWorkerObserver
 import dev.tramai.spring.sovereign.ops.ApprovedContinuationResumeWorkerResult
-import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.MeterRegistry
-import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.Tags
-import io.micrometer.core.instrument.Timer
 import java.time.Duration
 
 /**
@@ -44,26 +41,8 @@ class ApprovedContinuationResumeWorkerMetricsObserver(
         const val FAILURES_TOTAL = "${METRICS_PREFIX}.failures.total"
     }
 
-    private val itemsScannedTotal: Counter = Counter.builder(ITEMS_SCANNED_TOTAL)
-        .description("Total items scanned by resume worker")
-        .register(meterRegistry)
-
-    private val itemsResumedTotal: Counter = Counter.builder(ITEMS_RESUMED_TOTAL)
-        .description("Total items resumed successfully")
-        .register(meterRegistry)
-
-    private val itemsSkippedTotal: Counter = Counter.builder(ITEMS_SKIPPED_TOTAL)
-        .description("Total items skipped during resume cycles")
-        .register(meterRegistry)
-
-    private val itemsFailedTotal: Counter = Counter.builder(ITEMS_FAILED_TOTAL)
-        .description("Total items that failed to resume")
-        .register(meterRegistry)
-
-    private val cycleDuration: Timer = Timer.builder(CYCLE_DURATION)
-        .description("Duration of resume worker cycles")
-        .publishPercentileHistogram()
-        .register(meterRegistry)
+    private fun commonTags(workerId: String): Tags =
+        if (properties.includeWorkerIdTag) Tags.of("worker_id", workerId) else Tags.empty()
 
     override fun cycleStarted(workerId: String) = Unit
 
@@ -72,24 +51,26 @@ class ApprovedContinuationResumeWorkerMetricsObserver(
         result: ApprovedContinuationResumeWorkerResult,
         duration: Duration,
     ) {
-        meterRegistry.counter(CYCLES_TOTAL, Tags.of("outcome", "completed")).increment()
+        val tags = commonTags(workerId)
+        meterRegistry.counter(CYCLES_TOTAL, tags.and("outcome", "completed")).increment()
 
-        itemsScannedTotal.increment(result.scanned.toDouble())
-        itemsResumedTotal.increment(result.resumed.toDouble())
-        itemsSkippedTotal.increment(result.skipped.toDouble())
-        itemsFailedTotal.increment(result.failed.toDouble())
+        meterRegistry.counter(ITEMS_SCANNED_TOTAL, tags).increment(result.scanned.toDouble())
+        meterRegistry.counter(ITEMS_RESUMED_TOTAL, tags).increment(result.resumed.toDouble())
+        meterRegistry.counter(ITEMS_SKIPPED_TOTAL, tags).increment(result.skipped.toDouble())
+        meterRegistry.counter(ITEMS_FAILED_TOTAL, tags).increment(result.failed.toDouble())
 
-        cycleDuration.record(duration)
+        meterRegistry.timer(CYCLE_DURATION, tags).record(duration)
     }
 
     override fun cycleFailed(workerId: String, error: Throwable) {
-        meterRegistry.counter(CYCLES_TOTAL, Tags.of("outcome", "failed")).increment()
+        val tags = commonTags(workerId)
+        meterRegistry.counter(CYCLES_TOTAL, tags.and("outcome", "failed")).increment()
 
         // error_code = simple class name only, never the message
         val errorCode = error::class.simpleName ?: "Unknown"
         meterRegistry.counter(
             FAILURES_TOTAL,
-            Tags.of("error_code", errorCode),
+            tags.and("error_code", errorCode),
         ).increment()
     }
 }

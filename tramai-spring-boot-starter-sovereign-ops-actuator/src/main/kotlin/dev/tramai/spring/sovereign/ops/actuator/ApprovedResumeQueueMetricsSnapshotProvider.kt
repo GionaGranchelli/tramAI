@@ -49,16 +49,19 @@ class ApprovedResumeQueueMetricsSnapshotProvider(
      */
     fun registerGauges(registry: MeterRegistry) {
         val prefix = "tramai.sovereign.approved_resume_queue"
-        registry.gauge("$prefix.eligible_now", eligibleNow) { it.get().toDouble() }
-        registry.gauge("$prefix.delayed_retry", delayedRetry) { it.get().toDouble() }
-        registry.gauge("$prefix.active_leases", activeLeases) { it.get().toDouble() }
-        registry.gauge("$prefix.expired_leases", expiredLeases) { it.get().toDouble() }
-        registry.gauge("$prefix.terminal_failures", terminalFailures) { it.get().toDouble() }
-        registry.gauge("$prefix.oldest_eligible_age_seconds", oldestEligibleAgeSeconds) {
-            it.get()?.toDouble() ?: Double.NaN
+        registry.gauge("$prefix.eligible_now", this) { it.refreshIfDue(); it.eligibleNow.get().toDouble() }
+        registry.gauge("$prefix.delayed_retry", this) { it.refreshIfDue(); it.delayedRetry.get().toDouble() }
+        registry.gauge("$prefix.active_leases", this) { it.refreshIfDue(); it.activeLeases.get().toDouble() }
+        registry.gauge("$prefix.expired_leases", this) { it.refreshIfDue(); it.expiredLeases.get().toDouble() }
+        registry.gauge("$prefix.terminal_failures", this) { it.refreshIfDue(); it.terminalFailures.get().toDouble() }
+        registry.gauge("$prefix.snapshot_failures.total", this) {
+            it.refreshIfDue(); it.snapshotFailureCount.get().toDouble()
         }
-        registry.gauge("$prefix.oldest_retry_due_in_seconds", oldestRetryDueInSeconds) {
-            it.get()?.toDouble() ?: Double.NaN
+        registry.gauge("$prefix.oldest_eligible_age_seconds", this) {
+            it.refreshIfDue(); it.oldestEligibleAgeSeconds.get()?.toDouble() ?: Double.NaN
+        }
+        registry.gauge("$prefix.oldest_retry_due_in_seconds", this) {
+            it.refreshIfDue(); it.oldestRetryDueInSeconds.get()?.toDouble() ?: Double.NaN
         }
     }
 
@@ -78,9 +81,10 @@ class ApprovedResumeQueueMetricsSnapshotProvider(
                             queueStatusStore.snapshot(now)
                         }
                         updateFrom(snapshot)
-                        lastRefresh = clock.instant()
                     } catch (_: Exception) {
                         snapshotFailureCount.incrementAndGet()
+                    } finally {
+                        lastRefresh = clock.instant()
                     }
                 }
             }

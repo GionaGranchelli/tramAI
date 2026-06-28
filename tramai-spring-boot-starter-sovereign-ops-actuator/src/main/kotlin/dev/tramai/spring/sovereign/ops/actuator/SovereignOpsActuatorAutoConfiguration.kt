@@ -12,6 +12,7 @@ import org.springframework.boot.actuate.health.HealthIndicator
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -111,11 +112,9 @@ class SovereignOpsActuatorAutoConfiguration {
     @ConditionalOnBean(
         value = [MeterRegistry::class, ApprovedContinuationResumeQueueStatusStore::class],
     )
-    @ConditionalOnProperty(
-        prefix = "tramai.sovereign.ops.actuator.approved-resume-worker-metrics",
-        name = ["enabled"],
-        havingValue = "true",
-        matchIfMissing = false,
+    @ConditionalOnExpression(
+        "'\${tramai.sovereign.ops.actuator.approved-resume-worker-metrics.enabled:false}' == 'true' " +
+        "&& '\${tramai.sovereign.ops.actuator.approved-resume-worker-metrics.queue-snapshot-enabled:true}' == 'true'"
     )
     fun approvedResumeQueueMetricsSnapshotProvider(
         queueStatusStore: ApprovedContinuationResumeQueueStatusStore,

@@ -67,6 +67,8 @@ class ApprovedResumeQueueMetricsSnapshotProviderTest {
             .isEqualTo(120.0)
         assertThat(meterRegistry.gaugeValue("tramai.sovereign.approved_resume_queue.oldest_retry_due_in_seconds"))
             .isEqualTo(90.0)
+        assertThat(meterRegistry.gaugeValue("tramai.sovereign.approved_resume_queue.snapshot_failures.total"))
+            .isEqualTo(0.0)
     }
 
     @Test
@@ -77,6 +79,8 @@ class ApprovedResumeQueueMetricsSnapshotProviderTest {
             .isNaN()
         assertThat(meterRegistry.gaugeValue("tramai.sovereign.approved_resume_queue.oldest_retry_due_in_seconds"))
             .isNaN()
+        assertThat(meterRegistry.gaugeValue("tramai.sovereign.approved_resume_queue.snapshot_failures.total"))
+            .isEqualTo(0.0)
     }
 
     @Test
@@ -85,7 +89,7 @@ class ApprovedResumeQueueMetricsSnapshotProviderTest {
         val failProvider = ApprovedResumeQueueMetricsSnapshotProvider(
             queueStatusStore = failingStore,
             clock = fixedClock,
-            refreshInterval = Duration.ofSeconds(1),
+            refreshInterval = Duration.ofSeconds(0), // no throttling
         )
         failProvider.refreshIfDue()
         failProvider.refreshIfDue()
@@ -114,6 +118,23 @@ class ApprovedResumeQueueMetricsSnapshotProviderTest {
         // values retained
         assertThat(testProvider.eligibleNow.get()).isEqualTo(7)
         assertThat(testProvider.snapshotFailureCount.get()).isEqualTo(1)
+    }
+
+    @Test
+    fun `gauge read triggers refresh`() {
+        val freshRegistry = SimpleMeterRegistry()
+        val freshProvider = ApprovedResumeQueueMetricsSnapshotProvider(
+            queueStatusStore = fakeStore,
+            clock = fixedClock,
+            refreshInterval = Duration.ofSeconds(10),
+        )
+        fakeStore.snapshotResult = emptySnapshot(eligibleNow = 42)
+        freshProvider.registerGauges(freshRegistry)
+
+        // read gauge without calling refreshIfDue() explicitly
+        val value = freshRegistry.gaugeValue("tramai.sovereign.approved_resume_queue.eligible_now")
+
+        assertThat(value).isNotZero()
     }
 
     @Test

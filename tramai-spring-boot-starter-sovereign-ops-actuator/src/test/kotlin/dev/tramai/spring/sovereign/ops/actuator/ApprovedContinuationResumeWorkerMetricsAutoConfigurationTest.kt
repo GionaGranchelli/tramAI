@@ -113,6 +113,19 @@ class ApprovedContinuationResumeWorkerMetricsAutoConfigurationTest {
     }
 
     @Test
+    fun `queue snapshot provider not created when queue-snapshot-enabled=false`() {
+        contextRunner
+            .withUserConfiguration(QueueStatusStoreConfig::class.java)
+            .withPropertyValues(
+                "tramai.sovereign.ops.actuator.approved-resume-worker-metrics.enabled=true",
+                "tramai.sovereign.ops.actuator.approved-resume-worker-metrics.queue-snapshot-enabled=false",
+            )
+            .run { ctx ->
+                assertThat(ctx).doesNotHaveBean(ApprovedResumeQueueMetricsSnapshotProvider::class.java)
+            }
+    }
+
+    @Test
     fun `metrics observer registers queue gauges when store is present`() {
         contextRunner
             .withUserConfiguration(QueueStatusStoreConfig::class.java)
