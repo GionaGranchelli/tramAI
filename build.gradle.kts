@@ -835,6 +835,7 @@ tasks.register("verifySovereignRuntimePublication") {
         sovereignRuntimePublishableModules.map { ":${it}:test" },
         sovereignRuntimePublishableModules.map { ":${it}:publishToMavenLocal" },
     )
+    dependsOn(":tramai-spring-boot-starter-sovereign-persistence-jdbc:test")
     doLast {
         logger.lifecycle("Sovereign runtime publication validation complete.")
         logger.lifecycle("  Validated modules: ${sovereignRuntimePublishableModules.joinToString(", ")}")
