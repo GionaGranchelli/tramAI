@@ -63,7 +63,7 @@ The dashboard provides three row groups:
 
 1. **Queue Status** — Stat panels for eligible now, delayed retry, active leases, expired leases, terminal failures.
 2. **Worker Throughput** — Time series panels for resume cycles (by outcome), items resumed, items failed, and snapshot failures.
-3. **Timing & Age** — Time series panels for cycle duration (p95), oldest eligible age, and oldest retry due.
+3. **Timing & Age** — Time series panels for cycle duration average, oldest eligible age, and oldest retry due.
 
 ## Alerts
 
@@ -105,7 +105,7 @@ Prometheus alert rule examples are available at:
 
 1. **Check if the worker is still alive.** If the worker process has died, leases will expire after the lease timeout.
 2. **Check for stuck DB transactions.** A DB transaction that is holding locks but not progressing may cause a worker to appear dead even if the process is running. Check the database for long-running queries on the continuation table.
-3. **Check worker cycle duration.** If `histogram_quantile(0.95, ...)` for `cycle_duration_seconds` exceeds the lease timeout, the worker may be timing out its own leases. This suggests the worker is overloaded or a downstream call is slow.
+3. **Check worker cycle duration.** If the cycle duration average exceeds the lease timeout, the worker may be timing out its own leases. If you enable histogram buckets for this timer, you can use a p95 query instead.
 4. **Monitor for oscillation.** If expired leases appear and then clear as another worker reaps them, the system is self-healing but may be under-provisioned.
 
 ## Triage: Terminal Failures

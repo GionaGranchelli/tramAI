@@ -2309,6 +2309,11 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             "Runbook must reference the real config property tramai.sovereign.ops.actuator.approved-resume-worker-metrics.queue-snapshot-refresh-interval"
         }
 
+        // Forbidden: histogram_quantile(0.95 in runbook — dashboard uses average, not p95
+        require(!runbookText.contains("histogram_quantile(0.95")) {
+            "Runbook must not recommend histogram_quantile(0.95) unless histogram buckets are explicitly documented/enabled for the cycle_duration_seconds timer."
+        }
+
         logger.lifecycle("verifySovereignRuntimeClosureDocs: all documentation consistency checks passed.")
     }
 }
