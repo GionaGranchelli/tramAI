@@ -2007,6 +2007,7 @@ tasks.register("verifySovereignRuntimeReleaseCandidate") {
         "generateSovereignReleaseEvidenceIndex",
         "verifySovereignRuntimeConsumerSmoke",
         "verifySovereignDocumentIntelligenceEvidenceRun",
+        "verifySovereignRuntimeApiBoundary",
     )
 
     doLast {
@@ -2021,6 +2022,227 @@ tasks.register("verifySovereignRuntimeReleaseCandidate") {
         logger.lifecycle("  - sovereign document intelligence evidence run")
         logger.lifecycle("No remote repository was published to.")
         logger.lifecycle("No tag or GitHub release was created.")
+    }
+}
+
+// ──────────────────────────────────────────────
+// Task: verifySovereignRuntimeApiBoundary
+// ──────────────────────────────────────────────
+
+tasks.register("verifySovereignRuntimeApiBoundary") {
+    group = "verification"
+    description = "Verifies the documented Sovereign Runtime API stability boundary."
+
+    doLast {
+        // ── Required files exist ──
+
+        val manifestFile = file("docs/architecture/sovereign-api-stability-manifest.yml")
+        require(manifestFile.exists()) {
+            "Missing API stability manifest at ${manifestFile.absolutePath}"
+        }
+
+        val boundaryDoc = file("docs/architecture/sovereign-api-stability-boundary.md")
+        require(boundaryDoc.exists()) {
+            "Missing API stability boundary document at ${boundaryDoc.absolutePath}"
+        }
+
+        val statusDoc = file("docs/STATUS.md")
+        require(statusDoc.exists()) {
+            "Missing STATUS.md at ${statusDoc.absolutePath}"
+        }
+
+        val boundaryText = boundaryDoc.readText()
+        val manifestText = manifestFile.readText()
+        val statusText = statusDoc.readText()
+
+        // ── Section scopes ──
+
+        val stableSection = boundaryText
+            .substringAfter("## RC+ Stable Surface")
+            .substringBefore("## Preview Surface")
+
+        val previewSection = boundaryText
+            .substringAfter("## Preview Surface")
+            .substringBefore("## Internal Implementation Details")
+
+        val internalSection = boundaryText
+            .substringAfter("## Internal Implementation Details")
+            .substringBefore("## Deferred to Future Roadmaps")
+
+        val deferredSection = boundaryText
+            .substringAfter("## Deferred to Future Roadmaps")
+            .substringBefore("## Compatibility Promise")
+
+        // ── RC+ Stable types ──
+
+        val rcPlusStableTypes = listOf(
+            "ApprovalStore",
+            "SuspendedInvocationStore",
+            "ApprovalContinuationStore",
+            "AuditStore",
+            "SovereignOpsAuditOutboxStore",
+            "SovereignOpsApprovalMutationStore",
+            "SovereignOpsWorkerLeaseStore",
+        )
+
+        rcPlusStableTypes.forEach { type ->
+            require(stableSection.contains(type)) {
+                "RC+ Stable section must document $type"
+            }
+            require(manifestText.contains("- $type")) {
+                "API stability manifest rcPlusStable.types must include $type"
+            }
+        }
+
+        require(stableSection.contains("verifySovereignRuntimeClosure")) {
+            "RC+ Stable section must document verifySovereignRuntimeClosure"
+        }
+        require(stableSection.contains("verifySovereignRuntimeReleaseCandidate")) {
+            "RC+ Stable section must document verifySovereignRuntimeReleaseCandidate"
+        }
+
+        // ── Preview types (section-scoped) ──
+
+        val previewTypes = listOf(
+            "ApprovalGateway",
+            "ApprovalDecisionControlPlane",
+            "ApprovalResumeControlPlane",
+            "ApprovalInboxQueryService",
+            "REST control plane endpoints",
+            "Preview reviewer UI",
+            "Workflow ergonomics",
+        )
+
+        val previewManifestTypes = listOf(
+            "ApprovalGateway",
+            "ApprovalDecisionControlPlane",
+            "ApprovalResumeControlPlane",
+            "ApprovalInboxQueryService",
+            "ApprovalGatewayAutoConfiguration",
+        )
+
+        previewTypes.forEach { type ->
+            require(previewSection.contains(type, ignoreCase = true)) {
+                "Preview Surface section must document '$type'"
+            }
+        }
+
+        previewManifestTypes.forEach { type ->
+            require(manifestText.contains("- $type")) {
+                "API stability manifest preview.types must include $type"
+            }
+        }
+
+        // ── Internal implementation details stay internal (section-scoped) ──
+
+        val internalTypes = listOf(
+            "JdbcApprovalStore",
+            "JdbcApprovalResumeCredentialStore",
+            "ApprovedContinuationResumeQueue",
+            "SovereignOpsApprovedContinuationResumeWorker",
+            "ApprovedContinuationResumeWorkerMetricsObserver",
+            "ApprovedResumeQueueMetricsSnapshotProvider",
+        )
+
+        internalTypes.forEach { type ->
+            require(internalSection.contains(type)) {
+                "Internal Implementation Details section must document '$type'"
+            }
+            require(manifestText.contains("- $type")) {
+                "API stability manifest internal.types must include $type"
+            }
+        }
+
+        // ── Deferred capabilities stay deferred (section-scoped) ──
+
+        val deferredCapabilities = listOf(
+            "Key rotation",
+            "Production certification",
+            "Production-grade reviewer UI",
+            "Enterprise IAM",
+            "Maven Central release",
+            "Stable 1.0 API",
+        )
+
+        deferredCapabilities.forEach { cap ->
+            require(deferredSection.contains(cap, ignoreCase = true)) {
+                "Deferred to Future Roadmaps section must document '$cap'"
+            }
+            require(manifestText.contains("- $cap", ignoreCase = true)) {
+                "API stability manifest deferred.capabilities must include '$cap'"
+            }
+        }
+
+        // ── Stable API source files exist ──
+
+        val stableApiFiles = listOf(
+            "tramai-core/src/main/kotlin/dev/tramai/core/approval/ApprovalStore.kt",
+            "tramai-engine/src/main/kotlin/dev/tramai/engine/SuspendedInvocationStore.kt",
+            "tramai-core/src/main/kotlin/dev/tramai/core/approval/ApprovalContinuationStore.kt",
+            "tramai-security/src/main/kotlin/dev/tramai/security/audit/AuditStore.kt",
+            "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore.kt",
+            "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore.kt",
+            "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/lease/SovereignOpsWorkerLeaseStore.kt",
+        )
+
+        stableApiFiles.forEach { path ->
+            val sourceFile = file(path)
+            require(sourceFile.exists()) {
+                "Stable API source file missing: $path"
+            }
+        }
+
+        // ── Forbidden: internal implementation classes in RC+ Stable section ──
+
+        val internalJdbcClasses = listOf(
+            "JdbcApprovalStore",
+            "JdbcApprovalResumeCredentialStore",
+            "SovereignOpsApprovedContinuationResumeWorker",
+            "ApprovedResumeQueueMetricsSnapshotProvider",
+        )
+
+        internalJdbcClasses.forEach { clazz ->
+            require(!stableSection.contains(clazz)) {
+                "Internal JDBC/worker class '$clazz' must not appear in the RC+ Stable section"
+            }
+        }
+
+        // ── Forbidden: positive overclaims in STATUS and README ──
+        // Uses regex patterns that match affirmative claims but not safe
+        // negated disclaimers like "not GA-certified" or "not production-certified".
+
+        val statusAndReadmeText = StringBuilder(statusText)
+        val readmeFile = file("README.md")
+        if (readmeFile.exists()) {
+            statusAndReadmeText.append("\n").append(readmeFile.readText())
+        }
+        val combinedText = statusAndReadmeText.toString()
+
+        val forbiddenOverclaimPatterns = listOf(
+            Regex("\\bis\\s+GA-certified\\b", RegexOption.IGNORE_CASE),
+            Regex("\\bproduction\\s+certified\\b", RegexOption.IGNORE_CASE),
+            Regex("\\bstable\\s+1\\.0\\s+public\\s+API\\s+complete\\b", RegexOption.IGNORE_CASE),
+            Regex("\\bMaven\\s+Central\\s+release\\s+complete\\b", RegexOption.IGNORE_CASE),
+            Regex("\\benterprise\\s+IAM\\s+complete\\b", RegexOption.IGNORE_CASE),
+            Regex("\\bkey\\s+rotation\\s+complete\\b", RegexOption.IGNORE_CASE),
+            Regex("\\bproduction\\-grade\\s+reviewer\\s+UI\\s+complete\\b", RegexOption.IGNORE_CASE),
+        )
+
+        forbiddenOverclaimPatterns.forEach { pattern ->
+            require(!combinedText.contains(pattern)) {
+                "Forbidden affirmative overclaim pattern found: '${pattern.pattern}'. " +
+                    "API boundary docs must not claim GA/production/Maven/key-rotation completion. " +
+                    "Safe negated forms (e.g. 'not GA-certified') are permitted."
+            }
+        }
+
+        // ── STATUS.md must reference the API stability boundary ──
+
+        require(statusText.contains("Sovereign Runtime API Stability")) {
+            "STATUS.md must reference Sovereign Runtime API Stability section"
+        }
+
+        logger.lifecycle("verifySovereignRuntimeApiBoundary: all API stability boundary checks passed.")
     }
 }
 
@@ -2335,6 +2557,7 @@ tasks.register("verifySovereignRuntimeClosure") {
         "verifySovereignRuntimeReleaseCandidate",
         ":examples:spring-sovereign-starter:e2eTest",
         "verifySovereignRuntimeClosureDocs",
+        "verifySovereignRuntimeApiBoundary",
     )
 
     doLast {
@@ -2344,6 +2567,7 @@ tasks.register("verifySovereignRuntimeClosure") {
         logger.lifecycle("  - verifySovereignRuntimeReleaseCandidate")
         logger.lifecycle("  - :examples:spring-sovereign-starter:e2eTest")
         logger.lifecycle("  - verifySovereignRuntimeClosureDocs (documentation consistency)")
+        logger.lifecycle("  - verifySovereignRuntimeApiBoundary (API stability boundary)")
         logger.lifecycle("Sovereignty roadmap is closed at the RC+ / enterprise proof level.")
     }
 }
