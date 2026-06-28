@@ -47,11 +47,16 @@ The next roadmap after this closure is API stabilization and workflow ergonomics
 
 ## Sovereign Runtime API Stability
 
-The Sovereign Runtime RC+ / enterprise proof milestone has a documented API stability boundary.
+The Sovereign Runtime RC+ / enterprise proof milestone has a documented API stability boundary, executable verification task, and manifest. Run with:
+
+```bash
+./gradlew verifySovereignRuntimeApiBoundary
+```
 
 See:
 
 - [Sovereign Runtime API Stability Boundary](architecture/sovereign-api-stability-boundary.md)
+- [Sovereign Runtime API Stability Manifest](architecture/sovereign-api-stability-manifest.yml)
 
 Summary:
 

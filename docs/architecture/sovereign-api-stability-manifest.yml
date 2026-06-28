@@ -1,0 +1,58 @@
+# Sovereign Runtime API Stability Manifest
+#
+# This manifest documents every Sovereign Runtime API type and its
+# stability level. It is consumed by verifySovereignRuntimeApiBoundary.
+#
+# Keep aligned with docs/architecture/sovereign-api-stability-boundary.md.
+
+rcPlusStable:
+  types:
+    - ApprovalStore
+    - SuspendedInvocationStore
+    - ApprovalContinuationStore
+    - AuditStore
+    - SovereignOpsAuditOutboxStore
+    - SovereignOpsApprovalMutationStore
+    - SovereignOpsWorkerLeaseStore
+  verificationTasks:
+    - verifySovereignRuntimeClosure
+    - verifySovereignRuntimeReleaseCandidate
+    - ":examples:spring-sovereign-starter:e2eTest"
+
+preview:
+  types:
+    - ApprovalGateway
+    - ApprovalRequestResult
+    - SovereignWorkflowResult
+    - ApprovalDecisionControlPlane
+    - ApprovalResumeControlPlane
+    - ApprovalInboxQueryService
+    - ApprovalGatewayAutoConfiguration
+
+internal:
+  types:
+    - JdbcApprovalStore
+    - JdbcSuspendedInvocationStore
+    - JdbcApprovalContinuationStore
+    - JdbcAuditStore
+    - JdbcSovereignOpsAuditOutboxStore
+    - JdbcSovereignOpsApprovalMutationStore
+    - JdbcSovereignOpsWorkerLeaseStore
+    - JdbcApprovalResumeCredentialStore
+    - ApprovalResumeCredentialStore
+    - ApprovedContinuationResumeQueue
+    - ApprovedContinuationResumeQueueStatusStore
+    - SovereignOpsApprovedContinuationResumeWorker
+    - ApprovedContinuationResumeWorkerLifecycle
+    - ApprovedContinuationResumeWorkerMetricsObserver
+    - ApprovedResumeQueueMetricsSnapshotProvider
+
+deferred:
+  capabilities:
+    - key rotation
+    - production certification
+    - production-grade reviewer UI
+    - enterprise IAM
+    - production-grade admin REST surface
+    - Maven Central release
+    - stable 1.0 API
