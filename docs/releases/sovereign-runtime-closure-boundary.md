@@ -49,6 +49,13 @@ The following capabilities are included in the closure boundary:
 - Consumer-resolution smoke test
 - Canonical `verifySovereignRuntimeReleaseCandidate` verification task
 - Release readiness documentation and module matrix
+- Preview approval decision/resume control plane
+- Preview REST control plane
+- Preview reviewer UI (disabled by default)
+- Internal encrypted resume credential custody
+- Approved-continuation auto-resume worker
+- Approved-resume worker lifecycle/health/status/queue snapshot/metrics
+- Approved-resume lifecycle JDBC E2E proof
 
 ---
 
@@ -85,13 +92,12 @@ For the classification of stable, preview, internal, and deferred surfaces, see:
 
 The closure boundary explicitly does **not** include:
 
-- Production reviewer UI
+- Production-grade reviewer UI / enterprise IAM integration
 - Production certification (HIPAA, GDPR, or any regulatory certification)
 - Maven Central release of sovereign runtime modules
 - Key rotation
-- Full REST control plane (write / admin endpoints)
+- Production-grade admin REST surface beyond preview control-plane endpoints
 - Broad workflow DSL
-- Enterprise identity / IAM integration
 - Customer-specific policy packs
 - Stable 1.0 API across all TramAI modules
 - Complete API reference documentation
@@ -109,11 +115,21 @@ Rationale:
 - Minimal key rotation (key ID in records, multiple active keys, re-encryption) would add 3–5 PRs.
 - Deferring keeps the closure timeline achievable and prevents scope creep into another long roadmap.
 
-All other items listed under the original post-RC roadmap are now complete:
-- JDBC/database-backed persistence and outbox ✅
-- Distributed worker coordination (worker leases) ✅
-- Production deployment guide (runbook) ✅
-- End-to-end regulated workflow examples (JDBC E2E) ✅
+### Post-Closure Additions (PRs #103–#117)
+
+All post-closure work has been completed and is reflected in the included capabilities above:
+
+| Area | PRs |
+|------|-----|
+| Preview approval decision/resume control plane | #104–#106 |
+| Preview REST control plane | #104–#106 |
+| Preview reviewer UI (disabled by default) | #110 |
+| Internal encrypted resume credential custody | #111 |
+| Approved-continuation auto-resume worker | #112 |
+| Worker lifecycle, status store, health indicator, queue snapshot, metrics | #113–#116 |
+| Approved-resume lifecycle JDBC E2E proof | #117 |
+
+These additions extend the closure boundary with preview and internal surfaces without changing the overall RC+ / enterprise proof milestone classification.
 
 ---
 

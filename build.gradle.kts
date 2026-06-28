@@ -2048,6 +2048,13 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             ":examples:spring-sovereign-starter:e2eTest",
             "Regulated Claim Triage",
             "Sovereign JDBC Production Deployment Runbook",
+            // ── Included preview/preview surfaces (positive checks) ──
+            "Preview reviewer UI",
+            "Approved-resume lifecycle JDBC E2E proof",
+            "Approved-continuation auto-resume worker",
+            "Internal encrypted resume credential custody",
+            "queue snapshot",
+            "Micrometer",
         )
 
         requiredPhrases.forEach { phrase ->
@@ -2075,6 +2082,37 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
         // Key rotation must be explicitly deferred, not merely mentioned
         require(closureText.contains("deferred", ignoreCase = true)) {
             "Closure boundary must explicitly defer key rotation (found 'Key rotation' but not 'deferred')."
+        }
+
+        // ── Negative checks: prevent stale deferred claims about items now included ──
+        // These items were added as preview/internal surfaces during post-closure PRs.
+        // They must NOT appear as bare deferred items without proper context.
+        // Context-aware: verify the "Production-grade" qualified versions exist (they're
+        // in the Explicit Non-Goals section) rather than checking for bare "- Reviewer UI", etc.
+
+        require(closureText.contains("Production-grade reviewer UI")) {
+            "Closure boundary must include 'Production-grade reviewer UI' in non-goals (ensures " +
+                "reviewer UI is not listed as a bare deferred item without context)."
+        }
+
+        require(closureText.contains("Production-grade admin REST surface")) {
+            "Closure boundary must include 'Production-grade admin REST surface' in non-goals (ensures " +
+                "REST control plane is not listed as a bare deferred item without context)."
+        }
+
+        // Ensure no stale section headers exist that would indicate these items were
+        // moved out of Included Capabilities into deferred/planned buckets
+        val staleSectionHeaders = listOf(
+            "Deferred from Closure",
+            "Planned / Not Complete",
+        )
+
+        staleSectionHeaders.forEach { staleHeader ->
+            require(!closureText.contains(staleHeader, ignoreCase = true)) {
+                "Closure boundary must not contain stale section header: '$staleHeader'. " +
+                    "Items like Reviewer UI, REST control plane, and operational endpoints " +
+                    "are already included as preview surfaces."
+            }
         }
 
         val rcBoundary = file("docs/releases/sovereign-runtime-rc-boundary.md").readText()
