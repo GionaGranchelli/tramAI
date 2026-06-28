@@ -24,6 +24,7 @@
 - Added approved-resume worker lifecycle, status store, queue snapshot, health indicator, and Micrometer metrics (PR #113-#116). Queue diagnostics expose aggregate counts such as eligibleNow, delayedRetry, activeLeases, expiredLeases, and terminalFailures, without exposing approval IDs, workflow IDs, resume tokens, or payloads.
 - Added `ApprovedResumeLifecycleJdbcE2ETest` — a full lifecycle E2E proof for the approved-resume flow using Testcontainers PostgreSQL (PR #117). Proves: approval request → approve decision → encrypted credential custody → auto-resume worker picks up the approved continuation → continuation is replayed through the engine → terminal success state is observed. Verifies that the resume credential is never exposed in plaintext through any operational surface.
 - Added docs sync for Sovereign Runtime post-#117 closure state (PR #118). Updates quickstart with REST control plane, reviewer UI, approved-resume worker config, and human approval auto-resume section. Updates JDBC runbook with V6/V7 migrations, resume credential store, and auto-resume worker configuration. Updates CHANGELOG with PR #112–#118 entries. Updates README module table, capability list, and deferred items.
+- Added approved-resume worker Prometheus alert examples, Grafana dashboard JSON, and operator triage runbook (PR #119).
 - Sovereign runtime profile and routing foundation (`tramai-sovereign`).
 - Policy enforcement and DLP/redaction support (`tramai-security`).
 - Approval gates and replay-safe resume.

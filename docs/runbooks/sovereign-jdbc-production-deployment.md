@@ -124,6 +124,8 @@ tramai:
 **Worker lifecycle metrics:**
 The auto-resume worker participates in the same observability surface as the audit outbox worker — status, health, Micrometer, and OpenTelemetry metrics are available through the existing ops-actuator and ops-micrometer/ops-observability modules.
 
+For detailed approved-resume worker dashboards, alert examples, and triage guidance, see the [Approved Resume Worker Observability runbook](./approved-resume-worker-observability.md).
+
 ## Required configuration
 
 ### Minimal production YAML

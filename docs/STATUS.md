@@ -34,6 +34,7 @@ Closure boundary:
 - Approved-continuation auto-resume worker
 - Approved-resume worker lifecycle/status/health/queue snapshot/metrics
 - Approved-resume lifecycle JDBC E2E proof
+- Approved-resume worker dashboard and alert examples
 
 ### Deferred from Closure
 - Key rotation
@@ -145,7 +146,7 @@ The following are intentionally not claimed as complete. Some are planned, some 
 - Maven Central release of sovereign-runtime modules
 - key rotation
 - complete API reference documentation
-- production dashboards
+- production-certified dashboards and organization-specific alert tuning
 
 No timelines are committed for these items.
 

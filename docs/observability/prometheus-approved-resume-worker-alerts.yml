@@ -1,0 +1,61 @@
+# Prometheus alert rules for TramAI approved-resume worker.
+# Metric names use Prometheus-normalized form (Micrometer dots → underscores).
+# Verify exact names against /actuator/prometheus output.
+# This is an example — not a production-certified alert configuration.
+
+groups:
+  - name: tramai-approved-resume-worker
+    rules:
+      - alert: TramAIApprovedResumeWorkerFailures
+        expr: increase(tramai_sovereign_approved_resume_worker_failures_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TramAI approved-resume worker failures detected"
+          description: "The approved-resume worker has recorded failed resume cycles in the last 15 minutes."
+
+      - alert: TramAIApprovedResumeQueueBacklogGrowing
+        expr: tramai_sovereign_approved_resume_queue_eligible_now > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Approved-resume queue has eligible work for too long"
+          description: "Approved continuations are eligible for resume but have not been cleared for over 15 minutes."
+
+      - alert: TramAIApprovedResumeExpiredLeases
+        expr: tramai_sovereign_approved_resume_queue_expired_leases > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Expired approved-resume worker leases detected"
+          description: "One or more approved-resume items have expired leases. The worker may have died mid-cycle or a DB transaction may be stuck."
+
+      - alert: TramAIApprovedResumeTerminalFailures
+        expr: tramai_sovereign_approved_resume_queue_terminal_failures > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Approved-resume terminal failures detected"
+          description: "One or more continuations reached terminal failure and were marked CANCELLED. Investigate the safe reason code."
+
+      - alert: TramAIApprovedResumeSnapshotFailures
+        expr: increase(tramai_sovereign_approved_resume_queue_snapshot_failures_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Approved-resume queue snapshot refresh is failing"
+          description: "Queue metrics may be stale because snapshot refresh failed. Check DB connectivity."
+
+      - alert: TramAIApprovedResumeOldestEligibleTooOld
+        expr: tramai_sovereign_approved_resume_queue_oldest_eligible_age_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Old approved-resume item has not resumed"
+          description: "The oldest eligible approved continuation has been waiting more than 5 minutes."

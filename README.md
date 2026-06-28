@@ -243,6 +243,8 @@ The `verifySovereignRuntimeClosure` task aggregates the full verification surfac
 ./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks
 ```
 
+Approved-resume worker dashboards, alert examples, and an operator triage runbook are available under docs/observability/ and docs/runbooks/.
+
 ## Sovereign Runtime Release Readiness
 
 The sovereign runtime capabilities on `master` are actively evolving and not yet a stable 1.0 API. For the current release-readiness boundary, included modules, validation commands, and known non-goals, see:
