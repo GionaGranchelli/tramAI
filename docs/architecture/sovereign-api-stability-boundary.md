@@ -70,6 +70,11 @@ The following capabilities are proven by working examples, but the developer-fac
 - `ApprovalGatewayRequestFactory` — internal seam for constructing low-level persistence records (`dev.tramai.engine.approval`)
 - `ApprovalGatewayPersistenceRequest` — transport object aggregating persistence records (`dev.tramai.engine.approval`)
 - `ApprovalGatewayAutoConfiguration` — Spring Boot auto-configuration for the preview approval gateway (`dev.tramai.spring.sovereign.ops`)
+- `ApprovalDecisionControlPlane` — preview REST/control-plane surface for approval decisions
+- `ApprovalResumeControlPlane` — preview REST/control-plane surface for approval-based resume
+- `ApprovalInboxQueryService` — preview query service for approval inbox
+- REST control plane endpoints (preview, under `tramai-spring-boot-starter-sovereign-ops-rest`)
+- Preview reviewer UI (disabled by default, served via Spring Boot auto-configuration)
 - Workflow ergonomics
 - Approval gateway abstractions
 - Human suspension / resume workflow shape
@@ -83,11 +88,21 @@ The following capabilities are proven by working examples, but the developer-fac
 
 The following should **not** be treated as public API. Consumers should depend on SPI contracts and Spring Boot auto-configuration, not on concrete implementation classes.
 
-- Concrete JDBC store implementations (`JdbcApprovalStore`, `JdbcSuspendedInvocationStore`, `JdbcApprovalContinuationStore`, `JdbcAuditStore`, `JdbcSovereignOpsAuditOutboxStore`, `JdbcSovereignOpsApprovalMutationStore`, `JdbcSovereignOpsWorkerLeaseStore`)
+- Concrete JDBC store implementations (`JdbcApprovalStore`, `JdbcSuspendedInvocationStore`, `JdbcApprovalContinuationStore`, `JdbcAuditStore`, `JdbcSovereignOpsAuditOutboxStore`, `JdbcSovereignOpsApprovalMutationStore`, `JdbcSovereignOpsWorkerLeaseStore`, `JdbcApprovalResumeCredentialStore`)
+- `SealedResumeToken` — sealed-class token representing encrypted resume credentials
+- `ApprovalResumeCredentialStore` — SPI for encrypted resume credential custody
+- `JdbcApprovalResumeCredentialStore` — JDBC implementation of credential store
+- `ApprovedContinuationResumeQueue` — queue for approved-continuation auto-resume dispatch
+- `ApprovedContinuationResumeQueueStatusStore` — status tracking with queue snapshot support
+- `SovereignOpsApprovedContinuationResumeWorker` — background worker for auto-resume
+- `ApprovedContinuationResumeWorkerLifecycle` — worker lifecycle management
+- `ApprovedContinuationResumeWorkerMetricsObserver` — metrics observer for resume worker
+- `ApprovedResumeQueueMetricsSnapshotProvider` — queue metrics snapshot provider
 - JDBC schema migration helper classes
 - Embedded PostgreSQL test support
 - E2E test harness internals
 - Fake scenario components
+- `tramai_approval_resume_credentials` database table (JDBC schema)
 
 ---
 
@@ -97,8 +112,8 @@ The following are explicitly outside the closed Sovereignty roadmap:
 
 - Key rotation
 - Production certification (HIPAA, GDPR, or any regulatory certification)
-- Reviewer UI
-- Full REST control plane (write / admin endpoints)
+- Production-grade reviewer UI / enterprise IAM integration (preview reviewer UI exists, disabled by default)
+- Production-grade admin REST surface beyond preview control-plane endpoints (preview REST control plane exists)
 - Enterprise identity / IAM integration
 - Maven Central release of sovereign runtime modules
 - Stable 1.0 API across all TramAI modules

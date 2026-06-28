@@ -28,12 +28,18 @@ Closure boundary:
 - Production deployment runbook (JDBC stack)
 - Regulated claim triage JDBC E2E proof
 - CI-backed E2E execution
+- Preview approval REST/control-plane surfaces
+- Preview reviewer UI (disabled by default)
+- Internal encrypted resume credential custody
+- Approved-continuation auto-resume worker
+- Approved-resume worker lifecycle/status/health/queue snapshot/metrics
+- Approved-resume lifecycle JDBC E2E proof
 
 ### Deferred from Closure
 - Key rotation
 - Production certification
-- Reviewer UI
-- Full REST control plane
+- Production-grade reviewer UI / enterprise IAM
+- Production-grade admin REST surface
 - Maven Central release
 
 The next roadmap after this closure is API stabilization and workflow ergonomics.
@@ -51,7 +57,7 @@ Summary:
 - Store and runtime SPIs are **RC+ Stable**.
 - Workflow ergonomics are **Preview**.
 - Concrete JDBC implementations are **Internal**.
-- Key rotation, reviewer UI, full REST control plane, and 1.0-wide API stability are **Deferred**.
+- Key rotation, production-grade reviewer UI, production-grade admin REST surface, and 1.0-wide API stability are **Deferred**.
 
 ## Implemented / Evolving
 
@@ -137,7 +143,6 @@ The following are intentionally not claimed as complete. Some are planned, some 
 
 - stable 1.0 public API
 - Maven Central release of sovereign-runtime modules
-- REST/Actuator operational endpoints
 - key rotation
 - complete API reference documentation
 - production dashboards

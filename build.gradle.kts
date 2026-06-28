@@ -2048,6 +2048,13 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             ":examples:spring-sovereign-starter:e2eTest",
             "Regulated Claim Triage",
             "Sovereign JDBC Production Deployment Runbook",
+            // ── Included preview/preview surfaces (positive checks) ──
+            "Preview reviewer UI",
+            "Approved-resume lifecycle JDBC E2E proof",
+            "Approved-continuation auto-resume worker",
+            "Internal encrypted resume credential custody",
+            "queue snapshot",
+            "Micrometer",
         )
 
         requiredPhrases.forEach { phrase ->
@@ -2075,6 +2082,37 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
         // Key rotation must be explicitly deferred, not merely mentioned
         require(closureText.contains("deferred", ignoreCase = true)) {
             "Closure boundary must explicitly defer key rotation (found 'Key rotation' but not 'deferred')."
+        }
+
+        // ── Negative checks: prevent stale deferred claims about items now included ──
+        // These items were added as preview/internal surfaces during post-closure PRs.
+        // They must NOT appear as bare deferred items without proper context.
+        // Context-aware: verify the "Production-grade" qualified versions exist (they're
+        // in the Explicit Non-Goals section) rather than checking for bare "- Reviewer UI", etc.
+
+        require(closureText.contains("Production-grade reviewer UI")) {
+            "Closure boundary must include 'Production-grade reviewer UI' in non-goals (ensures " +
+                "reviewer UI is not listed as a bare deferred item without context)."
+        }
+
+        require(closureText.contains("Production-grade admin REST surface")) {
+            "Closure boundary must include 'Production-grade admin REST surface' in non-goals (ensures " +
+                "REST control plane is not listed as a bare deferred item without context)."
+        }
+
+        // Ensure no stale section headers exist that would indicate these items were
+        // moved out of Included Capabilities into deferred/planned buckets
+        val staleSectionHeaders = listOf(
+            "Deferred from Closure",
+            "Planned / Not Complete",
+        )
+
+        staleSectionHeaders.forEach { staleHeader ->
+            require(!closureText.contains(staleHeader, ignoreCase = true)) {
+                "Closure boundary must not contain stale section header: '$staleHeader'. " +
+                    "Items like Reviewer UI, REST control plane, and operational endpoints " +
+                    "are already included as preview surfaces."
+            }
         }
 
         val rcBoundary = file("docs/releases/sovereign-runtime-rc-boundary.md").readText()
@@ -2128,6 +2166,57 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
         // STATUS.md must mention the API stability boundary
         require(status.contains("Sovereign Runtime API Stability")) {
             "docs/STATUS.md must include Sovereign Runtime API Stability section."
+        }
+
+        // ── Docs consistency checks for PR #118 review findings ──
+        // These prevent re-introduction of incorrect names, statuses, and patterns
+        // that were fixed during the PR #118 docs review cycle.
+
+        val changelog = file("CHANGELOG.md").readText()
+        val quickstart = file("docs/guides/sovereign-runtime-quickstart.md").readText()
+        val runbook = file("docs/runbooks/sovereign-jdbc-production-deployment.md").readText()
+        val allDocs = changelog + "\n" + quickstart + "\n" + runbook
+
+        // Forbidden: nested YAML form of rest-control-plane-enabled (history: quickstart used it)
+        require(!allDocs.contains(Regex("rest:\\s*\\n\\s*control-plane-enabled"))) {
+            "Docs must not contain nested rest: control-plane-enabled YAML form (use the correct flat property rest-control-plane-enabled)."
+        }
+
+        // Forbidden: "marked dead" — the worker marks continuations CANCELLED, not "dead"
+        require(!runbook.contains("marked dead")) {
+            "Runbook must not say 'marked dead'. Terminal failure marks the continuation CANCELLED."
+        }
+
+        // Forbidden: invented store name
+        val inventedStore = Regex("SovereignOpsApprovedContinuationResumeStore")
+        require(!allDocs.contains(inventedStore)) {
+            "Docs must not reference invented store name SovereignOpsApprovedContinuationResumeStore. Use ApprovedContinuationResumeQueue or the real SPI name."
+        }
+
+        // Forbidden: invented queue statuses (check only CHANGELOG.md — the runbook
+        // legitimately uses DEAD in the outbox dispatch model, which is a different domain)
+        val inventedStatuses = listOf("QUEUED", "RUNNING", "RETRYING", "DEAD")
+        inventedStatuses.forEach { status ->
+            val pattern = Regex(status)
+            require(!changelog.contains(pattern)) {
+                "CHANGELOG.md must not contain invented queue status '$status'. Use real status values like eligibleNow, delayedRetry, activeLeases, expiredLeases, terminalFailures."
+            }
+        }
+
+        // Forbidden: wrong polling semantics
+        val wrongPolling = Regex("status\\s*=\\s*'approved'")
+        require(!runbook.contains(wrongPolling)) {
+            "JDBC runbook must not contain 'status = \\'approved\\'' polling semantics. Use APPROVED + PENDING dual condition."
+        }
+
+        // Required: real SPI queue name
+        require(changelog.contains("ApprovedContinuationResumeQueue")) {
+            "CHANGELOG.md must reference ApprovedContinuationResumeQueue (the real SPI name)."
+        }
+
+        // Required: correct flat property name
+        require(changelog.contains("rest-control-plane-enabled")) {
+            "CHANGELOG.md must reference rest-control-plane-enabled (the correct flat property name)."
         }
 
         logger.lifecycle("verifySovereignRuntimeClosureDocs: all documentation consistency checks passed.")

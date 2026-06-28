@@ -65,6 +65,8 @@ The following migrations exist and **must be applied in order** before the appli
 | V3 | Audit event hardening constraints |
 | V4 | Audit outbox hardening constraints |
 | V5 | Worker lease hardening constraints |
+| V6 | Approval resume credential custody (`tramai_approval_resume_credentials` table with encrypted credential storage and expiry-tracking index) |
+| V7 | Approval continuations resume retry (adds retry metadata for the auto-resume worker) |
 
 Migration SQL files live under:
 ```
@@ -79,6 +81,48 @@ tramai-persistence-jdbc/src/main/resources/tramai/persistence/jdbc/postgres/
 - **Do not manually edit encrypted payload columns.**
 
 TramAI does not currently bundle a migration runner (Flyway, Liquibase). You must apply migrations with your own tooling, or place the SQL files in your Flyway/Liquibase migration directory.
+
+### Resume credential store
+
+The `tramai_approval_resume_credentials` table (V6) stores encrypted resume credentials for the auto-resume worker. It shares the same AES-256-GCM encryption key (`TRAMAI_SOVEREIGN_STORE_KEY`) as the other sovereign stores.
+
+**Configuration note:** The resume credential store is automatically enabled when:
+- `tramai.sovereign.persistence.type=jdbc` is set
+- The V6 migration has been applied
+- `tramai.sovereign.ops.approved-resume-worker.enabled: true` (if you intend to use auto-resume)
+
+The credential store does not require separate configuration — it uses the same `DataSource`, encryption configuration, and schema as the other JDBC stores.
+
+### Auto-resume worker
+
+The approved-continuation auto-resume worker polls for approved continuations, reads encrypted resume credentials, and replays suspended workflows through the engine resume runtime.
+
+**Configuration:**
+
+```yaml
+tramai:
+  sovereign:
+    ops:
+      approved-resume-worker:
+        enabled: true
+```
+
+**Prerequisites:**
+- V6 and V7 migrations applied
+- V2 migration (approval_continuations table) applied
+- Encryption key (`TRAMAI_SOVEREIGN_STORE_KEY`) configured
+- REST control plane or other mechanism to approve suspensions
+
+**Runtime behavior:**
+- Each cycle claims rows where the approval is APPROVED, the continuation is PENDING, the continuation and credential are not expired, retry delay has elapsed, and the row is unclaimed or its lease has expired
+- Reads the sealed resume credential from `tramai_approval_resume_credentials`
+- Decrypts the credential using the same AES-256-GCM key
+- Replays the continuation through `ApprovalResumeControlPlane`
+- On transient failure, the record is retried with exponential backoff (V7 schema)
+- On terminal failure, the continuation is marked CANCELLED
+
+**Worker lifecycle metrics:**
+The auto-resume worker participates in the same observability surface as the audit outbox worker — status, health, Micrometer, and OpenTelemetry metrics are available through the existing ops-actuator and ops-micrometer/ops-observability modules.
 
 ## Required configuration
 
@@ -295,7 +339,7 @@ management:
 Before enabling production traffic, verify:
 
 - [ ] PostgreSQL is reachable from the application.
-- [ ] All migrations (V1–V5) are applied in order.
+- [ ] All migrations (V1–V7) are applied in order.
 - [ ] `tramai.sovereign.persistence.type=jdbc` is set.
 - [ ] `TRAMAI_SOVEREIGN_STORE_KEY` is set and loads successfully.
 - [ ] Application does **not** fall back to in-memory stores.
@@ -306,7 +350,9 @@ Before enabling production traffic, verify:
 - [ ] `SovereignOpsAuditOutboxStore` is JDBC-backed (`JdbcSovereignOpsAuditOutboxStore`).
 - [ ] `SovereignOpsApprovalMutationStore` is JDBC-backed (`JdbcSovereignOpsApprovalMutationStore`).
 - [ ] `SovereignOpsWorkerLeaseStore` is available (if `lease-enabled: true`).
-- [ ] Outbox worker starts only when configured.
+- [ ] `ApprovalResumeCredentialStore` is JDBC-backed (`JdbcApprovalResumeCredentialStore`).
+- [ ] `tramai_approval_resume_credentials` table exists (V6 migration applied).
+- [ ] Auto-resume worker starts only when configured (`approved-resume-worker.enabled: true`).
 - [ ] Health/readiness endpoint reports expected state.
 - [ ] No prompts, model outputs, replay envelopes, or PII appear in metrics/logs.
 - [ ] Application logs do not contain plaintext encryption keys.

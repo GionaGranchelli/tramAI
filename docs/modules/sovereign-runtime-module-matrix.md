@@ -1,6 +1,6 @@
 # Sovereign Runtime Module Matrix
 
-One-stop reference for the sovereign runtime modules on master. Updated 2026-06-20.
+One-stop reference for the sovereign runtime modules on master. Updated 2026-06-28.
 
 ### Sovereign Runtime
 
@@ -20,6 +20,8 @@ troubleshooting flows.
 | tramai-spring-boot-starter-sovereign-ops-actuator | Optional read-only Actuator endpoint and health indicator for worker status | Operational visibility | Implemented / opt-in |
 | tramai-spring-boot-starter-sovereign-ops-micrometer | Micrometer metrics for ops audit outbox worker | Operational observability | Implemented / opt-in |
 | tramai-spring-boot-starter-sovereign-ops-observability | OpenTelemetry metrics for ops audit outbox worker | Operational observability | Implemented |
+| tramai-spring-boot-starter-sovereign-persistence-jdbc | JDBC-backed stores for approvals, continuations, audit, outbox, worker leases, resume credentials | JDBC persistence integration | Implemented / evolving |
+| tramai-spring-boot-starter-sovereign-ops-rest | REST endpoints for approval decision/resume control plane, approval inbox query | REST control plane (preview) | Implemented / preview |
 | examples:sovereign-document-intelligence | End-to-end reference sovereign workflow | Demo / evidence pack | Implemented |
 
 ## Dependency Direction
@@ -34,8 +36,21 @@ application
      -> tramai-persistence-file
 
 application
+  -> tramai-spring-boot-starter-sovereign-persistence-jdbc
+     -> JDBC-backed stores (JdbcApprovalStore, JdbcAuditStore, JdbcSovereignOpsAuditOutboxStore,
+        JdbcSovereignOpsApprovalMutationStore, JdbcSovereignOpsWorkerLeaseStore,
+        JdbcApprovalContinuationStore, JdbcSuspendedInvocationStore,
+        JdbcApprovalResumeCredentialStore)
+     -> Flyway migrations for tramai_approval_resume_credentials and other tables
+
+application
   -> tramai-spring-boot-starter-sovereign-ops
      -> Operational auto-configuration (audit outbox, recovery, dispatch)
+
+application
+  -> tramai-spring-boot-starter-sovereign-ops-rest
+     -> ApprovalDecisionControlPlane, ApprovalResumeControlPlane, ApprovalInboxQueryService
+     -> Preview REST control plane endpoints
 
 application
   -> tramai-spring-boot-starter-sovereign-ops-actuator

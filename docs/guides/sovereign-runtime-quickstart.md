@@ -42,10 +42,11 @@ dependencies {
     implementation("dev.tramai:tramai-spring-boot-starter-sovereign-persistence-file:<version>")
     implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops:<version>")
     implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops-actuator:<version>")
+    implementation("dev.tramai:tramai-spring-boot-starter-sovereign-ops-rest:<version>")
 }
 ```
 
-For JDBC-backed persistence (alternative to file-backed), replace the file persistence dependency:
+For JDBC-backed persistence (alternative to file-backed), replace the file persistence dependency with the `tramai-spring-boot-starter-sovereign-persistence-jdbc` module, which provides PostgreSQL-backed stores for approvals, suspended invocations, continuations, audit events, and the audit outbox:
 
 ```kotlin
 dependencies {
@@ -79,6 +80,10 @@ tramai:
           enabled: true
         worker-health:
           enabled: true
+      reviewer-ui-enabled: true
+      rest-control-plane-enabled: true
+      approved-resume-worker:
+        enabled: true
 
 management:
   endpoints:
@@ -196,6 +201,27 @@ curl http://localhost:8080/actuator/health
 
 For deeper observability, the Micrometer and OpenTelemetry metric modules (`tramai-spring-boot-starter-sovereign-ops-micrometer`, `tramai-spring-boot-starter-sovereign-ops-observability`) expose worker metrics compatible with PromQL and distributed tracing.
 
+## Human approval auto-resume
+
+When a human approves a suspended operation, the runtime can automatically resume the workflow without manual intervention:
+
+- **Approved-continuation worker** — a background worker (`tramai.sovereign.ops.approved-resume-worker.enabled: true`) polls for approved continuations, reads the encrypted resume credential from the `tramai_approval_resume_credentials` table, and replays the continuation through the engine resume runtime
+- **Encrypted credential custody** — resume tokens are sealed (AES-256-GCM) at rest and never exposed through inbox, REST, audit, logs, or the reviewer UI
+- **Configurable retry** — the worker retries on transient failures with exponential backoff until a terminal state is reached
+- **Queue health** — the worker exposes status and health surfaces through the same Actuator and metric modules as the audit outbox worker
+
+Enable auto-resume with:
+
+```yaml
+tramai:
+  sovereign:
+    ops:
+      approved-resume-worker:
+        enabled: true
+```
+
+When combined with the REST control plane, an approve decision from POST .../approvals/{id}/approve marks an existing approval as APPROVED. On the next worker cycle, the approved-resume worker claims the matching pending continuation, reads the internal encrypted resume credential, resumes the workflow, and deletes the credential after success.
+
 ## Verify the RC locally
 
 Run the full local release-candidate verification chain:
@@ -216,4 +242,3 @@ For a regulated-domain walkthrough, see [Regulated Claim Triage Reference Scenar
 - Key rotation and secrets lifecycle
 - Maven Central release or public artifact publication
 - Stable 1.0 API — interfaces are still evolving
-- Broad REST / Actuator control-plane endpoints beyond worker status and health

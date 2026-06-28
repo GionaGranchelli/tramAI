@@ -79,3 +79,17 @@ The original post-RC roadmap listed:
 6. API stabilization *(next roadmap)*
 
 Items 1, 2, 4, and 5 are now complete. Item 3 (key rotation) is deferred to the future GA roadmap. See the [Sovereign Runtime Closure Boundary](./sovereign-runtime-closure-boundary.md) for the full closure boundary.
+
+## Post-RC Closure Additions
+
+After the RC boundary was established, the following post-closure additions were completed as PRs #103–#117:
+
+- Preview approval decision/resume control plane
+- Preview REST control plane
+- Preview reviewer UI (disabled by default)
+- Internal encrypted resume credential custody
+- Approved-continuation auto-resume worker
+- Approved-resume worker lifecycle/health/status/queue snapshot/metrics
+- Approved-resume lifecycle JDBC E2E proof
+
+These are documented in the [Sovereign Runtime Closure Boundary](./sovereign-runtime-closure-boundary.md). The original RC boundary document is preserved as-is for historical reference.

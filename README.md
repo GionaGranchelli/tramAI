@@ -44,6 +44,7 @@ TramAI exists to make those concerns explicit, testable, and composable in JVM a
 | JDBC E2E restart proof | Spring Boot example with Testcontainers PostgreSQL: persist state, restart, recover — audit and outbox survive context restart. |
 | Audit outbox recovery | Persist audit emission intent and safely recover/dispatch it via a configurable background worker. |
 | Approval gateway | Request human approval through an ergonomic API without manually wiring low-level stores. [Golden path guide](docs/guides/approval-gateway-golden-path.md). |
+| Approved-continuation auto-resume | Automatically resume approved, suspended workflows via a background worker with encrypted credential custody, configurable retry, and full observability. |
 
 ## Quick Example
 
@@ -114,6 +115,8 @@ TramAI is organized into focused Gradle modules:
 | `tramai-spring-boot-starter-sovereign-ops-observability` | OpenTelemetry metrics for sovereign ops audit outbox worker |
 | [Worker observability runbook](docs/operations/sovereign-ops-worker-observability-runbook.md) | Operator-facing documentation for worker status, health, and metrics surfaces |
 | `tramai-spring-boot-starter-sovereign-persistence-file` | File-backed persistence auto-configuration |
+| `tramai-spring-boot-starter-sovereign-persistence-jdbc` | PostgreSQL-backed persistence auto-configuration for approvals, suspended invocations, continuations, audit events, audit outbox, and resume credentials |
+| `tramai-spring-boot-starter-sovereign-ops-rest` | REST control plane for approval decisions, resume, and inbox query (Preview, disabled by default) |
 
 ### Optional Higher-Level Modules
 
@@ -214,7 +217,7 @@ Until the next tagged release, APIs in these areas may change.
 The following are intentionally not claimed as complete:
 
 - stable 1.0 API
-- write/control-plane operational endpoints
+- production-hardening of the Preview REST control plane (mutations, authentication, rate limiting)
 - key rotation
 - complete API reference documentation
 
@@ -229,6 +232,12 @@ See:
 - [Sovereign JDBC Production Deployment Runbook](docs/runbooks/sovereign-jdbc-production-deployment.md)
 
 Run the full closure verification chain with:
+
+```bash
+./gradlew verifySovereignRuntimeClosure --no-configuration-cache --rerun-tasks
+```
+
+The `verifySovereignRuntimeClosure` task aggregates the full verification surface for the Sovereign Runtime RC+ / enterprise proof closure boundary. For the RC-specific variant (used during development), use:
 
 ```bash
 ./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks
