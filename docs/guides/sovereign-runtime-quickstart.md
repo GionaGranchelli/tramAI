@@ -81,8 +81,7 @@ tramai:
         worker-health:
           enabled: true
       reviewer-ui-enabled: true
-      rest:
-        control-plane-enabled: true
+      rest-control-plane-enabled: true
       approved-resume-worker:
         enabled: true
 
@@ -221,7 +220,7 @@ tramai:
         enabled: true
 ```
 
-When combined with the REST control plane, an approve decision from `POST .../approvals/{id}/approve` triggers approval creation, credential custody, and — on the next worker cycle — automatic resumption of the suspended workflow.
+When combined with the REST control plane, an approve decision from POST .../approvals/{id}/approve marks an existing approval as APPROVED. On the next worker cycle, the approved-resume worker claims the matching pending continuation, reads the internal encrypted resume credential, resumes the workflow, and deletes the credential after success.
 
 ## Verify the RC locally
 

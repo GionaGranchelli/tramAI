@@ -114,7 +114,7 @@ tramai:
 - REST control plane or other mechanism to approve suspensions
 
 **Runtime behavior:**
-- Each cycle polls `approval_continuations` for records with `status = 'approved'` and matching retry criteria
+- Each cycle claims rows where the approval is APPROVED, the continuation is PENDING, the continuation and credential are not expired, retry delay has elapsed, and the row is unclaimed or its lease has expired
 - Reads the sealed resume credential from `tramai_approval_resume_credentials`
 - Decrypts the credential using the same AES-256-GCM key
 - Replays the continuation through `ApprovalResumeControlPlane`

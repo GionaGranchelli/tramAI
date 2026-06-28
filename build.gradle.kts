@@ -2168,6 +2168,52 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             "docs/STATUS.md must include Sovereign Runtime API Stability section."
         }
 
+        // ── Docs consistency checks for PR #118 review findings ──
+        // These prevent re-introduction of incorrect names, statuses, and patterns
+        // that were fixed during the PR #118 docs review cycle.
+
+        val changelog = file("CHANGELOG.md").readText()
+        val quickstart = file("docs/guides/sovereign-runtime-quickstart.md").readText()
+        val runbook = file("docs/runbooks/sovereign-jdbc-production-deployment.md").readText()
+        val allDocs = changelog + "\n" + quickstart + "\n" + runbook
+
+        // Forbidden: nested YAML form of rest-control-plane-enabled
+        require(!changelog.contains(Regex("rest:\\s*\\n\\s*control-plane-enabled"))) {
+            "CHANGELOG.md must not contain nested rest: control-plane-enabled YAML form (use the correct flat property rest-control-plane-enabled)."
+        }
+
+        // Forbidden: invented store name
+        val inventedStore = Regex("SovereignOpsApprovedContinuationResumeStore")
+        require(!allDocs.contains(inventedStore)) {
+            "Docs must not reference invented store name SovereignOpsApprovedContinuationResumeStore. Use ApprovedContinuationResumeQueue or the real SPI name."
+        }
+
+        // Forbidden: invented queue statuses (check only CHANGELOG.md — the runbook
+        // legitimately uses DEAD in the outbox dispatch model, which is a different domain)
+        val inventedStatuses = listOf("QUEUED", "RUNNING", "RETRYING", "DEAD")
+        inventedStatuses.forEach { status ->
+            val pattern = Regex(status)
+            require(!changelog.contains(pattern)) {
+                "CHANGELOG.md must not contain invented queue status '$status'. Use real status values like eligibleNow, delayedRetry, activeLeases, expiredLeases, terminalFailures."
+            }
+        }
+
+        // Forbidden: wrong polling semantics
+        val wrongPolling = Regex("status\\s*=\\s*'approved'")
+        require(!runbook.contains(wrongPolling)) {
+            "JDBC runbook must not contain 'status = \\'approved\\'' polling semantics. Use APPROVED + PENDING dual condition."
+        }
+
+        // Required: real SPI queue name
+        require(changelog.contains("ApprovedContinuationResumeQueue")) {
+            "CHANGELOG.md must reference ApprovedContinuationResumeQueue (the real SPI name)."
+        }
+
+        // Required: correct flat property name
+        require(changelog.contains("rest-control-plane-enabled")) {
+            "CHANGELOG.md must reference rest-control-plane-enabled (the correct flat property name)."
+        }
+
         logger.lifecycle("verifySovereignRuntimeClosureDocs: all documentation consistency checks passed.")
     }
 }
