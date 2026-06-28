@@ -2052,9 +2052,28 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
         }
 
         val boundaryText = boundaryDoc.readText()
+        val manifestText = manifestFile.readText()
         val statusText = statusDoc.readText()
 
-        // ── RC+ Stable types are documented ──
+        // ── Section scopes ──
+
+        val stableSection = boundaryText
+            .substringAfter("## RC+ Stable Surface")
+            .substringBefore("## Preview Surface")
+
+        val previewSection = boundaryText
+            .substringAfter("## Preview Surface")
+            .substringBefore("## Internal Implementation Details")
+
+        val internalSection = boundaryText
+            .substringAfter("## Internal Implementation Details")
+            .substringBefore("## Deferred to Future Roadmaps")
+
+        val deferredSection = boundaryText
+            .substringAfter("## Deferred to Future Roadmaps")
+            .substringBefore("## Compatibility Promise")
+
+        // ── RC+ Stable types ──
 
         val rcPlusStableTypes = listOf(
             "ApprovalStore",
@@ -2067,20 +2086,22 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
         )
 
         rcPlusStableTypes.forEach { type ->
-            require(boundaryText.contains(type)) {
+            require(stableSection.contains(type)) {
                 "RC+ Stable section must document $type"
+            }
+            require(manifestText.contains("- $type")) {
+                "API stability manifest rcPlusStable.types must include $type"
             }
         }
 
-        // RC+ stable verification tasks are documented
-        require(boundaryText.contains("verifySovereignRuntimeClosure")) {
+        require(stableSection.contains("verifySovereignRuntimeClosure")) {
             "RC+ Stable section must document verifySovereignRuntimeClosure"
         }
-        require(boundaryText.contains("verifySovereignRuntimeReleaseCandidate")) {
+        require(stableSection.contains("verifySovereignRuntimeReleaseCandidate")) {
             "RC+ Stable section must document verifySovereignRuntimeReleaseCandidate"
         }
 
-        // ── Preview types are documented ──
+        // ── Preview types (section-scoped) ──
 
         val previewTypes = listOf(
             "ApprovalGateway",
@@ -2092,13 +2113,27 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
             "Workflow ergonomics",
         )
 
+        val previewManifestTypes = listOf(
+            "ApprovalGateway",
+            "ApprovalDecisionControlPlane",
+            "ApprovalResumeControlPlane",
+            "ApprovalInboxQueryService",
+            "ApprovalGatewayAutoConfiguration",
+        )
+
         previewTypes.forEach { type ->
-            require(boundaryText.contains(type, ignoreCase = true)) {
+            require(previewSection.contains(type, ignoreCase = true)) {
                 "Preview Surface section must document '$type'"
             }
         }
 
-        // ── Internal implementation details stay internal ──
+        previewManifestTypes.forEach { type ->
+            require(manifestText.contains("- $type")) {
+                "API stability manifest preview.types must include $type"
+            }
+        }
+
+        // ── Internal implementation details stay internal (section-scoped) ──
 
         val internalTypes = listOf(
             "JdbcApprovalStore",
@@ -2110,25 +2145,31 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
         )
 
         internalTypes.forEach { type ->
-            require(boundaryText.contains(type)) {
+            require(internalSection.contains(type)) {
                 "Internal Implementation Details section must document '$type'"
+            }
+            require(manifestText.contains("- $type")) {
+                "API stability manifest internal.types must include $type"
             }
         }
 
-        // ── Deferred capabilities stay deferred ──
+        // ── Deferred capabilities stay deferred (section-scoped) ──
 
         val deferredCapabilities = listOf(
             "Key rotation",
             "Production certification",
             "Production-grade reviewer UI",
-            "Enterprise identity",
+            "Enterprise IAM",
             "Maven Central release",
             "Stable 1.0 API",
         )
 
         deferredCapabilities.forEach { cap ->
-            require(boundaryText.contains(cap, ignoreCase = true)) {
+            require(deferredSection.contains(cap, ignoreCase = true)) {
                 "Deferred to Future Roadmaps section must document '$cap'"
+            }
+            require(manifestText.contains("- $cap", ignoreCase = true)) {
+                "API stability manifest deferred.capabilities must include '$cap'"
             }
         }
 
@@ -2160,38 +2201,38 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
             "ApprovedResumeQueueMetricsSnapshotProvider",
         )
 
-        val stableSection = boundaryText.substringAfter("## RC+ Stable Surface")
-            .substringBefore("## Preview Surface")
-
         internalJdbcClasses.forEach { clazz ->
             require(!stableSection.contains(clazz)) {
                 "Internal JDBC/worker class '$clazz' must not appear in the RC+ Stable section"
             }
         }
 
-        // ── Forbidden: GA/production/Maven/key-rotation overclaims in STATUS and README ──
-        // (The boundary document legitimately uses "not a GA-certified production release"
-        // as a disclaimer; exclude it from this check.)
+        // ── Forbidden: positive overclaims in STATUS and README ──
+        // Uses regex patterns that match affirmative claims but not safe
+        // negated disclaimers like "not GA-certified" or "not production-certified".
 
         val statusAndReadmeText = StringBuilder(statusText)
         val readmeFile = file("README.md")
         if (readmeFile.exists()) {
             statusAndReadmeText.append("\n").append(readmeFile.readText())
         }
+        val combinedText = statusAndReadmeText.toString()
 
-        val forbiddenPhrases = listOf(
-            "GA-certified",
-            "production certified",
-            "stable 1.0 public API complete",
-            "Maven Central release complete",
-            "enterprise IAM complete",
-            "key rotation complete",
-            "production-grade reviewer UI complete",
+        val forbiddenOverclaimPatterns = listOf(
+            Regex("\\bis\\s+GA-certified\\b", RegexOption.IGNORE_CASE),
+            Regex("\\bproduction\\s+certified\\b", RegexOption.IGNORE_CASE),
+            Regex("\\bstable\\s+1\\.0\\s+public\\s+API\\s+complete\\b", RegexOption.IGNORE_CASE),
+            Regex("\\bMaven\\s+Central\\s+release\\s+complete\\b", RegexOption.IGNORE_CASE),
+            Regex("\\benterprise\\s+IAM\\s+complete\\b", RegexOption.IGNORE_CASE),
+            Regex("\\bkey\\s+rotation\\s+complete\\b", RegexOption.IGNORE_CASE),
+            Regex("\\bproduction\\-grade\\s+reviewer\\s+UI\\s+complete\\b", RegexOption.IGNORE_CASE),
         )
 
-        forbiddenPhrases.forEach { phrase ->
-            require(!statusAndReadmeText.contains(phrase, ignoreCase = true)) {
-                "Forbidden overclaim phrase found: '$phrase'. API boundary docs must not claim GA/production/Maven/key-rotation completion."
+        forbiddenOverclaimPatterns.forEach { pattern ->
+            require(!combinedText.contains(pattern)) {
+                "Forbidden affirmative overclaim pattern found: '${pattern.pattern}'. " +
+                    "API boundary docs must not claim GA/production/Maven/key-rotation completion. " +
+                    "Safe negated forms (e.g. 'not GA-certified') are permitted."
             }
         }
 
