@@ -45,6 +45,7 @@ dependencies {
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.junit.jupiter)
     testImplementation(libs.postgresql)
+    testImplementation(libs.micrometer.core)
 }
 
 tasks.test {
