@@ -2135,16 +2135,27 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
 
         // ── Preview functions ──
 
+        val stableManifestSection = manifestText
+            .substringAfter("rcPlusStable:")
+            .substringBefore("preview:")
+
+        val previewManifestSection = manifestText
+            .substringAfter("preview:")
+            .substringBefore("internal:")
+
         val previewManifestFunctions = listOf(
             "ApprovalRequestResult.toWorkflowResult",
         )
 
         previewManifestFunctions.forEach { func ->
-            require(manifestText.contains("- $func")) {
+            require(previewManifestSection.contains("- $func")) {
                 "API stability manifest preview.functions must include '$func'"
             }
             require(previewSection.contains(func)) {
                 "Preview Surface section must document '$func'"
+            }
+            require(!stableManifestSection.contains(func)) {
+                "'$func' is Preview and must not appear in rcPlusStable manifest section."
             }
         }
 
