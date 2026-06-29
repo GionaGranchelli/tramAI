@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Added minimal Spring/JDBC golden path smoke proof (PR #124). `ApprovalGatewaySpringGoldenPathSmokeTest` proves a sovereign workflow can use `ApprovalGateway` + `toWorkflowResult { ... }` with real JDBC persistence, without wiring low-level stores. Includes a source guard that prevents store references from leaking into the workflow class.
 - Added API boundary guard for `ApprovalRequestResult.toWorkflowResult` Preview function (PR #123). Lists the mapper in the API stability manifest as a Preview function, documents it in the boundary doc, adds source-file existence and signature-presence checks to `verifySovereignRuntimeApiBoundary`, and adds a focused API-boundary test proving the decision-aware lambda contract.
 - Added `ApprovalRequestResult.toWorkflowResult { ... }` ergonomic Preview mapper (PR #122). Converts each gateway outcome (Suspended, AlreadyApproved, AlreadyDenied, Expired) to the corresponding `SovereignWorkflowResult` variant. The `approvedValue` lambda receives the `HumanApprovalDecision.Approved` decision and is lazy — only invoked for `AlreadyApproved`. Terminal states never execute the lambda, preventing accidental side effects.
 - Updated the approval gateway golden path proof (PR #121) to use the mapper instead of a manual `when` expression.
