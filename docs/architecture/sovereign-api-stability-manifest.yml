@@ -28,6 +28,8 @@ preview:
     - ApprovalResumeControlPlane
     - ApprovalInboxQueryService
     - ApprovalGatewayAutoConfiguration
+  functions:
+    - ApprovalRequestResult.toWorkflowResult
 
 internal:
   types:
