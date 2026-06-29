@@ -53,18 +53,19 @@ class ApprovalGatewayGoldenPathErgonomicsTest {
 
     /**
      * Minimal workflow that routes an approval request through the
-     * gateway and maps each outcome to a [SovereignWorkflowResult].
+     * gateway and uses the [ApprovalRequestResult.toWorkflowResult]
+     * mapper to convert each outcome to a [SovereignWorkflowResult].
      *
      * This is the developer-facing ergonomic shape: the workflow
      * expresses its approval boundary through a single gateway call
-     * and a `when` expression, with zero knowledge of the persistence
-     * layer underneath.
+     * and the mapper, with zero knowledge of the persistence layer
+     * underneath or the sealed-class mapping details.
      */
     private class ExampleClaimWorkflow(
         private val gateway: ApprovalGateway,
     ) {
         suspend fun triage(input: ClaimInput): SovereignWorkflowResult<String> {
-            val approvalResult = gateway.requestApproval(
+            return gateway.requestApproval(
                 subject = ApprovalSubject(input.claimId),
                 recommendation = ApprovalRecommendation(
                     type = "claim-triage",
@@ -72,26 +73,7 @@ class ApprovalGatewayGoldenPathErgonomicsTest {
                 ),
                 requiredRole = ApproverRole("medical-reviewer"),
                 workflowRunId = WorkflowRunId(input.workflowRunId),
-            )
-
-            return when (approvalResult) {
-                is ApprovalRequestResult.Suspended ->
-                    SovereignWorkflowResult.SuspendedForApproval(
-                        approvalId = approvalResult.approvalId,
-                        workflowRunId = approvalResult.workflowRunId,
-                        auditStreamId = approvalResult.auditStreamId,
-                        resumeToken = approvalResult.resumeToken,
-                    )
-
-                is ApprovalRequestResult.AlreadyApproved ->
-                    SovereignWorkflowResult.Completed("approved-continue")
-
-                is ApprovalRequestResult.AlreadyDenied ->
-                    SovereignWorkflowResult.Rejected(approvalResult.decision.reason)
-
-                is ApprovalRequestResult.Expired ->
-                    SovereignWorkflowResult.Expired(approvalResult.reason)
-            }
+            ).toWorkflowResult { "approved-continue" }
         }
     }
 

@@ -184,7 +184,7 @@ class ClaimTriageWorkflow(
                 subject = ApprovalSubject(input.claimId),
                 recommendation = route.recommendation,
                 requiredRole = ApproverRole("medical-reviewer"),
-            ).toWorkflowResult()
+            ).toWorkflowResult { route.recommendation }
         }
 
         return SovereignWorkflowResult.Completed(route.recommendation)
@@ -344,6 +344,14 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 >
 > **Limitations remaining:**
 > - Generic fallback gateway (`DefaultApprovalGateway`) still has no cross-store transaction boundary and does not emit audit intent.
+>
+> **PR #121** adds a golden-path ergonomics proof for the Preview ApprovalGateway:
+> - Recording fake gateway pattern that captures all request parameters
+> - Proves four-outcome coverage (Suspended, AlreadyApproved, AlreadyDenied, Expired)
+> - The example workflow maps each gateway outcome to a `SovereignWorkflowResult`
+> - No low-level persistence stores are wired in the test
+>
+> **PR #122** adds `ApprovalRequestResult.toWorkflowResult { ... }` — an ergonomic Preview mapper that converts each gateway outcome to the corresponding `SovereignWorkflowResult` variant. The `approvedValue` lambda is lazy: it is only invoked for `AlreadyApproved`. Terminal states never execute the lambda, preventing accidental side effects.
 
 ---
 
@@ -386,3 +394,5 @@ The following are explicitly **not covered** by this design:
 | #104 | Preview approval resume control plane | Add application-facing resume API over the engine resume runtime |
 | #105 | Preview REST approval control plane | Add REST endpoints in new `tramai-spring-boot-starter-sovereign-ops-rest` module over the service-level control planes (disabled by default) |
 | #106 | Preview approval inbox query API | Add safe reviewer work queue over durable approval records — `ApprovalInboxQueryService` SPI, JDBC implementation, REST list/work-item endpoints |
+| #121 | Golden path ergonomics proof | Executable test using only `ApprovalGateway` — no low-level stores |
+| #122 | Approval result workflow mapper | `ApprovalRequestResult.toWorkflowResult { ... }` — lazy `approvedValue` lambda, four-outcome coverage |
