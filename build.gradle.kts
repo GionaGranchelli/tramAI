@@ -2133,6 +2133,51 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
             }
         }
 
+        // ── Preview functions ──
+
+        val previewManifestFunctions = listOf(
+            "ApprovalRequestResult.toWorkflowResult",
+        )
+
+        previewManifestFunctions.forEach { func ->
+            require(manifestText.contains("- $func")) {
+                "API stability manifest preview.functions must include '$func'"
+            }
+            require(previewSection.contains(func)) {
+                "Preview Surface section must document '$func'"
+            }
+        }
+
+        // ── Preview function source file exists and maintains signature ──
+
+        val mapperFile = file(
+            "tramai-core/src/main/kotlin/dev/tramai/core/workflow/ApprovalRequestWorkflowResultMappers.kt",
+        )
+        require(mapperFile.exists()) {
+            "Missing Preview approval workflow result mapper source file at ${mapperFile.absolutePath}"
+        }
+
+        val mapperSource = mapperFile.readText()
+        require(mapperSource.contains("fun <T> ApprovalRequestResult.toWorkflowResult")) {
+            "ApprovalRequestResult.toWorkflowResult mapper must remain available."
+        }
+        require(mapperSource.contains("HumanApprovalDecision.Approved")) {
+            "ApprovalRequestResult.toWorkflowResult must expose the approved decision to the lambda."
+        }
+        require(mapperSource.contains("approvedValue(decision)")) {
+            "ApprovalRequestResult.toWorkflowResult must pass the approved decision into approvedValue."
+        }
+
+        // ── Forbidden: Preview mapper in RC+ Stable section ──
+
+        require(!stableSection.contains("ApprovalRequestResult.toWorkflowResult")) {
+            "ApprovalRequestResult.toWorkflowResult is Preview, not RC+ Stable, and must not be in the RC+ Stable section."
+        }
+
+        require(!stableSection.contains("toWorkflowResult")) {
+            "toWorkflowResult Preview function must not appear in the RC+ Stable section."
+        }
+
         // ── Internal implementation details stay internal (section-scoped) ──
 
         val internalTypes = listOf(
