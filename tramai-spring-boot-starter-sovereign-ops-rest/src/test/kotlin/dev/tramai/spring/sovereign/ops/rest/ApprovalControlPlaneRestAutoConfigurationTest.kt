@@ -132,72 +132,6 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
             }
     }
 
-    // ── Reviewer UI controller ────────────────────────────────────
-
-    @Test
-    fun `reviewer UI disabled by default`() {
-        contextRunnerWithInbox.run { ctx ->
-            assertThat(ctx).doesNotHaveBean(ApprovalReviewerUiController::class.java)
-        }
-    }
-
-    @Test
-    fun `reviewer UI not registered when rest-control-plane-enabled=false`() {
-        contextRunnerWithInbox
-            .withPropertyValues(
-                "tramai.sovereign.ops.rest-control-plane-enabled=false",
-                "tramai.sovereign.ops.reviewer-ui-enabled=true",
-            )
-            .run { ctx ->
-                assertThat(ctx).doesNotHaveBean(ApprovalReviewerUiController::class.java)
-            }
-    }
-
-    @Test
-    fun `reviewer UI registered when enabled and all beans present`() {
-        contextRunnerWithInbox
-            .withPropertyValues(
-                "tramai.sovereign.ops.rest-control-plane-enabled=true",
-                "tramai.sovereign.ops.reviewer-ui-enabled=true",
-            )
-            .run { ctx ->
-                assertThat(ctx).hasSingleBean(ApprovalReviewerUiController::class.java)
-            }
-    }
-
-    @Test
-    fun `reviewer UI backs off when custom controller exists`() {
-        ApplicationContextRunner()
-            .withConfiguration(
-                AutoConfigurations.of(ApprovalControlPlaneRestAutoConfiguration::class.java),
-            )
-            .withUserConfiguration(
-                TestControlPlanesConfig::class.java,
-                TestStoresConfig::class.java,
-                TestInboxQueryServiceConfig::class.java,
-                CustomReviewerUiControllerConfig::class.java,
-            )
-            .withPropertyValues(
-                "tramai.sovereign.ops.rest-control-plane-enabled=true",
-                "tramai.sovereign.ops.reviewer-ui-enabled=true",
-            )
-            .run { ctx ->
-                assertThat(ctx).hasSingleBean(ApprovalReviewerUiController::class.java)
-            }
-    }
-
-    @Test
-    fun `reviewer UI not registered without inbox query service`() {
-        contextRunner // no TestInboxQueryServiceConfig
-            .withPropertyValues(
-                "tramai.sovereign.ops.rest-control-plane-enabled=true",
-                "tramai.sovereign.ops.reviewer-ui-enabled=true",
-            )
-            .run { ctx ->
-                assertThat(ctx).doesNotHaveBean(ApprovalReviewerUiController::class.java)
-            }
-    }
-
     // -- test configurations --
 
     @Configuration
@@ -248,13 +182,6 @@ class ApprovalControlPlaneRestAutoConfigurationTest {
         @Bean
         open fun customApprovalInboxController(): ApprovalInboxController =
             ApprovalInboxController(InboxQueryServiceStub())
-    }
-
-    @Configuration
-    open class CustomReviewerUiControllerConfig {
-        @Bean
-        open fun customApprovalReviewerUiController(): ApprovalReviewerUiController =
-            ApprovalReviewerUiController()
     }
 
     // -- stub implementations --

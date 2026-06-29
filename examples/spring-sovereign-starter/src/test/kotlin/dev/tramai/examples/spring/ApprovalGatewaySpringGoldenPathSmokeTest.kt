@@ -15,7 +15,6 @@ import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
 import dev.tramai.spring.sovereign.ops.ApprovalGatewayAutoConfiguration
 import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
 import java.time.Clock
-import java.time.Instant
 import javax.sql.DataSource
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -41,6 +40,9 @@ import java.util.Base64
  *
  * This is intentionally much smaller than [RegulatedClaimTriageJdbcE2ETest].
  * It proves the ergonomic path, not the full scenario runtime.
+ *
+ * All supporting types are inner classes to avoid being picked up
+ * by component scanning in other Spring Boot tests in this package.
  */
 @Tag("e2e")
 class ApprovalGatewaySpringGoldenPathSmokeTest {
@@ -139,63 +141,61 @@ class ApprovalGatewaySpringGoldenPathSmokeTest {
             }
         }
     }
-}
 
-// ── Workflow under test ────────────────────────────────────────────
+    // ── Inner types (scoped to this test, invisible to component scan) ──
 
-/**
- * Minimal workflow that demonstrates the golden-path ergonomic shape.
- *
- * This class must NOT reference any low-level store
- * (ApprovalStore, SuspendedInvocationStore, ApprovalContinuationStore,
- * or any Jdbc* variant). See the source guard in build.gradle.kts.
- */
-class ExampleApprovalWorkflow(
-    private val approvalGateway: ApprovalGateway,
-) {
-    suspend fun triage(input: ClaimInput): SovereignWorkflowResult<String> =
-        approvalGateway.requestApproval(
-            subject = ApprovalSubject(input.claimId),
-            recommendation = ApprovalRecommendation(
-                type = "claim-triage",
-                summary = "Claim requires medical review",
-            ),
-            requiredRole = ApproverRole("medical-reviewer"),
-            workflowRunId = WorkflowRunId(input.workflowRunId),
-        ).toWorkflowResult { decision ->
-            "approved-by-${decision.decidedBy}"
-        }
-}
-
-data class ClaimInput(
-    val claimId: String,
-    val workflowRunId: String,
-)
-
-// ── Spring configuration ──────────────────────────────────────────
-
-@Configuration
-class SmokeTestDataSourceConfig {
-
-    @Bean(destroyMethod = "close")
-    fun smokeTestDataSource(): DataSource {
-        val ds = HikariDataSource()
-        ds.jdbcUrl = PgEmbeddedTestSupport.jdbcUrl
-        ds.username = PgEmbeddedTestSupport.username
-        ds.password = PgEmbeddedTestSupport.password
-        ds.maximumPoolSize = 3
-        return ds
+    /**
+     * Minimal workflow that demonstrates the golden-path ergonomic shape.
+     *
+     * This class must NOT reference any low-level store
+     * (ApprovalStore, SuspendedInvocationStore, ApprovalContinuationStore,
+     * or any Jdbc* variant). See the source guard in build.gradle.kts.
+     */
+    class ExampleApprovalWorkflow(
+        private val approvalGateway: ApprovalGateway,
+    ) {
+        suspend fun triage(input: ClaimInput): SovereignWorkflowResult<String> =
+            approvalGateway.requestApproval(
+                subject = ApprovalSubject(input.claimId),
+                recommendation = ApprovalRecommendation(
+                    type = "claim-triage",
+                    summary = "Claim requires medical review",
+                ),
+                requiredRole = ApproverRole("medical-reviewer"),
+                workflowRunId = WorkflowRunId(input.workflowRunId),
+            ).toWorkflowResult { decision ->
+                "approved-by-${decision.decidedBy}"
+            }
     }
-}
 
-@Configuration
-class SmokeTestGatewayConfig {
+    data class ClaimInput(
+        val claimId: String,
+        val workflowRunId: String,
+    )
 
-    @Bean
-    fun smokeTestApprovalGatewayRequestFactory(): ApprovalGatewayRequestFactory =
-        SmokeTestApprovalGatewayRequestFactory(clock = Clock.systemUTC())
+    @Configuration
+    class SmokeTestDataSourceConfig {
 
-    @Bean
-    fun exampleApprovalWorkflow(gateway: ApprovalGateway): ExampleApprovalWorkflow =
-        ExampleApprovalWorkflow(gateway)
+        @Bean(destroyMethod = "close")
+        fun smokeTestDataSource(): DataSource {
+            val ds = HikariDataSource()
+            ds.jdbcUrl = PgEmbeddedTestSupport.jdbcUrl
+            ds.username = PgEmbeddedTestSupport.username
+            ds.password = PgEmbeddedTestSupport.password
+            ds.maximumPoolSize = 3
+            return ds
+        }
+    }
+
+    @Configuration
+    class SmokeTestGatewayConfig {
+
+        @Bean
+        fun smokeTestApprovalGatewayRequestFactory(): ApprovalGatewayRequestFactory =
+            SmokeTestApprovalGatewayRequestFactory(clock = Clock.systemUTC())
+
+        @Bean
+        fun exampleApprovalWorkflow(gateway: ApprovalGateway): ExampleApprovalWorkflow =
+            ExampleApprovalWorkflow(gateway)
+    }
 }
