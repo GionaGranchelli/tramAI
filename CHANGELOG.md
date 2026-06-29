@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Added
+- Added `ApprovalRequestResult.toWorkflowResult { ... }` ergonomic Preview mapper (PR #122). Converts each gateway outcome (Suspended, AlreadyApproved, AlreadyDenied, Expired) to the corresponding `SovereignWorkflowResult` variant. The `approvedValue` lambda is lazy — only invoked for `AlreadyApproved`. Terminal states never execute the lambda, preventing accidental side effects.
+- Updated the approval gateway golden path proof (PR #121) to use the mapper instead of a manual `when` expression.
+- Updated golden path guide to show the mapper.
+- Updated human approval workflow ergonomics design doc with PR #121 and PR #122 entries.
 - Added `verifySovereignRuntimeClosure`, a canonical verification task for the Sovereign Runtime RC+ / enterprise proof closure boundary.
 - Added Sovereign Runtime API stability boundary documenting RC+ stable, preview, internal, and deferred surfaces.
 - Added human approval workflow ergonomics design document defining the target API shape for non-blocking human-in-the-loop workflows.

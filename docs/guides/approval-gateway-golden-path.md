@@ -44,30 +44,39 @@ val approvalResult = approvalGateway.requestApproval(
 )
 ```
 
-The return type is a sealed interface that makes the workflow state explicit:
+The return type is a sealed interface that makes the workflow state explicit.
+With the [Preview mapper][ApprovalRequestResult.toWorkflowResult],
+the workflow becomes a one-liner:
 
 ```kotlin
-return when (approvalResult) {
-    is ApprovalRequestResult.Suspended ->
-        // Workflow is suspended; save approvalId and resumeToken for later
-        ClaimTriageResult.Suspended(
-            approvalId = approvalResult.approvalId.value,
-            resumeToken = approvalResult.resumeToken.value,
-        )
-
-    is ApprovalRequestResult.AlreadyApproved ->
-        // Duplicate request; the decision already exists
-        continueAfterApproval(approvalResult.decision)
-
-    is ApprovalRequestResult.AlreadyDenied ->
-        // Duplicate request; the decision already exists
-        rejectClaim(approvalResult.decision)
-
-    is ApprovalRequestResult.Expired ->
-        // The previous approval request expired without a decision
-        expireClaim(approvalResult.approvalId)
-}
+return gateway.requestApproval(
+    subject = ApprovalSubject(input.claimId),
+    recommendation = ApprovalRecommendation(
+        type = "regulated-claim-triage",
+        summary = "High-risk claim requires medical review",
+        payload = mapOf(
+            "riskLevel" to "HIGH",
+            "requiredApprover" to "medical-reviewer",
+        ),
+    ),
+    requiredRole = ApproverRole("medical-reviewer"),
+    workflowRunId = WorkflowRunId(input.workflowRunId),
+).toWorkflowResult { "approved-continue" }
 ```
+
+The mapper converts each [ApprovalRequestResult] outcome to the
+corresponding [SovereignWorkflowResult] variant:
+
+| Gateway outcome | Workflow result | `approvedValue` invoked? |
+|:----------------|:----------------|:--------------------------|
+| `Suspended` | `SuspendedForApproval` | No — terminal state |
+| `AlreadyApproved` | `Completed(approvedValue())` | Yes — exactly once |
+| `AlreadyDenied` | `Rejected(decision.reason)` | No — terminal state |
+| `Expired` | `Expired(reason)` | No — terminal state |
+
+The `approvedValue` lambda is **lazy** — it is only invoked for
+`AlreadyApproved`. Terminal states never execute the lambda, preventing
+accidental side effects in suspended/denied/expired paths.
 
 ---
 
