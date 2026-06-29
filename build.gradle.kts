@@ -2536,6 +2536,55 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             "Runbook must not recommend histogram_quantile(0.95) unless histogram buckets are explicitly documented/enabled for the cycle_duration_seconds timer."
         }
 
+        // ── Golden path guide consistency ──
+
+        val goldenPathGuide = file("docs/guides/approval-gateway-golden-path.md")
+        require(goldenPathGuide.exists()) {
+            "Missing approval gateway golden path guide at ${goldenPathGuide.absolutePath}"
+        }
+
+        val goldenPathText = goldenPathGuide.readText()
+
+        // Forbidden: stale "Reviewer UI | Not implemented yet" limitation
+        require(!goldenPathText.contains("Reviewer UI | Not implemented yet")) {
+            "Approval gateway golden path guide must not say reviewer UI is not implemented; " +
+                "preview reviewer UI exists and is disabled by default."
+        }
+
+        // Required: golden path mentions updated reviewer UI status
+        require(goldenPathText.contains("Preview reviewer UI available, disabled by default")) {
+            "Approval gateway golden path guide must document that preview reviewer UI is available " +
+                "and disabled by default."
+        }
+
+        // ── Golden path test must not reference low-level stores ──
+
+        val goldenPathTest = file(
+            "tramai-core/src/test/kotlin/dev/tramai/core/workflow/ApprovalGatewayGoldenPathErgonomicsTest.kt",
+        )
+        require(goldenPathTest.exists()) {
+            "Missing approval gateway golden path test at ${goldenPathTest.absolutePath}"
+        }
+
+        val forbiddenStoreReferences = listOf(
+            "ApprovalStore",
+            "SuspendedInvocationStore",
+            "ApprovalContinuationStore",
+            "JdbcApprovalStore",
+            "JdbcSuspendedInvocationStore",
+            "JdbcApprovalContinuationStore",
+            "SovereignOpsAuditOutboxStore",
+            "SovereignOpsApprovalMutationStore",
+            "SovereignOpsWorkerLeaseStore",
+            "ApprovalResumeCredentialStore",
+        )
+        val testSource = goldenPathTest.readText()
+        forbiddenStoreReferences.forEach { forbidden ->
+            require(!testSource.contains(forbidden)) {
+                "ApprovalGateway golden path test must not reference low-level store type: $forbidden"
+            }
+        }
+
         logger.lifecycle("verifySovereignRuntimeClosureDocs: all documentation consistency checks passed.")
     }
 }

@@ -183,8 +183,8 @@ The Preview approval gateway has the following limitations:
 
 | Area | Status |
 |------|--------|
-| Full workflow resume runtime | Service-level `ApprovalResumeControlPlane` available |
-| Reviewer UI | Not implemented yet |
+| Full workflow resume runtime | Service-level `ApprovalResumeControlPlane` available; approved auto-resume worker lifecycle, observability, and E2E proof available (PRs #112–#117) |
+| Reviewer UI | Preview reviewer UI available, disabled by default |
 | REST control plane for approvals | Preview REST control plane available (`POST /tramai/sovereign/approvals/{id}/approve`, `.../deny`, `.../resume`, `GET .../{id}`) |
 | Approval inbox / work queue query API | Preview inbox query API available (`GET .../approvals`, `GET .../approvals/{id}/work-item`) |
 | Cross-store transaction boundary at creation | ✅ Implemented for JDBC-backed stores via `SovereignOpsApprovalRequestMutationStore` |
