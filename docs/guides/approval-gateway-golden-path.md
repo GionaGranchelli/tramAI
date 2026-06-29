@@ -45,7 +45,7 @@ val approvalResult = approvalGateway.requestApproval(
 ```
 
 The return type is a sealed interface that makes the workflow state explicit.
-With the [Preview mapper][ApprovalRequestResult.toWorkflowResult],
+With the Preview `ApprovalRequestResult.toWorkflowResult { ... }` mapper,
 the workflow becomes a one-liner:
 
 ```kotlin

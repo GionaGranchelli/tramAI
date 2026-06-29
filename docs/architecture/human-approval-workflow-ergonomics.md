@@ -393,6 +393,6 @@ The following are explicitly **not covered** by this design:
 | #103 | Preview approval decision control plane | Add application-facing approve/deny service over the transactional mutation and outbox boundary |
 | #104 | Preview approval resume control plane | Add application-facing resume API over the engine resume runtime |
 | #105 | Preview REST approval control plane | Add REST endpoints in new `tramai-spring-boot-starter-sovereign-ops-rest` module over the service-level control planes (disabled by default) |
-|| #106 | Preview approval inbox query API | Add safe reviewer work queue over durable approval records — `ApprovalInboxQueryService` SPI, JDBC implementation, REST list/work-item endpoints |
-|| #121 | Golden path ergonomics proof | Executable test using only `ApprovalGateway` — no low-level stores |
-|| #122 | Approval result workflow mapper | `ApprovalRequestResult.toWorkflowResult { ... }` — lazy `approvedValue` lambda, four-outcome coverage |
+| #106 | Preview approval inbox query API | Add safe reviewer work queue over durable approval records — `ApprovalInboxQueryService` SPI, JDBC implementation, REST list/work-item endpoints |
+| #121 | Golden path ergonomics proof | Executable test using only `ApprovalGateway` — no low-level stores |
+| #122 | Approval result workflow mapper | `ApprovalRequestResult.toWorkflowResult { ... }` — lazy `approvedValue` lambda, four-outcome coverage |

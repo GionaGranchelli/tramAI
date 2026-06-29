@@ -1,6 +1,7 @@
 package dev.tramai.core.workflow
 
 import dev.tramai.core.approval.gateway.ApprovalRequestResult
+import dev.tramai.core.approval.gateway.HumanApprovalDecision
 
 /**
  * Maps a Preview [ApprovalRequestResult] into a workflow-level [SovereignWorkflowResult].
@@ -10,28 +11,34 @@ import dev.tramai.core.approval.gateway.ApprovalRequestResult
  *
  * ### Safety
  *
- * The [approvedValue] lambda is **only** invoked for [ApprovalRequestResult.AlreadyApproved].
+ * The [approvedValue] lambda receives the [HumanApprovalDecision.Approved] decision
+ * and is **only** invoked for [ApprovalRequestResult.AlreadyApproved].
  * Terminal states ([Suspended], [AlreadyDenied], [Expired]) never execute the lambda,
  * preventing accidental side effects.
  *
- * ### Usage
+ * ### Simple usage (decision ignored)
  *
  * ```kotlin
- * return gateway.requestApproval(
- *     subject = ApprovalSubject(input.claimId),
- *     recommendation = ApprovalRecommendation(
- *         type = "claim-triage",
- *         summary = "Claim requires medical review",
- *     ),
- *     requiredRole = ApproverRole("medical-reviewer"),
- *     workflowRunId = WorkflowRunId(input.workflowRunId),
- * ).toWorkflowResult { "approved-continue" }
+ * return gateway.requestApproval(...)
+ *     .toWorkflowResult { "approved-continue" }
+ * ```
+ *
+ * ### Decision-aware usage
+ *
+ * ```kotlin
+ * return gateway.requestApproval(...)
+ *     .toWorkflowResult { decision ->
+ *         ClaimRecommendation.Approved(
+ *             approvedBy = decision.decidedBy,
+ *             approvedAt = decision.decidedAt,
+ *         )
+ *     }
  * ```
  *
  * Preview API. See docs/architecture/sovereign-api-stability-boundary.md.
  */
 inline fun <T> ApprovalRequestResult.toWorkflowResult(
-    approvedValue: () -> T,
+    approvedValue: (HumanApprovalDecision.Approved) -> T,
 ): SovereignWorkflowResult<T> =
     when (this) {
         is ApprovalRequestResult.Suspended ->
@@ -43,7 +50,7 @@ inline fun <T> ApprovalRequestResult.toWorkflowResult(
             )
 
         is ApprovalRequestResult.AlreadyApproved ->
-            SovereignWorkflowResult.Completed(approvedValue())
+            SovereignWorkflowResult.Completed(approvedValue(decision))
 
         is ApprovalRequestResult.AlreadyDenied ->
             SovereignWorkflowResult.Rejected(decision.reason)

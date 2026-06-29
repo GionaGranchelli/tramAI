@@ -17,7 +17,7 @@ import java.time.Instant
  */
 class ApprovalRequestWorkflowResultMappersTest {
 
-    // ── Helper ──
+    // ── Helpers ──
 
     private val approvalId = ApprovalId("approval-1")
     private val workflowRunId = WorkflowRunId("run-1")
@@ -25,6 +25,19 @@ class ApprovalRequestWorkflowResultMappersTest {
     private val resumeToken = ResumeToken("token-1")
     private val decidedBy = "reviewer-1"
     private val decidedAt = Instant.parse("2026-06-25T10:00:00Z")
+
+    private val approvedDecision = HumanApprovalDecision.Approved(
+        approvalId = approvalId,
+        decidedBy = decidedBy,
+        decidedAt = decidedAt,
+    )
+
+    private val deniedDecision = HumanApprovalDecision.Denied(
+        approvalId = approvalId,
+        decidedBy = decidedBy,
+        decidedAt = decidedAt,
+        reason = "requires-legal-review",
+    )
 
     // ── 1. Suspended → SuspendedForApproval ──
 
@@ -50,11 +63,7 @@ class ApprovalRequestWorkflowResultMappersTest {
     @Test
     fun `AlreadyApproved maps to Completed with approvedValue`() {
         val result = dev.tramai.core.approval.gateway.ApprovalRequestResult.AlreadyApproved(
-            decision = HumanApprovalDecision.Approved(
-                approvalId = approvalId,
-                decidedBy = decidedBy,
-                decidedAt = decidedAt,
-            ),
+            decision = approvedDecision,
         ).toWorkflowResult { "approved-continue" }
 
         assertThat(result).isInstanceOf(SovereignWorkflowResult.Completed::class.java)
@@ -67,12 +76,7 @@ class ApprovalRequestWorkflowResultMappersTest {
     @Test
     fun `AlreadyDenied maps to Rejected with decision reason`() {
         val result = dev.tramai.core.approval.gateway.ApprovalRequestResult.AlreadyDenied(
-            decision = HumanApprovalDecision.Denied(
-                approvalId = approvalId,
-                decidedBy = decidedBy,
-                decidedAt = decidedAt,
-                reason = "requires-legal-review",
-            ),
+            decision = deniedDecision,
         ).toWorkflowResult { "should-not-be-called" }
 
         assertThat(result).isInstanceOf(SovereignWorkflowResult.Rejected::class.java)
@@ -113,12 +117,7 @@ class ApprovalRequestWorkflowResultMappersTest {
     fun `approvedValue lambda is not invoked for AlreadyDenied`() {
         var invoked = false
         dev.tramai.core.approval.gateway.ApprovalRequestResult.AlreadyDenied(
-            decision = HumanApprovalDecision.Denied(
-                approvalId = approvalId,
-                decidedBy = decidedBy,
-                decidedAt = decidedAt,
-                reason = "reason",
-            ),
+            decision = deniedDecision,
         ).toWorkflowResult { invoked = true; "value" }
         assertThat(invoked).`as`("approvedValue must not be invoked for AlreadyDenied").isFalse()
     }
@@ -137,17 +136,28 @@ class ApprovalRequestWorkflowResultMappersTest {
     // ── 6. Lambda invoked exactly once for AlreadyApproved ──
 
     @Test
+    fun `approvedValue lambda receives the approved decision`() {
+        var capturedDecision: HumanApprovalDecision.Approved? = null
+        val result = dev.tramai.core.approval.gateway.ApprovalRequestResult.AlreadyApproved(
+            decision = approvedDecision,
+        ).toWorkflowResult { decision ->
+            capturedDecision = decision
+            "approved-continue"
+        }
+
+        assertThat(capturedDecision).`as`("approvedValue must receive the decision").isNotNull
+        assertThat(capturedDecision!!.decidedBy).isEqualTo(decidedBy)
+        assertThat(capturedDecision.decidedAt).isEqualTo(decidedAt)
+        assertThat((result as SovereignWorkflowResult.Completed).value).isEqualTo("approved-continue")
+    }
+
+    @Test
     fun `approvedValue lambda is invoked exactly once for AlreadyApproved`() {
         var invocationCount = 0
-        val result = dev.tramai.core.approval.gateway.ApprovalRequestResult.AlreadyApproved(
-            decision = HumanApprovalDecision.Approved(
-                approvalId = approvalId,
-                decidedBy = decidedBy,
-                decidedAt = decidedAt,
-            ),
+        dev.tramai.core.approval.gateway.ApprovalRequestResult.AlreadyApproved(
+            decision = approvedDecision,
         ).toWorkflowResult { invocationCount++; "approved-continue" }
 
         assertThat(invocationCount).`as`("approvedValue must be invoked exactly once").isEqualTo(1)
-        assertThat((result as SovereignWorkflowResult.Completed).value).isEqualTo("approved-continue")
     }
 }
