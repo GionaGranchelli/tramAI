@@ -167,9 +167,12 @@ TestApprovalGatewayPersistenceRequestBuilder(clock)
 
 The fixture is **test/example support only** — it is not production API. Production applications should provide their own factory with production-appropriate metadata.
 
-For a full example using the fixture, see:
+The reusable fixture is used by:
 
-- [ApprovalGatewaySpringGoldenPathSmokeTest](../../examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/ApprovalGatewaySpringGoldenPathSmokeTest.kt) — minimal Spring/JDBC smoke proof using the test fixture
+- [ApprovalGatewaySpringGoldenPathSmokeTest](../../examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/ApprovalGatewaySpringGoldenPathSmokeTest.kt) — minimal Spring/JDBC smoke proof
+- [RegulatedClaimTriageApprovalGatewayRequestFactory](../../examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/RegulatedClaimTriageApprovalGatewayRequestFactory.kt) — full regulated-claim E2E scenario
+
+Both factories use the builder's fluent API and avoid manual low-level record construction.
 
 You must provide your own factory as a Spring bean:
 
