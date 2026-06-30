@@ -1,7 +1,6 @@
 package dev.tramai.engine.approval.testing
 
 import dev.tramai.core.approval.Sha256Digest
-import java.time.Clock
 import java.time.Duration
 
 /**

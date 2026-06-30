@@ -1,15 +1,12 @@
 package dev.tramai.engine.approval.testing
 
-import dev.tramai.core.approval.ApprovalContinuationStore
-import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalRecommendation
 import dev.tramai.core.approval.gateway.ApprovalSubject
 import dev.tramai.core.approval.gateway.ApproverRole
 import dev.tramai.core.approval.gateway.WorkflowRunId
-import dev.tramai.engine.approval.ApprovalGatewayPersistenceRequest
-import dev.tramai.engine.SuspendedInvocationStore
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import java.time.Clock
 
@@ -36,7 +33,22 @@ class TestApprovalGatewayRequestFactoryTest {
     }
 
     @Test
-    fun `computes argumentsDigest from actual sensitive arguments`() = runTest {
+    fun `argumentsDigest changes when sensitive arguments change`() = runTest {
+        val builder = TestApprovalGatewayPersistenceRequestBuilder(Clock.systemUTC())
+            .subject(ApprovalSubject("claim-digest"))
+            .recommendation(ApprovalRecommendation(type = "type", summary = "summary"))
+            .requiredRole(ApproverRole("reviewer"))
+            .workflowRunId(WorkflowRunId("run-digest"))
+
+        val first = builder.sensitiveArgumentsJson("""{"claimId":"1"}""").build()
+        val second = builder.sensitiveArgumentsJson("""{"claimId":"2"}""").build()
+
+        assertThat(first.approvalRequest.binding.argumentsDigest)
+            .isNotEqualTo(second.approvalRequest.binding.argumentsDigest)
+    }
+
+    @Test
+    fun `argumentsDigest is consistent across binding and continuation`() = runTest {
         val request = factory.createRequest(
             subject = ApprovalSubject("claim-2"),
             recommendation = ApprovalRecommendation(
@@ -47,12 +59,40 @@ class TestApprovalGatewayRequestFactoryTest {
             workflowRunId = WorkflowRunId("run-2"),
         )
 
-        assertThat(request.approvalRequest.binding.argumentsDigest).isNotNull
-        assertThat(request.continuation.argumentsDigest).isEqualTo(request.approvalRequest.binding.argumentsDigest)
+        assertThat(request.continuation.argumentsDigest)
+            .isEqualTo(request.approvalRequest.binding.argumentsDigest)
     }
 
     @Test
-    fun `computes replay-envelope digest from operation reference and messages`() = runTest {
+    fun `replay envelope digest changes when operation reference changes`() = runTest {
+        val builder = TestApprovalGatewayPersistenceRequestBuilder(Clock.systemUTC())
+            .subject(ApprovalSubject("claim-digest"))
+            .recommendation(ApprovalRecommendation(type = "type", summary = "summary"))
+            .requiredRole(ApproverRole("reviewer"))
+            .workflowRunId(WorkflowRunId("run-digest"))
+
+        val first = builder
+            .operationReference(
+                serviceInterface = "com.example.FirstWorkflow",
+                methodName = "execute",
+                jvmMethodDescriptor = "()V",
+            )
+            .build()
+
+        val second = builder
+            .operationReference(
+                serviceInterface = "com.example.SecondWorkflow",
+                methodName = "execute",
+                jvmMethodDescriptor = "()V",
+            )
+            .build()
+
+        assertThat(first.suspendedInvocationMetadata.replayEnvelopeDigest)
+            .isNotEqualTo(second.suspendedInvocationMetadata.replayEnvelopeDigest)
+    }
+
+    @Test
+    fun `replay envelope digest is computed`() = runTest {
         val request = factory.createRequest(
             subject = ApprovalSubject("claim-3"),
             recommendation = ApprovalRecommendation(
@@ -103,20 +143,21 @@ class TestApprovalGatewayRequestFactoryTest {
     }
 
     @Test
-    fun `fails if workflowRunId is missing`() = runTest {
-        try {
-            factory.createRequest(
-                subject = ApprovalSubject("claim-6"),
-                recommendation = ApprovalRecommendation(
-                    type = "fail-test",
-                    summary = "Should fail",
-                ),
-                requiredRole = ApproverRole("reviewer"),
-                workflowRunId = null,
-            )
-        } catch (e: IllegalArgumentException) {
-            assertThat(e).hasMessageContaining("workflow-run-id")
-        }
+    fun `fails if workflowRunId is missing`() {
+        assertThatThrownBy {
+            runTest {
+                factory.createRequest(
+                    subject = ApprovalSubject("claim-6"),
+                    recommendation = ApprovalRecommendation(
+                        type = "fail-test",
+                        summary = "Should fail",
+                    ),
+                    requiredRole = ApproverRole("reviewer"),
+                    workflowRunId = null,
+                )
+            }
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("workflow-run-id")
     }
 
     @Test
