@@ -174,6 +174,33 @@ The reusable fixture is used by:
 
 Both factories use the builder's fluent API and avoid manual low-level record construction.
 
+### Java Interop
+
+The approval workflow mapper is accessible from Java through a dedicated facade:
+
+```java
+import dev.tramai.core.workflow.ApprovalWorkflowResults;
+import dev.tramai.core.workflow.ApprovalRequestResults;
+import dev.tramai.core.workflow.HumanApprovalDecisions;
+
+HumanApprovalDecision.Approved decision = HumanApprovalDecisions.approved(
+    "approval-1", "reviewer-1", Instant.now(), "approved"
+);
+
+SovereignWorkflowResult<String> result =
+    ApprovalWorkflowResults.fromApprovalRequestResult(
+        ApprovalRequestResults.alreadyApproved(decision),
+        approved -> approved.getDecidedBy() + ":" + approved.getComment()
+    );
+```
+
+All four outcome types (Suspended, AlreadyApproved, AlreadyDenied, Expired) map correctly from Java.
+Java-friendly factory methods accept plain `String` parameters where Kotlin inline value classes are used internally.
+
+> **Note:** Kotlin `@JvmInline value class` types (ApprovalId, WorkflowRunId, etc.) erase to `String` at the JVM level. Java consumers pass plain Strings to factory methods — the inline class wrapping and validation happen internally.
+>
+> See [ApprovalRequestWorkflowResultMappersJavaInteropTest](../../tramai-core/src/test/java/dev/tramai/core/workflow/ApprovalRequestWorkflowResultMappersJavaInteropTest.java) for the full Java interop proof.
+
 You must provide your own factory as a Spring bean:
 
 ```kotlin

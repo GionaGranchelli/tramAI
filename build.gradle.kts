@@ -2695,6 +2695,38 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             }
         }
 
+        // ── Java interop test for approval workflow mapper ──
+
+        val javaInteropTest = file(
+            "tramai-core/src/test/java/dev/tramai/core/workflow/ApprovalRequestWorkflowResultMappersJavaInteropTest.java",
+        )
+        require(javaInteropTest.exists()) {
+            "Missing Java interop test for ApprovalRequestResult workflow mapper at ${javaInteropTest.absolutePath}"
+        }
+
+        val javaInteropSource = javaInteropTest.readText()
+
+        require(javaInteropSource.contains("fromApprovalRequestResult")) {
+            "Java interop test must prove Java can call the approval workflow mapper (fromApprovalRequestResult)."
+        }
+
+        val javaInteropRequiredOutputs = listOf(
+            "AlreadyApproved",
+            "Suspended",
+            "AlreadyDenied",
+            "Expired",
+        )
+
+        javaInteropRequiredOutputs.forEach { outcome ->
+            require(javaInteropSource.contains(outcome)) {
+                "Java interop test must cover $outcome mapping."
+            }
+        }
+
+        require(javaInteropSource.contains("decision-aware lambda")) {
+            "Java interop test must prove the decision-aware lambda contract."
+        }
+
         logger.lifecycle("verifySovereignRuntimeClosureDocs: all documentation consistency checks passed.")
     }
 }
