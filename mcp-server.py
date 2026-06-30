@@ -89,10 +89,11 @@ def _get_modules() -> list[str]:
     if not settings.exists():
         return []
     text = settings.read_text()
-    # Extract strings inside include(...), strip quotes
-    modules = re.findall(r'"([^"]+)"', text)
-    # Filter to only modules under the root (not examples: sub-projects)
-    # Keep both: tramai-* modules and examples:* for context
+    # Extract only the include(...) block to skip rootProject.name
+    m = re.search(r'include\s*\((.*?)\)', text, re.DOTALL)
+    if not m:
+        return []
+    modules = re.findall(r'"([^"]+)"', m.group(1))
     return sorted(modules)
 
 @server.list_tools()
@@ -167,8 +168,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
 # ── Implementations ──────────────────────────────────────────────
 
+def _module_path(module: str) -> Path:
+    """Resolve a module name to its filesystem path, handling examples:* → examples/foo."""
+    return TRAMAI / module.replace(":", "/")
+
+
 async def _search_codebase(pattern: str, module: str | None) -> list[TextContent]:
-    search_root = TRAMAI / module if module else TRAMAI
+    search_root = _module_path(module) if module else TRAMAI
     if not search_root.exists():
         return [TextContent(type="text", text=f"Module not found: {module}")]
 
@@ -185,31 +191,55 @@ async def _search_codebase(pattern: str, module: str | None) -> list[TextContent
         return [TextContent(type="text", text="Search timed out")]
 
 async def _list_modules() -> list[TextContent]:
-    lines = ["# Tramai Modules\n"]
+    modules = []
     for mod in _get_modules():
-        path = TRAMAI / mod
+        path = _module_path(mod)
         build_file = path / "build.gradle.kts"
         desc = ""
         if build_file.exists():
             content = build_file.read_text()
             m = re.search(r'description\s*=\s*"([^"]+)"', content)
-            desc = f" — {m.group(1)}" if m else ""
-        exists = "✅" if path.exists() else "❌"
-        lines.append(f"- {exists} **{mod}**{desc}")
-    return [TextContent(type="text", text="\n".join(lines))]
+            desc = m.group(1) if m else ""
+        exists = path.exists()
+        modules.append({
+            "name": mod,
+            "description": desc,
+            "exists": exists,
+        })
+
+    md_lines = ["# Tramai Modules\n"]
+    for m in modules:
+        icon = "✅" if m["exists"] else "❌"
+        d = f" — {m['description']}" if m["description"] else ""
+        md_lines.append(f"- {icon} **{m['name']}**{d}")
+
+    return [
+        TextContent(type="text", text=json.dumps({
+            "modules": modules,
+            "total": len(modules),
+        }, indent=2)),
+        TextContent(type="text", text="\n".join(md_lines)),
+    ]
 
 async def _read_source(module: str, path: str) -> list[TextContent]:
-    file_path = TRAMAI / module / "src" / "main" / "kotlin" / path
-    if not file_path.exists():
-        file_path = TRAMAI / module / "src" / "main" / "java" / path
-    if not file_path.exists():
-        # Try searching
-        found = list((TRAMAI / module / "src").rglob(path))
-        if found:
-            file_path = found[0]
-    if not file_path.exists():
-        return [TextContent(type="text", text=f"File not found: {module}/{path}")]
-    return [TextContent(type="text", text=file_path.read_text())]
+    search_root = _module_path(module)
+
+    for root in (
+        search_root / "src" / "main" / "kotlin",
+        search_root / "src" / "main" / "java",
+        search_root / "src" / "test" / "kotlin",
+        search_root / "src" / "test" / "java",
+    ):
+        file_path = root / path
+        if file_path.exists():
+            return [TextContent(type="text", text=file_path.read_text())]
+
+    # Fallback: glob search under src/
+    found = list((search_root / "src").rglob(path))
+    if found:
+        return [TextContent(type="text", text=found[0].read_text())]
+
+    return [TextContent(type="text", text=f"File not found: {module}/{path}")]
 
 async def _search_docs(query: str) -> list[TextContent]:
     try:
@@ -225,70 +255,102 @@ async def _search_docs(query: str) -> list[TextContent]:
         return [TextContent(type="text", text="Search timed out")]
 
 async def _get_architecture() -> list[TextContent]:
-    return [TextContent(type="text", text="""# Tramai Architecture
+    modules = []
+    for mod in _get_modules():
+        path = _module_path(mod)
+        if not path.exists():
+            continue
 
-## Module Layering (bottom → top)
+        build_file = path / "build.gradle.kts"
+        desc = ""
+        if build_file.exists():
+            m = re.search(r'description\s*=\s*"([^"]+)"', build_file.read_text())
+            desc = m.group(1) if m else ""
 
-1. **tramai-core** — SPI definitions: ModelProvider, StructuredOutputSchema, SecretValueResolver, approvals, workflow
-2. **tramai-structured** — Schema generation, extraction, deserialization, failure analysis
-3. **tramai-engine** — Orchestration, retry policy, model routing, provider resolution, default approval gateway
-4. Provider modules (tramai-openai, tramai-anthropic, tramai-ollama, tramai-gemini, tramai-azure-openai, tramai-bedrock, tramai-deepseek) — ModelProvider implementations
-5. **tramai-orchestration** — Workflow DSL with @AiService, @Operation, @AiTool
-6. **tramai-observability** — OpenTelemetry-friendly observability
-7. Persistence layer (tramai-persistence-file, tramai-persistence-jdbc)
-8. **tramai-sovereign** — Sovereign Runtime: evidence packs, deployment modes, artifact verification
-9. **tramai-security** — Security model, approved model registry, tool arguments digesters
-10. **tramai-scheduler** — Recurring task scheduling
-11. **tramai-server** — Standalone HTTP server for Tramai
-12. **tramai-mcp** — MCP (Model Context Protocol) server for workflow execution
-13. **tramai-platform** — Platform abstraction layer
-14. **tramai-memory / tramai-memory-store** — Chat memory abstraction and stores
-15. **tramai-embedding** — Embedding generation
-16. **tramai-rag** — Retrieval-augmented generation support
-17. **tramai-vectorstore-spi / tramai-vectorstore-chroma / tramai-vectorstore-pgvector** — Vector store SPI and implementations
-18. **tramai-dashboard** — Dashboard UI module
-19. **tramai-spring** — Spring Boot auto-configuration (core Tramai)
-20. Spring Boot Sovereign starters (tramai-spring-boot-starter-sovereign, tramai-spring-boot-starter-sovereign-persistence-jdbc, tramai-spring-boot-starter-sovereign-persistence-file, tramai-spring-boot-starter-sovereign-ops, tramai-spring-boot-starter-sovereign-ops-rest, tramai-spring-boot-starter-sovereign-ops-actuator, tramai-spring-boot-starter-sovereign-ops-micrometer, tramai-spring-boot-starter-sovereign-ops-observability)
-21. **tramai-standalone** — Minimal entry point for framework-free usage
-22. **tramai-testing** — Testing utilities
-23. **tramai-bom** — Bill of Materials for consistent dependency versions
+        # Detect module category
+        category = _categorize_module(mod, path)
+        modules.append({
+            "name": mod,
+            "description": desc,
+            "category": category,
+        })
 
-## Sovereign Runtime
+    # Group by category
+    layers = [
+        ("Core", ["tramai-core"]),
+        ("Structured Output", ["tramai-structured"]),
+        ("Engine", ["tramai-engine"]),
+        ("Providers", [m["name"] for m in modules if m["category"] == "provider"]),
+        ("Orchestration", ["tramai-orchestration"]),
+        ("Observability", ["tramai-observability"]),
+        ("Persistence", [m["name"] for m in modules if m["category"] == "persistence"]),
+        ("Sovereign Runtime", [m["name"] for m in modules if m["category"] == "sovereign"]),
+        ("Security", ["tramai-security"]),
+        ("Scheduler", ["tramai-scheduler"]),
+        ("Server", ["tramai-server"]),
+        ("MCP", ["tramai-mcp"]),
+        ("Platform", ["tramai-platform"]),
+        ("Memory", [m["name"] for m in modules if m["category"] == "memory"]),
+        ("Embedding", ["tramai-embedding"]),
+        ("RAG", ["tramai-rag"]),
+        ("Vector Stores", [m["name"] for m in modules if m["category"] == "vectorstore"]),
+        ("Dashboard", ["tramai-dashboard"]),
+        ("Spring Boot Adapters", [m["name"] for m in modules if m["category"] == "spring-boot"]),
+        ("Sovereign Spring Boot Starters", [m["name"] for m in modules if m["category"] == "sovereign-spring-boot"]),
+        ("Standalone", ["tramai-standalone"]),
+        ("Testing", ["tramai-testing"]),
+        ("BOM", ["tramai-bom"]),
+        ("Examples", [m["name"] for m in modules if m["category"] == "example"]),
+    ]
 
-The Sovereign Runtime extends Tramai for governed, approval-based workflow execution with offline-capable evidence:
+    md_parts = ["# Tramai Architecture\n"]
+    for i, (layer_name, layer_mods) in enumerate(layers, 1):
+        if not layer_mods:
+            continue
+        names = "**" + "**, **".join(layer_mods) + "**"
+        descs = []
+        for n in layer_mods:
+            for m in modules:
+                if m["name"] == n and m["description"]:
+                    descs.append(m["description"])
+        suffix = f" — {'; '.join(descs)}" if descs else ""
+        md_parts.append(f"{i}. {names}{suffix}")
 
-- `ApprovalGateway` / `DefaultApprovalGateway` — Request human approval without wiring low-level stores
-- `ApprovalRequestResult.toWorkflowResult { ... }` — Ergonomic mapper (Preview API)
-- `ApprovalDecisionControlPlane`, `ApprovalResumeControlPlane` — REST and programmatic approval decision / resume
-- `SovereignWorkflowResult` — Sealed result type with Completed, SuspendedForApproval, Rejected, Expired
-- `SovereignEvidencePackV1` — Signed, offline-verifiable artifact provenance packs
-- `SovereignProfileConfiguration` — Deployment mode (offline, air-gapped, connected)
-- Approval gateway optional extras: JDBC transaction boundary, audit outbox, worker lease store
-- Spring Boot starters enable the full stack via minimal property configuration
+    return [
+        TextContent(type="text", text=json.dumps({
+            "layers": [
+                {"name": ln, "modules": lm}
+                for ln, lm in layers if lm
+            ],
+            "totalModules": len(modules),
+        }, indent=2)),
+        TextContent(type="text", text="\n\n".join(md_parts)),
+    ]
 
-## Key Design Decisions (from ADRs)
 
-- Typed contracts over raw prompt plumbing
-- Framework-agnostic core, thin adapters
-- Structured output as first-class capability
-- Observability is optional and opt-in
-- Provider resolution is registry-based, not prefix-heuristic
-- Sovereign Runtime is Preview, not RC+ Stable — API stability boundary enforced by build guards
-- Approval gateway factories are application-supplied, not auto-created
-
-## API Surface
-
-- `@AiService` — Marks an interface as an AI service proxy
-- `@Operation` — Defines a single AI operation (prompt, model, tools, timeout)
-- `@AiTool` — Registers a Spring bean as a callable tool
-- `@AiDescription` — Annotates fields for structured output schema generation
-- `Tramai.create()` — Framework-free entry point (standalone module)
-- `TramaiAutoConfiguration` — Spring Boot auto-config (spring module)
-- `ApprovalGateway.requestApproval(...)` — Request human approval from a governed workflow
-- `ApprovalRequestResult.toWorkflowResult { ... }` — Map gateway result to workflow result (Preview)
-- `SovereignWorkflowResult` — Workflow result sealed type
-- `SovereignEvidencePackV1` — Offline-verifiable artifact provenance
-""")]
+def _categorize_module(name: str, path: Path) -> str:
+    """Categorize a module by its name and contents."""
+    if name.startswith("examples:"):
+        return "example"
+    if name == "tramai-spring":
+        return "spring-boot"
+    if name.startswith("tramai-spring-boot-starter-sovereign"):
+        return "sovereign-spring-boot"
+    if name.startswith("tramai-spring-boot-starter"):
+        return "spring-boot"
+    if name in ("tramai-openai", "tramai-anthropic", "tramai-ollama",
+                 "tramai-gemini", "tramai-azure-openai", "tramai-bedrock",
+                 "tramai-deepseek"):
+        return "provider"
+    if name.startswith("tramai-vectorstore"):
+        return "vectorstore"
+    if name.startswith("tramai-persistence"):
+        return "persistence"
+    if name in ("tramai-memory", "tramai-memory-store"):
+        return "memory"
+    if name == "tramai-sovereign":
+        return "sovereign"
+    return "other"
 
 # ── Entry point ──────────────────────────────────────────────────
 
