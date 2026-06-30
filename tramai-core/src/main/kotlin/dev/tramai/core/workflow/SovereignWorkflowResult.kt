@@ -17,9 +17,13 @@ sealed interface SovereignWorkflowResult<out T> {
     ) : SovereignWorkflowResult<T>
 
     data class SuspendedForApproval(
+        @get:JvmName("getApprovalId")
         val approvalId: ApprovalId,
+        @get:JvmName("getWorkflowRunId")
         val workflowRunId: WorkflowRunId,
+        @get:JvmName("getAuditStreamId")
         val auditStreamId: AuditStreamId,
+        @get:JvmName("getResumeToken")
         val resumeToken: ResumeToken,
     ) : SovereignWorkflowResult<Nothing>
 

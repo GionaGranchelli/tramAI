@@ -398,3 +398,4 @@ The following are explicitly **not covered** by this design:
 | #122 | Approval result workflow mapper | `ApprovalRequestResult.toWorkflowResult { ... }` — lazy `approvedValue` lambda, four-outcome coverage |
 | #126 | Approval request factory fixture | Reusable test/example `TestApprovalGatewayRequestFactory` in `tramai-engine` test fixtures — builders, test coverage, build guard, docs |
 | #127 | Regulated factory fixture adoption | `RegulatedClaimTriageApprovalGatewayRequestFactory` refactored from ~170 lines of manual low-level records to a 35-line thin wrapper over `TestApprovalGatewayPersistenceRequestBuilder` |
+| #128 | Java approval workflow interop proof | Java compile/runtime test for approval result mapper from Java. Adds `ApprovalWorkflowResults`, `ApprovalRequestResults`, and `HumanApprovalDecisions` Java-friendly factories. Documents inline value class JVM erasure behavior and provides String-based factory methods for Java consumers. |

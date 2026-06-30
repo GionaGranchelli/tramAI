@@ -31,3 +31,13 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
 }
+
+// Add Kotlin class directories to Java test compilation classpath.
+// Required for Java interop tests that reference Kotlin-generated classes.
+tasks.named("compileTestJava", JavaCompile::class) {
+    dependsOn("compileTestKotlin")
+    classpath = classpath.plus(files(
+        layout.buildDirectory.dir("classes/kotlin/test"),
+        layout.buildDirectory.dir("classes/kotlin/main"),
+    ))
+}

@@ -2695,6 +2695,62 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             }
         }
 
+        // ── Java interop test for approval workflow mapper ──
+
+        val javaInteropTest = file(
+            "tramai-core/src/test/java/dev/tramai/core/workflow/ApprovalRequestWorkflowResultMappersJavaInteropTest.java",
+        )
+        require(javaInteropTest.exists()) {
+            "Missing Java interop test for ApprovalRequestResult workflow mapper at ${javaInteropTest.absolutePath}"
+        }
+
+        val javaInteropSource = javaInteropTest.readText()
+
+        require(javaInteropSource.contains("fromApprovalRequestResult")) {
+            "Java interop test must prove Java can call the approval workflow mapper (fromApprovalRequestResult)."
+        }
+
+        val javaInteropRequiredOutputs = listOf(
+            "AlreadyApproved",
+            "Suspended",
+            "AlreadyDenied",
+            "Expired",
+        )
+
+        javaInteropRequiredOutputs.forEach { outcome ->
+            require(javaInteropSource.contains(outcome)) {
+                "Java interop test must cover $outcome mapping."
+            }
+        }
+
+        // Must use String-based factories, not inline-value-class-returning factories
+        require(javaInteropSource.contains("ApprovalRequestResults.suspended(")) {
+            "Java interop test must prove Java can construct Suspended via String-based factory."
+        }
+
+        require(javaInteropSource.contains("HumanApprovalDecisions.approved(")) {
+            "Java interop test must prove Java can construct Approved via String-based factory."
+        }
+
+        // Prove @JvmOverloads short forms compile without comment parameter
+        require(javaInteropSource.contains("usesShortApprovedOverloadWithoutComment")) {
+            "Java interop test must prove @JvmOverloads works for approved() without comment."
+        }
+
+        require(javaInteropSource.contains("usesShortDeniedOverloadWithoutComment")) {
+            "Java interop test must prove @JvmOverloads works for denied() without comment."
+        }
+
+        // Prove the decision-aware lambda contract: terminal states must not invoke lambda
+        require(javaInteropSource.contains("should not run")) {
+            "Java interop test must prove the decision-aware lambda contract (terminal states skip lambda)."
+        }
+
+        // Prove HumanApprovalDecision approvalId has a clean Java getter
+        require(javaInteropSource.contains("decision.getApprovalId()")) {
+            "Java interop test must prove HumanApprovalDecision approvalId has a clean Java getter."
+        }
+
         logger.lifecycle("verifySovereignRuntimeClosureDocs: all documentation consistency checks passed.")
     }
 }

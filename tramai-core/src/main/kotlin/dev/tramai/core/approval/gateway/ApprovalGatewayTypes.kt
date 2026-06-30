@@ -68,6 +68,7 @@ sealed interface HumanApprovalDecision {
     val comment: String?
 
     data class Approved(
+        @get:JvmName("getApprovalId")
         override val approvalId: ApprovalId,
         override val decidedBy: String,
         override val decidedAt: Instant,
@@ -79,6 +80,7 @@ sealed interface HumanApprovalDecision {
     }
 
     data class Denied(
+        @get:JvmName("getApprovalId")
         override val approvalId: ApprovalId,
         override val decidedBy: String,
         override val decidedAt: Instant,
