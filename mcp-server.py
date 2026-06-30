@@ -31,6 +31,31 @@ _DOC_FILES = {
     "readme": TRAMAI / "README.md",
 }
 
+_DOC_DIRS: dict[str, Path] = {
+    "adr": DOCS / "adr",
+    "spec": DOCS / "specs",
+    "architecture": DOCS / "architecture",
+    "guide": DOCS / "guides",
+    "release": DOCS / "releases",
+    "scenario": DOCS / "scenarios",
+    "security": DOCS / "security",
+}
+
+
+def _glob_resources(prefix: str, directory: Path, pattern: str = "*.md") -> list[Resource]:
+    """Build MCP resources from markdown files in a directory."""
+    if not directory.exists():
+        return []
+    return [
+        Resource(
+            uri=f"tramai://{prefix}/{f.stem}",
+            name=f"{prefix}/{f.stem}",
+            description=f"{prefix.capitalize()}: {f.stem}",
+            mimeType="text/markdown",
+        )
+        for f in sorted(directory.glob(pattern))
+    ]
+
 @server.list_resources()
 async def list_resources() -> list[Resource]:
     resources = []
@@ -43,27 +68,8 @@ async def list_resources() -> list[Resource]:
                 mimeType="text/markdown",
             ))
 
-    # ADRs
-    adr_dir = DOCS / "adr"
-    if adr_dir.exists():
-        for f in sorted(adr_dir.glob("adr-*.md")):
-            resources.append(Resource(
-                uri=f"tramai://adr/{f.stem}",
-                name=f"adr/{f.stem}",
-                description=f"Architecture Decision Record: {f.stem}",
-                mimeType="text/markdown",
-            ))
-
-    # Specs
-    spec_dir = DOCS / "specs"
-    if spec_dir.exists():
-        for f in sorted(spec_dir.glob("spec-*.md")):
-            resources.append(Resource(
-                uri=f"tramai://spec/{f.stem}",
-                name=f"spec/{f.stem}",
-                description=f"Specification: {f.stem}",
-                mimeType="text/markdown",
-            ))
+    for prefix, directory in _DOC_DIRS.items():
+        resources.extend(_glob_resources(prefix, directory))
 
     return resources
 
@@ -72,12 +78,12 @@ async def read_resource(uri: str) -> str:
     rel = uri.removeprefix("tramai://")
     if rel in _DOC_FILES:
         return _DOC_FILES[rel].read_text()
-    if rel.startswith("adr/"):
-        path = DOCS / "adr" / f"{rel[4:]}.md"
-        return path.read_text() if path.exists() else f"Not found: {rel}"
-    if rel.startswith("spec/"):
-        path = DOCS / "specs" / f"{rel[5:]}.md"
-        return path.read_text() if path.exists() else f"Not found: {rel}"
+    for prefix, directory in _DOC_DIRS.items():
+        if rel.startswith(f"{prefix}/"):
+            path = directory / f"{rel.removeprefix(f'{prefix}/')}.md"
+            if path.exists():
+                return path.read_text()
+            return f"Not found: {rel}"
     raise ValueError(f"Resource not found: {rel}")
 
 # ── Tools ────────────────────────────────────────────────────────
@@ -101,7 +107,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="search_codebase",
-            description="Search the Tramai codebase for patterns: @AiService, @Operation, @AiTool, ApprovalGateway, Sovereign, etc.",
+            description="Search the Tramai codebase for patterns: @AiService, @Operation, @AiTool, ApprovalGateway, Sovereign, etc. Returns matches with 3 lines of surrounding context.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -113,8 +119,37 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": f"Optional module name: {', '.join(_get_modules())}",
                     },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max matches to return (default 30, max 100)",
+                        "default": 30,
+                    },
                 },
                 "required": ["pattern"],
+            },
+        ),
+        Tool(
+            name="list_files",
+            description="List source files in a Tramai module. Shows main sources and optionally test sources.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "module": {
+                        "type": "string",
+                        "description": f"Module name from: {', '.join(_get_modules()[:8])}...",
+                    },
+                    "includeTests": {
+                        "type": "boolean",
+                        "description": "Also list test source files (default: false)",
+                        "default": False,
+                    },
+                    "extension": {
+                        "type": "string",
+                        "description": "File extension filter (default: .kt)",
+                        "default": ".kt",
+                    },
+                },
+                "required": ["module"],
             },
         ),
         Tool(
@@ -155,9 +190,19 @@ async def list_tools() -> list[Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     if name == "search_codebase":
-        return await _search_codebase(arguments["pattern"], arguments.get("module"))
+        return await _search_codebase(
+            arguments["pattern"],
+            arguments.get("module"),
+            arguments.get("limit", 30),
+        )
     elif name == "list_modules":
         return await _list_modules()
+    elif name == "list_files":
+        return await _list_files(
+            arguments["module"],
+            arguments.get("includeTests", False),
+            arguments.get("extension", ".kt"),
+        )
     elif name == "read_source":
         return await _read_source(arguments["module"], arguments["path"])
     elif name == "search_docs":
@@ -173,22 +218,81 @@ def _module_path(module: str) -> Path:
     return TRAMAI / module.replace(":", "/")
 
 
-async def _search_codebase(pattern: str, module: str | None) -> list[TextContent]:
+async def _search_codebase(pattern: str, module: str | None, limit: int = 30) -> list[TextContent]:
     search_root = _module_path(module) if module else TRAMAI
     if not search_root.exists():
         return [TextContent(type="text", text=f"Module not found: {module}")]
 
     try:
         result = subprocess.run(
-            ["grep", "-rn", "--include=*.kt", "--include=*.java", pattern, str(search_root)],
-            capture_output=True, text=True, timeout=10,
+            ["grep", "-rn", "-C", "3", "--include=*.kt", "--include=*.java", pattern, str(search_root)],
+            capture_output=True, text=True, timeout=15,
         )
-        lines = result.stdout.strip().split("\n")[:40]
-        if not lines:
-            return [TextContent(type="text", text=f"No matches for '{pattern}'")]
-        return [TextContent(type="text", text="\n".join(lines))]
+        raw = result.stdout.strip()
+        if not raw:
+            return [TextContent(type="text", text=f"No matches for '{pattern}' in {module or 'all modules'}")]
+
+        # Split into match groups (separated by -- lines from grep -C)
+        groups = raw.split("\n--\n")
+        groups = [g.strip() for g in groups if g.strip()]
+
+        limited = groups[:min(limit, 100)]
+        summary = f"Found {len(groups)} match{'es' if len(groups) != 1 else ''}"
+        if len(groups) > len(limited):
+            summary += f", showing {len(limited)}"
+
+        md = [f"# {summary}\n"]
+        for g in limited:
+            md.append(g)
+            md.append("")
+
+        return [
+            TextContent(type="text", text=json.dumps({
+                "total": len(groups),
+                "returned": len(limited),
+                "pattern": pattern,
+                "module": module,
+            }, indent=2)),
+            TextContent(type="text", text="\n".join(md)),
+        ]
     except subprocess.TimeoutExpired:
-        return [TextContent(type="text", text="Search timed out")]
+        return [TextContent(type="text", text=f"Search timed out for '{pattern}'")]
+
+
+async def _list_files(module: str, include_tests: bool = False, extension: str = ".kt") -> list[TextContent]:
+    search_root = _module_path(module)
+    if not search_root.exists():
+        return [TextContent(type="text", text=f"Module not found: {module}")]
+
+    roots = [search_root / "src" / "main"]
+    if include_tests:
+        roots.append(search_root / "src" / "test")
+
+    files = []
+    for root in roots:
+        if root.exists():
+            files.extend(sorted(root.rglob(f"*{extension}")))
+
+    rels = [str(f.relative_to(search_root)) for f in files]
+
+    summary = f"{len(rels)} {extension} files in {module}"
+    if include_tests:
+        summary += " (including tests)"
+
+    md = [f"# {summary}\n"]
+    for r in rels:
+        md.append(f"- {r}")
+
+    return [
+        TextContent(type="text", text=json.dumps({
+            "module": module,
+            "total": len(rels),
+            "includeTests": include_tests,
+            "extension": extension,
+            "files": rels,
+        }, indent=2)),
+        TextContent(type="text", text="\n".join(md)),
+    ]
 
 async def _list_modules() -> list[TextContent]:
     modules = []
@@ -244,13 +348,22 @@ async def _read_source(module: str, path: str) -> list[TextContent]:
 async def _search_docs(query: str) -> list[TextContent]:
     try:
         result = subprocess.run(
-            ["grep", "-rni", query, str(DOCS)],
+            ["grep", "-rni", "-C", "2", query, str(DOCS)],
             capture_output=True, text=True, timeout=10,
         )
-        lines = result.stdout.strip().split("\n")[:30]
-        if not lines:
+        raw = result.stdout.strip()
+        if not raw:
             return [TextContent(type="text", text=f"No matches for '{query}' in docs")]
-        return [TextContent(type="text", text="\n".join(lines))]
+
+        groups = raw.split("\n--\n")
+        groups = [g.strip() for g in groups if g.strip()]
+        limited = groups[:15]
+        md = [f"# Found {len(groups)} matches in docs"]
+        md.append("")
+        for g in limited:
+            md.append(g)
+            md.append("")
+        return [TextContent(type="text", text="\n".join(md))]
     except subprocess.TimeoutExpired:
         return [TextContent(type="text", text="Search timed out")]
 
@@ -303,7 +416,7 @@ async def _get_architecture() -> list[TextContent]:
         ("Examples", [m["name"] for m in modules if m["category"] == "example"]),
     ]
 
-    md_parts = ["# Tramai Architecture\n"]
+    md_parts = [f"# Tramai Architecture — {len(modules)} modules\n"]
     for i, (layer_name, layer_mods) in enumerate(layers, 1):
         if not layer_mods:
             continue
@@ -316,6 +429,58 @@ async def _get_architecture() -> list[TextContent]:
         suffix = f" — {'; '.join(descs)}" if descs else ""
         md_parts.append(f"{i}. {names}{suffix}")
 
+    # ── Sovereign Runtime section ──
+    md_parts.extend([
+        "",
+        "## Sovereign Runtime",
+        "",
+        "The Sovereign Runtime extends Tramai for governed, approval-based workflow execution with offline-capable evidence:",
+        "",
+        "- `ApprovalGateway` / `DefaultApprovalGateway` — Request human approval without wiring low-level stores",
+        "- `ApprovalRequestResult.toWorkflowResult { ... }` — Ergonomic mapper from gateway result to workflow result (Preview API)",
+        "- `ApprovalDecisionControlPlane`, `ApprovalResumeControlPlane` — REST and programmatic approval decision / resume",
+        "- `SovereignWorkflowResult` — Sealed result type: Completed, SuspendedForApproval, Rejected, Expired",
+        "- `SovereignEvidencePackV1` — Signed, offline-verifiable artifact provenance packs",
+        "- `SovereignProfileConfiguration` — Deployment mode (offline, air-gapped, connected)",
+        "- JDBC-backed stores: `SovereignOpsTransactionalApprovalGateway` commits all three records atomically",
+        "- Spring Boot starters enable the full stack via minimal `tramai.sovereign.*` properties",
+    ])
+
+    # ── Key Design Decisions ──
+    md_parts.extend([
+        "",
+        "## Key Design Decisions (from ADRs)",
+        "",
+        "- **Typed contracts** over raw prompt plumbing — `@AiService` interfaces define typed inputs and outputs",
+        "- **Framework-agnostic core**, thin adapters — core has zero Spring dependencies",
+        "- **Structured output** is a first-class capability, not an add-on (`tramai-structured`)",
+        "- **Observability is optional** and opt-in at the dependency level (`tramai-observability`)",
+        "- **Provider resolution** is registry-based, not fragile prefix-heuristic",
+        "- **Sovereign Runtime is Preview**, not RC+ Stable — API stability boundary enforced by build guards",
+        "- **Approval gateway factories** are application-supplied, not auto-created",
+        "- **Fail loudly** with context when correctness cannot be guaranteed",
+        "- **Prefer explicitness** over magical behavior at module boundaries",
+    ])
+
+    # ── API Surface ──
+    md_parts.extend([
+        "",
+        "## API Surface",
+        "",
+        "| Annotation / Function | Module | Purpose |",
+        "|---|---|---",
+        "| `@AiService` | tramai-orchestration | Marks an interface as an AI service proxy |",
+        "| `@Operation` | tramai-orchestration | Defines a single AI operation (prompt, model, timeout, tools) |",
+        "| `@AiTool` | tramai-spring | Registers a Spring bean as a callable tool |",
+        "| `@AiDescription` | tramai-structured | Annotates fields for structured output schema generation |",
+        "| `Tramai.create()` | tramai-standalone | Framework-free entry point |",
+        "| `TramaiAutoConfiguration` | tramai-spring | Spring Boot auto-config for core Tramai |",
+        "| `ApprovalGateway.requestApproval(...)` | tramai-core | Request human approval from a governed workflow |",
+        "| `ApprovalRequestResult.toWorkflowResult { ... }` | tramai-core | Map gateway result to workflow result (Preview) |",
+        "| `SovereignWorkflowResult` | tramai-core | Workflow result sealed type |",
+        "| `SovereignEvidencePackV1` | tramai-sovereign | Offline-verifiable artifact provenance |",
+    ])
+
     return [
         TextContent(type="text", text=json.dumps({
             "layers": [
@@ -324,7 +489,7 @@ async def _get_architecture() -> list[TextContent]:
             ],
             "totalModules": len(modules),
         }, indent=2)),
-        TextContent(type="text", text="\n\n".join(md_parts)),
+        TextContent(type="text", text="\n".join(md_parts)),
     ]
 
 
