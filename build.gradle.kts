@@ -2650,6 +2650,12 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             "Missing Spring approval gateway golden path smoke test at ${springSmokeTest.absolutePath}"
         }
         val smokeSource = springSmokeTest.readText()
+
+        require(smokeSource.contains("TestApprovalGatewayRequestFactory")) {
+            "Spring golden path smoke test must use the reusable TestApprovalGatewayRequestFactory fixture. " +
+                "Found: ${smokeSource.lines().firstOrNull { it.contains("ApprovalGatewayRequestFactory") } ?: "no factory reference"}"
+        }
+
         val workflowSection = smokeSource
             .substringAfter("class ExampleApprovalWorkflow")
             .substringBefore("class SmokeTestDataSourceConfig")

@@ -138,6 +138,39 @@ Spring Boot auto-configuration creates an `ApprovalGateway` bean when the requir
 
 TramAI does **not** auto-create a generic request factory because the factory depends on workflow-specific metadata: replay envelopes, argument digests, correlation IDs, and resume-token generation.
 
+For **tests and examples**, TramAI provides a reusable test fixture:
+
+```kotlin
+// testImplementation(testFixtures(project(":tramai-engine")))
+import dev.tramai.engine.approval.testing.TestApprovalGatewayRequestFactory
+
+@Bean
+fun approvalGatewayRequestFactory(): ApprovalGatewayRequestFactory =
+    TestApprovalGatewayRequestFactory(clock = Clock.systemUTC())
+```
+
+The fixture handles all low-level records (approval, continuation, suspended invocation, replay envelope, argument digests) with sensible defaults. Scenario-specific metadata can be customized through `TestApprovalGatewayRequestDefaults` or the builder's fluent API:
+
+```kotlin
+TestApprovalGatewayPersistenceRequestBuilder(clock)
+    .subject(ApprovalSubject("claim-1"))
+    .workflowRunId(WorkflowRunId("run-1"))
+    .toolName("claim-triage-model")
+    .operationReference(
+        serviceInterface = "com.example.MyWorkflow",
+        methodName = "handle",
+        jvmMethodDescriptor = "(...)",
+    )
+    .sensitiveArgumentsJson("""{"claimId":"claim-1"}""")
+    .build()
+```
+
+The fixture is **test/example support only** — it is not production API. Production applications should provide their own factory with production-appropriate metadata.
+
+For a full example using the fixture, see:
+
+- [ApprovalGatewaySpringGoldenPathSmokeTest](../../examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/ApprovalGatewaySpringGoldenPathSmokeTest.kt) — minimal Spring/JDBC smoke proof using the test fixture
+
 You must provide your own factory as a Spring bean:
 
 ```kotlin
@@ -204,7 +237,7 @@ The Preview approval gateway has the following limitations:
 | Approval inbox / work queue query API | Preview inbox query API available (`GET .../approvals`, `GET .../approvals/{id}/work-item`) |
 | Cross-store transaction boundary at creation | ✅ Implemented for JDBC-backed stores via `SovereignOpsApprovalRequestMutationStore` |
 | Approval-requested audit outbox mutation boundary | ✅ Implemented for JDBC-backed stores when an `ApprovalGatewayAuditIntentFactory` bean is provided |
-| Generic global `ApprovalGatewayRequestFactory` | Not provided — applications must supply one |
+| Generic global `ApprovalGatewayRequestFactory` | Test fixture (`TestApprovalGatewayRequestFactory`) provided via `tramai-engine` test fixtures — production applications must supply their own |
 | Production certification / GA stability | Preview — APIs may change |
 
 These limitations are tracked in the [post-roadmap design backlog](../architecture/human-approval-workflow-ergonomics.md).

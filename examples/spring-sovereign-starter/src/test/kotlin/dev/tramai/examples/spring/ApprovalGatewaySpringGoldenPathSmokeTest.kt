@@ -13,6 +13,7 @@ import dev.tramai.core.workflow.SovereignWorkflowResult
 import dev.tramai.core.workflow.toWorkflowResult
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.approval.ApprovalGatewayRequestFactory
+import dev.tramai.engine.approval.testing.TestApprovalGatewayRequestFactory
 import dev.tramai.spring.sovereign.ops.ApprovalGatewayAutoConfiguration
 import dev.tramai.spring.sovereign.persistence.jdbc.SovereignJdbcPersistenceAutoConfiguration
 import java.time.Clock
@@ -193,7 +194,7 @@ class ApprovalGatewaySpringGoldenPathSmokeTest {
 
         @Bean
         fun smokeTestApprovalGatewayRequestFactory(): ApprovalGatewayRequestFactory =
-            SmokeTestApprovalGatewayRequestFactory(clock = Clock.systemUTC())
+            TestApprovalGatewayRequestFactory(clock = Clock.systemUTC())
 
         @Bean
         fun exampleApprovalWorkflow(gateway: ApprovalGateway): ExampleApprovalWorkflow =
