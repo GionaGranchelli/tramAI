@@ -2646,16 +2646,17 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
         val springSmokeTest = file(
             "examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/ApprovalGatewaySpringGoldenPathSmokeTest.kt",
         )
-        if (springSmokeTest.exists()) {
-            val smokeSource = springSmokeTest.readText()
-            val workflowSection = smokeSource
-                .substringAfter("class ExampleApprovalWorkflow")
-                .substringBefore("class SmokeTestDataSourceConfig")
+        require(springSmokeTest.exists()) {
+            "Missing Spring approval gateway golden path smoke test at ${springSmokeTest.absolutePath}"
+        }
+        val smokeSource = springSmokeTest.readText()
+        val workflowSection = smokeSource
+            .substringAfter("class ExampleApprovalWorkflow")
+            .substringBefore("class SmokeTestDataSourceConfig")
 
-            forbiddenStoreReferences.forEach { forbidden ->
-                require(!workflowSection.contains(forbidden)) {
-                    "ExampleApprovalWorkflow must not depend on low-level store: $forbidden"
-                }
+        forbiddenStoreReferences.forEach { forbidden ->
+            require(!workflowSection.contains(forbidden)) {
+                "ExampleApprovalWorkflow must not depend on low-level store: $forbidden"
             }
         }
 

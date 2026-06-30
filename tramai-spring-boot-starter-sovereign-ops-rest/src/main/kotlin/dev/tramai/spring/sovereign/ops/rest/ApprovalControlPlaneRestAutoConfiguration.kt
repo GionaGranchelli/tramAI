@@ -12,20 +12,16 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
-import org.springframework.context.annotation.Configuration
 
 /**
- * Spring Boot auto-configuration for the Preview REST approval control plane,
- * approval inbox endpoints, and preview reviewer UI.
+ * Spring Boot auto-configuration for the Preview REST approval control plane
+ * and approval inbox endpoints.
  *
  * Creates:
  * - [ApprovalControlPlaneController] when `rest-control-plane-enabled=true`
  *   and required service-level beans are present
  * - [ApprovalInboxController] when `rest-control-plane-enabled=true`
  *   and an [ApprovalInboxQueryService] bean is present
- * - [ApprovalReviewerUiController] when `reviewer-ui-enabled=true`
- *   and [ApprovalInboxQueryService], [ApprovalDecisionControlPlane],
- *   and [ApprovalResumeControlPlane] beans are all present
  *
  * Disabled by default.
  */
@@ -66,23 +62,14 @@ class ApprovalControlPlaneRestAutoConfiguration {
     ): ApprovalInboxController =
         ApprovalInboxController(queryService)
 
-    @Configuration
+    @Bean
+    @ConditionalOnMissingBean(ApprovalReviewerUiController::class)
+    @ConditionalOnBean(ApprovalInboxQueryService::class, ApprovalDecisionControlPlane::class)
     @ConditionalOnProperty(
         prefix = "tramai.sovereign.ops",
         name = ["reviewer-ui-enabled"],
         havingValue = "true",
     )
-    @ConditionalOnBean(
-        value = [
-            ApprovalInboxQueryService::class,
-            ApprovalDecisionControlPlane::class,
-            ApprovalResumeControlPlane::class,
-        ],
-    )
-    open class ApprovalReviewerUiConfiguration {
-        @Bean
-        @ConditionalOnMissingBean(ApprovalReviewerUiController::class)
-        open fun approvalReviewerUiController(): ApprovalReviewerUiController =
-            ApprovalReviewerUiController()
-    }
+    fun approvalReviewerUiController(): ApprovalReviewerUiController =
+        ApprovalReviewerUiController()
 }

@@ -2,6 +2,7 @@ package dev.tramai.examples.spring
 
 import com.zaxxer.hikari.HikariDataSource
 import dev.tramai.core.approval.ApprovalContinuationStore
+import dev.tramai.core.approval.ApprovalStatus
 import dev.tramai.core.approval.ApprovalStore
 import dev.tramai.core.approval.gateway.ApprovalGateway
 import dev.tramai.core.approval.gateway.ApprovalRecommendation
@@ -122,7 +123,7 @@ class ApprovalGatewaySpringGoldenPathSmokeTest {
                 val approvalStore = ctx.getBean(ApprovalStore::class.java)
                 val persisted = approvalStore.get(suspended.approvalId.value)
                 assertThat(persisted).isNotNull
-                assertThat(persisted!!.status.name).isEqualTo("PENDING")
+                assertThat(persisted!!.status).isEqualTo(ApprovalStatus.PENDING)
             }
 
             // 3. Suspended invocation was persisted
