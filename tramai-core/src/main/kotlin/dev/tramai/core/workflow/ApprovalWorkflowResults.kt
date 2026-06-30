@@ -19,6 +19,10 @@ import java.time.Instant
  * ### Example (Java)
  *
  * ```java
+ * HumanApprovalDecision.Approved decision = HumanApprovalDecisions.approved(
+ *     "approval-1", "reviewer-1", Instant.now()
+ * );
+ *
  * SovereignWorkflowResult<String> result =
  *     ApprovalWorkflowResults.fromApprovalRequestResult(
  *         ApprovalRequestResults.alreadyApproved(decision),
@@ -34,59 +38,11 @@ fun <T> fromApprovalRequestResult(
 ): SovereignWorkflowResult<T> =
     result.toWorkflowResult(approvedValue)
 
-// ── Java-friendly factories ──
-//
-// These use String parameters instead of inline value class types to avoid
-// Kotlin JVM name mangling. From Java, value class types (ApprovalId, etc.)
-// erase to String at the JVM level, so the underlying representation is
-// already String — these factories just wrap them in the proper Kotlin types
-// so the require(value.isNotBlank()) init blocks are executed.
-
-/**
- * Java-friendly factory for [ApprovalId].
- *
- * Preview API.
- */
-object ApprovalIds {
-    @JvmStatic
-    fun of(value: String): ApprovalId = ApprovalId(value)
-}
-
-/**
- * Java-friendly factory for [WorkflowRunId].
- *
- * Preview API.
- */
-object WorkflowRunIds {
-    @JvmStatic
-    fun of(value: String): WorkflowRunId = WorkflowRunId(value)
-}
-
-/**
- * Java-friendly factory for [AuditStreamId].
- *
- * Preview API.
- */
-object AuditStreamIds {
-    @JvmStatic
-    fun of(value: String): AuditStreamId = AuditStreamId(value)
-}
-
-/**
- * Java-friendly factory for [ResumeToken].
- *
- * Preview API.
- */
-object ResumeTokens {
-    @JvmStatic
-    fun of(value: String): ResumeToken = ResumeToken(value)
-}
-
 /**
  * Java-friendly factory for [ApprovalRequestResult] variants.
  *
- * Parameters use Kotlin inline value class types' underlying JVM types
- * (String) so the methods have clean JVM names.
+ * Parameters use plain [String] — the underlying JVM type of inline value class wrappers —
+ * so these methods have clean JVM names and no inline-value-class name mangling.
  *
  * Preview API.
  */
@@ -94,10 +50,10 @@ object ApprovalRequestResults {
 
     /**
      * Creates a [Suspended] result for the given identifiers.
-     * @param approvalId [ApprovalId.value] — the approval request identifier
-     * @param workflowRunId [WorkflowRunId.value] — the workflow run identifier
-     * @param auditStreamId [AuditStreamId.value] — the audit stream identifier
-     * @param resumeToken [ResumeToken.value] — the resume credential token
+     * @param approvalId the approval request identifier
+     * @param workflowRunId the workflow run identifier
+     * @param auditStreamId the audit stream identifier
+     * @param resumeToken the resume credential token
      */
     @JvmStatic
     fun suspended(
@@ -123,7 +79,7 @@ object ApprovalRequestResults {
 
     /**
      * Creates an [Expired] result.
-     * @param approvalId [ApprovalId.value] — the expired approval identifier
+     * @param approvalId the expired approval identifier
      */
     @JvmStatic
     fun expired(
@@ -141,7 +97,7 @@ object ApprovalRequestResults {
 /**
  * Java-friendly factory for [HumanApprovalDecision] variants.
  *
- * Parameters for inline value class types use their JVM underlying types (String).
+ * Parameters use plain [String] — the underlying JVM type of inline value class wrappers.
  *
  * Preview API.
  */
@@ -149,9 +105,10 @@ object HumanApprovalDecisions {
 
     /**
      * Creates an [Approved] decision.
-     * @param approvalId [ApprovalId.value] — the approval identifier
+     * @param approvalId the approval identifier
      */
     @JvmStatic
+    @JvmOverloads
     fun approved(
         approvalId: String,
         decidedBy: String,
@@ -167,9 +124,10 @@ object HumanApprovalDecisions {
 
     /**
      * Creates a [Denied] decision.
-     * @param approvalId [ApprovalId.value] — the approval identifier
+     * @param approvalId the approval identifier
      */
     @JvmStatic
+    @JvmOverloads
     fun denied(
         approvalId: String,
         decidedBy: String,

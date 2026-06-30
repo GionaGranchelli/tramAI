@@ -2723,8 +2723,27 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             }
         }
 
-        require(javaInteropSource.contains("decision-aware lambda")) {
-            "Java interop test must prove the decision-aware lambda contract."
+        // Must use String-based factories, not inline-value-class-returning factories
+        require(javaInteropSource.contains("ApprovalRequestResults.suspended(")) {
+            "Java interop test must prove Java can construct Suspended via String-based factory."
+        }
+
+        require(javaInteropSource.contains("HumanApprovalDecisions.approved(")) {
+            "Java interop test must prove Java can construct Approved via String-based factory."
+        }
+
+        // Prove @JvmOverloads short forms compile without comment parameter
+        require(javaInteropSource.contains("usesShortApprovedOverloadWithoutComment")) {
+            "Java interop test must prove @JvmOverloads works for approved() without comment."
+        }
+
+        require(javaInteropSource.contains("usesShortDeniedOverloadWithoutComment")) {
+            "Java interop test must prove @JvmOverloads works for denied() without comment."
+        }
+
+        // Prove the decision-aware lambda contract: terminal states must not invoke lambda
+        require(javaInteropSource.contains("should not run")) {
+            "Java interop test must prove the decision-aware lambda contract (terminal states skip lambda)."
         }
 
         logger.lifecycle("verifySovereignRuntimeClosureDocs: all documentation consistency checks passed.")

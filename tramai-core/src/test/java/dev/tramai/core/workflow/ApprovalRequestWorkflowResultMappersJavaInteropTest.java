@@ -15,23 +15,23 @@ import java.time.Instant;
  *
  * Proves that Java consumers can:
  * <ol>
- *   <li>Construct approval gateway result types via Java-friendly factories</li>
- *   <li>Call the mapper via the Java-friendly facade</li>
+ *   <li>Construct approval gateway result types via {@link ApprovalRequestResults} factories</li>
+ *   <li>Call the mapper via {@link ApprovalWorkflowResults#fromApprovalRequestResult}</li>
  *   <li>Receive all four {@link SovereignWorkflowResult} variants</li>
- *   <li>Use the decision-aware lambda from Java</li>
- *   <li>Use Java-friendly factory methods for inline value class types</li>
- *   <li>Access properties on mapped results via JvmName-annotated getters</li>
+ *   <li>Use the decision-aware lambda from Java (lazy, terminal-safe)</li>
+ *   <li>Call the short overloads ({@code HumanApprovalDecisions.approved(a, b, c)} without comment)</li>
+ *   <li>Access properties on mapped results via {@code @JvmName}-annotated getters</li>
  * </ol>
  *
  * <h3>Inline value classes at JVM level</h3>
  * <p>
  * {@code @JvmInline value class} types ({@link ApprovalId}, {@link WorkflowRunId}, etc.)
- * erase to {@link String} at the JVM level. From Java:
- * <ul>
- *   <li>Construct via factory: {@code ApprovalIds.of("value")} (returns boxed type)</li>
- *   <li>Read from data class getters as String: {@code suspended.getApprovalId()}</li>
- *   <li>Pass clean Strings to factory methods that accept inline types internally</li>
- * </ul>
+ * erase to {@link String} at the JVM level. Java consumers do not construct inline
+ * value class wrappers directly. Instead they pass plain Strings to
+ * {@link ApprovalRequestResults#suspended} and
+ * {@link HumanApprovalDecisions#approved}, which construct the inline types internally.
+ * Readback from getters like {@code suspended.getApprovalId()} returns the underlying
+ * String because of the {@code @JvmName} annotations on the data class properties.
  */
 class ApprovalRequestWorkflowResultMappersJavaInteropTest {
 
@@ -82,7 +82,7 @@ class ApprovalRequestWorkflowResultMappersJavaInteropTest {
     @Test
     void mapsDeniedFromJava() {
         var decision = HumanApprovalDecisions.denied(
-            "approval-1", "reviewer-1", NOW, "not enough evidence", null
+            "approval-1", "reviewer-1", NOW, "not enough evidence"
         );
 
         SovereignWorkflowResult<String> result =
@@ -111,26 +111,38 @@ class ApprovalRequestWorkflowResultMappersJavaInteropTest {
             .isEqualTo("expired");
     }
 
-    // ── Value type factory methods ──
+    // ── Short overloads with @JvmOverloads ──
     //
-    // NOTE: ApprovalIds.of("..."), WorkflowRunIds.of("...") etc. are NOT
-    // callable from Java because Kotlin JVM name mangles methods that
-    // return inline value class types. These factories exist for Kotlin
-    // code that wants explicit construction.
+    // HumanApprovalDecisions.approved() and .denied() have @JvmOverloads so
+    // Java can omit the trailing comment parameter.
+
+    @Test
+    void usesShortApprovedOverloadWithoutComment() {
+        var decision = HumanApprovalDecisions.approved("approval-1", "reviewer-1", NOW);
+        Assertions.assertThat(decision).isInstanceOf(HumanApprovalDecision.Approved.class);
+        Assertions.assertThat(decision.getApprovalId()).isEqualTo("approval-1");
+        Assertions.assertThat(decision.getDecidedBy()).isEqualTo("reviewer-1");
+    }
+
+    @Test
+    void usesShortDeniedOverloadWithoutComment() {
+        var decision = HumanApprovalDecisions.denied("approval-1", "reviewer-1", NOW, "reason");
+        Assertions.assertThat(decision).isInstanceOf(HumanApprovalDecision.Denied.class);
+        Assertions.assertThat(decision.getApprovalId()).isEqualTo("approval-1");
+        Assertions.assertThat(decision.getReason()).isEqualTo("reason");
+    }
+
+    // ── String-based factories for inline value types ──
     //
-    // Java users pass plain Strings to ApprovalRequestResults.suspended()
-    // and HumanApprovalDecisions.approved() — those methods accept String
-    // parameters and construct the inline types internally.
+    // Java passes plain Strings to factory methods; the inline class wrapping
+    // happens inside the Kotlin factory.
 
     @Test
     void javaPassesPlainStringsForInlineValueTypes() {
-        // Java does not construct or receive inline value class types directly.
-        // All factory methods that accept inline types use String parameters,
-        // and SuspendedForApproval getters delegate to the JVM underlying type.
         var suspended = ApprovalRequestResults.suspended("a", "b", "c", "d");
         Assertions.assertThat(suspended).isInstanceOf(ApprovalRequestResult.Suspended.class);
 
-        var approval = HumanApprovalDecisions.approved("a", "reviewer", NOW, null);
+        var approval = HumanApprovalDecisions.approved("a", "reviewer", NOW, "ok");
         var approved = ApprovalRequestResults.alreadyApproved(approval);
         Assertions.assertThat(approved).isInstanceOf(ApprovalRequestResult.AlreadyApproved.class);
 
@@ -154,7 +166,7 @@ class ApprovalRequestWorkflowResultMappersJavaInteropTest {
 
     @Test
     void lambdaNotInvokedForDenied() {
-        var decision = HumanApprovalDecisions.denied("a", "reviewer", NOW, "reason", null);
+        var decision = HumanApprovalDecisions.denied("a", "reviewer", NOW, "reason");
         ApprovalWorkflowResults.fromApprovalRequestResult(
             ApprovalRequestResults.alreadyDenied(decision),
             approved -> { throw new AssertionError("should not run"); }
