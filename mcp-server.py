@@ -9,7 +9,7 @@ architecture, API surface, and design decisions before writing code.
 Project: ~/Development/aurora (Tramai)
 """
 
-import json, re, subprocess
+import functools, json, re, subprocess
 from pathlib import Path
 from typing import Any
 
@@ -82,20 +82,25 @@ async def read_resource(uri: str) -> str:
 
 # ── Tools ────────────────────────────────────────────────────────
 
-_MODULES = [
-    "tramai-core", "tramai-engine", "tramai-structured",
-    "tramai-anthropic", "tramai-openai", "tramai-ollama",
-    "tramai-observability", "tramai-orchestration",
-    "tramai-standalone", "tramai-spring", "tramai-testing",
-    "tramai-bom",
-]
+@functools.cache
+def _get_modules() -> list[str]:
+    # Parse module list from settings.gradle.kts so it stays in sync with the repo
+    settings = TRAMAI / "settings.gradle.kts"
+    if not settings.exists():
+        return []
+    text = settings.read_text()
+    # Extract strings inside include(...), strip quotes
+    modules = re.findall(r'"([^"]+)"', text)
+    # Filter to only modules under the root (not examples: sub-projects)
+    # Keep both: tramai-* modules and examples:* for context
+    return sorted(modules)
 
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="search_codebase",
-            description="Search the Tramai codebase for patterns: @AiService, @Operation, @AiTool, etc.",
+            description="Search the Tramai codebase for patterns: @AiService, @Operation, @AiTool, ApprovalGateway, Sovereign, etc.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -105,7 +110,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "module": {
                         "type": "string",
-                        "description": f"Optional module name: {', '.join(_MODULES)}",
+                        "description": f"Optional module name: {', '.join(_get_modules())}",
                     },
                 },
                 "required": ["pattern"],
@@ -181,7 +186,7 @@ async def _search_codebase(pattern: str, module: str | None) -> list[TextContent
 
 async def _list_modules() -> list[TextContent]:
     lines = ["# Tramai Modules\n"]
-    for mod in _MODULES:
+    for mod in _get_modules():
         path = TRAMAI / mod
         build_file = path / "build.gradle.kts"
         desc = ""
@@ -224,13 +229,42 @@ async def _get_architecture() -> list[TextContent]:
 
 ## Module Layering (bottom → top)
 
-1. **tramai-core** — SPI definitions: ModelProvider, StructuredOutputSchema, SecretValueResolver
+1. **tramai-core** — SPI definitions: ModelProvider, StructuredOutputSchema, SecretValueResolver, approvals, workflow
 2. **tramai-structured** — Schema generation, extraction, deserialization, failure analysis
-3. **tramai-engine** — Orchestration, retry policy, model routing, provider resolution
-4. Provider modules (tramai-openai, tramai-anthropic, tramai-ollama) — ModelProvider implementations
+3. **tramai-engine** — Orchestration, retry policy, model routing, provider resolution, default approval gateway
+4. Provider modules (tramai-openai, tramai-anthropic, tramai-ollama, tramai-gemini, tramai-azure-openai, tramai-bedrock, tramai-deepseek) — ModelProvider implementations
 5. **tramai-orchestration** — Workflow DSL with @AiService, @Operation, @AiTool
-6. Framework adapters (tramai-spring) — Spring Boot auto-configuration
-7. **tramai-standalone** — Minimal entry point for framework-free usage
+6. **tramai-observability** — OpenTelemetry-friendly observability
+7. Persistence layer (tramai-persistence-file, tramai-persistence-jdbc)
+8. **tramai-sovereign** — Sovereign Runtime: evidence packs, deployment modes, artifact verification
+9. **tramai-security** — Security model, approved model registry, tool arguments digesters
+10. **tramai-scheduler** — Recurring task scheduling
+11. **tramai-server** — Standalone HTTP server for Tramai
+12. **tramai-mcp** — MCP (Model Context Protocol) server for workflow execution
+13. **tramai-platform** — Platform abstraction layer
+14. **tramai-memory / tramai-memory-store** — Chat memory abstraction and stores
+15. **tramai-embedding** — Embedding generation
+16. **tramai-rag** — Retrieval-augmented generation support
+17. **tramai-vectorstore-spi / tramai-vectorstore-chroma / tramai-vectorstore-pgvector** — Vector store SPI and implementations
+18. **tramai-dashboard** — Dashboard UI module
+19. **tramai-spring** — Spring Boot auto-configuration (core Tramai)
+20. Spring Boot Sovereign starters (tramai-spring-boot-starter-sovereign, tramai-spring-boot-starter-sovereign-persistence-jdbc, tramai-spring-boot-starter-sovereign-persistence-file, tramai-spring-boot-starter-sovereign-ops, tramai-spring-boot-starter-sovereign-ops-rest, tramai-spring-boot-starter-sovereign-ops-actuator, tramai-spring-boot-starter-sovereign-ops-micrometer, tramai-spring-boot-starter-sovereign-ops-observability)
+21. **tramai-standalone** — Minimal entry point for framework-free usage
+22. **tramai-testing** — Testing utilities
+23. **tramai-bom** — Bill of Materials for consistent dependency versions
+
+## Sovereign Runtime
+
+The Sovereign Runtime extends Tramai for governed, approval-based workflow execution with offline-capable evidence:
+
+- `ApprovalGateway` / `DefaultApprovalGateway` — Request human approval without wiring low-level stores
+- `ApprovalRequestResult.toWorkflowResult { ... }` — Ergonomic mapper (Preview API)
+- `ApprovalDecisionControlPlane`, `ApprovalResumeControlPlane` — REST and programmatic approval decision / resume
+- `SovereignWorkflowResult` — Sealed result type with Completed, SuspendedForApproval, Rejected, Expired
+- `SovereignEvidencePackV1` — Signed, offline-verifiable artifact provenance packs
+- `SovereignProfileConfiguration` — Deployment mode (offline, air-gapped, connected)
+- Approval gateway optional extras: JDBC transaction boundary, audit outbox, worker lease store
+- Spring Boot starters enable the full stack via minimal property configuration
 
 ## Key Design Decisions (from ADRs)
 
@@ -239,6 +273,8 @@ async def _get_architecture() -> list[TextContent]:
 - Structured output as first-class capability
 - Observability is optional and opt-in
 - Provider resolution is registry-based, not prefix-heuristic
+- Sovereign Runtime is Preview, not RC+ Stable — API stability boundary enforced by build guards
+- Approval gateway factories are application-supplied, not auto-created
 
 ## API Surface
 
@@ -248,6 +284,10 @@ async def _get_architecture() -> list[TextContent]:
 - `@AiDescription` — Annotates fields for structured output schema generation
 - `Tramai.create()` — Framework-free entry point (standalone module)
 - `TramaiAutoConfiguration` — Spring Boot auto-config (spring module)
+- `ApprovalGateway.requestApproval(...)` — Request human approval from a governed workflow
+- `ApprovalRequestResult.toWorkflowResult { ... }` — Map gateway result to workflow result (Preview)
+- `SovereignWorkflowResult` — Workflow result sealed type
+- `SovereignEvidencePackV1` — Offline-verifiable artifact provenance
 """)]
 
 # ── Entry point ──────────────────────────────────────────────────
