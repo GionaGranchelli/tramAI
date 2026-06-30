@@ -107,7 +107,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="search_codebase",
-            description="Search the Tramai codebase for patterns: @AiService, @Operation, @AiTool, ApprovalGateway, Sovereign, etc. Returns matches with 3 lines of surrounding context.",
+            description="Search the Tramai codebase for patterns: @AiService, @Operation, @AiTool, ApprovalGateway, Sovereign, etc. Returns matches with 3 lines of surrounding context. Accepts short module names.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -117,7 +117,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "module": {
                         "type": "string",
-                        "description": f"Optional module name: {', '.join(_get_modules())}",
+                        "description": "Optional module name (e.g. 'tramai-core' or just 'core', 'spring-sovereign-starter'). Use list_modules to see all.",
                     },
                     "limit": {
                         "type": "integer",
@@ -130,13 +130,13 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="list_files",
-            description="List source files in a Tramai module. Shows main sources and optionally test sources.",
+            description="List source files in a Tramai module. Shows main sources and optionally test sources. Accepts short module names.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "module": {
                         "type": "string",
-                        "description": f"Module name from: {', '.join(_get_modules()[:8])}...",
+                        "description": "Module name (e.g. 'tramai-core' or 'core', 'spring-sovereign-starter'). Use list_modules to see all.",
                     },
                     "includeTests": {
                         "type": "boolean",
@@ -159,12 +159,12 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="read_source",
-            description="Read a source file from a Tramai module.",
+            description="Read a source file from a Tramai module. Accepts full names ('tramai-core') or short names ('core', 'spring-sovereign-starter').",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "module": {"type": "string", "description": "Module name"},
-                    "path": {"type": "string", "description": "Path relative to module src/ (e.g., 'Tramai.kt')"},
+                    "module": {"type": "string", "description": "Module name (e.g. 'tramai-core' or 'core', 'spring-sovereign-starter' or 'examples:spring-sovereign-starter')"},
+                    "path": {"type": "string", "description": "Path relative to module src/ (e.g., 'Tramai.kt', 'dev/tramai/core/workflow/SovereignWorkflowResult.kt')"},
                 },
                 "required": ["module", "path"],
             },
@@ -218,10 +218,45 @@ def _module_path(module: str) -> Path:
     return TRAMAI / module.replace(":", "/")
 
 
+def _resolve_module(module: str) -> str | None:
+    """Resolve a possibly-short module name to its full Gradle module name.
+
+    Accepts 'spring-sovereign-starter' and resolves it to
+    'examples:spring-sovereign-starter' automatically.
+
+    Strategy:
+    1. Try the name as-is (module path exists on disk).
+    2. Try prepending 'examples:' for short example module names.
+    3. Suffix-match against all 44 registered modules.
+    """
+    if _module_path(module).exists():
+        return module
+
+    prefixed = f"examples:{module}"
+    if _module_path(prefixed).exists():
+        return prefixed
+
+    for candidate in _get_modules():
+        if candidate.endswith(module) or candidate.endswith(f":{module}"):
+            return candidate
+
+    return None
+
+
 async def _search_codebase(pattern: str, module: str | None, limit: int = 30) -> list[TextContent]:
-    search_root = _module_path(module) if module else TRAMAI
+    if module:
+        resolved = _resolve_module(module)
+        if not resolved:
+            return [TextContent(type="text", text=f"Module not found: {module}. Use list_modules to see available modules.")]
+        search_root = _module_path(resolved)
+        display_module = resolved
+    else:
+        search_root = TRAMAI
+        display_module = None
+
     if not search_root.exists():
-        return [TextContent(type="text", text=f"Module not found: {module}")]
+        resolved_name = display_module if display_module else module
+        return [TextContent(type="text", text=f"Module path not found: {module} (resolved: {resolved_name})")]
 
     try:
         result = subprocess.run(
@@ -260,9 +295,11 @@ async def _search_codebase(pattern: str, module: str | None, limit: int = 30) ->
 
 
 async def _list_files(module: str, include_tests: bool = False, extension: str = ".kt") -> list[TextContent]:
-    search_root = _module_path(module)
-    if not search_root.exists():
-        return [TextContent(type="text", text=f"Module not found: {module}")]
+    resolved = _resolve_module(module)
+    if not resolved:
+        return [TextContent(type="text", text=f"Module not found: {module}. Use list_modules to see available modules.")]
+    search_root = _module_path(resolved)
+    display = resolved
 
     roots = [search_root / "src" / "main"]
     if include_tests:
@@ -275,7 +312,7 @@ async def _list_files(module: str, include_tests: bool = False, extension: str =
 
     rels = [str(f.relative_to(search_root)) for f in files]
 
-    summary = f"{len(rels)} {extension} files in {module}"
+    summary = f"{len(rels)} {extension} files in {display}"
     if include_tests:
         summary += " (including tests)"
 
@@ -285,7 +322,7 @@ async def _list_files(module: str, include_tests: bool = False, extension: str =
 
     return [
         TextContent(type="text", text=json.dumps({
-            "module": module,
+            "module": display,
             "total": len(rels),
             "includeTests": include_tests,
             "extension": extension,
@@ -326,7 +363,10 @@ async def _list_modules() -> list[TextContent]:
     ]
 
 async def _read_source(module: str, path: str) -> list[TextContent]:
-    search_root = _module_path(module)
+    resolved = _resolve_module(module)
+    if not resolved:
+        return [TextContent(type="text", text=f"Module not found: {module}. Use list_modules to see available modules.")]
+    search_root = _module_path(resolved)
 
     for root in (
         search_root / "src" / "main" / "kotlin",
