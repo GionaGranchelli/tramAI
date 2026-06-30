@@ -65,6 +65,9 @@ class TestApprovalGatewayPersistenceRequestBuilder(
     private var sensitiveArgumentsJson: String? = null
     private var operationReference: ResumeOperationReference? = null
     private var customResumeToken: ResumeToken? = null
+    private var customApprovalId: String? = null
+    private var customCorrelationId: String? = null
+    private var customToolCallId: String? = null
 
     fun subject(subject: ApprovalSubject) = apply { this.subject = subject }
     fun recommendation(recommendation: ApprovalRecommendation) = apply { this.recommendation = recommendation }
@@ -78,6 +81,17 @@ class TestApprovalGatewayPersistenceRequestBuilder(
     fun approvalTokenDigest(approvalTokenDigest: Sha256Digest) = apply { this.approvalTokenDigest = approvalTokenDigest }
     fun sensitiveArgumentsJson(json: String) = apply { this.sensitiveArgumentsJson = json }
     fun resumeToken(resumeToken: ResumeToken) = apply { this.customResumeToken = resumeToken }
+    fun approvalId(approvalId: String) = apply { this.customApprovalId = approvalId }
+    fun correlationId(correlationId: String) = apply { this.customCorrelationId = correlationId }
+    fun toolCallId(toolCallId: String) = apply { this.customToolCallId = toolCallId }
+
+    /**
+     * Convenience helper for building a JSON string from key-value pairs.
+     * Values are JSON-escaped automatically.
+     */
+    fun sensitiveArguments(vararg pairs: Pair<String, String>) = apply {
+        this.sensitiveArgumentsJson = buildJsonObject(*pairs)
+    }
 
     fun operationReference(
         serviceInterface: String,
@@ -101,9 +115,9 @@ class TestApprovalGatewayPersistenceRequestBuilder(
 
         val now: Instant = clock.instant()
         val claimId = subj.value
-        val approvalId = "test-approval-$claimId-${now.toEpochMilli()}"
-        val correlationId = "test-corr-$claimId"
-        val toolCallId = "test-tc-$claimId"
+        val approvalId = customApprovalId ?: "test-approval-$claimId-${now.toEpochMilli()}"
+        val correlationId = customCorrelationId ?: "test-corr-$claimId"
+        val toolCallId = customToolCallId ?: "test-tc-$claimId"
         val resumeToken = customResumeToken ?: ResumeToken("test-resume-token-$claimId")
         val expiresAt = now.plus(defaults.ttl)
 
@@ -200,4 +214,21 @@ class TestApprovalGatewayPersistenceRequestBuilder(
             resumeToken = resumeToken,
         )
     }
+
+    private fun buildJsonObject(vararg pairs: Pair<String, String>): String =
+        buildString {
+            append('{')
+            pairs.forEachIndexed { index, (key, value) ->
+                if (index > 0) append(',')
+                append('"')
+                append(jsonEscape(key))
+                append("\":\"")
+                append(jsonEscape(value))
+                append('"')
+            }
+            append('}')
+        }
+
+    private fun jsonEscape(s: String): String =
+        s.replace("\\", "\\\\").replace("\"", "\\\"")
 }

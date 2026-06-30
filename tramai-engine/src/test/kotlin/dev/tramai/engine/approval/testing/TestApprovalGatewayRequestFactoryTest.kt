@@ -161,6 +161,27 @@ class TestApprovalGatewayRequestFactoryTest {
     }
 
     @Test
+    fun `builder supports deterministic approvalId correlationId and toolCallId`() = runTest {
+        val request = TestApprovalGatewayPersistenceRequestBuilder(Clock.systemUTC())
+            .subject(ApprovalSubject("claim-1"))
+            .recommendation(ApprovalRecommendation(type = "type", summary = "summary"))
+            .requiredRole(ApproverRole("reviewer"))
+            .workflowRunId(WorkflowRunId("run-1"))
+            .approvalId("approval-custom")
+            .correlationId("corr-custom")
+            .toolCallId("tool-call-custom")
+            .build()
+
+        assertThat(request.approvalRequest.approvalId).isEqualTo("approval-custom")
+        assertThat(request.continuation.approvalId).isEqualTo("approval-custom")
+        assertThat(request.suspendedInvocationMetadata.approvalId).isEqualTo("approval-custom")
+        assertThat(request.continuation.correlationId).isEqualTo("corr-custom")
+        assertThat(request.suspendedInvocationMetadata.correlationId).isEqualTo("corr-custom")
+        assertThat(request.continuation.toolCallId).isEqualTo("tool-call-custom")
+        assertThat(request.suspendedInvocationMetadata.toolCallId).isEqualTo("tool-call-custom")
+    }
+
+    @Test
     fun `custom builder overrides produce consistent result`() = runTest {
         val customRequest = TestApprovalGatewayPersistenceRequestBuilder(
             clock = Clock.systemUTC(),

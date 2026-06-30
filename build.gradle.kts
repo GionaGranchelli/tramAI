@@ -2666,6 +2666,35 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             }
         }
 
+        // ── Regulated claim triage approval gateway factory must use the builder ──
+
+        val regulatedFactoryFile = file(
+            "examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/RegulatedClaimTriageApprovalGatewayRequestFactory.kt",
+        )
+        require(regulatedFactoryFile.exists()) {
+            "Missing regulated claim triage factory at ${regulatedFactoryFile.absolutePath}"
+        }
+        val regulatedFactorySource = regulatedFactoryFile.readText()
+
+        require(regulatedFactorySource.contains("TestApprovalGatewayPersistenceRequestBuilder")) {
+            "Regulated claim triage factory must use TestApprovalGatewayPersistenceRequestBuilder."
+        }
+
+        val forbiddenLowLevelConstruction = listOf(
+            "ApprovalRequest(",
+            "ApprovalContinuation(",
+            "SuspendedInvocationMetadata(",
+            "SensitiveReplayEnvelope.of(",
+            "ReplayEnvelopeDigestHelper.compute(",
+            "Sha256ToolArgumentsDigester()",
+        )
+
+        forbiddenLowLevelConstruction.forEach { forbidden ->
+            require(!regulatedFactorySource.contains(forbidden)) {
+                "Regulated claim triage factory must not manually construct low-level approval records: $forbidden"
+            }
+        }
+
         logger.lifecycle("verifySovereignRuntimeClosureDocs: all documentation consistency checks passed.")
     }
 }

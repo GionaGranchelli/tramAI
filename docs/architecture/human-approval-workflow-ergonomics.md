@@ -396,3 +396,5 @@ The following are explicitly **not covered** by this design:
 | #106 | Preview approval inbox query API | Add safe reviewer work queue over durable approval records — `ApprovalInboxQueryService` SPI, JDBC implementation, REST list/work-item endpoints |
 | #121 | Golden path ergonomics proof | Executable test using only `ApprovalGateway` — no low-level stores |
 | #122 | Approval result workflow mapper | `ApprovalRequestResult.toWorkflowResult { ... }` — lazy `approvedValue` lambda, four-outcome coverage |
+| #126 | Approval request factory fixture | Reusable test/example `TestApprovalGatewayRequestFactory` in `tramai-engine` test fixtures — builders, test coverage, build guard, docs |
+| #127 | Regulated factory fixture adoption | `RegulatedClaimTriageApprovalGatewayRequestFactory` refactored from ~170 lines of manual low-level records to a 35-line thin wrapper over `TestApprovalGatewayPersistenceRequestBuilder` |
