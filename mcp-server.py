@@ -9,7 +9,7 @@ architecture, API surface, and design decisions before writing code.
 Project: ~/Development/aurora (Tramai)
 """
 
-import json, re, subprocess
+import functools, json, re, subprocess
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,31 @@ _DOC_FILES = {
     "readme": TRAMAI / "README.md",
 }
 
+_DOC_DIRS: dict[str, Path] = {
+    "adr": DOCS / "adr",
+    "spec": DOCS / "specs",
+    "architecture": DOCS / "architecture",
+    "guide": DOCS / "guides",
+    "release": DOCS / "releases",
+    "scenario": DOCS / "scenarios",
+    "security": DOCS / "security",
+}
+
+
+def _glob_resources(prefix: str, directory: Path, pattern: str = "*.md") -> list[Resource]:
+    """Build MCP resources from markdown files in a directory."""
+    if not directory.exists():
+        return []
+    return [
+        Resource(
+            uri=f"tramai://{prefix}/{f.stem}",
+            name=f"{prefix}/{f.stem}",
+            description=f"{prefix.capitalize()}: {f.stem}",
+            mimeType="text/markdown",
+        )
+        for f in sorted(directory.glob(pattern))
+    ]
+
 @server.list_resources()
 async def list_resources() -> list[Resource]:
     resources = []
@@ -43,27 +68,8 @@ async def list_resources() -> list[Resource]:
                 mimeType="text/markdown",
             ))
 
-    # ADRs
-    adr_dir = DOCS / "adr"
-    if adr_dir.exists():
-        for f in sorted(adr_dir.glob("adr-*.md")):
-            resources.append(Resource(
-                uri=f"tramai://adr/{f.stem}",
-                name=f"adr/{f.stem}",
-                description=f"Architecture Decision Record: {f.stem}",
-                mimeType="text/markdown",
-            ))
-
-    # Specs
-    spec_dir = DOCS / "specs"
-    if spec_dir.exists():
-        for f in sorted(spec_dir.glob("spec-*.md")):
-            resources.append(Resource(
-                uri=f"tramai://spec/{f.stem}",
-                name=f"spec/{f.stem}",
-                description=f"Specification: {f.stem}",
-                mimeType="text/markdown",
-            ))
+    for prefix, directory in _DOC_DIRS.items():
+        resources.extend(_glob_resources(prefix, directory))
 
     return resources
 
@@ -72,30 +78,36 @@ async def read_resource(uri: str) -> str:
     rel = uri.removeprefix("tramai://")
     if rel in _DOC_FILES:
         return _DOC_FILES[rel].read_text()
-    if rel.startswith("adr/"):
-        path = DOCS / "adr" / f"{rel[4:]}.md"
-        return path.read_text() if path.exists() else f"Not found: {rel}"
-    if rel.startswith("spec/"):
-        path = DOCS / "specs" / f"{rel[5:]}.md"
-        return path.read_text() if path.exists() else f"Not found: {rel}"
+    for prefix, directory in _DOC_DIRS.items():
+        if rel.startswith(f"{prefix}/"):
+            path = directory / f"{rel.removeprefix(f'{prefix}/')}.md"
+            if path.exists():
+                return path.read_text()
+            return f"Not found: {rel}"
     raise ValueError(f"Resource not found: {rel}")
 
 # ── Tools ────────────────────────────────────────────────────────
 
-_MODULES = [
-    "tramai-core", "tramai-engine", "tramai-structured",
-    "tramai-anthropic", "tramai-openai", "tramai-ollama",
-    "tramai-observability", "tramai-orchestration",
-    "tramai-standalone", "tramai-spring", "tramai-testing",
-    "tramai-bom",
-]
+@functools.cache
+def _get_modules() -> list[str]:
+    # Parse module list from settings.gradle.kts so it stays in sync with the repo
+    settings = TRAMAI / "settings.gradle.kts"
+    if not settings.exists():
+        return []
+    text = settings.read_text()
+    # Extract only the include(...) block to skip rootProject.name
+    m = re.search(r'include\s*\((.*?)\)', text, re.DOTALL)
+    if not m:
+        return []
+    modules = re.findall(r'"([^"]+)"', m.group(1))
+    return sorted(modules)
 
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="search_codebase",
-            description="Search the Tramai codebase for patterns: @AiService, @Operation, @AiTool, etc.",
+            description="Search the Tramai codebase for patterns: @AiService, @Operation, @AiTool, ApprovalGateway, Sovereign, etc. Returns matches with 3 lines of surrounding context. Accepts short module names.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -105,10 +117,39 @@ async def list_tools() -> list[Tool]:
                     },
                     "module": {
                         "type": "string",
-                        "description": f"Optional module name: {', '.join(_MODULES)}",
+                        "description": "Optional module name (e.g. 'tramai-core' or just 'core', 'spring-sovereign-starter'). Use list_modules to see all.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max matches to return (default 30, max 100)",
+                        "default": 30,
                     },
                 },
                 "required": ["pattern"],
+            },
+        ),
+        Tool(
+            name="list_files",
+            description="List source files in a Tramai module. Shows main sources and optionally test sources. Accepts short module names.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "module": {
+                        "type": "string",
+                        "description": "Module name (e.g. 'tramai-core' or 'core', 'spring-sovereign-starter'). Use list_modules to see all.",
+                    },
+                    "includeTests": {
+                        "type": "boolean",
+                        "description": "Also list test source files (default: false)",
+                        "default": False,
+                    },
+                    "extension": {
+                        "type": "string",
+                        "description": "File extension filter (default: .kt)",
+                        "default": ".kt",
+                    },
+                },
+                "required": ["module"],
             },
         ),
         Tool(
@@ -118,12 +159,12 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="read_source",
-            description="Read a source file from a Tramai module.",
+            description="Read a source file from a Tramai module. Accepts full names ('tramai-core') or short names ('core', 'spring-sovereign-starter').",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "module": {"type": "string", "description": "Module name"},
-                    "path": {"type": "string", "description": "Path relative to module src/ (e.g., 'Tramai.kt')"},
+                    "module": {"type": "string", "description": "Module name (e.g. 'tramai-core' or 'core', 'spring-sovereign-starter' or 'examples:spring-sovereign-starter')"},
+                    "path": {"type": "string", "description": "Path relative to module src/ (e.g., 'Tramai.kt', 'dev/tramai/core/workflow/SovereignWorkflowResult.kt')"},
                 },
                 "required": ["module", "path"],
             },
@@ -149,9 +190,19 @@ async def list_tools() -> list[Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     if name == "search_codebase":
-        return await _search_codebase(arguments["pattern"], arguments.get("module"))
+        return await _search_codebase(
+            arguments["pattern"],
+            arguments.get("module"),
+            arguments.get("limit", 30),
+        )
     elif name == "list_modules":
         return await _list_modules()
+    elif name == "list_files":
+        return await _list_files(
+            arguments["module"],
+            arguments.get("includeTests", False),
+            arguments.get("extension", ".kt"),
+        )
     elif name == "read_source":
         return await _read_source(arguments["module"], arguments["path"])
     elif name == "search_docs":
@@ -162,93 +213,349 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
 # ── Implementations ──────────────────────────────────────────────
 
-async def _search_codebase(pattern: str, module: str | None) -> list[TextContent]:
-    search_root = TRAMAI / module if module else TRAMAI
+def _module_path(module: str) -> Path:
+    """Resolve a module name to its filesystem path, handling examples:* → examples/foo."""
+    return TRAMAI / module.replace(":", "/")
+
+
+def _resolve_module(module: str) -> str | None:
+    """Resolve a possibly-short module name to its full Gradle module name.
+
+    Accepts 'spring-sovereign-starter' and resolves it to
+    'examples:spring-sovereign-starter' automatically.
+
+    Strategy:
+    1. Try the name as-is (module path exists on disk).
+    2. Try prepending 'examples:' for short example module names.
+    3. Suffix-match against all 44 registered modules.
+    """
+    if _module_path(module).exists():
+        return module
+
+    prefixed = f"examples:{module}"
+    if _module_path(prefixed).exists():
+        return prefixed
+
+    for candidate in _get_modules():
+        if candidate.endswith(module) or candidate.endswith(f":{module}"):
+            return candidate
+
+    return None
+
+
+async def _search_codebase(pattern: str, module: str | None, limit: int = 30) -> list[TextContent]:
+    if module:
+        resolved = _resolve_module(module)
+        if not resolved:
+            return [TextContent(type="text", text=f"Module not found: {module}. Use list_modules to see available modules.")]
+        search_root = _module_path(resolved)
+        display_module = resolved
+    else:
+        search_root = TRAMAI
+        display_module = None
+
     if not search_root.exists():
-        return [TextContent(type="text", text=f"Module not found: {module}")]
+        resolved_name = display_module if display_module else module
+        return [TextContent(type="text", text=f"Module path not found: {module} (resolved: {resolved_name})")]
 
     try:
         result = subprocess.run(
-            ["grep", "-rn", "--include=*.kt", "--include=*.java", pattern, str(search_root)],
-            capture_output=True, text=True, timeout=10,
+            ["grep", "-rn", "-C", "3", "--include=*.kt", "--include=*.java", pattern, str(search_root)],
+            capture_output=True, text=True, timeout=15,
         )
-        lines = result.stdout.strip().split("\n")[:40]
-        if not lines:
-            return [TextContent(type="text", text=f"No matches for '{pattern}'")]
-        return [TextContent(type="text", text="\n".join(lines))]
+        raw = result.stdout.strip()
+        if not raw:
+            return [TextContent(type="text", text=f"No matches for '{pattern}' in {module or 'all modules'}")]
+
+        # Split into match groups (separated by -- lines from grep -C)
+        groups = raw.split("\n--\n")
+        groups = [g.strip() for g in groups if g.strip()]
+
+        limited = groups[:min(limit, 100)]
+        summary = f"Found {len(groups)} match{'es' if len(groups) != 1 else ''}"
+        if len(groups) > len(limited):
+            summary += f", showing {len(limited)}"
+
+        md = [f"# {summary}\n"]
+        for g in limited:
+            md.append(g)
+            md.append("")
+
+        return [
+            TextContent(type="text", text=json.dumps({
+                "total": len(groups),
+                "returned": len(limited),
+                "pattern": pattern,
+                "module": module,
+            }, indent=2)),
+            TextContent(type="text", text="\n".join(md)),
+        ]
     except subprocess.TimeoutExpired:
-        return [TextContent(type="text", text="Search timed out")]
+        return [TextContent(type="text", text=f"Search timed out for '{pattern}'")]
+
+
+async def _list_files(module: str, include_tests: bool = False, extension: str = ".kt") -> list[TextContent]:
+    resolved = _resolve_module(module)
+    if not resolved:
+        return [TextContent(type="text", text=f"Module not found: {module}. Use list_modules to see available modules.")]
+    search_root = _module_path(resolved)
+    display = resolved
+
+    roots = [search_root / "src" / "main"]
+    if include_tests:
+        roots.append(search_root / "src" / "test")
+
+    files = []
+    for root in roots:
+        if root.exists():
+            files.extend(sorted(root.rglob(f"*{extension}")))
+
+    rels = [str(f.relative_to(search_root)) for f in files]
+
+    summary = f"{len(rels)} {extension} files in {display}"
+    if include_tests:
+        summary += " (including tests)"
+
+    md = [f"# {summary}\n"]
+    for r in rels:
+        md.append(f"- {r}")
+
+    return [
+        TextContent(type="text", text=json.dumps({
+            "module": display,
+            "total": len(rels),
+            "includeTests": include_tests,
+            "extension": extension,
+            "files": rels,
+        }, indent=2)),
+        TextContent(type="text", text="\n".join(md)),
+    ]
 
 async def _list_modules() -> list[TextContent]:
-    lines = ["# Tramai Modules\n"]
-    for mod in _MODULES:
-        path = TRAMAI / mod
+    modules = []
+    for mod in _get_modules():
+        path = _module_path(mod)
         build_file = path / "build.gradle.kts"
         desc = ""
         if build_file.exists():
             content = build_file.read_text()
             m = re.search(r'description\s*=\s*"([^"]+)"', content)
-            desc = f" — {m.group(1)}" if m else ""
-        exists = "✅" if path.exists() else "❌"
-        lines.append(f"- {exists} **{mod}**{desc}")
-    return [TextContent(type="text", text="\n".join(lines))]
+            desc = m.group(1) if m else ""
+        exists = path.exists()
+        modules.append({
+            "name": mod,
+            "description": desc,
+            "exists": exists,
+        })
+
+    md_lines = ["# Tramai Modules\n"]
+    for m in modules:
+        icon = "✅" if m["exists"] else "❌"
+        d = f" — {m['description']}" if m["description"] else ""
+        md_lines.append(f"- {icon} **{m['name']}**{d}")
+
+    return [
+        TextContent(type="text", text=json.dumps({
+            "modules": modules,
+            "total": len(modules),
+        }, indent=2)),
+        TextContent(type="text", text="\n".join(md_lines)),
+    ]
 
 async def _read_source(module: str, path: str) -> list[TextContent]:
-    file_path = TRAMAI / module / "src" / "main" / "kotlin" / path
-    if not file_path.exists():
-        file_path = TRAMAI / module / "src" / "main" / "java" / path
-    if not file_path.exists():
-        # Try searching
-        found = list((TRAMAI / module / "src").rglob(path))
-        if found:
-            file_path = found[0]
-    if not file_path.exists():
-        return [TextContent(type="text", text=f"File not found: {module}/{path}")]
-    return [TextContent(type="text", text=file_path.read_text())]
+    resolved = _resolve_module(module)
+    if not resolved:
+        return [TextContent(type="text", text=f"Module not found: {module}. Use list_modules to see available modules.")]
+    search_root = _module_path(resolved)
+
+    for root in (
+        search_root / "src" / "main" / "kotlin",
+        search_root / "src" / "main" / "java",
+        search_root / "src" / "test" / "kotlin",
+        search_root / "src" / "test" / "java",
+    ):
+        file_path = root / path
+        if file_path.exists():
+            return [TextContent(type="text", text=file_path.read_text())]
+
+    # Fallback: glob search under src/
+    found = list((search_root / "src").rglob(path))
+    if found:
+        return [TextContent(type="text", text=found[0].read_text())]
+
+    return [TextContent(type="text", text=f"File not found: {module}/{path}")]
 
 async def _search_docs(query: str) -> list[TextContent]:
     try:
         result = subprocess.run(
-            ["grep", "-rni", query, str(DOCS)],
+            ["grep", "-rni", "-C", "2", query, str(DOCS)],
             capture_output=True, text=True, timeout=10,
         )
-        lines = result.stdout.strip().split("\n")[:30]
-        if not lines:
+        raw = result.stdout.strip()
+        if not raw:
             return [TextContent(type="text", text=f"No matches for '{query}' in docs")]
-        return [TextContent(type="text", text="\n".join(lines))]
+
+        groups = raw.split("\n--\n")
+        groups = [g.strip() for g in groups if g.strip()]
+        limited = groups[:15]
+        md = [f"# Found {len(groups)} matches in docs"]
+        md.append("")
+        for g in limited:
+            md.append(g)
+            md.append("")
+        return [TextContent(type="text", text="\n".join(md))]
     except subprocess.TimeoutExpired:
         return [TextContent(type="text", text="Search timed out")]
 
 async def _get_architecture() -> list[TextContent]:
-    return [TextContent(type="text", text="""# Tramai Architecture
+    modules = []
+    for mod in _get_modules():
+        path = _module_path(mod)
+        if not path.exists():
+            continue
 
-## Module Layering (bottom → top)
+        build_file = path / "build.gradle.kts"
+        desc = ""
+        if build_file.exists():
+            m = re.search(r'description\s*=\s*"([^"]+)"', build_file.read_text())
+            desc = m.group(1) if m else ""
 
-1. **tramai-core** — SPI definitions: ModelProvider, StructuredOutputSchema, SecretValueResolver
-2. **tramai-structured** — Schema generation, extraction, deserialization, failure analysis
-3. **tramai-engine** — Orchestration, retry policy, model routing, provider resolution
-4. Provider modules (tramai-openai, tramai-anthropic, tramai-ollama) — ModelProvider implementations
-5. **tramai-orchestration** — Workflow DSL with @AiService, @Operation, @AiTool
-6. Framework adapters (tramai-spring) — Spring Boot auto-configuration
-7. **tramai-standalone** — Minimal entry point for framework-free usage
+        # Detect module category
+        category = _categorize_module(mod, path)
+        modules.append({
+            "name": mod,
+            "description": desc,
+            "category": category,
+        })
 
-## Key Design Decisions (from ADRs)
+    # Group by category
+    layers = [
+        ("Core", ["tramai-core"]),
+        ("Structured Output", ["tramai-structured"]),
+        ("Engine", ["tramai-engine"]),
+        ("Providers", [m["name"] for m in modules if m["category"] == "provider"]),
+        ("Orchestration", ["tramai-orchestration"]),
+        ("Observability", ["tramai-observability"]),
+        ("Persistence", [m["name"] for m in modules if m["category"] == "persistence"]),
+        ("Sovereign Runtime", [m["name"] for m in modules if m["category"] == "sovereign"]),
+        ("Security", ["tramai-security"]),
+        ("Scheduler", ["tramai-scheduler"]),
+        ("Server", ["tramai-server"]),
+        ("MCP", ["tramai-mcp"]),
+        ("Platform", ["tramai-platform"]),
+        ("Memory", [m["name"] for m in modules if m["category"] == "memory"]),
+        ("Embedding", ["tramai-embedding"]),
+        ("RAG", ["tramai-rag"]),
+        ("Vector Stores", [m["name"] for m in modules if m["category"] == "vectorstore"]),
+        ("Dashboard", ["tramai-dashboard"]),
+        ("Spring Boot Adapters", [m["name"] for m in modules if m["category"] == "spring-boot"]),
+        ("Sovereign Spring Boot Starters", [m["name"] for m in modules if m["category"] == "sovereign-spring-boot"]),
+        ("Standalone", ["tramai-standalone"]),
+        ("Testing", ["tramai-testing"]),
+        ("BOM", ["tramai-bom"]),
+        ("Examples", [m["name"] for m in modules if m["category"] == "example"]),
+    ]
 
-- Typed contracts over raw prompt plumbing
-- Framework-agnostic core, thin adapters
-- Structured output as first-class capability
-- Observability is optional and opt-in
-- Provider resolution is registry-based, not prefix-heuristic
+    md_parts = [f"# Tramai Architecture — {len(modules)} modules\n"]
+    for i, (layer_name, layer_mods) in enumerate(layers, 1):
+        if not layer_mods:
+            continue
+        names = "**" + "**, **".join(layer_mods) + "**"
+        descs = []
+        for n in layer_mods:
+            for m in modules:
+                if m["name"] == n and m["description"]:
+                    descs.append(m["description"])
+        suffix = f" — {'; '.join(descs)}" if descs else ""
+        md_parts.append(f"{i}. {names}{suffix}")
 
-## API Surface
+    # ── Sovereign Runtime section ──
+    md_parts.extend([
+        "",
+        "## Sovereign Runtime",
+        "",
+        "The Sovereign Runtime extends Tramai for governed, approval-based workflow execution with offline-capable evidence:",
+        "",
+        "- `ApprovalGateway` / `DefaultApprovalGateway` — Request human approval without wiring low-level stores",
+        "- `ApprovalRequestResult.toWorkflowResult { ... }` — Ergonomic mapper from gateway result to workflow result (Preview API)",
+        "- `ApprovalDecisionControlPlane`, `ApprovalResumeControlPlane` — REST and programmatic approval decision / resume",
+        "- `SovereignWorkflowResult` — Sealed result type: Completed, SuspendedForApproval, Rejected, Expired",
+        "- `SovereignEvidencePackV1` — Signed, offline-verifiable artifact provenance packs",
+        "- `SovereignProfileConfiguration` — Deployment mode (offline, air-gapped, connected)",
+        "- JDBC-backed stores: `SovereignOpsTransactionalApprovalGateway` commits all three records atomically",
+        "- Spring Boot starters enable the full stack via minimal `tramai.sovereign.*` properties",
+    ])
 
-- `@AiService` — Marks an interface as an AI service proxy
-- `@Operation` — Defines a single AI operation (prompt, model, tools, timeout)
-- `@AiTool` — Registers a Spring bean as a callable tool
-- `@AiDescription` — Annotates fields for structured output schema generation
-- `Tramai.create()` — Framework-free entry point (standalone module)
-- `TramaiAutoConfiguration` — Spring Boot auto-config (spring module)
-""")]
+    # ── Key Design Decisions ──
+    md_parts.extend([
+        "",
+        "## Key Design Decisions (from ADRs)",
+        "",
+        "- **Typed contracts** over raw prompt plumbing — `@AiService` interfaces define typed inputs and outputs",
+        "- **Framework-agnostic core**, thin adapters — core has zero Spring dependencies",
+        "- **Structured output** is a first-class capability, not an add-on (`tramai-structured`)",
+        "- **Observability is optional** and opt-in at the dependency level (`tramai-observability`)",
+        "- **Provider resolution** is registry-based, not fragile prefix-heuristic",
+        "- **Sovereign Runtime is Preview**, not RC+ Stable — API stability boundary enforced by build guards",
+        "- **Approval gateway factories** are application-supplied, not auto-created",
+        "- **Fail loudly** with context when correctness cannot be guaranteed",
+        "- **Prefer explicitness** over magical behavior at module boundaries",
+    ])
+
+    # ── API Surface ──
+    md_parts.extend([
+        "",
+        "## API Surface",
+        "",
+        "| Annotation / Function | Module | Purpose |",
+        "|---|---|---",
+        "| `@AiService` | tramai-orchestration | Marks an interface as an AI service proxy |",
+        "| `@Operation` | tramai-orchestration | Defines a single AI operation (prompt, model, timeout, tools) |",
+        "| `@AiTool` | tramai-spring | Registers a Spring bean as a callable tool |",
+        "| `@AiDescription` | tramai-structured | Annotates fields for structured output schema generation |",
+        "| `Tramai.create()` | tramai-standalone | Framework-free entry point |",
+        "| `TramaiAutoConfiguration` | tramai-spring | Spring Boot auto-config for core Tramai |",
+        "| `ApprovalGateway.requestApproval(...)` | tramai-core | Request human approval from a governed workflow |",
+        "| `ApprovalRequestResult.toWorkflowResult { ... }` | tramai-core | Map gateway result to workflow result (Preview) |",
+        "| `SovereignWorkflowResult` | tramai-core | Workflow result sealed type |",
+        "| `SovereignEvidencePackV1` | tramai-sovereign | Offline-verifiable artifact provenance |",
+    ])
+
+    return [
+        TextContent(type="text", text=json.dumps({
+            "layers": [
+                {"name": ln, "modules": lm}
+                for ln, lm in layers if lm
+            ],
+            "totalModules": len(modules),
+        }, indent=2)),
+        TextContent(type="text", text="\n".join(md_parts)),
+    ]
+
+
+def _categorize_module(name: str, path: Path) -> str:
+    """Categorize a module by its name and contents."""
+    if name.startswith("examples:"):
+        return "example"
+    if name == "tramai-spring":
+        return "spring-boot"
+    if name.startswith("tramai-spring-boot-starter-sovereign"):
+        return "sovereign-spring-boot"
+    if name.startswith("tramai-spring-boot-starter"):
+        return "spring-boot"
+    if name in ("tramai-openai", "tramai-anthropic", "tramai-ollama",
+                 "tramai-gemini", "tramai-azure-openai", "tramai-bedrock",
+                 "tramai-deepseek"):
+        return "provider"
+    if name.startswith("tramai-vectorstore"):
+        return "vectorstore"
+    if name.startswith("tramai-persistence"):
+        return "persistence"
+    if name in ("tramai-memory", "tramai-memory-store"):
+        return "memory"
+    if name == "tramai-sovereign":
+        return "sovereign"
+    return "other"
 
 # ── Entry point ──────────────────────────────────────────────────
 
