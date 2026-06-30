@@ -2641,6 +2641,25 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             }
         }
 
+        // ── Spring golden path smoke test: workflow class must not reference low-level stores ──
+
+        val springSmokeTest = file(
+            "examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/ApprovalGatewaySpringGoldenPathSmokeTest.kt",
+        )
+        require(springSmokeTest.exists()) {
+            "Missing Spring approval gateway golden path smoke test at ${springSmokeTest.absolutePath}"
+        }
+        val smokeSource = springSmokeTest.readText()
+        val workflowSection = smokeSource
+            .substringAfter("class ExampleApprovalWorkflow")
+            .substringBefore("class SmokeTestDataSourceConfig")
+
+        forbiddenStoreReferences.forEach { forbidden ->
+            require(!workflowSection.contains(forbidden)) {
+                "ExampleApprovalWorkflow must not depend on low-level store: $forbidden"
+            }
+        }
+
         logger.lifecycle("verifySovereignRuntimeClosureDocs: all documentation consistency checks passed.")
     }
 }

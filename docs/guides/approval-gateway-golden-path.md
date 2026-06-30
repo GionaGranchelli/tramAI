@@ -179,6 +179,12 @@ The full regulated claim triage E2E test demonstrates the gateway flow end-to-en
 - Audit chain validation across restart
 - Low-risk path bypasses approval entirely
 
+For a **smaller** executable proof that focuses only on the ergonomic path:
+
+- [ApprovalGatewaySpringGoldenPathSmokeTest](../../examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/ApprovalGatewaySpringGoldenPathSmokeTest.kt) — minimal Spring/JDBC smoke proof using `ApprovalGateway` and `toWorkflowResult { ... }` without wiring low-level stores
+
+For the **complete** regulated claim triage scenario:
+
 See:
 
 - [Regulated Claim Triage JDBC E2E Test](https://github.com/GionaGranchelli/tramAI/blob/master/examples/spring-sovereign-starter/src/test/kotlin/dev/tramai/examples/spring/RegulatedClaimTriageJdbcE2ETest.kt)
