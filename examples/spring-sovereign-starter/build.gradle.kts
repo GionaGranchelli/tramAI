@@ -55,6 +55,7 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:$kotlinxCoroutinesVersion")
     testImplementation("io.zonky.test:embedded-postgres:2.0.7")
+    testImplementation(testFixtures(project(":tramai-engine")))
 }
 
 tasks.test {

@@ -2,6 +2,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     `java-library`
+    `java-test-fixtures`
     alias(libs.plugins.kotlin.jvm)
 }
 
@@ -22,6 +23,7 @@ kotlin {
 dependencies {
     api(project(":tramai-core"))
     implementation(project(":tramai-security"))
+    testFixturesImplementation(project(":tramai-security"))
 
     implementation(libs.coroutines.core)
     implementation(libs.kotlin.reflect)
@@ -30,6 +32,7 @@ dependencies {
     testImplementation(libs.assertj.core)
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(project(":tramai-structured"))
+    testImplementation(libs.coroutines.test)
 }
 
 tasks.test {
