@@ -2746,6 +2746,11 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             "Java interop test must prove the decision-aware lambda contract (terminal states skip lambda)."
         }
 
+        // Prove HumanApprovalDecision approvalId has a clean Java getter
+        require(javaInteropSource.contains("decision.getApprovalId()")) {
+            "Java interop test must prove HumanApprovalDecision approvalId has a clean Java getter."
+        }
+
         logger.lifecycle("verifySovereignRuntimeClosureDocs: all documentation consistency checks passed.")
     }
 }
