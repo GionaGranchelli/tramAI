@@ -71,6 +71,10 @@ The following capabilities are proven by working examples, but the developer-fac
 - `ApprovalGatewayRequestFactory` — internal seam for constructing low-level persistence records (`dev.tramai.engine.approval`)
 - `ApprovalGatewayPersistenceRequest` — transport object aggregating persistence records (`dev.tramai.engine.approval`)
 - `ApprovalGatewayAutoConfiguration` — Spring Boot auto-configuration for the preview approval gateway (`dev.tramai.spring.sovereign.ops`)
+- `ApprovalWorkflowResults` — Java-friendly Preview facade for `fromApprovalRequestResult(...)` (`dev.tramai.core.workflow`)
+- `ApprovalRequestResults` — Java-friendly Preview factories for `ApprovalRequestResult` variants with String-based inline-value wrappers (`dev.tramai.core.workflow`)
+- `HumanApprovalDecisions` — Java-friendly Preview factories for approval decisions, including `@JvmOverloads` short forms (`dev.tramai.core.workflow`)
+- `ApprovalWorkflowResults.fromApprovalRequestResult { ... }` — Java-friendly Preview mapper from approval gateway outcomes to `SovereignWorkflowResult`; delegates to `ApprovalRequestResult.toWorkflowResult` under the hood
 - `ApprovalDecisionControlPlane` — preview REST/control-plane surface for approval decisions
 - `ApprovalResumeControlPlane` — preview REST/control-plane surface for approval-based resume
 - `ApprovalInboxQueryService` — preview query service for approval inbox

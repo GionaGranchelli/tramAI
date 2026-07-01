@@ -2113,12 +2113,23 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
             "Workflow ergonomics",
         )
 
+        val stableManifestSection = manifestText
+            .substringAfter("rcPlusStable:")
+            .substringBefore("preview:")
+
+        val previewManifestSection = manifestText
+            .substringAfter("preview:")
+            .substringBefore("internal:")
+
         val previewManifestTypes = listOf(
             "ApprovalGateway",
             "ApprovalDecisionControlPlane",
             "ApprovalResumeControlPlane",
             "ApprovalInboxQueryService",
             "ApprovalGatewayAutoConfiguration",
+            "ApprovalWorkflowResults",
+            "ApprovalRequestResults",
+            "HumanApprovalDecisions",
         )
 
         previewTypes.forEach { type ->
@@ -2128,23 +2139,19 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
         }
 
         previewManifestTypes.forEach { type ->
-            require(manifestText.contains("- $type")) {
-                "API stability manifest preview.types must include $type"
+            require(previewManifestSection.contains("- $type")) {
+                "API stability manifest preview.types must include '$type' in the preview section but ${if (manifestText.contains("- $type")) "it appears outside it" else "it was not found"}."
+            }
+            require(!stableManifestSection.contains("- $type")) {
+                "'$type' is Preview and must not appear in rcPlusStable manifest section."
             }
         }
 
         // ── Preview functions ──
 
-        val stableManifestSection = manifestText
-            .substringAfter("rcPlusStable:")
-            .substringBefore("preview:")
-
-        val previewManifestSection = manifestText
-            .substringAfter("preview:")
-            .substringBefore("internal:")
-
         val previewManifestFunctions = listOf(
             "ApprovalRequestResult.toWorkflowResult",
+            "ApprovalWorkflowResults.fromApprovalRequestResult",
         )
 
         previewManifestFunctions.forEach { func ->
@@ -2177,6 +2184,41 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
         }
         require(mapperSource.contains("approvedValue(decision)")) {
             "ApprovalRequestResult.toWorkflowResult must pass the approved decision into approvedValue."
+        }
+
+        // ── Java facade source file exists and maintains shape ──
+
+        val javaFacadeFile = file(
+            "tramai-core/src/main/kotlin/dev/tramai/core/workflow/ApprovalWorkflowResults.kt",
+        )
+        require(javaFacadeFile.exists()) {
+            "Missing Java approval workflow facade at ${javaFacadeFile.absolutePath}"
+        }
+
+        val javaFacadeSource = javaFacadeFile.readText()
+
+        require(javaFacadeSource.contains("@file:JvmName(\"ApprovalWorkflowResults\")")) {
+            "Java facade must keep stable JVM entrypoint name ApprovalWorkflowResults."
+        }
+
+        require(javaFacadeSource.contains("fun <T> fromApprovalRequestResult(")) {
+            "Java facade must expose fromApprovalRequestResult."
+        }
+
+        require(javaFacadeSource.contains("fun suspended(") &&
+                javaFacadeSource.contains("approvalId: String") &&
+                javaFacadeSource.contains("workflowRunId: String")) {
+            "ApprovalRequestResults.suspended must remain String-based for Java interop."
+        }
+
+        require(javaFacadeSource.contains("@JvmOverloads") &&
+                javaFacadeSource.contains("fun approved(") &&
+                javaFacadeSource.contains("fun denied(")) {
+            "HumanApprovalDecisions approved/denied must retain @JvmOverloads for Java callers."
+        }
+
+        require(!javaFacadeSource.contains("object ApprovalIds")) {
+            "Do not expose inline-value-class-returning ApprovalIds facade; Java must use String-based factories."
         }
 
         // ── Forbidden: Preview mapper in RC+ Stable section ──
