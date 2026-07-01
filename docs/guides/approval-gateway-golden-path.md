@@ -1,8 +1,8 @@
 # Approval Gateway Golden Path
 
-> **Status:** Preview. See [Sovereign Runtime API Stability Boundary](../architecture/sovereign-api-stability-boundary.md).
+> **Status:** RC+ Stable golden path. The core approval workflow APIs are RC+ Stable for the Sovereign Runtime RC+ milestone. Operational surfaces such as REST control plane, reviewer UI, Spring auto-configuration, and fallback gateway implementations remain Preview. See [Sovereign Runtime API Stability Boundary](../architecture/sovereign-api-stability-boundary.md).
 
-This guide shows how to request human approval from a governed workflow using the Preview `ApprovalGateway` API.
+This guide shows how to request human approval from a governed workflow using the RC+ Stable `ApprovalGateway` API.
 
 The gateway suspends the workflow by persisting approval, replay, and continuation metadata through the existing Sovereign Runtime stores. It does **not** block a thread while waiting for a human — the suspension is a data model concern, not a thread-blocking wait.
 
@@ -45,7 +45,7 @@ val approvalResult = approvalGateway.requestApproval(
 ```
 
 The return type is a sealed interface that makes the workflow state explicit.
-With the Preview `ApprovalRequestResult.toWorkflowResult { ... }` mapper,
+With the RC+ Stable `ApprovalRequestResult.toWorkflowResult { ... }` mapper,
 the workflow becomes a one-liner:
 
 ```kotlin
@@ -257,9 +257,9 @@ See:
 
 ---
 
-## Current Limitations
+## Current Boundaries
 
-The Preview approval gateway has the following limitations:
+The RC+ Stable golden path and related Preview operational surfaces have the following boundaries:
 
 | Area | Status |
 |------|--------|
@@ -270,7 +270,8 @@ The Preview approval gateway has the following limitations:
 | Cross-store transaction boundary at creation | ✅ Implemented for JDBC-backed stores via `SovereignOpsApprovalRequestMutationStore` |
 | Approval-requested audit outbox mutation boundary | ✅ Implemented for JDBC-backed stores when an `ApprovalGatewayAuditIntentFactory` bean is provided |
 | Generic global `ApprovalGatewayRequestFactory` | Test fixture (`TestApprovalGatewayRequestFactory`) provided via `tramai-engine` test fixtures — production applications must supply their own |
-| Production certification / GA stability | Preview — APIs may change |
+| Production certification / GA stability | Not GA-certified; RC+ Stable applies only to the golden-path API surface for the Sovereign Runtime RC+ milestone |
+| Operational control plane / UI / auto-configuration | Preview — REST, reviewer UI, control-plane services (`ApprovalDecisionControlPlane`, `ApprovalResumeControlPlane`, `ApprovalInboxQueryService`), and Spring auto-configuration may still change |
 
 These limitations are tracked in the [post-roadmap design backlog](../architecture/human-approval-workflow-ergonomics.md).
 

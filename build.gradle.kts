@@ -2697,6 +2697,24 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
                 "and disabled by default."
         }
 
+        // Forbidden: stale Preview language after RC+ promotion
+        require(!goldenPathText.contains("using the Preview `ApprovalGateway` API")) {
+            "Approval gateway golden path guide must not describe ApprovalGateway as Preview after RC+ promotion."
+        }
+
+        require(!goldenPathText.contains("Preview `ApprovalRequestResult.toWorkflowResult")) {
+            "Approval gateway golden path guide must not describe toWorkflowResult as Preview after RC+ promotion."
+        }
+
+        // Required: guide documents the RC+ Stable split correctly
+        require(goldenPathText.contains("RC+ Stable golden path")) {
+            "Approval gateway golden path guide must document the RC+ Stable golden path status."
+        }
+
+        require(goldenPathText.contains("REST control plane") && goldenPathText.contains("Preview")) {
+            "Approval gateway golden path guide must keep operational REST/control-plane surfaces marked Preview."
+        }
+
         // ── Golden path test must not reference low-level stores ──
 
         val goldenPathTest = file(
