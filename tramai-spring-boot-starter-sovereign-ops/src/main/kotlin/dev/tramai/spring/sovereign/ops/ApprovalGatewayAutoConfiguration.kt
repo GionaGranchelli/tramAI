@@ -11,6 +11,7 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutatio
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.context.annotation.Bean
 
@@ -29,11 +30,14 @@ import org.springframework.context.annotation.Bean
  *    the transactional gateway so that approval-requested audit outbox intent is created
  *    atomically alongside the core records.
  *
- * 2. **Default gateway** — [DefaultApprovalGateway] is created as fallback when the
- *    generic backing stores ([ApprovalStore], [ApprovalContinuationStore],
+ * 2. **Default gateway (explicit opt-in)** — [DefaultApprovalGateway] is created only when
+ *    `tramai.sovereign.ops.approval-gateway.non-transactional-fallback-enabled=true`
+ *    and the generic backing stores ([ApprovalStore], [ApprovalContinuationStore],
  *    [SuspendedInvocationStore]) and an [ApprovalGatewayRequestFactory] are available
  *    but no [SovereignOpsApprovalRequestMutationStore] exists. This path writes the
- *    three stores sequentially without transactional atomicity.
+ *    three stores sequentially without transactional atomicity and is intended for
+ *    tests, examples, or custom non-JDBC deployments that accept the lack of
+ *    cross-store atomicity.
  *
  * The transactional gateway takes priority when the mutation store is available.
  *
@@ -83,6 +87,12 @@ class ApprovalGatewayAutoConfiguration {
         )
 
     @Bean
+    @ConditionalOnProperty(
+        prefix = "tramai.sovereign.ops.approval-gateway",
+        name = ["non-transactional-fallback-enabled"],
+        havingValue = "true",
+        matchIfMissing = false,
+    )
     @ConditionalOnMissingBean(
         value = [
             ApprovalGateway::class,

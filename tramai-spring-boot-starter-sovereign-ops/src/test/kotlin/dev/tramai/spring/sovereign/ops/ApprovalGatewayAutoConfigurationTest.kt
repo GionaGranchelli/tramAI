@@ -48,11 +48,24 @@ class ApprovalGatewayAutoConfigurationTest {
             AutoConfigurations.of(ApprovalGatewayAutoConfiguration::class.java),
         )
 
-    // ── 1. Creates gateway when all dependencies exist ────────────────
+    // ── 1. Does not create default gateway without explicit opt-in ─────
 
     @Test
-    fun `creates approval gateway when all stores and factory present`() {
+    fun `does not create default approval gateway unless non transactional fallback is enabled`() {
         contextRunner
+            .withUserConfiguration(FullGatewayConfig::class.java)
+            .run { ctx ->
+                assertThat(ctx).doesNotHaveBean(ApprovalGateway::class.java)
+                assertThat(ctx).hasNotFailed()
+            }
+    }
+
+    @Test
+    fun `creates default approval gateway when non transactional fallback is explicitly enabled`() {
+        contextRunner
+            .withPropertyValues(
+                "tramai.sovereign.ops.approval-gateway.non-transactional-fallback-enabled=true",
+            )
             .withUserConfiguration(FullGatewayConfig::class.java)
             .run { ctx ->
                 assertThat(ctx).hasSingleBean(ApprovalGateway::class.java)
