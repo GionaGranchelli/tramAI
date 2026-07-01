@@ -35,6 +35,18 @@ preview:
     - ApprovalRequestResult.toWorkflowResult
     - ApprovalWorkflowResults.fromApprovalRequestResult
 
+stabilizationCandidates:
+  types:
+    - ApprovalGateway
+    - ApprovalRequestResult
+    - SovereignWorkflowResult
+    - ApprovalWorkflowResults
+    - ApprovalRequestResults
+    - HumanApprovalDecisions
+  functions:
+    - ApprovalRequestResult.toWorkflowResult
+    - ApprovalWorkflowResults.fromApprovalRequestResult
+
 internal:
   types:
     - JdbcApprovalStore

@@ -2334,6 +2334,44 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
             }
         }
 
+        // ── Stabilization candidates section exists ──
+
+        val stabilizationCandidateSection = manifestText
+            .substringAfter("stabilizationCandidates:")
+            .substringBefore("internal:")
+
+        val stabilizationCandidateTypes = listOf(
+            "ApprovalGateway",
+            "ApprovalRequestResult",
+            "SovereignWorkflowResult",
+            "ApprovalWorkflowResults",
+            "ApprovalRequestResults",
+            "HumanApprovalDecisions",
+        )
+
+        stabilizationCandidateTypes.forEach { type ->
+            require(stabilizationCandidateSection.contains("- $type")) {
+                "Approval workflow stabilization candidate '$type' must be listed in stabilizationCandidates manifest section."
+            }
+            require(!stableManifestSection.contains("- $type")) {
+                "'$type' is a stabilization candidate and must not appear in rcPlusStable manifest section."
+            }
+        }
+
+        val stabilizationCandidateFunctions = listOf(
+            "ApprovalRequestResult.toWorkflowResult",
+            "ApprovalWorkflowResults.fromApprovalRequestResult",
+        )
+
+        stabilizationCandidateFunctions.forEach { func ->
+            require(stabilizationCandidateSection.contains("- $func")) {
+                "Approval workflow stabilization candidate function '$func' must be listed in stabilizationCandidates manifest section."
+            }
+            require(!stableManifestSection.contains(func)) {
+                "'$func' is a stabilization candidate and must not appear in rcPlusStable manifest section."
+            }
+        }
+
         // ── STATUS.md must reference the API stability boundary ──
 
         require(statusText.contains("Sovereign Runtime API Stability")) {
