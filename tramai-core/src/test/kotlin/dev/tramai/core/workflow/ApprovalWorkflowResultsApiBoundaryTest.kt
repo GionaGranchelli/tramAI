@@ -1,7 +1,5 @@
 package dev.tramai.core.workflow
 
-import dev.tramai.core.approval.gateway.ApprovalRequestResult
-import dev.tramai.core.approval.gateway.HumanApprovalDecision
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.time.Instant

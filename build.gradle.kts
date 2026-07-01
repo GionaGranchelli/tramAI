@@ -2113,6 +2113,14 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
             "Workflow ergonomics",
         )
 
+        val stableManifestSection = manifestText
+            .substringAfter("rcPlusStable:")
+            .substringBefore("preview:")
+
+        val previewManifestSection = manifestText
+            .substringAfter("preview:")
+            .substringBefore("internal:")
+
         val previewManifestTypes = listOf(
             "ApprovalGateway",
             "ApprovalDecisionControlPlane",
@@ -2131,20 +2139,15 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
         }
 
         previewManifestTypes.forEach { type ->
-            require(manifestText.contains("- $type")) {
-                "API stability manifest preview.types must include $type"
+            require(previewManifestSection.contains("- $type")) {
+                "API stability manifest preview.types must include '$type' in the preview section but ${if (manifestText.contains("- $type")) "it appears outside it" else "it was not found"}."
+            }
+            require(!stableManifestSection.contains("- $type")) {
+                "'$type' is Preview and must not appear in rcPlusStable manifest section."
             }
         }
 
         // ── Preview functions ──
-
-        val stableManifestSection = manifestText
-            .substringAfter("rcPlusStable:")
-            .substringBefore("preview:")
-
-        val previewManifestSection = manifestText
-            .substringAfter("preview:")
-            .substringBefore("internal:")
 
         val previewManifestFunctions = listOf(
             "ApprovalRequestResult.toWorkflowResult",
