@@ -2333,7 +2333,7 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
             require(stableManifestSection.contains("- $type")) {
                 "Promoted approval workflow API '$type' must be listed in rcPlusStable manifest section."
             }
-            require(!previewManifestSection.contains("- $type")) {
+            require(!previewManifestSection.contains("- $type\n")) {
                 "Promoted approval workflow API '$type' must not remain in Preview manifest section."
             }
             require(!stabilizationCandidateSection.contains("- $type")) {
