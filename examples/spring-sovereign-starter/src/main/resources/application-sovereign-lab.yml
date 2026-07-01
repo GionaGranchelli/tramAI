@@ -1,0 +1,61 @@
+# Sovereign Lab Profile — Physical Local-Model Testing
+#
+# Activate with: --spring.profiles.active=sovereign-lab
+#
+# This profile configures TramAI Sovereign Runtime for local-only execution:
+# - PostgreSQL for durable persistence
+# - A local OpenAI-compatible model endpoint (e.g. Ollama, llama.cpp, vLLM)
+# - Approval workflow, REST control plane, and reviewer UI enabled
+# - No cloud providers
+
+# ── Sovereign Runtime ──
+tramai:
+  sovereign:
+    enabled: true
+    allowed-models:
+      - local-lab-model
+    allowed-providers:
+      - local-lab-provider
+    provider-zones:
+      local-lab-provider: LOCAL
+    models:
+      local-lab-model: local-lab-provider
+
+    # ── JDBC Persistence ──
+    persistence:
+      type: jdbc
+      jdbc:
+        claim-lease-duration: 5m
+        max-claim-limit: 500
+      encryption:
+        key-file: ${TRAMAI_SOVEREIGN_KEY_FILE:./.local/sovereign.key}
+        key-id: default
+
+    # ── Operations: REST, UI, resume worker ──
+    ops:
+      rest-control-plane-enabled: true
+      reviewer-ui-enabled: true
+      approved-resume-worker-enabled: true
+      approval-gateway:
+        non-transactional-fallback-enabled: false
+
+# ── Local Provider (OpenAI-compatible) ──
+tramai:
+  providers:
+    local-lab-provider:
+      type: openai
+      base-url: ${TRAMAI_LOCAL_BASE_URL:http://localhost:11434/v1}
+      api-key: ${TRAMAI_LOCAL_API_KEY:local-dev}
+      model: ${TRAMAI_LOCAL_MODEL:qwen2.5:7b}
+
+# ── PostgreSQL ──
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/tramai_sovereign_lab}
+    username: ${SPRING_DATASOURCE_USERNAME:tramai}
+    password: ${SPRING_DATASOURCE_PASSWORD:tramai}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate
