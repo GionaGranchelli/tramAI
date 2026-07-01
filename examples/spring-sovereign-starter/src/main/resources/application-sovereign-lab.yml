@@ -8,7 +8,7 @@
 # - Approval workflow, REST control plane, and reviewer UI enabled
 # - No cloud providers
 
-# ── Sovereign Runtime ──
+# ── Sovereign Runtime & Local Provider ──
 tramai:
   sovereign:
     enabled: true
@@ -39,8 +39,6 @@ tramai:
       approval-gateway:
         non-transactional-fallback-enabled: false
 
-# ── Local Provider (OpenAI-compatible) ──
-tramai:
   providers:
     local-lab-provider:
       type: openai
