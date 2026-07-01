@@ -14,6 +14,15 @@ rcPlusStable:
     - SovereignOpsAuditOutboxStore
     - SovereignOpsApprovalMutationStore
     - SovereignOpsWorkerLeaseStore
+    - ApprovalGateway
+    - ApprovalRequestResult
+    - SovereignWorkflowResult
+    - ApprovalWorkflowResults
+    - ApprovalRequestResults
+    - HumanApprovalDecisions
+  functions:
+    - ApprovalRequestResult.toWorkflowResult
+    - ApprovalWorkflowResults.fromApprovalRequestResult
   verificationTasks:
     - verifySovereignRuntimeClosure
     - verifySovereignRuntimeReleaseCandidate
@@ -21,31 +30,15 @@ rcPlusStable:
 
 preview:
   types:
-    - ApprovalGateway
-    - ApprovalRequestResult
-    - SovereignWorkflowResult
     - ApprovalDecisionControlPlane
     - ApprovalResumeControlPlane
     - ApprovalInboxQueryService
     - ApprovalGatewayAutoConfiguration
-    - ApprovalWorkflowResults
-    - ApprovalRequestResults
-    - HumanApprovalDecisions
   functions:
-    - ApprovalRequestResult.toWorkflowResult
-    - ApprovalWorkflowResults.fromApprovalRequestResult
 
 stabilizationCandidates:
-  types:
-    - ApprovalGateway
-    - ApprovalRequestResult
-    - SovereignWorkflowResult
-    - ApprovalWorkflowResults
-    - ApprovalRequestResults
-    - HumanApprovalDecisions
-  functions:
-    - ApprovalRequestResult.toWorkflowResult
-    - ApprovalWorkflowResults.fromApprovalRequestResult
+  types: []
+  functions: []
 
 internal:
   types:

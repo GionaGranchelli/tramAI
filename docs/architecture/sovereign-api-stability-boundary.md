@@ -57,24 +57,31 @@ These are the APIs that form the Sovereign Runtime contract surface for the clos
 - `verifySovereignRuntimeReleaseCandidate`
 - `:examples:spring-sovereign-starter:e2eTest`
 
+### Approval Workflow Golden Path
+
+The following APIs are now **RC+ Stable** for the Sovereign Runtime RC+ milestone:
+
+- `ApprovalGateway` — front-door contract for non-blocking human approval (`dev.tramai.core.approval.gateway`)
+- `ApprovalRequestResult` — sealed type for approval request outcomes (`dev.tramai.core.approval.gateway`)
+- `SovereignWorkflowResult` — sealed type for workflow-level outcomes (`dev.tramai.core.workflow`)
+- `ApprovalRequestResult.toWorkflowResult { ... }` — decision-aware mapper from approval gateway outcomes to `SovereignWorkflowResult`; the `approvedValue` lambda receives `HumanApprovalDecision.Approved` and is invoked only for `AlreadyApproved`
+- `ApprovalWorkflowResults` — Java-friendly facade for `fromApprovalRequestResult(...)` (`dev.tramai.core.workflow`)
+- `ApprovalWorkflowResults.fromApprovalRequestResult { ... }` — Java-friendly mapper from approval gateway outcomes to `SovereignWorkflowResult`; delegates to `ApprovalRequestResult.toWorkflowResult`
+- `ApprovalRequestResults` — Java-friendly factories for `ApprovalRequestResult` variants with String-based inline-value wrappers (`dev.tramai.core.workflow`)
+- `HumanApprovalDecisions` — Java-friendly factories for approval decisions, including `@JvmOverloads` short forms (`dev.tramai.core.workflow`)
+
+These form the developer-facing approval workflow golden path. They are covered by Kotlin tests, Java interop tests, source-shape guards, manifest checks, and executable Spring/JDBC smoke proofs.
+
 ---
 
 ## Preview Surface
 
 The following capabilities are proven by working examples, but the developer-facing API is **not** final.
 
-- `ApprovalGateway` — front-door contract for non-blocking human approval (`dev.tramai.core.approval.gateway`)
-- `ApprovalRequestResult` — sealed type for approval request outcomes (`dev.tramai.core.approval.gateway`)
-- `SovereignWorkflowResult` — sealed type for workflow-level outcomes (`dev.tramai.core.workflow`)
-- `ApprovalRequestResult.toWorkflowResult { ... }` — Preview mapper from approval gateway outcomes to `SovereignWorkflowResult`; decision-aware `approvedValue` lambda receives `HumanApprovalDecision.Approved` and is invoked only for `AlreadyApproved`
 - `DefaultApprovalGateway` — minimal store-backed adapter for the preview gateway SPI (`dev.tramai.engine.approval`)
 - `ApprovalGatewayRequestFactory` — internal seam for constructing low-level persistence records (`dev.tramai.engine.approval`)
 - `ApprovalGatewayPersistenceRequest` — transport object aggregating persistence records (`dev.tramai.engine.approval`)
 - `ApprovalGatewayAutoConfiguration` — Spring Boot auto-configuration for the preview approval gateway (`dev.tramai.spring.sovereign.ops`)
-- `ApprovalWorkflowResults` — Java-friendly Preview facade for `fromApprovalRequestResult(...)` (`dev.tramai.core.workflow`)
-- `ApprovalRequestResults` — Java-friendly Preview factories for `ApprovalRequestResult` variants with String-based inline-value wrappers (`dev.tramai.core.workflow`)
-- `HumanApprovalDecisions` — Java-friendly Preview factories for approval decisions, including `@JvmOverloads` short forms (`dev.tramai.core.workflow`)
-- `ApprovalWorkflowResults.fromApprovalRequestResult { ... }` — Java-friendly Preview mapper from approval gateway outcomes to `SovereignWorkflowResult`; delegates to `ApprovalRequestResult.toWorkflowResult` under the hood
 - `ApprovalDecisionControlPlane` — preview REST/control-plane surface for approval decisions
 - `ApprovalResumeControlPlane` — preview REST/control-plane surface for approval-based resume
 - `ApprovalInboxQueryService` — preview query service for approval inbox
@@ -91,27 +98,7 @@ The following capabilities are proven by working examples, but the developer-fac
 
 ## Approval Workflow Stabilization Candidates
 
-The following Preview APIs are candidates for promotion to **RC+ Stable** in an upcoming API stabilization PR. They form the developer-facing approval workflow golden path and are covered by Kotlin tests, Java interop tests, source-shape guards, manifest checks, and executable Spring/JDBC smoke proofs.
-
-| API | Package | Evidence |
-|-----|---------|----------|
-| `ApprovalGateway` | `dev.tramai.core.approval.gateway` | PRs #121, #124 — executable golden-path proof and Spring/JDBC smoke test |
-| `ApprovalRequestResult` | `dev.tramai.core.approval.gateway` | PRs #121, #122 — four-outcome coverage via mapper |
-| `SovereignWorkflowResult` | `dev.tramai.core.workflow` | PRs #122, #128 — Kotlin and Java mappers |
-| `ApprovalRequestResult.toWorkflowResult { ... }` | `dev.tramai.core.workflow` | PRs #122, #123 — decision-aware lambda, API boundary guard |
-| `ApprovalWorkflowResults` | `dev.tramai.core.workflow` | PR #128 — Java-friendly facade |
-| `ApprovalWorkflowResults.fromApprovalRequestResult { ... }` | `dev.tramai.core.workflow` | PRs #128, #129 — Java facade API boundary guard |
-| `ApprovalRequestResults` | `dev.tramai.core.workflow` | PRs #128, #129 — String-based factories guarded |
-| `HumanApprovalDecisions` | `dev.tramai.core.workflow` | PRs #128, #129 — `@JvmOverloads` shape guarded |
-
-**The following related surfaces remain Preview** because they involve operational semantics, deployment behavior, UI/API design, or production authorization boundaries:
-
-- approval decision/resume control planes (`ApprovalDecisionControlPlane`, `ApprovalResumeControlPlane`)
-- inbox query API (`ApprovalInboxQueryService`)
-- REST control-plane endpoints
-- reviewer UI
-- Spring Boot auto-configuration (`ApprovalGatewayAutoConfiguration`)
-- non-transactional fallback gateway (`DefaultApprovalGateway`)
+The approval workflow golden-path APIs were promoted to **RC+ Stable** in PR #133. There are no active approval workflow stabilization candidates at this time.
 
 ---
 
