@@ -2907,6 +2907,40 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
 }
 
 // ──────────────────────────────────────────────
+// Task: verifySovereignLabProfile
+// ──────────────────────────────────────────────
+
+tasks.register("verifySovereignLabProfile") {
+    group = "verification"
+    description = "Verifies the physical sovereign lab profile and documentation exist."
+
+    doLast {
+        val labProfile = file("examples/spring-sovereign-starter/src/main/resources/application-sovereign-lab.yml")
+        require(labProfile.exists()) {
+            "Missing sovereign lab Spring profile at ${labProfile.absolutePath}"
+        }
+
+        val labReadme = file("examples/sovereign-lab/README.md")
+        require(labReadme.exists()) {
+            "Missing sovereign lab README at ${labReadme.absolutePath}"
+        }
+
+        val labText = labReadme.readText()
+        require(labText.contains("local model", ignoreCase = true)) {
+            "Sovereign lab README must explain local model setup."
+        }
+        require(labText.contains("PostgreSQL", ignoreCase = true)) {
+            "Sovereign lab README must explain PostgreSQL setup."
+        }
+        require(labText.contains("no cloud", ignoreCase = true) || labText.contains("zero egress", ignoreCase = true)) {
+            "Sovereign lab README must explain no-cloud / zero-egress intent."
+        }
+
+        logger.lifecycle("verifySovereignLabProfile: all sovereign lab profile checks passed.")
+    }
+}
+
+// ──────────────────────────────────────────────
 // Task: verifySovereignRuntimeClosure
 // ──────────────────────────────────────────────
 
