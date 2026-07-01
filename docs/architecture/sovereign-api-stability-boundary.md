@@ -89,6 +89,32 @@ The following capabilities are proven by working examples, but the developer-fac
 
 ---
 
+## Approval Workflow Stabilization Candidates
+
+The following Preview APIs are candidates for promotion to **RC+ Stable** in an upcoming API stabilization PR. They form the developer-facing approval workflow golden path and are covered by Kotlin tests, Java interop tests, source-shape guards, manifest checks, and executable Spring/JDBC smoke proofs.
+
+| API | Package | Evidence |
+|-----|---------|----------|
+| `ApprovalGateway` | `dev.tramai.core.approval.gateway` | PRs #121, #124 — executable golden-path proof and Spring/JDBC smoke test |
+| `ApprovalRequestResult` | `dev.tramai.core.approval.gateway` | PRs #121, #122 — four-outcome coverage via mapper |
+| `SovereignWorkflowResult` | `dev.tramai.core.workflow` | PRs #122, #128 — Kotlin and Java mappers |
+| `ApprovalRequestResult.toWorkflowResult { ... }` | `dev.tramai.core.workflow` | PRs #122, #123 — decision-aware lambda, API boundary guard |
+| `ApprovalWorkflowResults` | `dev.tramai.core.workflow` | PR #128 — Java-friendly facade |
+| `ApprovalWorkflowResults.fromApprovalRequestResult { ... }` | `dev.tramai.core.workflow` | PRs #128, #129 — Java facade API boundary guard |
+| `ApprovalRequestResults` | `dev.tramai.core.workflow` | PRs #128, #129 — String-based factories guarded |
+| `HumanApprovalDecisions` | `dev.tramai.core.workflow` | PRs #128, #129 — `@JvmOverloads` shape guarded |
+
+**The following related surfaces remain Preview** because they involve operational semantics, deployment behavior, UI/API design, or production authorization boundaries:
+
+- approval decision/resume control planes (`ApprovalDecisionControlPlane`, `ApprovalResumeControlPlane`)
+- inbox query API (`ApprovalInboxQueryService`)
+- REST control-plane endpoints
+- reviewer UI
+- Spring Boot auto-configuration (`ApprovalGatewayAutoConfiguration`)
+- non-transactional fallback gateway (`DefaultApprovalGateway`)
+
+---
+
 ## Internal Implementation Details
 
 The following should **not** be treated as public API. Consumers should depend on SPI contracts and Spring Boot auto-configuration, not on concrete implementation classes.
