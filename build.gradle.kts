@@ -2759,6 +2759,33 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             "KDoc must document that DefaultApprovalGateway requires explicit opt-in."
         }
 
+        // ── Human approval ergonomics doc must not contain stale claims ──
+
+        val humanApprovalErgonomics = file(
+            "docs/architecture/human-approval-workflow-ergonomics.md",
+        ).readText()
+
+        require(!humanApprovalErgonomics.contains(
+            "Spring Auto-configuration creates DefaultApprovalGateway when the factory bean is present alongside the JDBC stores",
+        )) {
+            "Human approval ergonomics doc must not claim DefaultApprovalGateway is automatically created alongside JDBC stores."
+        }
+
+        require(humanApprovalErgonomics.contains("non-transactional-fallback-enabled=true")) {
+            "Human approval ergonomics doc must document explicit opt-in for DefaultApprovalGateway."
+        }
+
+        require(humanApprovalErgonomics.contains("PR #130")) {
+            "Human approval ergonomics doc must include the post-#130 fallback hardening update."
+        }
+
+        // ── CHANGELOG must not contain stale auto-wiring claims ──
+
+        val changelogText = file("CHANGELOG.md").readText()
+        require(!changelogText.contains("Spring auto-configuration creates the DefaultApprovalGateway bean")) {
+            "CHANGELOG must not claim DefaultApprovalGateway is automatically created by Spring auto-configuration."
+        }
+
         // ── Java interop test for approval workflow mapper ──
 
         val javaInteropTest = file(
