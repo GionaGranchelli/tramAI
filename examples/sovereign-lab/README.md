@@ -8,7 +8,7 @@ This profile lets you run TramAI Sovereign Runtime **locally** on your machine w
 - REST control plane + reviewer UI enabled
 - **Zero egress** — no cloud providers called
 
-No Docker, no CI, no cloud. Just your machine, a local model, and PostgreSQL.
+The lab uses Docker Compose for PostgreSQL. The local model runtime is not containerized by default; bring your own OpenAI-compatible local endpoint such as Ollama, llama.cpp, vLLM, LM Studio, or LocalAI. No CI, no cloud — just your machine.
 
 ---
 
