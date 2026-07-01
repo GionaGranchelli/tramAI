@@ -2333,7 +2333,7 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
             require(stableManifestSection.contains("- $type")) {
                 "Promoted approval workflow API '$type' must be listed in rcPlusStable manifest section."
             }
-            require(!previewManifestSection.contains("- $type")) {
+            require(!previewManifestSection.contains("- $type\n")) {
                 "Promoted approval workflow API '$type' must not remain in Preview manifest section."
             }
             require(!stabilizationCandidateSection.contains("- $type")) {
@@ -2923,6 +2923,22 @@ tasks.register("verifySovereignLabProfile") {
         val labReadme = file("examples/sovereign-lab/README.md")
         require(labReadme.exists()) {
             "Missing sovereign lab README at ${labReadme.absolutePath}"
+        }
+
+        val labProfileText = labProfile.readText()
+
+        // YAML root must be exactly one 'tramai:' key
+        require(Regex("^tramai:", RegexOption.MULTILINE).findAll(labProfileText).count() == 1) {
+            "Sovereign lab profile must define the 'tramai:' root key exactly once. " +
+                "Found ${Regex("^tramai:", RegexOption.MULTILINE).findAll(labProfileText).count()}. Duplicate root keys are not valid YAML."
+        }
+
+        require(labProfileText.contains("  sovereign:")) {
+            "Sovereign lab profile must include tramai.sovereign configuration."
+        }
+
+        require(labProfileText.contains("  providers:")) {
+            "Sovereign lab profile must include tramai.providers configuration under the same tramai root."
         }
 
         val labText = labReadme.readText()
