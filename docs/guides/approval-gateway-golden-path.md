@@ -134,7 +134,9 @@ tramai:
 Spring Boot auto-configuration creates an `ApprovalGateway` bean when the required stores and an `ApprovalGatewayRequestFactory` are available:
 
 - With JDBC-backed stores: auto-config creates `SovereignOpsTransactionalApprovalGateway`, which commits all three records in a single database transaction.
-- With generic stores: auto-config creates `DefaultApprovalGateway`, which writes the three stores sequentially.
+- With generic stores: auto-config creates `DefaultApprovalGateway` only when `tramai.sovereign.ops.approval-gateway.non-transactional-fallback-enabled=true`.
+
+> **Warning:** The non-transactional fallback (`DefaultApprovalGateway`) writes approval, suspended invocation, and continuation records sequentially without cross-store atomicity. It is useful for tests/custom store experiments, but JDBC-backed deployments should use the transactional gateway path.
 
 TramAI does **not** auto-create a generic request factory because the factory depends on workflow-specific metadata: replay envelopes, argument digests, correlation IDs, and resume-token generation.
 

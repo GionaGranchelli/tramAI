@@ -2737,6 +2737,28 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             }
         }
 
+        // ── Non-transactional gateway fallback requires explicit opt-in ──
+
+        val gatewayAutoConfig = file(
+            "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/ApprovalGatewayAutoConfiguration.kt",
+        )
+        require(gatewayAutoConfig.exists()) {
+            "Missing approval gateway auto-configuration."
+        }
+        val gatewayConfigSource = gatewayAutoConfig.readText()
+        require(gatewayConfigSource.contains("non-transactional-fallback-enabled")) {
+            "DefaultApprovalGateway fallback must require explicit non-transactional fallback opt-in."
+        }
+        require(gatewayConfigSource.contains("matchIfMissing = false")) {
+            "Non-transactional DefaultApprovalGateway fallback must not be enabled by default."
+        }
+        require(!gatewayConfigSource.contains("DefaultApprovalGateway is created as fallback")) {
+            "KDoc must no longer describe DefaultApprovalGateway as automatic fallback."
+        }
+        require(gatewayConfigSource.contains("only when")) {
+            "KDoc must document that DefaultApprovalGateway requires explicit opt-in."
+        }
+
         // ── Java interop test for approval workflow mapper ──
 
         val javaInteropTest = file(

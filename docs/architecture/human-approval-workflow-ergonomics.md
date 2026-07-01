@@ -343,7 +343,7 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 > - The regulated claim triage E2E now proves request → approve → resume → complete
 >
 > **Limitations remaining:**
-> - Generic fallback gateway (`DefaultApprovalGateway`) still has no cross-store transaction boundary and does not emit audit intent.
+> - Generic fallback gateway (`DefaultApprovalGateway`) still has no cross-store transaction boundary and does not emit audit intent. Spring Boot auto-configuration now requires explicit opt-in via `tramai.sovereign.ops.approval-gateway.non-transactional-fallback-enabled=true` before wiring it.
 >
 > **PR #121** adds a golden-path ergonomics proof for the Preview ApprovalGateway:
 > - Recording fake gateway pattern that captures all request parameters

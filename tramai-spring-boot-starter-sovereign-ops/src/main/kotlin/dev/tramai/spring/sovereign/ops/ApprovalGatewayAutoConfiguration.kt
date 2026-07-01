@@ -11,6 +11,7 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsApprovalRequestMutatio
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.context.annotation.Bean
 
@@ -29,20 +30,30 @@ import org.springframework.context.annotation.Bean
  *    the transactional gateway so that approval-requested audit outbox intent is created
  *    atomically alongside the core records.
  *
- * 2. **Default gateway** — [DefaultApprovalGateway] is created as fallback when the
- *    generic backing stores ([ApprovalStore], [ApprovalContinuationStore],
+ * 2. **Default gateway (explicit opt-in)** — [DefaultApprovalGateway] is created only when
+ *    `tramai.sovereign.ops.approval-gateway.non-transactional-fallback-enabled=true`
+ *    and the generic backing stores ([ApprovalStore], [ApprovalContinuationStore],
  *    [SuspendedInvocationStore]) and an [ApprovalGatewayRequestFactory] are available
  *    but no [SovereignOpsApprovalRequestMutationStore] exists. This path writes the
- *    three stores sequentially without transactional atomicity.
+ *    three stores sequentially without transactional atomicity and is intended for
+ *    tests, examples, or custom non-JDBC deployments that accept the lack of
+ *    cross-store atomicity.
  *
  * The transactional gateway takes priority when the mutation store is available.
  *
  * ### Activation
  *
- * - With JDBC-backed persistence: the JDBC auto-config registers all required stores
- *   and the mutation store, producing the transactional gateway.
- * - With generic (in-memory/file) stores: the mutation store is absent, producing
- *   the default gateway.
+ * The transactional gateway is auto-configured when the mutation store and
+ * request factory are present.
+ *
+ * The non-transactional [DefaultApprovalGateway] is **not** enabled by default.
+ * It is created only when:
+ *
+ * - no [SovereignOpsApprovalRequestMutationStore] is available,
+ * - the generic approval stores ([ApprovalStore], [ApprovalContinuationStore],
+ *   [SuspendedInvocationStore]) are present,
+ * - an [ApprovalGatewayRequestFactory] is present,
+ * - and `tramai.sovereign.ops.approval-gateway.non-transactional-fallback-enabled=true`.
  *
  * Missing any single dependency → no [ApprovalGateway] bean is created, startup unaffected.
  *
@@ -83,6 +94,12 @@ class ApprovalGatewayAutoConfiguration {
         )
 
     @Bean
+    @ConditionalOnProperty(
+        prefix = "tramai.sovereign.ops.approval-gateway",
+        name = ["non-transactional-fallback-enabled"],
+        havingValue = "true",
+        matchIfMissing = false,
+    )
     @ConditionalOnMissingBean(
         value = [
             ApprovalGateway::class,
