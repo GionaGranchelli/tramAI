@@ -306,7 +306,7 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 >
 > **PR #99** proves the Preview gateway can drive the regulated claim triage E2E scenario while preserving restart safety, durable approval state, continuation persistence, audit chain validation, and outbox dispatch.
 >
-> The example provides a `RegulatedClaimTriageApprovalGatewayRequestFactory` that translates ergonomic gateway calls into low-level persistence records. Spring Auto-configuration creates `DefaultApprovalGateway` when the factory bean is present alongside the JDBC stores.
+> The example provides a `RegulatedClaimTriageApprovalGatewayRequestFactory` that translates ergonomic gateway calls into low-level persistence records. Spring Boot auto-configuration prefers the transactional gateway when the JDBC mutation store is available. The non-transactional `DefaultApprovalGateway` is only wired when the generic stores, an `ApprovalGatewayRequestFactory`, and explicit `tramai.sovereign.ops.approval-gateway.non-transactional-fallback-enabled=true` opt-in are all present.
 >
 > **PR #100** adds a [developer-facing golden path guide](../guides/approval-gateway-golden-path.md) explaining how to use the Preview ApprovalGateway, how Spring Boot auto-configuration wires it, and what persistence records are created underneath.
 >
@@ -318,8 +318,8 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 > - `SovereignOpsTransactionalApprovalGateway` — Preview gateway adapter that prefers the atomic creation seam when available
 > - Spring Boot auto-configuration now prefers the transactional gateway over `DefaultApprovalGateway` when the request mutation store is present
 >
-> **Limitations:**
-> - Does not implement full workflow resume.
+> **Limitations (at #101):**
+> - Does not implement full workflow resume (resolved by PR #104).
 > - JDBC-backed approval-request creation now has a transactional boundary, but the generic fallback gateway still does not.
 > - Spring Boot auto-configuration is Preview and requires an application-provided `ApprovalGatewayRequestFactory`.
 >
@@ -352,6 +352,30 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 > - No low-level persistence stores are wired in the test
 >
 > **PR #122** adds `ApprovalRequestResult.toWorkflowResult { ... }` — an ergonomic Preview mapper that converts each gateway outcome to the corresponding `SovereignWorkflowResult` variant. The `approvedValue` lambda is lazy: it is only invoked for `AlreadyApproved`. Terminal states never execute the lambda, preventing accidental side effects.
+>
+> **Post-#122: boundary hardening and Java support**
+>
+> The following PRs hardened the approval workflow foundation without changing the core API shape:
+>
+> **PR #123** adds an API boundary guard for the Preview `ApprovalRequestResult.toWorkflowResult` function. Lists the mapper in the API stability manifest, adds source-file existence and signature checks to `verifySovereignRuntimeApiBoundary`, and adds a focused API-boundary test proving the decision-aware lambda contract.
+>
+> **PR #124** adds a Spring/JDBC executable golden-path smoke proof. `ApprovalGatewaySpringGoldenPathSmokeTest` proves a sovereign workflow can use `ApprovalGateway` + `toWorkflowResult { ... }` with real JDBC persistence, without wiring low-level stores. A source guard prevents store references from leaking into the workflow class.
+>
+> **PR #126** adds a reusable `TestApprovalGatewayRequestFactory` test fixture in `tramai-engine` test fixtures. Provides a builder-based `ApprovalGatewayRequestFactory` for tests and examples that handles all low-level persistence records with sensible defaults. Includes 7 unit tests proving consistency and customization.
+>
+> **PR #127** refactors `RegulatedClaimTriageApprovalGatewayRequestFactory` from ~170 lines of manual low-level record construction to a 52-line thin wrapper over `TestApprovalGatewayPersistenceRequestBuilder`. A build guard prevents manual low-level record construction from returning. The fixture is now used by both the smoke proof and regulated scenario.
+>
+> **PR #128** adds a Java interop proof for the approval workflow mapper. Introduces `ApprovalWorkflowResults.fromApprovalRequestResult()` Java-friendly facade, `ApprovalRequestResults` and `HumanApprovalDecisions` factory objects with String-based parameters (bypassing JVM inline value class name mangling). Adds `@get:JvmName` annotations on `SovereignWorkflowResult.SuspendedForApproval` properties. Includes a Java compile/runtime test covering all four outcome types and the decision-aware lambda contract.
+>
+> **PR #129** locks the Java-friendly Preview facade into the API stability boundary. Adds `ApprovalWorkflowResults`, `ApprovalRequestResults`, and `HumanApprovalDecisions` to the Preview manifest, documents them in the boundary doc, and adds source-shape guards that protect the inline value class interop lessons from PR #128 (String-based factories, `@JvmOverloads`, no inline-value-class-returning factories).
+>
+> **PR #130** makes the non-transactional `DefaultApprovalGateway` fallback require explicit opt-in. Spring Boot auto-configuration no longer silently creates it when the generic stores and request factory exist. JDBC users get the transactional gateway automatically; non-JDBC/test users must set `tramai.sovereign.ops.approval-gateway.non-transactional-fallback-enabled=true`. A build guard prevents the fallback from becoming implicit again.
+>
+> **Current limitations remaining:**
+> - Generic fallback gateway (`DefaultApprovalGateway`) still has no cross-store transaction boundary and does not emit audit intent (mitigated by making it opt-in).
+> - Spring Boot auto-configuration is Preview and requires an application-provided `ApprovalGatewayRequestFactory`.
+> - Reviewer UI and REST control plane are Preview and disabled by default.
+> - Auto-resume worker is Preview and disabled by default.
 
 ---
 
@@ -399,3 +423,5 @@ The following are explicitly **not covered** by this design:
 | #126 | Approval request factory fixture | Reusable test/example `TestApprovalGatewayRequestFactory` in `tramai-engine` test fixtures — builders, test coverage, build guard, docs |
 | #127 | Regulated factory fixture adoption | `RegulatedClaimTriageApprovalGatewayRequestFactory` refactored from ~170 lines of manual low-level records to a 35-line thin wrapper over `TestApprovalGatewayPersistenceRequestBuilder` |
 | #128 | Java approval workflow interop proof | Java compile/runtime test for approval result mapper from Java. Adds `ApprovalWorkflowResults`, `ApprovalRequestResults`, and `HumanApprovalDecisions` Java-friendly factories. Documents inline value class JVM erasure behavior and provides String-based factory methods for Java consumers. |
+| #129 | Java facade API boundary guard | Locks `ApprovalWorkflowResults`, `ApprovalRequestResults`, and `HumanApprovalDecisions` into Preview manifest. Adds source-shape guards protecting inline value class interop lessons. |
+| #130 | Non-transactional gateway fallback opt-in | Makes `DefaultApprovalGateway` require explicit `tramai.sovereign.ops.approval-gateway.non-transactional-fallback-enabled=true`. Build guard prevents implicit fallback from returning. |
