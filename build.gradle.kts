@@ -2925,6 +2925,22 @@ tasks.register("verifySovereignLabProfile") {
             "Missing sovereign lab README at ${labReadme.absolutePath}"
         }
 
+        val labProfileText = labProfile.readText()
+
+        // YAML root must be exactly one 'tramai:' key
+        require(Regex("^tramai:", RegexOption.MULTILINE).findAll(labProfileText).count() == 1) {
+            "Sovereign lab profile must define the 'tramai:' root key exactly once. " +
+                "Found ${Regex("^tramai:", RegexOption.MULTILINE).findAll(labProfileText).count()}. Duplicate root keys are not valid YAML."
+        }
+
+        require(labProfileText.contains("  sovereign:")) {
+            "Sovereign lab profile must include tramai.sovereign configuration."
+        }
+
+        require(labProfileText.contains("  providers:")) {
+            "Sovereign lab profile must include tramai.providers configuration under the same tramai root."
+        }
+
         val labText = labReadme.readText()
         require(labText.contains("local model", ignoreCase = true)) {
             "Sovereign lab README must explain local model setup."
