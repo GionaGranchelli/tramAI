@@ -2104,7 +2104,6 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
         // ── Preview types (section-scoped) ──
 
         val previewTypes = listOf(
-            "ApprovalGateway",
             "ApprovalDecisionControlPlane",
             "ApprovalResumeControlPlane",
             "ApprovalInboxQueryService",
@@ -2119,17 +2118,13 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
 
         val previewManifestSection = manifestText
             .substringAfter("preview:")
-            .substringBefore("internal:")
+            .substringBefore("stabilizationCandidates:")
 
         val previewManifestTypes = listOf(
-            "ApprovalGateway",
             "ApprovalDecisionControlPlane",
             "ApprovalResumeControlPlane",
             "ApprovalInboxQueryService",
             "ApprovalGatewayAutoConfiguration",
-            "ApprovalWorkflowResults",
-            "ApprovalRequestResults",
-            "HumanApprovalDecisions",
         )
 
         previewTypes.forEach { type ->
@@ -2144,25 +2139,6 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
             }
             require(!stableManifestSection.contains("- $type")) {
                 "'$type' is Preview and must not appear in rcPlusStable manifest section."
-            }
-        }
-
-        // ── Preview functions ──
-
-        val previewManifestFunctions = listOf(
-            "ApprovalRequestResult.toWorkflowResult",
-            "ApprovalWorkflowResults.fromApprovalRequestResult",
-        )
-
-        previewManifestFunctions.forEach { func ->
-            require(previewManifestSection.contains("- $func")) {
-                "API stability manifest preview.functions must include '$func'"
-            }
-            require(previewSection.contains(func)) {
-                "Preview Surface section must document '$func'"
-            }
-            require(!stableManifestSection.contains(func)) {
-                "'$func' is Preview and must not appear in rcPlusStable manifest section."
             }
         }
 
@@ -2221,14 +2197,18 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
             "Do not expose inline-value-class-returning ApprovalIds facade; Java must use String-based factories."
         }
 
-        // ── Forbidden: Preview mapper in RC+ Stable section ──
+        // ── Promoted APIs in RC+ Stable section, Preview surfaces stay out ──
 
-        require(!stableSection.contains("ApprovalRequestResult.toWorkflowResult")) {
-            "ApprovalRequestResult.toWorkflowResult is Preview, not RC+ Stable, and must not be in the RC+ Stable section."
+        require(stableSection.contains("ApprovalRequestResult.toWorkflowResult")) {
+            "ApprovalRequestResult.toWorkflowResult is now RC+ Stable and must be documented in the RC+ Stable section."
         }
 
-        require(!stableSection.contains("toWorkflowResult")) {
-            "toWorkflowResult Preview function must not appear in the RC+ Stable section."
+        require(stableSection.contains("ApprovalWorkflowResults")) {
+            "ApprovalWorkflowResults is now RC+ Stable and must be documented in the RC+ Stable section."
+        }
+
+        require(!stableSection.contains("DefaultApprovalGateway") && !stableSection.contains("ApprovalGatewayAutoConfiguration")) {
+            "DefaultApprovalGateway and ApprovalGatewayAutoConfiguration are Preview and must not appear in the RC+ Stable section."
         }
 
         // ── Internal implementation details stay internal (section-scoped) ──
@@ -2334,13 +2314,13 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
             }
         }
 
-        // ── Stabilization candidates section exists ──
+        // ── Promoted approval workflow APIs ──
 
         val stabilizationCandidateSection = manifestText
             .substringAfter("stabilizationCandidates:")
             .substringBefore("internal:")
 
-        val stabilizationCandidateTypes = listOf(
+        val promotedApprovalWorkflowTypes = listOf(
             "ApprovalGateway",
             "ApprovalRequestResult",
             "SovereignWorkflowResult",
@@ -2349,26 +2329,50 @@ tasks.register("verifySovereignRuntimeApiBoundary") {
             "HumanApprovalDecisions",
         )
 
-        stabilizationCandidateTypes.forEach { type ->
-            require(stabilizationCandidateSection.contains("- $type")) {
-                "Approval workflow stabilization candidate '$type' must be listed in stabilizationCandidates manifest section."
+        promotedApprovalWorkflowTypes.forEach { type ->
+            require(stableManifestSection.contains("- $type")) {
+                "Promoted approval workflow API '$type' must be listed in rcPlusStable manifest section."
             }
-            require(!stableManifestSection.contains("- $type")) {
-                "'$type' is a stabilization candidate and must not appear in rcPlusStable manifest section."
+            require(!previewManifestSection.contains("- $type")) {
+                "Promoted approval workflow API '$type' must not remain in Preview manifest section."
+            }
+            require(!stabilizationCandidateSection.contains("- $type")) {
+                "Promoted approval workflow API '$type' must not remain in stabilizationCandidates."
             }
         }
 
-        val stabilizationCandidateFunctions = listOf(
+        val promotedApprovalWorkflowFunctions = listOf(
             "ApprovalRequestResult.toWorkflowResult",
             "ApprovalWorkflowResults.fromApprovalRequestResult",
         )
 
-        stabilizationCandidateFunctions.forEach { func ->
-            require(stabilizationCandidateSection.contains("- $func")) {
-                "Approval workflow stabilization candidate function '$func' must be listed in stabilizationCandidates manifest section."
+        promotedApprovalWorkflowFunctions.forEach { func ->
+            require(stableManifestSection.contains("- $func")) {
+                "Promoted approval workflow function '$func' must be listed in rcPlusStable manifest section."
             }
-            require(!stableManifestSection.contains(func)) {
-                "'$func' is a stabilization candidate and must not appear in rcPlusStable manifest section."
+            require(!previewManifestSection.contains("- $func")) {
+                "Promoted approval workflow function '$func' must not remain in Preview manifest section."
+            }
+            require(!stabilizationCandidateSection.contains("- $func")) {
+                "Promoted approval workflow function '$func' must not remain in stabilizationCandidates."
+            }
+        }
+
+        // ── Non-promoted surfaces must remain Preview ──
+
+        val stillPreviewApprovalSurfaces = listOf(
+            "ApprovalDecisionControlPlane",
+            "ApprovalResumeControlPlane",
+            "ApprovalInboxQueryService",
+            "ApprovalGatewayAutoConfiguration",
+        )
+
+        stillPreviewApprovalSurfaces.forEach { type ->
+            require(previewManifestSection.contains("- $type")) {
+                "'$type' must remain Preview."
+            }
+            require(!stableManifestSection.contains("- $type")) {
+                "'$type' must not be promoted to RC+ Stable."
             }
         }
 
