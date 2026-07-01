@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: tramai-sovereign-lab-postgres
+    environment:
+      POSTGRES_DB: tramai_sovereign_lab
+      POSTGRES_USER: tramai
+      POSTGRES_PASSWORD: tramai
+    ports:
+      - "5432:5432"
+    volumes:
+      - tramai-sovereign-lab-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tramai -d tramai_sovereign_lab"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  tramai-sovereign-lab-postgres:
