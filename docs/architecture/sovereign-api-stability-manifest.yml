@@ -34,7 +34,7 @@ preview:
     - ApprovalResumeControlPlane
     - ApprovalInboxQueryService
     - ApprovalGatewayAutoConfiguration
-  functions:
+  functions: []
 
 stabilizationCandidates:
   types: []
