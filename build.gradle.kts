@@ -2779,6 +2779,13 @@ tasks.register("verifySovereignRuntimeClosureDocs") {
             "Human approval ergonomics doc must include the post-#130 fallback hardening update."
         }
 
+        // ── CHANGELOG must not contain stale auto-wiring claims ──
+
+        val changelogText = file("CHANGELOG.md").readText()
+        require(!changelogText.contains("Spring auto-configuration creates the DefaultApprovalGateway bean")) {
+            "CHANGELOG must not claim DefaultApprovalGateway is automatically created by Spring auto-configuration."
+        }
+
         // ── Java interop test for approval workflow mapper ──
 
         val javaInteropTest = file(

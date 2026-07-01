@@ -319,7 +319,7 @@ This design proposes the path to move workflow ergonomics from **Preview** towar
 > - Spring Boot auto-configuration now prefers the transactional gateway over `DefaultApprovalGateway` when the request mutation store is present
 >
 > **Limitations (at #101):**
-> - Does not implement full workflow resume (resolved by PR #104).
+> - Full workflow resume was still missing at #101; resolved by PR #104.
 > - JDBC-backed approval-request creation now has a transactional boundary, but the generic fallback gateway still does not.
 > - Spring Boot auto-configuration is Preview and requires an application-provided `ApprovalGatewayRequestFactory`.
 >
