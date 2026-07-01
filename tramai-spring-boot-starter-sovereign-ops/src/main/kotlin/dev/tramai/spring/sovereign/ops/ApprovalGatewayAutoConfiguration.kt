@@ -43,10 +43,17 @@ import org.springframework.context.annotation.Bean
  *
  * ### Activation
  *
- * - With JDBC-backed persistence: the JDBC auto-config registers all required stores
- *   and the mutation store, producing the transactional gateway.
- * - With generic (in-memory/file) stores: the mutation store is absent, producing
- *   the default gateway.
+ * The transactional gateway is auto-configured when the mutation store and
+ * request factory are present.
+ *
+ * The non-transactional [DefaultApprovalGateway] is **not** enabled by default.
+ * It is created only when:
+ *
+ * - no [SovereignOpsApprovalRequestMutationStore] is available,
+ * - the generic approval stores ([ApprovalStore], [ApprovalContinuationStore],
+ *   [SuspendedInvocationStore]) are present,
+ * - an [ApprovalGatewayRequestFactory] is present,
+ * - and `tramai.sovereign.ops.approval-gateway.non-transactional-fallback-enabled=true`.
  *
  * Missing any single dependency → no [ApprovalGateway] bean is created, startup unaffected.
  *

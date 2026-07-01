@@ -51,7 +51,7 @@ class ApprovalGatewayAutoConfigurationTest {
     // ── 1. Does not create default gateway without explicit opt-in ─────
 
     @Test
-    fun `does not create default approval gateway unless non transactional fallback is enabled`() {
+    fun `does not create default approval gateway unless non-transactional fallback is enabled`() {
         contextRunner
             .withUserConfiguration(FullGatewayConfig::class.java)
             .run { ctx ->
@@ -61,7 +61,7 @@ class ApprovalGatewayAutoConfigurationTest {
     }
 
     @Test
-    fun `creates default approval gateway when non transactional fallback is explicitly enabled`() {
+    fun `creates default approval gateway when non-transactional fallback is explicitly enabled`() {
         contextRunner
             .withPropertyValues(
                 "tramai.sovereign.ops.approval-gateway.non-transactional-fallback-enabled=true",
