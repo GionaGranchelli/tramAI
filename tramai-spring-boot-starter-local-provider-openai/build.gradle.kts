@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     `java-library`
     alias(libs.plugins.kotlin.jvm)
@@ -12,6 +14,9 @@ java {
 
 kotlin {
     jvmToolchain(21)
+    compilerOptions {
+        jvmTarget.set(JvmTarget.fromTarget("21"))
+    }
 }
 
 dependencies {

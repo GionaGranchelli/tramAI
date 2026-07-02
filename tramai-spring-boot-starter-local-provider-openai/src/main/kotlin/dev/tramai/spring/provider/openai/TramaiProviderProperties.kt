@@ -20,7 +20,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
  * Only entries with `type=openai` (case-insensitive) are auto-configured.
  */
 @ConfigurationProperties("tramai")
-class TramAiProviderProperties {
+class TramaiProviderProperties {
     var providers: Map<String, ProviderEntry> = emptyMap()
     /**
      * A single provider entry under `tramai.providers.<name>`.

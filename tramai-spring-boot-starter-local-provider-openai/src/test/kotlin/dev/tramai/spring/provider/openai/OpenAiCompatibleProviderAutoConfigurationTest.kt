@@ -108,10 +108,10 @@ class OpenAiCompatibleProviderAutoConfigurationTest {
             }
     }
 
-    // ── No HTTP call ──
+    // ── No reachable endpoint needed ──
 
     @Test
-    fun `provider bean is created without making any HTTP call`() {
+    fun `provider bean construction does not require a reachable endpoint`() {
         contextRunner
             .withPropertyValues(
                 "tramai.providers.local-lab-provider.type=openai",
@@ -122,9 +122,10 @@ class OpenAiCompatibleProviderAutoConfigurationTest {
             .run { ctx ->
                 assertThat(ctx).hasNotFailed()
                 assertThat(ctx).hasSingleBean(OpenAiCompatibleProvider::class.java)
-                // Creating the bean constructs the HttpClient but does not perform a request.
-                // If an HTTP call had been attempted to a non-existent localhost port,
-                // the context would fail or the bean creation would hang.
+                // The provider constructs an HttpClient at bean-creation time
+                // but does not perform any HTTP request. This test proves the
+                // context boots successfully with an unreachable endpoint
+                // configured — no connection is attempted during startup.
             }
     }
 }
