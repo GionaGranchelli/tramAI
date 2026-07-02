@@ -43,6 +43,12 @@ dependencies {
     implementation(project(":tramai-spring-boot-starter-sovereign-persistence-jdbc"))
     implementation(project(":tramai-spring-boot-starter-sovereign-ops"))
 
+    // REST control plane (for sovereign-lab profile)
+    implementation(project(":tramai-spring-boot-starter-sovereign-ops-rest"))
+
+    // OpenAI provider (for sovereign-lab local model endpoint)
+    implementation(project(":tramai-openai"))
+
     // Spring Boot
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.jetbrains.kotlin:kotlin-reflect")

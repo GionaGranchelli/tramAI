@@ -2957,6 +2957,40 @@ tasks.register("verifySovereignLabProfile") {
 }
 
 // ──────────────────────────────────────────────
+// Task: verifySovereignLabRuntimeSmoke
+// ──────────────────────────────────────────────
+
+tasks.register("verifySovereignLabRuntimeSmoke") {
+    group = "verification"
+    description = "Runs the sovereign lab runtime smoke test against embedded PostgreSQL."
+
+    dependsOn(":examples:spring-sovereign-starter:e2eTest")
+
+    doLast {
+        val reportDir = file(
+            "examples/spring-sovereign-starter/build/test-results/e2eTest/"
+        )
+        val reportFile = reportDir.resolve(
+            "TEST-dev.tramai.examples.spring.SovereignLabProfileSmokeTest.xml"
+        )
+
+        require(reportFile.exists()) {
+            "SovereignLabProfileSmokeTest did not run. " +
+                "verifySovereignLabRuntimeSmoke must prove the lab smoke test executed.\n" +
+                "Expected report: ${reportFile.absolutePath}"
+        }
+
+        val xml = reportFile.readText()
+        require(xml.contains("failures=\"0\"") && xml.contains("errors=\"0\"")) {
+            "SovereignLabProfileSmokeTest did not pass cleanly. " +
+                "Check the test report at:\n  ${reportFile.absolutePath}"
+        }
+
+        logger.lifecycle("verifySovereignLabRuntimeSmoke: sovereign lab runtime smoke tests passed.")
+    }
+}
+
+// ──────────────────────────────────────────────
 // Task: verifySovereignRuntimeClosure
 // ──────────────────────────────────────────────
 

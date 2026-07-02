@@ -13,12 +13,24 @@ tramai:
   sovereign:
     enabled: true
     allowed-models:
+      # local-invoice-model keeps the existing invoice example path bootable
+      # via the deterministic local provider (no real inference needed).
+      - local-invoice-model
+      # local-lab-model is the OpenAI-compatible local model used for
+      # physical lab testing with Ollama/llama.cpp/vLLM.
       - local-lab-model
     allowed-providers:
+      # deterministic-local-provider is a test stub that returns
+      # predictable results — used by the invoice example workflow.
+      - deterministic-local-provider
+      # local-lab-provider points to the user's local OpenAI-compatible
+      # endpoint (Ollama, llama.cpp, vLLM, etc.) for real model inference.
       - local-lab-provider
     provider-zones:
+      deterministic-local-provider: LOCAL
       local-lab-provider: LOCAL
     models:
+      local-invoice-model: deterministic-local-provider
       local-lab-model: local-lab-provider
 
     # ── JDBC Persistence ──
