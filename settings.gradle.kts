@@ -40,6 +40,7 @@ include(
     "tramai-vectorstore-chroma",
     "tramai-vectorstore-pgvector",
     "tramai-dashboard",
+    "tramai-spring-boot-starter-local-provider-openai",
     "tramai-rag",
     "examples:support-agent",
     "examples:sovereign-document-intelligence",
