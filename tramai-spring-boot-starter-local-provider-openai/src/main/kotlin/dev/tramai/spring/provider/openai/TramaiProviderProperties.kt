@@ -3,7 +3,11 @@ package dev.tramai.spring.provider.openai
 import org.springframework.boot.context.properties.ConfigurationProperties
 
 /**
- * Maps `tramai.providers.*` YAML entries to typed properties.
+ * Binds `tramai.providers.*` YAML entries to typed properties.
+ *
+ * This v1 auto-configuration only consumes the `local-lab-provider`
+ * entry. The map shape is intentionally broader so future provider
+ * auto-configuration can support additional provider names.
  *
  * YAML shape:
  * ```
@@ -15,9 +19,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties
  *       api-key: local-dev
  *       model: qwen2.5:7b
  * ```
- *
- * Each entry key is a dynamic provider name; the value is a [ProviderEntry].
- * Only entries with `type=openai` (case-insensitive) are auto-configured.
  */
 @ConfigurationProperties("tramai")
 class TramaiProviderProperties {
