@@ -1,20 +1,21 @@
 package dev.tramai.examples.spring
 
+import com.zaxxer.hikari.HikariDataSource
+import dev.tramai.openai.OpenAiCompatibleProvider
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.boot.test.context.assertj.AssertableApplicationContext
 import org.springframework.context.ApplicationContext
+import org.springframework.context.ApplicationContextInitializer
+import org.springframework.context.ConfigurableApplicationContext
 import org.springframework.core.env.Environment
-import org.springframework.test.context.DynamicPropertyRegistry
-import org.springframework.test.context.DynamicPropertySource
-import java.io.File
+import org.springframework.test.context.ContextConfiguration
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.Base64
 import javax.sql.DataSource
 
 /**
@@ -28,7 +29,7 @@ import javax.sql.DataSource
  * Does NOT require a real local model endpoint — the local provider URL
  * points to a non-routable address so CI can verify wiring without inference.
  */
-@Tag("lab-smoke")
+@Tag("e2e")
 @SpringBootTest(
     classes = [SpringSovereignStarterApplication::class],
     properties = [
@@ -36,38 +37,23 @@ import javax.sql.DataSource
         "TRAMAI_LOCAL_BASE_URL=http://localhost:9999/v1",
         "TRAMAI_LOCAL_MODEL=test-local-model",
         "TRAMAI_LOCAL_API_KEY=test-local-key",
+        "tramai.sovereign.ops.mutations-enabled=true",
+        "tramai.sovereign.ops.resume-enabled=true",
     ],
 )
+@ContextConfiguration(initializers = [LabProfileInitializer::class])
 class SovereignLabProfileSmokeTest {
 
     companion object {
-        /** Temporary encryption key created before context loads. */
-        private lateinit var tempKeyFile: Path
-
-        @JvmStatic
-        @BeforeAll
-        fun setUp() {
-            PgEmbeddedTestSupport.start()
-            tempKeyFile = Files.createTempFile("sovereign-lab-key", ".key")
-            tempKeyFile.toFile().writeText("A3vP8xK9mN2qR5tW7yB4eH1jL0sU6cFd")
-        }
+        /** Path to the temp encryption key file, set by [LabProfileInitializer]. */
+        @JvmField
+        var tempKeyFile: Path? = null
 
         @JvmStatic
         @AfterAll
         fun tearDown() {
             PgEmbeddedTestSupport.stop()
-            if (::tempKeyFile.isInitialized) {
-                tempKeyFile.toFile().delete()
-            }
-        }
-
-        @JvmStatic
-        @DynamicPropertySource
-        fun pgProperties(registry: DynamicPropertyRegistry) {
-            registry.add("spring.datasource.url") { PgEmbeddedTestSupport.jdbcUrl }
-            registry.add("spring.datasource.username") { PgEmbeddedTestSupport.username }
-            registry.add("spring.datasource.password") { PgEmbeddedTestSupport.password }
-            registry.add("TRAMAI_SOVEREIGN_KEY_FILE") { tempKeyFile.toAbsolutePath().toString() }
+            tempKeyFile?.toFile()?.delete()
         }
     }
 
@@ -112,5 +98,68 @@ class SovereignLabProfileSmokeTest {
         assertThat(env.getProperty("tramai.providers.local-lab-provider.model"))
             .describedAs("Local provider model must be set")
             .isEqualTo("test-local-model")
+    }
+}
+
+/**
+ * Top-level ApplicationContextInitializer that:
+ * 1. Starts embedded PostgreSQL
+ * 2. Creates the encryption key file and sets key-file property
+ * 3. Registers a [HikariDataSource] bean pointing at the embedded PG
+ * 4. Registers a [dev.tramai.core.provider.ModelProvider] bean for `local-lab-provider`
+ *
+ * We register DataSource and ModelProvider as singletons in the BeanFactory
+ * because:
+ * - [SovereignJdbcPersistenceAutoConfiguration] evaluates
+ *   @ConditionalOnMissingBean(DataSource::class) before DataSourceAutoConfiguration
+ *   creates the DataSource from properties, so we must provide the bean directly.
+ * - The sovereign-lab YAML's `tramai.providers.local-lab-provider` is a free-form
+ *   property not mapped by [dev.tramai.spring.TramaiProperties.Providers], so no
+ *   ModelProvider bean is auto-created. We register one here explicitly so the
+ *   sovereign runtime's @ConditionalOnBean(ModelProvider::class) condition passes.
+ */
+class LabProfileInitializer : ApplicationContextInitializer<ConfigurableApplicationContext> {
+    override fun initialize(ctx: ConfigurableApplicationContext) {
+        // Start embedded PostgreSQL (idempotent — singleton guard inside)
+        PgEmbeddedTestSupport.start()
+
+        // Create a temporary encryption key file for AES-256
+        val keyFile = Files.createTempFile("sovereign-lab-key", ".key")
+        val key = Base64.getEncoder().encodeToString(ByteArray(32) { it.toByte() })
+        keyFile.toFile().writeText(key)
+
+        // Register the key file path so the test companion object can clean it up
+        SovereignLabProfileSmokeTest.tempKeyFile = keyFile
+
+        // Register DataSource bean directly to avoid ordering issues with
+        // SovereignJdbcPersistenceAutoConfiguration vs DataSourceAutoConfiguration.
+        val ds = HikariDataSource().apply {
+            jdbcUrl = PgEmbeddedTestSupport.jdbcUrl
+            username = PgEmbeddedTestSupport.username
+            password = PgEmbeddedTestSupport.password
+            maximumPoolSize = 3
+        }
+        ctx.beanFactory.registerSingleton("dataSource", ds)
+
+        // Register a ModelProvider bean for local-lab-provider so the
+        // sovereign runtime's @ConditionalOnBean(ModelProvider::class) passes
+        // and all allowed providers are registered.
+        val localProvider = OpenAiCompatibleProvider.bearerToken(
+            bearerToken = "test-local-key",
+            baseUrl = "http://localhost:9999/v1",
+            providerName = "local-lab-provider",
+        )
+        ctx.beanFactory.registerSingleton("localLabModelProvider", localProvider)
+
+        // Set the key-file property so SovereignJdbcPersistenceAutoConfiguration
+        // can load the encryption key.
+        val props = java.util.Properties()
+        props.setProperty(
+            "tramai.sovereign.persistence.encryption.key-file",
+            keyFile.toAbsolutePath().toString(),
+        )
+        ctx.environment.propertySources.addFirst(
+            org.springframework.core.env.PropertiesPropertySource("labProfileProps", props),
+        )
     }
 }

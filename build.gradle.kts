@@ -2964,7 +2964,7 @@ tasks.register("verifySovereignLabRuntimeSmoke") {
     group = "verification"
     description = "Runs the sovereign lab runtime smoke test against embedded PostgreSQL."
 
-    dependsOn(":examples:spring-sovereign-starter:test")
+    dependsOn(":examples:spring-sovereign-starter:e2eTest")
 
     doLast {
         logger.lifecycle("verifySovereignLabRuntimeSmoke: sovereign lab runtime smoke tests passed.")
