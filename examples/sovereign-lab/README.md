@@ -24,7 +24,7 @@ Run these commands to verify the lab profile wiring without a real model or Dock
 ./gradlew verifySovereignLabRuntimeSmoke
 ```
 
-`verifySovereignLabProfile` checks that the profile YAML, README, and Docker Compose exist and contain the expected concepts. `verifySovereignLabRuntimeSmoke` starts the Spring application with the `sovereign-lab` profile against embedded PostgreSQL and verifies the local-only configuration can boot without a cloud provider. No real LLM call is made — the local provider URL points to a non-routable address in CI.
+`verifySovereignLabProfile` checks that the profile YAML, README, and Docker Compose exist and contain the expected concepts. `verifySovereignLabRuntimeSmoke` starts the Spring application with the `sovereign-lab` profile against embedded PostgreSQL and verifies the local-only configuration can boot without a cloud provider. No real LLM call is made — the local provider URL points to an unused localhost endpoint that is never called by this smoke test. The test registers a test provider and datasource directly (via `ApplicationContextInitializer`) rather than wiring them from YAML configuration, because the sovereign-lab profile's provider configuration is not yet auto-mapped to Spring beans. A future PR may close this gap by introducing provider auto-configuration.
 
 ---
 

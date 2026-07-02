@@ -140,6 +140,12 @@ class LabProfileInitializer : ApplicationContextInitializer<ConfigurableApplicat
             maximumPoolSize = 3
         }
         ctx.beanFactory.registerSingleton("dataSource", ds)
+        // Register for proper cleanup — Spring may not close singletons
+        // registered directly via registerSingleton the same way it closes
+        // bean-defined DataSources.
+        (ctx.beanFactory as? org.springframework.beans.factory.support.DefaultSingletonBeanRegistry)
+            ?.registerDisposableBean("dataSource",
+                org.springframework.beans.factory.DisposableBean { ds.close() })
 
         // Register a ModelProvider bean for local-lab-provider so the
         // sovereign runtime's @ConditionalOnBean(ModelProvider::class) passes
