@@ -12,6 +12,22 @@ The lab uses Docker Compose for PostgreSQL. The local model runtime is not conta
 
 ---
 
+## CI Smoke Verification
+
+Run these commands to verify the lab profile wiring without a real model or Docker:
+
+```bash
+# Verify lab files and configuration shape
+./gradlew verifySovereignLabProfile
+
+# Verify the sovereign-lab profile boots with JDBC persistence and local provider config
+./gradlew verifySovereignLabRuntimeSmoke
+```
+
+`verifySovereignLabProfile` checks that the profile YAML, README, and Docker Compose exist and contain the expected concepts. `verifySovereignLabRuntimeSmoke` starts the Spring application with the `sovereign-lab` profile against embedded PostgreSQL and verifies the local-only configuration can boot without a cloud provider. No real LLM call is made — the local provider URL points to a non-routable address in CI.
+
+---
+
 ## Prerequisites
 
 - Java 21+
