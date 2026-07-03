@@ -1,5 +1,8 @@
 package dev.tramai.examples.spring
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.SerializationFeature
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
@@ -165,7 +168,11 @@ class SovereignLabLocalModelBenchmarkTest {
         Files.createDirectories(outputDir)
 
         val reportFile = outputDir.resolve("benchmark.json")
-        Files.writeString(reportFile, report.toJson())
+        val mapper = ObjectMapper()
+            .registerModule(JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+            .writerWithDefaultPrettyPrinter()
+        Files.writeString(reportFile, mapper.writeValueAsString(report))
 
         println("Sovereign lab local-model benchmark report: $reportFile")
         println("Provider: ${report.providerId}")
@@ -193,26 +200,4 @@ private data class BenchmarkReport(
     fun minLatencyMs(): Long = samples.minOf { it.latencyMs }
     fun maxLatencyMs(): Long = samples.maxOf { it.latencyMs }
     fun avgLatencyMs(): Long = samples.map { it.latencyMs }.average().toLong()
-
-    fun toJson(): String =
-        """
-        {
-          "timestamp": "$timestamp",
-          "providerId": "$providerId",
-          "model": "$model",
-          "baseUrl": "$baseUrl",
-          "warmupCalls": $warmupCalls,
-          "measuredCalls": $measuredCalls,
-          "latencyMs": {
-            "min": ${minLatencyMs()},
-            "avg": ${avgLatencyMs()},
-            "max": ${maxLatencyMs()}
-          },
-          "samples": [
-            ${samples.joinToString(",\n            ") {
-                """{"index": ${it.index}, "latencyMs": ${it.latencyMs}, "responseChars": ${it.responseChars}}"""
-            }}
-          ]
-        }
-        """.trimIndent()
 }

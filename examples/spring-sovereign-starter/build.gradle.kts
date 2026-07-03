@@ -65,6 +65,8 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:$kotlinxCoroutinesVersion")
     testImplementation("io.zonky.test:embedded-postgres:2.0.7")
     testImplementation(testFixtures(project(":tramai-engine")))
+    testImplementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+    testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
 }
 
 tasks.test {
