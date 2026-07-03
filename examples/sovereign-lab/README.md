@@ -28,6 +28,38 @@ Run these commands to verify the lab profile wiring without a real model or Dock
 
 ---
 
+## Optional Local Model Invocation Proof
+
+This test is **not** part of normal CI because it requires a real local OpenAI-compatible model endpoint. Uses embedded PostgreSQL (no Docker) and a temporary encryption key.
+
+**Prerequisites:**
+
+```bash
+ollama serve
+ollama pull qwen2.5:7b
+```
+
+**Run:**
+
+```bash
+export TRAMAI_ENABLE_LOCAL_MODEL_TEST=true
+export TRAMAI_LOCAL_BASE_URL=http://localhost:11434/v1
+export TRAMAI_LOCAL_API_KEY=local-dev
+export TRAMAI_LOCAL_MODEL=qwen2.5:7b
+
+./gradlew verifySovereignLabLocalModel
+```
+
+Or use the helper script (reads the same environment variables):
+
+```bash
+examples/sovereign-lab/local-model-smoke.sh
+```
+
+The test verifies that the sovereign-lab profile can invoke the configured `local-lab-provider` against a real local model endpoint.
+
+---
+
 ## Prerequisites
 
 - Java 21+
