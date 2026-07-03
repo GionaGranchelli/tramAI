@@ -65,11 +65,13 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:$kotlinxCoroutinesVersion")
     testImplementation("io.zonky.test:embedded-postgres:2.0.7")
     testImplementation(testFixtures(project(":tramai-engine")))
+    testImplementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+    testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
 }
 
 tasks.test {
     useJUnitPlatform {
-        excludeTags("e2e", "local-model")
+        excludeTags("e2e", "local-model", "local-benchmark")
     }
     testLogging {
         showStandardStreams = true
@@ -86,7 +88,7 @@ val e2eTest by tasks.registering(Test::class) {
 
     useJUnitPlatform {
         includeTags("e2e")
-        excludeTags("local-model")
+        excludeTags("local-model", "local-benchmark")
     }
 
     testLogging {
@@ -106,10 +108,34 @@ val localModelTest by tasks.registering(Test::class) {
 
     useJUnitPlatform {
         includeTags("local-model")
+        excludeTags("local-benchmark")
     }
 
     onlyIf {
         System.getenv("TRAMAI_ENABLE_LOCAL_MODEL_TEST") == "true"
+    }
+
+    testLogging {
+        showStandardStreams = true
+        events("passed", "skipped", "failed")
+    }
+
+    shouldRunAfter(tasks.test)
+}
+
+val localModelBenchmark by tasks.registering(Test::class) {
+    description = "Runs opt-in local model benchmark diagnostics against a real OpenAI-compatible endpoint."
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags("local-benchmark")
+    }
+
+    onlyIf {
+        System.getenv("TRAMAI_ENABLE_LOCAL_MODEL_BENCHMARK") == "true"
     }
 
     testLogging {

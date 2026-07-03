@@ -2983,6 +2983,26 @@ tasks.register("verifySovereignLabProfile") {
             "Sovereign lab evidence guide must explain no-cloud / zero-egress proof."
         }
 
+        // ── PR #141+: Local model benchmark documentation guard ──
+
+        require(evidenceText.contains("benchmarkSovereignLabLocalModel")) {
+            "Sovereign lab evidence guide must reference benchmarkSovereignLabLocalModel."
+        }
+        require(evidenceText.contains("TRAMAI_ENABLE_LOCAL_MODEL_BENCHMARK")) {
+            "Sovereign lab evidence guide must document the benchmark opt-in gate."
+        }
+        require(
+            evidenceText.contains("does not define production performance thresholds", ignoreCase = true) ||
+            evidenceText.contains("does not define production performance", ignoreCase = true),
+        ) {
+            "Sovereign lab evidence guide must state the benchmark is diagnostic, not a production threshold."
+        }
+
+        val benchmarkTemplate = file("examples/sovereign-lab/evidence-template/benchmark.md")
+        require(benchmarkTemplate.exists()) {
+            "Missing sovereign lab benchmark evidence template at ${benchmarkTemplate.absolutePath}"
+        }
+
         logger.lifecycle("verifySovereignLabProfile: all sovereign lab profile checks passed.")
     }
 }
@@ -3035,6 +3055,28 @@ tasks.register("verifySovereignLabLocalModel") {
         if (System.getenv("TRAMAI_ENABLE_LOCAL_MODEL_TEST") != "true") {
             logger.lifecycle(
                 "verifySovereignLabLocalModel requires TRAMAI_ENABLE_LOCAL_MODEL_TEST=true."
+            )
+            logger.lifecycle(
+                "Set it and ensure a local OpenAI-compatible endpoint is running."
+            )
+        }
+    }
+}
+
+// ──────────────────────────────────────────────
+// Task: benchmarkSovereignLabLocalModel
+// ──────────────────────────────────────────────
+
+tasks.register("benchmarkSovereignLabLocalModel") {
+    group = "verification"
+    description = "Runs opt-in sovereign lab local-model benchmark diagnostics."
+
+    dependsOn(":examples:spring-sovereign-starter:localModelBenchmark")
+
+    doFirst {
+        if (System.getenv("TRAMAI_ENABLE_LOCAL_MODEL_BENCHMARK") != "true") {
+            logger.lifecycle(
+                "benchmarkSovereignLabLocalModel requires TRAMAI_ENABLE_LOCAL_MODEL_BENCHMARK=true."
             )
             logger.lifecycle(
                 "Set it and ensure a local OpenAI-compatible endpoint is running."

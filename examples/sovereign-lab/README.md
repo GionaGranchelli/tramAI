@@ -58,6 +58,8 @@ examples/sovereign-lab/local-model-smoke.sh
 
 The test verifies that the sovereign-lab profile can invoke the configured `local-lab-provider` against a real local model endpoint.
 
+For optional latency diagnostics, run `examples/sovereign-lab/local-model-benchmark.sh`. The benchmark is operator-triggered and not part of CI.
+
 For reproducible demo, grant, or enterprise evidence capture, follow [EVIDENCE.md](./EVIDENCE.md).
 
 ---
