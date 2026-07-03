@@ -184,7 +184,7 @@ The smoke test verifies:
 - `base-url` contains `localhost` (not a cloud endpoint)
 - No real LLM call is made during smoke — the provider URL points to an unused localhost endpoint
 
-Expected: `BUILD SUCCESSFUL` with zero-egress confirmation in logs.
+Expected: `BUILD SUCCESSFUL` and `verifySovereignLabRuntimeSmoke: sovereign lab runtime smoke tests passed.`
 
 Also verify the lab profile YAML lists only local providers (`local-lab-provider`, `deterministic-local-provider`) in `allowed-providers`.
 
