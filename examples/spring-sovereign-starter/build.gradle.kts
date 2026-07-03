@@ -49,6 +49,9 @@ dependencies {
     // OpenAI provider (for sovereign-lab local model endpoint)
     implementation(project(":tramai-openai"))
 
+    // Auto-configure OpenAI-compatible providers from tramai.providers YAML
+    implementation(project(":tramai-spring-boot-starter-local-provider-openai"))
+
     // Spring Boot
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.jetbrains.kotlin:kotlin-reflect")

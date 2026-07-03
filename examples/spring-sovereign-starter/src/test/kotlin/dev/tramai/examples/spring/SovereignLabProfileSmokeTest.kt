@@ -1,7 +1,6 @@
 package dev.tramai.examples.spring
 
 import com.zaxxer.hikari.HikariDataSource
-import dev.tramai.openai.OpenAiCompatibleProvider
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Tag
@@ -27,7 +26,11 @@ import javax.sql.DataSource
  * - JDBC encryption key setup
  *
  * Does NOT require a real local model endpoint — the local provider URL
- * points to a non-routable address so CI can verify wiring without inference.
+ * points to an unused localhost endpoint so CI can verify wiring without inference.
+ *
+ * The [dev.tramai.openai.OpenAiCompatibleProvider] bean for `local-lab-provider`
+ * is auto-configured from `tramai.providers.*` YAML by
+ * [dev.tramai.spring.provider.openai.OpenAiCompatibleProviderAutoConfiguration].
  */
 @Tag("e2e")
 @SpringBootTest(
@@ -88,7 +91,8 @@ class SovereignLabProfileSmokeTest {
     }
 
     @Test
-    fun `local provider config is present and points to localhost`() {
+    fun `local provider config is present and auto-configured as Spring bean`() {
+        // Property binding
         assertThat(env.getProperty("tramai.providers.local-lab-provider.type"))
             .describedAs("Local provider type must be openai")
             .isEqualTo("openai")
@@ -98,6 +102,15 @@ class SovereignLabProfileSmokeTest {
         assertThat(env.getProperty("tramai.providers.local-lab-provider.model"))
             .describedAs("Local provider model must be set")
             .isEqualTo("test-local-model")
+
+        // Provider bean created by OpenAiCompatibleProviderAutoConfiguration
+        val provider = context.getBean(dev.tramai.openai.OpenAiCompatibleProvider::class.java)
+        assertThat(provider)
+            .describedAs("Local OpenAI provider must be auto-configured as a Spring bean")
+            .isNotNull
+        assertThat(provider.providerId())
+            .describedAs("Provider name must match the YAML key")
+            .isEqualTo("local-lab-provider")
     }
 }
 
@@ -106,17 +119,16 @@ class SovereignLabProfileSmokeTest {
  * 1. Starts embedded PostgreSQL
  * 2. Creates the encryption key file and sets key-file property
  * 3. Registers a [HikariDataSource] bean pointing at the embedded PG
- * 4. Registers a [dev.tramai.core.provider.ModelProvider] bean for `local-lab-provider`
  *
- * We register DataSource and ModelProvider as singletons in the BeanFactory
- * because:
- * - [SovereignJdbcPersistenceAutoConfiguration] evaluates
- *   @ConditionalOnMissingBean(DataSource::class) before DataSourceAutoConfiguration
- *   creates the DataSource from properties, so we must provide the bean directly.
- * - The sovereign-lab YAML's `tramai.providers.local-lab-provider` is a free-form
- *   property not mapped by [dev.tramai.spring.TramaiProperties.Providers], so no
- *   ModelProvider bean is auto-created. We register one here explicitly so the
- *   sovereign runtime's @ConditionalOnBean(ModelProvider::class) condition passes.
+ * We register DataSource as a singleton in the BeanFactory because
+ * [SovereignJdbcPersistenceAutoConfiguration] evaluates
+ * @ConditionalOnMissingBean(DataSource::class) before DataSourceAutoConfiguration
+ * creates the DataSource from properties, so we must provide the bean directly.
+ *
+ * The [dev.tramai.openai.OpenAiCompatibleProvider] for `local-lab-provider`
+ * is now auto-configured from YAML by
+ * [dev.tramai.spring.provider.openai.OpenAiCompatibleProviderAutoConfiguration]
+ * — no manual registration needed.
  */
 class LabProfileInitializer : ApplicationContextInitializer<ConfigurableApplicationContext> {
     override fun initialize(ctx: ConfigurableApplicationContext) {
@@ -146,16 +158,6 @@ class LabProfileInitializer : ApplicationContextInitializer<ConfigurableApplicat
         (ctx.beanFactory as? org.springframework.beans.factory.support.DefaultSingletonBeanRegistry)
             ?.registerDisposableBean("dataSource",
                 org.springframework.beans.factory.DisposableBean { ds.close() })
-
-        // Register a ModelProvider bean for local-lab-provider so the
-        // sovereign runtime's @ConditionalOnBean(ModelProvider::class) passes
-        // and all allowed providers are registered.
-        val localProvider = OpenAiCompatibleProvider.bearerToken(
-            bearerToken = "test-local-key",
-            baseUrl = "http://localhost:9999/v1",
-            providerName = "local-lab-provider",
-        )
-        ctx.beanFactory.registerSingleton("localLabModelProvider", localProvider)
 
         // Set the key-file property so SovereignJdbcPersistenceAutoConfiguration
         // can load the encryption key.
