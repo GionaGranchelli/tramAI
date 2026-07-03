@@ -12,6 +12,7 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
+import org.springframework.core.env.Environment
 import org.springframework.test.context.ContextConfiguration
 
 /**
@@ -63,12 +64,21 @@ class SovereignLabLocalModelInvocationTest {
     @Autowired
     private lateinit var context: ApplicationContext
 
+    @Autowired
+    private lateinit var env: Environment
+
     @Test
     fun `invokes local OpenAI-compatible model through sovereign lab provider`() = runBlocking {
         val provider = context.getBean(OpenAiCompatibleProvider::class.java)
 
+        val model = requireNotNull(
+            env.getProperty("tramai.providers.local-lab-provider.model"),
+        ) {
+            "tramai.providers.local-lab-provider.model must be configured"
+        }
+
         val request = ModelRequest(
-            model = System.getenv("TRAMAI_LOCAL_MODEL") ?: "qwen2.5:7b",
+            model = model,
             messages = listOf(
                 Message(
                     role = MessageRole.USER,
