@@ -11,3 +11,4 @@ Copy this entire folder and fill in the files for your evidence capture session.
 | `approval-flow.md` | Claim submission, inbox, decision proof |
 | `restart-proof.md` | Before/after restart state persistence |
 | `no-cloud-proof.md` | Zero-egress verification |
+| `benchmark.md` | Local model benchmark latency diagnostics |

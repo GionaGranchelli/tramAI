@@ -190,6 +190,36 @@ Also verify the lab profile YAML lists only local providers (`local-lab-provider
 
 ---
 
+## Optional Local Model Benchmark
+
+This benchmark is not part of CI and does not define production performance thresholds. It captures diagnostic latency information for the local machine, model, and endpoint used in this evidence session.
+
+```bash
+export TRAMAI_ENABLE_LOCAL_MODEL_BENCHMARK=true
+export TRAMAI_LOCAL_BASE_URL=http://localhost:11434/v1
+export TRAMAI_LOCAL_API_KEY=local-dev
+export TRAMAI_LOCAL_MODEL=qwen2.5:7b
+export TRAMAI_LOCAL_BENCHMARK_WARMUP=1
+export TRAMAI_LOCAL_BENCHMARK_CALLS=3
+
+./gradlew benchmarkSovereignLabLocalModel
+```
+
+**Expected output:**
+
+```
+BUILD SUCCESSFUL
+Sovereign lab local-model benchmark report: ...
+```
+
+Attach the benchmark report to your evidence pack:
+
+```
+examples/spring-sovereign-starter/build/reports/sovereign-lab/local-model-benchmark/benchmark.json
+```
+
+---
+
 ## Evidence Template
 
 Use the files under `evidence-template/` to record each capture session:
