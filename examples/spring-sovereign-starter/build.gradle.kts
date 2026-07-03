@@ -69,7 +69,7 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform {
-        excludeTags("e2e")
+        excludeTags("e2e", "local-model")
     }
     testLogging {
         showStandardStreams = true
@@ -86,6 +86,30 @@ val e2eTest by tasks.registering(Test::class) {
 
     useJUnitPlatform {
         includeTags("e2e")
+        excludeTags("local-model")
+    }
+
+    testLogging {
+        showStandardStreams = true
+        events("passed", "skipped", "failed")
+    }
+
+    shouldRunAfter(tasks.test)
+}
+
+val localModelTest by tasks.registering(Test::class) {
+    description = "Runs opt-in local model tests against a real OpenAI-compatible endpoint."
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+
+    useJUnitPlatform {
+        includeTags("local-model")
+    }
+
+    onlyIf {
+        System.getenv("TRAMAI_ENABLE_LOCAL_MODEL_TEST") == "true"
     }
 
     testLogging {

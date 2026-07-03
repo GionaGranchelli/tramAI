@@ -2991,6 +2991,28 @@ tasks.register("verifySovereignLabRuntimeSmoke") {
 }
 
 // ──────────────────────────────────────────────
+// Task: verifySovereignLabLocalModel
+// ──────────────────────────────────────────────
+
+tasks.register("verifySovereignLabLocalModel") {
+    group = "verification"
+    description = "Runs the opt-in sovereign lab local-model invocation proof (requires a real local OpenAI-compatible endpoint)."
+
+    dependsOn(":examples:spring-sovereign-starter:localModelTest")
+
+    doFirst {
+        if (System.getenv("TRAMAI_ENABLE_LOCAL_MODEL_TEST") != "true") {
+            logger.lifecycle(
+                "verifySovereignLabLocalModel requires TRAMAI_ENABLE_LOCAL_MODEL_TEST=true."
+            )
+            logger.lifecycle(
+                "Set it and ensure a local OpenAI-compatible endpoint is running."
+            )
+        }
+    }
+}
+
+// ──────────────────────────────────────────────
 // Task: verifySovereignRuntimeClosure
 // ──────────────────────────────────────────────
 
