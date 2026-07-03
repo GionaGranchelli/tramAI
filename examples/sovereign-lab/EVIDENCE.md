@@ -58,7 +58,6 @@ export TRAMAI_LOCAL_MODEL=qwen2.5:7b
 
 ```
 BUILD SUCCESSFUL
-verifySovereignLabLocalModel: local model invocation proof passed.
 SovereignLabLocalModelInvocationTest > invokes local OpenAI-compatible model through sovereign lab provider PASSED
 ```
 
