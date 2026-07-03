@@ -2951,6 +2951,37 @@ tasks.register("verifySovereignLabProfile") {
         require(labText.contains("no cloud", ignoreCase = true) || labText.contains("zero egress", ignoreCase = true)) {
             "Sovereign lab README must explain no-cloud / zero-egress intent."
         }
+        require(labText.contains("[EVIDENCE.md]")) {
+            "Sovereign lab README must link to the evidence capture guide (EVIDENCE.md)."
+        }
+
+        val evidence = file("examples/sovereign-lab/EVIDENCE.md")
+        require(evidence.exists()) {
+            "Missing sovereign lab evidence capture guide at ${evidence.absolutePath}"
+        }
+        val evidenceText = evidence.readText()
+        require(evidenceText.contains("verifySovereignLabLocalModel")) {
+            "Sovereign lab evidence guide must reference verifySovereignLabLocalModel."
+        }
+        require(evidenceText.contains("local-lab-provider")) {
+            "Sovereign lab evidence guide must reference local-lab-provider."
+        }
+        require(evidenceText.contains("TRAMAI_LOCAL_BASE_URL")) {
+            "Sovereign lab evidence guide must reference TRAMAI_LOCAL_BASE_URL."
+        }
+        require(evidenceText.contains("SuspendedForApproval")) {
+            "Sovereign lab evidence guide must reference SuspendedForApproval."
+        }
+        require(evidenceText.contains("restart", ignoreCase = true)) {
+            "Sovereign lab evidence guide must explain restart durability proof."
+        }
+        require(
+            evidenceText.contains("no cloud", ignoreCase = true) ||
+            evidenceText.contains("zero egress", ignoreCase = true) ||
+            evidenceText.contains("No Cloud", ignoreCase = true),
+        ) {
+            "Sovereign lab evidence guide must explain no-cloud / zero-egress proof."
+        }
 
         logger.lifecycle("verifySovereignLabProfile: all sovereign lab profile checks passed.")
     }
