@@ -38,6 +38,21 @@ def fail(message: str) -> None:
     print(f"Evidence bundle verification failed: {message}", file=sys.stderr)
     sys.exit(1)
 
+def require_inside_bundle(candidate: pathlib.Path, relative: str) -> None:
+    try:
+        candidate.relative_to(bundle_dir)
+    except ValueError:
+        fail(f"path escapes bundle directory: {relative}")
+
+def file_sha256_and_size(path: pathlib.Path) -> tuple[str, int]:
+    hasher = hashlib.sha256()
+    size = 0
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            size += len(chunk)
+            hasher.update(chunk)
+    return hasher.hexdigest(), size
+
 try:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 except Exception as exc:
@@ -77,8 +92,7 @@ for relative in required_files:
     if os.path.isabs(relative) or ".." in pathlib.PurePosixPath(relative).parts:
         fail(f"requiredFiles entry must be a safe relative path: {relative}")
     candidate = (bundle_dir / relative).resolve()
-    if not str(candidate).startswith(str(bundle_dir)):
-        fail(f"requiredFiles entry escapes bundle directory: {relative}")
+    require_inside_bundle(candidate, relative)
     if not candidate.exists():
         fail(f"required file missing: {relative}")
 
@@ -107,6 +121,9 @@ for entry in files:
     if os.path.isabs(path) or ".." in pathlib.PurePosixPath(path).parts:
         fail(f"files[].path must be a safe relative path: {path}")
 
+    if path in files_by_path:
+        fail(f"duplicate files metadata entry for path: {path}")
+
     files_by_path[path] = entry
 
 for relative in required_files:
@@ -117,14 +134,12 @@ for relative in required_files:
         fail(f"files metadata missing for required file: {relative}")
 
     candidate = (bundle_dir / relative).resolve()
-    if not str(candidate).startswith(str(bundle_dir)):
-        fail(f"files entry escapes bundle directory: {relative}")
+    require_inside_bundle(candidate, relative)
+
     if not candidate.is_file():
         fail(f"files entry is not a file: {relative}")
 
-    content = candidate.read_bytes()
-    actual_sha256 = hashlib.sha256(content).hexdigest()
-    actual_size = len(content)
+    actual_sha256, actual_size = file_sha256_and_size(candidate)
 
     expected = files_by_path[relative]
     if expected["sha256"] != actual_sha256:
