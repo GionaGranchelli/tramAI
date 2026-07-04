@@ -37,3 +37,54 @@ touch "$OUT_DIR/reports/.gitkeep"
 
 echo "Created sovereign lab evidence bundle:"
 echo "$OUT_DIR"
+
+REQUIRED_FILES=(
+  "README.md"
+  "MANIFEST.md"
+  "command-log.md"
+  "environment.md"
+  "run-log.md"
+  "approval-flow.md"
+  "restart-proof.md"
+  "jdbc-persistence.md"
+  "no-cloud-proof.md"
+  "benchmark.md"
+  "reports/.gitkeep"
+)
+
+GIT_COMMIT="$(git -C "$ROOT_DIR/../.." rev-parse HEAD 2>/dev/null || echo "unknown")"
+GIT_BRANCH="$(git -C "$ROOT_DIR/../.." rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
+
+cat > "$OUT_DIR/manifest.json" <<EOF
+{
+  "schemaVersion": 1,
+  "bundleType": "sovereign-lab-evidence-bundle",
+  "createdUtc": "$TIMESTAMP",
+  "generator": "examples/sovereign-lab/create-evidence-bundle.sh",
+  "repository": {
+    "commit": "$GIT_COMMIT",
+    "branch": "$GIT_BRANCH"
+  },
+  "claimBoundary": {
+    "localEvidenceScaffold": true,
+    "certifiesProductionReadiness": false,
+    "definesPerformanceGuarantees": false,
+    "runsLocalModel": false,
+    "runsBenchmark": false,
+    "validatesEvidenceTruth": false
+  },
+  "requiredFiles": [
+    "README.md",
+    "MANIFEST.md",
+    "command-log.md",
+    "environment.md",
+    "run-log.md",
+    "approval-flow.md",
+    "restart-proof.md",
+    "jdbc-persistence.md",
+    "no-cloud-proof.md",
+    "benchmark.md",
+    "reports/.gitkeep"
+  ]
+}
+EOF

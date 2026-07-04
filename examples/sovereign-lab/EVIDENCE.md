@@ -38,6 +38,17 @@ cp examples/spring-sovereign-starter/build/reports/sovereign-lab/local-model-ben
 
 The bundle is a local evidence scaffold. It does not define production performance thresholds, cloud comparisons, or regulatory certification.
 
+The generated bundle also includes **manifest.json** — machine-readable metadata for reviewers and automation. It records:
+
+- manifest schema version
+- bundle type
+- generation timestamp
+- repository commit and branch
+- required evidence files
+- claim-boundary flags
+
+The manifest does not certify the evidence, run local models, run benchmarks, or validate production readiness.
+
 ---
 
 ## Verify Evidence Bundle Scaffold

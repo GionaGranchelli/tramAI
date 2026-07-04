@@ -76,6 +76,8 @@ To verify the bundle scaffold layout:
 ./gradlew verifySovereignLabEvidenceBundle
 ```
 
+Each generated bundle includes a machine-readable **manifest.json** describing the bundle type, source commit, required files, and claim boundaries.
+
 ---
 
 ## Prerequisites
