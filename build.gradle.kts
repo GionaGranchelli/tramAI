@@ -3184,6 +3184,41 @@ tasks.register("verifySovereignLabEvidenceBundle") {
                 }
             }
 
+        // ── standalone verifier ──
+
+        val verifier = file("examples/sovereign-lab/verify-evidence-bundle.sh")
+        require(verifier.exists()) {
+            "Missing evidence bundle verifier at ${verifier.absolutePath}"
+        }
+
+        val cleanProcess = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
+            .inheritIO()
+            .start()
+        val cleanExitCode = cleanProcess.waitFor()
+        require(cleanExitCode == 0) {
+            "Evidence bundle verifier rejected a clean generated bundle (exit $cleanExitCode)."
+        }
+
+        // ── tamper detection ──
+
+        val tamperedFile = bundle.resolve("command-log.md")
+        tamperedFile.appendText("\nTampered content for verification test.\n")
+
+        val tamperedProcess = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val tamperedOutput = tamperedProcess.inputStream.bufferedReader().readText()
+        val tamperedExitCode = tamperedProcess.waitFor()
+        require(tamperedExitCode != 0) {
+            "Evidence bundle verifier must fail after a required file is tampered with."
+        }
+        require(
+            tamperedOutput.contains("sha256 mismatch") ||
+            tamperedOutput.contains("sizeBytes mismatch")
+        ) {
+            "Evidence bundle verifier failure should explain digest or size mismatch. Output: $tamperedOutput"
+        }
+
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
     }
 }
