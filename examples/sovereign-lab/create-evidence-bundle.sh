@@ -102,6 +102,64 @@ EOF
 
   cat <<EOF
 
+  ],
+  "files": [
+EOF
+
+  sha256_file() {
+    local file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum "$file" | awk '{print $1}'
+      return
+    fi
+    if command -v shasum >/dev/null 2>&1; then
+      shasum -a 256 "$file" | awk '{print $1}'
+      return
+    fi
+    echo "Missing sha256sum or shasum; cannot compute digest for $file" >&2
+    exit 1
+  }
+
+  size_bytes() {
+    local file="$1"
+    if stat -c%s "$file" >/dev/null 2>&1; then
+      stat -c%s "$file"
+      return
+    fi
+    if stat -f%z "$file" >/dev/null 2>&1; then
+      stat -f%z "$file"
+      return
+    fi
+    echo "Unable to determine size for $file" >&2
+    exit 1
+  }
+
+  file_first=true
+  for required_file in "${REQUIRED_FILES[@]}"; do
+    if [[ "$required_file" == "manifest.json" ]]; then
+      continue
+    fi
+    file_path="$OUT_DIR/$required_file"
+    if [[ ! -f "$file_path" ]]; then
+      echo "Required evidence file missing before manifest generation: $required_file" >&2
+      exit 1
+    fi
+    digest="$(sha256_file "$file_path")"
+    size="$(size_bytes "$file_path")"
+    if [[ "$file_first" == true ]]; then
+      file_first=false
+    else
+      printf ',\n'
+    fi
+    printf '    {\n'
+    printf '      "path": "%s",\n' "$(json_escape "$required_file")"
+    printf '      "sha256": "%s",\n' "$(json_escape "$digest")"
+    printf '      "sizeBytes": %s\n' "$size"
+    printf '    }'
+  done
+
+  cat <<EOF
+
   ]
 }
 EOF
