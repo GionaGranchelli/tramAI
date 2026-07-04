@@ -8,7 +8,13 @@ OUT_DIR="$ROOT_DIR/build/evidence-bundles/$TIMESTAMP"
 
 mkdir -p "$OUT_DIR/reports"
 
-cp "$TEMPLATE_DIR"/*.md "$OUT_DIR/"
+for template in "$TEMPLATE_DIR"/*.md; do
+  name="$(basename "$template")"
+  if [[ "$name" == "README.md" ]]; then
+    continue
+  fi
+  cp "$template" "$OUT_DIR/$name"
+done
 
 touch "$OUT_DIR/reports/.gitkeep"
 
