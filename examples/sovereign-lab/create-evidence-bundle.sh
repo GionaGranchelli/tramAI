@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TIMESTAMP="$(date -u +"%Y-%m-%dT%H%M%SZ")"
+TIMESTAMP="${TRAMAI_EVIDENCE_BUNDLE_TIMESTAMP:-$(date -u +"%Y-%m-%dT%H%M%SZ")}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_DIR="$ROOT_DIR/evidence-template"
 OUT_DIR="$ROOT_DIR/build/evidence-bundles/$TIMESTAMP"
