@@ -3078,6 +3078,7 @@ tasks.register("verifySovereignLabEvidenceBundle") {
             "run-log.md",
             "approval-flow.md",
             "restart-proof.md",
+            "jdbc-persistence.md",
             "no-cloud-proof.md",
             "benchmark.md",
             "reports/.gitkeep",

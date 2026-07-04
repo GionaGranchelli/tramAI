@@ -2,6 +2,12 @@
 set -euo pipefail
 
 TIMESTAMP="${TRAMAI_EVIDENCE_BUNDLE_TIMESTAMP:-$(date -u +"%Y-%m-%dT%H%M%SZ")}"
+
+if [[ ! "$TIMESTAMP" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "Invalid TRAMAI_EVIDENCE_BUNDLE_TIMESTAMP: $TIMESTAMP" >&2
+  echo "Use only letters, numbers, dot, underscore, or hyphen." >&2
+  exit 1
+fi
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_DIR="$ROOT_DIR/evidence-template"
 OUT_DIR="$ROOT_DIR/build/evidence-bundles/$TIMESTAMP"
