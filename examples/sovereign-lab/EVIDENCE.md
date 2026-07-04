@@ -40,6 +40,18 @@ The bundle is a local evidence scaffold. It does not define production performan
 
 ---
 
+## Verify Evidence Bundle Scaffold
+
+To verify that the evidence bundle helper still creates the expected local structure:
+
+```bash
+./gradlew verifySovereignLabEvidenceBundle
+```
+
+This verification only checks the scaffold layout and claim-boundary text. It does not run a local model, benchmark, database workflow, or production certification check.
+
+---
+
 ## Evidence Checklist
 
 - [ ] Environment details captured

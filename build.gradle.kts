@@ -3036,6 +3036,85 @@ tasks.register("verifySovereignLabProfile") {
 }
 
 // ──────────────────────────────────────────────
+// Task: verifySovereignLabEvidenceBundle
+// ──────────────────────────────────────────────
+
+tasks.register("verifySovereignLabEvidenceBundle") {
+    group = "verification"
+    description = "Verifies the sovereign lab evidence bundle scaffold."
+
+    dependsOn("verifySovereignLabProfile")
+
+    doLast {
+        val script = file("examples/sovereign-lab/create-evidence-bundle.sh")
+        require(script.exists()) {
+            "Missing evidence bundle script at ${script.absolutePath}"
+        }
+
+        val bundleRoot = file("examples/sovereign-lab/build/evidence-bundles")
+        val bundle = bundleRoot.resolve("test-bundle")
+        if (bundle.exists()) {
+            bundle.deleteRecursively()
+        }
+
+        val pb = ProcessBuilder("bash", script.absolutePath)
+        pb.environment()["TRAMAI_EVIDENCE_BUNDLE_TIMESTAMP"] = "test-bundle"
+        pb.inheritIO()
+        val process = pb.start()
+        val exitCode = process.waitFor()
+        require(exitCode == 0) {
+            "Evidence bundle script exited with code $exitCode"
+        }
+
+        require(bundle.exists()) {
+            "Evidence bundle was not created at ${bundle.absolutePath}"
+        }
+
+        val requiredFiles = listOf(
+            "README.md",
+            "MANIFEST.md",
+            "command-log.md",
+            "environment.md",
+            "run-log.md",
+            "approval-flow.md",
+            "restart-proof.md",
+            "jdbc-persistence.md",
+            "no-cloud-proof.md",
+            "benchmark.md",
+            "reports/.gitkeep",
+        )
+
+        requiredFiles.forEach { relativePath ->
+            val candidate = bundle.resolve(relativePath)
+            require(candidate.exists()) {
+                "Generated evidence bundle is missing $relativePath at ${candidate.absolutePath}"
+            }
+        }
+
+        val readmeText = bundle.resolve("README.md").readText()
+        require(readmeText.contains("Sovereign Lab Evidence Bundle")) {
+            "Generated README.md must be the bundle README, not the template README."
+        }
+        require(!readmeText.contains("Copy this entire folder", ignoreCase = true)) {
+            "Generated README.md must not be copied from evidence-template/README.md."
+        }
+        require(readmeText.contains("does not certify", ignoreCase = true)) {
+            "Generated README.md must avoid certification claims."
+        }
+        require(readmeText.contains("performance guarantees", ignoreCase = true)) {
+            "Generated README.md must avoid production performance guarantee claims."
+        }
+
+        val manifestText = bundle.resolve("MANIFEST.md").readText()
+        require(manifestText.contains("This bundle does not certify", ignoreCase = true)) {
+            "MANIFEST.md must retain non-certification language."
+        }
+
+        logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
+    }
+}
+
+// ──────────────────────────────────────────────
 // Task: verifySovereignLabRuntimeSmoke
 // ──────────────────────────────────────────────
 

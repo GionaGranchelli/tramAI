@@ -70,6 +70,12 @@ examples/sovereign-lab/create-evidence-bundle.sh
 
 See [EVIDENCE.md](./EVIDENCE.md#create-an-evidence-bundle) for details.
 
+To verify the bundle scaffold layout:
+
+```bash
+./gradlew verifySovereignLabEvidenceBundle
+```
+
 ---
 
 ## Prerequisites
