@@ -6,6 +6,8 @@ Copy this entire folder and fill in the files for your evidence capture session.
 
 | File | Purpose |
 |------|---------|
+| `MANIFEST.md` | Bundle identity, commit SHA, operator, machine, scope |
+| `command-log.md` | Commands run and results captured |
 | `environment.md` | Machine details, Java version, Gradle version, local model runtime |
 | `run-log.md` | Terminal commands run and their full output |
 | `approval-flow.md` | Claim submission, inbox, decision proof |

@@ -13,6 +13,33 @@ reproducibility.
 
 ---
 
+## Create an Evidence Bundle
+
+Create a timestamped local evidence bundle:
+
+```bash
+examples/sovereign-lab/create-evidence-bundle.sh
+```
+
+This creates:
+
+```
+examples/sovereign-lab/build/evidence-bundles/<timestamp>/
+```
+
+Use the generated files to record command results, attach benchmark reports, and document the local environment.
+
+To attach the optional benchmark report after running:
+
+```bash
+cp examples/spring-sovereign-starter/build/reports/sovereign-lab/local-model-benchmark/benchmark.json \
+  examples/sovereign-lab/build/evidence-bundles/<timestamp>/reports/benchmark.json
+```
+
+The bundle is a local evidence scaffold. It does not define production performance thresholds, cloud comparisons, or regulatory certification.
+
+---
+
 ## Evidence Checklist
 
 - [ ] Environment details captured
