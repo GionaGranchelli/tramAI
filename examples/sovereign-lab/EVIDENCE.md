@@ -49,6 +49,8 @@ The generated bundle also includes **manifest.json** — machine-readable metada
 
 The manifest does not certify the evidence, run local models, run benchmarks, or validate production readiness.
 
+The generated manifest also includes **SHA-256 file digests** and file sizes for the generated evidence scaffold files. These digests make the bundle tamper-evident after generation. They do not prove that the evidence is complete, correct, production-ready, or certified.
+
 ---
 
 ## Verify Evidence Bundle Scaffold

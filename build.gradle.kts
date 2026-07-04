@@ -3146,6 +3146,44 @@ tasks.register("verifySovereignLabEvidenceBundle") {
                 }
             }
 
+        // ── manifest.json file digests ──
+
+        require(jsonManifestText.contains("\"files\": [")) {
+            "manifest.json must include file integrity metadata."
+        }
+        require(jsonManifestText.contains("\"sha256\"")) {
+            "manifest.json must include SHA-256 digests."
+        }
+        require(jsonManifestText.contains("\"sizeBytes\"")) {
+            "manifest.json must include file sizes."
+        }
+
+        // Recompute SHA-256 digests and verify they match
+        requiredFiles
+            .filterNot { it == "manifest.json" }
+            .forEach { required ->
+                val candidate = bundle.resolve(required)
+                require(candidate.exists()) {
+                    "Cannot recompute digest for missing file $required."
+                }
+                val digest = candidate.inputStream().use { input ->
+                    val md = java.security.MessageDigest.getInstance("SHA-256")
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        md.update(buffer, 0, read)
+                    }
+                    md.digest().joinToString("") { "%02x".format(it) }
+                }
+                require(jsonManifestText.contains("\"sha256\": \"$digest\"")) {
+                    "manifest.json SHA-256 for $required does not match generated file."
+                }
+                require(jsonManifestText.contains("\"sizeBytes\": ${candidate.length()}")) {
+                    "manifest.json sizeBytes for $required does not match generated file."
+                }
+            }
+
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
     }
 }
