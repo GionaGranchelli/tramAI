@@ -37,3 +37,72 @@ touch "$OUT_DIR/reports/.gitkeep"
 
 echo "Created sovereign lab evidence bundle:"
 echo "$OUT_DIR"
+
+REQUIRED_FILES=(
+  "README.md"
+  "MANIFEST.md"
+  "command-log.md"
+  "environment.md"
+  "run-log.md"
+  "approval-flow.md"
+  "restart-proof.md"
+  "jdbc-persistence.md"
+  "no-cloud-proof.md"
+  "benchmark.md"
+  "reports/.gitkeep"
+)
+
+json_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "$value"
+}
+
+GIT_COMMIT="$(git -C "$ROOT_DIR/../.." rev-parse HEAD 2>/dev/null || echo "unknown")"
+GIT_BRANCH="$(git -C "$ROOT_DIR/../.." rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
+GIT_COMMIT_JSON="$(json_escape "$GIT_COMMIT")"
+GIT_BRANCH_JSON="$(json_escape "$GIT_BRANCH")"
+TIMESTAMP_JSON="$(json_escape "$TIMESTAMP")"
+
+{
+  cat <<EOF
+{
+  "schemaVersion": 1,
+  "bundleType": "sovereign-lab-evidence-bundle",
+  "createdUtc": "$TIMESTAMP_JSON",
+  "generator": "examples/sovereign-lab/create-evidence-bundle.sh",
+  "repository": {
+    "commit": "$GIT_COMMIT_JSON",
+    "branch": "$GIT_BRANCH_JSON"
+  },
+  "claimBoundary": {
+    "localEvidenceScaffold": true,
+    "certifiesProductionReadiness": false,
+    "definesPerformanceGuarantees": false,
+    "runsLocalModel": false,
+    "runsBenchmark": false,
+    "validatesEvidenceTruth": false
+  },
+  "requiredFiles": [
+EOF
+
+  first=true
+  for required_file in "${REQUIRED_FILES[@]}"; do
+    if [[ "$first" == true ]]; then
+      first=false
+    else
+      printf ',\n'
+    fi
+    printf '    "%s"' "$(json_escape "$required_file")"
+  done
+
+  cat <<EOF
+
+  ]
+}
+EOF
+} > "$OUT_DIR/manifest.json"

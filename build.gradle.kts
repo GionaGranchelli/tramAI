@@ -3072,6 +3072,7 @@ tasks.register("verifySovereignLabEvidenceBundle") {
 
         val requiredFiles = listOf(
             "README.md",
+            "manifest.json",
             "MANIFEST.md",
             "command-log.md",
             "environment.md",
@@ -3109,6 +3110,41 @@ tasks.register("verifySovereignLabEvidenceBundle") {
         require(manifestText.contains("This bundle does not certify", ignoreCase = true)) {
             "MANIFEST.md must retain non-certification language."
         }
+
+        // ── manifest.json checks ──
+
+        val jsonManifestText = bundle.resolve("manifest.json").readText()
+        require(jsonManifestText.contains("\"schemaVersion\": 1")) {
+            "manifest.json must declare schemaVersion 1."
+        }
+        require(jsonManifestText.contains("\"bundleType\": \"sovereign-lab-evidence-bundle\"")) {
+            "manifest.json must declare the sovereign lab evidence bundle type."
+        }
+        require(jsonManifestText.contains("\"localEvidenceScaffold\": true")) {
+            "manifest.json must declare this as a local evidence scaffold."
+        }
+        require(jsonManifestText.contains("\"certifiesProductionReadiness\": false")) {
+            "manifest.json must not imply production certification."
+        }
+        require(jsonManifestText.contains("\"definesPerformanceGuarantees\": false")) {
+            "manifest.json must not imply performance guarantees."
+        }
+        require(jsonManifestText.contains("\"runsLocalModel\": false")) {
+            "manifest.json must state that bundle verification does not run a local model."
+        }
+        require(jsonManifestText.contains("\"runsBenchmark\": false")) {
+            "manifest.json must state that bundle verification does not run benchmarks."
+        }
+        require(jsonManifestText.contains("\"validatesEvidenceTruth\": false")) {
+            "manifest.json must state that it does not validate evidence truth."
+        }
+        requiredFiles
+            .filterNot { it == "manifest.json" }
+            .forEach { required ->
+                require(jsonManifestText.contains("\"$required\"")) {
+                    "manifest.json must list required file $required."
+                }
+            }
 
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
     }
