@@ -62,6 +62,14 @@ For optional latency diagnostics, run `examples/sovereign-lab/local-model-benchm
 
 For reproducible demo, grant, or enterprise evidence capture, follow [EVIDENCE.md](./EVIDENCE.md).
 
+To create a timestamped evidence bundle with all templates and a manifest:
+
+```bash
+examples/sovereign-lab/create-evidence-bundle.sh
+```
+
+See [EVIDENCE.md](./EVIDENCE.md#create-an-evidence-bundle) for details.
+
 ---
 
 ## Prerequisites

@@ -1,33 +1,40 @@
-# Environment Details
+# Environment
 
-**Date:**
-**Machine (OS, CPU, RAM):**
+Date:
 
-## Java
+Machine:
 
-```
-Paste `java -version` output here.
-```
+Operating system:
 
-## Gradle
+CPU:
 
-```
-Paste `./gradlew --version` output here.
-```
+GPU:
 
-## Local Model Runtime
+RAM:
 
-- **Runtime:** (Ollama / llama.cpp / vLLM / LM Studio / LocalAI)
-- **Model name:**
-- **Base URL:**
+Java version:
 
-```
-Paste `ollama list` or equivalent output here.
-Paste `curl -s http://localhost:11434/v1/models` output here.
-```
+Gradle version:
 
-## Sovereign Lab Config
+Docker version:
 
-- `TRAMAI_LOCAL_BASE_URL`:
-- `TRAMAI_LOCAL_API_KEY`:
-- `TRAMAI_LOCAL_MODEL`:
+Local model runtime:
+
+Local model:
+
+Local model base URL:
+
+Database mode:
+
+Network mode:
+
+## Notes
+
+Document anything that may affect reproducibility, for example:
+
+- first model pull
+- cold start
+- memory pressure
+- laptop battery mode
+- offline mode
+- firewall or DNS blocking

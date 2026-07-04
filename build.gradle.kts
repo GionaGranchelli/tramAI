@@ -3003,6 +3003,34 @@ tasks.register("verifySovereignLabProfile") {
             "Missing sovereign lab benchmark evidence template at ${benchmarkTemplate.absolutePath}"
         }
 
+        // ── PR #143: Evidence bundle scaffold guards ──
+
+        require(evidenceText.contains("create-evidence-bundle.sh")) {
+            "Sovereign lab evidence guide must document evidence bundle creation."
+        }
+
+        val evidenceBundleScript = file("examples/sovereign-lab/create-evidence-bundle.sh")
+        require(evidenceBundleScript.exists()) {
+            "Missing sovereign lab evidence bundle helper script at ${evidenceBundleScript.absolutePath}"
+        }
+        val bundleScriptText = evidenceBundleScript.readText()
+        require(
+            bundleScriptText.contains("does not certify", ignoreCase = true) ||
+            bundleScriptText.contains("does not define production", ignoreCase = true),
+        ) {
+            "Evidence bundle helper must avoid implying certification or production guarantees."
+        }
+
+        val manifestTemplate = file("examples/sovereign-lab/evidence-template/MANIFEST.md")
+        require(manifestTemplate.exists()) {
+            "Missing sovereign lab evidence bundle manifest template at ${manifestTemplate.absolutePath}"
+        }
+
+        val commandLogTemplate = file("examples/sovereign-lab/evidence-template/command-log.md")
+        require(commandLogTemplate.exists()) {
+            "Missing sovereign lab command log evidence template at ${commandLogTemplate.absolutePath}"
+        }
+
         logger.lifecycle("verifySovereignLabProfile: all sovereign lab profile checks passed.")
     }
 }
