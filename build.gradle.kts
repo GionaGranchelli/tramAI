@@ -3272,6 +3272,47 @@ tasks.register("verifySovereignLabEvidenceBundle") {
             "Evidence bundle verifier failure after tampering should explain digest or size mismatch. Output: $tamperedAfterOutput"
         }
 
+        // ── copied reports regression ──
+
+        val reportFile = bundle.resolve("reports/generated-report.txt")
+        reportFile.parentFile.mkdirs()
+        reportFile.writeText("Generated report content\n")
+
+        // Re-finalize with new report
+        val reFinalizeProcess = ProcessBuilder("bash", finalizer.absolutePath, bundle.absolutePath)
+            .inheritIO()
+            .start()
+        val reFinalizeExitCode = reFinalizeProcess.waitFor()
+        require(reFinalizeExitCode == 0) {
+            "Evidence bundle finalizer exited with code $reFinalizeExitCode after adding report."
+        }
+
+        // Finalized bundle with copied report must pass
+        val withReportProcess = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
+            .inheritIO()
+            .start()
+        val withReportExitCode = withReportProcess.waitFor()
+        require(withReportExitCode == 0) {
+            "Evidence bundle verifier rejected a finalized bundle with a copied report."
+        }
+
+        // Tampering the copied report must fail
+        reportFile.appendText("tampered report\n")
+        val tamperedReportProcess = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val tamperedReportOutput = tamperedReportProcess.inputStream.bufferedReader().readText()
+        val tamperedReportExitCode = tamperedReportProcess.waitFor()
+        require(tamperedReportExitCode != 0) {
+            "Evidence bundle verifier must fail after a copied report is tampered with."
+        }
+        require(
+            tamperedReportOutput.contains("sha256 mismatch") ||
+            tamperedReportOutput.contains("sizeBytes mismatch")
+        ) {
+            "Evidence bundle verifier failure for copied report should explain digest or size mismatch. Output: $tamperedReportOutput"
+        }
+
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
     }
 }

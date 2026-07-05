@@ -133,19 +133,21 @@ for relative in required_files:
     if relative not in files_by_path:
         fail(f"files metadata missing for required file: {relative}")
 
-    candidate = (bundle_dir / relative).resolve()
-    require_inside_bundle(candidate, relative)
+# Verify every files[] entry matches actual file contents
+for path, entry in files_by_path.items():
+    candidate = (bundle_dir / path).resolve()
+    require_inside_bundle(candidate, path)
 
     if not candidate.is_file():
-        fail(f"files entry is not a file: {relative}")
+        fail(f"files entry is not a file: {path}")
 
     actual_sha256, actual_size = file_sha256_and_size(candidate)
 
-    expected = files_by_path[relative]
-    if expected["sha256"] != actual_sha256:
-        fail(f"sha256 mismatch for {relative}")
-    if expected["sizeBytes"] != actual_size:
-        fail(f"sizeBytes mismatch for {relative}")
+    if entry["sha256"] != actual_sha256:
+        fail(f"sha256 mismatch for {path}")
+
+    if entry["sizeBytes"] != actual_size:
+        fail(f"sizeBytes mismatch for {path}")
 
 if "manifest.json" in files_by_path:
     fail("manifest.json must not include its own digest entry")

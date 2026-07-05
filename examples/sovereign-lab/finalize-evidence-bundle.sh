@@ -65,18 +65,32 @@ if manifest.get("schemaVersion") != 1:
 if manifest.get("bundleType") != "sovereign-lab-evidence-bundle":
     fail("manifest.json must declare bundleType sovereign-lab-evidence-bundle")
 
+claim_boundary = manifest.get("claimBoundary")
+if not isinstance(claim_boundary, dict):
+    fail("manifest.json must contain claimBoundary object")
+
+expected_claims = {
+    "localEvidenceScaffold": True,
+    "certifiesProductionReadiness": False,
+    "definesPerformanceGuarantees": False,
+    "runsLocalModel": False,
+    "runsBenchmark": False,
+    "validatesEvidenceTruth": False,
+}
+
+for key, expected in expected_claims.items():
+    actual = claim_boundary.get(key)
+    if actual is not expected:
+        fail(f"claimBoundary.{key} must be {expected}, got {actual}")
+
 required_files = manifest.get("requiredFiles")
 if not isinstance(required_files, list) or not required_files:
     fail("manifest.json must contain non-empty requiredFiles array")
 
-files = []
-
+# Validate all required files exist
 for relative in required_files:
     if not isinstance(relative, str):
         fail("requiredFiles entries must be strings")
-
-    if relative == "manifest.json":
-        continue
 
     if os.path.isabs(relative) or ".." in pathlib.PurePosixPath(relative).parts:
         fail(f"requiredFiles entry must be a safe relative path: {relative}")
@@ -84,8 +98,33 @@ for relative in required_files:
     candidate = (bundle_dir / relative).resolve()
     require_inside_bundle(candidate, relative)
 
-    if not candidate.is_file():
-        fail(f"required file missing or not a file: {relative}")
+    if relative == "manifest.json":
+        if not candidate.is_file():
+            fail("required manifest.json is missing")
+        continue
+
+    if not candidate.exists():
+        fail(f"required file missing: {relative}")
+
+# Digest all bundle files except manifest.json
+def relative_bundle_files() -> list[str]:
+    paths = []
+    for path in bundle_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(bundle_dir).as_posix()
+        if relative == "manifest.json":
+            continue
+        if os.path.isabs(relative) or ".." in pathlib.PurePosixPath(relative).parts:
+            fail(f"bundle file must be a safe relative path: {relative}")
+        paths.append(relative)
+    return sorted(paths)
+
+files = []
+
+for relative in relative_bundle_files():
+    candidate = (bundle_dir / relative).resolve()
+    require_inside_bundle(candidate, relative)
 
     sha256, size_bytes = file_sha256_and_size(candidate)
 
