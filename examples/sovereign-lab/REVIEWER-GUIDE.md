@@ -6,6 +6,8 @@ It helps reviewers verify bundle structure, manifest metadata, file digests, and
 
 This guide does not certify production readiness, prove legal compliance, prove EU AI Act conformity, or replace an audit.
 
+For the full evidence chain overview, see [EVIDENCE-CHAIN.md](./EVIDENCE-CHAIN.md).
+
 ---
 
 ## 1. Reviewer Inputs

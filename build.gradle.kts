@@ -3123,6 +3123,32 @@ tasks.register("verifySovereignLabProfile") {
             }
         }
 
+        // ── PR #153: Evidence chain overview guard ──
+
+        val evidenceChain = file("examples/sovereign-lab/EVIDENCE-CHAIN.md")
+        require(evidenceChain.exists()) {
+            "Missing sovereign lab evidence chain overview at ${evidenceChain.absolutePath}"
+        }
+
+        val evidenceChainText = evidenceChain.readText()
+        listOf(
+            "create → fill → finalize → verify → readiness → review → package → extract → re-verify",
+            "create-evidence-bundle.sh",
+            "finalize-evidence-bundle.sh",
+            "verify-evidence-bundle.sh",
+            "package-evidence-bundle.sh",
+            "RELEASE-READINESS.md",
+            "REVIEWER-GUIDE.md",
+            "claimBoundary",
+            "certifiesProductionReadiness",
+            "validatesEvidenceTruth",
+            "does not certify production readiness",
+        ).forEach { required ->
+            require(evidenceChainText.contains(required)) {
+                "Sovereign lab evidence chain overview must mention $required."
+            }
+        }
+
         logger.lifecycle("verifySovereignLabProfile: all sovereign lab profile checks passed.")
     }
 }

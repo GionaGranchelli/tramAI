@@ -376,6 +376,7 @@ Copy the template folder, fill in your session details, and attach terminal outp
 
 ## Related
 
+- [EVIDENCE-CHAIN.md](./EVIDENCE-CHAIN.md) — canonical evidence chain overview
 - [README.md](./README.md) — lab profile setup and quick start
 - [RELEASE-READINESS.md](./RELEASE-READINESS.md) — release readiness checklist
 - [REVIEWER-GUIDE.md](./REVIEWER-GUIDE.md) — reviewer-facing guide for inspecting finalized bundles
