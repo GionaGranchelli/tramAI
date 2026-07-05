@@ -49,14 +49,22 @@ fi
 #   <64-hex-sha>  <archive-name>
 #   <64-hex-sha> *<archive-name>   (sha256sum -b binary mode)
 
-LINE_COUNT="$(wc -l < "$CHECKSUM" | tr -d ' ')"
+# Read exactly one line — using mapfile avoids wc -l and read -r
+# ambiguity: wc -l counts 0 for a file without trailing newline,
+# and read -r returns non-zero when there's no trailing newline.
+mapfile -t CHECKSUM_LINES < "$CHECKSUM"
 
-if [[ "$LINE_COUNT" != "1" ]]; then
+if [[ ${#CHECKSUM_LINES[@]} -eq 0 ]]; then
+  echo "Evidence archive checksum sidecar must contain a SHA-256 digest and archive filename" >&2
+  exit 1
+fi
+
+if [[ ${#CHECKSUM_LINES[@]} -ne 1 ]]; then
   echo "Evidence archive checksum sidecar must contain exactly one line: $CHECKSUM" >&2
   exit 1
 fi
 
-CHECKSUM_LINE="$(cat "$CHECKSUM")"
+CHECKSUM_LINE="${CHECKSUM_LINES[0]}"
 
 read -r EXPECTED_SHA EXPECTED_NAME EXTRA_FIELD <<< "$CHECKSUM_LINE"
 

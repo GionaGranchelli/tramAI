@@ -4082,6 +4082,33 @@ with tarfile.open(archive, "w:gz") as tar:
         writeCustomSidecar(blankSidecarArchive, "   \n")
         runArchiveVerifierExpectFail(blankSidecarArchive, "digest and archive filename")
 
+        // Positive: sidecar without trailing newline
+        val noTrailingNewlineArchive = archiveNegRoot.resolve("no-trailing-newline-sidecar.tar.gz")
+        archive.copyTo(noTrailingNewlineArchive, overwrite = true)
+        val noTrailingNewlineSha = sha256(noTrailingNewlineArchive)
+        writeCustomSidecar(
+            noTrailingNewlineArchive,
+            "$noTrailingNewlineSha  ${noTrailingNewlineArchive.name}"
+        )
+        val noTrailingNewlineProcess = ProcessBuilder("bash", archiveVerifier.absolutePath, noTrailingNewlineArchive.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val noTrailingNewlineOutput = noTrailingNewlineProcess.inputStream.bufferedReader().readText()
+        val noTrailingNewlineExit = noTrailingNewlineProcess.waitFor()
+        require(noTrailingNewlineExit == 0) {
+            "Expected sidecar without trailing newline to verify, but it failed. Output: $noTrailingNewlineOutput"
+        }
+
+        // Negative: two lines, second line has no trailing newline
+        val multilineNoFinalNewlineArchive = archiveNegRoot.resolve("multiline-no-final-newline-sidecar.tar.gz")
+        archive.copyTo(multilineNoFinalNewlineArchive, overwrite = true)
+        val multilineNoFinalNewlineSha = sha256(multilineNoFinalNewlineArchive)
+        writeCustomSidecar(
+            multilineNoFinalNewlineArchive,
+            "$multilineNoFinalNewlineSha  ${multilineNoFinalNewlineArchive.name}\n$multilineNoFinalNewlineSha  other.tar.gz"
+        )
+        runArchiveVerifierExpectFail(multilineNoFinalNewlineArchive, "exactly one line")
+
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
     }
 }
