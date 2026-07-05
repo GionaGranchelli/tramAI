@@ -3604,6 +3604,73 @@ $pythonCode
             "Verifier rejected extracted evidence bundle. Output: $extractedVerifyOutput"
         }
 
+        // ── Deterministic archive export regression ──
+
+        fun sha256(file: File): String {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
+
+        val determinismRoot = archiveRoot.resolve("determinism")
+        if (determinismRoot.exists()) determinismRoot.deleteRecursively()
+        determinismRoot.mkdirs()
+
+        // First packaging
+        val firstPackage = ProcessBuilder("bash", packager.absolutePath, bundle.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val firstPackageOutput = firstPackage.inputStream.bufferedReader().readText()
+        val firstPackageExitCode = firstPackage.waitFor()
+        require(firstPackageExitCode == 0) {
+            "First deterministic archive packaging failed. Output: $firstPackageOutput"
+        }
+
+        val firstArchive = determinismRoot.resolve("test-bundle-first.tar.gz")
+        val firstChecksum = determinismRoot.resolve("test-bundle-first.tar.gz.sha256")
+        archive.copyTo(firstArchive, overwrite = true)
+        checksum.copyTo(firstChecksum, overwrite = true)
+
+        val firstArchiveSha = sha256(firstArchive)
+        val firstChecksumText = firstChecksum.readText()
+
+        // Second packaging
+        val secondPackage = ProcessBuilder("bash", packager.absolutePath, bundle.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val secondPackageOutput = secondPackage.inputStream.bufferedReader().readText()
+        val secondPackageExitCode = secondPackage.waitFor()
+        require(secondPackageExitCode == 0) {
+            "Second deterministic archive packaging failed. Output: $secondPackageOutput"
+        }
+
+        val secondArchive = determinismRoot.resolve("test-bundle-second.tar.gz")
+        val secondChecksum = determinismRoot.resolve("test-bundle-second.tar.gz.sha256")
+        archive.copyTo(secondArchive, overwrite = true)
+        checksum.copyTo(secondChecksum, overwrite = true)
+
+        val secondArchiveSha = sha256(secondArchive)
+        val secondChecksumText = secondChecksum.readText()
+
+        require(firstArchiveSha == secondArchiveSha) {
+            "Evidence archive export is not deterministic. First SHA-256=$firstArchiveSha, second SHA-256=$secondArchiveSha"
+        }
+
+        require(firstChecksumText == secondChecksumText) {
+            "Evidence archive checksum sidecar is not deterministic. First=$firstChecksumText Second=$secondChecksumText"
+        }
+
+        require(secondChecksumText.startsWith(secondArchiveSha)) {
+            "Checksum sidecar does not match archive SHA-256. Sidecar=$secondChecksumText Archive=$secondArchiveSha"
+        }
+
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
     }
 }

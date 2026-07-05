@@ -42,6 +42,7 @@ The verifier checks:
 - file sizes match file contents
 - copied reports are included and checked
 - claim-boundary flags remain safe
+- archive export is deterministic: packaging the same finalized bundle twice produces the same archive SHA-256
 
 ---
 
