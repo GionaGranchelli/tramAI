@@ -169,3 +169,10 @@ Before treating a sovereign lab run as release-candidate evidence:
 - [ ] No production-readiness or certification claims are made.
 
 After the bundle is finalized and verified, reviewers should use [REVIEWER-GUIDE.md](./REVIEWER-GUIDE.md) to inspect the evidence files and interpret what the verified bundle does and does not prove.
+
+### Optional Handoff Checks
+
+- [ ] Optional archive export was created only after bundle verification passed.
+- [ ] Extracted archive contents were verified again before handoff.
+
+Archive export does not sign, certify, or validate evidence truth.

@@ -238,6 +238,40 @@ For instructions on verifying and interpreting a finalized evidence bundle, see:
 
 The reviewer guide explains how to run the verifier, inspect `manifest.json`, review claim-boundary flags, evaluate evidence files, and distinguish structural tamper-evidence from evidence truth, compliance, certification, or production-readiness claims.
 
+## Archive Export
+
+After finalizing and verifying a bundle, create a portable archive:
+
+```bash
+examples/sovereign-lab/package-evidence-bundle.sh \
+  examples/sovereign-lab/build/evidence-bundles/<timestamp>
+```
+
+This creates:
+
+```
+examples/sovereign-lab/build/evidence-archives/<timestamp>.tar.gz
+examples/sovereign-lab/build/evidence-archives/<timestamp>.tar.gz.sha256
+```
+
+Archive export verifies the bundle before packaging. It does not sign, certify, upload, or validate evidence truth.
+
+Validate the archive checksum:
+
+```bash
+cd examples/sovereign-lab/build/evidence-archives
+sha256sum -c <timestamp>.tar.gz.sha256
+```
+
+For example:
+
+```bash
+cd examples/sovereign-lab/build/evidence-archives
+sha256sum -c test-bundle.tar.gz.sha256
+```
+
+Archive export uses GNU tar options for deterministic CI output. On non-GNU tar systems, use the verified bundle directory directly or run the packaging step in a Linux environment.
+
 ---
 
 ## Files

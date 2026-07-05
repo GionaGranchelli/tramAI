@@ -3097,6 +3097,32 @@ tasks.register("verifySovereignLabProfile") {
             "Reviewer guide must avoid production-readiness overclaims."
         }
 
+        // ── PR #152: Packager guard ──
+
+        val packagerScript = file("examples/sovereign-lab/package-evidence-bundle.sh")
+        require(packagerScript.exists()) {
+            "Missing sovereign lab evidence bundle packager at ${packagerScript.absolutePath}"
+        }
+
+        val labReadmeText = labReadme.readText()
+        listOf(
+            "package-evidence-bundle.sh",
+            ".tar.gz",
+            ".tar.gz.sha256",
+            "sha256sum -c",
+            "does not sign",
+            "does not certify",
+            "verify-evidence-bundle.sh",
+        ).forEach { required ->
+            require(
+                labReadmeText.contains(required) ||
+                    evidenceText.contains(required) ||
+                    reviewerGuideText.contains(required)
+            ) {
+                "Sovereign lab archive export docs must mention $required."
+            }
+        }
+
         logger.lifecycle("verifySovereignLabProfile: all sovereign lab profile checks passed.")
     }
 }
@@ -3482,6 +3508,75 @@ $pythonCode
 
         // Clean up negative fixture directories
         negDir.deleteRecursively()
+
+        // ── Archive export verification ──
+
+        val packager = file("examples/sovereign-lab/package-evidence-bundle.sh")
+        require(packager.exists()) {
+            "Missing evidence bundle packager at ${packager.absolutePath}"
+        }
+
+        // Package the finalized bundle
+        val packageProcess = ProcessBuilder("bash", packager.absolutePath, bundle.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val packageOutput = packageProcess.inputStream.bufferedReader().readText()
+        val packageExitCode = packageProcess.waitFor()
+        require(packageExitCode == 0) {
+            "Evidence bundle packager failed with code $packageExitCode. Output: $packageOutput"
+        }
+
+        val archiveRoot = file("examples/sovereign-lab/build/evidence-archives")
+        val archive = archiveRoot.resolve("test-bundle.tar.gz")
+        val checksum = archiveRoot.resolve("test-bundle.tar.gz.sha256")
+
+        require(archive.isFile) {
+            "Expected evidence bundle archive at ${archive.absolutePath}"
+        }
+        require(checksum.isFile) {
+            "Expected evidence bundle archive checksum at ${checksum.absolutePath}"
+        }
+
+        // Verify checksum
+        val checksumProcess = ProcessBuilder("sha256sum", "-c", checksum.name)
+            .directory(archiveRoot)
+            .redirectErrorStream(true)
+            .start()
+        val checksumOutput = checksumProcess.inputStream.bufferedReader().readText()
+        val checksumExitCode = checksumProcess.waitFor()
+        require(checksumExitCode == 0) {
+            "Evidence bundle archive checksum validation failed. Output: $checksumOutput"
+        }
+
+        // Extract and re-verify
+        val extractRoot = file("examples/sovereign-lab/build/evidence-archives/extracted")
+        if (extractRoot.exists()) extractRoot.deleteRecursively()
+        extractRoot.mkdirs()
+
+        val extractProcess = ProcessBuilder(
+            "tar", "-xzf", archive.absolutePath, "-C", extractRoot.absolutePath,
+        )
+            .redirectErrorStream(true)
+            .start()
+        val extractOutput = extractProcess.inputStream.bufferedReader().readText()
+        val extractExitCode = extractProcess.waitFor()
+        require(extractExitCode == 0) {
+            "Evidence bundle archive extraction failed with code $extractExitCode. Output: $extractOutput"
+        }
+
+        val extractedBundle = extractRoot.resolve("test-bundle")
+        require(extractedBundle.isDirectory) {
+            "Extracted evidence bundle directory not found at ${extractedBundle.absolutePath}"
+        }
+
+        val extractedVerify = ProcessBuilder("bash", verifier.absolutePath, extractedBundle.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val extractedVerifyOutput = extractedVerify.inputStream.bufferedReader().readText()
+        val extractedVerifyExitCode = extractedVerify.waitFor()
+        require(extractedVerifyExitCode == 0) {
+            "Verifier rejected extracted evidence bundle. Output: $extractedVerifyOutput"
+        }
 
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
     }
