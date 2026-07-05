@@ -4160,6 +4160,202 @@ with tarfile.open(archive, "w:gz") as tar:
         writeArchiveSidecar(topLevelFileArchive)
         runArchiveVerifierExpectFail(topLevelFileArchive, "top-level entry must be a directory")
 
+        // ── PR #161: Optional archive signature verifier ──
+
+        val signatureVerifier = file("examples/sovereign-lab/verify-evidence-archive-signature.sh")
+        require(signatureVerifier.exists()) {
+            "Missing evidence archive signature verifier at ${signatureVerifier.absolutePath}"
+        }
+
+        val sigArchiveRoot = archiveRoot.resolve("signature-tests")
+        if (sigArchiveRoot.exists()) sigArchiveRoot.deleteRecursively()
+        sigArchiveRoot.mkdirs()
+
+        // Helper: generate ephemeral RSA keypair for fixture testing
+        fun generateKeypair(dir: File): Pair<File, File> {
+            dir.mkdirs()
+            val privateKey = dir.resolve("fixture-key.pem")
+            val publicKey = dir.resolve("fixture-key.pub")
+            val genProcess = ProcessBuilder(
+                "openssl", "genpkey",
+                "-algorithm", "RSA",
+                "-pkeyopt", "rsa_keygen_bits:2048",
+                "-outform", "PEM",
+                "-out", privateKey.absolutePath,
+            )
+                .redirectErrorStream(true)
+                .start()
+            val genOutput = genProcess.inputStream.bufferedReader().readText()
+            require(genProcess.waitFor() == 0) {
+                "Failed to generate ephemeral signing key. Output: $genOutput"
+            }
+
+            val pubProcess = ProcessBuilder(
+                "openssl", "rsa",
+                "-pubout",
+                "-in", privateKey.absolutePath,
+                "-outform", "PEM",
+                "-out", publicKey.absolutePath,
+            )
+                .redirectErrorStream(true)
+                .start()
+            val pubOutput = pubProcess.inputStream.bufferedReader().readText()
+            require(pubProcess.waitFor() == 0) {
+                "Failed to extract public key. Output: $pubOutput"
+            }
+
+            return Pair(privateKey, publicKey)
+        }
+
+        // Helper: sign a checksum sidecar
+        fun signChecksum(checksumFile: File, privateKey: File, signatureFile: File) {
+            val signProcess = ProcessBuilder(
+                "openssl", "dgst", "-sha256",
+                "-sign", privateKey.absolutePath,
+                "-out", signatureFile.absolutePath,
+                checksumFile.absolutePath,
+            )
+                .redirectErrorStream(true)
+                .start()
+            val signOutput = signProcess.inputStream.bufferedReader().readText()
+            require(signProcess.waitFor() == 0) {
+                "Failed to sign checksum sidecar. Output: $signOutput"
+            }
+        }
+
+        fun runSignatureVerifierExpectFail(
+            archiveFile: File,
+            publicKey: File,
+            expected: String,
+        ) {
+            val process = ProcessBuilder(
+                "bash", signatureVerifier.absolutePath,
+                archiveFile.absolutePath, publicKey.absolutePath,
+            )
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader().readText()
+            val exitCode = process.waitFor()
+            require(exitCode != 0) {
+                "Expected signature verifier to fail for ${archiveFile.name}, but it passed. Output: $output"
+            }
+            require(output.contains(expected, ignoreCase = true)) {
+                "Expected signature verifier failure to contain '$expected', but output was: $output"
+            }
+        }
+
+        // Re-package the finalized bundle into a fresh archive for signature tests
+        val sigPackageProcess = ProcessBuilder("bash", packager.absolutePath, bundle.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val sigPackageOutput = sigPackageProcess.inputStream.bufferedReader().readText()
+        require(sigPackageProcess.waitFor() == 0) {
+            "Repackaging for signature tests failed. Output: $sigPackageOutput"
+        }
+
+        val sigArchive = archiveRoot.resolve("test-bundle.tar.gz")
+        val sigChecksum = archiveRoot.resolve("test-bundle.tar.gz.sha256")
+        require(sigArchive.isFile && sigChecksum.isFile) {
+            "Re-packaged archive or checksum missing for signature tests."
+        }
+
+        // Copy archive + checksum to fixture dir so we don't mutate the originals
+        val sigArchiveCopy = sigArchiveRoot.resolve("test-bundle.tar.gz")
+        val sigChecksumCopy = sigArchiveRoot.resolve("test-bundle.tar.gz.sha256")
+        sigArchive.copyTo(sigArchiveCopy, overwrite = true)
+        sigChecksum.copyTo(sigChecksumCopy, overwrite = true)
+
+        // Generate ephemeral keypair
+        val (sigPrivateKey, sigPublicKey) = generateKeypair(sigArchiveRoot)
+
+        // Sign the checksum sidecar
+        val sigSigFile = sigArchiveRoot.resolve("test-bundle.tar.gz.sha256.sig")
+        signChecksum(sigChecksumCopy, sigPrivateKey, sigSigFile)
+
+        // Positive: valid signature + archive verification
+        val positiveSigProcess = ProcessBuilder(
+            "bash", signatureVerifier.absolutePath,
+            sigArchiveCopy.absolutePath, sigPublicKey.absolutePath,
+        )
+            .redirectErrorStream(true)
+            .start()
+        val positiveSigOutput = positiveSigProcess.inputStream.bufferedReader().readText()
+        val positiveSigExitCode = positiveSigProcess.waitFor()
+        require(positiveSigExitCode == 0) {
+            "Expected signature verifier to pass for valid signature. Output: $positiveSigOutput"
+        }
+        require(positiveSigOutput.contains("Evidence archive signature verified:")) {
+            "Signature verifier success output missing. Got: $positiveSigOutput"
+        }
+
+        // Negative 1: Missing .sha256.sig
+        val noSigArchive = sigArchiveRoot.resolve("no-sig.tar.gz")
+        val noSigChecksum = sigArchiveRoot.resolve("no-sig.tar.gz.sha256")
+        sigArchiveCopy.copyTo(noSigArchive, overwrite = true)
+        sigChecksumCopy.copyTo(noSigChecksum, overwrite = true)
+        runSignatureVerifierExpectFail(noSigArchive, sigPublicKey, "missing")
+
+        // Negative 2: Tampered checksum sidecar after signing
+        val tamperedSigArchive = sigArchiveRoot.resolve("tampered-sidecar.tar.gz")
+        val tamperedSigChecksum = sigArchiveRoot.resolve("tampered-sidecar.tar.gz.sha256")
+        val tamperedSigSig = sigArchiveRoot.resolve("tampered-sidecar.tar.gz.sha256.sig")
+        sigArchiveCopy.copyTo(tamperedSigArchive, overwrite = true)
+        sigChecksumCopy.copyTo(tamperedSigChecksum, overwrite = true)
+        signChecksum(tamperedSigChecksum, sigPrivateKey, tamperedSigSig)
+        // Tamper the sidecar after signing
+        tamperedSigChecksum.appendText("tamper\n")
+        runSignatureVerifierExpectFail(tamperedSigArchive, sigPublicKey, "FAILED")
+
+        // Negative 3: Wrong public key
+        val wrongKeyArchive = sigArchiveRoot.resolve("wrong-key.tar.gz")
+        val wrongKeyChecksum = sigArchiveRoot.resolve("wrong-key.tar.gz.sha256")
+        val wrongKeySig = sigArchiveRoot.resolve("wrong-key.tar.gz.sha256.sig")
+        sigArchiveCopy.copyTo(wrongKeyArchive, overwrite = true)
+        sigChecksumCopy.copyTo(wrongKeyChecksum, overwrite = true)
+        signChecksum(wrongKeyChecksum, sigPrivateKey, wrongKeySig)
+        val (_, wrongPublicKey) = generateKeypair(sigArchiveRoot.resolve("wrong-key-keys"))
+        runSignatureVerifierExpectFail(wrongKeyArchive, wrongPublicKey, "FAILED")
+
+        // Negative 4: Tampered archive after valid signature
+        // Proves the script chains into verify-evidence-archive.sh after signature verification
+        val tamperedArchiveSig = sigArchiveRoot.resolve("tampered-archive.tar.gz")
+        val tamperedArchiveChecksum = sigArchiveRoot.resolve("tampered-archive.tar.gz.sha256")
+        val tamperedArchiveSigFile = sigArchiveRoot.resolve("tampered-archive.tar.gz.sha256.sig")
+        sigArchiveCopy.copyTo(tamperedArchiveSig, overwrite = true)
+        // Write a proper sidecar referencing the tampered archive filename
+        val tamperedSha = sha256(tamperedArchiveSig)
+        tamperedArchiveChecksum.writeText("$tamperedSha  tampered-archive.tar.gz\n")
+        signChecksum(tamperedArchiveChecksum, sigPrivateKey, tamperedArchiveSigFile)
+        // Tamper the archive content after signature creation
+        tamperedArchiveSig.appendBytes("tamper".toByteArray())
+        // Signature was over the original checksum; archive is now different.
+        // openssl verifies the signature (valid for the signed checksum),
+        // then archive verifier rejects because the archive doesn't match the checksum.
+        runSignatureVerifierExpectFail(tamperedArchiveSig, sigPublicKey, "checksum mismatch")
+
+        // Negative 5: Missing public key (non-existent file)
+        val missingKeyArchive = sigArchiveRoot.resolve("missing-key.tar.gz")
+        val missingKeyChecksum = sigArchiveRoot.resolve("missing-key.tar.gz.sha256")
+        val missingKeySig = sigArchiveRoot.resolve("missing-key.tar.gz.sha256.sig")
+        sigArchiveCopy.copyTo(missingKeyArchive, overwrite = true)
+        sigChecksumCopy.copyTo(missingKeyChecksum, overwrite = true)
+        signChecksum(missingKeyChecksum, sigPrivateKey, missingKeySig)
+        val nonexistentKey = sigArchiveRoot.resolve("nonexistent.pem")
+        val missingKeyProcess = ProcessBuilder(
+            "bash", signatureVerifier.absolutePath,
+            missingKeyArchive.absolutePath, nonexistentKey.absolutePath,
+        )
+            .redirectErrorStream(true)
+            .start()
+        val missingKeyOutput = missingKeyProcess.inputStream.bufferedReader().readText()
+        val missingKeyExitCode = missingKeyProcess.waitFor()
+        require(missingKeyExitCode != 0) {
+            "Expected signature verifier to fail for missing public key. Output: $missingKeyOutput"
+        }
+        require(missingKeyOutput.contains("Public key must be a readable regular file", ignoreCase = true)) {
+            "Expected missing public key error, but got: $missingKeyOutput"
+        }
+
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
     }
 }

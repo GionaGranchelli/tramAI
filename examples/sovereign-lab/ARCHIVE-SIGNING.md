@@ -60,6 +60,49 @@ If signing is added later, these principles should apply:
 
 ---
 
+## Optional Signature Verification
+
+If a reviewer receives a detached signature for the archive checksum sidecar, they can verify it with:
+
+```bash
+examples/sovereign-lab/verify-evidence-archive-signature.sh \
+  examples/sovereign-lab/build/evidence-archives/<timestamp>.tar.gz \
+  reviewer-public-key.pem
+```
+
+The signature is verified over:
+
+```
+<timestamp>.tar.gz.sha256
+```
+
+After signature verification, the script runs the existing archive verifier (`verify-evidence-archive.sh`) to confirm the checksum matches the archive, tar entries are safe, and the bundle verifier passes.
+
+This proves that the checksum sidecar was signed by the holder of the matching private key. It does **not** prove evidence truth, operator identity beyond the key trust model, legal compliance, audit acceptance, regulatory certification, or production readiness.
+
+### Claim Boundary
+
+| Property | Optional signature verification |
+|----------|-------------------------------|
+| Checksum sidecar origin | ✅ Proves signature from matching private key |
+| Archive transfer integrity | ✅ Via existing archive verifier |
+| Operator identity | ❌ Depends on key trust model |
+| Evidence truth | ❌ Not provided |
+| Audit acceptance | ❌ Not provided |
+| Regulatory compliance | ❌ Not provided |
+| Production readiness | ❌ Not provided |
+
+### Prerequisites
+
+- The archive must be packaged with `package-evidence-bundle.sh` (creates `.tar.gz` and `.tar.gz.sha256`).
+- The detached signature must be at `<archive>.tar.gz.sha256.sig`.
+- The reviewer must have the matching public key (not committed to this repo).
+- `openssl` must be available on the reviewer's system.
+
+The signature verifier does not generate keys, does not store private keys, does not implement a signing workflow, and does not certify production readiness.
+
+---
+
 ## Non-Goals
 
 - This document does not implement archive signing.
