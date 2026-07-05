@@ -149,6 +149,7 @@ A sovereign lab release candidate is **blocked** if:
 - `manifest.json` contains weakened claim-boundary flags,
 - any required evidence file is missing,
 - copied reports are not included in `files[]`,
+- symlinks are accepted inside evidence bundles,
 - post-finalization tampering is not detected,
 - malformed or unsafe manifests are accepted by the verifier or finalizer.
 - docs imply certification, production readiness, benchmark guarantees, or evidence truth validation.

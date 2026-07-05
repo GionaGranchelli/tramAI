@@ -3532,6 +3532,53 @@ $pythonCode
         negRunVerifier(missingDir, "required file missing")
         negRunFinalizer(missingDir, "required file missing")
 
+        // ── Symlink negative fixtures ──
+
+        fun createSymlinkOrSkip(link: File, target: File): Boolean {
+            return try {
+                java.nio.file.Files.createSymbolicLink(link.toPath(), target.toPath())
+                true
+            } catch (ex: UnsupportedOperationException) {
+                logger.lifecycle("Skipping symlink fixture: unsupported - ${ex.message}")
+                false
+            } catch (ex: java.nio.file.FileSystemException) {
+                logger.lifecycle("Skipping symlink fixture: creation failed - ${ex.message}")
+                false
+            }
+        }
+
+        // Case 9: Required file symlink
+        val requiredSymlinkDir = negCopy("required-file-symlink")
+        val originalLog = requiredSymlinkDir.resolve("command-log.md")
+        val realLog = requiredSymlinkDir.resolve("real-command-log.md")
+        originalLog.copyTo(realLog, overwrite = true)
+        originalLog.delete()
+        if (createSymlinkOrSkip(originalLog, realLog)) {
+            negRunVerifier(requiredSymlinkDir, "symlink")
+            negRunFinalizer(requiredSymlinkDir, "symlink")
+        }
+
+        // Case 10: Copied report symlink
+        val reportSymlinkDir = negCopy("report-file-symlink")
+        val reportDir = reportSymlinkDir.resolve("reports")
+        reportDir.mkdirs()
+        val realReportFile = reportDir.resolve("generated-report-real.txt")
+        realReportFile.writeText("generated report content\n")
+        val symlinkReportFile = reportDir.resolve("generated-report.txt")
+        if (createSymlinkOrSkip(symlinkReportFile, realReportFile)) {
+            negRunVerifier(reportSymlinkDir, "symlink")
+            negRunFinalizer(reportSymlinkDir, "symlink")
+        }
+
+        // Case 11: Unlisted symlink inside bundle
+        val unlistedSymlinkDir = negCopy("unlisted-symlink")
+        val hiddenLink = unlistedSymlinkDir.resolve("reports/unlisted-link.txt")
+        val hiddenTarget = unlistedSymlinkDir.resolve("reports/generated-report.txt")
+        if (createSymlinkOrSkip(hiddenLink, hiddenTarget)) {
+            negRunVerifier(unlistedSymlinkDir, "symlink")
+            negRunFinalizer(unlistedSymlinkDir, "symlink")
+        }
+
         // Clean up negative fixture directories
         negDir.deleteRecursively()
 

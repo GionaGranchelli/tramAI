@@ -38,6 +38,12 @@ def fail(message: str) -> None:
     print(f"Evidence bundle verification failed: {message}", file=sys.stderr)
     sys.exit(1)
 
+def reject_symlinks() -> None:
+    for path in bundle_dir.rglob("*"):
+        if path.is_symlink():
+            relative = path.relative_to(bundle_dir).as_posix()
+            fail(f"bundle must not contain symlinks: {relative}")
+
 def require_inside_bundle(candidate: pathlib.Path, relative: str) -> None:
     try:
         candidate.relative_to(bundle_dir)
@@ -57,6 +63,8 @@ try:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 except Exception as exc:
     fail(f"manifest.json is not valid JSON: {exc}")
+
+reject_symlinks()
 
 if manifest.get("schemaVersion") != 1:
     fail("manifest.json must declare schemaVersion 1")
