@@ -274,6 +274,8 @@ sha256sum -c test-bundle.tar.gz.sha256
 
 Archive export uses GNU tar options for deterministic CI output. On non-GNU tar systems, use the verified bundle directory directly or run the packaging step in a Linux environment.
 
+The Gradle evidence-bundle verification also checks that packaging the same finalized bundle twice produces the same archive SHA-256.
+
 ---
 
 ## Files
