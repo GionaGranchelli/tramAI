@@ -64,6 +64,7 @@ The verifier checks:
 - `manifest.json` does not digest itself
 - every `files[]` entry matches file SHA-256 and size
 - copied reports listed in `files[]` have not changed since finalization
+- the bundle does not contain symlinks
 - claim-boundary flags remain safe
 
 ---

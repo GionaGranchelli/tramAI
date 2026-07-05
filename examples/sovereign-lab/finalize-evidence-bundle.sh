@@ -39,6 +39,12 @@ def fail(message: str) -> None:
     print(f"Evidence bundle finalization failed: {message}", file=sys.stderr)
     sys.exit(1)
 
+def reject_symlinks() -> None:
+    for path in bundle_dir.rglob("*"):
+        if path.is_symlink():
+            relative = path.relative_to(bundle_dir).as_posix()
+            fail(f"bundle must not contain symlinks: {relative}")
+
 def require_inside_bundle(candidate: pathlib.Path, relative: str) -> None:
     try:
         candidate.relative_to(bundle_dir)
@@ -53,6 +59,8 @@ def file_sha256_and_size(path: pathlib.Path) -> tuple[str, int]:
             size += len(chunk)
             hasher.update(chunk)
     return hasher.hexdigest(), size
+
+reject_symlinks()
 
 try:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
