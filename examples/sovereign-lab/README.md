@@ -10,6 +10,8 @@ This profile lets you run TramAI Sovereign Runtime **locally** on your machine w
 
 The lab uses Docker Compose for PostgreSQL. The local model runtime is not containerized by default; bring your own OpenAI-compatible local endpoint such as Ollama, llama.cpp, vLLM, LM Studio, or LocalAI. No CI, no cloud — just your machine.
 
+For an overview of the complete evidence chain — from bundle creation through finalization, verification, release-readiness, reviewer handoff, and archive export — see [EVIDENCE-CHAIN.md](./EVIDENCE-CHAIN.md).
+
 ---
 
 ## CI Smoke Verification

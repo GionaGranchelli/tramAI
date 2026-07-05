@@ -4,6 +4,8 @@ This checklist defines the minimum evidence required before treating a sovereign
 
 It does not certify production readiness, legal compliance, benchmark guarantees, security compliance, or regulatory conformity.
 
+For the full evidence chain overview, see [EVIDENCE-CHAIN.md](./EVIDENCE-CHAIN.md).
+
 ---
 
 ## 1. Required Verification Commands
