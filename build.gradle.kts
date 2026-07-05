@@ -3176,6 +3176,32 @@ tasks.register("verifySovereignLabProfile") {
             }
         }
 
+        // ── PR #160: Archive signing boundary guard ──
+
+        val archiveSigningDoc = file("examples/sovereign-lab/ARCHIVE-SIGNING.md")
+        require(archiveSigningDoc.exists()) {
+            "Missing sovereign lab archive signing boundary doc at ${archiveSigningDoc.absolutePath}"
+        }
+
+        val archiveSigningText = archiveSigningDoc.readText()
+        listOf(
+            "checksum sidecar",
+            "transfer integrity",
+            "signer identity",
+            "operator identity",
+            "regulatory compliance",
+            "production readiness",
+            "future optional archive signing",
+        ).forEach { required ->
+            require(archiveSigningText.contains(required)) {
+                "Sovereign lab archive signing boundary doc must mention $required."
+            }
+        }
+
+        require(evidenceChainText.contains("ARCHIVE-SIGNING.md")) {
+            "Sovereign lab evidence chain overview must reference ARCHIVE-SIGNING.md."
+        }
+
         logger.lifecycle("verifySovereignLabProfile: all sovereign lab profile checks passed.")
     }
 }
