@@ -4,7 +4,7 @@ The sovereign lab evidence chain is a local, reproducible workflow for capturing
 
 It is designed for local evidence capture and reviewer handoff.
 
-It does **not** certify production readiness, prove regulatory compliance, validate evidence truth, sign artifacts, or replace an audit. The evidence chain does not certify production readiness, prove compliance, or guarantee performance.
+It does not certify production readiness, prove regulatory compliance, validate evidence truth, sign artifacts, guarantee performance, or replace an audit.
 
 ---
 
