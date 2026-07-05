@@ -3368,6 +3368,121 @@ tasks.register("verifySovereignLabEvidenceBundle") {
             "Evidence bundle verifier failure for copied report should explain digest or size mismatch. Output: $tamperedReportOutput"
         }
 
+        // ── Negative fixture tests ──
+
+        // Re-create a clean finalized bundle for negative fixture copies
+        if (bundle.exists()) bundle.deleteRecursively()
+        val cleanPb = ProcessBuilder("bash", script.absolutePath)
+        cleanPb.environment()["TRAMAI_EVIDENCE_BUNDLE_TIMESTAMP"] = "test-bundle"
+        cleanPb.inheritIO()
+        require(cleanPb.start().waitFor() == 0) { "Failed to re-create clean bundle" }
+
+        val finalizeCleanPb = ProcessBuilder("bash", finalizer.absolutePath, bundle.absolutePath)
+        finalizeCleanPb.inheritIO()
+        require(finalizeCleanPb.start().waitFor() == 0) { "Failed to finalize clean bundle" }
+
+        val negDir = bundleRoot.resolve("negative-fixtures")
+        if (negDir.exists()) negDir.deleteRecursively()
+        negDir.mkdirs()
+
+        fun negCopy(name: String): File {
+            val target = negDir.resolve(name)
+            if (target.exists()) target.deleteRecursively()
+            bundle.copyRecursively(target, overwrite = true)
+            return target
+        }
+
+        fun runExpectFail(
+            runner: File,
+            bundleDir: File,
+            expectMessage: String,
+            runnerName: String,
+        ) {
+            val p = ProcessBuilder("bash", runner.absolutePath, bundleDir.absolutePath)
+                .redirectErrorStream(true)
+                .start()
+            val out = p.inputStream.bufferedReader().readText()
+            val code = p.waitFor()
+            require(code != 0) {
+                "Expected $runnerName to fail for ${bundleDir.name}, but exited 0. Output: $out"
+            }
+            require(out.contains(expectMessage, ignoreCase = true)) {
+                "Expected $runnerName failure for ${bundleDir.name} to contain '$expectMessage'. Output: $out"
+            }
+        }
+
+        fun negRunVerifier(dir: File, msg: String) =
+            runExpectFail(verifier, dir, msg, "verifier")
+
+        fun negRunFinalizer(dir: File, msg: String) =
+            runExpectFail(finalizer, dir, msg, "finalizer")
+
+        fun mutateManifest(dir: File, pythonCode: String) {
+            val fullCode = """
+import json, pathlib, sys
+bp = pathlib.Path(sys.argv[1])
+m = json.loads((bp / "manifest.json").read_text())
+$pythonCode
+(bp / "manifest.json").write_text(json.dumps(m, indent=2) + "\n")
+"""
+            val p = ProcessBuilder("python3", "-c", fullCode, dir.absolutePath)
+                .redirectErrorStream(true)
+                .start()
+            val out = p.inputStream.bufferedReader().readText()
+            val exitCode = p.waitFor()
+            require(exitCode == 0) { "manifest mutation failed: $out" }
+        }
+
+        // Case 1: Path traversal in requiredFiles
+        val traversalDir = negCopy("required-path-traversal")
+        mutateManifest(traversalDir, """m["requiredFiles"].append("../evil.md")""")
+        negRunVerifier(traversalDir, "safe relative path")
+        negRunFinalizer(traversalDir, "safe relative path")
+
+        // Case 2: Absolute path in requiredFiles
+        val absDir = negCopy("required-absolute-path")
+        mutateManifest(absDir, """m["requiredFiles"].append("/tmp/evil.md")""")
+        negRunVerifier(absDir, "safe relative path")
+        negRunFinalizer(absDir, "safe relative path")
+
+        // Case 3: Duplicate files[].path
+        val dupDir = negCopy("duplicate-file-path")
+        mutateManifest(dupDir, """m["files"].append(m["files"][0])""")
+        negRunVerifier(dupDir, "duplicate files metadata entry")
+
+        // Case 4: manifest.json self-digest
+        // The verifier checks SHA-256 before the self-digest check, so the reject
+        // message will be "sha256 mismatch for manifest.json" — which still proves
+        // the bundle is rejected because of the manifest.json files[] entry.
+        val selfDigestDir = negCopy("manifest-self-digest")
+        mutateManifest(selfDigestDir, """m["files"].insert(0, {"path": "manifest.json", "sha256": "0" * 64, "sizeBytes": 0})""")
+        negRunVerifier(selfDigestDir, "sha256 mismatch for manifest.json")
+
+        // Case 5: Weakened claim boundary
+        val weakenDir = negCopy("weakened-claims")
+        mutateManifest(weakenDir, """m["claimBoundary"]["certifiesProductionReadiness"] = True""")
+        negRunVerifier(weakenDir, "claimBoundary.certifiesProductionReadiness")
+        negRunFinalizer(weakenDir, "claimBoundary.certifiesProductionReadiness")
+
+        // Case 6: Invalid SHA-256
+        val badShaDir = negCopy("malformed-sha")
+        mutateManifest(badShaDir, """m["files"][0]["sha256"] = "not-a-sha" """)
+        negRunVerifier(badShaDir, "sha256")
+
+        // Case 7: Negative sizeBytes
+        val negSizeDir = negCopy("negative-size")
+        mutateManifest(negSizeDir, """m["files"][0]["sizeBytes"] = -1""")
+        negRunVerifier(negSizeDir, "sizeBytes")
+
+        // Case 8: Missing required file
+        val missingDir = negCopy("missing-file")
+        missingDir.resolve("command-log.md").delete()
+        negRunVerifier(missingDir, "required file missing")
+        negRunFinalizer(missingDir, "required file missing")
+
+        // Clean up negative fixture directories
+        negDir.deleteRecursively()
+
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
     }
 }

@@ -46,6 +46,8 @@ Evidence bundle verified: ...
 
 If verification fails, treat the bundle as **not review-ready**.
 
+The verifier intentionally rejects malformed bundles, unsafe paths, duplicate file metadata, weakened claim-boundary flags, missing files, and digest mismatches.
+
 ---
 
 ## 3. What Verification Checks
