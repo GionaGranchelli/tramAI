@@ -293,6 +293,22 @@ This is the recommended way for reviewers to inspect an archived evidence bundle
 
 Archived evidence bundles must contain one top-level bundle directory.
 
+### Optional Signature Verification
+
+If the archive checksum sidecar has a detached signature, a reviewer can verify it:
+
+```bash
+examples/sovereign-lab/verify-evidence-archive-signature.sh \
+  examples/sovereign-lab/build/evidence-archives/<timestamp>.tar.gz \
+  reviewer-public-key.pem
+```
+
+The signature verifier checks `<archive>.tar.gz.sha256.sig` against `<archive>.tar.gz.sha256` using the caller-supplied public key, then runs the existing archive verifier.
+
+This verifies the checksum sidecar's cryptographic origin. It does not prove evidence truth, operator identity, legal compliance, regulatory certification, or production readiness. The signer's public key is supplied by the reviewer and is not stored in this repository.
+
+See [ARCHIVE-SIGNING.md](./ARCHIVE-SIGNING.md) for the full signing boundary.
+
 ---
 
 ## Files

@@ -151,7 +151,19 @@ Archive signing is intentionally **not** part of the current evidence chain.
 
 The current archive checksum sidecar provides transfer integrity only when the expected checksum is trusted. It does not prove artifact origin, signer identity, reviewer approval, legal compliance, or certification.
 
-See [ARCHIVE-SIGNING.md](./ARCHIVE-SIGNING.md) for the signing boundary.
+### Optional Sidecar Signature Verification
+
+If a reviewer receives a detached signature for the archive checksum sidecar, optional verification is available:
+
+```bash
+examples/sovereign-lab/verify-evidence-archive-signature.sh \
+  examples/sovereign-lab/build/evidence-archives/<timestamp>.tar.gz \
+  reviewer-public-key.pem
+```
+
+The script verifies `<archive>.tar.gz.sha256.sig` against `<archive>.tar.gz.sha256` using the caller-supplied public key, then runs the existing archive verifier. This proves the checksum sidecar was signed by the holder of the matching private key — it does not prove operator identity, evidence truth, regulatory compliance, or production readiness.
+
+See [ARCHIVE-SIGNING.md](./ARCHIVE-SIGNING.md) for the full signing boundary.
 
 ---
 
