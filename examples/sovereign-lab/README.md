@@ -285,7 +285,7 @@ examples/sovereign-lab/verify-evidence-archive.sh \
   examples/sovereign-lab/build/evidence-archives/<timestamp>.tar.gz
 ```
 
-The archive verifier checks the `.sha256` sidecar, rejects unsafe archive entries (absolute paths, traversal paths, symlinks, hardlinks, special files), extracts into a temporary directory, and runs `verify-evidence-bundle.sh` on the extracted bundle.
+The archive verifier checks the SHA-256 sidecar, rejects unsafe archive entries (absolute paths, traversal paths, symlinks, hardlinks, special files), extracts into a temporary directory, and runs `verify-evidence-bundle.sh` on the extracted bundle.
 
 This is the recommended way for reviewers to inspect an archived evidence bundle.
 

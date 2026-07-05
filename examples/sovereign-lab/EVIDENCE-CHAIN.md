@@ -23,8 +23,8 @@ create → fill → finalize → verify → readiness → review → package →
 | readiness | `RELEASE-READINESS.md` | Defines release-candidate evidence criteria |
 | review | `REVIEWER-GUIDE.md` | Explains reviewer inspection and safe interpretation |
 | package | `package-evidence-bundle.sh` | Creates `.tar.gz` archive and `.sha256` sidecar |
-|| extract | Reviewer / operator step | Extracts archive |
-|| re-verify | `verify-evidence-archive.sh` or `verify-evidence-bundle.sh` | Verifies the archived or extracted bundle |
+| extract | Reviewer / operator step | Extracts archive |
+| re-verify | `verify-evidence-archive.sh` or `verify-evidence-bundle.sh` | Verifies the archived or extracted bundle |
 
 ---
 

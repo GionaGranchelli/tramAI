@@ -3159,7 +3159,7 @@ tasks.register("verifySovereignLabProfile") {
         val readinessText = releaseReadiness.readText()
         listOf(
             "verify-evidence-archive.sh",
-            "sha256sum -c",
+            "SHA-256 sidecar",
             "temporary directory",
             "unsafe archive entries",
             "verify-evidence-bundle.sh",
@@ -3812,7 +3812,7 @@ $pythonCode
         tamperedChecksum.writeText(tamperedChecksum.readText().replace("test-bundle.tar.gz", "tampered.tar.gz"))
         tamperedArchive.appendBytes("tamper".toByteArray())
 
-        runArchiveVerifierExpectFail(tamperedArchive, "FAILED")
+        runArchiveVerifierExpectFail(tamperedArchive, "checksum mismatch")
 
         // Negative 3: Unsafe tar entry (path traversal)
         val unsafeArchive = archiveNegRoot.resolve("unsafe-entry.tar.gz")
@@ -3870,6 +3870,15 @@ with tarfile.open(archive, "w:gz") as tar:
             .writeText("$symlinkSha  ${symlinkArchive.name}\n")
 
         runArchiveVerifierExpectFail(symlinkArchive, "symlink")
+
+        // Negative 5: Sidecar references wrong filename
+        val wrongSidecarArchive = archiveNegRoot.resolve("wrong-sidecar-name.tar.gz")
+        val wrongSidecar = archiveNegRoot.resolve("wrong-sidecar-name.tar.gz.sha256")
+        archive.copyTo(wrongSidecarArchive, overwrite = true)
+        val wrongSha = sha256(wrongSidecarArchive)
+        wrongSidecar.writeText("$wrongSha  /dev/zero\n")
+
+        runArchiveVerifierExpectFail(wrongSidecarArchive, "must reference")
 
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
     }

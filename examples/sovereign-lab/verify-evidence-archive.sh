@@ -13,16 +13,18 @@ if [[ ! -f "$ARCHIVE" || ! -r "$ARCHIVE" ]]; then
   exit 1
 fi
 
+for command in sha256sum python3 tar mktemp; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "Missing $command; cannot verify evidence archive" >&2
+    exit 1
+  fi
+done
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERIFIER="$SCRIPT_DIR/verify-evidence-bundle.sh"
 
 if [[ ! -f "$VERIFIER" || ! -r "$VERIFIER" ]]; then
   echo "Missing readable evidence bundle verifier at: $VERIFIER" >&2
-  exit 1
-fi
-
-if ! command -v sha256sum >/dev/null 2>&1; then
-  echo "Missing sha256sum; cannot verify archive checksum" >&2
   exit 1
 fi
 
@@ -41,11 +43,34 @@ if [[ ! "$ARCHIVE_NAME" =~ ^[A-Za-z0-9._-]+\.tar\.gz$ ]]; then
   exit 1
 fi
 
-# Verify archive transfer integrity
-(
-  cd "$(dirname "$ARCHIVE_ABS")"
-  sha256sum -c "$(basename "$CHECKSUM")"
-)
+# Validate sidecar format and hash ourselves — never trust sha256sum -c
+# with untrusted sidecar content that could name arbitrary paths.
+EXPECTED_SHA="$(cut -d ' ' -f 1 "$CHECKSUM")"
+EXPECTED_NAME="$(awk '{print $2}' "$CHECKSUM")"
+
+if [[ "$(wc -l < "$CHECKSUM" | tr -d ' ')" != "1" ]]; then
+  echo "Evidence archive checksum sidecar must contain exactly one line: $CHECKSUM" >&2
+  exit 1
+fi
+
+if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]]; then
+  echo "Evidence archive checksum sidecar must start with a valid SHA-256 hex digest" >&2
+  exit 1
+fi
+
+if [[ "$EXPECTED_NAME" != "$ARCHIVE_NAME" ]]; then
+  echo "Evidence archive checksum sidecar must reference $ARCHIVE_NAME, got: $EXPECTED_NAME" >&2
+  exit 1
+fi
+
+ACTUAL_SHA="$(sha256sum "$ARCHIVE_ABS" | awk '{print $1}')"
+
+if [[ "${EXPECTED_SHA,,}" != "${ACTUAL_SHA,,}" ]]; then
+  echo "Evidence archive checksum mismatch for $ARCHIVE_NAME" >&2
+  echo "Expected: $EXPECTED_SHA" >&2
+  echo "Actual:   $ACTUAL_SHA" >&2
+  exit 1
+fi
 
 # Inspect tar entries safely before extraction
 BUNDLE_NAME="$(
@@ -105,14 +130,18 @@ with tar:
 PY
 )"
 
-# Extract into a temporary directory
+# Extract into a temporary directory with safe flags
 TMP_ROOT="$(mktemp -d)"
 cleanup() {
   rm -rf "$TMP_ROOT"
 }
 trap cleanup EXIT
 
-tar -xzf "$ARCHIVE_ABS" -C "$TMP_ROOT"
+tar \
+  --no-same-owner \
+  --no-same-permissions \
+  -xzf "$ARCHIVE_ABS" \
+  -C "$TMP_ROOT"
 
 EXTRACTED_BUNDLE="$TMP_ROOT/$BUNDLE_NAME"
 
