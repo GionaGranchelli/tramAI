@@ -3880,6 +3880,163 @@ with tarfile.open(archive, "w:gz") as tar:
 
         runArchiveVerifierExpectFail(wrongSidecarArchive, "must reference")
 
+        // ── PR #157: Expanded negative archive fixtures ──
+
+        fun writeArchiveSidecar(archiveFile: File) {
+            archiveFile.resolveSibling("${archiveFile.name}.sha256")
+                .writeText("${sha256(archiveFile)}  ${archiveFile.name}\n")
+        }
+
+        // Negative 6: Absolute path tar entry
+        val absoluteEntryArchive = archiveNegRoot.resolve("absolute-entry.tar.gz")
+
+        val absoluteCreateProcess = ProcessBuilder(
+            "python3", "-c", """
+import tarfile, pathlib
+archive = pathlib.Path("${absoluteEntryArchive.absolutePath}")
+
+# Must use TarInfo directly because tar.add() strips leading slashes
+info = tarfile.TarInfo("/evil.txt")
+info.type = tarfile.REGTYPE
+info.size = 0
+
+with tarfile.open(archive, "w:gz") as tar:
+    tar.addfile(info)
+"""
+        )
+            .redirectErrorStream(true)
+            .start()
+        val absoluteCreateOutput = absoluteCreateProcess.inputStream.bufferedReader().readText()
+        require(absoluteCreateProcess.waitFor() == 0) {
+            "Failed to create absolute-entry archive fixture. Output: $absoluteCreateOutput"
+        }
+
+        writeArchiveSidecar(absoluteEntryArchive)
+        runArchiveVerifierExpectFail(absoluteEntryArchive, "must not be absolute")
+
+        // Negative 7: Hardlink tar entry
+        val hardlinkArchive = archiveNegRoot.resolve("hardlink-entry.tar.gz")
+
+        val hardlinkCreateProcess = ProcessBuilder(
+            "python3", "-c", """
+import tarfile, pathlib
+archive = pathlib.Path("${hardlinkArchive.absolutePath}")
+info = tarfile.TarInfo("test-bundle/hardlink.txt")
+info.type = tarfile.LNKTYPE
+info.linkname = "target.txt"
+with tarfile.open(archive, "w:gz") as tar:
+    tar.addfile(info)
+"""
+        )
+            .redirectErrorStream(true)
+            .start()
+        val hardlinkCreateOutput = hardlinkCreateProcess.inputStream.bufferedReader().readText()
+        require(hardlinkCreateProcess.waitFor() == 0) {
+            "Failed to create hardlink archive fixture. Output: $hardlinkCreateOutput"
+        }
+
+        writeArchiveSidecar(hardlinkArchive)
+        runArchiveVerifierExpectFail(hardlinkArchive, "hardlink")
+
+        // Negative 8: Special file / FIFO tar entry
+        val specialFileArchive = archiveNegRoot.resolve("special-file-entry.tar.gz")
+
+        val specialCreateProcess = ProcessBuilder(
+            "python3", "-c", """
+import tarfile, pathlib
+archive = pathlib.Path("${specialFileArchive.absolutePath}")
+info = tarfile.TarInfo("test-bundle/fifo")
+info.type = tarfile.FIFOTYPE
+with tarfile.open(archive, "w:gz") as tar:
+    tar.addfile(info)
+"""
+        )
+            .redirectErrorStream(true)
+            .start()
+        val specialCreateOutput = specialCreateProcess.inputStream.bufferedReader().readText()
+        require(specialCreateProcess.waitFor() == 0) {
+            "Failed to create special-file archive fixture. Output: $specialCreateOutput"
+        }
+
+        writeArchiveSidecar(specialFileArchive)
+        runArchiveVerifierExpectFail(specialFileArchive, "regular file or directory")
+
+        // Negative 9: Empty archive
+        val emptyArchive = archiveNegRoot.resolve("empty-archive.tar.gz")
+
+        val emptyCreateProcess = ProcessBuilder(
+            "python3", "-c", """
+import tarfile, pathlib
+archive = pathlib.Path("${emptyArchive.absolutePath}")
+with tarfile.open(archive, "w:gz"):
+    pass
+"""
+        )
+            .redirectErrorStream(true)
+            .start()
+        val emptyCreateOutput = emptyCreateProcess.inputStream.bufferedReader().readText()
+        require(emptyCreateProcess.waitFor() == 0) {
+            "Failed to create empty archive fixture. Output: $emptyCreateOutput"
+        }
+
+        writeArchiveSidecar(emptyArchive)
+        runArchiveVerifierExpectFail(emptyArchive, "archive is empty")
+
+        // Negative 10: Multiple top-level directories
+        val multiTopArchive = archiveNegRoot.resolve("multi-top-level.tar.gz")
+        val multiTopRoot = archiveNegRoot.resolve("multi-top-src")
+        if (multiTopRoot.exists()) multiTopRoot.deleteRecursively()
+        multiTopRoot.mkdirs()
+
+        val fileA = multiTopRoot.resolve("a.txt")
+        val fileB = multiTopRoot.resolve("b.txt")
+        fileA.writeText("a\n")
+        fileB.writeText("b\n")
+
+        val multiTopCreateProcess = ProcessBuilder(
+            "python3", "-c", """
+import tarfile, pathlib
+archive = pathlib.Path("${multiTopArchive.absolutePath}")
+file_a = pathlib.Path("${fileA.absolutePath}")
+file_b = pathlib.Path("${fileB.absolutePath}")
+with tarfile.open(archive, "w:gz") as tar:
+    tar.add(file_a, arcname="bundle-a/a.txt")
+    tar.add(file_b, arcname="bundle-b/b.txt")
+"""
+        )
+            .redirectErrorStream(true)
+            .start()
+        val multiTopCreateOutput = multiTopCreateProcess.inputStream.bufferedReader().readText()
+        require(multiTopCreateProcess.waitFor() == 0) {
+            "Failed to create multi-top-level archive fixture. Output: $multiTopCreateOutput"
+        }
+
+        writeArchiveSidecar(multiTopArchive)
+        runArchiveVerifierExpectFail(multiTopArchive, "exactly one top-level")
+
+        // Negative 11: Invalid sidecar SHA format
+        val invalidShaArchive = archiveNegRoot.resolve("invalid-sidecar-sha.tar.gz")
+        archive.copyTo(invalidShaArchive, overwrite = true)
+        invalidShaArchive.resolveSibling("${invalidShaArchive.name}.sha256")
+            .writeText("not-a-sha  ${invalidShaArchive.name}\n")
+
+        runArchiveVerifierExpectFail(invalidShaArchive, "valid SHA-256")
+
+        // Negative 12: Multi-line sidecar
+        val multilineSidecarArchive = archiveNegRoot.resolve("multiline-sidecar.tar.gz")
+        archive.copyTo(multilineSidecarArchive, overwrite = true)
+
+        val multilineSha = sha256(multilineSidecarArchive)
+        multilineSidecarArchive.resolveSibling("${multilineSidecarArchive.name}.sha256")
+            .writeText(
+                """
+                $multilineSha  ${multilineSidecarArchive.name}
+                $multilineSha  other.tar.gz
+                """.trimIndent() + "\n"
+            )
+
+        runArchiveVerifierExpectFail(multilineSidecarArchive, "exactly one line")
+
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
     }
 }
