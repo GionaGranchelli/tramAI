@@ -166,3 +166,5 @@ Before treating a sovereign lab run as release-candidate evidence:
 - [ ] `files[]` includes copied reports.
 - [ ] Post-finalization tamper detection has been tested.
 - [ ] No production-readiness or certification claims are made.
+
+After the bundle is finalized and verified, reviewers should use [REVIEWER-GUIDE.md](./REVIEWER-GUIDE.md) to inspect the evidence files and interpret what the verified bundle does and does not prove.
