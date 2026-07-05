@@ -75,6 +75,63 @@ This does not validate whether the evidence is complete, correct, audited, compl
 
 ---
 
+## End-to-End Evidence Bundle Lifecycle
+
+Use this flow when producing a completed evidence bundle:
+
+1. **Create** a bundle.
+2. **Fill** the evidence templates.
+3. **Copy** generated reports into reports/.
+4. **Finalize** the bundle.
+5. **Verify** the finalized bundle.
+6. **Share** the bundle.
+
+### 1. Create the bundle
+
+```bash
+examples/sovereign-lab/create-evidence-bundle.sh
+```
+
+### 2. Fill the evidence files
+
+Edit the generated files under:
+
+```
+examples/sovereign-lab/build/evidence-bundles/<timestamp>/
+```
+
+Capture command output, environment details, approval flow proof, restart proof, JDBC persistence proof, and optional benchmark diagnostics.
+
+### 3. Finalize the bundle
+
+After editing evidence files, refresh the manifest digests:
+
+```bash
+examples/sovereign-lab/finalize-evidence-bundle.sh \
+  examples/sovereign-lab/build/evidence-bundles/<timestamp>
+```
+
+### 4. Verify the finalized bundle
+
+```bash
+examples/sovereign-lab/verify-evidence-bundle.sh \
+  examples/sovereign-lab/build/evidence-bundles/<timestamp>
+```
+
+The verifier should print:
+
+```
+Evidence bundle verified: ...
+```
+
+### Boundary
+
+Finalization makes the bundle tamper-evident from the point of finalization.
+
+It does not prove that the evidence is complete, correct, audited, compliant, production-ready, or certified.
+
+---
+
 ## Verify Evidence Bundle Scaffold
 
 To verify that the evidence bundle helper still creates the expected local structure:

@@ -85,6 +85,23 @@ examples/sovereign-lab/verify-evidence-bundle.sh \
   examples/sovereign-lab/build/evidence-bundles/<timestamp>
 ```
 
+### Evidence bundle lifecycle
+
+```bash
+# 1. Create
+examples/sovereign-lab/create-evidence-bundle.sh
+
+# 2. Fill generated evidence files (manual)
+
+# 3. Finalize — refresh manifest digests after filling
+examples/sovereign-lab/finalize-evidence-bundle.sh \
+  examples/sovereign-lab/build/evidence-bundles/<timestamp>
+
+# 4. Verify the finalized bundle
+examples/sovereign-lab/verify-evidence-bundle.sh \
+  examples/sovereign-lab/build/evidence-bundles/<timestamp>
+```
+
 ---
 
 ## Prerequisites

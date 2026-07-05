@@ -3031,6 +3031,17 @@ tasks.register("verifySovereignLabProfile") {
             "Missing sovereign lab command log evidence template at ${commandLogTemplate.absolutePath}"
         }
 
+        // ── PR #148: Finalization script and doc guard ──
+
+        require(evidenceText.contains("finalize-evidence-bundle.sh")) {
+            "Sovereign lab evidence guide must document evidence bundle finalization."
+        }
+
+        val finalizeScript = file("examples/sovereign-lab/finalize-evidence-bundle.sh")
+        require(finalizeScript.exists()) {
+            "Missing sovereign lab evidence bundle finalizer script at ${finalizeScript.absolutePath}"
+        }
+
         logger.lifecycle("verifySovereignLabProfile: all sovereign lab profile checks passed.")
     }
 }
@@ -3191,6 +3202,12 @@ tasks.register("verifySovereignLabEvidenceBundle") {
             "Missing evidence bundle verifier at ${verifier.absolutePath}"
         }
 
+        val finalizer = file("examples/sovereign-lab/finalize-evidence-bundle.sh")
+        require(finalizer.exists()) {
+            "Missing evidence bundle finalizer at ${finalizer.absolutePath}"
+        }
+
+        // Clean generated bundle should pass
         val cleanProcess = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
             .inheritIO()
             .start()
@@ -3199,24 +3216,101 @@ tasks.register("verifySovereignLabEvidenceBundle") {
             "Evidence bundle verifier rejected a clean generated bundle (exit $cleanExitCode)."
         }
 
-        // ── tamper detection ──
+        // ── lifecycle: edit → fail → finalize → pass → tamper → fail ──
 
-        val tamperedFile = bundle.resolve("command-log.md")
-        tamperedFile.appendText("\nTampered content for verification test.\n")
+        val evidenceFile = bundle.resolve("command-log.md")
+        evidenceFile.appendText("\nOperator captured command output.\n")
 
-        val tamperedProcess = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
+        // Edited bundle must fail before finalization
+        val preFinalizeProcess = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
             .redirectErrorStream(true)
             .start()
-        val tamperedOutput = tamperedProcess.inputStream.bufferedReader().readText()
-        val tamperedExitCode = tamperedProcess.waitFor()
-        require(tamperedExitCode != 0) {
-            "Evidence bundle verifier must fail after a required file is tampered with."
+        val preFinalizeOutput = preFinalizeProcess.inputStream.bufferedReader().readText()
+        val preFinalizeExitCode = preFinalizeProcess.waitFor()
+        require(preFinalizeExitCode != 0) {
+            "Evidence bundle verifier must fail after evidence is filled but before finalization."
         }
         require(
-            tamperedOutput.contains("sha256 mismatch") ||
-            tamperedOutput.contains("sizeBytes mismatch")
+            preFinalizeOutput.contains("sha256 mismatch") ||
+            preFinalizeOutput.contains("sizeBytes mismatch")
         ) {
-            "Evidence bundle verifier failure should explain digest or size mismatch. Output: $tamperedOutput"
+            "Evidence bundle verifier failure before finalization should explain digest or size mismatch. Output: $preFinalizeOutput"
+        }
+
+        // Finalize to refresh manifest digests
+        val finalizeProcess = ProcessBuilder("bash", finalizer.absolutePath, bundle.absolutePath)
+            .inheritIO()
+            .start()
+        val finalizeExitCode = finalizeProcess.waitFor()
+        require(finalizeExitCode == 0) {
+            "Evidence bundle finalizer exited with code $finalizeExitCode"
+        }
+
+        // Finalized bundle must pass
+        val postFinalizeProcess = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
+            .inheritIO()
+            .start()
+        val postFinalizeExitCode = postFinalizeProcess.waitFor()
+        require(postFinalizeExitCode == 0) {
+            "Evidence bundle verifier rejected a finalized bundle (exit $postFinalizeExitCode)."
+        }
+
+        // Post-finalization tamper must fail
+        evidenceFile.appendText("\nTampered after finalization.\n")
+        val tamperedAfterProcess = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val tamperedAfterOutput = tamperedAfterProcess.inputStream.bufferedReader().readText()
+        val tamperedAfterExitCode = tamperedAfterProcess.waitFor()
+        require(tamperedAfterExitCode != 0) {
+            "Evidence bundle verifier must fail after a finalized bundle is tampered with."
+        }
+        require(
+            tamperedAfterOutput.contains("sha256 mismatch") ||
+            tamperedAfterOutput.contains("sizeBytes mismatch")
+        ) {
+            "Evidence bundle verifier failure after tampering should explain digest or size mismatch. Output: $tamperedAfterOutput"
+        }
+
+        // ── copied reports regression ──
+
+        val reportFile = bundle.resolve("reports/generated-report.txt")
+        reportFile.parentFile.mkdirs()
+        reportFile.writeText("Generated report content\n")
+
+        // Re-finalize with new report
+        val reFinalizeProcess = ProcessBuilder("bash", finalizer.absolutePath, bundle.absolutePath)
+            .inheritIO()
+            .start()
+        val reFinalizeExitCode = reFinalizeProcess.waitFor()
+        require(reFinalizeExitCode == 0) {
+            "Evidence bundle finalizer exited with code $reFinalizeExitCode after adding report."
+        }
+
+        // Finalized bundle with copied report must pass
+        val withReportProcess = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
+            .inheritIO()
+            .start()
+        val withReportExitCode = withReportProcess.waitFor()
+        require(withReportExitCode == 0) {
+            "Evidence bundle verifier rejected a finalized bundle with a copied report."
+        }
+
+        // Tampering the copied report must fail
+        reportFile.appendText("tampered report\n")
+        val tamperedReportProcess = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val tamperedReportOutput = tamperedReportProcess.inputStream.bufferedReader().readText()
+        val tamperedReportExitCode = tamperedReportProcess.waitFor()
+        require(tamperedReportExitCode != 0) {
+            "Evidence bundle verifier must fail after a copied report is tampered with."
+        }
+        require(
+            tamperedReportOutput.contains("sha256 mismatch") ||
+            tamperedReportOutput.contains("sizeBytes mismatch")
+        ) {
+            "Evidence bundle verifier failure for copied report should explain digest or size mismatch. Output: $tamperedReportOutput"
         }
 
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")

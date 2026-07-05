@@ -20,7 +20,7 @@ if [[ ! -f "$MANIFEST" ]]; then
 fi
 
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "Missing python3; cannot verify manifest.json" >&2
+  echo "Missing python3; cannot finalize manifest.json" >&2
   exit 1
 fi
 
@@ -30,12 +30,13 @@ import json
 import os
 import pathlib
 import sys
+from datetime import datetime, timezone
 
 bundle_dir = pathlib.Path(sys.argv[1]).resolve()
 manifest_path = bundle_dir / "manifest.json"
 
 def fail(message: str) -> None:
-    print(f"Evidence bundle verification failed: {message}", file=sys.stderr)
+    print(f"Evidence bundle finalization failed: {message}", file=sys.stderr)
     sys.exit(1)
 
 def require_inside_bundle(candidate: pathlib.Path, relative: str) -> None:
@@ -86,71 +87,61 @@ required_files = manifest.get("requiredFiles")
 if not isinstance(required_files, list) or not required_files:
     fail("manifest.json must contain non-empty requiredFiles array")
 
+# Validate all required files exist
 for relative in required_files:
     if not isinstance(relative, str):
         fail("requiredFiles entries must be strings")
+
     if os.path.isabs(relative) or ".." in pathlib.PurePosixPath(relative).parts:
         fail(f"requiredFiles entry must be a safe relative path: {relative}")
+
     candidate = (bundle_dir / relative).resolve()
     require_inside_bundle(candidate, relative)
+
+    if relative == "manifest.json":
+        if not candidate.is_file():
+            fail("required manifest.json is missing")
+        continue
+
     if not candidate.exists():
         fail(f"required file missing: {relative}")
 
-files = manifest.get("files")
-if not isinstance(files, list) or not files:
-    fail("manifest.json must contain non-empty files array")
+# Digest all bundle files except manifest.json
+def relative_bundle_files() -> list[str]:
+    paths = []
+    for path in bundle_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(bundle_dir).as_posix()
+        if relative == "manifest.json":
+            continue
+        if os.path.isabs(relative) or ".." in pathlib.PurePosixPath(relative).parts:
+            fail(f"bundle file must be a safe relative path: {relative}")
+        paths.append(relative)
+    return sorted(paths)
 
-files_by_path = {}
-for entry in files:
-    if not isinstance(entry, dict):
-        fail("files entries must be objects")
+files = []
 
-    path = entry.get("path")
-    sha256 = entry.get("sha256")
-    size_bytes = entry.get("sizeBytes")
+for relative in relative_bundle_files():
+    candidate = (bundle_dir / relative).resolve()
+    require_inside_bundle(candidate, relative)
 
-    if not isinstance(path, str):
-        fail("files[].path must be a string")
-    if not isinstance(sha256, str) or len(sha256) != 64:
-        fail(f"files entry for {path} must contain a 64-character sha256")
-    if not all(ch in "0123456789abcdef" for ch in sha256):
-        fail(f"files entry for {path} must contain lowercase hex sha256")
-    if not isinstance(size_bytes, int) or size_bytes < 0:
-        fail(f"files entry for {path} must contain non-negative integer sizeBytes")
+    sha256, size_bytes = file_sha256_and_size(candidate)
 
-    if os.path.isabs(path) or ".." in pathlib.PurePosixPath(path).parts:
-        fail(f"files[].path must be a safe relative path: {path}")
+    files.append({
+        "path": relative,
+        "sha256": sha256,
+        "sizeBytes": size_bytes,
+    })
 
-    if path in files_by_path:
-        fail(f"duplicate files metadata entry for path: {path}")
+manifest["finalizedUtc"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
+manifest["finalizer"] = "examples/sovereign-lab/finalize-evidence-bundle.sh"
+manifest["files"] = files
 
-    files_by_path[path] = entry
+manifest_path.write_text(
+    json.dumps(manifest, indent=2, sort_keys=False) + "\n",
+    encoding="utf-8",
+)
 
-for relative in required_files:
-    if relative == "manifest.json":
-        continue
-
-    if relative not in files_by_path:
-        fail(f"files metadata missing for required file: {relative}")
-
-# Verify every files[] entry matches actual file contents
-for path, entry in files_by_path.items():
-    candidate = (bundle_dir / path).resolve()
-    require_inside_bundle(candidate, path)
-
-    if not candidate.is_file():
-        fail(f"files entry is not a file: {path}")
-
-    actual_sha256, actual_size = file_sha256_and_size(candidate)
-
-    if entry["sha256"] != actual_sha256:
-        fail(f"sha256 mismatch for {path}")
-
-    if entry["sizeBytes"] != actual_size:
-        fail(f"sizeBytes mismatch for {path}")
-
-if "manifest.json" in files_by_path:
-    fail("manifest.json must not include its own digest entry")
-
-print(f"Evidence bundle verified: {bundle_dir}")
+print(f"Evidence bundle finalized: {bundle_dir}")
 PY
