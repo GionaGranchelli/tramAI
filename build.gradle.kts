@@ -3042,6 +3042,32 @@ tasks.register("verifySovereignLabProfile") {
             "Missing sovereign lab evidence bundle finalizer script at ${finalizeScript.absolutePath}"
         }
 
+        // ── PR #149: Release readiness checklist guard ──
+
+        val releaseReadiness = file("examples/sovereign-lab/RELEASE-READINESS.md")
+        require(releaseReadiness.exists()) {
+            "Missing sovereign lab release readiness checklist at ${releaseReadiness.absolutePath}"
+        }
+
+        val releaseReadinessText = releaseReadiness.readText()
+        listOf(
+            "verifySovereignRuntimeReleaseCandidate",
+            "verifySovereignLabProfile",
+            "verifySovereignLabRuntimeSmoke",
+            "verifySovereignLabEvidenceBundle",
+            "finalize-evidence-bundle.sh",
+            "verify-evidence-bundle.sh",
+            "certifiesProductionReadiness",
+            "definesPerformanceGuarantees",
+            "validatesEvidenceTruth",
+            "Forbidden Claims",
+            "Release Candidate Blockers",
+        ).forEach { required ->
+            require(releaseReadinessText.contains(required)) {
+                "Sovereign lab release readiness checklist must mention $required."
+            }
+        }
+
         logger.lifecycle("verifySovereignLabProfile: all sovereign lab profile checks passed.")
     }
 }
