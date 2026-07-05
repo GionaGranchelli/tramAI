@@ -124,15 +124,24 @@ The verifier should print:
 Evidence bundle verified: ...
 ```
 
-### Boundary
+### Optional Archive Export
 
-Finalization makes the bundle tamper-evident from the point of finalization.
+After the finalized bundle verifies, package it for handoff:
 
-It does not prove that the evidence is complete, correct, audited, compliant, production-ready, or certified.
+```bash
+examples/sovereign-lab/package-evidence-bundle.sh \
+  examples/sovereign-lab/build/evidence-bundles/<timestamp>
+```
+
+The archive is a transport format only. Reviewers should extract it and run `verify-evidence-bundle.sh` on the extracted bundle.
+
+Archive export uses GNU tar options for deterministic CI output. On non-GNU tar systems, use the verified bundle directory directly or run the packaging step in a Linux environment.
+
+Archive export does not sign, certify, upload, or validate evidence truth.
 
 ---
 
-## Verify Evidence Bundle Scaffold
+## Evidence Checklist
 
 To verify that the evidence bundle helper still creates the expected local structure:
 

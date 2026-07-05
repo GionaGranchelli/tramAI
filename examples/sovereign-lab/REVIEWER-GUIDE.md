@@ -174,3 +174,23 @@ A reviewer may say:
 A reviewer should **not** say:
 
 > This evidence bundle certifies production readiness, proves legal compliance, proves EU AI Act conformity, validates evidence truth, or guarantees benchmark performance.
+
+---
+
+## Reviewing an Archived Bundle
+
+If the reviewer receives a `.tar.gz` archive, extract it first:
+
+```bash
+tar -xzf <bundle>.tar.gz
+```
+
+Then run:
+
+```bash
+examples/sovereign-lab/verify-evidence-bundle.sh <extracted-bundle-dir>
+```
+
+The archive checksum confirms archive transfer integrity. The bundle verifier confirms manifest and file integrity after extraction.
+
+Archive export does not sign, certify, or validate evidence truth.
