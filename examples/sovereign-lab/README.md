@@ -230,6 +230,14 @@ Before treating a sovereign lab run as release-candidate evidence, follow:
 
 The checklist defines required Gradle gates, required evidence files, the bundle lifecycle, allowed claims, forbidden claims, and release-candidate blockers.
 
+## Reviewer Guide
+
+For instructions on verifying and interpreting a finalized evidence bundle, see:
+
+[REVIEWER-GUIDE.md](./REVIEWER-GUIDE.md)
+
+The reviewer guide explains how to run the verifier, inspect `manifest.json`, review claim-boundary flags, evaluate evidence files, and distinguish structural tamper-evidence from evidence truth, compliance, certification, or production-readiness claims.
+
 ---
 
 ## Files

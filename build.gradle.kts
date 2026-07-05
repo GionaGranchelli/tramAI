@@ -3068,6 +3068,35 @@ tasks.register("verifySovereignLabProfile") {
             }
         }
 
+        // ── PR #150: Reviewer guide guard ──
+
+        val reviewerGuide = file("examples/sovereign-lab/REVIEWER-GUIDE.md")
+        require(reviewerGuide.exists()) {
+            "Missing sovereign lab evidence reviewer guide at ${reviewerGuide.absolutePath}"
+        }
+
+        val reviewerGuideText = reviewerGuide.readText()
+        listOf(
+            "verify-evidence-bundle.sh",
+            "manifest.json",
+            "finalizedUtc",
+            "claimBoundary",
+            "files[]",
+            "SHA-256",
+            "certifiesProductionReadiness",
+            "validatesEvidenceTruth",
+            "What Verification Does Not Check",
+            "Safe Reviewer Statement",
+        ).forEach { required ->
+            require(reviewerGuideText.contains(required)) {
+                "Sovereign lab reviewer guide must mention $required."
+            }
+        }
+
+        require(reviewerGuideText.contains("does not certify production readiness")) {
+            "Reviewer guide must avoid production-readiness overclaims."
+        }
+
         logger.lifecycle("verifySovereignLabProfile: all sovereign lab profile checks passed.")
     }
 }
