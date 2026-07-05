@@ -78,6 +78,13 @@ To verify the bundle scaffold layout:
 
 Each generated bundle includes a machine-readable **manifest.json** describing the bundle type, source commit, required files, and claim boundaries. The manifest also includes SHA-256 digests and file sizes so reviewers can detect whether generated evidence files changed after bundle creation.
 
+To verify an existing generated bundle:
+
+```bash
+examples/sovereign-lab/verify-evidence-bundle.sh \
+  examples/sovereign-lab/build/evidence-bundles/<timestamp>
+```
+
 ---
 
 ## Prerequisites

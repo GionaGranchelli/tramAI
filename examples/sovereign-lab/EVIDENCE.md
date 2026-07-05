@@ -53,6 +53,28 @@ The generated manifest also includes **SHA-256 file digests** and file sizes for
 
 ---
 
+## Verify an Existing Evidence Bundle
+
+After creating or receiving an evidence bundle, verify its manifest and file digests:
+
+```bash
+examples/sovereign-lab/verify-evidence-bundle.sh \
+  examples/sovereign-lab/build/evidence-bundles/<timestamp>
+```
+
+This checks that:
+
+- manifest.json is valid JSON
+- required files exist
+- required files do not escape the bundle directory
+- SHA-256 digests match the files on disk
+- file sizes match the files on disk
+- claim-boundary flags still avoid production or certification claims
+
+This does not validate whether the evidence is complete, correct, audited, compliant, production-ready, or certified.
+
+---
+
 ## Verify Evidence Bundle Scaffold
 
 To verify that the evidence bundle helper still creates the expected local structure:
