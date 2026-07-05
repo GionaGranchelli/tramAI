@@ -45,12 +45,34 @@ fi
 
 # Validate sidecar format and hash ourselves — never trust sha256sum -c
 # with untrusted sidecar content that could name arbitrary paths.
-EXPECTED_SHA="$(cut -d ' ' -f 1 "$CHECKSUM")"
-EXPECTED_NAME="$(awk '{print $2}' "$CHECKSUM")"
+# Accepted formats:
+#   <64-hex-sha>  <archive-name>
+#   <64-hex-sha> *<archive-name>   (sha256sum -b binary mode)
 
-if [[ "$(wc -l < "$CHECKSUM" | tr -d ' ')" != "1" ]]; then
+LINE_COUNT="$(wc -l < "$CHECKSUM" | tr -d ' ')"
+
+if [[ "$LINE_COUNT" != "1" ]]; then
   echo "Evidence archive checksum sidecar must contain exactly one line: $CHECKSUM" >&2
   exit 1
+fi
+
+CHECKSUM_LINE="$(cat "$CHECKSUM")"
+
+read -r EXPECTED_SHA EXPECTED_NAME EXTRA_FIELD <<< "$CHECKSUM_LINE"
+
+if [[ -n "${EXTRA_FIELD:-}" ]]; then
+  echo "Evidence archive checksum sidecar must contain exactly a SHA-256 digest and archive filename" >&2
+  exit 1
+fi
+
+if [[ -z "${EXPECTED_SHA:-}" || -z "${EXPECTED_NAME:-}" ]]; then
+  echo "Evidence archive checksum sidecar must contain a SHA-256 digest and archive filename" >&2
+  exit 1
+fi
+
+# Support sha256sum -b binary-mode marker: *filename
+if [[ "$EXPECTED_NAME" == \** ]]; then
+  EXPECTED_NAME="${EXPECTED_NAME#\*}"
 fi
 
 if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]]; then

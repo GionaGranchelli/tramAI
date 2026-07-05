@@ -287,6 +287,8 @@ examples/sovereign-lab/verify-evidence-archive.sh \
 
 The archive verifier checks the SHA-256 sidecar, rejects unsafe archive entries (absolute paths, traversal paths, symlinks, hardlinks, special files), extracts into a temporary directory, and runs `verify-evidence-bundle.sh` on the extracted bundle.
 
+The `.sha256` sidecar must contain exactly one line with a SHA-256 digest and the archive filename. Both `sha256sum` text mode and binary mode (`*filename`) markers are accepted.
+
 This is the recommended way for reviewers to inspect an archived evidence bundle. The archive verifier is covered by Gradle negative fixtures for malformed sidecars and unsafe tar entries.
 
 ---
