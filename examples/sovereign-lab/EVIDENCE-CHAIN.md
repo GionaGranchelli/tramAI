@@ -23,8 +23,8 @@ create → fill → finalize → verify → readiness → review → package →
 | readiness | `RELEASE-READINESS.md` | Defines release-candidate evidence criteria |
 | review | `REVIEWER-GUIDE.md` | Explains reviewer inspection and safe interpretation |
 | package | `package-evidence-bundle.sh` | Creates `.tar.gz` archive and `.sha256` sidecar |
-| extract | Reviewer / operator step | Extracts archive |
-| re-verify | `verify-evidence-bundle.sh` | Verifies extracted bundle |
+|| extract | Reviewer / operator step | Extracts archive |
+|| re-verify | `verify-evidence-archive.sh` or `verify-evidence-bundle.sh` | Verifies the archived or extracted bundle |
 
 ---
 
@@ -98,6 +98,7 @@ The finalized manifest preserves this `claimBoundary`:
 | `reports/` | Copied generated reports |
 | `.tar.gz` | Optional archive handoff format |
 | `.tar.gz.sha256` | Archive transfer-integrity checksum |
+| `verify-evidence-archive.sh` | Optional safe archive verification before extraction |
 
 ---
 
@@ -128,6 +129,14 @@ Use [RELEASE-READINESS.md](./RELEASE-READINESS.md) to decide whether a sovereign
 Use [REVIEWER-GUIDE.md](./REVIEWER-GUIDE.md) when giving a finalized or archived bundle to a reviewer.
 
 The reviewer guide explains how to inspect evidence files, validate checksums, run the verifier, and avoid unsupported claims.
+
+For archived bundles, prefer the archive verifier:
+
+```bash
+examples/sovereign-lab/verify-evidence-archive.sh <bundle>.tar.gz
+```
+
+The archive verifier checks the sidecar, rejects unsafe archive entries, extracts into a temporary directory, and runs the bundle verifier.
 
 ---
 

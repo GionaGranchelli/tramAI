@@ -3149,6 +3149,33 @@ tasks.register("verifySovereignLabProfile") {
             }
         }
 
+        // ── PR #156: Archive verifier guard ──
+
+        val archiveVerifierScript = file("examples/sovereign-lab/verify-evidence-archive.sh")
+        require(archiveVerifierScript.exists()) {
+            "Missing sovereign lab evidence archive verifier at ${archiveVerifierScript.absolutePath}"
+        }
+
+        val readinessText = releaseReadiness.readText()
+        listOf(
+            "verify-evidence-archive.sh",
+            "sha256sum -c",
+            "temporary directory",
+            "unsafe archive entries",
+            "verify-evidence-bundle.sh",
+            "does not sign",
+            "does not certify",
+        ).forEach { required ->
+            require(
+                labReadmeText.contains(required) ||
+                    evidenceChainText.contains(required) ||
+                    reviewerGuideText.contains(required) ||
+                    readinessText.contains(required)
+            ) {
+                "Sovereign lab archive verifier docs must mention $required."
+            }
+        }
+
         logger.lifecycle("verifySovereignLabProfile: all sovereign lab profile checks passed.")
     }
 }
@@ -3728,6 +3755,121 @@ $pythonCode
         require(secondChecksumText.startsWith(secondArchiveSha)) {
             "Checksum sidecar does not match archive SHA-256. Sidecar=$secondChecksumText Archive=$secondArchiveSha"
         }
+
+        // ── PR #156: Archive verifier positive test ──
+
+        val archiveVerifier = file("examples/sovereign-lab/verify-evidence-archive.sh")
+        require(archiveVerifier.exists()) {
+            "Missing evidence archive verifier at ${archiveVerifier.absolutePath}"
+        }
+
+        val archiveVerifyProcess = ProcessBuilder("bash", archiveVerifier.absolutePath, archive.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val archiveVerifyOutput = archiveVerifyProcess.inputStream.bufferedReader().readText()
+        val archiveVerifyExitCode = archiveVerifyProcess.waitFor()
+
+        require(archiveVerifyExitCode == 0) {
+            "Evidence archive verifier failed with code $archiveVerifyExitCode. Output: $archiveVerifyOutput"
+        }
+        require(archiveVerifyOutput.contains("Evidence archive verified:")) {
+            "Archive verifier success output missing. Got: $archiveVerifyOutput"
+        }
+
+        // ── PR #156: Negative archive fixtures ──
+
+        val archiveNegRoot = archiveRoot.resolve("negative-archives")
+        if (archiveNegRoot.exists()) archiveNegRoot.deleteRecursively()
+        archiveNegRoot.mkdirs()
+
+        fun runArchiveVerifierExpectFail(archiveFile: File, expected: String) {
+            val process = ProcessBuilder("bash", archiveVerifier.absolutePath, archiveFile.absolutePath)
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader().readText()
+            val exitCode = process.waitFor()
+
+            require(exitCode != 0) {
+                "Expected archive verifier to fail for ${archiveFile.name}, but it passed. Output: $output"
+            }
+            require(output.contains(expected, ignoreCase = true)) {
+                "Expected archive verifier failure to contain '$expected', but output was: $output"
+            }
+        }
+
+        // Negative 1: Missing checksum sidecar
+        val missingChecksumArchive = archiveNegRoot.resolve("missing-checksum.tar.gz")
+        archive.copyTo(missingChecksumArchive, overwrite = true)
+
+        runArchiveVerifierExpectFail(missingChecksumArchive, "checksum")
+
+        // Negative 2: Tampered archive
+        val tamperedArchive = archiveNegRoot.resolve("tampered.tar.gz")
+        val tamperedChecksum = archiveNegRoot.resolve("tampered.tar.gz.sha256")
+
+        archive.copyTo(tamperedArchive, overwrite = true)
+        checksum.copyTo(tamperedChecksum, overwrite = true)
+        tamperedChecksum.writeText(tamperedChecksum.readText().replace("test-bundle.tar.gz", "tampered.tar.gz"))
+        tamperedArchive.appendBytes("tamper".toByteArray())
+
+        runArchiveVerifierExpectFail(tamperedArchive, "FAILED")
+
+        // Negative 3: Unsafe tar entry (path traversal)
+        val unsafeArchive = archiveNegRoot.resolve("unsafe-entry.tar.gz")
+        val unsafeDir = archiveNegRoot.resolve("unsafe-src")
+        if (unsafeDir.exists()) unsafeDir.deleteRecursively()
+        unsafeDir.mkdirs()
+        unsafeDir.resolve("evil.txt").writeText("evil\n")
+
+        val unsafeCreateProcess = ProcessBuilder(
+            "python3", "-c", """
+import tarfile, pathlib
+archive = pathlib.Path("${unsafeArchive.absolutePath}")
+payload = pathlib.Path("${unsafeDir.resolve("evil.txt").absolutePath}")
+with tarfile.open(archive, "w:gz") as tar:
+    tar.add(payload, arcname="../evil.txt")
+"""
+        )
+            .redirectErrorStream(true)
+            .start()
+        val unsafeCreateOutput = unsafeCreateProcess.inputStream.bufferedReader().readText()
+        val unsafeCreateExit = unsafeCreateProcess.waitFor()
+        require(unsafeCreateExit == 0) {
+            "Failed to create unsafe archive fixture. Output: $unsafeCreateOutput"
+        }
+
+        val unsafeSha = sha256(unsafeArchive)
+        unsafeArchive.resolveSibling("${unsafeArchive.name}.sha256")
+            .writeText("$unsafeSha  ${unsafeArchive.name}\n")
+
+        runArchiveVerifierExpectFail(unsafeArchive, "safe relative path")
+
+        // Negative 4: Symlink tar entry
+        val symlinkArchive = archiveNegRoot.resolve("symlink-entry.tar.gz")
+        val symlinkCreateProcess = ProcessBuilder(
+            "python3", "-c", """
+import tarfile, pathlib
+archive = pathlib.Path("${symlinkArchive.absolutePath}")
+info = tarfile.TarInfo("test-bundle/link.txt")
+info.type = tarfile.SYMTYPE
+info.linkname = "target.txt"
+with tarfile.open(archive, "w:gz") as tar:
+    tar.addfile(info)
+"""
+        )
+            .redirectErrorStream(true)
+            .start()
+        val symlinkCreateOutput = symlinkCreateProcess.inputStream.bufferedReader().readText()
+        val symlinkCreateExit = symlinkCreateProcess.waitFor()
+        require(symlinkCreateExit == 0) {
+            "Failed to create symlink archive fixture. Output: $symlinkCreateOutput"
+        }
+
+        val symlinkSha = sha256(symlinkArchive)
+        symlinkArchive.resolveSibling("${symlinkArchive.name}.sha256")
+            .writeText("$symlinkSha  ${symlinkArchive.name}\n")
+
+        runArchiveVerifierExpectFail(symlinkArchive, "symlink")
 
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
     }
