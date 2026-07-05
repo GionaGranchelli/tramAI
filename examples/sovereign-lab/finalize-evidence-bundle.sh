@@ -60,6 +60,8 @@ def file_sha256_and_size(path: pathlib.Path) -> tuple[str, int]:
             hasher.update(chunk)
     return hasher.hexdigest(), size
 
+reject_symlinks()
+
 try:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 except Exception as exc:
@@ -113,8 +115,6 @@ for relative in required_files:
         fail(f"required file missing: {relative}")
 
 # Digest all bundle files except manifest.json
-reject_symlinks()
-
 def relative_bundle_files() -> list[str]:
     paths = []
     for path in bundle_dir.rglob("*"):

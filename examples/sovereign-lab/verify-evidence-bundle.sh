@@ -59,12 +59,12 @@ def file_sha256_and_size(path: pathlib.Path) -> tuple[str, int]:
             hasher.update(chunk)
     return hasher.hexdigest(), size
 
+reject_symlinks()
+
 try:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 except Exception as exc:
     fail(f"manifest.json is not valid JSON: {exc}")
-
-reject_symlinks()
 
 if manifest.get("schemaVersion") != 1:
     fail("manifest.json must declare schemaVersion 1")

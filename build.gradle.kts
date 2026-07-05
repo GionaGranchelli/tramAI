@@ -3579,6 +3579,17 @@ $pythonCode
             negRunFinalizer(unlistedSymlinkDir, "symlink")
         }
 
+        // Case 12: Manifest symlink
+        val manifestSymlinkDir = negCopy("manifest-symlink")
+        val realManifest = manifestSymlinkDir.resolve("real-manifest.json")
+        val manifestFile = manifestSymlinkDir.resolve("manifest.json")
+        manifestFile.copyTo(realManifest, overwrite = true)
+        manifestFile.delete()
+        if (createSymlinkOrSkip(manifestFile, realManifest)) {
+            negRunVerifier(manifestSymlinkDir, "symlink")
+            negRunFinalizer(manifestSymlinkDir, "symlink")
+        }
+
         // Clean up negative fixture directories
         negDir.deleteRecursively()
 
