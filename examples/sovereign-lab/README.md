@@ -291,6 +291,8 @@ The `.sha256` sidecar must contain exactly one line with a SHA-256 digest and th
 
 This is the recommended way for reviewers to inspect an archived evidence bundle. The archive verifier is covered by Gradle negative fixtures for malformed sidecars and unsafe tar entries.
 
+Archived evidence bundles must contain one top-level bundle directory.
+
 ---
 
 ## Files

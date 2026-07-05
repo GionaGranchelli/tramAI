@@ -4109,6 +4109,31 @@ with tarfile.open(archive, "w:gz") as tar:
         )
         runArchiveVerifierExpectFail(multilineNoFinalNewlineArchive, "exactly one line")
 
+        // ── PR #159: Top-level file rejection ──
+
+        val topLevelFileArchive = archiveNegRoot.resolve("top-level-file.tar.gz")
+
+        val topLevelFileCreateProcess = ProcessBuilder(
+            "python3", "-c", """
+import tarfile, pathlib, io
+archive = pathlib.Path("${topLevelFileArchive.absolutePath}")
+payload = b"not a bundle directory\\n"
+info = tarfile.TarInfo("bundle.txt")
+info.type = tarfile.REGTYPE
+info.size = len(payload)
+with tarfile.open(archive, "w:gz") as tar:
+    tar.addfile(info, io.BytesIO(payload))
+"""
+        )
+            .redirectErrorStream(true)
+            .start()
+        val topLevelFileCreateOutput = topLevelFileCreateProcess.inputStream.bufferedReader().readText()
+        require(topLevelFileCreateProcess.waitFor() == 0) {
+            "Failed to create top-level-file archive fixture. Output: $topLevelFileCreateOutput"
+        }
+        writeArchiveSidecar(topLevelFileArchive)
+        runArchiveVerifierExpectFail(topLevelFileArchive, "top-level entry must be a directory")
+
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
     }
 }
