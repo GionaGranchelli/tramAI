@@ -4037,6 +4037,78 @@ with tarfile.open(archive, "w:gz") as tar:
 
         runArchiveVerifierExpectFail(multilineSidecarArchive, "exactly one line")
 
+        // ── PR #158: Sidecar parser fixtures ──
+
+        fun writeCustomSidecar(archiveFile: File, text: String) {
+            archiveFile.resolveSibling("${archiveFile.name}.sha256")
+                .writeText(text)
+        }
+
+        // Positive: binary-mode sidecar (sha256sum -b)
+        val binarySidecarArchive = archiveNegRoot.resolve("binary-sidecar.tar.gz")
+        archive.copyTo(binarySidecarArchive, overwrite = true)
+        val binarySha = sha256(binarySidecarArchive)
+        writeCustomSidecar(binarySidecarArchive, "$binarySha *${binarySidecarArchive.name}\n")
+
+        val binaryProcess = ProcessBuilder("bash", archiveVerifier.absolutePath, binarySidecarArchive.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val binaryOutput = binaryProcess.inputStream.bufferedReader().readText()
+        val binaryExit = binaryProcess.waitFor()
+        require(binaryExit == 0) {
+            "Expected binary-mode sidecar to verify, but it failed. Output: $binaryOutput"
+        }
+
+        // Negative: extra sidecar field
+        val extraFieldSidecarArchive = archiveNegRoot.resolve("extra-field-sidecar.tar.gz")
+        archive.copyTo(extraFieldSidecarArchive, overwrite = true)
+        val extraFieldSha = sha256(extraFieldSidecarArchive)
+        writeCustomSidecar(
+            extraFieldSidecarArchive,
+            "$extraFieldSha  ${extraFieldSidecarArchive.name} unexpected\n"
+        )
+        runArchiveVerifierExpectFail(extraFieldSidecarArchive, "exactly a SHA-256 digest and archive filename")
+
+        // Negative: missing filename
+        val missingNameSidecarArchive = archiveNegRoot.resolve("missing-name-sidecar.tar.gz")
+        archive.copyTo(missingNameSidecarArchive, overwrite = true)
+        val missingNameSha = sha256(missingNameSidecarArchive)
+        writeCustomSidecar(missingNameSidecarArchive, "$missingNameSha\n")
+        runArchiveVerifierExpectFail(missingNameSidecarArchive, "digest and archive filename")
+
+        // Negative: whitespace-only sidecar
+        val blankSidecarArchive = archiveNegRoot.resolve("blank-sidecar.tar.gz")
+        archive.copyTo(blankSidecarArchive, overwrite = true)
+        writeCustomSidecar(blankSidecarArchive, "   \n")
+        runArchiveVerifierExpectFail(blankSidecarArchive, "digest and archive filename")
+
+        // Positive: sidecar without trailing newline
+        val noTrailingNewlineArchive = archiveNegRoot.resolve("no-trailing-newline-sidecar.tar.gz")
+        archive.copyTo(noTrailingNewlineArchive, overwrite = true)
+        val noTrailingNewlineSha = sha256(noTrailingNewlineArchive)
+        writeCustomSidecar(
+            noTrailingNewlineArchive,
+            "$noTrailingNewlineSha  ${noTrailingNewlineArchive.name}"
+        )
+        val noTrailingNewlineProcess = ProcessBuilder("bash", archiveVerifier.absolutePath, noTrailingNewlineArchive.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val noTrailingNewlineOutput = noTrailingNewlineProcess.inputStream.bufferedReader().readText()
+        val noTrailingNewlineExit = noTrailingNewlineProcess.waitFor()
+        require(noTrailingNewlineExit == 0) {
+            "Expected sidecar without trailing newline to verify, but it failed. Output: $noTrailingNewlineOutput"
+        }
+
+        // Negative: two lines, second line has no trailing newline
+        val multilineNoFinalNewlineArchive = archiveNegRoot.resolve("multiline-no-final-newline-sidecar.tar.gz")
+        archive.copyTo(multilineNoFinalNewlineArchive, overwrite = true)
+        val multilineNoFinalNewlineSha = sha256(multilineNoFinalNewlineArchive)
+        writeCustomSidecar(
+            multilineNoFinalNewlineArchive,
+            "$multilineNoFinalNewlineSha  ${multilineNoFinalNewlineArchive.name}\n$multilineNoFinalNewlineSha  other.tar.gz"
+        )
+        runArchiveVerifierExpectFail(multilineNoFinalNewlineArchive, "exactly one line")
+
         logger.lifecycle("verifySovereignLabEvidenceBundle: generated bundle verified at ${bundle.absolutePath}")
     }
 }

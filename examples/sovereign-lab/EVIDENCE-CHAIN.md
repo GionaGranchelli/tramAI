@@ -138,6 +138,8 @@ examples/sovereign-lab/verify-evidence-archive.sh <bundle>.tar.gz
 
 The archive verifier checks the sidecar, rejects unsafe archive entries, extracts into a temporary directory, and runs the bundle verifier.
 
+The archive verifier parses checksum sidecars strictly: one SHA-256 digest and one archive filename per sidecar.
+
 The Gradle evidence-bundle verification includes negative archive fixtures for checksum failures, unsafe paths, symlinks, hardlinks, special files, empty archives, multiple top-level directories, and malformed sidecars.
 
 ---
