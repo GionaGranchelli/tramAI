@@ -153,6 +153,9 @@ with tar:
         if not (member.isfile() or member.isdir()):
             fail(f"archive entry must be a regular file or directory: {name}")
 
+        if len(normalized.parts) == 1 and member.isfile():
+            fail(f"archive top-level entry must be a directory: {name}")
+
     if len(top_levels) != 1:
         fail(f"archive must contain exactly one top-level bundle directory, found: {sorted(top_levels)}")
 
