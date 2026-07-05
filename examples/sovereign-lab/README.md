@@ -256,7 +256,7 @@ examples/sovereign-lab/build/evidence-archives/<timestamp>.tar.gz
 examples/sovereign-lab/build/evidence-archives/<timestamp>.tar.gz.sha256
 ```
 
-Archive export verifies the bundle before packaging. It does not sign, certify, upload, or validate evidence truth.
+Archive export verifies the bundle before packaging. It does not sign, certify, upload, or validate evidence truth. For the signing boundary, see [ARCHIVE-SIGNING.md](./ARCHIVE-SIGNING.md).
 
 Validate the archive checksum:
 

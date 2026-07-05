@@ -61,6 +61,7 @@ The evidence chain does **not** verify:
 - cloud impossibility beyond captured evidence
 - operator identity
 - audit sufficiency
+- archive signer identity
 
 ---
 
@@ -141,6 +142,16 @@ The archive verifier checks the sidecar, rejects unsafe archive entries, extract
 The archive verifier parses checksum sidecars strictly: one SHA-256 digest and one archive filename per sidecar. It rejects archives that do not contain a single top-level bundle directory.
 
 The Gradle evidence-bundle verification includes negative archive fixtures for checksum failures, unsafe paths, symlinks, hardlinks, special files, empty archives, multiple top-level directories, and malformed sidecars.
+
+---
+
+## Deferred: Archive Signing
+
+Archive signing is intentionally **not** part of the current evidence chain.
+
+The current archive checksum sidecar provides transfer integrity only when the expected checksum is trusted. It does not prove artifact origin, signer identity, reviewer approval, legal compliance, or certification.
+
+See [ARCHIVE-SIGNING.md](./ARCHIVE-SIGNING.md) for the signing boundary.
 
 ---
 
