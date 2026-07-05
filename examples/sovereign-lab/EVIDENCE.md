@@ -368,5 +368,6 @@ Copy the template folder, fill in your session details, and attach terminal outp
 ## Related
 
 - [README.md](./README.md) — lab profile setup and quick start
+- [RELEASE-READINESS.md](./RELEASE-READINESS.md) — release readiness checklist
 - [verifySovereignLabRuntimeSmoke](../spring-sovereign-starter/) — CI smoke test
 - [verifySovereignLabLocalModel](./local-model-smoke.sh) — opt-in local model invocation proof

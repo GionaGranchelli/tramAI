@@ -222,6 +222,16 @@ Then check the inbox again — the approval record survives.
 
 ---
 
+## Release Readiness
+
+Before treating a sovereign lab run as release-candidate evidence, follow:
+
+[RELEASE-READINESS.md](./RELEASE-READINESS.md)
+
+The checklist defines required Gradle gates, required evidence files, the bundle lifecycle, allowed claims, forbidden claims, and release-candidate blockers.
+
+---
+
 ## Files
 
 | File | Purpose |
