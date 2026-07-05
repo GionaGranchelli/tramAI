@@ -276,6 +276,19 @@ Archive export uses GNU tar options for deterministic CI output. On non-GNU tar 
 
 The Gradle evidence-bundle verification also checks that packaging the same finalized bundle twice produces the same archive SHA-256.
 
+### Archive Verifier
+
+To verify an archived evidence bundle without manually extracting it into the current directory:
+
+```bash
+examples/sovereign-lab/verify-evidence-archive.sh \
+  examples/sovereign-lab/build/evidence-archives/<timestamp>.tar.gz
+```
+
+The archive verifier checks the SHA-256 sidecar, rejects unsafe archive entries (absolute paths, traversal paths, symlinks, hardlinks, special files), extracts into a temporary directory, and runs `verify-evidence-bundle.sh` on the extracted bundle.
+
+This is the recommended way for reviewers to inspect an archived evidence bundle.
+
 ---
 
 ## Files

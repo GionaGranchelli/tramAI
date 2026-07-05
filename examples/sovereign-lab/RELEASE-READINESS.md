@@ -150,6 +150,7 @@ A sovereign lab release candidate is **blocked** if:
 - any required evidence file is missing,
 - copied reports are not included in `files[]`,
 - symlinks are accepted inside evidence bundles,
+- unsafe archive entries are accepted by the archive verifier,
 - post-finalization tampering is not detected,
 - malformed or unsafe manifests are accepted by the verifier or finalizer.
 - docs imply certification, production readiness, benchmark guarantees, or evidence truth validation.
@@ -177,5 +178,6 @@ After the bundle is finalized and verified, reviewers should use [REVIEWER-GUIDE
 
 - [ ] Optional archive export was created only after bundle verification passed.
 - [ ] Extracted archive contents were verified again before handoff.
+- [ ] Archived bundles were checked with `verify-evidence-archive.sh` before handoff or review.
 
 Archive export does not sign, certify, or validate evidence truth.

@@ -182,22 +182,20 @@ A reviewer should **not** say:
 
 ## Reviewing an Archived Bundle
 
-If the reviewer receives a `.tar.gz` archive, validate the checksum first:
+Prefer the archive verifier when reviewing an archived bundle:
+
+```bash
+examples/sovereign-lab/verify-evidence-archive.sh <bundle>.tar.gz
+```
+
+The archive verifier checks the `.sha256` sidecar, rejects unsafe archive entries (absolute paths, traversal paths, symlinks, hardlinks, special files), extracts into a temporary directory, and runs the bundle verifier.
+
+Manual review is still possible:
 
 ```bash
 cd <archive-directory>
 sha256sum -c <bundle>.tar.gz.sha256
-```
-
-Then extract:
-
-```bash
 tar -xzf <bundle>.tar.gz
-```
-
-Then run:
-
-```bash
 examples/sovereign-lab/verify-evidence-bundle.sh <extracted-bundle-dir>
 ```
 
