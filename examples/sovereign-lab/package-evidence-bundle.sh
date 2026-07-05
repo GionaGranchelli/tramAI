@@ -16,8 +16,13 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERIFIER="$SCRIPT_DIR/verify-evidence-bundle.sh"
 
-if [[ ! -x "$VERIFIER" && ! -f "$VERIFIER" ]]; then
-  echo "Missing evidence bundle verifier at: $VERIFIER" >&2
+if [[ ! -f "$VERIFIER" || ! -r "$VERIFIER" ]]; then
+  echo "Missing readable evidence bundle verifier at: $VERIFIER" >&2
+  exit 1
+fi
+
+if ! command -v gzip >/dev/null 2>&1; then
+  echo "Missing gzip; cannot create deterministic archive" >&2
   exit 1
 fi
 
@@ -41,15 +46,16 @@ rm -f "$ARCHIVE" "$ARCHIVE.sha256"
 # Package from the parent so extraction recreates the bundle folder.
 BUNDLE_PARENT="$(dirname "$BUNDLE_ABS")"
 
+# Pipe through gzip -n for deterministic output (no timestamp embedded).
 tar \
   --sort=name \
   --mtime='UTC 1970-01-01' \
   --owner=0 \
   --group=0 \
   --numeric-owner \
-  -czf "$ARCHIVE" \
+  -cf - \
   -C "$BUNDLE_PARENT" \
-  "$BUNDLE_NAME"
+  "$BUNDLE_NAME" | gzip -n > "$ARCHIVE"
 
 # Write checksum with a relative path for easy verification.
 (cd "$ARCHIVE_ROOT" && sha256sum "$BUNDLE_NAME.tar.gz") > "$ARCHIVE.sha256"

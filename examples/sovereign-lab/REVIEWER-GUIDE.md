@@ -179,7 +179,14 @@ A reviewer should **not** say:
 
 ## Reviewing an Archived Bundle
 
-If the reviewer receives a `.tar.gz` archive, extract it first:
+If the reviewer receives a `.tar.gz` archive, validate the checksum first:
+
+```bash
+cd <archive-directory>
+sha256sum -c <bundle>.tar.gz.sha256
+```
+
+Then extract:
 
 ```bash
 tar -xzf <bundle>.tar.gz

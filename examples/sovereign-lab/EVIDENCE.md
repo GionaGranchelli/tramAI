@@ -141,7 +141,7 @@ Archive export does not sign, certify, upload, or validate evidence truth.
 
 ---
 
-## Evidence Checklist
+## Verify Evidence Bundle Lifecycle
 
 To verify that the evidence bundle helper still creates the expected local structure:
 

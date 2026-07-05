@@ -3104,6 +3104,25 @@ tasks.register("verifySovereignLabProfile") {
             "Missing sovereign lab evidence bundle packager at ${packagerScript.absolutePath}"
         }
 
+        val labReadmeText = labReadme.readText()
+        listOf(
+            "package-evidence-bundle.sh",
+            ".tar.gz",
+            ".tar.gz.sha256",
+            "sha256sum -c",
+            "does not sign",
+            "does not certify",
+            "verify-evidence-bundle.sh",
+        ).forEach { required ->
+            require(
+                labReadmeText.contains(required) ||
+                    evidenceText.contains(required) ||
+                    reviewerGuideText.contains(required)
+            ) {
+                "Sovereign lab archive export docs must mention $required."
+            }
+        }
+
         logger.lifecycle("verifySovereignLabProfile: all sovereign lab profile checks passed.")
     }
 }

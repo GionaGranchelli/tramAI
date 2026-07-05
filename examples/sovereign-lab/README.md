@@ -256,6 +256,20 @@ examples/sovereign-lab/build/evidence-archives/<timestamp>.tar.gz.sha256
 
 Archive export verifies the bundle before packaging. It does not sign, certify, upload, or validate evidence truth.
 
+Validate the archive checksum:
+
+```bash
+cd examples/sovereign-lab/build/evidence-archives
+sha256sum -c <timestamp>.tar.gz.sha256
+```
+
+For example:
+
+```bash
+cd examples/sovereign-lab/build/evidence-archives
+sha256sum -c test-bundle.tar.gz.sha256
+```
+
 Archive export uses GNU tar options for deterministic CI output. On non-GNU tar systems, use the verified bundle directory directly or run the packaging step in a Linux environment.
 
 ---
