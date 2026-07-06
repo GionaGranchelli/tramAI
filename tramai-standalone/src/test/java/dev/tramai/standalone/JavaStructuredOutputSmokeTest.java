@@ -8,6 +8,7 @@ import kotlin.jvm.JvmClassMappingKt;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * Java boundary smoke test for structured output.
@@ -44,7 +45,7 @@ class JavaStructuredOutputSmokeTest {
 
         // Assert: DTO fields are correctly deserialized through Jackson
         assertThat(result.getStatus()).isEqualTo("ok");
-        assertThat(result.getConfidence()).isEqualTo(0.8);
+        assertThat(result.getConfidence()).isCloseTo(0.8, within(0.000001));
 
         // Assert: exactly one provider call was made
         assertThat(provider.getRequests()).hasSize(1);
@@ -79,10 +80,10 @@ interface JavaScoredService {
 }
 
 /**
- * Java DTO with Jackson-deserializable properties.
+ * Java DTO with conventional JavaBean accessors.
  *
- * Jackson needs a no-arg constructor and provides getters are optional for
- * deserialization. The no-arg constructor is provided explicitly.
+ * The no-arg constructor and setters keep this smoke test focused on TramAI's
+ * Java service boundary rather than on Jackson field-access behavior.
  */
 class JavaScoredResult {
     private String status;
@@ -95,7 +96,15 @@ class JavaScoredResult {
         return status;
     }
 
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
     public double getConfidence() {
         return confidence;
+    }
+
+    public void setConfidence(double confidence) {
+        this.confidence = confidence;
     }
 }
