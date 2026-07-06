@@ -4514,3 +4514,60 @@ tasks.register("verifySovereignRuntimeClosure") {
         logger.lifecycle("Sovereignty roadmap is closed at the RC+ / enterprise proof level.")
     }
 }
+
+// ──────────────────────────────────────────────
+// Task: verifyPostSovereigntyRoadmap
+// ──────────────────────────────────────────────
+
+tasks.register("verifyPostSovereigntyRoadmap") {
+    group = "verification"
+    description = "Verifies the post-sovereignty roadmap exists and contains required declaration statements."
+
+    doLast {
+        val roadmapDoc = file("docs/POST-SOVEREIGNTY-ROADMAP.md")
+        require(roadmapDoc.exists()) {
+            "Missing post-sovereignty roadmap document at ${roadmapDoc.absolutePath}."
+        }
+
+        val roadmapText = roadmapDoc.readText()
+
+        val requiredPhrases = listOf(
+            "Sovereign Lab Evidence Handoff v1 is complete",
+            "Workflow Ergonomics",
+            "API Stability",
+            "Structured Output Contracts",
+            "Runtime Evidence",
+            "Phase 0",
+            "Non-Goals",
+            "Claim Boundaries",
+            "Global Acceptance Criteria",
+        )
+
+        requiredPhrases.forEach { phrase ->
+            require(roadmapText.contains(phrase)) {
+                "Post-sovereignty roadmap is missing required phrase: $phrase"
+            }
+        }
+
+        // Negative guard: prevent production-readiness overclaim in the roadmap itself.
+        // These phrases must not appear *anywhere* — even in non-goals, because non-goals
+        // are about what the roadmap explicitly defers, not about what the project claims.
+        // Exceptions: "EU AI Act conformity" legitimately appears in the non-goals section
+        // as a disclaimer; the guard uses a phrase that only an affirmative claim would use.
+        val forbiddenClaims = listOf(
+            "production certified",
+            "is GA-certified",
+        )
+
+        forbiddenClaims.forEach { forbidden ->
+            require(!roadmapText.contains(forbidden, ignoreCase = true)) {
+                "Post-sovereignty roadmap must not claim: $forbidden"
+            }
+        }
+
+        logger.lifecycle("Post-sovereignty roadmap verification complete.")
+        logger.lifecycle("  - docs/POST-SOVEREIGNTY-ROADMAP.md exists")
+        logger.lifecycle("  - Required declarations verified")
+        logger.lifecycle("  - Forbidden claims absent")
+    }
+}

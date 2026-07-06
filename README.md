@@ -196,6 +196,12 @@ More:
 - [Architecture](docs/ARCHITECTURE.md)
 - [Project Status](docs/STATUS.md)
 
+## Roadmap
+
+**Sovereign Lab Evidence Handoff v1 is complete.** The next phase focuses on workflow ergonomics, API stability, structured output contracts, and runtime evidence.
+
+See the [Post-Sovereignty Roadmap](docs/POST-SOVEREIGNTY-ROADMAP.md) for the full plan and phased PRs.
+
 ## Project Status
 
 TramAI is under **active development**.
