@@ -293,10 +293,16 @@ class TramaiEngineTest {
 
         assertThat(result).isEqualTo(ScoredAnswerResult(status = "ok", confidence = 0.8))
         assertThat(provider.requests).hasSize(2)
-        val repairMessages = provider.requests.last().messages.map { it.content }
-        assertThat(repairMessages).anyMatch { it.contains("failed validation") }
-        assertThat(repairMessages).anyMatch { it.contains("confidence") }
-        assertThat(repairMessages).anyMatch { it.contains("between 0.0 and 1.0") }
+        val userRepairMessages = provider.requests.last().messages
+            .filter { it.role == MessageRole.USER }
+            .map { it.content }
+        assertThat(userRepairMessages).anySatisfy { feedback ->
+            assertThat(feedback).contains("failed validation")
+            assertThat(feedback).contains("confidence")
+            assertThat(feedback).contains("between 0.0 and 1.0")
+        }
+        assertThat(provider.requests.last().messages)
+            .anyMatch { it.role == MessageRole.ASSISTANT && it.content.contains("\"confidence\":1.5") }
     }
 
     @Test
@@ -335,6 +341,8 @@ class TramaiEngineTest {
         assertThatThrownBy { runBlocking { service.status("tenant-a") } }
             .isInstanceOfSatisfying(StructuredOutputException::class.java) { error ->
                 assertThat(error.attemptCount).isEqualTo(1)
+                assertThat(error.lastRawResponse).isEqualTo("still not json")
+                assertThat(error.validationError).contains("JSON")
             }
         assertThat(provider.requests).hasSize(1)
     }
@@ -355,6 +363,8 @@ class TramaiEngineTest {
         assertThatThrownBy { runBlocking { service.status("tenant-a") } }
             .isInstanceOfSatisfying(StructuredOutputException::class.java) { error ->
                 assertThat(error.attemptCount).isEqualTo(3)
+                assertThat(error.lastRawResponse).isEqualTo("nope")
+                assertThat(error.validationError).contains("JSON")
             }
         assertThat(provider.requests).hasSize(3)
     }
