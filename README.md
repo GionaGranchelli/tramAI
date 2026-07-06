@@ -202,6 +202,8 @@ More:
 
 See the [Post-Sovereignty Roadmap](docs/POST-SOVEREIGNTY-ROADMAP.md) for the full plan and phased PRs.
 
+The [Workflow API Stability Boundary](docs/workflow-api-stability-boundary.md) classifies which APIs are stable, preview, internal, or deferred.
+
 ## Project Status
 
 TramAI is under **active development**.
