@@ -307,6 +307,8 @@ The signature verifier checks `<archive>.tar.gz.sha256.sig` against `<archive>.t
 
 This verifies the checksum sidecar's cryptographic origin. It does not prove evidence truth, operator identity, legal compliance, regulatory certification, or production readiness. The signer's public key is supplied by the reviewer and is not stored in this repository.
 
+For reviewer interpretation and allowed/forbidden statements, see [REVIEWER-GUIDE.md](./REVIEWER-GUIDE.md). For release-candidate handoff checks, see [RELEASE-READINESS.md](./RELEASE-READINESS.md).
+
 See [ARCHIVE-SIGNING.md](./ARCHIVE-SIGNING.md) for the full signing boundary.
 
 ---

@@ -3097,6 +3097,51 @@ tasks.register("verifySovereignLabProfile") {
             "Reviewer guide must avoid production-readiness overclaims."
         }
 
+        // ── PR #162: Signature handoff reviewer guard ──
+
+        listOf(
+            "verify-evidence-archive-signature.sh",
+            ".tar.gz.sha256.sig",
+            "reviewer-public-key.pem",
+            "does **not**:",
+            "prove operator identity beyond the key trust model",
+            "prove evidence truth",
+            "prove legal compliance",
+            "certify production readiness",
+        ).forEach { required ->
+            require(reviewerGuideText.contains(required)) {
+                "Sovereign lab reviewer guide must mention signature verifier handoff: $required."
+            }
+        }
+
+        // ── PR #162: Signature handoff release-readiness guard ──
+
+        val handoffReadinessText = file("examples/sovereign-lab/RELEASE-READINESS.md").readText()
+        listOf(
+            "verify-evidence-archive-signature.sh",
+            "detached signature",
+            "optional provenance evidence",
+            "not certify production readiness",
+            "or replace an audit",
+        ).forEach { required ->
+            require(handoffReadinessText.contains(required)) {
+                "Sovereign lab release readiness checklist must mention signature handoff: $required."
+            }
+        }
+
+        // ── PR #162: Signature handoff evidence-chain guard ──
+
+        val handoffEvidenceChainText = file("examples/sovereign-lab/EVIDENCE-CHAIN.md").readText()
+        listOf(
+            ".tar.gz.sha256.sig",
+            "verify-evidence-archive-signature.sh",
+            "caller-supplied public key",
+        ).forEach { required ->
+            require(handoffEvidenceChainText.contains(required)) {
+                "Sovereign lab evidence chain overview must mention signature artifacts: $required."
+            }
+        }
+
         // ── PR #152: Packager guard ──
 
         val packagerScript = file("examples/sovereign-lab/package-evidence-bundle.sh")

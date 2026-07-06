@@ -174,9 +174,17 @@ A reviewer may say:
 
 > This evidence bundle was structurally verified against its manifest. The verifier checked required files, safe paths, file digests, file sizes, copied report integrity, and claim-boundary flags. The bundle is tamper-evident from finalization time.
 
+If optional signature verification was used, a reviewer may additionally say:
+
+> The archive checksum sidecar was verified against a detached signature using a supplied public key. This confirms cryptographic origin of the checksum sidecar under that key trust model.
+
 A reviewer should **not** say:
 
 > This evidence bundle certifies production readiness, proves legal compliance, proves EU AI Act conformity, validates evidence truth, or guarantees benchmark performance.
+
+A reviewer should **not** say:
+
+> The signature proves who the operator was, proves audit acceptance, certifies compliance, or makes the bundle production-ready.
 
 ---
 
@@ -189,6 +197,27 @@ examples/sovereign-lab/verify-evidence-archive.sh <bundle>.tar.gz
 ```
 
 The archive verifier checks the `.sha256` sidecar, rejects unsafe archive entries (absolute paths, traversal paths, symlinks, hardlinks, special files), extracts into a temporary directory, and runs the bundle verifier.
+
+### Optional Signature Verification
+
+If the reviewer receives a detached signature for the archive checksum sidecar, verify it before reviewing the archive:
+
+```bash
+examples/sovereign-lab/verify-evidence-archive-signature.sh \
+  <bundle>.tar.gz \
+  reviewer-public-key.pem
+```
+
+This verifies `<bundle>.tar.gz.sha256.sig` against `<bundle>.tar.gz.sha256` using the caller-supplied public key, then runs `verify-evidence-archive.sh`.
+
+This proves the checksum sidecar was signed by the holder of the matching private key. It does **not**:
+
+- prove operator identity beyond the key trust model
+- prove evidence truth
+- prove legal compliance
+- certify production readiness
+- prove regulatory certification
+- prove audit acceptance
 
 Manual review is still possible:
 
