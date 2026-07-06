@@ -209,11 +209,11 @@ data class DevTramaiResolutionPolicy(
     )
 }
 
-// Lazy default URL for the sovereign bundle local repository.
-// Override with -PtramaiPublishReleaseUrl=file://<path> for custom local paths.
-val sovereignBundleRepoUrl: Provider<String> = providers.gradleProperty("tramaiPublishReleaseUrl")
-    .orElse(rootProject.layout.buildDirectory.dir("sovereign-runtime-release-verification-repo")
-        .map { "file://${it.asFile.absolutePath}" })
+// Always local file path for the sovereign bundle verification repository.
+// This is never a remote URL — it is only used for dry-run signing verification
+// and consumer smoke resolution. Do not use tramaiPublishReleaseUrl here.
+val sovereignBundleRepoUrl = rootProject.layout.buildDirectory.dir("sovereign-runtime-release-verification-repo")
+    .map { "file://${it.asFile.absolutePath}" }
 
 subprojects {
     group = tramaiGroup.get()
