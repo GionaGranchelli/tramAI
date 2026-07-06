@@ -99,7 +99,9 @@ The finalized manifest preserves this `claimBoundary`:
 | `reports/` | Copied generated reports |
 | `.tar.gz` | Optional archive handoff format |
 | `.tar.gz.sha256` | Archive transfer-integrity checksum |
+| `.tar.gz.sha256.sig` | Optional detached signature over the archive checksum sidecar |
 | `verify-evidence-archive.sh` | Optional safe archive verification before extraction |
+| `verify-evidence-archive-signature.sh` | Optional signature verification before archive verification |
 
 ---
 

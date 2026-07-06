@@ -179,5 +179,7 @@ After the bundle is finalized and verified, reviewers should use [REVIEWER-GUIDE
 - [ ] Optional archive export was created only after bundle verification passed.
 - [ ] Extracted archive contents were verified again before handoff.
 - [ ] Archived bundles were checked with `verify-evidence-archive.sh` before handoff or review.
+- [ ] If a detached signature is provided, reviewers know the expected public key and verify the sidecar with `verify-evidence-archive-signature.sh`.
+- [ ] Signature verification is treated as optional provenance evidence, not certification, audit acceptance, or production readiness.
 
-Archive export does not sign, certify, or validate evidence truth.
+Archive export and optional signature verification do not certify production readiness, prove evidence truth, prove legal or regulatory compliance, or replace an audit.
