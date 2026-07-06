@@ -61,12 +61,12 @@ TramAI should become:
 **Acceptance criteria:**
 - [x] Roadmap document exists.
 - [x] It explicitly says sovereignty handoff v1 is complete.
-- [ ] It lists next epics.
-- [ ] It lists non-goals.
-- [ ] It does not claim production readiness, certification, legal compliance, or EU AI Act conformity.
-- [ ] README.md links to it.
-- [ ] CHANGELOG.md records it.
-- [ ] `./gradlew check` passes.
+- [x] It lists next epics.
+- [x] It lists non-goals.
+- [x] It does not claim production readiness, certification, legal compliance, or EU AI Act conformity.
+- [x] README.md links to it.
+- [x] CHANGELOG.md records it.
+- [x] `./gradlew check` passes.
 
 ---
 
@@ -76,19 +76,21 @@ TramAI should become:
 
 **Goal:** Define which workflow APIs are stable, preview, internal, or deferred, preventing the project from growing by accident.
 
+**Status:** ✅ Boundary documented in [docs/workflow-api-stability-boundary.md](workflow-api-stability-boundary.md).
+
 **Why it matters:** TramAI already has many serious runtime pieces — approvals, audit, policy, persistence, local routing, evidence. The next question is: which APIs can users safely build against?
 
 **Proposed PRs:**
 
-| PR | Title | Purpose |
-|----|-------|---------|
-| #165 | docs(workflow): define workflow API stability boundary | Document stable/preview/internal APIs |
-| #166 | test(workflow): verify workflow API boundary | Add Gradle/API boundary guard |
-| #167 | docs(workflow): add workflow lifecycle model | Explain workflow states and transitions |
+| PR | Title | Purpose | Status |
+|----|-------|---------|--------|
+| #165 | docs(workflow): define workflow API stability boundary | Document stable/preview/internal APIs | ✅ Merged |
+| #166 | test(workflow): verify workflow API boundary | Add Gradle/API boundary guard | Pending |
+| #167 | docs(workflow): add workflow lifecycle model | Explain workflow states and transitions | Pending |
 
 **Tasks:**
-1. Inventory workflow-facing APIs
-2. Classify APIs as stable/preview/internal/deferred
+1. ✅ Inventory workflow-facing APIs
+2. ✅ Classify APIs as stable/preview/internal/deferred
 3. Add a machine-checked API boundary guard
 4. Document lifecycle: request → policy → provider/tool → approval → audit → result
 5. Add "allowed claims / forbidden claims" for workflow stability
@@ -350,10 +352,10 @@ Move from optional signature verification to a more formal signing/attestation m
 
 | PR | Title |
 |----|-------|
-| #164 | docs(roadmap): add post-sovereignty TramAI roadmap |
-| #165 | docs(workflow): define workflow API stability boundary |
-| #166 | test(workflow): verify workflow API boundary |
-| #167 | docs(workflow): add workflow lifecycle model |
+| #164 | docs(roadmap): add post-sovereignty TramAI roadmap | ✅ Merged |
+| #165 | docs(workflow): define workflow API stability boundary | ✅ Merged |
+| #166 | test(workflow): verify workflow API boundary | Pending |
+| #167 | docs(workflow): add workflow lifecycle model | Pending |
 
 **Outcome:** Clear post-sovereignty direction and stable API boundaries.
 
