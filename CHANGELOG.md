@@ -3,7 +3,37 @@
 ## Unreleased
 
 ### Added
-- Synced sovereign lab archive signature verification handoff documentation (PR #162). Reviewer and release-readiness docs now describe when to use `verify-evidence-archive-signature.sh`, how `.tar.gz.sha256.sig` relates to `.tar.gz.sha256`, and which claims remain unsupported. Gradle guards prevent reviewer/release docs from omitting the optional signature verifier or overclaiming operator identity, compliance, audit acceptance, or production readiness.
+- Synced sovereign lab archive signature verification handoff documentation (PR #162).
+
+## 0.4.0 — Sovereign Evidence Handoff
+
+### Added
+
+- Sovereign lab evidence capture workflow.
+- Machine-readable evidence bundle manifest.
+- Finalization and standalone bundle verification.
+- Archive export with checksum sidecar.
+- Safe archive verifier with strict sidecar parsing and tar-entry validation.
+- Archive verifier negative fixture coverage.
+- Optional detached signature verification for archive checksum sidecars.
+- Reviewer guide, release-readiness checklist, evidence-chain overview, archive signing boundary documentation, and handoff documentation.
+- Deterministic archive export regression coverage.
+
+### Verified
+
+- Release readiness checks.
+- Sovereign runtime publication dry-run.
+- Signed bundle dry-run.
+- Sovereign runtime consumer smoke.
+- Sovereign lab evidence bundle lifecycle.
+- Archive verification and negative fixture matrix.
+- Optional signature-verification coverage.
+
+### Non-goals
+
+This release does not certify production readiness, legal compliance, EU AI Act conformity, security certification, evidence truth, benchmark guarantees, model quality, operator identity, or audit acceptance.
+
+### Detailed changes
 - Added optional sovereign lab evidence archive signature verification (PR #161). Reviewers can verify a detached signature over the archive checksum sidecar using a caller-supplied public key, then run the existing archive verifier. Gradle coverage includes valid signature verification and negative fixtures for missing signatures, tampered sidecars, wrong public keys, and missing public keys. This does not add key management, private keys, signing automation, attestation, upload, evidence truth validation, regulatory certification, or production-readiness claims.
 - Added sovereign lab evidence archive signing boundary documentation (PR #160). The new [ARCHIVE-SIGNING.md](examples/sovereign-lab/ARCHIVE-SIGNING.md) guide explains the difference between checksum sidecars, deterministic archive hashes, signatures, attestations, and certification. It documents that current archive export provides transfer-integrity evidence only and does not prove signer identity, operator identity, regulatory compliance, production readiness, or evidence truth. This does not add runtime changes, model calls, benchmark execution, key generation, signing implementation, attestation, upload, evidence truth validation, or production-readiness claims.
 - Hardened sovereign lab evidence archive structure checks (PR #159). The archive verifier now rejects top-level regular files during tar inspection before extraction, requiring archived evidence bundles to be directory-shaped under one top-level bundle directory. Gradle coverage includes a top-level-file archive negative fixture. This does not add signing, attestation, upload, evidence truth validation, benchmark execution, or production-readiness claims.
