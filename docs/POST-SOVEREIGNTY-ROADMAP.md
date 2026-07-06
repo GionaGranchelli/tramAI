@@ -8,7 +8,7 @@
 
 **Sovereign Lab Evidence Handoff v1 is complete.**
 
-PR #162 closed the signature-verification handoff layer without adding runtime behavior, signing automation, key management, attestation, upload flow, evidence-truth validation, regulatory certification, or production-readiness claims. The evidence-archive verification chain now covers safe extraction, sidecar validation, signed-checksum verification, negative fixtures, deterministic export regression, and reviewer handoff.
+PR #162 closed the signature-verification handoff layer without adding runtime behavior, signing automation, key management, attestation, upload flow, evidence-truth validation, regulatory certification, or production-readiness claims. The evidence-archive verification chain now covers safe extraction, SHA-256 sidecar validation, optional detached signature verification, negative fixtures, deterministic export regression, and reviewer handoff.
 
 The next roadmap pivots back to TramAI core product value:
 

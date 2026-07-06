@@ -4,6 +4,7 @@
 
 ### Added
 - Post-Sovereignty TramAI roadmap document (PR #164). Declares Sovereign Lab Evidence Handoff v1 complete and defines the next phase: workflow ergonomics, API stability, structured output contracts, approval ergonomics, runtime evidence export, tool/MCP governance, and product narrative. Adds a Gradle guard requiring the roadmap to exist and contain key terms. This does not add runtime behavior, API changes, model calls, benchmark execution, compliance claims, production-readiness claims, signature/attestation automation, or Release Console work.
+- Synced sovereign lab archive signature verification handoff documentation (PR #162).
 
 ## 0.4.0 — Sovereign Evidence Handoff
 

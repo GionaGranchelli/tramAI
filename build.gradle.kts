@@ -4571,3 +4571,9 @@ tasks.register("verifyPostSovereigntyRoadmap") {
         logger.lifecycle("  - Forbidden claims absent")
     }
 }
+
+// Wire the roadmap guard into the default check lifecycle task so it runs
+// on every build and protects the roadmap from accidental deletion or drift.
+tasks.named("check") {
+    dependsOn("verifyPostSovereigntyRoadmap")
+}
