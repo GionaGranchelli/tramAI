@@ -184,7 +184,7 @@ Rules:
 
 - If a validator can express its constraint in JSON Schema, it **should** contribute to schema. Schema hints improve model output quality.
 - If a validator cannot contribute to schema, it **must still** produce repair-friendly feedback at runtime.
-- A validator that contributes to schema must be **reconciliable** with runtime validation: the schema hint and the runtime check must agree.
+- A validator that contributes to schema must be **reconcilable** with runtime validation: the schema hint and the runtime check must agree.
 
 ---
 
