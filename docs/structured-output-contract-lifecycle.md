@@ -427,15 +427,15 @@ throw StructuredOutputException(
 | JSON extraction (`extractJsonCandidate`) | Internal | Private method in Jackson handler |
 | Repair feedback shape | Internal | `feedbackMessage` constructed inside handler |
 | `StructuredOutputException` | Public | Thrown on exhaustion |
-| Custom validator extension point | Deferred | No API exists for user-defined validators beyond built-in |
+| Custom validator extension point | Deferred | No API exists for user-defined validators beyond built-in. See [Structured Output Validator Extension Model](structured-output-validator-extension-model.md). PR #170 defines the design boundary only — no runtime implementation exists yet. |
 | Contract versioning/snapshot guarantees | Deferred | Not implemented |
 | Full JSON Schema compatibility claim | Forbidden | Schema is JSON-like but not certified against the JSON Schema specification |
 
 ---
 
-## Open Questions for PR #169
+## Open Questions for PRs #169–#170
 
-The following behaviors should be verified with tests in PR #169:
+The following behaviors were verified with tests in PR #169. The following design questions are addressed in PR #170 (validator extension model):
 
 | Question | Current status |
 |----------|----------------|
@@ -498,8 +498,9 @@ This document is complete when:
 
 ## Related Documents
 
-| Document | Relationship |
-|----------|--------------|
+| Document | Purpose |
+|----------|---------|
+| [Structured Output Validator Extension Model](structured-output-validator-extension-model.md) | Future design boundary for custom validators (PR #170) |
 | [Post-Sovereignty Roadmap](POST-SOVEREIGNTY-ROADMAP.md) | Phase 2 defines the structured-output contract epic |
 | [Workflow Lifecycle Model](workflow-lifecycle-model.md) | Stage 5 (Structured Output / Repair) maps to this lifecycle |
 | [Workflow API Stability Boundary](workflow-api-stability-boundary.md) | Defines the stability level of structured-output surfaces |
