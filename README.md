@@ -204,6 +204,8 @@ See the [Post-Sovereignty Roadmap](docs/POST-SOVEREIGNTY-ROADMAP.md) for the ful
 
 The [Workflow API Stability Boundary](docs/workflow-api-stability-boundary.md) classifies which APIs are stable, preview, internal, or deferred.
 
+The [Workflow Lifecycle Model](docs/workflow-lifecycle-model.md) explains how governed workflows move through the TramAI runtime.
+
 ## Project Status
 
 TramAI is under **active development**.

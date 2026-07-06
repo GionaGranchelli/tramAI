@@ -189,6 +189,7 @@ The following are explicitly out of scope for the current workflow stability bou
 
 | Document | Relationship |
 |----------|--------------|
+| [Workflow Lifecycle Model](workflow-lifecycle-model.md) | Explains how governed workflows move through the TramAI runtime — request, contract binding, policy, execution, structured output, approval, audit, and result |
 | [Post-Sovereignty Roadmap](POST-SOVEREIGNTY-ROADMAP.md) | Phase 1 of this roadmap defines the API stability epic |
 | [Sovereign Runtime API Stability Boundary](architecture/sovereign-api-stability-boundary.md) | Defines the sovereign-runtime-specific stability levels for stores, SPIs, and operational surfaces |
 | [Sovereign Runtime API Stability Manifest](architecture/sovereign-api-stability-manifest.yml) | Machine-readable manifest consumed by `verifySovereignRuntimeApiBoundary` |
