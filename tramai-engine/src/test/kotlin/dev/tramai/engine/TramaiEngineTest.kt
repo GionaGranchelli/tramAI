@@ -1,6 +1,7 @@
 package dev.tramai.engine
 
 import dev.tramai.core.annotations.AiService
+import dev.tramai.core.annotations.AiRange
 import dev.tramai.core.annotations.ConversationId
 import dev.tramai.core.annotations.Operation
 import dev.tramai.core.annotations.SystemPrompt
@@ -274,6 +275,98 @@ class TramaiEngineTest {
                 assertThat(error.validationError).contains("JSON")
                 assertThat(error.attemptCount).isEqualTo(3)
             }
+    }
+
+    @Test
+    fun `structured validation failure retry includes actionable field feedback`() {
+        val provider = SequencedProvider(
+            ModelResponse(content = """{"status":"ok","confidence":1.5}"""),
+            ModelResponse(content = """{"status":"ok","confidence":0.8}"""),
+        )
+        val engine = TramaiEngine(
+            provider = provider,
+            structuredOutputHandler = JacksonStructuredOutputHandler(),
+        )
+        val service = engine.create<ScoredAnswerService>()
+
+        val result = runBlocking { service.evaluate("tenant-a") }
+
+        assertThat(result).isEqualTo(ScoredAnswerResult(status = "ok", confidence = 0.8))
+        assertThat(provider.requests).hasSize(2)
+        val userRepairMessages = provider.requests.last().messages
+            .filter { it.role == MessageRole.USER }
+            .map { it.content }
+        assertThat(userRepairMessages).anySatisfy { feedback ->
+            assertThat(feedback).contains("failed validation")
+            assertThat(feedback).contains("confidence")
+            assertThat(feedback).contains("between 0.0 and 1.0")
+        }
+        assertThat(provider.requests.last().messages)
+            .anyMatch { it.role == MessageRole.ASSISTANT && it.content.contains("\"confidence\":1.5") }
+    }
+
+    @Test
+    fun `parse failure repair feedback replays failed response and adds correction`() {
+        val provider = SequencedProvider(
+            ModelResponse(content = "not json"),
+            ModelResponse(content = """{"status":"ok"}"""),
+        )
+        val engine = TramaiEngine(
+            provider = provider,
+            structuredOutputHandler = JacksonStructuredOutputHandler(),
+        )
+        val service = engine.create<StructuredStatusService>()
+
+        val result = runBlocking { service.status("tenant-a") }
+
+        assertThat(result).isEqualTo(StatusResult(status = "ok"))
+        assertThat(provider.requests).hasSize(2)
+        val repairMessages = provider.requests.last().messages
+        assertThat(repairMessages).anyMatch { it.role == MessageRole.ASSISTANT && it.content.contains("not json") }
+        assertThat(repairMessages).anyMatch { it.role == MessageRole.USER && it.content.contains("Return only valid JSON") }
+    }
+
+    @Test
+    fun `maxRetries equals zero produces one attempt with no retry`() {
+        val provider = SequencedProvider(
+            ModelResponse(content = "still not json"),
+            ModelResponse(content = "never reached"),
+        )
+        val engine = TramaiEngine(
+            provider = provider,
+            structuredOutputHandler = JacksonStructuredOutputHandler(),
+        )
+        val service = engine.create<ZeroRetryStatusService>()
+
+        assertThatThrownBy { runBlocking { service.status("tenant-a") } }
+            .isInstanceOfSatisfying(StructuredOutputException::class.java) { error ->
+                assertThat(error.attemptCount).isEqualTo(1)
+                assertThat(error.lastRawResponse).isEqualTo("still not json")
+                assertThat(error.validationError).contains("JSON")
+            }
+        assertThat(provider.requests).hasSize(1)
+    }
+
+    @Test
+    fun `default retry count produces three total attempts on exhaustion`() {
+        val provider = SequencedProvider(
+            ModelResponse(content = "still not json"),
+            ModelResponse(content = "still wrong"),
+            ModelResponse(content = "nope"),
+        )
+        val engine = TramaiEngine(
+            provider = provider,
+            structuredOutputHandler = JacksonStructuredOutputHandler(),
+        )
+        val service = engine.create<StructuredStatusService>()
+
+        assertThatThrownBy { runBlocking { service.status("tenant-a") } }
+            .isInstanceOfSatisfying(StructuredOutputException::class.java) { error ->
+                assertThat(error.attemptCount).isEqualTo(3)
+                assertThat(error.lastRawResponse).isEqualTo("nope")
+                assertThat(error.validationError).contains("JSON")
+            }
+        assertThat(provider.requests).hasSize(3)
     }
 
     @Test
@@ -3147,6 +3240,31 @@ private interface SuspendNotifier {
         model = "claude-sonnet-4-20250514",
     )
     suspend fun notify(payload: String)
+}
+
+private data class ScoredAnswerResult(
+    val status: String,
+    @property:AiRange(min = 0.0, max = 1.0)
+    val confidence: Double,
+)
+
+@AiService
+private interface ScoredAnswerService {
+    @Operation(
+        prompt = "Return a scored status",
+        model = "claude-sonnet-4-20250514",
+    )
+    suspend fun evaluate(tenantId: String): ScoredAnswerResult
+}
+
+@AiService
+private interface ZeroRetryStatusService {
+    @Operation(
+        prompt = "Return a structured status",
+        model = "claude-sonnet-4-20250514",
+        maxRetries = 0,
+    )
+    suspend fun status(tenantId: String): StatusResult
 }
 
 @AiService
