@@ -4577,3 +4577,128 @@ tasks.register("verifyPostSovereigntyRoadmap") {
 tasks.named("check") {
     dependsOn("verifyPostSovereigntyRoadmap")
 }
+
+// ──────────────────────────────────────────────
+// Task: verifyWorkflowApiStabilityBoundary
+// ──────────────────────────────────────────────
+
+tasks.register("verifyWorkflowApiStabilityBoundary") {
+    group = "verification"
+    description = "Verifies the workflow API stability boundary document exists, contains required classifications, and avoids forbidden overclaims."
+
+    doLast {
+        val boundaryDoc = file("docs/workflow-api-stability-boundary.md")
+        require(boundaryDoc.isFile) {
+            "Missing workflow API stability boundary document at ${boundaryDoc.absolutePath}."
+        }
+
+        val text = boundaryDoc.readText()
+
+        // ── Section extraction helper ──
+        fun sectionBetween(text: String, start: String, end: String): String {
+            require(text.contains(start)) {
+                "Workflow API stability boundary is missing section: $start"
+            }
+            val after = text.substringAfter(start)
+            return after.substringBefore(end)
+        }
+
+        // ── Extract each stability section by its heading pair ──
+        val stableSection = sectionBetween(text, "## Stable Workflow Surface", "## Preview Workflow Surface")
+        val previewSection = sectionBetween(text, "## Preview Workflow Surface", "## Internal Workflow Surface")
+        val internalSection = sectionBetween(text, "## Internal Workflow Surface", "## Deferred Workflow Surface")
+        val deferredSection = text.substringAfter("## Deferred Workflow Surface")
+            .substringBefore("## Cross-References")
+        val allowedClaimsSection = sectionBetween(text, "## Allowed Claims", "## Forbidden Claims")
+        val forbiddenClaimsSection = text.substringAfter("## Forbidden Claims")
+            .substringBefore("## Acceptance Criteria")
+
+        // ── Stable section: core workflow annotations ──
+        listOf(
+            "@AiService",
+            "@Operation",
+            "@SystemMessage",
+            "@UserMessage",
+            "@AiTool",
+            "@ConversationId",
+            "@AIRange",
+            "@AIMinItems",
+            "PolicyEngine",
+            "PolicyDecision",
+            "ApprovalGateway",
+            "SovereignWorkflowResult",
+            "TramaiException",
+        ).forEach { phrase ->
+            require(stableSection.contains(phrase)) {
+                "Stable workflow API section must contain: $phrase"
+            }
+        }
+
+        // ── Preview section: evolving capabilities ──
+        listOf(
+            "orchestration patterns",
+            "evidence export",
+            "MCP adapter",
+            "tool governance",
+            "REST/control-plane",
+        ).forEach { phrase ->
+            require(previewSection.contains(phrase, ignoreCase = true)) {
+                "Preview workflow API section must contain: $phrase"
+            }
+        }
+
+        // ── Internal section: implementation details ──
+        listOf(
+            "JDBC",
+            "Worker lease internals",
+            "audit outbox",
+            "Gradle verification task",
+        ).forEach { phrase ->
+            require(internalSection.contains(phrase, ignoreCase = true)) {
+                "Internal workflow API section must contain: $phrase"
+            }
+        }
+
+        // ── Deferred section: out-of-scope capabilities ──
+        listOf(
+            "Release Console",
+            "compliance",
+            "attestation",
+            "key rotation",
+        ).forEach { phrase ->
+            require(deferredSection.contains(phrase, ignoreCase = true)) {
+                "Deferred workflow API section must contain: $phrase"
+            }
+        }
+
+        // ── Allowed Claims section must exist and mention key allowed statements ──
+        require(allowedClaimsSection.contains("stable", ignoreCase = true)) {
+            "Allowed Claims section must contain stability reference."
+        }
+
+        // ── Forbidden Claims section must reject overclaims ──
+        listOf(
+            "all workflow APIs are stable",
+            "production-certified",
+            "backward compatibility for preview APIs",
+            "EU AI Act conformity certification",
+            "proves legal or regulatory compliance",
+        ).forEach { phrase ->
+            require(forbiddenClaimsSection.contains(phrase, ignoreCase = true)) {
+                "Forbidden Claims section must reject: $phrase"
+            }
+        }
+
+        logger.lifecycle("Workflow API stability boundary verification complete.")
+        logger.lifecycle("  - docs/workflow-api-stability-boundary.md exists")
+        logger.lifecycle("  - Stable section: core annotations verified")
+        logger.lifecycle("  - Preview section: evolving capabilities verified")
+        logger.lifecycle("  - Internal section: implementation details verified")
+        logger.lifecycle("  - Deferred section: out-of-scope capabilities verified")
+        logger.lifecycle("  - Allowed/forbidden claims sections verified")
+    }
+}
+
+tasks.named("check") {
+    dependsOn("verifyWorkflowApiStabilityBoundary")
+}
