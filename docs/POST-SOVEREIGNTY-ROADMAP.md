@@ -120,7 +120,7 @@ TramAI should become:
 | #169 | test(structured-output): verify contract evolution behavior | Prove fields/validators are picked up | ✅ Merged |
 | #170 | docs(structured-output): define validator extension model | Clarify built-in vs future custom validators | ✅ Merged |
 | #171 | test(structured-output): harden repair feedback loop | Prove repair messages are useful and deterministic enough | ✅ Merged |
-| #172 | test(java): add structured-output Java boundary smoke | Ensure Java-friendly path works | Pending |
+| #172 | test(java): add structured-output Java boundary smoke | Ensure Java-friendly path works | ✅ Merged |
 
 **Tasks:**
 1. ✅ Document contract generation source: Kotlin type / annotations / validators
@@ -129,7 +129,7 @@ TramAI should become:
 4. ✅ Add tests for `@AIRange` and `@AIMinItems` behavior
 5. ✅ Define extension point for custom validators, even if not implemented yet
 6. ✅ Document repair feedback: what assistant sees, what user sees, what gets retried
-7. Add Java-facing smoke test for structured output
+7. ✅ Add Java-facing smoke test for structured output
 
 **Acceptance criteria:**
 - Contract lifecycle is documented.
@@ -367,7 +367,7 @@ Move from optional signature verification to a more formal signing/attestation m
 | #169 | test(structured-output): verify contract evolution behavior | ✅ Merged |
 | #170 | docs(structured-output): define validator extension model | ✅ Merged |
 | #171 | test(structured-output): harden repair feedback loop | ✅ Merged |
-| #172 | test(java): add structured-output Java boundary smoke | Pending |
+| #172 | test(java): add structured-output Java boundary smoke | ✅ Merged |
 
 **Outcome:** Typed contract story becomes a strong differentiator.
 
