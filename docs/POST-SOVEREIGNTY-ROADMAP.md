@@ -114,21 +114,21 @@ TramAI should become:
 
 **Proposed PRs:**
 
-| PR | Title | Purpose |
-|----|-------|---------|
-| #168 | docs(structured-output): document contract generation lifecycle | Explain when/how contracts are generated |
-| #169 | test(structured-output): verify contract evolution behavior | Prove fields/validators are picked up |
-| #170 | docs(structured-output): define validator extension model | Clarify built-in vs future custom validators |
-| #171 | test(structured-output): harden repair feedback loop | Prove repair messages are useful and deterministic enough |
-| #172 | test(java): add structured-output Java boundary smoke | Ensure Java-friendly path works |
+| PR | Title | Purpose | Status |
+|----|-------|---------|--------|
+| #168 | docs(structured-output): document contract generation lifecycle | Explain when/how contracts are generated | ✅ Merged |
+| #169 | test(structured-output): verify contract evolution behavior | Prove fields/validators are picked up | Pending |
+| #170 | docs(structured-output): define validator extension model | Clarify built-in vs future custom validators | Pending |
+| #171 | test(structured-output): harden repair feedback loop | Prove repair messages are useful and deterministic enough | Pending |
+| #172 | test(java): add structured-output Java boundary smoke | Ensure Java-friendly path works | Pending |
 
 **Tasks:**
-1. Document contract generation source: Kotlin type / annotations / validators
-2. Clarify whether contracts are rebuilt per call or cached
+1. ✅ Document contract generation source: Kotlin type / annotations / validators
+2. ✅ Clarify whether contracts are rebuilt per call or cached
 3. Add tests for new field added to return type
 4. Add tests for `@AIRange` and `@AIMinItems` behavior
 5. Define extension point for custom validators, even if not implemented yet
-6. Document repair feedback: what assistant sees, what user sees, what gets retried
+6. ✅ Document repair feedback: what assistant sees, what user sees, what gets retried
 7. Add Java-facing smoke test for structured output
 
 **Acceptance criteria:**
@@ -361,13 +361,13 @@ Move from optional signature verification to a more formal signing/attestation m
 
 ### Milestone 2 — Structured Output Contracts
 
-| PR | Title |
-|----|-------|
-| #168 | docs(structured-output): document contract generation lifecycle |
-| #169 | test(structured-output): verify contract evolution behavior |
-| #170 | docs(structured-output): define validator extension model |
-| #171 | test(structured-output): harden repair feedback loop |
-| #172 | test(java): add structured-output Java boundary smoke |
+| PR | Title | Status |
+|----|-------|--------|
+| #168 | docs(structured-output): document contract generation lifecycle | ✅ Merged |
+| #169 | test(structured-output): verify contract evolution behavior | Pending |
+| #170 | docs(structured-output): define validator extension model | Pending |
+| #171 | test(structured-output): harden repair feedback loop | Pending |
+| #172 | test(java): add structured-output Java boundary smoke | Pending |
 
 **Outcome:** Typed contract story becomes a strong differentiator.
 
