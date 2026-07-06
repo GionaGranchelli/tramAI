@@ -13,7 +13,7 @@ This document explains how a governed TramAI workflow moves from an application 
 It is the conceptual bridge between:
 
 - The [workflow API stability boundary](workflow-api-stability-boundary.md) (which APIs are safe to use)
-- The structured output contract lifecycle (how typed contracts are generated, validated, and repaired)
+- The [structured output contract lifecycle](structured-output-contract-lifecycle.md) (how typed contracts are generated, validated, and repaired)
 - The approval workflow (how human gates suspend and resume execution)
 - The policy engine (how security decisions are enforced before execution)
 - Audit and persistence (how runtime decisions are recorded)

@@ -206,6 +206,8 @@ The [Workflow API Stability Boundary](docs/workflow-api-stability-boundary.md) c
 
 The [Workflow Lifecycle Model](docs/workflow-lifecycle-model.md) explains how governed workflows move through the TramAI runtime.
 
+The [Structured Output Contract Lifecycle](docs/structured-output-contract-lifecycle.md) documents how typed contracts are generated, validated, and repaired.
+
 ## Project Status
 
 TramAI is under **active development**.
