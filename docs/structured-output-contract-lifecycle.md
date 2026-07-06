@@ -205,10 +205,10 @@ The raw provider response (as a `String`) is returned to the structured output h
 |------|--------|
 | Provider response is captured as raw text | `handler.analyze(rawResponse = result.response.content, ...)` |
 | The response includes tool calls if present | Tool loop precedes structured analysis |
-| DLP redaction is applied by the provider call layer | Comment in `executeStructuredAttempt` |
 
 ### What is NOT proven by code
 
+- Whether DLP redaction is always applied before structured output analysis. The current implementation comments suggest this happens in the provider call layer, but this document does not treat that as a structured-output lifecycle guarantee.
 - Whether very large provider responses are handled with streaming or truncation before structured analysis.
 
 ---
@@ -342,8 +342,7 @@ The engine then re-invokes the provider with the extended message history, allow
 
 ### What is NOT proven by code
 
-- Whether the repair prompt's exact shape is stable or an internal implementation detail. (The feedback message is constructed inside `StructuredOutputResult.Failure`.)
-- How many repair attempts are made when `Operation.maxRetries` is set to its default (2) — that would be `2 + 1 = 3` total attempts.
+- Whether the exact repair prompt shape and retry policy should be treated as stable API. Stage 8 documents the current retry behavior (3 attempts by default), but PR #169 should verify it with regression tests before treating it as a compatibility guarantee.
 - Whether repair feedback can be customized or overridden by application code.
 
 ---
