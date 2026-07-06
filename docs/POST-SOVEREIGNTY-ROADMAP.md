@@ -119,7 +119,7 @@ TramAI should become:
 | #168 | docs(structured-output): document contract generation lifecycle | Explain when/how contracts are generated | ✅ Merged |
 | #169 | test(structured-output): verify contract evolution behavior | Prove fields/validators are picked up | ✅ Merged |
 | #170 | docs(structured-output): define validator extension model | Clarify built-in vs future custom validators | ✅ Merged |
-| #171 | test(structured-output): harden repair feedback loop | Prove repair messages are useful and deterministic enough | Pending |
+| #171 | test(structured-output): harden repair feedback loop | Prove repair messages are useful and deterministic enough | ✅ Merged |
 | #172 | test(java): add structured-output Java boundary smoke | Ensure Java-friendly path works | Pending |
 
 **Tasks:**
@@ -366,7 +366,7 @@ Move from optional signature verification to a more formal signing/attestation m
 | #168 | docs(structured-output): document contract generation lifecycle | ✅ Merged |
 | #169 | test(structured-output): verify contract evolution behavior | ✅ Merged |
 | #170 | docs(structured-output): define validator extension model | ✅ Merged |
-| #171 | test(structured-output): harden repair feedback loop | Pending |
+| #171 | test(structured-output): harden repair feedback loop | ✅ Merged |
 | #172 | test(java): add structured-output Java boundary smoke | Pending |
 
 **Outcome:** Typed contract story becomes a strong differentiator.
