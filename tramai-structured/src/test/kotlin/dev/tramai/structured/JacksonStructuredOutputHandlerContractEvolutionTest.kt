@@ -5,11 +5,8 @@ import com.fasterxml.jackson.databind.json.JsonMapper
 import com.fasterxml.jackson.module.kotlin.kotlinModule
 import dev.tramai.core.annotations.AiMinItems
 import dev.tramai.core.annotations.AiRange
-import dev.tramai.core.structured.StructuredOutputContract
-import dev.tramai.core.structured.StructuredOutputHandler
 import dev.tramai.core.structured.StructuredOutputResult
 import org.assertj.core.api.Assertions.assertThat
-import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 import kotlin.test.Test
 
@@ -73,16 +70,15 @@ class JacksonStructuredOutputHandlerContractEvolutionTest {
         assertThat(v2Schema["properties"]?.get("confidence")).isNotNull
     }
 
-    // ── Test 2: Contract generation is per invocation (no internal cache) ─
+    // ── Test 2: Contract generation returns fresh instances per call ──────
 
     @Test
-    fun `each createContract call produces a fresh contract`() {
-        val spy = CountingStructuredOutputHandler(handler)
+    fun `createContract returns fresh equivalent contracts for same return type`() {
+        val first = handler.createContract(typeOf<RecommendationV2>())
+        val second = handler.createContract(typeOf<RecommendationV2>())
 
-        spy.createContract(typeOf<RecommendationV1>())
-        spy.createContract(typeOf<RecommendationV2>())
-
-        assertThat(spy.createContractCallCount).isEqualTo(2)
+        assertThat(second).isNotSameAs(first)
+        assertThat(second.schemaJson).isEqualTo(first.schemaJson)
     }
 
     // ── Test 3: @AIRange appears in generated schema ─────────────────────
@@ -166,22 +162,5 @@ class JacksonStructuredOutputHandlerContractEvolutionTest {
         val failure = result as StructuredOutputResult.Failure
         assertThat(failure.errorSummary).contains("Could not find a JSON object or array")
         assertThat(failure.feedbackMessage).contains("Return only valid JSON")
-    }
-}
-
-/**
- * [StructuredOutputHandler] spy that delegates to a real handler and counts
- * [createContract] calls. Used to prove contract generation is per invocation.
- */
-private class CountingStructuredOutputHandler(
-    private val delegate: JacksonStructuredOutputHandler,
-) : StructuredOutputHandler by delegate {
-
-    var createContractCallCount: Int = 0
-        private set
-
-    override fun createContract(targetType: KType): StructuredOutputContract {
-        createContractCallCount++
-        return delegate.createContract(targetType)
     }
 }
