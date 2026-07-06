@@ -86,13 +86,13 @@ TramAI should become:
 |----|-------|---------|--------|
 | #165 | docs(workflow): define workflow API stability boundary | Document stable/preview/internal APIs | ✅ Merged |
 | #166 | test(workflow): verify workflow API boundary | Add Gradle/API boundary guard | ✅ Merged |
-| #167 | docs(workflow): add workflow lifecycle model | Explain workflow states and transitions | Pending |
+| #167 | docs(workflow): add workflow lifecycle model | Explain workflow states and transitions | ✅ Merged |
 
 **Tasks:**
 1. ✅ Inventory workflow-facing APIs
 2. ✅ Classify APIs as stable/preview/internal/deferred
 3. ✅ Add a machine-checked API boundary guard
-4. Document lifecycle: request → policy → provider/tool → approval → audit → result
+4. ✅ Document lifecycle: request → policy → provider/tool → approval → audit → result
 5. ✅ Add "allowed claims / forbidden claims" for workflow stability
 
 **Acceptance criteria:**
@@ -355,7 +355,7 @@ Move from optional signature verification to a more formal signing/attestation m
 | #164 | docs(roadmap): add post-sovereignty TramAI roadmap | ✅ Merged |
 | #165 | docs(workflow): define workflow API stability boundary | ✅ Merged |
 | #166 | test(workflow): verify workflow API boundary | ✅ Merged |
-| #167 | docs(workflow): add workflow lifecycle model | Pending |
+| #167 | docs(workflow): add workflow lifecycle model | ✅ Merged |
 
 **Outcome:** Clear post-sovereignty direction and stable API boundaries.
 
