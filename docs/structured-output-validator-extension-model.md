@@ -178,7 +178,7 @@ Not every validator can or should contribute to schema:
 | `@AIRegex` (future) | Yes — `pattern` | Strong signal for model output |
 | `@AISize` (future) | Yes — `minLength` / `maxLength` | Strong signal for model output |
 | Domain SPI validator | Often no | Domain rules may not have JSON Schema representations |
-| Cross-field validator | No | Relationships between fields cannot be expressed in a property schema |
+| Cross-field validator | Usually no | Relationships between fields cannot be expressed by the current property-level schema contribution model |
 
 Rules:
 

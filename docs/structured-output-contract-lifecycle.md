@@ -435,7 +435,7 @@ throw StructuredOutputException(
 
 ## Open Questions for PRs #169–#170
 
-The following behaviors were verified with tests in PR #169. The following design questions are addressed in PR #170 (validator extension model):
+The following behaviors were verified with tests in PR #169. Custom validator design questions are now tracked in the [Structured Output Validator Extension Model](structured-output-validator-extension-model.md) introduced by PR #170 — the document defines the design boundary and records the remaining implementation decisions without resolving them.
 
 | Question | Current status |
 |----------|----------------|
