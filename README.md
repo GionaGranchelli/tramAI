@@ -208,6 +208,8 @@ The [Workflow Lifecycle Model](docs/workflow-lifecycle-model.md) explains how go
 
 The [Structured Output Contract Lifecycle](docs/structured-output-contract-lifecycle.md) documents how typed contracts are generated, validated, and repaired.
 
+The [Structured Output Validator Extension Model](docs/structured-output-validator-extension-model.md) defines the future design boundary for custom validators.
+
 ## Project Status
 
 TramAI is under **active development**.
