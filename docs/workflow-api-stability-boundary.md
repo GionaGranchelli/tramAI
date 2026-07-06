@@ -2,6 +2,7 @@
 
 > **Status:** Active — defines the workflow-facing API boundary for the post-sovereignty roadmap.
 > **Phase:** Phase 1 / Epic 1 of the [Post-Sovereignty Roadmap](POST-SOVEREIGNTY-ROADMAP.md).
+> **Guard:** Protected by `verifyWorkflowApiStabilityBoundary` (wired into `check`).
 
 ---
 
