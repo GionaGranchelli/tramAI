@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish or validate. Leave empty to use the project default version, or set a release like 0.3.1."
+        description: "Version to publish or validate. Leave empty to use tramaiVersion from gradle.properties."
         required: false
         type: string
       publishMode:
@@ -64,7 +64,11 @@ jobs:
           elif [[ -n "${{ github.event.inputs.version }}" ]]; then
             TRAMAI_VERSION_RESOLVED="${{ github.event.inputs.version }}"
           else
-            TRAMAI_VERSION_RESOLVED="0.3.1"
+            TRAMAI_VERSION_RESOLVED="$(grep '^tramaiVersion=' gradle.properties | cut -d= -f2)"
+          fi
+          if [[ -z "$TRAMAI_VERSION_RESOLVED" ]]; then
+            echo "::error::Could not resolve TramAI version from gradle.properties or tag or input."
+            exit 1
           fi
           echo "TRAMAI_VERSION=${TRAMAI_VERSION_RESOLVED}" >> "$GITHUB_ENV"
 
