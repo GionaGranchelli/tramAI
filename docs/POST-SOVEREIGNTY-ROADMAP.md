@@ -117,7 +117,7 @@ TramAI should become:
 | PR | Title | Purpose | Status |
 |----|-------|---------|--------|
 | #168 | docs(structured-output): document contract generation lifecycle | Explain when/how contracts are generated | ✅ Merged |
-| #169 | test(structured-output): verify contract evolution behavior | Prove fields/validators are picked up | Pending |
+| #169 | test(structured-output): verify contract evolution behavior | Prove fields/validators are picked up | ✅ Merged |
 | #170 | docs(structured-output): define validator extension model | Clarify built-in vs future custom validators | Pending |
 | #171 | test(structured-output): harden repair feedback loop | Prove repair messages are useful and deterministic enough | Pending |
 | #172 | test(java): add structured-output Java boundary smoke | Ensure Java-friendly path works | Pending |
@@ -125,8 +125,8 @@ TramAI should become:
 **Tasks:**
 1. ✅ Document contract generation source: Kotlin type / annotations / validators
 2. ✅ Clarify whether contracts are rebuilt per call or cached
-3. Add tests for new field added to return type
-4. Add tests for `@AIRange` and `@AIMinItems` behavior
+3. ✅ Add tests for new field added to return type
+4. ✅ Add tests for `@AIRange` and `@AIMinItems` behavior
 5. Define extension point for custom validators, even if not implemented yet
 6. ✅ Document repair feedback: what assistant sees, what user sees, what gets retried
 7. Add Java-facing smoke test for structured output
@@ -364,7 +364,7 @@ Move from optional signature verification to a more formal signing/attestation m
 | PR | Title | Status |
 |----|-------|--------|
 | #168 | docs(structured-output): document contract generation lifecycle | ✅ Merged |
-| #169 | test(structured-output): verify contract evolution behavior | Pending |
+| #169 | test(structured-output): verify contract evolution behavior | ✅ Merged |
 | #170 | docs(structured-output): define validator extension model | Pending |
 | #171 | test(structured-output): harden repair feedback loop | Pending |
 | #172 | test(java): add structured-output Java boundary smoke | Pending |
