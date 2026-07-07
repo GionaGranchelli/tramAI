@@ -2,7 +2,7 @@
 
 > **Status:** Guide — explains how to test governed workflows without real model calls.
 > **Phase:** Phase 3 — Workflow Ergonomics of the [Post-Sovereignty Roadmap](../POST-SOVEREIGNTY-ROADMAP.md).
-> **Pre-requisites:** Familiarity with the [governed workflow quickstart](governed-workflow-quickstart.md) and the [minimal governed workflow example](../../examples/governed-workflow).
+> **Prerequisites:** Familiarity with the [governed workflow quickstart](governed-workflow-quickstart.md) and the [minimal governed workflow example](../../examples/governed-workflow).
 
 ---
 
