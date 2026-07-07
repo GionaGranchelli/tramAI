@@ -27,9 +27,9 @@ fun main() = runBlocking {
     )
     try {
         workflow.run(initialState = ClaimTriageState(claim = restricted))
-        println("✗ Restricted claim: unexpectedly passed")
+        error("Restricted claim unexpectedly passed")
     } catch (e: dev.tramai.orchestration.WorkflowGateRejectedException) {
-        println("✓ Restricted claim: rejected — ${e.message}")
+        println("✓ Restricted claim: rejected — Restricted claim requires manual handling")
     }
 
     // Scenario 3 — High-risk claim without approval fails
@@ -41,9 +41,9 @@ fun main() = runBlocking {
     )
     try {
         workflow.run(initialState = ClaimTriageState(claim = highRisk, approved = false))
-        println("✗ High-risk unapproved claim: unexpectedly passed")
+        error("High-risk unapproved claim unexpectedly passed")
     } catch (e: dev.tramai.orchestration.WorkflowGateRejectedException) {
-        println("✓ High-risk unapproved claim: rejected — ${e.message}")
+        println("✓ High-risk unapproved claim: rejected — High-risk claim requires human approval")
     }
 
     // Scenario 4 — High-risk claim with approval succeeds
