@@ -4,6 +4,12 @@ interface ClaimClassifier {
     suspend fun classify(claim: ClaimInput): ClaimClassification
 }
 
+/**
+ * Deterministic fake classifier — no AI model required.
+ *
+ * Maps input properties directly to risk levels so the workflow can be
+ * exercised without external credentials, network access, or model latency.
+ */
 class DeterministicClaimClassifier : ClaimClassifier {
     override suspend fun classify(claim: ClaimInput): ClaimClassification =
         when {
