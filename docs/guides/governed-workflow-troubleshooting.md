@@ -24,7 +24,7 @@ Start here. Match your symptom to the most likely cause, inspect the right evide
 | `WorkflowGateRejectedException` at `approval-required` | High-risk state lacks explicit approval (`approved == false`) | `state.classification.risk` and `state.approved` before the gate | Provide an approved state for the test input or route through an approval gateway |
 | AI step throws provider exception | Model provider is unavailable, misconfigured, or the routing key does not match | Provider configuration, routing key in the `@Operation` annotation, network connectivity | Replace the real provider with a deterministic fake in workflow tests; verify provider config in production |
 | `StructuredOutputException` on parse | Provider returned invalid JSON or a response that does not match the generated schema | Service-level test with `MockAiProvider`; `RecordingOperationObserver` capture of raw response | Test the `@AiService` interface directly with `MockAiProvider`; verify schema evolution is backward-compatible |
-| `StructuredOutputException` on validation | Response parsed correctly but failed a validator constraint (`@AIRange`, `@AIMinItems`, etc.) | Validator annotation values on the return type; the raw AI response | Adjust validator bounds or the expected test input |
+| `StructuredOutputException` on validation | Response parsed correctly but failed a validator constraint (`@AiRange`, `@AiMinItems`, etc.) | Validator annotation values on the return type; the raw AI response | Adjust validator bounds or the expected test input |
 | Missing final result | The final `localStep` or result mapper did not populate the expected state field | Result mapper lambda in `.build { ... }`; the state after the last completed step | Ensure every path through the workflow writes the required state field |
 | Observer trail is unexpected | Step order, gate behaviour, or failure location differs from what the test asserts | `observer.startedSteps`, `observer.completedSteps`, `observer.failedSteps` | Read the observer trail as the actual execution contract; update the assertion or fix the workflow definition |
 | Test requires real credentials or network | A deterministic fake was not wired; the real `@AiService` implementation is used in the test | Workflow constructor or test fixture — does it accept a `ClaimClassifier` parameter? | Replace the real service with `DeterministicClaimClassifier` (or equivalent); see the [testing guide](governed-workflow-testing.md) |
@@ -152,7 +152,7 @@ The workflow throws `StructuredOutputException` during an `aiStep`. The error in
 ### Likely cause
 
 - The provider returned invalid JSON or a response that does not match the expected schema shape.
-- A validator annotation (`@AIRange`, `@AIMinItems`, etc.) rejected a value in the parsed response.
+- A validator annotation (`@AiRange`, `@AiMinItems`, etc.) rejected a value in the parsed response.
 - The return type changed (e.g., a new required field was added) but the provider still sends the old shape.
 
 ### Inspect
@@ -169,7 +169,7 @@ This is a **provider-level concern**, not a workflow-concern. Do not debug struc
 |-------|-----|
 | Provider sends wrong shape | Adjust the prompt or response format instructions in the `@AiService` / `@Operation` annotations |
 | Schema changed and provider needs updating | Ensure backward-compatible schema evolution (add optional fields, not breaking changes) |
-| Validator rejects valid responses | Adjust `@AIRange` or `@AIMinItems` bounds, or add expected test input that produces in-range values |
+| Validator rejects valid responses | Adjust `@AiRange` or `@AiMinItems` bounds, or add expected test input that produces in-range values |
 
 For the full structured output lifecycle, see the [Structured Output Contract Lifecycle](../structured-output-contract-lifecycle.md).
 
@@ -187,7 +187,7 @@ The final `localStep` or the `.build { ... }` result mapper did not populate the
 
 ### Inspect
 
-1. Run the workflow with a `RecordingWorkflowObserver` to see which steps completed.
+1. Run the workflow with a small test `WorkflowObserver` implementation (like the recording observer shown in the [governed workflow testing guide](governed-workflow-testing.md#pattern-4--observe-diagnostic-step-trails)) to see which steps completed.
 2. Check the state after each step — are all required fields populated?
 3. Check the result mapper in `.build { state -> ... }` — does every code path return the expected type?
 

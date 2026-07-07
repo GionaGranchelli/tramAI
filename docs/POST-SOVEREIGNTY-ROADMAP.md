@@ -164,7 +164,7 @@ A new TramAI user should understand:
 | #174 | example(workflow): add minimal governed workflow example | Runnable example | ✅ Merged |
 | #175 | test(workflow): add workflow failure diagnostics smoke | Prove errors are explainable | ✅ Merged |
 | #176 | docs(workflow): add testing guide for governed workflows | How to test without real model calls | ✅ Merged |
-|| #177 | docs(workflow): add workflow troubleshooting guide | Common failures and fixes | ✅ Merged |
+| #177 | docs(workflow): add workflow troubleshooting guide | Common failures and fixes | ✅ Merged |
 
 **Tasks:**
 1. Pick one simple example domain
