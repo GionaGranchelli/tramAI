@@ -195,6 +195,7 @@ More:
 - [Architecture Overview](docs/architecture/overview.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Project Status](docs/STATUS.md)
+- [Governed Workflow Quickstart](docs/guides/governed-workflow-quickstart.md)
 
 ## Roadmap
 

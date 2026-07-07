@@ -72,6 +72,7 @@ implementation("dev.tramai:tramai-orchestration")
 | Quickstart with all modules | `docs/guides/getting-started.md` |
 | Understanding workflow basics | `docs/specs/spec-005.md` |
 | Agent CLI step types (Hermes, Codex, MCP, Shell) | `docs/specs/spec-009.md` |
+| Governed workflow quickstart | `docs/guides/governed-workflow-quickstart.md` |
 
 ---
 
