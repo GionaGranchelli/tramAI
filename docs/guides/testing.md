@@ -169,3 +169,4 @@ After the first deterministic tests are in place:
 - read [Structured Output](./structured-output.md) if your methods still return raw strings
 - read [Providers and Model Routing](./providers.md) if you need to verify routing behavior
 - read [Observability](./observability.md) if you want to assert emitted spans or metrics
+- read [Testing Governed Workflows](./governed-workflow-testing.md) if you are composing multiple AI-backed, policy, approval, or local steps
