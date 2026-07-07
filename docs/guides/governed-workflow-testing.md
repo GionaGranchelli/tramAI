@@ -279,5 +279,6 @@ Use the module-level test command while iterating. Run the full `check` before o
 | Workflow test examples | [`GovernedWorkflowTest.kt`](../../examples/governed-workflow/src/test/kotlin/dev/tramai/examples/governed/GovernedWorkflowTest.kt) |
 | Diagnostic trail examples | [`GovernedWorkflowFailureDiagnosticsTest.kt`](../../examples/governed-workflow/src/test/kotlin/dev/tramai/examples/governed/GovernedWorkflowFailureDiagnosticsTest.kt) |
 | General testing (MockAiProvider, observers) | [Testing Guide](testing.md) |
+| Governed workflow troubleshooting | [Troubleshooting Guide](governed-workflow-troubleshooting.md) |
 | Orchestration DSL | [Orchestration Guide](orchestration.md) |
 | Approval gateway | [Golden Path Guide](approval-gateway-golden-path.md) |
