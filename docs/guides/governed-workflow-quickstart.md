@@ -16,7 +16,7 @@ This guide answers the conceptual questions a new TramAI developer should be abl
 4. How do typed contracts, policy, approval, persistence, and testing fit together?
 5. What is intentionally not guaranteed by this quickstart?
 
-It is **not** a runnable tutorial. The complete executable example comes in [PR #174](https://github.com/GionaGranchelli/tramAI/pull/174).
+It is **not** a runnable tutorial. The complete executable example is in the [`examples/governed-workflow`](../../examples/governed-workflow) module.
 
 ---
 
@@ -184,7 +184,7 @@ Key points:
 - `localStep` runs pure application logic
 - The workflow state stays typed and observable at every step boundary
 
-> **Note:** This snippet is illustrative. The complete runnable version comes in [PR #174](https://github.com/GionaGranchelli/tramAI/pull/174).
+> **Note:** This snippet is illustrative. The complete runnable version is in the [`examples/governed-workflow`](../../examples/governed-workflow) module.
 
 ---
 
@@ -306,7 +306,7 @@ This quickstart is a conceptual introduction. It does **not**:
 - Prove legal or business correctness
 - Replace domain review
 - Require real model calls
-- Provide a complete runnable application — that is [PR #174](https://github.com/GionaGranchelli/tramAI/pull/174)
+- Provide a complete runnable application — see the [`examples/governed-workflow`](../../examples/governed-workflow) module
 - Claim that approval means the AI output is correct
 
 See the [Post-Sovereignty Roadmap](../POST-SOVEREIGNTY-ROADMAP.md) for status, non-goals, and claim boundaries.
@@ -317,7 +317,7 @@ See the [Post-Sovereignty Roadmap](../POST-SOVEREIGNTY-ROADMAP.md) for status, n
 
 | Topic | Link |
 |-------|------|
-| Runnable governed workflow example | PR #174 (coming) |
+| Runnable governed workflow example | [`examples/governed-workflow`](../../examples/governed-workflow) |
 | Orchestration DSL reference | [Orchestration Guide](orchestration.md) |
 | Workflow lifecycle model | [Lifecycle Model](../workflow-lifecycle-model.md) |
 | Structured output contracts | [Contract Lifecycle](../structured-output-contract-lifecycle.md) |

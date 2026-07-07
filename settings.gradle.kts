@@ -46,4 +46,5 @@ include(
     "examples:sovereign-document-intelligence",
     "examples:sovereign-offline-verification",
     "examples:spring-sovereign-starter",
+    "examples:governed-workflow",
 )

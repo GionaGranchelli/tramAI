@@ -161,7 +161,7 @@ A new TramAI user should understand:
 | PR | Title | Purpose | Status |
 |----|-------|---------|--------|
 | #173 | docs(workflow): add governed workflow quickstart | End-to-end conceptual quickstart | ✅ Merged |
-| #174 | example(workflow): add minimal governed workflow example | Runnable example | Pending |
+| #174 | example(workflow): add minimal governed workflow example | Runnable example | ✅ Merged |
 | #175 | test(workflow): add workflow failure diagnostics smoke | Prove errors are explainable | Pending |
 | #176 | docs(workflow): add testing guide for governed workflows | How to test without real model calls | Pending |
 | #177 | docs(workflow): add workflow troubleshooting guide | Common failures and fixes | Pending |
