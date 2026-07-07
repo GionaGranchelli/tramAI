@@ -2,7 +2,7 @@
 
 > **Status:** Conceptual guide — not a runnable example.
 > **Phase:** Phase 3 — Workflow Ergonomics of the [Post-Sovereignty Roadmap](../POST-SOVEREIGNTY-ROADMAP.md).
-> **Pre-requisites:** Familiarity with the [orchestration DSL](orchestration.md) and the [workflow lifecycle model](../workflow-lifecycle-model.md).
+> **Prerequisites:** Familiarity with the [orchestration DSL](orchestration.md) and the [workflow lifecycle model](../workflow-lifecycle-model.md).
 
 ---
 
@@ -22,7 +22,7 @@ It is **not** a runnable tutorial. The complete executable example comes in [PR 
 
 ## What a Governed Workflow Is
 
-A **governed workflow** is a bounded, explicit sequence of steps where AI-backed operations are combined with typed contracts, deterministic local steps, policy gates, optional human approval, persistence, and observable failure paths. Every step boundary is checkpointed, every AI call is typed, and every decision point is visible in the workflow definition.
+A **governed workflow** is a bounded, explicit sequence of steps where AI-backed operations are combined with typed contracts, deterministic local steps, policy gates, optional human approval, persistence, and observable failure paths. With persistence enabled, top-level step boundaries are checkpointed so the workflow can resume after interruption. Every AI call is typed, and every decision point is visible in the workflow definition.
 
 A plain `workflow<S>` (see the [orchestration guide](orchestration.md)) already supports `aiStep`, `localStep`, `gateStep`, `branchStep`, and `parallelStep`. A **governed** workflow adds:
 
@@ -113,10 +113,12 @@ An AI step is driven by a typed `@AiService` interface:
 
 ```kotlin
 @AiService
+@SystemPrompt("Classify the incoming claim for risk and category.")
 interface ClaimClassifier {
-    @SystemMessage("Classify the incoming claim for risk and category.")
-    @UserMessage("Claim: {claim}")
-    @Operation(model = "local-model")
+    @Operation(
+        prompt = "Claim: {claim}",
+        model = "local-model",
+    )
     suspend fun classify(claim: ClaimInput): ClaimClassification
 }
 ```
@@ -197,7 +199,7 @@ Policy gates are useful for:
 - Preventing accidental escalation to expensive or unapproved providers
 - Early rejection of invalid state transitions
 
-A `gateStep` returns `GateDecision.allow()` or `GateDecision.reject(reason)`. Rejection terminates the workflow with a typed failure outcome that can be observed and audited.
+A `gateStep` returns `GateDecision.allow()` or `GateDecision.reject(reason)`. Rejection throws `WorkflowGateRejectedException`, which is observable through workflow failure hooks.
 
 For policy enforcement across multiple workflow boundaries, see the `PolicyEngine` and `PolicyDecision` types documented in the [workflow API stability boundary](../workflow-api-stability-boundary.md).
 
@@ -230,7 +232,9 @@ For the full approval API surface, see the [Approval Gateway Golden Path guide](
 
 ## Step 6 — Add Persistence and Audit Notes
 
-Governed workflows persist state at step boundaries. This means:
+When `WorkflowPersistence` is supplied, top-level step boundaries are checkpointed so the workflow can resume after interruption. Without persistence, the workflow still runs as a typed bounded sequence, but it does not durably save checkpoints.
+
+This means:
 
 - Workflows can be checkpointed and resumed after a process restart
 - Each step's input, output, and decision are observable
@@ -257,8 +261,8 @@ A governed workflow can be tested with a fake provider, no real model credential
 val fakeClassifier = FakeClassifier()
 val workflow = buildClaimTriageWorkflow(fakeClassifier)
 
-val result = workflow.execute(
-    ClaimTriageState(claim = lowRiskClaim),
+val result = workflow.run(
+    initialState = ClaimTriageState(claim = lowRiskClaim),
 )
 
 assertEquals("ready-for-review", result.status)
@@ -281,7 +285,7 @@ A governed workflow can fail at multiple points. Each failure has a distinguisha
 | Failure | Where It Occurs | Outcome |
 |---------|----------------|---------|
 | Input validation | Contract binding | `TramaiException` |
-| Policy denial | Policy gate | `PolicyViolationException` |
+|| Policy/gate denial | `gateStep` | `WorkflowGateRejectedException` |
 | Provider unavailable | AI step | Provider exception |
 | Parse failure | Structured output | `StructuredOutputException` |
 | Validation failure | Output validation | `StructuredOutputException` |
