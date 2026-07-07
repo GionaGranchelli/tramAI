@@ -17,7 +17,7 @@ A minimal, deterministic TramAI governed workflow for **claim triage** — no ex
 ./gradlew :examples:governed-workflow:run
 ```
 
-Expected output — four scenarios with pass/reject status:
+Expected output:
 
 ```
 === Governed Workflow Example: Claim Triage ===
