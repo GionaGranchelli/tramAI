@@ -285,7 +285,7 @@ A governed workflow can fail at multiple points. Each failure has a distinguisha
 | Failure | Where It Occurs | Outcome |
 |---------|----------------|---------|
 | Input validation | Contract binding | `TramaiException` |
-|| Policy/gate denial | `gateStep` | `WorkflowGateRejectedException` |
+| Policy/gate denial | `gateStep` | `WorkflowGateRejectedException` |
 | Provider unavailable | AI step | Provider exception |
 | Parse failure | Structured output | `StructuredOutputException` |
 | Validation failure | Output validation | `StructuredOutputException` |
