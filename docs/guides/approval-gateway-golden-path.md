@@ -279,6 +279,7 @@ These limitations are tracked in the [post-roadmap design backlog](../architectu
 
 ## See Also
 
+- [Approval Workflow Ergonomics Guide](approval-workflow-ergonomics.md)
 - [`ApprovalGateway` SPI source](https://github.com/GionaGranchelli/tramAI/blob/master/tramai-core/src/main/kotlin/dev/tramai/core/approval/gateway/ApprovalGateway.kt)
 - [`DefaultApprovalGateway` implementation](https://github.com/GionaGranchelli/tramAI/tree/master/tramai-engine/src/main/kotlin/dev/tramai/engine/approval/DefaultApprovalGateway.kt)
 - [Human Approval Workflow Ergonomics Design](../architecture/human-approval-workflow-ergonomics.md)
