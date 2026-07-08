@@ -24,10 +24,11 @@ This guide is **not** a troubleshooting guide. For runtime workflow failures (po
 | Category | Outcome | Boundary | Retryable? | Emits Evidence? |
 |----------|---------|----------|------------|-----------------|
 | Pending approval | `Suspended` | Request gateway | Wait or resume later | Request evidence |
-| Already approved | `AlreadyApproved` (gateway) / `AlreadyApproved` (decision plane) | Gateway / decision plane | No retry needed | Decision evidence (decision plane) |
+| Already approved | `AlreadyApproved` (gateway) | Gateway | No retry needed | No new evidence; prior approval evidence may exist |
 | Approved | `Approved` | Decision plane | No retry needed | Decision evidence |
-| Denied | `AlreadyDenied` (gateway) / `Denied` (decision plane) / `AlreadyDenied` (decision plane) | Gateway / decision plane | New request required | Decision evidence |
-| Expired | `Expired` | Gateway / decision plane | New request required | Expiry/request evidence |
+| Denied | `Denied` | Decision plane | New request required | Decision evidence |
+| Already denied | `AlreadyDenied` (gateway / decision plane) | Gateway / decision plane | New request required | No new evidence; prior denial evidence may exist |
+| Expired | `Expired` | Gateway / decision plane | New request required | No new evidence; request/expiry context may be inspected |
 | Not found | `NotFound` | Decision plane | Check approval ID | No mutation evidence |
 | Version conflict | `Conflict` | Decision plane | Re-fetch and retry | No successful mutation evidence |
 | Unauthorised actor | `Conflict` | Decision plane | Use authorised actor | No successful mutation evidence |

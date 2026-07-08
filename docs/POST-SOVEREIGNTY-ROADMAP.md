@@ -201,7 +201,6 @@ A new TramAI user should understand:
 | #180 | test(approval): verify approval decision evidence | Tie approval decisions to audit/evidence | ✅ Merged |
 | #181 | test(approval): verify repeat denial evidence | Complete denied duplicate-decision evidence coverage | ✅ Merged |
 | #182 | docs(approval): define approval failure taxonomy | Expired, denied, missing role, invalid actor, etc. | ✅ Merged |
-| TBD | docs(approval): define approval failure taxonomy | Expired, denied, missing role, invalid actor, etc. | Pending |
 
 **Tasks:**
 1. Document approval request lifecycle
@@ -393,6 +392,7 @@ Move from optional signature verification to a more formal signing/attestation m
 | #179 | example(approval): add approved-denied resume example |
 | #180 | test(approval): verify approval decision evidence |
 | #181 | test(approval): verify repeat denial evidence |
+| #182 | docs(approval): define approval failure taxonomy |
 | TBD | docs(evidence): define runtime evidence export model |
 | TBD | test(evidence): export policy decision evidence |
 
