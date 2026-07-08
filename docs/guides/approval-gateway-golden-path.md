@@ -279,6 +279,7 @@ These limitations are tracked in the [post-roadmap design backlog](../architectu
 
 ## See Also
 
+- [Approval Failure Taxonomy](approval-failure-taxonomy.md)
 - [Approval Workflow Ergonomics Guide](approval-workflow-ergonomics.md)
 - [`ApprovalGateway` SPI source](https://github.com/GionaGranchelli/tramAI/blob/master/tramai-core/src/main/kotlin/dev/tramai/core/approval/gateway/ApprovalGateway.kt)
 - [Approval Resume Example](../../examples/approval-resume)

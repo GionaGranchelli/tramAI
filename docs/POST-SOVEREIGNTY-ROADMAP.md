@@ -199,7 +199,8 @@ A new TramAI user should understand:
 | #178 | docs(approval): add approval workflow ergonomics guide | Explain common approval patterns | ✅ Merged |
 | #179 | example(approval): add approved/denied resume example | Runnable approval scenario | ✅ Merged |
 | #180 | test(approval): verify approval decision evidence | Tie approval decisions to audit/evidence | ✅ Merged |
-| #181 | test(approval): verify repeat denial evidence | Complete denied duplicate-decision evidence coverage | Pending |
+| #181 | test(approval): verify repeat denial evidence | Complete denied duplicate-decision evidence coverage | ✅ Merged |
+| #182 | docs(approval): define approval failure taxonomy | Expired, denied, missing role, invalid actor, etc. | ✅ Merged |
 | TBD | docs(approval): define approval failure taxonomy | Expired, denied, missing role, invalid actor, etc. | Pending |
 
 **Tasks:**
@@ -230,11 +231,11 @@ A new TramAI user should understand:
 
 | PR | Title | Purpose |
 |----|-------|---------|
-| #182 | docs(evidence): define runtime evidence export model | Design doc |
-| #183 | test(evidence): export policy decision evidence | Export allow/deny policy decisions |
-| #184 | test(evidence): export approval decision evidence | Export human approval decisions |
-| #185 | test(evidence): export provider routing evidence | Local/cloud/provider route decision evidence |
-| #186 | docs(evidence): map runtime events to evidence bundle sections | Human-readable mapping |
+| TBD | docs(evidence): define runtime evidence export model | Design doc |
+| TBD | test(evidence): export policy decision evidence | Export allow/deny policy decisions |
+| TBD | test(evidence): export approval decision evidence | Export human approval decisions |
+| TBD | test(evidence): export provider routing evidence | Local/cloud/provider route decision evidence |
+| TBD | docs(evidence): map runtime events to evidence bundle sections | Human-readable mapping |
 
 **Tasks:**
 1. Define runtime evidence record shape
@@ -391,9 +392,9 @@ Move from optional signature verification to a more formal signing/attestation m
 | #178 | docs(approval): add approval workflow ergonomics guide |
 | #179 | example(approval): add approved-denied resume example |
 | #180 | test(approval): verify approval decision evidence |
-| #181 | docs(approval): define approval failure taxonomy |
-| #182 | docs(evidence): define runtime evidence export model |
-| #183 | test(evidence): export policy decision evidence |
+| #181 | test(approval): verify repeat denial evidence |
+| TBD | docs(evidence): define runtime evidence export model |
+| TBD | test(evidence): export policy decision evidence |
 
 **Outcome:** Runtime decisions produce reviewable evidence.
 
@@ -401,9 +402,9 @@ Move from optional signature verification to a more formal signing/attestation m
 
 | PR | Title |
 |----|-------|
-| #184 | docs(security): define tool permission model |
-| #185 | docs(mcp): define MCP governance boundary |
-| #186 | test(tooling): audit tool invocation decisions |
+| TBD | docs(security): define tool permission model |
+| TBD | docs(mcp): define MCP governance boundary |
+| TBD | test(tooling): audit tool invocation decisions |
 | #187 | docs(product): define TramAI positioning |
 | #188 | docs(readme): rewrite README around governed workflows |
 | #189 | docs(article): draft governed JVM AI workflow article |

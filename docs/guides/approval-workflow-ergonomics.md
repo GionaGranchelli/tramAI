@@ -209,7 +209,7 @@ In short: approval records **process**, not **truth**. TramAI provides the evide
 |-------|------|
 | Approval Gateway Golden Path | [Golden Path Guide](approval-gateway-golden-path.md) |
 | Runnable approval example | [`examples/approval-resume`](../../examples/approval-resume) |
-| Approval failure taxonomy (coming in PR #181) | Planned guide |
+| Approval failure taxonomy | [Failure Taxonomy](approval-failure-taxonomy.md) |
 | Governed workflow quickstart | [Quickstart](governed-workflow-quickstart.md) |
 | Governed workflow troubleshooting | [Troubleshooting Guide](governed-workflow-troubleshooting.md) |
 | Workflow lifecycle model | [Lifecycle Model](../workflow-lifecycle-model.md) |
