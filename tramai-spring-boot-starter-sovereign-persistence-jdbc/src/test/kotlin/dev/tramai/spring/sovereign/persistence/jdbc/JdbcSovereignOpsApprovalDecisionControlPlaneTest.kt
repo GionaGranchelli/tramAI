@@ -379,6 +379,18 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
         // actor unchanged — no new evidence was created
         assertThat(secondOutbox!!.actor).isEqualTo("reviewer-1")
         assertThat(secondOutbox.approvalVersion).isEqualTo(1L)
+
+        // Direct DB proof: only one evidence row exists across both deny attempts
+        val pendingOutboxCount = jdbcTemplate.queryForObject(
+            """
+            SELECT COUNT(*)
+            FROM audit_outbox
+            WHERE aggregate_type = 'approval'
+              AND status = 'PENDING'
+            """.trimIndent(),
+            Long::class.java,
+        )
+        assertThat(pendingOutboxCount).isOne
     }
 
     @Test
