@@ -43,10 +43,10 @@ An approval request moves through a small number of well-defined states:
 | Approved | A human or authorised actor accepted the request | Workflow resumes or proceeds with the approved continuation |
 | Denied | A human or authorised actor rejected the request | Workflow stops or follows a denial path |
 | Expired | No decision arrived within the configured window | Workflow stops or follows a timeout path |
-| Invalid actor | A decision was received from an unauthorised source | The decision is rejected; no state change occurs |
-| Missing role | A decision was received but the required role was not satisfied | The decision is rejected; the request remains pending |
+| Invalid actor | A decision was received from an unauthorised source | Decision/control-plane validation rejects the decision before it changes approval state |
+| Missing role | A decision was received but the required role was not satisfied | Decision/control-plane validation rejects the decision before it changes approval state |
 
-The four terminal outcomes (approved, denied, expired, invalid actor) are each first-class results through the `ApprovalRequestResult` sealed interface. A workflow can handle each outcome explicitly.
+The `ApprovalRequestResult` sealed interface exposes the workflow-facing request outcomes: `Suspended`, `AlreadyApproved`, `AlreadyDenied`, and `Expired`. Actor and role validation belongs to the decision/control-plane boundary and should be handled before a decision is accepted.
 
 ---
 

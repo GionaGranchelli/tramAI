@@ -194,12 +194,12 @@ A new TramAI user should understand:
 
 **Proposed PRs:**
 
-| PR | Title | Purpose |
-|----|-------|---------|
+| PR | Title | Purpose | Status |
+|----|-------|---------|--------|
 | #178 | docs(approval): add approval workflow ergonomics guide | Explain common approval patterns | ✅ Merged |
-| #179 | example(approval): add approved/denied resume example | Runnable approval scenario |
-| #180 | test(approval): verify approval decision evidence | Tie approval decisions to audit/evidence |
-| #181 | docs(approval): define approval failure taxonomy | Expired, denied, missing role, invalid actor, etc. |
+| #179 | example(approval): add approved/denied resume example | Runnable approval scenario | Pending |
+| #180 | test(approval): verify approval decision evidence | Tie approval decisions to audit/evidence | Pending |
+| #181 | docs(approval): define approval failure taxonomy | Expired, denied, missing role, invalid actor, etc. | Pending |
 
 **Tasks:**
 1. Document approval request lifecycle
