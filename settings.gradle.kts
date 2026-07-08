@@ -47,4 +47,5 @@ include(
     "examples:sovereign-offline-verification",
     "examples:spring-sovereign-starter",
     "examples:governed-workflow",
+    "examples:approval-resume",
 )

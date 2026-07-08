@@ -281,7 +281,7 @@ These limitations are tracked in the [post-roadmap design backlog](../architectu
 
 - [Approval Workflow Ergonomics Guide](approval-workflow-ergonomics.md)
 - [`ApprovalGateway` SPI source](https://github.com/GionaGranchelli/tramAI/blob/master/tramai-core/src/main/kotlin/dev/tramai/core/approval/gateway/ApprovalGateway.kt)
-- [`DefaultApprovalGateway` implementation](https://github.com/GionaGranchelli/tramAI/tree/master/tramai-engine/src/main/kotlin/dev/tramai/engine/approval/DefaultApprovalGateway.kt)
+- [Approval Resume Example](../../examples/approval-resume)
 - [Human Approval Workflow Ergonomics Design](../architecture/human-approval-workflow-ergonomics.md)
 - [Regulated Claim Triage Reference Scenario](../scenarios/regulated-claim-triage.md)
 - [Sovereign Runtime Quickstart](./sovereign-runtime-quickstart.md)
