@@ -316,6 +316,7 @@ This guide helps diagnose common workflow failures. It does **not**:
 | Runnable example | [`examples/governed-workflow`](../../examples/governed-workflow) |
 | Testing governed workflows | [Testing Guide](governed-workflow-testing.md) |
 | General testing (MockAiProvider, observers) | [Testing Guide](testing.md) |
+| Approval workflow ergonomics | [Approval Ergonomics Guide](approval-workflow-ergonomics.md) |
 | Approval gateway | [Golden Path Guide](approval-gateway-golden-path.md) |
 | Structured output contracts | [Contract Lifecycle](../structured-output-contract-lifecycle.md) |
 | Orchestration DSL | [Orchestration Guide](orchestration.md) |

@@ -196,7 +196,7 @@ A new TramAI user should understand:
 
 | PR | Title | Purpose |
 |----|-------|---------|
-| #178 | docs(approval): add approval workflow ergonomics guide | Explain common approval patterns |
+| #178 | docs(approval): add approval workflow ergonomics guide | Explain common approval patterns | ✅ Merged |
 | #179 | example(approval): add approved/denied resume example | Runnable approval scenario |
 | #180 | test(approval): verify approval decision evidence | Tie approval decisions to audit/evidence |
 | #181 | docs(approval): define approval failure taxonomy | Expired, denied, missing role, invalid actor, etc. |

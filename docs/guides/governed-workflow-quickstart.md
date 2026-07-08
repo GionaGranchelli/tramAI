@@ -321,6 +321,7 @@ See the [Post-Sovereignty Roadmap](../POST-SOVEREIGNTY-ROADMAP.md) for status, n
 | Orchestration DSL reference | [Orchestration Guide](orchestration.md) |
 | Workflow lifecycle model | [Lifecycle Model](../workflow-lifecycle-model.md) |
 | Structured output contracts | [Contract Lifecycle](../structured-output-contract-lifecycle.md) |
+| Approval workflow ergonomics | [Approval Ergonomics Guide](approval-workflow-ergonomics.md) |
 | Approval gateway | [Golden Path Guide](approval-gateway-golden-path.md) |
 | Governed workflow troubleshooting | [Troubleshooting Guide](governed-workflow-troubleshooting.md) |
 | Testing governed workflows | [Governed Workflow Testing](governed-workflow-testing.md) |
