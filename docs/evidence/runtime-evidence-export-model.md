@@ -40,13 +40,13 @@ Every exported runtime event follows a common record shape:
     "reasonCode": "local-route-allowed"
   },
   "digests": {
-    "subjectDigest": "sha256:abc123...",
-    "payloadDigest": "sha256:def456..."
+    "subjectDigest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "payloadDigest": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
   },
   "metadata": {
     "classification": "RESTRICTED",
-    "risk": "HIGH",
-    "route": "LOCAL_ONLY"
+    "riskLevel": "HIGH",
+    "providerName": "local-llama"
   }
 }
 ```
@@ -66,8 +66,8 @@ Every exported runtime event follows a common record shape:
 | `source.module` | No | `string\|null` | Optional sub-module or policy name. |
 | `decision.kind` | Yes | `string` | The decision outcome. See event families below. |
 | `decision.reasonCode` | No | `string\|null` | Sanitised reason code (no raw prompts, secrets, or medical details). |
-| `digests.subjectDigest` | Yes | `string` | SHA-256 digest of the subject identifier (prefixed with `sha256:`). |
-| `digests.payloadDigest` | Yes | `string` | SHA-256 digest of the decision payload (prefixed with `sha256:`). |
+| `digests.subjectDigest` | Yes | `string` | SHA-256 digest of the subject identifier. Must match `^sha256:[0-9a-f]{64}$. |
+| `digests.payloadDigest` | Yes | `string` | SHA-256 digest of the decision payload. Must match `^sha256:[0-9a-f]{64}$. |
 | `metadata` | No | `object` | Allowlisted key-value metadata. Must not contain raw prompts, tool arguments, secrets, or unbounded model output. |
 
 ### Excluded Fields
@@ -95,7 +95,7 @@ Policy decisions are produced by the policy evaluation engine when a tool or act
 | `source.component` | `"policy-engine"` |
 | `decision.kind` | One of: `ALLOW`, `DENY`, `REQUIRE_APPROVAL` |
 
-The current policy audit emitter records `decision` strings (`ALLOW`, `DENY`, `REQUIRE_APPROVAL`), sanitised `reasonCode` values, and allowlisted metadata (provider, model, tool name, classification, risk level, route decision, fallback indicator). Unknown attributes (prompts, tool arguments, secrets) are dropped.
+The current policy audit emitter records decision strings (`ALLOW`, `DENY`, `REQUIRE_APPROVAL`), sanitised `reasonCode` values, and allowlisted metadata: `providerName`, `modelName`, `toolName`, `classification`, `classificationSource`, `riskLevel`, `fallbackProviderName`, plus explicit safe attributes such as `cacheReuse` and `fallbackReason`. Unknown attributes, including prompts, tool arguments, and secrets, are dropped.
 
 **Source:** The existing policy audit behaviour in `tramai-security` produces these decisions at runtime. See the policy audit emitter for the current event shape.
 
@@ -160,7 +160,7 @@ The existing evidence bundle directory structure is defined in the [Sovereign La
 - Required fields (`schemaVersion`, `eventId`, `eventType`, `createdAt`, `source.component`, `decision.kind`, `digests.subjectDigest`, `digests.payloadDigest`) are present and non-null.
 - `eventType` is one of the known event family types.
 - `decision.kind` is valid for the given `eventType`.
-- Digest strings have the `sha256:` prefix and hex-encoded SHA-256 format.
+- Digest strings match `^sha256:[0-9a-f]{64}$`.
 - Records do not contain forbidden raw fields (prompts, secrets, tokens, raw comments).
 - The evidence bundle manifest includes the expected `runtime-evidence/` files.
 - File digests in the bundle manifest match the actual file contents.
