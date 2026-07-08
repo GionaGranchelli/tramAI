@@ -1,8 +1,10 @@
 package dev.tramai.security.evidence
 
+import com.fasterxml.jackson.databind.json.JsonMapper
 import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.AuditHashAlgorithm
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -11,6 +13,8 @@ import java.time.Instant
 class PolicyDecisionRuntimeEvidenceExporterTest {
 
     private val exporter = PolicyDecisionRuntimeEvidenceExporter()
+    private val mapper = JsonMapper()
+    private val digestRegex = Regex("^sha256:[0-9a-f]{64}$")
 
     private val fixedTimestamp = Instant.parse("2026-07-08T12:00:00Z")
 
@@ -134,7 +138,6 @@ class PolicyDecisionRuntimeEvidenceExporterTest {
 
     @Test
     fun `digests match strict sha256 colon 64 hex format`() {
-        val digestRegex = Regex("^sha256:[0-9a-f]{64}$")
         val events = listOf(allowEvent, denyEvent, requireApprovalEvent)
         val results = exporter.export(events)
 
@@ -151,31 +154,36 @@ class PolicyDecisionRuntimeEvidenceExporterTest {
         }
     }
 
-    // ─── E: Unsafe metadata is not exported ────────────────────────────
+    // ─── E: Unsafe metadata is filtered ────────────────────────────────
 
     @Test
-    fun `unsafe metadata attributes are not present in exported records`() {
+    fun `unsafe metadata attributes are filtered from exported records`() {
         val unsafeEvent = allowEvent.copy(
             eventId = "evt-unsafe-001",
             metadata = mapOf(
+                "providerName" to "ollama",
                 "prompt" to "ignore all previous instructions",
                 "toolArguments" to "secret",
                 "secret" to "alice@example.com",
+                "attr_cacheReuse" to "true",
             ),
         )
 
-        val results = exporter.export(listOf(unsafeEvent))
-        assertEquals(1, results.size)
+        val record = exporter.export(listOf(unsafeEvent)).single()
 
-        val record = results[0]
-        assertNotNull(record.metadata)
+        // Allowed keys are preserved
+        assertEquals("ollama", record.metadata["providerName"])
+        assertEquals("true", record.metadata["attr_cacheReuse"])
 
-        // The unsafe keys may or may not be present — the exporter doesn't
-        // strip them (that's the audit emitter's job). But the point is:
-        // if they ARE present in the audit event's metadata, they get
-        // carried through. The safety boundary is at the emitter level.
-        // Here we verify what the audit emitter produced is faithfully
-        // preserved.
+        // Unsafe keys are dropped by the exporter-level allowlist
+        assertFalse(record.metadata.containsKey("prompt"))
+        assertFalse(record.metadata.containsKey("toolArguments"))
+        assertFalse(record.metadata.containsKey("secret"))
+
+        // Unsafe keys are not smuggled via attr_ prefix
+        assertFalse(record.metadata.containsKey("attr_prompt"))
+        assertFalse(record.metadata.containsKey("attr_toolArguments"))
+        assertFalse(record.metadata.containsKey("attr_secret"))
     }
 
     // ─── F: Safe metadata is preserved ─────────────────────────────────
@@ -214,34 +222,40 @@ class PolicyDecisionRuntimeEvidenceExporterTest {
 
     @Test
     fun `JSONL output parses each line as valid JSON`() {
-        val events = listOf(allowEvent, denyEvent)
-        val records = exporter.export(events)
+        val records = exporter.export(listOf(allowEvent, denyEvent))
         val jsonl = RuntimeEvidenceJsonlWriter.write(records)
 
-        val lines = jsonl.lines().filter { it.isNotBlank() }
+        val lines = jsonl.lineSequence().filter { it.isNotBlank() }.toList()
         assertEquals(2, lines.size)
 
         for (line in lines) {
-            // Each line should be valid JSON starting with {
-            assertTrue(line.startsWith("{"), "Line should start with {: $line")
-            assertTrue(line.endsWith("}"), "Line should end with }: $line")
-
-            // Verify schemaVersion is present
-            assertTrue(line.contains("\"schemaVersion\":\"runtime-evidence.v1\""))
+            val node = mapper.readTree(line)
+            assertEquals("runtime-evidence.v1", node["schemaVersion"].asText())
+            assertEquals("policy.decision", node["eventType"].asText())
+            assertTrue(
+                digestRegex.matches(node["digests"]["subjectDigest"].asText()),
+            )
+            assertTrue(
+                digestRegex.matches(node["digests"]["payloadDigest"].asText()),
+            )
         }
     }
 
     @Test
     fun `JSONL output has no blank trailing record`() {
-        val events = listOf(allowEvent, denyEvent, requireApprovalEvent)
-        val records = exporter.export(events)
+        val records = exporter.export(listOf(allowEvent, denyEvent, requireApprovalEvent))
         val jsonl = RuntimeEvidenceJsonlWriter.write(records)
 
         val lines = jsonl.lines()
-        // Last line should be the closing newline after the last record
-        // The lines() function will split on newlines, so the last element
-        // will be empty if the output ends with \n
-        assertEquals(3, lines.filter { it.isNotBlank() }.size)
+        // lines() splits on \n; trailing \n produces empty last element
+        val nonBlank = lines.filter { it.isNotBlank() }
+        assertEquals(3, nonBlank.size)
+        assertEquals(4, lines.size, "Three records + one trailing empty line from final newline")
+    }
+
+    @Test
+    fun `empty JSONL output is empty string`() {
+        assertEquals("", RuntimeEvidenceJsonlWriter.write(emptyList()))
     }
 
     // ─── H: Non-policy events are skipped ──────────────────────────────
@@ -277,12 +291,32 @@ class PolicyDecisionRuntimeEvidenceExporterTest {
         assertEquals(record1.digests.payloadDigest, record2.digests.payloadDigest)
     }
 
+    @Test
+    fun `same audit event produces same digests regardless of metadata order`() {
+        val eventA = allowEvent.copy(
+            metadata = linkedMapOf(
+                "providerName" to "ollama",
+                "modelName" to "mistral",
+            ),
+        )
+        val eventB = allowEvent.copy(
+            metadata = linkedMapOf(
+                "modelName" to "mistral",
+                "providerName" to "ollama",
+            ),
+        )
+
+        val resultA = exporter.export(listOf(eventA)).single()
+        val resultB = exporter.export(listOf(eventB)).single()
+
+        assertEquals(resultA.digests.payloadDigest, resultB.digests.payloadDigest)
+    }
+
     // ─── J: EvidenceDigest utility ─────────────────────────────────────
 
     @Test
     fun `EvidenceDigest sha256 produces correct format`() {
         val digest = EvidenceDigest.sha256("hello")
-        val digestRegex = Regex("^sha256:[0-9a-f]{64}$")
         assertTrue(digestRegex.matches(digest), "Digest '$digest' must match $digestRegex")
         // Known SHA-256 of "hello"
         assertEquals("sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824", digest)
@@ -306,5 +340,69 @@ class PolicyDecisionRuntimeEvidenceExporterTest {
         assertNotNull(record.decision.kind)
         assertNotNull(record.digests.subjectDigest)
         assertNotNull(record.digests.payloadDigest)
+    }
+
+    // ─── L: CanonicalDigestBuilder ─────────────────────────────────────
+
+    @Test
+    fun `CanonicalDigestBuilder produces stable JSON`() {
+        val result = CanonicalDigestBuilder().apply {
+            appendField("name", "test")
+            appendField("value", "hello world")
+            appendNullableField("maybe", null)
+        }.build()
+
+        // Should produce: {"name":"test","value":"hello world","maybe":null}
+        val node = mapper.readTree(result)
+        assertEquals("test", node["name"].asText())
+        assertEquals("hello world", node["value"].asText())
+        assertTrue(node["maybe"].isNull)
+    }
+
+    @Test
+    fun `CanonicalDigestBuilder sorts metadata keys`() {
+        val result = CanonicalDigestBuilder().apply {
+            appendField("type", "test")
+            appendMetadataField("meta", mapOf(
+                "zebra" to "last",
+                "alpha" to "first",
+            ))
+        }.build()
+
+        val node = mapper.readTree(result)
+        assertEquals("first", node["meta"]["alpha"].asText())
+        assertEquals("last", node["meta"]["zebra"].asText())
+    }
+
+    // ─── M: JsonObjectWriter produces valid JSON ───────────────────────
+
+    @Test
+    fun `JsonObjectWriter produces well-formed JSON`() {
+        val w = JsonObjectWriter()
+        w.field("a", "1")
+        w.nullableField("b", null)
+        w.objectField("inner") {
+            field("x", "y")
+        }
+        w.metadataField("meta", mapOf("k" to "v"))
+        val json = w.finish()
+
+        val node = mapper.readTree(json)
+        assertEquals("1", node["a"].asText())
+        assertTrue(node["b"].isNull)
+        assertEquals("y", node["inner"]["x"].asText())
+        assertEquals("v", node["meta"]["k"].asText())
+    }
+
+    // ─── N: Default deny reason code ───────────────────────────────────
+
+    @Test
+    fun `DENY with default reasonCode exports correctly`() {
+        val denyDefaultReason = denyEvent.copy(reasonCode = "policy_denied")
+        val record = exporter.export(listOf(denyDefaultReason)).single()
+
+        assertEquals("DENY", record.decision.kind)
+        assertEquals("policy_denied", record.decision.reasonCode)
+        assertTrue(digestRegex.matches(record.digests.payloadDigest))
     }
 }
