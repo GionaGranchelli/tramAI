@@ -175,3 +175,17 @@ See [ARCHIVE-SIGNING.md](./ARCHIVE-SIGNING.md) for the full signing boundary.
 - [EVIDENCE.md](./EVIDENCE.md) — evidence capture guide
 - [RELEASE-READINESS.md](./RELEASE-READINESS.md) — release readiness checklist
 - [REVIEWER-GUIDE.md](./REVIEWER-GUIDE.md) — reviewer-facing guide for inspecting finalized bundles
+
+---
+
+## Future: Runtime Evidence Export
+
+A future Phase 5 implementation will add runtime decision evidence to the evidence bundle. The [Runtime Evidence Export Model](../../docs/evidence/runtime-evidence-export-model.md) defines the record shape, event families, bundle placement, and verifier responsibilities for exporting policy decisions, approval decisions, and provider routing decisions into reviewable JSONL artifacts.
+
+When implemented, the evidence bundle will include a `runtime-evidence/` directory with:
+
+- `policy-decisions.jsonl` — runtime policy allow/deny/require-approval decisions
+- `approval-decisions.jsonl` — approval approve/deny decisions
+- `provider-routing.jsonl` — future: provider route selected/fallback/blocked events
+
+These files follow the same sanitisation rules as the existing evidence chain: no raw prompts, secrets, or raw decision comments. The verifier checks structure and digests, not truth or compliance.

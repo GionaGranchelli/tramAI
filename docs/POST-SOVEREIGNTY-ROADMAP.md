@@ -230,7 +230,7 @@ A new TramAI user should understand:
 
 | PR | Title | Purpose |
 |----|-------|---------|
-| TBD | docs(evidence): define runtime evidence export model | Design doc |
+| #183 | docs(evidence): define runtime evidence export model | Design doc |
 | TBD | test(evidence): export policy decision evidence | Export allow/deny policy decisions |
 | TBD | test(evidence): export approval decision evidence | Export human approval decisions |
 | TBD | test(evidence): export provider routing evidence | Local/cloud/provider route decision evidence |
