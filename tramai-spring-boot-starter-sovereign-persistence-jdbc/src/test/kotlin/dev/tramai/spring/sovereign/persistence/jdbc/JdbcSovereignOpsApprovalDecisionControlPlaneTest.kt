@@ -108,17 +108,17 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
     }
 
     @Test
-    fun `approve approval creates pending approval-approved outbox record atomically`() = runBlocking {
+    fun `approve approval creates complete decision evidence record`() = runBlocking {
         val requiredRole = ApproverRole("medical-reviewer")
         val requestResult = gateway.requestApproval(
-            subject = ApprovalSubject("test-approve-1"),
+            subject = ApprovalSubject("test-approve-evidence"),
             recommendation = ApprovalRecommendation(
                 type = "claim-review",
                 summary = "high-value claim",
                 payload = mapOf("amount" to "5000"),
             ),
             requiredRole = requiredRole,
-            workflowRunId = WorkflowRunId("wf-test-approve-1"),
+            workflowRunId = WorkflowRunId("wf-test-approve-evidence"),
         )
         val approvalId = (requestResult as ApprovalRequestResult.Suspended).approvalId
 
@@ -135,7 +135,7 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
                 actorId = "medical-ops-reviewer",
                 actorRole = requiredRole,
                 comment = "Medical necessity established",
-                correlationId = "corr-approve-test-1",
+                correlationId = "corr-approve-evidence",
             ),
         )
 
@@ -151,9 +151,180 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
 
         val approvalOutbox = outboxStore.findByEventKey("approval-approved.${approvalId.value}")
         assertThat(approvalOutbox).isNotNull
-        assertThat(approvalOutbox!!.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
-        assertThat(approvalOutbox.approvalStatus).isEqualTo(ApprovalStatus.APPROVED.name)
+        // Evidence structure
+        assertThat(approvalOutbox!!.aggregateType).isEqualTo("approval")
+        assertThat(approvalOutbox.operation).isEqualTo("approval-approved.${approvalId.value}")
+        assertThat(approvalOutbox.eventKey).isEqualTo("approval-approved.${approvalId.value}")
         assertThat(approvalOutbox.actor).isEqualTo("medical-ops-reviewer")
+        assertThat(approvalOutbox.workflowRunId).isEqualTo("wf-test-approve-evidence")
+        assertThat(approvalOutbox.correlationId).isEqualTo("corr-approve-evidence")
+        assertThat(approvalOutbox.approvalStatus).isEqualTo(ApprovalStatus.APPROVED.name)
+        assertThat(approvalOutbox.approvalVersion).isEqualTo(1L)
+        assertThat(approvalOutbox.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
+        // Digest shape — evidence is sanitised, not raw text
+        assertThat(approvalOutbox.aggregateIdDigest).startsWith("sha256:")
+        assertThat(approvalOutbox.aggregateIdDigest).hasSize(71)
+        assertThat(approvalOutbox.reasonDigest).startsWith("sha256:")
+        assertThat(approvalOutbox.reasonDigest).hasSize(71)
+        assertThat(approvalOutbox.reasonLength).isEqualTo("Medical necessity established".length)
+    }
+
+    @Test
+    fun `deny approval creates complete decision evidence record`() = runBlocking {
+        val requiredRole = ApproverRole("medical-reviewer")
+        val requestResult = gateway.requestApproval(
+            subject = ApprovalSubject("test-deny-evidence"),
+            recommendation = ApprovalRecommendation(
+                type = "claim-review",
+                summary = "insufficient evidence",
+            ),
+            requiredRole = requiredRole,
+            workflowRunId = WorkflowRunId("wf-test-deny-evidence"),
+        )
+        val approvalId = (requestResult as ApprovalRequestResult.Suspended).approvalId
+
+        val controlPlane: ApprovalDecisionControlPlane = SovereignOpsApprovalDecisionControlPlane(
+            approvalStore = approvalStore,
+            mutationStore = mutationStore,
+            authorizer = AllowAllApprovalDecisionAuthorizer,
+            clock = clock,
+        )
+
+        val result = controlPlane.deny(
+            ApprovalDecisionCommand(
+                approvalId = approvalId,
+                actorId = "medical-ops-reviewer",
+                actorRole = requiredRole,
+                comment = "Denied because evidence is incomplete",
+                correlationId = "corr-deny-evidence",
+            ),
+        )
+
+        assertThat(result).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
+        val denied = result as ApprovalDecisionResult.Denied
+        assertThat(denied.approvalId.value).isEqualTo(approvalId.value)
+        assertThat(denied.decidedBy).isEqualTo("medical-ops-reviewer")
+
+        val approval = approvalStore.get(approvalId.value)
+        assertThat(approval).isNotNull
+        assertThat(approval!!.status).isEqualTo(ApprovalStatus.DENIED)
+        assertThat(approval.version).isEqualTo(1L)
+
+        val denialOutbox = outboxStore.findByEventKey("approval-denied.${approvalId.value}")
+        assertThat(denialOutbox).isNotNull
+        // Evidence structure
+        assertThat(denialOutbox!!.aggregateType).isEqualTo("approval")
+        assertThat(denialOutbox.operation).isEqualTo("approval-denied.${approvalId.value}")
+        assertThat(denialOutbox.eventKey).isEqualTo("approval-denied.${approvalId.value}")
+        assertThat(denialOutbox.actor).isEqualTo("medical-ops-reviewer")
+        assertThat(denialOutbox.workflowRunId).isEqualTo("wf-test-deny-evidence")
+        assertThat(denialOutbox.correlationId).isEqualTo("corr-deny-evidence")
+        assertThat(denialOutbox.approvalStatus).isEqualTo(ApprovalStatus.DENIED.name)
+        assertThat(denialOutbox.approvalVersion).isEqualTo(1L)
+        assertThat(denialOutbox.status).isEqualTo(SovereignOpsAuditOutboxStatus.PENDING)
+        // Digest shape — evidence is sanitised, not raw text
+        assertThat(denialOutbox.aggregateIdDigest).startsWith("sha256:")
+        assertThat(denialOutbox.aggregateIdDigest).hasSize(71)
+        assertThat(denialOutbox.reasonDigest).startsWith("sha256:")
+        assertThat(denialOutbox.reasonDigest).hasSize(71)
+        assertThat(denialOutbox.reasonLength).isEqualTo("Denied because evidence is incomplete".length)
+    }
+
+    @Test
+    fun `decision evidence stores digest and length not raw comment text`() = runBlocking {
+        val requiredRole = ApproverRole("medical-reviewer")
+        val requestResult = gateway.requestApproval(
+            subject = ApprovalSubject("test-sanitised-evidence"),
+            recommendation = ApprovalRecommendation(
+                type = "claim-review",
+                summary = "sensitive claim",
+            ),
+            requiredRole = requiredRole,
+            workflowRunId = WorkflowRunId("wf-test-sanitised-evidence"),
+        )
+        val approvalId = (requestResult as ApprovalRequestResult.Suspended).approvalId
+
+        val controlPlane: ApprovalDecisionControlPlane = SovereignOpsApprovalDecisionControlPlane(
+            approvalStore = approvalStore,
+            mutationStore = mutationStore,
+            authorizer = AllowAllApprovalDecisionAuthorizer,
+            clock = clock,
+        )
+
+        val rawComment = "This claim contains sensitive medical details"
+        controlPlane.approve(
+            ApprovalDecisionCommand(
+                approvalId = approvalId,
+                actorId = "reviewer",
+                actorRole = requiredRole,
+                comment = rawComment,
+                correlationId = "corr-sanitised",
+            ),
+        )
+
+        val outbox = outboxStore.findByEventKey("approval-approved.${approvalId.value}")
+        assertThat(outbox).isNotNull
+        // The outbox stores a digest, not the raw comment
+        assertThat(outbox!!.reasonDigest).isNotEqualTo(rawComment)
+        assertThat(outbox.reasonDigest).startsWith("sha256:")
+        assertThat(outbox.reasonLength).isEqualTo(rawComment.length)
+        // The raw comment is not present anywhere in the outbox record fields
+        assertThat(outbox.aggregateIdDigest).doesNotContain(rawComment)
+        assertThat(outbox.operation).doesNotContain(rawComment)
+    }
+
+    @Test
+    fun `repeat approve returns AlreadyApproved without creating duplicate evidence`() = runBlocking {
+        val requiredRole = ApproverRole("medical-reviewer")
+        val requestResult = gateway.requestApproval(
+            subject = ApprovalSubject("test-repeat-approve"),
+            recommendation = ApprovalRecommendation(
+                type = "claim-review",
+                summary = "repeat test",
+            ),
+            requiredRole = requiredRole,
+            workflowRunId = WorkflowRunId("wf-test-repeat-approve"),
+        )
+        val approvalId = (requestResult as ApprovalRequestResult.Suspended).approvalId
+
+        val controlPlane: ApprovalDecisionControlPlane = SovereignOpsApprovalDecisionControlPlane(
+            approvalStore = approvalStore,
+            mutationStore = mutationStore,
+            authorizer = AllowAllApprovalDecisionAuthorizer,
+            clock = clock,
+        )
+
+        // First approve — creates evidence
+        val firstResult = controlPlane.approve(
+            ApprovalDecisionCommand(
+                approvalId = approvalId,
+                actorId = "reviewer-1",
+                actorRole = requiredRole,
+                comment = "Approved",
+            ),
+        )
+        assertThat(firstResult).isInstanceOf(ApprovalDecisionResult.Approved::class.java)
+
+        val firstOutbox = outboxStore.findByEventKey("approval-approved.${approvalId.value}")
+        assertThat(firstOutbox).isNotNull
+
+        // Second approve — returns AlreadyApproved, no duplicate evidence
+        val secondResult = controlPlane.approve(
+            ApprovalDecisionCommand(
+                approvalId = approvalId,
+                actorId = "reviewer-2",
+                actorRole = requiredRole,
+                comment = "Approved again",
+            ),
+        )
+        assertThat(secondResult).isInstanceOf(ApprovalDecisionResult.AlreadyApproved::class.java)
+
+        // get() the same outbox — still the single original record, key uniqueness enforced by store
+        val secondOutbox = outboxStore.findByEventKey("approval-approved.${approvalId.value}")
+        assertThat(secondOutbox).isNotNull
+        // actor unchanged — no new evidence was created
+        assertThat(secondOutbox!!.actor).isEqualTo("reviewer-1")
+        assertThat(secondOutbox.approvalVersion).isEqualTo(1L)
     }
 
     @Test
