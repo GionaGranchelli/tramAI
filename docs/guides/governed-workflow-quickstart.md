@@ -322,6 +322,7 @@ See the [Post-Sovereignty Roadmap](../POST-SOVEREIGNTY-ROADMAP.md) for status, n
 | Workflow lifecycle model | [Lifecycle Model](../workflow-lifecycle-model.md) |
 | Structured output contracts | [Contract Lifecycle](../structured-output-contract-lifecycle.md) |
 | Approval gateway | [Golden Path Guide](approval-gateway-golden-path.md) |
+| Governed workflow troubleshooting | [Troubleshooting Guide](governed-workflow-troubleshooting.md) |
 | Testing governed workflows | [Governed Workflow Testing](governed-workflow-testing.md) |
 | Testing AI service/provider behavior | [Testing Guide](testing.md) |
 | Orchestration persistence | [Persistence Guide](orchestration-persistence.md) |
