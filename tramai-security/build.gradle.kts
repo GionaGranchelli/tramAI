@@ -29,6 +29,7 @@ dependencies {
     testImplementation(libs.coroutines.test)
     testImplementation(libs.kotlin.test.junit5)
     testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation(libs.jackson.databind)
 }
 
 tasks.test {
