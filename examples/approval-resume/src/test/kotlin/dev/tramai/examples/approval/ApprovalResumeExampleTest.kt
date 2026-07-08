@@ -198,10 +198,27 @@ class ApprovalResumeExampleTest {
                 )
             }
             assertThat(resumeResult).isInstanceOf(ApprovalResumeResult.Resumed::class.java)
+            val resumed = resumeResult as ApprovalResumeResult.Resumed
+            assertThat(resumed.result).isEqualTo("EXPENSE_REIMBURSED")
 
             // 5. Side effect executed exactly once
             assertThat(ledger.executionCount).isOne
             assertThat(ledger.isReimbursed("e-3")).isTrue
+
+            // 6. Duplicate resume does not duplicate the side effect
+            val secondResume = runBlocking {
+                resumePlane.resume(
+                    ApprovalResumeCommand(
+                        approvalId = approvalId,
+                        resumeToken = dev.tramai.core.approval.gateway.ResumeToken(suspension.challenge.token.reveal()),
+                        resumedBy = "system",
+                        expectedApprovalVersion = 1,
+                        expectedContinuationVersion = 1,
+                    ),
+                )
+            }
+            assertThat(secondResume).isInstanceOf(ApprovalResumeResult.AlreadyCompleted::class.java)
+            assertThat(ledger.executionCount).isOne
         }
     }
 
