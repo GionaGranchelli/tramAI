@@ -66,8 +66,8 @@ Every exported runtime event follows a common record shape:
 | `source.module` | No | `string\|null` | Optional sub-module or policy name. |
 | `decision.kind` | Yes | `string` | The decision outcome. See event families below. |
 | `decision.reasonCode` | No | `string\|null` | Sanitised reason code (no raw prompts, secrets, or medical details). |
-| `digests.subjectDigest` | Yes | `string` | SHA-256 digest of the subject identifier. Must match `^sha256:[0-9a-f]{64}$. |
-| `digests.payloadDigest` | Yes | `string` | SHA-256 digest of the decision payload. Must match `^sha256:[0-9a-f]{64}$. |
+| `digests.subjectDigest` | Yes | `string` | SHA-256 digest of the subject identifier. Must match `^sha256:[0-9a-f]{64}$`. |
+| `digests.payloadDigest` | Yes | `string` | SHA-256 digest of the decision payload. Must match `^sha256:[0-9a-f]{64}$`. |
 | `metadata` | No | `object` | Allowlisted key-value metadata. Must not contain raw prompts, tool arguments, secrets, or unbounded model output. |
 
 ### Excluded Fields
