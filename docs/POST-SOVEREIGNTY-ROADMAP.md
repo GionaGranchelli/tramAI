@@ -199,7 +199,7 @@ A new TramAI user should understand:
 | #178 | docs(approval): add approval workflow ergonomics guide | Explain common approval patterns | ✅ Merged |
 | #179 | example(approval): add approved/denied resume example | Runnable approval scenario | ✅ Merged |
 | #180 | test(approval): verify approval decision evidence | Tie approval decisions to audit/evidence | ✅ Merged |
-| #181 | test(approval): verify repeat denial evidence | Complete denied duplicate-decision evidence coverage | ✅ Merged |
+| #181 | test(approval): verify repeat denial evidence | Complete denied duplicate-decision evidence coverage | Pending |
 | TBD | docs(approval): define approval failure taxonomy | Expired, denied, missing role, invalid actor, etc. | Pending |
 
 **Tasks:**
