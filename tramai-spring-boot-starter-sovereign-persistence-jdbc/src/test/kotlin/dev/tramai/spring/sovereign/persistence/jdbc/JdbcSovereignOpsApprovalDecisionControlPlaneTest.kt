@@ -328,6 +328,60 @@ class JdbcSovereignOpsApprovalDecisionControlPlaneTest {
     }
 
     @Test
+    fun `repeat deny returns AlreadyDenied without creating duplicate evidence`() = runBlocking {
+        val requiredRole = ApproverRole("medical-reviewer")
+        val requestResult = gateway.requestApproval(
+            subject = ApprovalSubject("test-repeat-deny"),
+            recommendation = ApprovalRecommendation(
+                type = "claim-review",
+                summary = "repeat deny test",
+            ),
+            requiredRole = requiredRole,
+            workflowRunId = WorkflowRunId("wf-test-repeat-deny"),
+        )
+        val approvalId = (requestResult as ApprovalRequestResult.Suspended).approvalId
+
+        val controlPlane: ApprovalDecisionControlPlane = SovereignOpsApprovalDecisionControlPlane(
+            approvalStore = approvalStore,
+            mutationStore = mutationStore,
+            authorizer = AllowAllApprovalDecisionAuthorizer,
+            clock = clock,
+        )
+
+        // First deny — creates evidence
+        val firstResult = controlPlane.deny(
+            ApprovalDecisionCommand(
+                approvalId = approvalId,
+                actorId = "reviewer-1",
+                actorRole = requiredRole,
+                comment = "Denied",
+            ),
+        )
+        assertThat(firstResult).isInstanceOf(ApprovalDecisionResult.Denied::class.java)
+
+        val firstOutbox = outboxStore.findByEventKey("approval-denied.${approvalId.value}")
+        assertThat(firstOutbox).isNotNull
+
+        // Second deny — returns AlreadyDenied, no duplicate evidence
+        val secondResult = controlPlane.deny(
+            ApprovalDecisionCommand(
+                approvalId = approvalId,
+                actorId = "reviewer-2",
+                actorRole = requiredRole,
+                comment = "Denied again",
+            ),
+        )
+        assertThat(secondResult).isInstanceOf(ApprovalDecisionResult.AlreadyDenied::class.java)
+
+        // get() the same outbox — still the single original record
+        val secondOutbox = outboxStore.findByEventKey("approval-denied.${approvalId.value}")
+        assertThat(secondOutbox).isNotNull
+        // actor unchanged — no new evidence was created
+        assertThat(secondOutbox!!.actor).isEqualTo("reviewer-1")
+        assertThat(secondOutbox.approvalVersion).isEqualTo(1L)
+    }
+
+    @Test
     fun `can deny two different approvals without audit outbox event key conflict`() = runBlocking {
         val requiredRole = ApproverRole("medical-reviewer")
 
