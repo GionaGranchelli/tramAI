@@ -128,7 +128,7 @@ The following tool categories should require human approval by default:
 | External data transfer (sending data outside the organization boundary) | `REQUIRE_APPROVAL` or explicit policy `ALLOW` |
 | Persistent write (creating or updating records) | `REQUIRE_APPROVAL` or explicit policy `ALLOW` |
 | Privileged admin action (changing policy, configuration, or access controls) | `REQUIRE_APPROVAL` |
-| `INTERNAL` deterministic tools (date, calculator, string utils) | `ALLOW` (no approval needed) |
+| Low-risk `INTERNAL` utility tools (date/time, calculator, string utils) | `ALLOW` (no approval needed) |
 
 This aligns with the security model's abuse scenario AS-04: high-risk action without human approval.
 
