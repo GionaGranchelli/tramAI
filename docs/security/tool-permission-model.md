@@ -47,7 +47,7 @@ It does **not** cover:
 |------|------------|
 | **Tool** | A named, registered function that an AI operation or workflow step may invoke. Tools are resolved through the `ToolRegistry` and exposed via `@Operation(... tools = [...])`. |
 | **Tool trust class** | A broad category describing where the tool runs and who controls it (INTERNAL, APPLICATION, EXTERNAL_API, etc.). |
-| **Tool risk class** | A broad category describing what the tool can affect (DATA_ACCESS, STATE_CHANGING, HIGH_IMPACT). |
+| **Tool risk class** | A broad category describing what the tool can affect (READ_ONLY, WRITE, DESTRUCTIVE, FINANCIAL, LEGAL_MEDICAL, PRIVILEGED). |
 | **Permission decision** | The outcome of tool permission evaluation: ALLOW, DENY, REQUIRE_APPROVAL, REDACT_RESULT, or ALLOW_INTERNAL_ONLY. |
 | **Policy enforcement point** | The point in the tool lifecycle where permission is checked. TramAI already enforces at `BEFORE_TOOL_EXPOSURE`. |
 | **Deny-by-default** | A tool that is not explicitly allowed is denied. This is already the security model default. |
@@ -60,7 +60,7 @@ Trust classes describe where a tool runs and who controls it. A tool may belong 
 
 | Class | Meaning | Example |
 |-------|---------|---------|
-| `INTERNAL` | In-process, deterministic, controlled by the application. No network, no side effects. | Date/time, deterministic calculator, string utilities |
+| `INTERNAL` | In-process and controlled by the application. No network, no external side effects. | Date/time, deterministic calculator, string utilities |
 | `APPLICATION` | Business application tool inside the organization boundary. May access internal services. | Customer lookup, document classifier, policy evaluation |
 | `EXTERNAL_API` | Calls a network service outside the process. May cross organization boundary. | HTTP API call, SaaS endpoint, remote service invocation |
 | `DATA_ACCESS` | Reads or queries sensitive data stores. May expose PII, trade secrets, or classified data. | Database lookup, file retrieval, document search |
@@ -91,17 +91,28 @@ Risk classes are additive with trust classes. An `INTERNAL` + `FINANCIAL` tool i
 
 ## Permission Decisions
 
-When the policy engine evaluates a tool permission, it produces one of these decisions:
+### Current Runtime Policy Decisions
+
+The current `PolicyDecision` sealed type supports three outcomes:
 
 | Decision | Meaning |
 |----------|---------|
 | `ALLOW` | Tool may be exposed and invoked. |
 | `DENY` | Tool must not be exposed or invoked. The operation receives a policy rejection. |
 | `REQUIRE_APPROVAL` | Tool requires human approval before execution. The workflow suspends until approval is received. |
-| `REDACT_RESULT` | Tool may be invoked, but its result must be filtered or redacted before returning to the caller. |
-| `ALLOW_INTERNAL_ONLY` | Tool may run only inside the sovereign/local boundary. If the deployment is not sovereign, the tool is denied. |
 
-These decision names align with the existing policy decision language. `ALLOW`, `DENY`, and `REQUIRE_APPROVAL` are already used for general policy decisions (see the policy decision evidence exporter, #184). `REDACT_RESULT` and `ALLOW_INTERNAL_ONLY` are tool-specific extensions proposed here.
+These are already implemented and used by the policy decision evidence exporter (#184).
+
+### Proposed Tool-Specific Extensions
+
+The following decisions are defined here as a design boundary for future tool governance:
+
+| Decision | Meaning | Status |
+|----------|---------|--------|
+| `REDACT_RESULT` | Tool may be invoked, but its result must be filtered or redacted before returning to the caller. | Future — not yet implemented |
+| `ALLOW_INTERNAL_ONLY` | Tool may run only inside the sovereign/local boundary. If the deployment is not sovereign, the tool is denied. | Future — not yet implemented |
+
+These decisions require future implementation before they can be treated as runtime outcomes. They are documented here so that tool governance rules and approval defaults can be designed consistently.
 
 ---
 
@@ -127,21 +138,30 @@ An explicit policy rule can override any default — for example, a policy that 
 
 ## Policy Enforcement Points
 
+### Current Runtime Behavior
+
 TramAI already enforces tool permission at `BEFORE_TOOL_EXPOSURE`:
 
 1. The workflow engine iterates the operation's tool definitions.
 2. Each tool is resolved through the `ToolRegistry`.
 3. The tool's `toolName` and `toolSecurity` are sent to the policy engine.
-4. The policy engine evaluates the tool against the active policy rules.
-5. The policy returns a decision (`ALLOW`, `DENY`, `REQUIRE_APPROVAL`, etc.).
+4. The `PolicyEnforcementHelper.enforce(...)` evaluates the tool against the active policy rules.
+5. The policy returns a decision (`ALLOW`, `DENY`, or `REQUIRE_APPROVAL`).
 6. The engine acts on the decision:
    - `ALLOW` → tool is exposed to the operation.
-   - `DENY` → operation receives a `WorkflowGateRejectedException`.
-   - `REQUIRE_APPROVAL` → workflow suspends pending approval.
-   - `REDACT_RESULT` → tool is exposed, but result filtering is applied.
-   - `ALLOW_INTERNAL_ONLY` → tool is only exposed in sovereign deployments.
+   - `DENY` → operation receives a `PolicyViolationException`.
+   - `REQUIRE_APPROVAL` → handled through the approval/suspension path.
 
-`BEFORE_TOOL_INVOCATION` (pre-execution check) and `AFTER_TOOL_RESULT` (post-execution filtering) are reserved for future implementation and not documented here.
+Additional enforcement points (`BEFORE_TOOL_EXECUTION`, `BEFORE_TOOL_RESULT_REINJECTION`) exist in the engine but are reserved for future tool lifecycle integration.
+
+### Future Enforcement Points
+
+When `REDACT_RESULT` and `ALLOW_INTERNAL_ONLY` are implemented:
+
+- `BEFORE_TOOL_EXECUTION` can support pre-execution checks (e.g., `ALLOW_INTERNAL_ONLY` boundary enforcement).
+- `BEFORE_TOOL_RESULT_REINJECTION` (or an equivalent post-execution hook) can support result filtering (e.g., `REDACT_RESULT` stripping of sensitive fields before reinjection).
+
+These enforcement points are documented here as design intent. They are **not yet implemented** and should not be assumed as runtime behavior.
 
 ---
 
@@ -164,7 +184,7 @@ The [Runtime Evidence Bundle Map](../evidence/runtime-evidence-bundle-map.md) cu
 
 ## MCP Relationship
 
-The [MCP governance boundary](mcp-governance-boundary.md) (future) will define how MCP-connected tools fit into this model.
+The future MCP governance boundary document will define how MCP-connected tools fit into this model.
 
 Key principles (not yet implemented):
 
