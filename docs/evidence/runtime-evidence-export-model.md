@@ -226,6 +226,7 @@ Each implementation PR should reference this model and add the corresponding ver
 
 | Topic | Link |
 |-------|------|
+| Runtime Evidence Bundle Map | [Bundle Map](runtime-evidence-bundle-map.md) |
 | Sovereign Lab Evidence Chain | [EVIDENCE-CHAIN.md](../../examples/sovereign-lab/EVIDENCE-CHAIN.md) |
 | Approval Failure Taxonomy | [Failure Taxonomy](../guides/approval-failure-taxonomy.md) |
 | Approval decision evidence tests | [JdbcSovereignOpsApprovalDecisionControlPlaneTest](../../tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalDecisionControlPlaneTest.kt) |

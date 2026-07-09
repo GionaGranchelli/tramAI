@@ -234,7 +234,7 @@ A new TramAI user should understand:
 | #184 | test(evidence): export policy decision evidence | Export allow/deny/require-approval policy decisions |
 | #185 | test(evidence): export approval decision evidence | Export approved/denied human approval decisions |
 | #186 | test(evidence): export provider routing evidence | Export selected/fallback/blocked provider route decisions |
-| TBD | docs(evidence): map runtime events to evidence bundle sections | Human-readable mapping |
+| #187 | docs(evidence): map runtime events to evidence bundle sections | Human-readable mapping |
 
 **Tasks:**
 1. Define runtime evidence record shape
@@ -242,7 +242,7 @@ A new TramAI user should understand:
 3. Add policy decision export
 4. Add approval decision export
 5. Add provider routing decision export
-6. Add evidence bundle section for runtime decisions
+6. Document evidence bundle section mapping for runtime decisions
 7. Verify exported evidence is structurally checked, not truth-certified
 
 **Acceptance criteria:**
