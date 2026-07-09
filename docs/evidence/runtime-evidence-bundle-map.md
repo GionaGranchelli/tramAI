@@ -167,7 +167,7 @@ All runtime evidence records follow the sanitisation rules defined in the [Runti
 - No raw tool arguments
 - No secrets, credentials, API keys, or tokens
 - No raw decision comments (only digest + length)
-- No raw provider or model names (only digest form in provider routing records)
+- Policy records may include allowlisted `providerName` / `modelName`; provider routing records use digest form only for provider and model identifiers
 - Only allowlisted metadata keys
 
 A verifier that encounters raw sensitive data in a runtime evidence record must reject the record and flag a sanitisation violation.

@@ -265,7 +265,7 @@ A new TramAI user should understand:
 
 | PR | Title | Purpose |
 |----|-------|---------|
-| #187 | docs(security): define tool permission model | Trust zones and permissions |
+| TBD | docs(security): define tool permission model | Trust zones and permissions |
 | #188 | docs(mcp): define MCP governance boundary | What MCP support should/should not mean |
 | #189 | test(tooling): audit tool invocation decisions | Tool audit events |
 | #190 | test(tooling): deny unsafe tool invocation by policy | Policy-gated tool calls |
