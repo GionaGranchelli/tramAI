@@ -7,13 +7,17 @@ import dev.tramai.security.evidence.RuntimeEvidenceRecord
 import dev.tramai.security.evidence.RuntimeEvidenceSource
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 
+private val SHA256_DIGEST_REGEX = Regex("^sha256:[0-9a-f]{64}$")
+
 /**
  * Converts approval decision outbox records into [RuntimeEvidenceRecord]s
  * following the runtime-evidence.v1 schema.
  *
  * Only records with aggregate type "approval" and operations
- * "approval-approved.*" or "approval-denied.*" are exported.
- * All other records are silently skipped.
+ * "approval-approved.*" with APPROVED status or "approval-denied.*"
+ * with DENIED status are exported. Records where the operation prefix
+ * and approvalStatus disagree are silently skipped to prevent
+ * contradictory evidence.
  */
 class ApprovalDecisionRuntimeEvidenceExporter {
 
@@ -25,12 +29,25 @@ class ApprovalDecisionRuntimeEvidenceExporter {
      */
     fun export(records: List<SovereignOpsAuditOutboxRecord>): List<RuntimeEvidenceRecord> =
         records
-            .filter { it.aggregateType == "approval" }
-            .filter { record ->
-                record.operation.startsWith("approval-approved.") ||
-                    record.operation.startsWith("approval-denied.")
-            }
+            .filter { it.isExportableApprovalDecision() }
             .map { it.toRuntimeEvidenceRecord() }
+}
+
+/**
+ * Returns true when the record is an approval decision exportable to
+ * runtime evidence: the operation prefix and approvalStatus must agree.
+ *
+ * - "approval-approved.*" + APPROVED → exportable
+ * - "approval-denied.*" + DENIED → exportable
+ * - anything else → skipped (mismatch, non-approval, unsupported status)
+ */
+private fun SovereignOpsAuditOutboxRecord.isExportableApprovalDecision(): Boolean {
+    if (aggregateType != "approval") return false
+    return (
+        operation.startsWith("approval-approved.") && approvalStatus == "APPROVED"
+            ||
+            operation.startsWith("approval-denied.") && approvalStatus == "DENIED"
+        )
 }
 
 private fun SovereignOpsAuditOutboxRecord.toDecisionKind(): String =
@@ -47,7 +64,7 @@ private fun SovereignOpsAuditOutboxRecord.toReasonCode(): String =
     when {
         operation.startsWith("approval-approved.") -> "approval-approved"
         operation.startsWith("approval-denied.") -> "approval-denied"
-        else -> "approval-decision"
+        else -> error("Unsupported approval operation for runtime evidence: $operation")
     }
 
 /**
@@ -77,6 +94,7 @@ private fun SovereignOpsAuditOutboxRecord.toReasonCode(): String =
  * | metadata.eventKeyDigest   | SHA-256 of eventKey (not raw eventKey)          |
  */
 private fun SovereignOpsAuditOutboxRecord.toRuntimeEvidenceRecord(): RuntimeEvidenceRecord {
+    requireSha256Digest("aggregateIdDigest", aggregateIdDigest)
     val safeMetadata = buildSafeMetadata()
     return RuntimeEvidenceRecord(
         eventId = outboxId,
@@ -110,13 +128,20 @@ private fun SovereignOpsAuditOutboxRecord.toRuntimeEvidenceRecord(): RuntimeEvid
 private fun SovereignOpsAuditOutboxRecord.buildSafeMetadata(): Map<String, String> {
     val map = mutableMapOf<String, String>()
     approvalVersion?.let { map["approvalVersion"] = it.toString() }
-    map["reasonDigest"] = reasonDigest
+    map["reasonDigest"] = requireSha256Digest("reasonDigest", reasonDigest)
     map["reasonLength"] = reasonLength.toString()
     map["outboxStatus"] = status.name
     // eventKey contains the raw approval ID (e.g. "approval-approved.<id>"),
     // so we export only its digest.
     map["eventKeyDigest"] = EvidenceDigest.sha256(eventKey)
     return map
+}
+
+private fun requireSha256Digest(name: String, value: String): String {
+    require(SHA256_DIGEST_REGEX.matches(value)) {
+        "$name must match ^sha256:[0-9a-f]{64}\$ but was: $value"
+    }
+    return value
 }
 
 /**

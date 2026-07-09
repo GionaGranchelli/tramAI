@@ -6,6 +6,7 @@ import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxRecord
 import dev.tramai.spring.sovereign.ops.outbox.SovereignOpsAuditOutboxStatus
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -46,7 +47,7 @@ class ApprovalDecisionRuntimeEvidenceExporterTest {
         correlationId = "corr-deny-001",
         approvalStatus = "DENIED",
         approvalVersion = 2L,
-        reasonDigest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        reasonDigest = "sha256:${"d".repeat(64)}",
         reasonLength = 25,
         createdAt = fixedTimestamp.plusSeconds(10),
         status = SovereignOpsAuditOutboxStatus.EMITTED,
@@ -86,21 +87,64 @@ class ApprovalDecisionRuntimeEvidenceExporterTest {
         assertEquals("approval-denied", record.decision.reasonCode)
     }
 
-    // ─── C: Raw comment not exported ───────────────────────────────────
+    // ─── C: Non-exported fields excluded (sentinel-based) ──────────────
 
     @Test
-    fun `raw comment is not exported only digest and length are present`() {
-        val record = exporter.export(listOf(approvedRecord)).single()
+    fun `non-exported free text fields are excluded from JSONL`() {
+        val sentinel = "RAW-SENSITIVE-COMMENT-SENTINEL"
+        val recordWithSentinel = approvedRecord.copy(lastErrorCode = sentinel)
 
-        // The record has reasonDigest (sha256) and reasonLength — no raw comment
-        assertTrue(digestRegex.matches(record.metadata["reasonDigest"] ?: ""))
-        assertEquals("29", record.metadata["reasonLength"])
-        // Assert no raw comment text in JSONL output
-        val jsonl = RuntimeEvidenceJsonlWriter.write(listOf(record))
-        assertFalse(jsonl.contains("Medical necessity"))
+        val exported = exporter.export(listOf(recordWithSentinel))
+        val jsonl = RuntimeEvidenceJsonlWriter.write(exported)
+
+        assertFalse(jsonl.contains(sentinel), "Sentinel in non-exported field must not appear in JSONL")
     }
 
-    // ─── D: Repeat decisions — exporter is input-faithful ──────────────
+    // ─── D: Operation/status agreement ─────────────────────────────────
+
+    @Test
+    fun `operation and approval status mismatch is skipped`() {
+        val inconsistent = approvedRecord.copy(approvalStatus = "DENIED")
+        assertTrue(exporter.export(listOf(inconsistent)).isEmpty())
+    }
+
+    @Test
+    fun `approved operation with denied status is skipped`() {
+        val inconsistent = approvedRecord.copy(
+            operation = "approval-approved.evt-002",
+            approvalStatus = "DENIED",
+        )
+        assertTrue(exporter.export(listOf(inconsistent)).isEmpty())
+    }
+
+    @Test
+    fun `denied operation with approved status is skipped`() {
+        val inconsistent = deniedRecord.copy(
+            operation = "approval-denied.evt-002",
+            approvalStatus = "APPROVED",
+        )
+        assertTrue(exporter.export(listOf(inconsistent)).isEmpty())
+    }
+
+    // ─── E: Malformed digest rejection ─────────────────────────────────
+
+    @Test
+    fun `malformed aggregateIdDigest is rejected`() {
+        val malformed = approvedRecord.copy(aggregateIdDigest = "sha256:not-a-real-digest")
+        assertThrows(IllegalArgumentException::class.java) {
+            exporter.export(listOf(malformed))
+        }
+    }
+
+    @Test
+    fun `malformed reasonDigest is rejected`() {
+        val malformed = approvedRecord.copy(reasonDigest = "sha256:not-a-real-digest")
+        assertThrows(IllegalArgumentException::class.java) {
+            exporter.export(listOf(malformed))
+        }
+    }
+
+    // ─── F: Repeat decisions — exporter is input-faithful ──────────────
 
     @Test
     fun `duplicate outbox records are both exported`() {
@@ -129,12 +173,16 @@ class ApprovalDecisionRuntimeEvidenceExporterTest {
     }
 
     @Test
-    fun `reasonDigest in metadata matches strict format`() {
-        val record = exporter.export(listOf(approvedRecord)).single()
-        assertTrue(
-            digestRegex.matches(record.metadata["reasonDigest"] ?: ""),
-            "reasonDigest '${record.metadata["reasonDigest"]}' must match $digestRegex",
-        )
+    fun `reasonDigest in metadata matches strict format for all exported records`() {
+        val records = exporter.export(listOf(approvedRecord, deniedRecord))
+        assertEquals(2, records.size)
+
+        records.forEach { record ->
+            assertTrue(
+                digestRegex.matches(record.metadata["reasonDigest"] ?: ""),
+                "reasonDigest '${record.metadata["reasonDigest"]}' must match $digestRegex",
+            )
+        }
     }
 
     // ─── F: JSONL parses as valid JSON ─────────────────────────────────
@@ -221,15 +269,6 @@ class ApprovalDecisionRuntimeEvidenceExporterTest {
                 "Raw eventKey must never appear in metadata",
             )
         }
-    }
-
-    @Test
-    fun `raw decision comment not present in JSONL`() {
-        val records = exporter.export(listOf(approvedRecord, deniedRecord))
-        val jsonl = RuntimeEvidenceJsonlWriter.write(records)
-
-        // Even if the original comment was something identifiable, it's not in the outbox
-        assertFalse(jsonl.contains("approval-approved.approval"), "Raw operation string should not appear as text")
     }
 
     // ─── I: Metadata shape ─────────────────────────────────────────────
