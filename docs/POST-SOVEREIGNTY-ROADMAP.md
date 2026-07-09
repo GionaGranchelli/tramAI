@@ -234,7 +234,7 @@ A new TramAI user should understand:
 | #184 | test(evidence): export policy decision evidence | Export allow/deny/require-approval policy decisions |
 | #185 | test(evidence): export approval decision evidence | Export approved/denied human approval decisions |
 | #186 | test(evidence): export provider routing evidence | Export selected/fallback/blocked provider route decisions |
-| TBD | docs(evidence): map runtime events to evidence bundle sections | Human-readable mapping |
+| #187 | docs(evidence): map runtime events to evidence bundle sections | Human-readable mapping |
 
 **Tasks:**
 1. Define runtime evidence record shape
@@ -242,7 +242,7 @@ A new TramAI user should understand:
 3. Add policy decision export
 4. Add approval decision export
 5. Add provider routing decision export
-6. Add evidence bundle section for runtime decisions
+6. Document evidence bundle section mapping for runtime decisions
 7. Verify exported evidence is structurally checked, not truth-certified
 
 **Acceptance criteria:**
@@ -265,7 +265,7 @@ A new TramAI user should understand:
 
 | PR | Title | Purpose |
 |----|-------|---------|
-| #187 | docs(security): define tool permission model | Trust zones and permissions |
+| TBD | docs(security): define tool permission model | Trust zones and permissions |
 | #188 | docs(mcp): define MCP governance boundary | What MCP support should/should not mean |
 | #189 | test(tooling): audit tool invocation decisions | Tool audit events |
 | #190 | test(tooling): deny unsafe tool invocation by policy | Policy-gated tool calls |

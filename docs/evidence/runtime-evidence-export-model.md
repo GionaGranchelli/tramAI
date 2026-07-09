@@ -210,15 +210,16 @@ These rules are not optional. A verifier that encounters raw sensitive data in a
 
 The following PRs (in order) will implement the runtime evidence export defined by this model:
 
-| PR | Scope |
-|----|-------|
-| TBD | Implement policy decision exporter: capture `policy.decision` events during workflow execution and write to `policy-decisions.jsonl` |
-| TBD | Implement approval decision exporter: capture `approval.decision` events from the outbox store and write to `approval-decisions.jsonl` |
-| TBD | Implement provider routing exporter: capture `provider.route` events |
-| TBD | Add verifier rules for runtime evidence records |
-| TBD | Integrate runtime evidence into the sovereign lab evidence bundle lifecycle |
+| PR | Scope | Status |
+|----|-------|--------|
+| #184 | Implement policy decision exporter: capture `policy.decision` events during workflow execution and write to `policy-decisions.jsonl` | ✅ Implemented |
+| #185 | Implement approval decision exporter: capture `approval.decision` events from the outbox store and write to `approval-decisions.jsonl` | ✅ Implemented |
+| #186 | Implement provider routing exporter: capture `provider.route` events | ✅ Implemented |
+| #187 | Map runtime events to evidence bundle sections | ✅ Documented |
+| TBD | Add verifier rules for runtime evidence records | Pending |
+| TBD | Integrate runtime evidence into the sovereign lab evidence bundle lifecycle | Pending |
 
-Each implementation PR should reference this model and add the corresponding verifier rules alongside the exporter.
+Exporter PRs should reference this model. Verifier enforcement and bundle lifecycle integration remain separate follow-up work.
 
 ---
 
@@ -226,6 +227,7 @@ Each implementation PR should reference this model and add the corresponding ver
 
 | Topic | Link |
 |-------|------|
+| Runtime Evidence Bundle Map | [Bundle Map](runtime-evidence-bundle-map.md) |
 | Sovereign Lab Evidence Chain | [EVIDENCE-CHAIN.md](../../examples/sovereign-lab/EVIDENCE-CHAIN.md) |
 | Approval Failure Taxonomy | [Failure Taxonomy](../guides/approval-failure-taxonomy.md) |
 | Approval decision evidence tests | [JdbcSovereignOpsApprovalDecisionControlPlaneTest](../../tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalDecisionControlPlaneTest.kt) |
