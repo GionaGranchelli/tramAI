@@ -252,3 +252,12 @@ The evidence pack is the recommended vehicle for CI attestation, enterprise secu
 ---
 
 *Defined June 2026. Aligned with NIST AI RMF Govern/Map/Measure/Manage functions and OWASP guidance for LLM and agentic applications.*
+
+---
+
+## Related Documents
+
+| Document | Purpose |
+|----------|---------|
+| [Tool Permission Model](tool-permission-model.md) | Trust classes, risk classes, permission decisions, and approval requirements for governed tool use |
+| [Post-Sovereignty Roadmap](../POST-SOVEREIGNTY-ROADMAP.md) | Current phase planning and execution status |
