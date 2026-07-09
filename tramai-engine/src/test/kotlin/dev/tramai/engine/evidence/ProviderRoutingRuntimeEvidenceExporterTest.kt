@@ -116,7 +116,7 @@ class ProviderRoutingRuntimeEvidenceExporterTest {
 
     @Test
     fun `raw provider name is not exported`() {
-        val records = exporter.export(listOf(selectedSource, fallbackSource))
+        val records = exporter.export(listOf(selectedSource, fallbackSource, blockedSource))
         val jsonl = RuntimeEvidenceJsonlWriter.write(records)
 
         assertFalse(jsonl.contains("primary-provider"))
@@ -291,6 +291,26 @@ class ProviderRoutingRuntimeEvidenceExporterTest {
         assertTrue(
             exporter.export(listOf(source1)).single().digests.subjectDigest !=
                 exporter.export(listOf(source2)).single().digests.subjectDigest,
+        )
+    }
+
+    @Test
+    fun `subject digest uses unambiguous canonical encoding`() {
+        val first = selectedSource.copy(
+            requestedModelName = "a|b",
+            selectedProviderName = "c",
+            selectedModelName = null,
+        )
+        val second = selectedSource.copy(
+            requestedModelName = "a",
+            selectedProviderName = "b",
+            selectedModelName = "c",
+        )
+
+        assertTrue(
+            exporter.export(listOf(first)).single().digests.subjectDigest !=
+                exporter.export(listOf(second)).single().digests.subjectDigest,
+            "Pipe characters in names must not cause subject digest collisions",
         )
     }
 }

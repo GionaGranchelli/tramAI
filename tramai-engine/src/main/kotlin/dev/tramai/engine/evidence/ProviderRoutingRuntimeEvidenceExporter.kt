@@ -42,7 +42,7 @@ enum class ProviderRouteDecisionKind {
  * Anything else is normalized to the generic `"provider-fallback"`
  * or `"provider-blocked"` constant.
  */
-val ALLOWED_ROUTING_REASON_CODES = setOf(
+internal val ALLOWED_ROUTING_REASON_CODES = setOf(
     "provider-failure",
     "streaming-startup-failure",
     "circuit-breaker-open",
@@ -132,16 +132,20 @@ private fun ProviderRouteDecisionEvidenceSource.buildSafeMetadata(): Map<String,
 }
 
 /**
- * Subject digest: SHA-256 of requested model + optional selected provider/model.
- * This binds the evidence record to the route target without exposing raw names.
+ * Subject digest: canonical JSON over requested model + optional
+ * selected provider/model. Uses JSON-style field encoding so that
+ * pipe characters in provider/model names cannot create collisions.
  */
 private fun ProviderRouteDecisionEvidenceSource.computeSubjectDigest(): String {
-    val subject = buildString {
-        append(requestedModelName)
-        selectedProviderName?.let { append("|").append(it) }
-        selectedModelName?.let { append("|").append(it) }
+    val canonical = buildString {
+        append('{')
+        appendJsonField("requestedModelName", requestedModelName)
+        appendJsonNullableField("selectedProviderName", selectedProviderName)
+        appendJsonNullableField("selectedModelName", selectedModelName)
+        removeTrailingComma()
+        append('}')
     }
-    return EvidenceDigest.sha256(subject)
+    return EvidenceDigest.sha256(canonical)
 }
 
 private fun ProviderRouteDecisionEvidenceSource.computePayloadDigest(
