@@ -33,6 +33,7 @@ dependencies {
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(project(":tramai-structured"))
     testImplementation(libs.coroutines.test)
+    testImplementation(libs.jackson.databind)
 }
 
 tasks.test {
