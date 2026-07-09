@@ -39,6 +39,7 @@ dependencies {
     testImplementation(libs.coroutines.core)
     testImplementation(libs.spring.boot.starter.test)
     testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation(libs.jackson.databind)
 }
 
 tasks.test {
