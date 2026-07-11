@@ -182,7 +182,7 @@ This document does **not**:
 | #189 | Define MCP governance boundary (this document) | ✅ Documented |
 | TBD | Implement MCP connector: transport, server registration, tool discovery | Pending |
 | TBD | Implement tool audit events (including MCP tool permission events) | Pending |
-| #190 | Verify tool audit events: tool permission decisions are audited with safe metadata | ✅ Verified |
+| #190 | Verify tool exposure audit events: tool permission decisions are audited with safe metadata | ✅ Verified |
 | TBD | Implement MCP token audience validation | Pending |
 | TBD | Add MCP governance examples and integration tests | Pending |
 

@@ -13,7 +13,6 @@ import dev.tramai.core.policy.*
 import dev.tramai.core.provider.ModelProvider
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicInteger
@@ -22,6 +21,13 @@ import java.util.concurrent.atomic.AtomicInteger
  * Engine-level tests proving that tool exposure policy decisions
  * are audited with the expected enforcement point and safe tool metadata.
  *
+ * These tests cover BEFORE_TOOL_EXPOSURE — the enforcement point where
+ * TramAI decides whether a tool may be presented to the model. This is
+ * NOT tool invocation: at this point the provider has not been called,
+ * the model has not selected a tool, no tool arguments exist, and the
+ * tool has not executed. An ALLOW audit event is evidence of exposure
+ * permission, not evidence that the tool was subsequently called.
+ *
  * Verified behaviors:
  * - BEFORE_TOOL_EXPOSURE emits one audit call per declared tool
  * - Audit context includes toolName and toolSecurity from the registry
@@ -29,7 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * - Multiple declared tools each produce one audit call
  * - Audit failure at BEFORE_TOOL_EXPOSURE blocks provider invocation
  */
-class ToolPolicyAuditWiringTest {
+class ToolExposurePolicyAuditWiringTest {
 
     private val policyEngine = PolicyEngine { PolicyDecision.Allow }
 
@@ -204,33 +210,38 @@ class ToolPolicyAuditWiringTest {
     }
 
     @Test
-    fun `audit failure at tool exposure blocks provider invocation`() {
-        runBlocking {
-            val provider = DummyCountingProvider()
-            val tool = DummyTool("lookup")
-            val engine = TramaiEngine(
-                provider = provider,
-                toolRegistry = ToolRegistry(mapOf("lookup" to tool)),
-                policyDecisionAuditEmitter = object : PolicyDecisionAuditEmitter {
-                    override suspend fun emit(
-                        enforcementPoint: EnforcementPoint,
-                        context: PolicyContext,
-                        decision: PolicyDecision,
-                    ) {
-                        if (enforcementPoint == EnforcementPoint.BEFORE_TOOL_EXPOSURE) {
-                            throw RuntimeException("Audit storage failure")
-                        }
+    fun `audit failure at tool exposure blocks provider invocation`() = runBlocking {
+        val provider = DummyCountingProvider()
+        val tool = DummyTool("lookup")
+        val engine = TramaiEngine(
+            provider = provider,
+            toolRegistry = ToolRegistry(mapOf("lookup" to tool)),
+            policyDecisionAuditEmitter = object : PolicyDecisionAuditEmitter {
+                override suspend fun emit(
+                    enforcementPoint: EnforcementPoint,
+                    context: PolicyContext,
+                    decision: PolicyDecision,
+                ) {
+                    if (enforcementPoint == EnforcementPoint.BEFORE_TOOL_EXPOSURE) {
+                        throw RuntimeException("Audit storage failure")
                     }
-                },
-                policyEngine = policyEngine,
-            )
-            val service = engine.create<SingleToolService>()
+                }
+            },
+            policyEngine = policyEngine,
+        )
+        val service = engine.create<SingleToolService>()
 
-            assertThatThrownBy { runBlocking { service.respond("query") } }
-                .isInstanceOf(RuntimeException::class.java)
-                .hasMessage("Audit storage failure")
-            assertThat(provider.callCount.get()).isZero()
+        val failure = try {
+            service.respond("query")
+            null
+        } catch (error: RuntimeException) {
+            error
         }
+
+        assertThat(failure)
+            .isNotNull
+            .hasMessage("Audit storage failure")
+        assertThat(provider.callCount.get()).isZero()
     }
 
     @Test
