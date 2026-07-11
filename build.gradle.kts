@@ -4759,15 +4759,36 @@ tasks.register("verifyReadmePositioning") {
             }
         }
 
-        // The first runnable command must be the governed-workflow example
-        val governedRunIndex = text.indexOf("./gradlew :examples:governed-workflow:run")
+        // The governed-workflow command must be the FIRST Gradle command in the README
+        val governedCommand = "./gradlew :examples:governed-workflow:run"
+        val governedRunIndex = text.indexOf(governedCommand)
         require(governedRunIndex >= 0) {
             "README must contain the governed-workflow run command"
         }
 
-        val externalKeyIndex = text.indexOf("OPENAI_API_KEY")
-        require(externalKeyIndex == -1 || governedRunIndex < externalKeyIndex) {
-            "The governed-workflow run command must appear before any external API key reference"
+        val firstGradleIndex = Regex("""(?m)^\s*\./gradlew\b""")
+            .find(text)
+            ?.range
+            ?.first
+            ?: -1
+        require(firstGradleIndex == governedRunIndex) {
+            "The governed-workflow command must be the first Gradle command in README.md. " +
+                "Found another Gradle command at position $firstGradleIndex before governed-workflow at $governedRunIndex."
+        }
+
+        // Verify all README navigation links resolve to actual files
+        val navTargets = listOf(
+            "docs/architecture/overview.md",
+            "docs/modules/sovereign-runtime-module-matrix.md",
+            "examples/governed-workflow",
+            "examples/approval-resume",
+            "examples/sovereign-document-intelligence",
+        )
+        for (path in navTargets) {
+            val target = file(path)
+            require(target.exists()) {
+                "README navigation target does not exist: $path"
+            }
         }
 
         // Forbidden claims (case-insensitive)
@@ -4810,8 +4831,8 @@ tasks.register("verifyReadmePositioning") {
 
         logger.lifecycle("README positioning verification complete.")
         logger.lifecycle("  - All required phrases present")
-        logger.lifecycle("  - Governed-workflow run command is the first example")
-        logger.lifecycle("  - No external API key dependency in primary example")
+        logger.lifecycle("  - Governed-workflow command is the first Gradle command")
+        logger.lifecycle("  - All navigation targets exist")
         logger.lifecycle("  - Forbidden claims absent")
         logger.lifecycle("  - No premature competitor comparisons")
         logger.lifecycle("  - No stale roadmap language")

@@ -79,7 +79,7 @@ Audit, evidence, and operational recovery
 JVM interfaces, structured output, schema generation, validation, and deterministic testing — no raw prompt plumbing.
 
 ### Runtime Governance
-Configurable policy enforced before models, tools, and responses proceed. Deny-by-default posture for tools and network destinations.
+Configurable policy enforced before models, tools, and responses proceed. When the secure policy engine is configured, unknown tools, models, and providers are denied by default.
 
 ### Human Control
 Approval, suspension, denial, idempotency, and replay-safe continuation. High-risk operations are gated by human decisions that leave durable evidence.
@@ -117,7 +117,7 @@ Standalone and Spring Boot integration. Adopt only the capabilities you need wit
 - **Governance runtime** — policy, DLP, routing, approval, persistence, audit, evidence, operations
 - **Optional extensions** — orchestration, RAG, memory, scheduling, server, observability, platform, MCP workflow server
 
-See the [architecture overview](docs/adr) and [sovereign module matrix](docs/sovereign-modules.md) for detailed module descriptions.
+See the [Architecture Overview](docs/architecture/overview.md) and [Sovereign Runtime Module Matrix](docs/modules/sovereign-runtime-module-matrix.md) for detailed module descriptions.
 
 ---
 
@@ -146,7 +146,7 @@ See the [architecture overview](docs/adr) and [sovereign module matrix](docs/sov
 ./gradlew publishToMavenLocal   # publish to local Maven
 ```
 
-Running on JDK 21 or later is recommended.
+TramAI targets JVM 21+. Building the repository requires a JDK 21 toolchain.
 
 ---
 
