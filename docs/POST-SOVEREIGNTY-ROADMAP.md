@@ -268,15 +268,15 @@ A new TramAI user should understand:
 | #188 | docs(security): define tool permission model | Trust zones and permissions |
 | #189 | docs(mcp): define MCP governance boundary | What MCP support should/should not mean |
 | #190 | test(tooling): audit tool exposure policy decisions | Tool exposure audit events |
-| TBD | test(tooling): deny unsafe tool invocation by policy | Policy-gated tool calls |
+| #191 | test(tooling): prove fail-closed tool execution denial | Execution denial, ordering, retries, audit, evidence |
 | TBD | docs(tooling): add tool governance examples | Usage guide |
 
 **Tasks:**
 1. Define trusted/internal/external tool classes
 2. Define policy decision points for tools
 3. Define approval-required tool classes
-4. Add audit event for tool invocation
-5. Add denied-tool evidence path
+4. Audit tool exposure and execution policy decisions
+5. Verify denied-tool execution through generic policy.decision audit and evidence paths
 6. Define MCP connector non-goals
 
 **Acceptance criteria:**
@@ -405,6 +405,7 @@ Move from optional signature verification to a more formal signing/attestation m
 | #188 | docs(security): define tool permission model |
 | #189 | docs(mcp): define MCP governance boundary |
 | #190 | test(tooling): audit tool exposure policy decisions |
+| #191 | test(tooling): prove fail-closed tool execution denial |
 | TBD | docs(product): define TramAI positioning |
 | TBD | docs(readme): rewrite README around governed workflows |
 | TBD | docs(article): draft governed JVM AI workflow article |
