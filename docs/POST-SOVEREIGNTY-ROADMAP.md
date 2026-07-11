@@ -267,7 +267,7 @@ A new TramAI user should understand:
 |----|-------|---------|
 | #188 | docs(security): define tool permission model | Trust zones and permissions |
 | #189 | docs(mcp): define MCP governance boundary | What MCP support should/should not mean |
-| TBD | test(tooling): audit tool invocation decisions | Tool audit events |
+| #190 | test(tooling): audit tool invocation decisions | Tool audit events |
 | TBD | test(tooling): deny unsafe tool invocation by policy | Policy-gated tool calls |
 | TBD | docs(tooling): add tool governance examples | Usage guide |
 
@@ -404,7 +404,7 @@ Move from optional signature verification to a more formal signing/attestation m
 |----|-------|
 | #188 | docs(security): define tool permission model |
 | #189 | docs(mcp): define MCP governance boundary |
-| TBD | test(tooling): audit tool invocation decisions |
+| #190 | test(tooling): audit tool invocation decisions |
 | TBD | docs(product): define TramAI positioning |
 | TBD | docs(readme): rewrite README around governed workflows |
 | TBD | docs(article): draft governed JVM AI workflow article |
