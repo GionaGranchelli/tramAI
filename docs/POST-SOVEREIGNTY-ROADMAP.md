@@ -298,7 +298,7 @@ A new TramAI user should understand:
 
 | PR | Title | Purpose |
 |----|-------|---------|
-| #192 | docs(product): define TramAI positioning | ✅ Canonical thesis, audiences, boundaries, and messaging |
+| #192 | [docs(product): define TramAI positioning](product/positioning.md) | ✅ Canonical thesis, audiences, boundaries, and messaging |
 | #193 | docs(readme): rewrite README around governed workflows | Better first impression |
 | #194 | docs(article): draft governed JVM AI workflow article | Publishable material |
 | #195 | docs(examples): add example selection guide | Which example to run when |

@@ -1,6 +1,6 @@
 # MCP Governance Boundary
 
-> **Status:** Design boundary — defines what MCP support should and should not mean before any connector/runtime implementation.
+> **Status:** Design boundary — defines what governed MCP client/connector support should and should not mean before the import/consumption path is implemented. TramAI already includes an MCP workflow server (`tramai-mcp`); this document covers the reverse direction. 
 > **Phase:** Phase 6 — Tool and MCP Governance of the [Post-Sovereignty Roadmap](../POST-SOVEREIGNTY-ROADMAP.md).
 > **Prerequisites:** [Security Model](SECURITY-MODEL.md), [Tool Permission Model](tool-permission-model.md).
 
@@ -8,13 +8,13 @@
 
 ## Purpose
 
-This document defines the governance boundary for future MCP (Model Context Protocol) support in TramAI. It answers:
+This document defines the governance boundary for future governed MCP client/connector support — importing remote MCP tools into TramAI's policy-controlled tool lifecycle. TramAI already has an MCP server; this document addresses the consumption side. It answers:
 
-- When TramAI eventually supports MCP, what is governed by TramAI?
+- When TramAI imports remote MCP tools, what is governed by TramAI?
 - What remains the MCP server/client responsibility?
 - How are MCP tools classified within the tool permission model?
 - How are tokens, audiences, and permissions handled?
-- What must not be claimed before runtime MCP support exists?
+- What must not be claimed before governed remote-tool consumption exists?
 
 The security model already anchors this discussion: abuse scenario AS-10 states that MCP token passthrough must be rejected, authorization must validate resource audience, and each MCP tool needs scoped permissions.
 
@@ -22,15 +22,15 @@ The security model already anchors this discussion: abuse scenario AS-10 states 
 
 ## Scope
 
-This document covers the governance boundary for future MCP-connected tools in TramAI. It does **not** cover:
+This document covers the governance boundary for future governed MCP client/connector support — importing remote tools into TramAI. It does **not** cover:
 
 - MCP transport protocol design or implementation
-- MCP server or client runtime code
+- MCP client connector runtime code (the existing `tramai-mcp` server module is separate)
 - Token exchange or credential management
 - MCP resource or prompt semantics
 - MCP server discovery or health checking
 
-Those are implementation concerns for a future connector PR. This document defines only what TramAI should govern.
+Those are implementation concerns for a future connector PR. This document defines only what TramAI should govern when importing remote MCP tools.
 
 ---
 
@@ -44,7 +44,7 @@ This document is a design boundary for future governed MCP client/connector supp
 
 ## MCP Trust Boundary
 
-When MCP support is introduced, the trust boundary looks like this:
+When governed MCP client/connector support is introduced, the trust boundary looks like this:
 
 ```
 TramAI workflow
@@ -113,7 +113,7 @@ These rules extend the security model's AS-10 (Token Passthrough via MCP) with c
 | 5 | Explicit allowlist | MCP servers and tools must be explicitly configured in the application. There is no auto-discovery path that bypasses allowlisting. |
 | 6 | Approval for high-impact MCP tools | MCP tools classified as `HIGH_IMPACT` (financial, destructive, legal/medical) require human approval before execution. |
 
-These rules are governance requirements, not runtime implementation. A future MCP connector PR must implement or enforce each rule.
+These rules are governance requirements, not runtime implementation. A future governed MCP client/connector PR must implement or enforce each rule.
 
 ---
 
@@ -135,7 +135,7 @@ The split between current and future decisions matches #188. Only `ALLOW`, `DENY
 
 ## Server Identity and Tool Claims
 
-When an MCP server registers tools with a TramAI MCP connector (future), the following identity and claim model applies:
+When an MCP server registers tools with a TramAI governed MCP client/connector (future), the following identity and claim model applies:
 
 1. **Server identity** is established through configured trust anchors (TLS certificates, signed metadata, or explicit endpoint allowlisting). TramAI does not trust self-claimed server identity without verification.
 2. **Tool claims** are the metadata an MCP server provides about its tools: name, description, input schema, and declared capabilities. These claims inform classification but are **not authoritative** — TramAI applies its own classification based on configured rules.
@@ -166,7 +166,7 @@ The [Runtime Evidence Bundle Map](../evidence/runtime-evidence-bundle-map.md) ma
 This document does **not**:
 
 - Define an MCP transport protocol, wire format, or connection lifecycle.
-- Implement MCP client, server, or connector code.
+- Implement MCP client/connector code (the `tramai-mcp` server module is already implemented).
 - Add token exchange, credential management, or cryptographic identity verification.
 - Modify runtime policy enforcement.
 - Add new Kotlin APIs or configuration types.

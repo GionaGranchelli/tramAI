@@ -4635,11 +4635,12 @@ tasks.register("verifyProductPositioning") {
             "Missing deferred/not-implemented status indicators"
         }
 
-        // Forbidden claims
+        // Forbidden claims (case-insensitive, with punctuation variants)
         val forbiddenClaims = listOf(
             "fully compliant",
             "guarantees compliance",
             "production certified",
+            "production-certified",
             "production-ready for every deployment",
             "guarantees sovereignty",
             "fully air-gapped by default",
@@ -4647,7 +4648,7 @@ tasks.register("verifyProductPositioning") {
             "remote MCP tools are currently governed",
         )
         for (claim in forbiddenClaims) {
-            require(!text.contains(claim)) {
+            require(!text.contains(claim, ignoreCase = true)) {
                 "Forbidden claim found: '$claim'"
             }
         }
@@ -4665,17 +4666,35 @@ tasks.register("verifyProductPositioning") {
             "Old PRODUCT-THESIS.md must declare itself as historical"
         }
 
-        // Verify MCP boundary document does not claim no MCP server exists
+        // Verify MCP boundary document correctly distinguishes server from client/connector
         val mcpDoc = file("docs/security/mcp-governance-boundary.md")
         require(mcpDoc.isFile) {
             "Missing MCP governance boundary at ${mcpDoc.absolutePath}"
         }
         val mcpText = mcpDoc.readText()
-        require(!mcpText.contains("does not currently implement an MCP connector, MCP client, MCP server")) {
-            "MCP governance boundary must not claim no MCP server exists (tramai-mcp is implemented)"
+
+        // Must positively acknowledge the existing server
+        require(mcpText.contains("currently includes an MCP server module", ignoreCase = true)) {
+            "MCP governance boundary must state that the MCP server module exists"
         }
-        require(mcpText.contains("tramai-mcp")) {
-            "MCP governance boundary must reference the existing tramai-mcp server module"
+
+        // Must positively state the client/connector is not implemented
+        require(mcpText.contains("does not currently implement the governed MCP client/connector", ignoreCase = true)) {
+            "MCP governance boundary must state that the governed MCP client/connector is not implemented"
+        }
+
+        // Must not contain stale language that implies no MCP runtime exists at all
+        val staleMcpPhrases = listOf(
+            "does not implement an MCP server",
+            "no MCP server exists",
+            "does not currently implement an MCP connector, MCP client, MCP server",
+            "before any MCP runtime implementation",
+            "when TramAI eventually supports MCP",
+        )
+        for (phrase in staleMcpPhrases) {
+            require(!mcpText.contains(phrase, ignoreCase = true)) {
+                "Stale MCP language found: '$phrase'"
+            }
         }
 
         // Verify roadmap contains PR #192

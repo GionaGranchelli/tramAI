@@ -6,9 +6,9 @@ The canonical and current TramAI product positioning is:
 
 **[TramAI Product Positioning](../product/positioning.md)**
 
-Security and threat-model details remain under [docs/security/](.).
+Security and threat-model details remain under [docs/security/](./).
 
-The historical content below is preserved for reference but has been superseded.
+A summary of the superseded historical positioning is retained below but has been superseded.
 
 ---
 

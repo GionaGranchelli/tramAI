@@ -88,7 +88,7 @@ Kotlin/JVM interfaces with typed inputs and outputs. Structured output, schema g
 
 ### 2. Governance in the Execution Path
 
-Policy decisions are enforced outside prompts before providers, tools, and responses proceed. Every decision (ALLOW, DENY, REQUIRE_APPROVAL) is explicit, auditable, and testable.
+When governance components are configured, TramAI enforces model and tool policy in the runtime execution path outside prompts, before providers, tools, and responses proceed. Every policy decision (ALLOW, DENY, REQUIRE_APPROVAL) is explicit, auditable, and testable.
 
 ### 3. Human-Controlled Execution
 
@@ -96,11 +96,11 @@ Approval, suspension, denial, idempotency, and replay-safe continuation. High-ri
 
 ### 4. Controlled Model Routing
 
-Local, trusted, or approved provider zones selected based on workflow classification and data policy. Classification-aware routing prevents RESTRICTED data from reaching unauthorized providers.
+Local, trusted, or approved provider zones selected based on workflow classification and data policy. Configured classification-aware routing can prevent RESTRICTED workloads from reaching unauthorized providers.
 
 ### 5. Evidence and Operational Recovery
 
-Tamper-evident audit sequencing, safe runtime evidence export, JDBC and file persistence, outbox recovery, and worker observability. Every decision leaves a verifiable trail.
+Tamper-evident audit sequencing, safe runtime evidence export, JDBC and file persistence, outbox recovery, and worker observability. When an audit store and emitter are configured, policy and approval decisions can be emitted into tamper-evident audit and runtime-evidence pipelines.
 
 ### 6. Composable JVM Adoption
 
@@ -150,10 +150,10 @@ For detailed status tracking, see [docs/STATUS.md](../STATUS.md).
 
 The following claims are safe for the README, website, articles, talks, grants, and pilot discussions:
 
-- ✅ TramAI enforces model and tool policy at runtime.
+- ✅ TramAI supports runtime enforcement of model and tool policy when governance components are configured.
 - ✅ TramAI supports human approval with replay-safe continuation.
-- ✅ TramAI routes model calls based on workflow classification.
-- ✅ TramAI produces tamper-evident audit evidence.
+- ✅ TramAI can route model calls based on workflow classification.
+- ✅ TramAI can produce tamper-evident audit evidence when an audit store and emitter are configured.
 - ✅ TramAI is embeddable in Spring Boot and standalone JVM applications.
 - ✅ TramAI includes an MCP workflow server (stdio + SSE).
 
