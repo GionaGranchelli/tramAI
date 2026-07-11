@@ -213,6 +213,7 @@ The tool permission model is intentionally broader than MCP. Documenting tool go
 | PR | Scope | Status |
 |----|-------|--------|
 | #188 | Define tool permission model (this document) | ✅ Documented |
+| #190 | Test tool exposure audit events: verify tool permission decisions are audited | ✅ Verified |
 | TBD | Implement tool audit events: capture `tool.permission` decisions and export to evidence | Pending |
 | TBD | Implement policy-gated tool denial: deny unsafe tool invocation by policy | Pending |
 | TBD | Add tool governance examples: usage guide with deny/approval scenarios | Pending |
