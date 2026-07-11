@@ -47,7 +47,7 @@ The gap is not between a good prompt and a bad prompt. The gap is between probab
 | No audit trail beyond the prompt log | Durable governance evidence with event sequencing |
 | Cannot stop a network call | Refuses provider invocation before the request leaves the runtime |
 
-A governed AI workflow moves these decisions into the runtime boundary. When governance components are configured, the runtime can classify the workload, evaluate policy before the model or tool proceeds, route to an allowed provider zone, suspend for human approval, and record every decision in structured evidence — regardless of what the prompt says.
+A governed AI workflow moves these decisions into the runtime boundary. When governance components are configured, the runtime can classify the workload, evaluate policy before the model or tool proceeds, route to an allowed provider zone, suspend for human approval, and capture each decision in structured evidence — regardless of what the prompt says.
 
 This does not mean every TramAI deployment automatically prevents every possible data leak. It means that governance decisions become explicit, auditable, and deterministic rather than probabilistic and unverifiable.
 
@@ -129,15 +129,22 @@ fun buildClaimTriageWorkflow(
         }
 
         localStep(name = "finalize") { state, _ ->
-            state.copy(result = readyForReview())
+            state.copy(
+                result = ClaimTriageResult(
+                    status = "ready-for-review",
+                    reason = "Policy and approval gates passed",
+                ),
+            )
         }
+    }.build { state ->
+        state.result ?: error("missing result")
     }
 ```
 
 Four things happen in sequence:
 
 1. **Classification** — the claim text is evaluated and a typed `ClaimClassification` is produced, carrying a risk level (LOW, MEDIUM, HIGH, RESTRICTED), a category, and a confidence score.
-2. **Policy gate** — restricted claims are rejected immediately. No model call, no tool execution, no side effects. The gate decides before anything risky happens.
+2. **Policy gate** — after classification, restricted claims are rejected before finalization or any downstream tool and side-effect steps. In this deterministic demo the classifier itself makes no model call; in a provider-backed workflow, classification would already have occurred before this gate.
 3. **Approval gate** — high-risk claims without prior approval are rejected. Those that have been approved proceed.
 4. **Finalization** — accepted claims produce a deterministic result.
 
@@ -189,14 +196,16 @@ TramAI supports suspension and replay-safe continuation. The [`examples/approval
 
 Not every claim should go to the same model provider. A public-information query might safely use any available provider. An internal document with personally identifiable information should remain within a trusted zone. A restricted legal filing should never leave a local deployment.
 
-TramAI maps these categories to routing zones:
+TramAI maps classification levels to routing zones:
 
-| Classification | Zone | Example policy |
+| Classification | Sovereign default allowed zones | Fallback |
 |---|---|---|
-| PUBLIC | Any configured provider | Use cheapest available |
-| INTERNAL | Trusted providers only | Ollama, approved cloud |
-| CONFIDENTIAL | Trusted, no external telemetry | Local-only providers |
-| RESTRICTED | Local deployment only | On-premise, air-gapped |
+| PUBLIC | LOCAL, EU_CLOUD, GLOBAL_CLOUD | Any configured zone |
+| INTERNAL | LOCAL, EU_CLOUD, GLOBAL_CLOUD | Any configured zone |
+| CONFIDENTIAL | LOCAL, EU_CLOUD | Local or EU cloud |
+| RESTRICTED | LOCAL | No fallback |
+
+These are the built-in sovereign routing defaults when the routing matrix is enabled. Applications may configure different rules. LOCAL describes a configured trust zone; it does not by itself prove that a deployment is air-gapped.
 
 Configured classification-aware routing can prevent restricted workloads from reaching providers outside the allowed trust zone. The routing decision is evaluated before the provider is invoked — the runtime refuses the call rather than hoping the provider will handle the data responsibly.
 
@@ -208,15 +217,17 @@ The [`examples/sovereign-document-intelligence`](../../examples/sovereign-docume
 
 Application logs show what happened. Governance evidence proves what was decided, by whom, and in what order.
 
-When an audit store and emitter are configured, TramAI records:
+TramAI includes exporters that can transform captured policy, approval, and provider-routing decision sources into runtime-evidence.v1 records:
 
 - **Policy decisions** — which classifications triggered which ALLOW/DENY/REQUIRE_APPROVAL outcomes, with safe metadata (classification, risk level, provider name) and without raw prompts, arguments, or secrets.
 - **Approval decisions** — who approved or denied what, when, and with what identity binding, preserving decision digests rather than raw comments.
 - **Provider routing decisions** — which provider was selected or blocked, with digest-only provider and model identifiers to protect operational details.
 
-These records are exported as structured runtime-evidence JSONL bundles with tamper-evident SHA-256 digests. The evidence chain can survive restarts through durable outbox stores, and worker observability surfaces pending and failed evidence exports.
+Those records can be serialized as JSONL with allowlisted metadata and tamper-evident SHA-256 digests. The runtime-evidence bundle map defines where these JSONL files belong inside an evidence bundle. Automatic exporter scheduling, bundle-lifecycle integration, and verifier enforcement remain separate concerns.
 
-This is not a log file. It is a structured, verifiable record of every governance decision the runtime made — designed for operator review, not model consumption.
+Durable approval and audit source events can survive restarts through configured persistence and outbox components. The existing worker observability surfaces cover audit-outbox recovery and dispatch; it does not currently represent an evidence-export worker.
+
+This is not a log file. It is a structured, verifiable record of each captured and exported governance decision — designed for operator review, not model consumption.
 
 ---
 

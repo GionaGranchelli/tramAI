@@ -44,16 +44,20 @@ JVM developers, application architects, platform engineers, and security/governa
 
 ## Forty-Five-Minute Version
 
-Adds 15 minutes:
+Complete talk schedule:
 
 | Time | Section | Content |
 |---|---|---|
-| 5–10 min | Live deterministic demo | Run `./gradlew :examples:governed-workflow:run` live. Walk through the output. Modify a classification and rerun. |
-| 10–14 min | Approval-resume lifecycle | Show the approval example: low-value bypass, high-value suspend, approve → resume, deny → no reimbursement. Embedded PostgreSQL. |
-| 14–18 min | Sovereign document routing | Classification → restricted → local-only routing. Policy, approval, continuation, audit, evidence export. |
-| 18–20 min | Evidence artifacts | Show example runtime-evidence JSONL output. Policy decisions, approval decisions, routing digests. |
-| 20–25 min | Architecture discussion | Composable adoption. JVM-native integration. No hosted control plane. |
-| 25–30 min | Questions | Open Q&A. |
+| 0–4 min | Opening and problem framing | The model call is not the hard part. Real governance questions start after the first request. |
+| 4–9 min | Prompts versus runtime enforcement | Prompt instructions vs. deterministic runtime policy. Why "do not send confidential data" in a prompt is not enforcement. |
+| 9–15 min | Claim-triage workflow | Walk through the complete Kotlin workflow. Classification, policy gate, approval gate, finalization. Four scenarios. |
+| 15–21 min | Live governed-workflow demo | Run `./gradlew :examples:governed-workflow:run` live. Walk through each output line. Modify a classification and rerun. |
+| 21–27 min | Policy before side effects | BEFORE_TOOL_EXPOSURE, BEFORE_TOOL_EXECUTION. ALLOW/DENY/REQUIRE_APPROVAL. Tool never executes on denial. |
+| 27–33 min | Approval suspension and resume | Approval as a lifecycle. Live demo: low-value bypass, high-value suspend, approve → resume, deny → no reimbursement. |
+| 33–37 min | Controlled routing | Classification-aware routing. Routing zones and sovereign defaults. |
+| 37–40 min | Evidence and recovery | Evidence vs. logs. Exporters, bundle placement, tamper-evident digests. |
+| 40–43 min | Maturity and non-claims | What TramAI is, what it is not. Configuration-aware language. |
+| 43–45 min | Questions and closing | Open Q&A. `./gradlew :examples:governed-workflow:run` one more time. |
 
 ---
 

@@ -4907,6 +4907,14 @@ tasks.register("verifyGovernedWorkflowArticle") {
             }
         }
 
+        // Verify the workflow snippet is actual source (not abridged placeholder)
+        require(articleText.contains(".build {") || articleText.contains("abridged")) {
+            "Article workflow snippet must either be the actual source with .build or labeled as abridged"
+        }
+        require(articleText.contains("ClaimTriageResult(")) {
+            "Article workflow snippet must construct ClaimTriageResult directly, not use a made-up helper"
+        }
+
         // Required links with target existence validation
         val requiredLinks = mapOf(
             "../../README.md" to "README.md",
@@ -4954,6 +4962,10 @@ tasks.register("verifyGovernedWorkflowArticle") {
             "tamper-proof",
             "every decision is always recorded",
             "every workflow resumes exactly once",
+            "record every decision",
+            "every governance decision",
+            "evidence export worker",
+            "automatically exported as",
         )
         for (claim in forbiddenClaims) {
             require(!articleText.contains(claim, ignoreCase = true)) {
@@ -4977,6 +4989,7 @@ tasks.register("verifyGovernedWorkflowArticle") {
         logger.lifecycle("Governed workflow article verification complete.")
         logger.lifecycle("  - Article and talk outline exist")
         logger.lifecycle("  - All required headings present")
+        logger.lifecycle("  - Workflow snippet is actual source (not abridged)")
         logger.lifecycle("  - All required phrases present")
         logger.lifecycle("  - All link targets verified")
         logger.lifecycle("  - Talk outline sections present")
