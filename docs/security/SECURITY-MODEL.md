@@ -260,4 +260,5 @@ The evidence pack is the recommended vehicle for CI attestation, enterprise secu
 | Document | Purpose |
 |----------|---------|
 | [Tool Permission Model](tool-permission-model.md) | Trust classes, risk classes, permission decisions, and approval requirements for governed tool use |
+| [MCP Governance Boundary](mcp-governance-boundary.md) | Trust boundary, tool classification, token rules, and non-claims for future MCP support |
 | [Post-Sovereignty Roadmap](../POST-SOVEREIGNTY-ROADMAP.md) | Current phase planning and execution status |

@@ -184,9 +184,7 @@ The [Runtime Evidence Bundle Map](../evidence/runtime-evidence-bundle-map.md) cu
 
 ## MCP Relationship
 
-The future MCP governance boundary document will define how MCP-connected tools fit into this model.
-
-Key principles (not yet implemented):
+The [MCP governance boundary](mcp-governance-boundary.md) document defines how MCP-connected tools fit into this model. Key principles:
 
 - MCP tools are `MCP_REMOTE` by trust class.
 - The MCP server's identity and tool claims inform permission decisions.
