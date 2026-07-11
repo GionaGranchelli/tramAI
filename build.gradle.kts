@@ -4724,6 +4724,106 @@ tasks.named("check") {
 }
 
 // ──────────────────────────────────────────────
+// Task: verifyReadmePositioning
+// ──────────────────────────────────────────────
+
+tasks.register("verifyReadmePositioning") {
+    group = "verification"
+    description = "Verifies the README leads with governed workflows and avoids forbidden claims."
+
+    doLast {
+        val readme = file("README.md")
+        require(readme.isFile) {
+            "Missing README.md at ${readme.absolutePath}"
+        }
+
+        val text = readme.readText()
+
+        // Required phrases
+        val requiredPhrases = listOf(
+            "Governed AI Workflows for the JVM",
+            "Kotlin-first JVM runtime for governed AI workflows",
+            "./gradlew :examples:governed-workflow:run",
+            "examples/governed-workflow",
+            "examples/approval-resume",
+            "examples/sovereign-document-intelligence",
+            "docs/guides/quickstart.md",
+            "docs/guides/governed-workflow-quickstart.md",
+            "docs/STATUS.md",
+            "docs/product/positioning.md",
+            "active development",
+        )
+        for (phrase in requiredPhrases) {
+            require(text.contains(phrase, ignoreCase = true)) {
+                "README must contain: '$phrase'"
+            }
+        }
+
+        // The first runnable command must be the governed-workflow example
+        val governedRunIndex = text.indexOf("./gradlew :examples:governed-workflow:run")
+        require(governedRunIndex >= 0) {
+            "README must contain the governed-workflow run command"
+        }
+
+        val externalKeyIndex = text.indexOf("OPENAI_API_KEY")
+        require(externalKeyIndex == -1 || governedRunIndex < externalKeyIndex) {
+            "The governed-workflow run command must appear before any external API key reference"
+        }
+
+        // Forbidden claims (case-insensitive)
+        val forbiddenClaims = listOf(
+            "fully compliant",
+            "guarantees compliance",
+            "production certified",
+            "production-certified",
+            "production-ready for every deployment",
+            "guarantees sovereignty",
+            "fully air-gapped by default",
+            "amount-threshold authorization is implemented",
+            "remote MCP tools are currently governed",
+        )
+        for (claim in forbiddenClaims) {
+            require(!text.contains(claim, ignoreCase = true)) {
+                "Forbidden claim in README: '$claim'"
+            }
+        }
+
+        // No premature competitor comparisons (reserved for PR #196)
+        val forbiddenComparisons = listOf(
+            "Spring AI lacks",
+            "LangChain4j lacks",
+            "better than Spring AI",
+            "better than LangChain4j",
+        )
+        for (phrase in forbiddenComparisons) {
+            require(!text.contains(phrase, ignoreCase = true)) {
+                "Forbidden comparison in README: '$phrase'"
+            }
+        }
+
+        // No stale roadmap sentence referencing completed phases
+        val staleSentence = "The next phase focuses on workflow ergonomics, API stability, " +
+            "structured output contracts, and runtime evidence"
+        require(!text.contains(staleSentence, ignoreCase = true)) {
+            "README must not contain stale roadmap sentence about completed phases"
+        }
+
+        logger.lifecycle("README positioning verification complete.")
+        logger.lifecycle("  - All required phrases present")
+        logger.lifecycle("  - Governed-workflow run command is the first example")
+        logger.lifecycle("  - No external API key dependency in primary example")
+        logger.lifecycle("  - Forbidden claims absent")
+        logger.lifecycle("  - No premature competitor comparisons")
+        logger.lifecycle("  - No stale roadmap language")
+    }
+}
+
+// Wire into check
+tasks.named("check") {
+    dependsOn("verifyReadmePositioning")
+}
+
+// ──────────────────────────────────────────────
 // Task: verifyWorkflowApiStabilityBoundary
 // ──────────────────────────────────────────────
 
