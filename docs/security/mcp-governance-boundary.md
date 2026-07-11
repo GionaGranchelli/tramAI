@@ -83,17 +83,18 @@ MCP tool / resource
 
 ## MCP Tool Classification
 
-MCP tools map into the tool permission model (#188) as follows:
+MCP tools map into the [Tool Permission Model](tool-permission-model.md) as follows:
 
-| MCP concept | TramAI classification |
-|-------------|----------------------|
-| MCP server connection | External trust boundary |
-| MCP tool | `MCP_REMOTE` (tool trust class) |
-| MCP tool that reads data | `MCP_REMOTE` + `DATA_ACCESS` / `READ_ONLY` |
-| MCP tool that creates or updates records | `MCP_REMOTE` + `STATE_CHANGING` / `WRITE` |
-| MCP tool that deletes or moves money | `MCP_REMOTE` + `HIGH_IMPACT` / `DESTRUCTIVE` / `FINANCIAL` |
-| MCP tool that produces legal or medical advice | `MCP_REMOTE` + `HIGH_IMPACT` / `LEGAL_MEDICAL` |
-| Unknown or unlisted MCP tool | **`DENY` by default** |
+| MCP concept | Trust class | Risk class |
+|-------------|-------------|------------|
+| MCP server connection | External trust boundary | N/A |
+| MCP tool | `MCP_REMOTE` | Depends on declared/configured capability |
+| MCP tool that reads data | `MCP_REMOTE` + `DATA_ACCESS` | `READ_ONLY` |
+| MCP tool that creates or updates records | `MCP_REMOTE` + `STATE_CHANGING` | `WRITE` |
+| MCP tool that deletes records | `MCP_REMOTE` + `HIGH_IMPACT` | `DESTRUCTIVE` |
+| MCP tool that moves money | `MCP_REMOTE` + `HIGH_IMPACT` | `FINANCIAL` |
+| MCP tool that produces legal or medical advice | `MCP_REMOTE` + `HIGH_IMPACT` | `LEGAL_MEDICAL` |
+| Unknown or unlisted MCP tool | `MCP_REMOTE` | **`DENY` by default** |
 
 The tool permission model already defines `MCP_REMOTE` as a future connector trust class. Server identity and tool claims feed into permission decisions, but the classification above defines the default posture: MCP tools are deny-by-default, with explicit allowlisting required for exposure and approval required for high-impact categories.
 
@@ -138,7 +139,7 @@ When an MCP server registers tools with a TramAI MCP connector (future), the fol
 
 1. **Server identity** is established through configured trust anchors (TLS certificates, signed metadata, or explicit endpoint allowlisting). TramAI does not trust self-claimed server identity without verification.
 2. **Tool claims** are the metadata an MCP server provides about its tools: name, description, input schema, and declared capabilities. These claims inform classification but are **not authoritative** — TramAI applies its own classification based on configured rules.
-3. **Claim discrepancies** (e.g., a server claiming a tool is read-only when it mutates state) are a server responsibility. TramAI's governance model assumes honest server declarations and applies guardrails (deny-by-default, approval gates, audit) as defence-in-depth.
+3. **Claim discrepancies** (e.g., a server claiming a tool is read-only when it mutates state) are treated as server/operator responsibility. TramAI does not rely on server declarations alone — configured classifications, deny-by-default policy, approval gates, and audit provide defence-in-depth.
 4. **Server provenance** (who operates the server, what data it has access to) is outside TramAI's governance scope. TramAI can enforce what tools are exposed and under what conditions, but it cannot verify what the server actually does with data sent to it.
 
 ---

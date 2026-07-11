@@ -403,7 +403,7 @@ Move from optional signature verification to a more formal signing/attestation m
 | PR | Title |
 |----|-------|
 | #188 | docs(security): define tool permission model |
-| TBD | docs(mcp): define MCP governance boundary |
+| #189 | docs(mcp): define MCP governance boundary |
 | TBD | test(tooling): audit tool invocation decisions |
 | TBD | docs(product): define TramAI positioning |
 | TBD | docs(readme): rewrite README around governed workflows |
