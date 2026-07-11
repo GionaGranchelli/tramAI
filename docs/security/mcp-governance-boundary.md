@@ -180,9 +180,9 @@ This document does **not**:
 | PR | Scope | Status |
 |----|-------|--------|
 | #189 | Define MCP governance boundary (this document) | ✅ Documented |
-| TBD | Implement MCP connector: transport, server registration, tool discovery | Pending |
-| #191 | Verify fail-closed tool execution denial: policy.decision audit and generic evidence path | ✅ Verified |
 | #190 | Verify tool exposure audit events: tool permission decisions are audited with safe metadata | ✅ Verified |
+| #191 | Verify fail-closed tool execution denial: policy.decision audit and generic evidence path | ✅ Verified |
+| TBD | Implement MCP connector: transport, server registration, tool discovery | Pending |
 | TBD | Add dedicated tool.permission evidence family | Pending |
 | TBD | Implement MCP token audience validation | Pending |
 | TBD | Add MCP governance examples and integration tests | Pending |

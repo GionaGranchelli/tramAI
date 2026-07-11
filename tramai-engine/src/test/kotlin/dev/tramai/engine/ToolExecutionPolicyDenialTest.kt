@@ -12,13 +12,17 @@ import dev.tramai.core.model.ToolResult
 import dev.tramai.core.model.SideEffectLevel
 import dev.tramai.core.policy.*
 import dev.tramai.core.provider.ModelProvider
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
-import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Engine-level tests proving fail-closed behavior when policy denies
@@ -50,7 +54,7 @@ class ToolExecutionPolicyDenialTest {
 
     @AiService
     interface MultiToolService {
-        @Operation(prompt = "test", model = "test-model", tools = ["lookup", "payment"], providerRetries = 0)
+        @Operation(prompt = "test", model = "test-model", tools = ["lookup", "payment", "notification"], providerRetries = 0)
         suspend fun respond(input: String): String
     }
 
@@ -105,7 +109,8 @@ class ToolExecutionPolicyDenialTest {
                     modelUsed = request.model,
                     toolCalls = listOf(
                         ToolCall("call-1", "lookup", "{}"),
-                        ToolCall("call-2", "payment", "{\"amount\":5000}"),
+                        ToolCall("call-2", "payment", """{"amount":5000}"""),
+                        ToolCall("call-3", "notification", "{}"),
                     ),
                 )
             } else {
@@ -186,11 +191,10 @@ class ToolExecutionPolicyDenialTest {
         )
         val service = engine.create<SingleToolService>()
 
-        try {
+        val failure = assertThrows<PolicyViolationException> {
             service.respond("pay invoice")
-        } catch (e: PolicyViolationException) {
-            assertThat(e).hasMessageContaining("tool-execution-denied")
         }
+        assertTrue(failure.message?.contains("tool-execution-denied") == true)
 
         assertEquals(1, provider.callCount.get(), "Provider should be called once to request the tool")
         assertEquals(0, tool.callCount.get(), "Tool should never execute")
@@ -211,7 +215,7 @@ class ToolExecutionPolicyDenialTest {
         )
         val service = engine.create<SingleToolService>()
 
-        try { service.respond("pay") } catch (_: PolicyViolationException) {}
+        assertThrows<PolicyViolationException> { service.respond("pay") }
 
         val execCalls = emitter.calls.filter {
             it.first == EnforcementPoint.BEFORE_TOOL_EXECUTION
@@ -232,29 +236,63 @@ class ToolExecutionPolicyDenialTest {
     fun `denial audit emitted before PolicyViolationException reaches caller`() = runTest {
         val tool = CountingTool("payment")
         val provider = ToolCallProvider("payment")
-        val emitter = capturingEmitter()
-        var exceptionThrown = false
-        var execDenialAudited = false
+
+        // Use a channel to pause the emitter so we can observe state mid-flight.
+        val auditReached = Channel<Unit>(1)
+        val releaseAudit = Channel<Unit>(1)
+        val auditEntered = AtomicBoolean(false)
+        val exceptionRef = AtomicReference<Throwable>(null)
+
+        val syncEmitter = object : PolicyDecisionAuditEmitter {
+            override suspend fun emit(
+                enforcementPoint: EnforcementPoint,
+                context: PolicyContext,
+                decision: PolicyDecision,
+            ) {
+                if (enforcementPoint == EnforcementPoint.BEFORE_TOOL_EXECUTION) {
+                    auditEntered.set(true)
+                    auditReached.send(Unit)  // signal the test: audit has been reached
+                    releaseAudit.receive()   // wait for the test to release us
+                }
+            }
+        }
 
         val engine = TramaiEngine(
             provider = provider,
             toolRegistry = ToolRegistry(mapOf("payment" to tool)),
-            policyDecisionAuditEmitter = emitter,
+            policyDecisionAuditEmitter = syncEmitter,
             policyEngine = policyThatDeniesExecution(),
         )
         val service = engine.create<SingleToolService>()
 
-        try {
-            service.respond("pay")
-        } catch (e: PolicyViolationException) {
-            exceptionThrown = true
-            execDenialAudited = emitter.calls.any {
-                it.first == EnforcementPoint.BEFORE_TOOL_EXECUTION && it.third is PolicyDecision.Deny
+        // Launch in a child coroutine; catch the exception so it doesn't cancel the parent scope.
+        val job = launch {
+            try {
+                service.respond("pay")
+            } catch (e: Throwable) {
+                exceptionRef.set(e)
             }
         }
 
-        assertTrue(exceptionThrown, "PolicyViolationException should be thrown")
-        assertTrue(execDenialAudited, "Execution denial audit should be emitted before exception propagation")
+        // Wait until the emitter hook is entered – proves emit was reached.
+        auditReached.receive()
+        assertTrue(auditEntered.get(), "Audit hook must have been entered")
+
+        // The tool MUST still be uncalled at this point (emit suspends before exec).
+        assertEquals(0, tool.callCount.get(), "Tool should not have executed yet")
+
+        // Release the emitter so execution can continue and the exception will propagate.
+        releaseAudit.send(Unit)
+
+        // Wait for the child to finish.
+        job.join()
+
+        // The captured exception must be a PolicyViolationException.
+        val failure = exceptionRef.get()
+        assertNotNull(failure, "Expected a PolicyViolationException to be thrown")
+        assertTrue(failure is PolicyViolationException, "Expected PolicyViolationException, got ${failure?.javaClass?.simpleName}")
+        assertTrue(failure.message?.contains("tool-execution-denied") == true)
+
         assertEquals(0, tool.callCount.get(), "Tool should never execute")
     }
 
@@ -273,7 +311,7 @@ class ToolExecutionPolicyDenialTest {
         )
         val service = engine.create<SingleToolService>()
 
-        try { service.respond("pay") } catch (_: PolicyViolationException) {}
+        assertThrows<PolicyViolationException> { service.respond("pay") }
 
         val visitedPoints = emitter.calls.map { it.first }.toSet()
 
@@ -305,7 +343,7 @@ class ToolExecutionPolicyDenialTest {
         )
         val service = engine.create<SingleToolService>()
 
-        try { service.respond("pay") } catch (_: PolicyViolationException) {}
+        assertThrows<PolicyViolationException> { service.respond("pay") }
 
         assertEquals(1, provider.callCount.get(),
             "Provider should be called exactly once — no continuation after denial")
@@ -335,11 +373,10 @@ class ToolExecutionPolicyDenialTest {
         )
         val service = engine.create<SingleToolService>()
 
-        try {
+        val failure = assertThrows<RuntimeException> {
             service.respond("pay")
-        } catch (e: RuntimeException) {
-            assertThat(e).hasMessage("Audit storage failure")
         }
+        assertTrue(failure.message?.contains("Audit storage failure") == true)
 
         assertEquals(0, tool.callCount.get(), "Tool must not execute when audit fails")
         assertEquals(1, provider.callCount.get(), "Provider should be called once")
@@ -370,9 +407,10 @@ class ToolExecutionPolicyDenialTest {
         )
         val service = engine.create<SingleToolService>()
 
-        try { service.respond("pay") } catch (e: PolicyViolationException) {
-            assertThat(e).hasMessageContaining("revoked")
+        val failure = assertThrows<PolicyViolationException> {
+            service.respond("pay")
         }
+        assertTrue(failure.message?.contains("revoked") == true)
 
         assertEquals(2, evalCount.get(), "Policy should be evaluated twice (once per attempt)")
         assertEquals(1, tool.callCount.get(), "Tool should execute once (first attempt) before denial on retry")
@@ -384,11 +422,16 @@ class ToolExecutionPolicyDenialTest {
     fun `later denied tool stops processing after earlier tools complete`() = runTest {
         val lookup = CountingTool("lookup")
         val payment = CountingTool("payment")
+        val notification = CountingTool("notification")
         val provider = MultiToolCallProvider()
         val emitter = capturingEmitter()
         val engine = TramaiEngine(
             provider = provider,
-            toolRegistry = ToolRegistry(mapOf("lookup" to lookup, "payment" to payment)),
+            toolRegistry = ToolRegistry(mapOf(
+                "lookup" to lookup,
+                "payment" to payment,
+                "notification" to notification,
+            )),
             policyDecisionAuditEmitter = emitter,
             policyEngine = PolicyEngine { context ->
                 if (context.enforcementPoint == EnforcementPoint.BEFORE_TOOL_EXECUTION) {
@@ -404,13 +447,15 @@ class ToolExecutionPolicyDenialTest {
         )
         val service = engine.create<MultiToolService>()
 
-        try { service.respond("process") } catch (e: PolicyViolationException) {
-            assertThat(e).hasMessageContaining("payment denied")
+        val failure = assertThrows<PolicyViolationException> {
+            service.respond("process")
         }
+        assertTrue(failure.message?.contains("payment denied") == true)
 
-        // lookup-tool executed successfully before payment was denied
+        // lookup executed successfully; payment denied; notification never reached
         assertEquals(1, lookup.callCount.get(), "lookup tool should execute once")
         assertEquals(0, payment.callCount.get(), "payment tool should never execute")
+        assertEquals(0, notification.callCount.get(), "notification tool should never be reached")
         assertEquals(1, provider.callCount.get(), "Provider should not continue after denial")
     }
 }

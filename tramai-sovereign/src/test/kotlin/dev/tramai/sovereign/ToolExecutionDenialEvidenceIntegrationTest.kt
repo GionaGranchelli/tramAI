@@ -22,13 +22,13 @@ import dev.tramai.security.audit.AuditStreamIdResolver
 import dev.tramai.security.audit.InMemoryAuditStore
 import dev.tramai.security.evidence.PolicyDecisionRuntimeEvidenceExporter
 import kotlinx.coroutines.test.runTest
-import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
@@ -86,7 +86,7 @@ class ToolExecutionDenialEvidenceIntegrationTest {
         }
     }
 
-    private class PaymentTool : ResolvedTool {
+    class PaymentTool : ResolvedTool {
         val callCount = AtomicInteger(0)
 
         override val name: String = "payment"
@@ -110,16 +110,21 @@ class ToolExecutionDenialEvidenceIntegrationTest {
 
     private val fixedStreamId = "tool-execution-denial-test"
 
-    private fun buildEngineChain(): Triple<TramaiEngine, InMemoryAuditStore, AuditEngine> {
+    /**
+     * Returns a composed fixture: the engine, the audit store, and the
+     * PaymentTool instance so tests can assert execution was actually prevented.
+     */
+    private fun buildFixture(): EngineFixture {
         val store = InMemoryAuditStore()
         val auditEngine = AuditEngine(store, clock = fixedClock)
         val resolver = object : AuditStreamIdResolver {
             override fun resolve(context: PolicyContext): String = fixedStreamId
         }
         val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = resolver)
+        val tool = PaymentTool()
         val engine = TramaiEngine(
             provider = ToolCallProvider(),
-            toolRegistry = ToolRegistry(mapOf("payment" to PaymentTool())),
+            toolRegistry = ToolRegistry(mapOf("payment" to tool)),
             policyDecisionAuditEmitter = emitter,
             policyEngine = PolicyEngine { context ->
                 if (context.enforcementPoint == EnforcementPoint.BEFORE_TOOL_EXECUTION) {
@@ -129,17 +134,25 @@ class ToolExecutionDenialEvidenceIntegrationTest {
                 }
             },
         )
-        return Triple(engine, store, auditEngine)
+        return EngineFixture(engine, store, tool)
     }
+
+    private data class EngineFixture(
+        val engine: TramaiEngine,
+        val store: InMemoryAuditStore,
+        val tool: PaymentTool,
+    )
 
     // --- Test 9: Execution denial produces durable audit record ----------------
 
     @Test
     fun `execution denial produces durable audit record with safe metadata`() = runTest {
-        val (engine, store, _) = buildEngineChain()
+        val (engine, store, tool) = buildFixture()
         val service = engine.create<PaymentService>()
 
-        try { service.respond("pay invoice") } catch (_: PolicyViolationException) {}
+        assertThrows<PolicyViolationException> { service.respond("pay invoice") }
+
+        assertEquals(0, tool.callCount.get(), "Tool must not execute")
 
         val events = store.readStream(fixedStreamId)
 
@@ -159,10 +172,12 @@ class ToolExecutionDenialEvidenceIntegrationTest {
 
     @Test
     fun `denied execution exports as safe generic policy decision evidence`() = runTest {
-        val (engine, store, _) = buildEngineChain()
+        val (engine, store, tool) = buildFixture()
         val service = engine.create<PaymentService>()
 
-        try { service.respond("pay invoice") } catch (_: PolicyViolationException) {}
+        assertThrows<PolicyViolationException> { service.respond("pay invoice") }
+
+        assertEquals(0, tool.callCount.get(), "Tool must not execute")
 
         val events = store.readStream(fixedStreamId)
         val exporter = PolicyDecisionRuntimeEvidenceExporter()
@@ -188,10 +203,12 @@ class ToolExecutionDenialEvidenceIntegrationTest {
 
     @Test
     fun `raw tool arguments and secrets are absent from audit and evidence`() = runTest {
-        val (engine, store, _) = buildEngineChain()
+        val (engine, store, tool) = buildFixture()
         val service = engine.create<PaymentService>()
 
-        try { service.respond("pay invoice") } catch (_: PolicyViolationException) {}
+        assertThrows<PolicyViolationException> { service.respond("pay invoice") }
+
+        assertEquals(0, tool.callCount.get(), "Tool must not execute")
 
         val events = store.readStream(fixedStreamId)
         val exporter = PolicyDecisionRuntimeEvidenceExporter()
@@ -236,10 +253,12 @@ class ToolExecutionDenialEvidenceIntegrationTest {
 
     @Test
     fun `denial evidence chain passes AuditChainVerifier`() = runTest {
-        val (engine, store, _) = buildEngineChain()
+        val (engine, store, tool) = buildFixture()
         val service = engine.create<PaymentService>()
 
-        try { service.respond("pay invoice") } catch (_: PolicyViolationException) {}
+        assertThrows<PolicyViolationException> { service.respond("pay invoice") }
+
+        assertEquals(0, tool.callCount.get(), "Tool must not execute")
 
         val events = store.readStream(fixedStreamId)
 
