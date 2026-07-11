@@ -7,7 +7,7 @@
 
 TramAI is a **Kotlin-first JVM runtime for governed AI workflows**. It helps teams build AI-powered systems where model calls, tool usage, approvals, data handling, routing, replay-safety, and auditability are treated as first-class runtime concerns rather than scattered application code.
 
-> **Status: active development.** The current `master` branch contains several unreleased sovereign-runtime capabilities. APIs may change before the next tagged release. This README describes the current architectural direction, not a frozen public API.
+> **Status: active development.** The current `master` branch contains several unreleased sovereign-runtime capabilities. APIs may change before the next tagged release. This README describes the current architectural direction, not a frozen public API. For the canonical product positioning, audience definitions, capability boundaries, and messaging guide, see [Product Positioning](docs/product/positioning.md).
 
 ## Why TramAI Exists
 
