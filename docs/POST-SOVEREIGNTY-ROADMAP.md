@@ -265,11 +265,11 @@ A new TramAI user should understand:
 
 | PR | Title | Purpose |
 |----|-------|---------|
-| TBD | docs(security): define tool permission model | Trust zones and permissions |
-| #188 | docs(mcp): define MCP governance boundary | What MCP support should/should not mean |
-| #189 | test(tooling): audit tool invocation decisions | Tool audit events |
-| #190 | test(tooling): deny unsafe tool invocation by policy | Policy-gated tool calls |
-| #191 | docs(tooling): add tool governance examples | Usage guide |
+| #188 | docs(security): define tool permission model | Trust zones and permissions |
+| TBD | docs(mcp): define MCP governance boundary | What MCP support should/should not mean |
+| TBD | test(tooling): audit tool invocation decisions | Tool audit events |
+| TBD | test(tooling): deny unsafe tool invocation by policy | Policy-gated tool calls |
+| TBD | docs(tooling): add tool governance examples | Usage guide |
 
 **Tasks:**
 1. Define trusted/internal/external tool classes
@@ -402,12 +402,12 @@ Move from optional signature verification to a more formal signing/attestation m
 
 | PR | Title |
 |----|-------|
-| TBD | docs(security): define tool permission model |
+| #188 | docs(security): define tool permission model |
 | TBD | docs(mcp): define MCP governance boundary |
 | TBD | test(tooling): audit tool invocation decisions |
-| #187 | docs(product): define TramAI positioning |
-| #188 | docs(readme): rewrite README around governed workflows |
-| #189 | docs(article): draft governed JVM AI workflow article |
+| TBD | docs(product): define TramAI positioning |
+| TBD | docs(readme): rewrite README around governed workflows |
+| TBD | docs(article): draft governed JVM AI workflow article |
 
 **Outcome:** TramAI becomes easier to explain, adopt, and evaluate.
 
