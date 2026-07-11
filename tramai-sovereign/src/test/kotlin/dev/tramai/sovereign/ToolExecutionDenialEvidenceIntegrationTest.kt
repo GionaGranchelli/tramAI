@@ -20,7 +20,9 @@ import dev.tramai.security.audit.AuditEngine
 import dev.tramai.security.audit.AuditEnginePolicyDecisionAuditEmitter
 import dev.tramai.security.audit.AuditStreamIdResolver
 import dev.tramai.security.audit.InMemoryAuditStore
+import dev.tramai.security.audit.toCanonicalJson
 import dev.tramai.security.evidence.PolicyDecisionRuntimeEvidenceExporter
+import dev.tramai.security.evidence.RuntimeEvidenceJsonlWriter
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -219,6 +221,18 @@ class ToolExecutionDenialEvidenceIntegrationTest {
             "5000", "toolArguments", "account",
         )
 
+        // Full serialized records — covers all durable fields, not just metadata
+        val auditJson = events.joinToString("\n") { it.toCanonicalJson() }
+        val evidenceJsonl = RuntimeEvidenceJsonlWriter.write(records)
+
+        for (sensitive in sensitiveValues) {
+            assertFalse(auditJson.contains(sensitive),
+                "Canonical audit JSON must not contain '$sensitive'")
+            assertFalse(evidenceJsonl.contains(sensitive),
+                "Evidence JSONL must not contain '$sensitive'")
+        }
+
+        // Metadata-specific allowlist checks remain as additional constraints
         for (event in events) {
             for (key in event.metadata.keys) {
                 for (sensitive in sensitiveValues) {

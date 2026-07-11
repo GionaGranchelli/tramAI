@@ -150,7 +150,7 @@ TramAI already enforces tool permission at `BEFORE_TOOL_EXPOSURE`:
 6. The engine acts on the decision:
    - `ALLOW` → tool is exposed to the operation.
    - `DENY` → operation receives a `PolicyViolationException`.
-   - `REQUIRE_APPROVAL` → handled through the approval/suspension path.
+   - `REQUIRE_APPROVAL` → `ApprovalRequiredException` is thrown; the approval continuation/suspension workflow is only implemented at `BEFORE_TOOL_EXECUTION`.
 
 Additional enforcement points are already active in the engine, each with distinct `REQUIRE_APPROVAL` routing:
 

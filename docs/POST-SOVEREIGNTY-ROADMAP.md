@@ -275,8 +275,8 @@ A new TramAI user should understand:
 1. Define trusted/internal/external tool classes
 2. Define policy decision points for tools
 3. Define approval-required tool classes
-4. Add audit event for tool invocation
-5. Add denied-tool evidence path through generic policy.decision audit
+4. Audit tool exposure and execution policy decisions
+5. Verify denied-tool execution through generic policy.decision audit and evidence paths
 6. Define MCP connector non-goals
 
 **Acceptance criteria:**

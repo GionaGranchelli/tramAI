@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -277,6 +278,14 @@ class ToolExecutionPolicyDenialTest {
         // Wait until the emitter hook is entered – proves emit was reached.
         auditReached.receive()
         assertTrue(auditEntered.get(), "Audit hook must have been entered")
+
+        // The invocation MUST still be in-flight — the emitter is suspended mid-audit,
+        // so the caller must not have received PolicyViolationException yet.
+        assertTrue(job.isActive, "Invocation must remain suspended until audit emission completes")
+        assertNull(
+            exceptionRef.get(),
+            "PolicyViolationException must not reach the caller before audit emission completes",
+        )
 
         // The tool MUST still be uncalled at this point (emit suspends before exec).
         assertEquals(0, tool.callCount.get(), "Tool should not have executed yet")
