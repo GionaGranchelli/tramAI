@@ -4579,6 +4579,132 @@ tasks.named("check") {
 }
 
 // ──────────────────────────────────────────────
+// Task: verifyProductPositioning
+// ──────────────────────────────────────────────
+
+tasks.register("verifyProductPositioning") {
+    group = "verification"
+    description = "Verifies the canonical product positioning document exists, contains required sections, and avoids forbidden claims."
+
+    doLast {
+        val positioningDoc = file("docs/product/positioning.md")
+        require(positioningDoc.isFile) {
+            "Missing product positioning document at ${positioningDoc.absolutePath}."
+        }
+
+        val text = positioningDoc.readText()
+
+        // Required sections
+        val requiredSections = listOf(
+            "## Canonical Message",
+            "### Tagline",
+            "### One-Sentence Positioning",
+            "### Thirty-Second Description",
+            "## The Problem TramAI Solves",
+            "## Product Category",
+            "## Who TramAI Is For",
+            "## Representative Use Cases",
+            "## Product Pillars",
+            "## What TramAI Is Not",
+            "## Current Maturity",
+            "## Claim Boundaries",
+            "## Messaging Guide",
+            "## Source-of-Truth Documents",
+        )
+        for (section in requiredSections) {
+            require(text.contains(section)) {
+                "Missing required section: '$section'"
+            }
+        }
+
+        // Required tagline
+        require(text.contains("Governed AI workflows for the JVM")) {
+            "Missing canonical tagline: 'Governed AI workflows for the JVM'"
+        }
+
+        // Required one-sentence positioning
+        require(text.contains("Kotlin-first JVM runtime for governed AI workflows")) {
+            "Missing one-sentence positioning phrase"
+        }
+
+        // Required status/non-claims section
+        require(text.contains("Current Maturity")) {
+            "Missing current maturity section"
+        }
+        require(text.contains("Not implemented")) {
+            "Missing deferred/not-implemented status indicators"
+        }
+
+        // Forbidden claims
+        val forbiddenClaims = listOf(
+            "fully compliant",
+            "guarantees compliance",
+            "production certified",
+            "production-ready for every deployment",
+            "guarantees sovereignty",
+            "fully air-gapped by default",
+            "amount-threshold authorization is implemented",
+            "remote MCP tools are currently governed",
+        )
+        for (claim in forbiddenClaims) {
+            require(!text.contains(claim)) {
+                "Forbidden claim found: '$claim'"
+            }
+        }
+
+        // Verify old thesis links to canonical document
+        val oldThesis = file("docs/security/PRODUCT-THESIS.md")
+        require(oldThesis.isFile) {
+            "Missing historical thesis at ${oldThesis.absolutePath}"
+        }
+        val thesisText = oldThesis.readText()
+        require(thesisText.contains("product/positioning.md")) {
+            "Old PRODUCT-THESIS.md must link to the canonical positioning document"
+        }
+        require(thesisText.contains("historical path retained")) {
+            "Old PRODUCT-THESIS.md must declare itself as historical"
+        }
+
+        // Verify MCP boundary document does not claim no MCP server exists
+        val mcpDoc = file("docs/security/mcp-governance-boundary.md")
+        require(mcpDoc.isFile) {
+            "Missing MCP governance boundary at ${mcpDoc.absolutePath}"
+        }
+        val mcpText = mcpDoc.readText()
+        require(!mcpText.contains("does not currently implement an MCP connector, MCP client, MCP server")) {
+            "MCP governance boundary must not claim no MCP server exists (tramai-mcp is implemented)"
+        }
+        require(mcpText.contains("tramai-mcp")) {
+            "MCP governance boundary must reference the existing tramai-mcp server module"
+        }
+
+        // Verify roadmap contains PR #192
+        val roadmap = file("docs/POST-SOVEREIGNTY-ROADMAP.md")
+        require(roadmap.isFile) {
+            "Missing post-sovereignty roadmap at ${roadmap.absolutePath}"
+        }
+        val roadmapText = roadmap.readText()
+        require(roadmapText.contains("#192")) {
+            "Post-sovereignty roadmap must reference PR #192"
+        }
+
+        logger.lifecycle("Product positioning verification complete.")
+        logger.lifecycle("  - docs/product/positioning.md exists with all required sections")
+        logger.lifecycle("  - Canonical tagline and one-sentence positioning present")
+        logger.lifecycle("  - Current maturity and non-claims present")
+        logger.lifecycle("  - Forbidden claims absent")
+        logger.lifecycle("  - Old thesis links to canonical document")
+        logger.lifecycle("  - MCP boundary correctly distinguishes server from client/connector")
+        logger.lifecycle("  - Roadmap contains PR #192")
+    }
+}
+
+// Wire into check
+tasks.named("check") {
+    dependsOn("verifyProductPositioning")
+}
+
+// ──────────────────────────────────────────────
 // Task: verifyWorkflowApiStabilityBoundary
 // ──────────────────────────────────────────────
 

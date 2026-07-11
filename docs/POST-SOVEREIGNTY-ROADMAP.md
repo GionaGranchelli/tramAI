@@ -298,7 +298,7 @@ A new TramAI user should understand:
 
 | PR | Title | Purpose |
 |----|-------|---------|
-| #192 | docs(product): define TramAI positioning | Clear project thesis |
+| #192 | docs(product): define TramAI positioning | ✅ Canonical thesis, audiences, boundaries, and messaging |
 | #193 | docs(readme): rewrite README around governed workflows | Better first impression |
 | #194 | docs(article): draft governed JVM AI workflow article | Publishable material |
 | #195 | docs(examples): add example selection guide | Which example to run when |
@@ -406,7 +406,7 @@ Move from optional signature verification to a more formal signing/attestation m
 | #189 | docs(mcp): define MCP governance boundary |
 | #190 | test(tooling): audit tool exposure policy decisions |
 | #191 | test(tooling): prove fail-closed tool execution denial |
-| TBD | docs(product): define TramAI positioning |
+| #192 | docs(product): define TramAI positioning |
 | TBD | docs(readme): rewrite README around governed workflows |
 | TBD | docs(article): draft governed JVM AI workflow article |
 

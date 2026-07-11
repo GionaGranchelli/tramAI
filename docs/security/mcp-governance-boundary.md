@@ -36,9 +36,9 @@ Those are implementation concerns for a future connector PR. This document defin
 
 ## Current Status
 
-> **TramAI does not currently implement an MCP connector, MCP client, MCP server, MCP transport, or MCP runtime adapter.**
+> **TramAI currently includes an MCP server module (`tramai-mcp`) that exposes registered TramAI workflows through stdio and SSE.** TramAI does not currently implement the governed MCP client/connector described by this document: remote MCP tools cannot yet be imported into the TramAI tool registry and governed through the tool permission lifecycle.
 
-This document is a design boundary for future MCP support. No MCP tools can be registered, invoked, or governed today. Nothing documented here constitutes a runtime guarantee.
+This document is a design boundary for future governed MCP client/connector support — importing remote MCP tools into TramAI's policy-controlled tool lifecycle. TramAI's existing MCP server exposes TramAI workflows externally; the reverse path (consuming and governing remote MCP tools) is not yet implemented. Nothing documented here about client-side governance constitutes a runtime guarantee.
 
 ---
 

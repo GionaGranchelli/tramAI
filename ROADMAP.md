@@ -1,6 +1,12 @@
 # TramAI Enterprise Roadmap — The Sovereign Agent Runtime Milestone
 
-TramAI is evolving from a typed AI integration library into a sovereign agent runtime for JVM enterprises.
+> **This is a historical roadmap retained for existing links.** It documents the original sovereign-enterprise product thesis and milestone plan from early 2025–2026.
+
+> **Current roadmap:** [Post-Sovereignty Roadmap](docs/POST-SOVEREIGNTY-ROADMAP.md)
+> **Canonical product positioning:** [Product Positioning](docs/product/positioning.md)
+> **Historical thesis:** [docs/security/PRODUCT-THESIS.md](docs/security/PRODUCT-THESIS.md) (retained for link compatibility; superseded by the positioning document)
+
+TramAI is evolving from a typed AI integration library into a governed AI workflow runtime for JVM enterprises.
 
 The objective is not merely to support local models. TramAI must enable organizations to control where data flows, which models are used, which actions agents may perform, how sensitive operations are approved, how software artifacts are verified, and how incidents are reconstructed.
 
@@ -44,7 +50,7 @@ This workflow is used across releases to prove functional behavior, policy enfor
 
 ### Deliverables
 
-- `docs/security/PRODUCT-THESIS.md` — position, problem, promise, target segments, non-goals
+- `docs/product/positioning.md` — canonical positioning, audience, pillars, claim boundaries (supersedes the earlier `docs/security/PRODUCT-THESIS.md`)
 - `docs/security/SECURITY-MODEL.md` — trust boundaries, threat model, abuse scenarios, controls mapping, residual risk
 - Initial architecture diagram
 - Initial risk register (`docs/security/RISK-REGISTER.md`)
