@@ -152,16 +152,22 @@ TramAI already enforces tool permission at `BEFORE_TOOL_EXPOSURE`:
    - `DENY` → operation receives a `PolicyViolationException`.
    - `REQUIRE_APPROVAL` → handled through the approval/suspension path.
 
-Additional enforcement points (`BEFORE_TOOL_EXECUTION`, `BEFORE_TOOL_RESULT_REINJECTION`) exist in the engine but are reserved for future tool lifecycle integration.
+Additional enforcement points are already active in the engine:
 
-### Future Enforcement Points
+| Enforcement point | Current status |
+|-------------------|---------------|
+| `BEFORE_TOOL_EXPOSURE` | Implemented: `ALLOW`, `DENY`, `REQUIRE_APPROVAL` |
+| `BEFORE_TOOL_EXECUTION` | Implemented before every execution attempt: `ALLOW`, `DENY`, `REQUIRE_APPROVAL` |
+| `BEFORE_TOOL_RESULT_REINJECTION` | Implemented as an allow/deny gate after execution and before result reinjection |
 
-When `REDACT_RESULT` and `ALLOW_INTERNAL_ONLY` are implemented:
+### Future Decision Extensions
 
-- `BEFORE_TOOL_EXECUTION` can support pre-execution checks (e.g., `ALLOW_INTERNAL_ONLY` boundary enforcement).
-- `BEFORE_TOOL_RESULT_REINJECTION` (or an equivalent post-execution hook) can support result filtering (e.g., `REDACT_RESULT` stripping of sensitive fields before reinjection).
+The following decisions are **not yet implemented** and should not be assumed as runtime behavior:
 
-These enforcement points are documented here as design intent. They are **not yet implemented** and should not be assumed as runtime behavior.
+| Decision | Status |
+|----------|--------|
+| `REDACT_RESULT` | Future — result filtering before reinjection or return |
+| `ALLOW_INTERNAL_ONLY` | Future — tool allowed only inside sovereign/local boundary |
 
 ---
 
@@ -176,7 +182,7 @@ Each tool permission decision should produce an audit event. The runtime evidenc
 | `decision.kind` | `ALLOW`, `DENY`, `REQUIRE_APPROVAL`, `REDACT_RESULT`, or `ALLOW_INTERNAL_ONLY` |
 | `metadata` | Tool name, trust class, risk class, operation identifier |
 
-Tool audit events are **not implemented** in this PR. They are reserved for a future test PR (roadmap row: `test(tooling): audit tool invocation decisions`).
+Tool audit events are **not implemented** as dedicated `tool.permission` evidence. Tool enforcement decisions currently use the generic policy audit path and can be exported as `policy.decision` evidence. A dedicated `tool.permission` event type and `tool-permissions.jsonl` bundle section are not yet implemented. They are reserved for a future test PR (roadmap row: `test(tooling): audit tool invocation decisions`).
 
 The [Runtime Evidence Bundle Map](../evidence/runtime-evidence-bundle-map.md) currently covers policy, approval, and provider routing event families. A future update should add a `tool-permissions.jsonl` section for tool audit events.
 
@@ -214,8 +220,8 @@ The tool permission model is intentionally broader than MCP. Documenting tool go
 |----|-------|--------|
 | #188 | Define tool permission model (this document) | ✅ Documented |
 | #190 | Test tool exposure audit events: verify tool permission decisions are audited | ✅ Verified |
-| TBD | Implement tool audit events: capture `tool.permission` decisions and export to evidence | Pending |
-| TBD | Implement policy-gated tool denial: deny unsafe tool invocation by policy | Pending |
+| #191 | Test fail-closed tool execution denial: audit, retries, evidence chain | ✅ Verified |
+| TBD | Add dedicated tool.permission evidence family and tool-permissions.jsonl | Pending |
 | TBD | Add tool governance examples: usage guide with deny/approval scenarios | Pending |
 | TBD | Define MCP governance boundary: how MCP tools fit into the permission model | Pending |
 
