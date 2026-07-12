@@ -16,11 +16,8 @@ import static org.assertj.core.api.Assertions.within;
  * Proves that a Java-defined @AiService interface with a Java DTO return type
  * works through the TramAI standalone structured-output path.
  *
- * Current boundary finding: Jackson can deserialize the Java DTO, but schema
- * generation uses Kotlin reflection (KClass.memberProperties) which does not
- * see Java POJO properties. Schema properties are currently empty for Java
- * DTOs — a follow-up improvement (e.g., Jackson introspection or BeanUtil
- * based schema generation) would be needed for full Java support.
+ * Since PR #198, schema generation uses Jackson deserialization introspection
+ * for JavaBean classes, so the generated schema now contains real properties.
  */
 class JavaStructuredOutputSmokeTest {
 
@@ -51,19 +48,18 @@ class JavaStructuredOutputSmokeTest {
         assertThat(provider.getRequests()).hasSize(1);
 
         // Assert: the generated JSON schema was included in the prompt
+        // with real JavaBean properties (not empty properties)
         String requestText = String.join("\n",
                 provider.getRequests().get(0).getMessages().stream()
                         .map(Message::getContent)
                         .toArray(String[]::new));
 
         assertThat(requestText).contains("Respond only with valid JSON matching this schema");
-        assertThat(requestText).contains("\"properties\" : { }");
-
-        // KNOWN GAP: Java POJO properties are not visible to Kotlin reflection
-        // (KClass.memberProperties), so the generated schema has empty properties.
-        // A follow-up PR should add Jackson-introspection-based schema generation
-        // for Java DTOs. See structured-output-contract-lifecycle.md — "What is NOT
-        // proven by code" section notes Java interop coverage is limited.
+        assertThat(requestText).contains("\"status\"");
+        assertThat(requestText).contains("\"confidence\"");
+        assertThat(requestText).contains("\"type\" : \"string\"");
+        assertThat(requestText).contains("\"type\" : \"number\"");
+        assertThat(requestText).doesNotContain("\"properties\" : { }");
     }
 }
 
