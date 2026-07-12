@@ -12,7 +12,7 @@ For a practical first-use guide, see [Sovereign Runtime Quickstart](../guides/so
 
 ## Target Release Boundary
 
-Candidate release: 0.4.0 or the next unreleased version. No tag, no Maven Central publication, and no API freeze is claimed here.
+Candidate release: 0.4.0 was published as the Sovereign Runtime milestone. The post-sovereignty work on master targets 0.5.0.
 
 ## Included Capability Areas
 
@@ -35,18 +35,28 @@ Candidate release: 0.4.0 or the next unreleased version. No tag, no Maven Centra
 | Evidence generation | Implemented / evolving | Release artifacts, examples | Smoke tests |
 | Sovereign document intelligence example | Implemented | examples:sovereign-document-intelligence | Smoke test |
 
-## Not Included — Explicit Non-Goals
+## Not Included in the Original 0.4.0 RC — Now Implemented on Master
 
-These capabilities are NOT claimed as complete, stable, or production-ready:
+These capabilities were not included in the original 0.4.0 Sovereign Runtime RC, but have been completed on the `master` branch targeting 0.5.0:
+
+| Capability | Current Status |
+|------------|---------------|
+| JDBC/database-backed persistence (PostgreSQL-backed approval, audit, outbox stores) | ✅ Implemented on master |
+| Transactional approval mutation + audit outbox boundary | ✅ Implemented on master |
+| JDBC worker lease coordination (multi-node audit outbox worker coordination) | ✅ Implemented on master |
+| Production deployment runbook (JDBC persistence stack) | ✅ Implemented on master |
+| Regulated claim triage JDBC E2E proof | ✅ Implemented on master |
+| Approved-resume lifecycle JDBC E2E proof | ✅ Implemented on master |
+
+## Not Included — Explicitly Deferred
+
+These capabilities remain intentionally deferred and are not claimed as complete, stable, or production-ready in 0.5.0:
 
 - Stable 1.0 public API
 - Maven Central release of sovereign runtime modules (not verified)
 - Broad REST/Actuator operational control endpoints
 - Full dashboard integration and production monitoring runbook
-- Database-backed persistence or outbox
-- Distributed worker leader election
 - Key rotation
-- Full production deployment guide
 - Complete API reference documentation
 
 No timelines are committed for these items.
@@ -128,7 +138,7 @@ Also runnable via the canonical verification chain: `./gradlew verifySovereignRu
 - [x] No Maven Central claim for sovereign runtime modules unless verified
 - [x] CHANGELOG.md has Unreleased section
 
-Checklist last verified: 2026-06-20 after PR #72 health-tree integration review. Full release-candidate evidence chain remains documented.
+Checklist last verified: 2026-07-12 (PR #197 0.5.0 development baseline reconciliation). JDBC persistence, worker lease coordination, and production deployment runbook were completed after the original 0.4.0 RC boundary — see "Not Included in the Original 0.4.0 RC" section above.
 
 ## Sovereign Runtime Release-Candidate CI Gate
 

@@ -26,11 +26,11 @@ The `tramai-rag` module provides a comprehensive pipeline for injecting internal
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-rag:0.3.1")
+    implementation("dev.tramai:tramai-rag:0.4.0")
     
     // RAG pipelines usually require embedding and a vector store
-    implementation("dev.tramai:tramai-embedding:0.3.1")
-    implementation("dev.tramai:tramai-vectorstore-chroma:0.3.1") // Or pgvector
+    implementation("dev.tramai:tramai-embedding:0.4.0")
+    implementation("dev.tramai:tramai-vectorstore-chroma:0.4.0") // Or pgvector
 }
 ```
 

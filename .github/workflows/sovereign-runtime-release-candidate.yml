@@ -34,9 +34,7 @@ jobs:
     permissions:
       contents: read
     env:
-      TRAMAI_VERSION: ${{ github.event.inputs.version || '0.3.1' }}
-      # Override project version when workflow_dispatch provides one
-      ORG_GRADLE_PROJECT_tramaiVersion: ${{ github.event.inputs.version || '0.3.1' }}
+      TRAMAI_VERSION: ${{ github.event.inputs.version || 'unresolved' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,6 +47,21 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve version (single source of truth)
+        run: |
+          if [[ -n "${{ github.event.inputs.version }}" ]]; then
+            RESOLVED_VERSION="${{ github.event.inputs.version }}"
+          else
+            RESOLVED_VERSION="$(grep '^tramaiVersion=' gradle.properties | cut -d= -f2)"
+          fi
+          if [[ -z "$RESOLVED_VERSION" ]]; then
+            echo "::error::Could not resolve TramAI version from gradle.properties or workflow input."
+            exit 1
+          fi
+          echo "TRAMAI_VERSION=${RESOLVED_VERSION}" >> "$GITHUB_ENV"
+          echo "ORG_GRADLE_PROJECT_tramaiVersion=${RESOLVED_VERSION}" >> "$GITHUB_ENV"
+          echo "Resolved version: ${RESOLVED_VERSION}"
 
       - name: Verify sovereign runtime release candidate
         run: ./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks

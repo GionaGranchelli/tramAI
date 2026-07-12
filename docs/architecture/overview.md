@@ -39,7 +39,7 @@ Suspend functions are detected from the JVM method signature by checking for a t
 
 Non-suspend methods are wrapped in `runBlocking { execute(...) }`, so synchronous Java and Kotlin calls still use the same execution pipeline.
 
-The current runtime strategy favors portability and low startup complexity. In `0.4.0`, the planned direction is KSP compile-time code generation for GraalVM `native-image` support.
+The current runtime uses JDK dynamic proxies through `java.lang.reflect.Proxy`. KSP-based compile-time generation and broader GraalVM native-image support remain possible future work; they are not part of the current 0.5.0 release commitment.
 
 ## Major Layers
 

@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "dev.tramai.examples"
-version = "0.3.1"
+version = "0.4.0"
 
 java {
     toolchain {
@@ -21,7 +21,7 @@ repositories {
     mavenCentral()
 }
 
-val tramaiVersion = "0.3.1"
+val tramaiVersion = "0.4.0"
 
 dependencies {
     implementation("dev.tramai:tramai-standalone:$tramaiVersion")

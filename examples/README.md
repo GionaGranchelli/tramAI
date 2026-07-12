@@ -86,7 +86,7 @@ It is deterministic, requires no credentials or external model, and shows typed 
 
 **Demonstrates:** `@AiService` annotations, typed `Response` output with `@AiDescription` fields, tool calling, retry policies, and deterministic testing with `MockAiProvider`.
 
-**Does not demonstrate:** sovereign governance, durable approval, policy enforcement, audit evidence, or sovereign persistence. This is a core AI integration example consuming released 0.3.1 artifacts.
+**Does not demonstrate:** sovereign governance, durable approval, policy enforcement, audit evidence, or sovereign persistence. This is a core AI integration example consuming released 0.4.0 artifacts.
 
 **Next step:** [Kotlin Spring Boot Example](#kotlin-spring-boot-example) for a fuller application, or [Governed Workflow](#governed-workflow) for governance.
 
@@ -101,7 +101,7 @@ It is deterministic, requires no credentials or external model, and shows typed 
 ./gradlew -p examples/kotlin-springboot-example bootRun
 ```
 
-**Requires:** a separate Gradle build (not part of the root project), released 0.3.1 dependencies, Ollama, and the configured models:
+**Requires:** a separate Gradle build (not part of the root project), released 0.4.0 dependencies, Ollama, and the configured models:
 
 ```bash
 ollama pull gemma4:e4b

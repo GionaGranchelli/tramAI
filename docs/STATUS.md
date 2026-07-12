@@ -106,26 +106,34 @@ Summary:
 
 | Version | Date | Notes |
 |---|---|---|
-| 0.3.1 | 2026-05-24 | Latest tagged release. Stable core library surface. |
+| 0.4.0 | 2026-07-06 | Latest published release. Sovereign Runtime and evidence-handoff milestone. |
+| 0.3.1 | 2026-05-24 | Previous stable core release. |
 | 0.3.0 | — | Typed AI services, structured output, full provider suite. |
 | 0.2.0 | — | Orchestration, scheduling, server, platform modules introduced. |
 
-## Unreleased Work
+## Current Development Train
 
-Several sovereign-runtime capabilities currently exist on `master` but are not yet part of a tagged release. Check release tags before depending on a capability as a published API.
+The `master` branch is developing **TramAI 0.5.0** and publishes local development artifacts as `0.5.0-SNAPSHOT`.
 
-Unreleased capabilities include:
+The 0.5.0 train contains the post-sovereignty roadmap: workflow API stability, structured-output hardening, workflow and approval ergonomics, runtime evidence export, tool governance, and product adoption work.
 
-- sovereign routing and trust zones
-- policy enforcement and DLP/redaction
-- approval gates and replay-safe resume
-- encrypted file-backed persistence
-- local model registry verification
-- audit chain and audit outbox
-- audit outbox background worker
-- evidence generation examples
+### Implemented on master, unreleased in 0.5.0
 
-APIs in these areas may change before the next release.
+- Workflow API stability boundary
+- Structured-output lifecycle and repair hardening
+- Governed workflow examples and diagnostics
+- Approval ergonomics and failure taxonomy
+- Runtime evidence exporters
+- Tool exposure/execution governance proofs
+- Product positioning and JVM framework comparison
+
+### Still incomplete for 0.5.0
+
+- JavaBean DTO schema generation
+- Runtime evidence bundle wiring
+- Dedicated tool.permission evidence
+- Tool-governance usage example
+- Final 0.5.0 release readiness
 
 ## Sovereign Runtime
 

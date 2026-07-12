@@ -62,7 +62,7 @@ Standalone + OpenAI:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.3.1"))
+    implementation(platform("dev.tramai:tramai-bom:0.4.0"))
     implementation("dev.tramai:tramai-standalone")
     implementation("dev.tramai:tramai-openai")
 }
@@ -72,7 +72,7 @@ Spring Boot + OpenAI:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.3.1"))
+    implementation(platform("dev.tramai:tramai-bom:0.4.0"))
     implementation("dev.tramai:tramai-spring")
     implementation("dev.tramai:tramai-openai")
 }
@@ -82,7 +82,7 @@ Standalone + Ollama:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.3.1"))
+    implementation(platform("dev.tramai:tramai-bom:0.4.0"))
     implementation("dev.tramai:tramai-standalone")
     implementation("dev.tramai:tramai-ollama")
 }
@@ -98,7 +98,7 @@ Import the BOM:
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.3.1</version>
+      <version>0.4.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>

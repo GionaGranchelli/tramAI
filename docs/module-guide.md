@@ -2,7 +2,7 @@
 
 > **Purpose:** Help you choose the right TramAI modules for your JVM project.
 > **Reading time:** L1 (30s) → L2 (10min) → L3 (20min)
-> **Build coordinates:** `dev.tramai:<module>:0.3.1`
+> **Build coordinates:** `dev.tramai:<module>:0.4.0`
 
 This guide covers both published consumer modules and repository runtime/platform modules. Treat the latter as opt-in operational surfaces, not as the default starting point for every application.
 
@@ -99,20 +99,20 @@ repositories {
 
 dependencies {
     // Always needed
-    implementation("dev.tramai:tramai-core:0.3.1")
-    implementation("dev.tramai:tramai-engine:0.3.1")
+    implementation("dev.tramai:tramai-core:0.4.0")
+    implementation("dev.tramai:tramai-engine:0.4.0")
 
     // Pick ONE provider
-    implementation("dev.tramai:tramai-ollama:0.3.1")   // local models
-    // implementation("dev.tramai:tramai-openai:0.3.1") // OpenAI / compatible APIs
-    // implementation("dev.tramai:tramai-anthropic:0.3.1") // Claude
+    implementation("dev.tramai:tramai-ollama:0.4.0")   // local models
+    // implementation("dev.tramai:tramai-openai:0.4.0") // OpenAI / compatible APIs
+    // implementation("dev.tramai:tramai-anthropic:0.4.0") // Claude
 
     // Optional: structured output
-    implementation("dev.tramai:tramai-structured:0.3.1")
+    implementation("dev.tramai:tramai-structured:0.4.0")
 
     // Pick adapter
-    // implementation("dev.tramai:tramai-standalone:0.3.1") // No framework
-    // implementation("dev.tramai:tramai-spring:0.3.1")     // Spring Boot
+    // implementation("dev.tramai:tramai-standalone:0.4.0") // No framework
+    // implementation("dev.tramai:tramai-spring:0.4.0")     // Spring Boot
 }
 ```
 
@@ -124,19 +124,19 @@ dependencies {
 
 | Module | Layer | Purpose | Depends on | Artifact | When to use | When NOT to use |
 |--------|-------|---------|-----------|----------|-------------|----------------|
-| `tramai-core` | Core | Annotations (`@AiService`, etc.), Models (`Message`, `ContentPart`), SPIs (`ModelProvider`, `Capability`), UsageMetrics. | none | `tramai-core:0.3.1` | **Always.** Every TramAI project needs this. | Never. |
-| `tramai-engine` | Core | Proxy generation, Method dispatch, Capability validation, Retry, Tool registries. | core | `tramai-engine:0.3.1` | **Always** in production. | Never. |
-| `tramai-structured` | Core | JSON Schema generation from Kotlin types → validate → retry on failure. | core | `tramai-structured:0.3.1` | Method returns `data class`, `enum`, `List<T>`, etc. | Only returning `String`. |
-| `tramai-memory` | Core | Multi-turn chat persistence: `TokenAwareChatMemory`, `PersistentChatMemory`. | core | `tramai-memory:0.3.1` | Conversational agents, multi-turn contexts. | Stateless endpoints. |
-| `tramai-memory-store` | Core | SPI for external persistence of conversation history. | core | `tramai-memory-store:0.3.1` | When `ChatMemory` must outlive JVM restarts. | In-memory use cases. |
-| `tramai-rag` | Core | Pipeline for ingestion, chunking, retrieval, and RAG context injection. | core | `tramai-rag:0.3.1` | Document Q&A or internal knowledge base flows. | No document loading. |
-| `tramai-embedding`| Core | Core SPI for text embedding models. | core | `tramai-embedding:0.3.1` | When using RAG or `vectorstore` modules. | No RAG usage. |
-| `tramai-vectorstore-spi`| Core | Interfaces for storing and querying text embeddings and metadata. | embedding | `tramai-vectorstore-spi:0.3.1` | Any semantic search feature. | No RAG usage. |
-| `tramai-vectorstore-chroma`| Impl | ChromaDB implementation of the vector store SPI. | vectorstore-spi | `tramai-vectorstore-chroma:0.3.1` | You want to run Chroma DB locally or remotely. | Postgres/No RAG. |
-| `tramai-vectorstore-pgvector`| Impl | PostgreSQL pgvector implementation of the vector store SPI. | vectorstore-spi | `tramai-vectorstore-pgvector:0.3.1` | You are using Postgres for your application data. | Chroma/No RAG. |
-| `tramai-observability` | Tooling| OpenTelemetry spans, Worker Events (`onLeaseRenewed`, etc.). | core, orchestration | `tramai-observability:0.3.1` | Distributed tracing, metrics, audit trails. | No OTEL infrastructure. |
-| `tramai-testing` | Tooling | Mock providers, Assertion helpers, Failure simulation, Request recording. | core | `tramai-testing:0.3.1` | **Always in tests.** | Never in production. |
-| `tramai-bom` | Tooling | Version alignment BOM. Zero code. | none | `tramai-bom:0.3.1` | Multi-module projects. | Single-module project. |
+| `tramai-core` | Core | Annotations (`@AiService`, etc.), Models (`Message`, `ContentPart`), SPIs (`ModelProvider`, `Capability`), UsageMetrics. | none | `tramai-core:0.4.0` | **Always.** Every TramAI project needs this. | Never. |
+| `tramai-engine` | Core | Proxy generation, Method dispatch, Capability validation, Retry, Tool registries. | core | `tramai-engine:0.4.0` | **Always** in production. | Never. |
+| `tramai-structured` | Core | JSON Schema generation from Kotlin types → validate → retry on failure. | core | `tramai-structured:0.4.0` | Method returns `data class`, `enum`, `List<T>`, etc. | Only returning `String`. |
+| `tramai-memory` | Core | Multi-turn chat persistence: `TokenAwareChatMemory`, `PersistentChatMemory`. | core | `tramai-memory:0.4.0` | Conversational agents, multi-turn contexts. | Stateless endpoints. |
+| `tramai-memory-store` | Core | SPI for external persistence of conversation history. | core | `tramai-memory-store:0.4.0` | When `ChatMemory` must outlive JVM restarts. | In-memory use cases. |
+| `tramai-rag` | Core | Pipeline for ingestion, chunking, retrieval, and RAG context injection. | core | `tramai-rag:0.4.0` | Document Q&A or internal knowledge base flows. | No document loading. |
+| `tramai-embedding`| Core | Core SPI for text embedding models. | core | `tramai-embedding:0.4.0` | When using RAG or `vectorstore` modules. | No RAG usage. |
+| `tramai-vectorstore-spi`| Core | Interfaces for storing and querying text embeddings and metadata. | embedding | `tramai-vectorstore-spi:0.4.0` | Any semantic search feature. | No RAG usage. |
+| `tramai-vectorstore-chroma`| Impl | ChromaDB implementation of the vector store SPI. | vectorstore-spi | `tramai-vectorstore-chroma:0.4.0` | You want to run Chroma DB locally or remotely. | Postgres/No RAG. |
+| `tramai-vectorstore-pgvector`| Impl | PostgreSQL pgvector implementation of the vector store SPI. | vectorstore-spi | `tramai-vectorstore-pgvector:0.4.0` | You are using Postgres for your application data. | Chroma/No RAG. |
+| `tramai-observability` | Tooling| OpenTelemetry spans, Worker Events (`onLeaseRenewed`, etc.). | core, orchestration | `tramai-observability:0.4.0` | Distributed tracing, metrics, audit trails. | No OTEL infrastructure. |
+| `tramai-testing` | Tooling | Mock providers, Assertion helpers, Failure simulation, Request recording. | core | `tramai-testing:0.4.0` | **Always in tests.** | Never in production. |
+| `tramai-bom` | Tooling | Version alignment BOM. Zero code. | none | `tramai-bom:0.4.0` | Multi-module projects. | Single-module project. |
 
 ### Model Providers
 
@@ -161,7 +161,7 @@ dependencies {
 
 | Module | Layer | Purpose | Depends on | Artifact | When to use | When NOT to use |
 |--------|-------|---------|-----------|----------|-------------|----------------|
-| `tramai-orchestration` | Orchestration | Multi-step workflows (`aiStep`, `parallelStep`, etc.). Distributed Worker Pool (leases, heartbeat, graceful shutdown). | core | `tramai-orchestration:0.3.1` | Chained AI calls, conditional branching, human-in-loop, distributed execution. | Simple request-response. |
+| `tramai-orchestration` | Orchestration | Multi-step workflows (`aiStep`, `parallelStep`, etc.). Distributed Worker Pool (leases, heartbeat, graceful shutdown). | core | `tramai-orchestration:0.4.0` | Chained AI calls, conditional branching, human-in-loop, distributed execution. | Simple request-response. |
 | `tramai-scheduler` | Platform | Cron/delay scheduling for workflows via `ScheduledWorkflowTimer`. | orchestration | repository module | Time-based workflow triggers. | User-driven only workflows. |
 | `tramai-server` | Platform | HTTP API for workflows. Webhooks, SSE streams. | orchestration, scheduler | repository module | REST access to TramAI pipelines. | Embedded usage only. |
 | `tramai-mcp` | Platform | Model Context Protocol adapter. | server, structured | repository module | Exposing workflows as MCP tools. | No MCP ecosystem usage. |
