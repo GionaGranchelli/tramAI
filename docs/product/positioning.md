@@ -194,5 +194,6 @@ The following claims are **not** supported by the current codebase and **must no
 | [MCP Governance Boundary](../security/mcp-governance-boundary.md) | Future MCP connector governance design |
 | [Runtime Evidence Export Model](../evidence/runtime-evidence-export-model.md) | Evidence record shape and export |
 | [Runtime Evidence Bundle Map](../evidence/runtime-evidence-bundle-map.md) | Evidence-to-bundle mapping |
+| [JVM AI Framework Comparison](../comparison/jvm-ai-frameworks.md) | Dated, source-backed positioning alongside Spring AI and LangChain4j |
 | [CHANGELOG](../../CHANGELOG.md) | Detailed change history |
 | [Historical Enterprise Roadmap](../../ROADMAP.md) | Retained for existing links — superseded by Post-Sovereignty Roadmap |
