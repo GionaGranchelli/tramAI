@@ -5142,6 +5142,12 @@ tasks.register("verifyExampleSelectionGuide") {
 
         // ── Section-scoped checks ──
 
+        // Matrix row: offline verification must document Docker + Python 3
+        val matrixSection = sectionBetween("## Example Matrix", "## Example Profiles")
+        require(matrixSection.contains("Docker + Python 3")) {
+            "Offline verification matrix row must document 'Docker + Python 3', not 'Controlled network environment'"
+        }
+
         // Governed Workflow
         val gwSection = sectionBetween("### Governed Workflow", "### Support Agent")
         require(gwSection.contains("no credentials")) {

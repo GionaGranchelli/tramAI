@@ -47,7 +47,7 @@ It is deterministic, requires no credentials or external model, and shows typed 
 | Approval Resume | Lifecycle proof | Deterministic | Embedded PostgreSQL | JDBC | Durable approval | `./gradlew :examples:approval-resume:test` |
 | Spring Sovereign Starter | Starter integration | Deterministic | None for basic path | In-memory by default | Sovereign configuration | `./gradlew :examples:spring-sovereign-starter:bootRun` |
 | Sovereign Document Intelligence | Reference workflow | Repository-local example provider | None required | Runtime stores/artifacts | Full reference architecture | `./gradlew :examples:sovereign-document-intelligence:run` |
-| Sovereign Offline Verification | Verification harness | Loopback provider | Controlled network environment | Evidence files | Offline verification | `./scripts/verify-zero-egress.sh` |
+| Sovereign Offline Verification | Verification harness | Loopback provider | Docker + Python 3 | Evidence files | Offline verification | `./scripts/verify-zero-egress.sh` |
 | Sovereign Lab | Physical lab | Yes, local | PostgreSQL, local model, optional Docker | JDBC | Full local evaluation | Follow lab quickstart in [sovereign-lab/README.md](sovereign-lab/README.md) |
 
 ---
