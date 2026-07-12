@@ -16,7 +16,6 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KProperty1
 import kotlin.reflect.KType
 import kotlin.reflect.KVisibility
-import kotlin.reflect.full.createType
 import kotlin.reflect.full.findAnnotation
 import kotlin.reflect.full.memberProperties
 import kotlin.reflect.jvm.isAccessible
@@ -58,8 +57,31 @@ class JacksonStructuredOutputHandler(
             )
         }
 
+        val javaType = objectMapper.typeFactory.constructType(targetType.javaType)
+
+        // Pre-deserialization shape validation for JavaBean types.
+        // Required for primitive properties that cannot be null after deserialization.
+        val classifier = targetType.classifier
+        if (classifier is KClass<*> && !classifier.isKotlinClass()) {
+            val jsonNode = try {
+                objectMapper.readTree(jsonCandidate)
+            } catch (_: Exception) {
+                return StructuredOutputResult.Failure(
+                    rawResponse = rawResponse,
+                    errorSummary = "Could not parse the JSON payload",
+                    feedbackMessage = "Your previous response contained JSON that could not be parsed into the requested output type. Return corrected JSON only.",
+                )
+            }
+            validateJavaBeanJsonShape(jsonNode, javaType, "")?.let { error ->
+                return StructuredOutputResult.Failure(
+                    rawResponse = rawResponse,
+                    errorSummary = error,
+                    feedbackMessage = "Your previous response failed validation: $error. Return corrected JSON only.",
+                )
+            }
+        }
+
         val value = try {
-            val javaType = objectMapper.typeFactory.constructType(targetType.javaType)
             objectMapper.readerFor(javaType).readValue<Any>(jsonCandidate)
         } catch (error: Exception) {
             return StructuredOutputResult.Failure(
@@ -156,7 +178,7 @@ class JacksonStructuredOutputHandler(
             kotlinObjectSchema(type, targetType)
         } else {
             val javaType = objectMapper.typeFactory.constructType(targetType.javaType)
-            javaBeanObjectSchema(javaType, targetType)
+            javaBeanObjectSchema(javaType, targetType.isMarkedNullable, JavaBeanSchemaContext())
         }
     }
 
@@ -217,39 +239,64 @@ class JacksonStructuredOutputHandler(
         val description: AiDescription?,
         val range: AiRange?,
         val minItems: AiMinItems?,
+        val isPrimitive: Boolean,
         val read: (Any) -> Any?,
     )
 
+    /**
+     * Active-recursion-path context for JavaBean schema generation.
+     *
+     * Uses a stack (add/remove) so sibling properties of the same type
+     * both get complete schemas, while genuinely recursive types
+     * (A → List<A>) are detected and rejected with a controlled error.
+     */
+    private class JavaBeanSchemaContext {
+        val activeTypes: MutableSet<Class<*>> = mutableSetOf()
+    }
+
     private fun javaBeanObjectSchema(
         javaType: JavaType,
-        targetType: KType,
+        nullable: Boolean,
+        context: JavaBeanSchemaContext,
     ): Map<String, Any?> {
-        val properties = javaBeanProperties(javaType)
-
-        val schemaProperties = linkedMapOf<String, Any?>()
-        val required = mutableListOf<String>()
-
-        properties.forEach { prop ->
-            schemaProperties[prop.name] = javaPropertySchema(prop)
-            if (prop.required) {
-                required += prop.name
-            }
+        val rawClass = javaType.rawClass
+        require(context.activeTypes.add(rawClass)) {
+            "Recursive JavaBean structured output type is unsupported: ${rawClass.name}"
         }
 
-        return linkedMapOf<String, Any?>(
-            "type" to "object",
-            "properties" to schemaProperties,
-            "required" to required,
-            "additionalProperties" to false,
-        ).also { schema ->
-            if (targetType.isMarkedNullable) {
-                schema["nullable"] = true
+        return try {
+            val properties = javaBeanProperties(javaType)
+
+            val schemaProperties = linkedMapOf<String, Any?>()
+            val required = mutableListOf<String>()
+
+            properties.forEach { prop ->
+                schemaProperties[prop.name] = javaPropertySchema(prop, context)
+                if (prop.required) {
+                    required += prop.name
+                }
             }
+
+            linkedMapOf<String, Any?>(
+                "type" to "object",
+                "properties" to schemaProperties,
+                "required" to required,
+                "additionalProperties" to false,
+            ).also { schema ->
+                if (nullable) {
+                    schema["nullable"] = true
+                }
+            }
+        } finally {
+            context.activeTypes.remove(rawClass)
         }
     }
 
-    private fun javaPropertySchema(prop: JavaBeanProperty): Map<String, Any?> {
-        val schema = schemaForJavaType(prop.type, JavaBeanSchemaContext()).toMutableMap()
+    private fun javaPropertySchema(
+        prop: JavaBeanProperty,
+        context: JavaBeanSchemaContext,
+    ): Map<String, Any?> {
+        val schema = schemaForJavaType(prop.type, context).toMutableMap()
         prop.description?.let { schema["description"] = it.value }
         prop.range?.let {
             schema["minimum"] = it.min
@@ -264,9 +311,9 @@ class JacksonStructuredOutputHandler(
     /**
      * Discovers JavaBean properties from Jackson's deserialization introspection.
      *
-     * Only writable properties (setter or writable field) are included.
-     * Getter-only calculated properties are excluded because they cannot
-     * be deserialized.
+     * Only properties that are both writable (setter or writable field)
+     * AND readable (getter or readable field) are included.
+     * Getter-only calculated and setter-only write-only properties are excluded.
      */
     private fun javaBeanProperties(javaType: JavaType): List<JavaBeanProperty> {
         val beanDescription =
@@ -275,6 +322,8 @@ class JacksonStructuredOutputHandler(
         return beanDescription.findProperties()
             .filter { it.couldDeserialize() }
             .filterNot { it.name == "class" }
+            // Exclude write-only (setter-only) properties that validation cannot read
+            .filter { it.getter != null || it.field != null }
             .sortedBy { it.name }
             .map { property ->
                 val propType = resolveJavaPropertyType(property)
@@ -285,6 +334,7 @@ class JacksonStructuredOutputHandler(
                     description = findJavaAnnotation(property, AiDescription::class.java),
                     range = findJavaAnnotation(property, AiRange::class.java),
                     minItems = findJavaAnnotation(property, AiMinItems::class.java),
+                    isPrimitive = propType.rawClass.isPrimitive,
                     read = { target -> javaPropertyRead(target, property) },
                 )
             }
@@ -360,23 +410,18 @@ class JacksonStructuredOutputHandler(
                 linkedMapOf("type" to "number")
             rawClass == Boolean::class.java || rawClass == java.lang.Boolean::class.java ->
                 linkedMapOf("type" to "boolean")
-            rawClass == java.util.List::class.java || rawClass == java.util.Collection::class.java ||
-                rawClass == java.lang.Iterable::class.java -> {
-                val itemType = javaType.contentType
-                    ?: error("List structured output type must declare an item type: $javaType")
-                val items = schemaForJavaType(itemType, JavaBeanSchemaContext())
-                linkedMapOf("type" to "array", "items" to items)
-            }
-            isJavaLangObject(rawClass) -> {
-                // Only discover once per type to avoid infinite recursion
-                if (context.seen.add(rawClass)) {
-                    javaBeanObjectSchema(javaType, javaType.rawClass.kotlin.createType())
-                } else {
-                    linkedMapOf("type" to "object")
-                }
-            }
             rawClass == java.util.Map::class.java || rawClass == java.util.HashMap::class.java ->
                 error("Unsupported structured output type: $javaType")
+            java.util.Collection::class.java.isAssignableFrom(rawClass) ||
+                java.lang.Iterable::class.java.isAssignableFrom(rawClass) -> {
+                val itemType = javaType.contentType
+                    ?: error("List structured output type must declare an item type: $javaType")
+                val items = schemaForJavaType(itemType, context)
+                linkedMapOf("type" to "array", "items" to items)
+            }
+            isJavaLangObject(rawClass) ->
+                // Use the shared active-path context for recursion detection
+                javaBeanObjectSchema(javaType, nullable = false, context)
             else ->
                 error("Unsupported structured output type: $javaType")
         }
@@ -402,31 +447,110 @@ class JacksonStructuredOutputHandler(
     /**
      * Searches for a TramAI annotation on a JavaBean property.
      *
-     * Order: backing field → setter method → getter method.
+     * Order: backing field → setter parameter → constructor parameter
+     * → getter or setter method.
+     *
      * Backing fields are the primary target because TramAI's
      * `@Target(FIELD)` annotations are placed on Java fields.
+     * Setter parameters are checked next, corresponding to
+     * `AnnotationTarget.VALUE_PARAMETER`.
      */
+    @Suppress("UNCHECKED_CAST")
     private fun <A : Annotation> findJavaAnnotation(
         property: BeanPropertyDefinition,
         annotationType: Class<A>,
     ): A? {
-        // 1. Backing field (primary target — annotations are placed on fields)
+        // 1. Backing field (primary target)
         property.field?.let { field ->
             field.getAnnotation(annotationType)?.let { return it }
         }
-        // 2. Setter method
+        // 2. Setter parameter (VALUE_PARAMETER target)
         property.setter?.let { setter ->
-            setter.getAnnotation(annotationType)?.let { return it }
+            val method = setter.annotated
+            if (method != null && method.parameterCount > 0) {
+                val paramAnnotations = method.parameterAnnotations
+                if (paramAnnotations.isNotEmpty()) {
+                    for (ann in paramAnnotations[0]) {
+                        if (annotationType.isInstance(ann)) return ann as A
+                    }
+                }
+            }
         }
-        // 3. Getter method
+        // 3. Constructor parameter
+        property.constructorParameter?.let { param ->
+            try {
+                param.getAnnotation(annotationType)?.let { return it }
+            } catch (_: Exception) {
+                // Fall through
+            }
+        }
+        // 4. Getter method
         property.getter?.let { getter ->
             getter.getAnnotation(annotationType)?.let { return it }
+        }
+        // 5. Setter method
+        property.setter?.let { setter ->
+            setter.getAnnotation(annotationType)?.let { return it }
         }
         return null
     }
 
     // -----------------------------------------------------------------------
-    // Validation
+    // Pre-deserialisation shape validation (catches missing primitive keys)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Validates the raw JSON tree against the JavaBean schema *before*
+     * deserialization. This catches missing required primitive fields
+     * (e.g. missing int/double/boolean) which can never be null after
+     * deserialization and therefore cannot be detected post-hoc.
+     */
+    private fun validateJavaBeanJsonShape(
+        node: JsonNode,
+        javaType: JavaType,
+        path: String,
+    ): String? {
+        if (!node.isObject) return null
+
+        val properties = javaBeanProperties(javaType)
+
+        for (prop in properties) {
+            val propPath = if (path.isEmpty()) "'${prop.name}'" else "$path.'${prop.name}'"
+            val fieldNode = node.get(prop.name)
+
+            if (fieldNode == null || fieldNode.isNull) {
+                return "Property $propPath is required"
+            }
+
+            // Recurse into nested objects
+            if (isJavaLangObject(prop.type.rawClass)) {
+                if (fieldNode.isObject) {
+                    val nestedJavaType = objectMapper.typeFactory.constructType(prop.type.rawClass)
+                    validateJavaBeanJsonShape(fieldNode, nestedJavaType, propPath)?.let { return it }
+                }
+            }
+
+            // Recurse into collection item objects
+            if (java.util.Collection::class.java.isAssignableFrom(prop.type.rawClass) ||
+                java.lang.Iterable::class.java.isAssignableFrom(prop.type.rawClass)
+            ) {
+                val itemType = prop.type.contentType
+                if (itemType != null && fieldNode.isArray) {
+                    for (i in 0 until fieldNode.size()) {
+                        val itemNode = fieldNode[i]
+                        if (itemNode.isObject) {
+                            validateJavaBeanJsonShape(itemNode, itemType, "$propPath[$i]")?.let { return it }
+                        }
+                    }
+                }
+            }
+        }
+
+        return null
+    }
+
+    // -----------------------------------------------------------------------
+    // Post-deserialisation validation
     // -----------------------------------------------------------------------
 
     private fun validateValue(
@@ -503,7 +627,7 @@ class JacksonStructuredOutputHandler(
         return null
     }
 
-    // -- JavaBean validation path (new) --
+    // -- JavaBean validation path --
 
     private fun validateJavaBean(
         value: Any,
@@ -513,6 +637,12 @@ class JacksonStructuredOutputHandler(
         return validateJavaBean(value, javaType)
     }
 
+    /**
+     * Recursive JavaBean value validator that mirrors [schemaForJavaType].
+     *
+     * Validates scalars, collections (every item recursively), JavaBeans
+     * (every property recursively), and null items in collection elements.
+     */
     private fun validateJavaBean(
         value: Any,
         javaType: JavaType,
@@ -522,57 +652,133 @@ class JacksonStructuredOutputHandler(
         for (prop in properties) {
             val propValue = prop.read(value)
 
-            // Required check: every discovered property is required
-            if (propValue == null) {
-                return "Property '${prop.name}' must not be null"
-            }
-
-            // @AiRange validation
-            prop.range?.let { range ->
-                val numericValue = propValue as? Number
-                    ?: return "Property '${prop.name}' must be numeric for @AiRange"
-                val asDouble = numericValue.toDouble()
-                if (asDouble < range.min || asDouble > range.max) {
-                    return "Property '${prop.name}' must be between ${range.min} and ${range.max}"
-                }
-            }
-
-            // @AiMinItems validation
-            prop.minItems?.let { minItems ->
-                val collectionValue = propValue as? Collection<*>
-                    ?: return "Property '${prop.name}' must be a collection for @AiMinItems"
-                if (collectionValue.size < minItems.value) {
-                    return "Property '${prop.name}' must contain at least ${minItems.value} items"
-                }
-            }
-
-            // Recursive validation for nested JavaBeans and collections
-            val rawClass = prop.type.rawClass
-            when {
-                List::class.java.isAssignableFrom(rawClass) ||
-                    Collection::class.java.isAssignableFrom(rawClass) ||
-                    Iterable::class.java.isAssignableFrom(rawClass) -> {
-                    val itemType = prop.type.contentType
-                    if (itemType != null && isJavaLangObject(itemType.rawClass)) {
-                        (propValue as? List<*>)?.forEachIndexed { index, item ->
-                            if (item != null) {
-                                validateJavaBean(item, itemType)?.let {
-                                    return "Item $index of property '${prop.name}': $it"
-                                }
-                            }
-                        }
-                    }
-                }
-                isJavaLangObject(rawClass) -> {
-                    val nestedType = objectMapper.typeFactory.constructType(rawClass)
-                    validateJavaBean(propValue, nestedType)?.let {
-                        return "Property '${prop.name}': $it"
-                    }
-                }
-            }
+            validateJavaValue(
+                value = propValue,
+                javaType = prop.type,
+                path = "'${prop.name}'",
+                required = prop.required,
+                range = prop.range,
+                minItems = prop.minItems,
+            )?.let { return it }
         }
 
         return null
+    }
+
+    /**
+     * Unified recursive validator that mirrors [schemaForJavaType].
+     *
+     * Handles null checks, scalars, collections (recursive item validation),
+     * JavaBeans (recursive property validation), and maps (unsupported).
+     */
+    private fun validateJavaValue(
+        value: Any?,
+        javaType: JavaType,
+        path: String,
+        required: Boolean,
+        range: AiRange?,
+        minItems: AiMinItems?,
+    ): String? {
+        val rawClass = javaType.rawClass
+
+        // Null check
+        if (value == null) {
+            if (required) {
+                return "Property $path must not be null"
+            }
+            return null
+        }
+
+        // @AiRange validation (safe for double because deserialised primitives are never null)
+        range?.let { r ->
+            val numericValue = value as? Number
+                ?: return "Property $path must be numeric for @AiRange"
+            val asDouble = numericValue.toDouble()
+            if (asDouble < r.min || asDouble > r.max) {
+                return "Property $path must be between ${r.min} and ${r.max}"
+            }
+        }
+
+        // @AiMinItems validation
+        minItems?.let { mi ->
+            val collectionValue = value as? Collection<*>
+                ?: return "Property $path must be a collection for @AiMinItems"
+            if (collectionValue.size < mi.value) {
+                return "Property $path must contain at least ${mi.value} items"
+            }
+        }
+
+        // Scalars — validation complete
+        if (isScalarJavaType(rawClass)) return null
+
+        // Maps — unsupported
+        if (java.util.Map::class.java.isAssignableFrom(rawClass)) {
+            return "Unsupported structured output type: $javaType"
+        }
+
+        // Collections / iterables — validate every item recursively
+        if (java.util.Collection::class.java.isAssignableFrom(rawClass) ||
+            java.lang.Iterable::class.java.isAssignableFrom(rawClass)
+        ) {
+            val itemType = javaType.contentType ?: return null
+            val items = when (value) {
+                is List<*> -> value
+                is Collection<*> -> value.toList()
+                is Iterable<*> -> value.toList()
+                else -> return null
+            }
+            items.forEachIndexed { index, item ->
+                // Null items in collections fail (required by schema)
+                if (item == null) {
+                    return "Item $index of $path must not be null"
+                }
+                validateJavaValue(
+                    value = item,
+                    javaType = itemType,
+                    path = "$path[$index]",
+                    required = true,
+                    range = null,
+                    minItems = null,
+                )?.let { return it }
+            }
+            return null
+        }
+
+        // JavaBean — validate every property recursively
+        if (isJavaLangObject(rawClass)) {
+            val properties = javaBeanProperties(
+                objectMapper.typeFactory.constructType(rawClass)
+            )
+            for (prop in properties) {
+                val propValue = prop.read(value)
+                val propPath = "$path.'${prop.name}'"
+                propValue?.let { pv ->
+                    validateJavaValue(
+                        value = pv,
+                        javaType = prop.type,
+                        path = propPath,
+                        required = prop.required,
+                        range = prop.range,
+                        minItems = prop.minItems,
+                    )?.let { return it }
+                }
+            }
+            return null
+        }
+
+        return null
+    }
+
+    private fun isScalarJavaType(rawClass: Class<*>): Boolean {
+        return rawClass == String::class.java ||
+            rawClass == CharSequence::class.java ||
+            rawClass == Int::class.java || rawClass == java.lang.Integer::class.java ||
+            rawClass == Long::class.java || rawClass == java.lang.Long::class.java ||
+            rawClass == Short::class.java || rawClass == java.lang.Short::class.java ||
+            rawClass == Byte::class.java || rawClass == java.lang.Byte::class.java ||
+            rawClass == Float::class.java || rawClass == java.lang.Float::class.java ||
+            rawClass == Double::class.java || rawClass == java.lang.Double::class.java ||
+            rawClass == Boolean::class.java || rawClass == java.lang.Boolean::class.java
     }
 
     // -----------------------------------------------------------------------
@@ -610,12 +816,4 @@ class JacksonStructuredOutputHandler(
 
         throw IllegalArgumentException("Could not find a JSON object or array in the model response")
     }
-}
-
-/**
- * Mutable context used during JavaBean schema generation to detect and
- * prevent infinite recursion on cyclical type graphs.
- */
-internal class JavaBeanSchemaContext {
-    val seen: MutableSet<Class<*>> = mutableSetOf()
 }

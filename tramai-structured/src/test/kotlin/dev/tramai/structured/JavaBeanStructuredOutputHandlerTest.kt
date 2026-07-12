@@ -1,12 +1,24 @@
 package dev.tramai.structured
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.json.JsonMapper
+import com.fasterxml.jackson.module.kotlin.kotlinModule
+import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaArrayListResult
 import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaClaimResult
+import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaComparisonResult
 import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaDecision
+import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaEnvelope
 import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaGenericCollectionResult
 import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaGetterOnlyResult
 import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaMapResult
+import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaNestedCollectionResult
+import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaNestedPrimitiveResult
 import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaPrimitiveResult
+import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaRecursiveNode
 import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaScoredResult
+import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaSetResult
+import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaSetterParamAnnotationResult
+import dev.tramai.structured.JavaBeanStructuredOutputFixtures.JavaWriteOnlyResult
 import dev.tramai.core.structured.StructuredOutputResult
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -16,12 +28,15 @@ import kotlin.reflect.typeOf
 /**
  * Tests for JavaBean structured-output schema generation and validation.
  *
- * These tests verify the new Jackson-introspection path introduced for
- * JavaBean DTOs. Kotlin-only behaviour is tested in [JacksonStructuredOutputHandlerTest].
+ * These tests verify the Jackson-introspection path for JavaBean DTOs.
+ * Kotlin-only behaviour is tested in [JacksonStructuredOutputHandlerTest].
  */
 class JavaBeanStructuredOutputHandlerTest {
 
     private val handler = JacksonStructuredOutputHandler()
+    private val mapper: ObjectMapper = JsonMapper.builder()
+        .addModule(kotlinModule())
+        .build()
 
     // ---------------------------------------------------------------
     // Schema generation
@@ -40,81 +55,87 @@ class JavaBeanStructuredOutputHandlerTest {
 
     @Test
     fun `schema has deterministic alphabetical ordering`() {
-        val contract = handler.createContract(typeOf<JavaScoredResult>())
+        val root = mapper.readTree(handler.createContract(typeOf<JavaScoredResult>()).schemaJson)
 
-        // Parse JSON and check property order
-        assertThat(contract.schemaJson)
-            .contains("\"confidence\"")
-            .contains("\"reasons\"")
-            .contains("\"status\"")
-
-        // Verify alphabetical: confidence < reasons < status
-        val confidenceIdx = contract.schemaJson.indexOf("\"confidence\"")
-        val reasonsIdx = contract.schemaJson.indexOf("\"reasons\"")
-        val statusIdx = contract.schemaJson.indexOf("\"status\"")
-        assertThat(confidenceIdx).isLessThan(reasonsIdx)
-        assertThat(reasonsIdx).isLessThan(statusIdx)
+        val propertyNames = root["properties"].fieldNames().asSequence().toList()
+        assertThat(propertyNames).containsExactly("confidence", "reasons", "status")
     }
 
     @Test
     fun `scalar type mappings`() {
-        val contract = handler.createContract(typeOf<JavaPrimitiveResult>())
+        val root = mapper.readTree(handler.createContract(typeOf<JavaPrimitiveResult>()).schemaJson)
+        val props = root["properties"]
 
-        assertThat(contract.schemaJson)
-            .contains("\"type\" : \"integer\"")   // int count, long timestamp
-            .contains("\"type\" : \"boolean\"")   // boolean active
-            .contains("\"type\" : \"number\"")    // double score
+        assertThat(props["count"]["type"].asText()).isEqualTo("integer")
+        assertThat(props["active"]["type"].asText()).isEqualTo("boolean")
+        assertThat(props["timestamp"]["type"].asText()).isEqualTo("integer")
+        assertThat(props["score"]["type"].asText()).isEqualTo("number")
     }
 
     @Test
     fun `generic collection produces array schema with items`() {
-        val contract = handler.createContract(typeOf<JavaGenericCollectionResult>())
+        val root = mapper.readTree(handler.createContract(typeOf<JavaGenericCollectionResult>()).schemaJson)
+        val tags = root["properties"]["tags"]
 
-        val json = contract.schemaJson
-        assertThat(json)
-            .contains("\"type\" : \"array\"")
-            .contains("\"type\" : \"string\"")
+        assertThat(tags["type"].asText()).isEqualTo("array")
+        assertThat(tags["items"]["type"].asText()).isEqualTo("string")
     }
 
     @Test
     fun `Java field annotations contribute to schema`() {
-        val contract = handler.createContract(typeOf<JavaScoredResult>())
+        val root = mapper.readTree(handler.createContract(typeOf<JavaScoredResult>()).schemaJson)
+        val props = root["properties"]
 
-        assertThat(contract.schemaJson)
-            .contains("\"description\" : \"Evaluation status\"")
-            .contains("\"minimum\" : 0.0")
-            .contains("\"maximum\" : 1.0")
-            .contains("\"minItems\" : 1")
+        assertThat(props["status"]["description"].asText()).isEqualTo("Evaluation status")
+        assertThat(props["confidence"]["minimum"].asDouble()).isEqualTo(0.0)
+        assertThat(props["confidence"]["maximum"].asDouble()).isEqualTo(1.0)
+        assertThat(props["reasons"]["minItems"].asInt()).isEqualTo(1)
+    }
+
+    @Test
+    fun `setter parameter annotations contribute to schema`() {
+        val root = mapper.readTree(handler.createContract(typeOf<JavaSetterParamAnnotationResult>()).schemaJson)
+        val props = root["properties"]
+
+        assertThat(props["label"]["description"].asText()).isEqualTo("Display label")
+        assertThat(props["score"]["minimum"].asDouble()).isEqualTo(0.0)
+        assertThat(props["score"]["maximum"].asDouble()).isEqualTo(100.0)
     }
 
     @Test
     fun `nested JavaBeans produce nested object schema`() {
-        val contract = handler.createContract(typeOf<JavaClaimResult>())
+        val root = mapper.readTree(handler.createContract(typeOf<JavaClaimResult>()).schemaJson)
+        val decision = root["properties"]["decision"]
 
-        assertThat(contract.schemaJson)
-            .contains("\"type\" : \"object\"")
-            .contains("\"outcome\"")
+        assertThat(decision["type"].asText()).isEqualTo("object")
+        assertThat(decision["properties"]["outcome"]["type"].asText()).isEqualTo("string")
     }
 
     @Test
     fun `all discovered JavaBean properties are required`() {
-        val contract = handler.createContract(typeOf<JavaScoredResult>())
+        val root = mapper.readTree(handler.createContract(typeOf<JavaScoredResult>()).schemaJson)
 
-        assertThat(contract.schemaJson)
-            .contains("\"required\"")
-            .contains("\"status\"")
-            .contains("\"confidence\"")
-            .contains("\"reasons\"")
+        assertThat(root["required"].map { it.asText() })
+            .containsExactly("confidence", "reasons", "status")
     }
 
     @Test
     fun `getter-only calculated properties are excluded`() {
-        val contract = handler.createContract(typeOf<JavaGetterOnlyResult>())
+        val root = mapper.readTree(handler.createContract(typeOf<JavaGetterOnlyResult>()).schemaJson)
+        val props = root["properties"]
+
+        assertThat(props["firstName"]).isNotNull
+        assertThat(props["lastName"]).isNotNull
+        assertThat(props["fullName"]).isNull()
+    }
+
+    @Test
+    fun `setter-only write-only properties are excluded`() {
+        val contract = handler.createContract(typeOf<JavaWriteOnlyResult>())
 
         assertThat(contract.schemaJson)
-            .contains("\"firstName\"")
-            .contains("\"lastName\"")
-            .doesNotContain("\"fullName\"")
+            .contains("something")
+            .doesNotContain("secret")
     }
 
     @Test
@@ -125,12 +146,58 @@ class JavaBeanStructuredOutputHandlerTest {
             .hasMessageContaining("Unsupported structured output type")
     }
 
+    @Test
+    fun `self-referencing recursive type fails with controlled error`() {
+        assertThatThrownBy {
+            handler.createContract(typeOf<JavaRecursiveNode>())
+        }.isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessageContaining("Recursive JavaBean structured output type is unsupported")
+    }
+
+    @Test
+    fun `repeated sibling bean type both get complete schemas`() {
+        val root = mapper.readTree(handler.createContract(typeOf<JavaComparisonResult>()).schemaJson)
+        val props = root["properties"]
+
+        // Both siblings must have complete object schemas (not truncated to {"type":"object"})
+        assertThat(props["primary"]["properties"]["outcome"]).isNotNull
+        assertThat(props["secondary"]["properties"]["outcome"]).isNotNull
+    }
+
+    @Test
+    fun `concrete ArrayList type is recognized as array`() {
+        val root = mapper.readTree(handler.createContract(typeOf<JavaArrayListResult>()).schemaJson)
+        val values = root["properties"]["values"]
+
+        assertThat(values["type"].asText()).isEqualTo("array")
+        assertThat(values["items"]["type"].asText()).isEqualTo("string")
+    }
+
+    @Test
+    fun `Java Set property is recognized as array`() {
+        val root = mapper.readTree(handler.createContract(typeOf<JavaSetResult>()).schemaJson)
+        val decisions = root["properties"]["decisions"]
+
+        assertThat(decisions["type"].asText()).isEqualTo("array")
+        assertThat(decisions["items"]["type"].asText()).isEqualTo("object")
+    }
+
+    @Test
+    fun `nested collection produces nested array schema`() {
+        val root = mapper.readTree(handler.createContract(typeOf<JavaNestedCollectionResult>()).schemaJson)
+        val groups = root["properties"]["decisionGroups"]
+
+        assertThat(groups["type"].asText()).isEqualTo("array")
+        assertThat(groups["items"]["type"].asText()).isEqualTo("array")
+        assertThat(groups["items"]["items"]["type"].asText()).isEqualTo("object")
+    }
+
     // ---------------------------------------------------------------
     // Validation
     // ---------------------------------------------------------------
 
     @Test
-    fun `valid JavaBean succeeds validation`() {
+    fun `valid JavaBean succeeds validation and populates field values`() {
         val result = handler.analyze(
             rawResponse = """
                 {
@@ -144,11 +211,14 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Success::class.java)
         val success = result as StructuredOutputResult.Success
-        assertThat(success.value).isNotNull
+        val value = success.value as JavaScoredResult
+        assertThat(value.status).isEqualTo("approved")
+        assertThat(value.confidence).isEqualTo(0.85)
+        assertThat(value.reasons).containsExactly("good score")
     }
 
     @Test
-    fun `null required field fails validation`() {
+    fun `null required string field fails validation`() {
         val result = handler.analyze(
             rawResponse = """
                 {
@@ -163,6 +233,79 @@ class JavaBeanStructuredOutputHandlerTest {
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
         assertThat(failure.errorSummary).contains("status")
+    }
+
+    @Test
+    fun `missing primitive required field fails validation`() {
+        val result = handler.analyze(
+            rawResponse = """
+                {
+                  "status": "approved",
+                  "reasons": ["valid"]
+                }
+            """.trimIndent(),
+            targetType = typeOf<JavaScoredResult>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
+        val failure = result as StructuredOutputResult.Failure
+        assertThat(failure.errorSummary).contains("confidence")
+    }
+
+    @Test
+    fun `missing boolean required field fails validation`() {
+        val result = handler.analyze(
+            rawResponse = """
+                {
+                  "count": 5,
+                  "timestamp": 1000,
+                  "score": 1.0
+                }
+            """.trimIndent(),
+            targetType = typeOf<JavaPrimitiveResult>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
+        val failure = result as StructuredOutputResult.Failure
+        assertThat(failure.errorSummary).contains("active")
+    }
+
+    @Test
+    fun `missing int required field fails validation`() {
+        val result = handler.analyze(
+            rawResponse = """
+                {
+                  "active": true,
+                  "timestamp": 1000,
+                  "score": 1.0
+                }
+            """.trimIndent(),
+            targetType = typeOf<JavaPrimitiveResult>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
+        val failure = result as StructuredOutputResult.Failure
+        assertThat(failure.errorSummary).contains("count")
+    }
+
+    @Test
+    fun `missing nested primitive required field fails validation`() {
+        val result = handler.analyze(
+            rawResponse = """
+                {
+                  "inner": {
+                    "active": true,
+                    "timestamp": 1000,
+                    "score": 1.0
+                  }
+                }
+            """.trimIndent(),
+            targetType = typeOf<JavaNestedPrimitiveResult>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
+        val failure = result as StructuredOutputResult.Failure
+        assertThat(failure.errorSummary).contains("count")
     }
 
     @Test
@@ -217,8 +360,25 @@ class JavaBeanStructuredOutputHandlerTest {
 
         assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
         val failure = result as StructuredOutputResult.Failure
-        // The nested validation error should reference the property path
         assertThat(failure.errorSummary).contains("decision")
+    }
+
+    @Test
+    fun `null list element fails validation`() {
+        val result = handler.analyze(
+            rawResponse = """
+                {
+                  "status": "a",
+                  "confidence": 0.5,
+                  "reasons": ["one", null, "three"]
+                }
+            """.trimIndent(),
+            targetType = typeOf<JavaScoredResult>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
+        val failure = result as StructuredOutputResult.Failure
+        assertThat(failure.errorSummary).contains("reasons")
     }
 
     @Test

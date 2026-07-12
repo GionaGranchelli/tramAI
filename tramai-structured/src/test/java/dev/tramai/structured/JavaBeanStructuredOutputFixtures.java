@@ -221,4 +221,220 @@ public final class JavaBeanStructuredOutputFixtures {
             this.metadata = metadata;
         }
     }
+
+    // ------------------------------------------------------------------
+    // Setter-only (write-only) property — no getter, no readable field
+    // ------------------------------------------------------------------
+
+    public static class JavaWriteOnlyResult {
+
+        @SuppressWarnings("unused")
+        private String something;
+
+        public JavaWriteOnlyResult() {
+        }
+
+        public void setSecret(String secret) {
+            // Write-only: no getter, no backing field named 'secret'
+        }
+
+        public String getSomething() {
+            return something;
+        }
+
+        public void setSomething(String something) {
+            this.something = something;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Self-referencing JavaBean (recursive type)
+    // ------------------------------------------------------------------
+
+    public static class JavaRecursiveNode {
+
+        private String name;
+        private List<JavaRecursiveNode> children;
+
+        public JavaRecursiveNode() {
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public List<JavaRecursiveNode> getChildren() {
+            return children;
+        }
+
+        public void setChildren(List<JavaRecursiveNode> children) {
+            this.children = children;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Concrete collection type (ArrayList)
+    // ------------------------------------------------------------------
+
+    public static class JavaArrayListResult {
+
+        private java.util.ArrayList<String> values;
+
+        public JavaArrayListResult() {
+        }
+
+        public java.util.ArrayList<String> getValues() {
+            return values;
+        }
+
+        public void setValues(java.util.ArrayList<String> values) {
+            this.values = values;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Java Set property
+    // ------------------------------------------------------------------
+
+    public static class JavaSetResult {
+
+        private java.util.Set<JavaDecision> decisions;
+
+        public JavaSetResult() {
+        }
+
+        public java.util.Set<JavaDecision> getDecisions() {
+            return decisions;
+        }
+
+        public void setDecisions(java.util.Set<JavaDecision> decisions) {
+            this.decisions = decisions;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Nested collection (List<List<JavaDecision>>)
+    // ------------------------------------------------------------------
+
+    public static class JavaNestedCollectionResult {
+
+        private List<List<JavaDecision>> decisionGroups;
+
+        public JavaNestedCollectionResult() {
+        }
+
+        public List<List<JavaDecision>> getDecisionGroups() {
+            return decisionGroups;
+        }
+
+        public void setDecisionGroups(List<List<JavaDecision>> decisionGroups) {
+            this.decisionGroups = decisionGroups;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Setter-parameter annotation (VALUE_PARAMETER target)
+    // ------------------------------------------------------------------
+
+    public static class JavaSetterParamAnnotationResult {
+
+        private String label;
+        private double score;
+
+        public JavaSetterParamAnnotationResult() {
+        }
+
+        public String getLabel() {
+            return label;
+        }
+
+        public void setLabel(
+            @AiDescription("Display label") String label
+        ) {
+            this.label = label;
+        }
+
+        public double getScore() {
+            return score;
+        }
+
+        public void setScore(
+            @AiRange(min = 0.0, max = 100.0) double score
+        ) {
+            this.score = score;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Generic nested envelope (Envelope<T>)
+    // ------------------------------------------------------------------
+
+    public static class JavaEnvelope<T> {
+
+        private T value;
+
+        public JavaEnvelope() {
+        }
+
+        public T getValue() {
+            return value;
+        }
+
+        public void setValue(T value) {
+            this.value = value;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Repeated sibling bean (two properties of same nested type)
+    // ------------------------------------------------------------------
+
+    public static class JavaComparisonResult {
+
+        private JavaDecision primary;
+        private JavaDecision secondary;
+
+        public JavaComparisonResult() {
+        }
+
+        public JavaDecision getPrimary() {
+            return primary;
+        }
+
+        public void setPrimary(JavaDecision primary) {
+            this.primary = primary;
+        }
+
+        public JavaDecision getSecondary() {
+            return secondary;
+        }
+
+        public void setSecondary(JavaDecision secondary) {
+            this.secondary = secondary;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // JavaBean with nested required primitive in JSON shape validation
+    // ------------------------------------------------------------------
+
+    public static class JavaNestedPrimitiveResult {
+
+        private JavaPrimitiveResult inner;
+
+        public JavaNestedPrimitiveResult() {
+        }
+
+        public JavaPrimitiveResult getInner() {
+            return inner;
+        }
+
+        public void setInner(JavaPrimitiveResult inner) {
+            this.inner = inner;
+        }
+    }
 }
