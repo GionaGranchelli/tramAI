@@ -4842,6 +4842,160 @@ tasks.register("verifyReadmePositioning") {
 // Wire into check
 tasks.named("check") {
     dependsOn("verifyReadmePositioning")
+    dependsOn("verifyGovernedWorkflowArticle")
+}
+
+// ──────────────────────────────────────────────
+// Task: verifyGovernedWorkflowArticle
+// ──────────────────────────────────────────────
+
+tasks.register("verifyGovernedWorkflowArticle") {
+    group = "verification"
+    description = "Verifies the governed AI workflow article and companion talk outline are correct."
+
+    doLast {
+        val article = file("docs/articles/governed-ai-workflows-for-the-jvm.md")
+        val talk = file("docs/talks/governed-ai-workflows-for-the-jvm.md")
+        require(article.isFile) {
+            "Missing article at ${article.absolutePath}"
+        }
+        require(talk.isFile) {
+            "Missing talk outline at ${talk.absolutePath}"
+        }
+
+        val articleText = article.readText()
+        val talkText = talk.readText()
+
+        // Required article headings
+        val requiredHeadings = listOf(
+            "## The Model Call Is the Easy Part",
+            "## Governance Cannot Live Only in Prompts",
+            "## What Makes a Workflow Governed",
+            "## A Concrete Example: Claim Triage",
+            "## Policy Before Side Effects",
+            "## Human Approval Is a Lifecycle",
+            "## Controlled Routing for Sensitive Workloads",
+            "## Evidence and Operational Recovery",
+            "## Why the JVM",
+            "## Composable Adoption",
+            "## What This Does Not Claim",
+            "## Try It",
+        )
+        for (heading in requiredHeadings) {
+            require(articleText.contains(heading)) {
+                "Article missing required heading: '$heading'"
+            }
+        }
+
+        // Required phrases
+        val requiredPhrases = listOf(
+            "Governed AI workflows for the JVM",
+            "when governance components are configured",
+            "active development",
+            "does not itself",
+            "make an organization compliant",
+            "./gradlew :examples:governed-workflow:run",
+            "policy-check",
+            "approval-required",
+            "replay-safe continuation",
+            "classification-aware routing",
+            "tamper-evident",
+        )
+        for (phrase in requiredPhrases) {
+            require(articleText.contains(phrase, ignoreCase = true)) {
+                "Article must contain: '$phrase'"
+            }
+        }
+
+        // Verify the workflow snippet is actual source (not abridged placeholder)
+        require(articleText.contains(".build {") || articleText.contains("abridged")) {
+            "Article workflow snippet must either be the actual source with .build or labeled as abridged"
+        }
+        require(articleText.contains("ClaimTriageResult(")) {
+            "Article workflow snippet must construct ClaimTriageResult directly, not use a made-up helper"
+        }
+
+        // Required links with target existence validation
+        val requiredLinks = mapOf(
+            "../../README.md" to "README.md",
+            "../product/positioning.md" to "docs/product/positioning.md",
+            "../STATUS.md" to "docs/STATUS.md",
+            "../../examples/governed-workflow" to "examples/governed-workflow",
+            "../../examples/approval-resume" to "examples/approval-resume",
+            "../../examples/sovereign-document-intelligence" to "examples/sovereign-document-intelligence",
+        )
+        for ((link, targetPath) in requiredLinks) {
+            require(articleText.contains(link)) {
+                "Article must contain link: '$link'"
+            }
+            val target = file(targetPath)
+            require(target.exists()) {
+                "Article link target does not exist: $targetPath (linked as '$link')"
+            }
+        }
+
+        // Required talk-outline sections
+        val requiredTalkSections = listOf(
+            "## Audience",
+            "## Thirty-Minute Version",
+            "## Forty-Five-Minute Version",
+            "## Demo Plan",
+            "## Speaker Claim Boundaries",
+        )
+        for (section in requiredTalkSections) {
+            require(talkText.contains(section)) {
+                "Talk outline missing required section: '$section'"
+            }
+        }
+
+        // Forbidden claims (case-insensitive)
+        val forbiddenClaims = listOf(
+            "fully compliant",
+            "guarantees compliance",
+            "production certified",
+            "production-certified",
+            "production-ready for every deployment",
+            "guarantees sovereignty",
+            "fully air-gapped by default",
+            "amount-threshold authorization is implemented",
+            "remote MCP tools are currently governed",
+            "tamper-proof",
+            "every decision is always recorded",
+            "every workflow resumes exactly once",
+            "record every decision",
+            "every governance decision",
+            "evidence export worker",
+            "automatically exported as",
+        )
+        for (claim in forbiddenClaims) {
+            require(!articleText.contains(claim, ignoreCase = true)) {
+                "Forbidden claim in article: '$claim'"
+            }
+        }
+
+        // No premature competitor comparisons (reserved for PR #196)
+        val forbiddenComparisons = listOf(
+            "Spring AI lacks",
+            "LangChain4j lacks",
+            "better than Spring AI",
+            "better than LangChain4j",
+        )
+        for (phrase in forbiddenComparisons) {
+            require(!articleText.contains(phrase, ignoreCase = true)) {
+                "Forbidden comparison in article: '$phrase'"
+            }
+        }
+
+        logger.lifecycle("Governed workflow article verification complete.")
+        logger.lifecycle("  - Article and talk outline exist")
+        logger.lifecycle("  - All required headings present")
+        logger.lifecycle("  - Workflow snippet is actual source (not abridged)")
+        logger.lifecycle("  - All required phrases present")
+        logger.lifecycle("  - All link targets verified")
+        logger.lifecycle("  - Talk outline sections present")
+        logger.lifecycle("  - Forbidden claims absent")
+        logger.lifecycle("  - No premature competitor comparisons")
+    }
 }
 
 // ──────────────────────────────────────────────

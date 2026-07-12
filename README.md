@@ -152,6 +152,7 @@ TramAI targets JVM 21+. Building the repository requires a JDK 21 toolchain.
 
 ## Documentation
 
+- [Beyond the Model Call](docs/articles/governed-ai-workflows-for-the-jvm.md) — publishable introduction to governed AI workflows on the JVM
 - [Product Positioning](docs/product/positioning.md) — canonical positioning, audiences, pillars, claim boundaries
 - [Project Status](docs/STATUS.md) — detailed implementation and maturity tracking
 - [Post-Sovereignty Roadmap](docs/POST-SOVEREIGNTY-ROADMAP.md) — current and planned development phases
