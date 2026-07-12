@@ -301,7 +301,7 @@ A new TramAI user should understand:
 | #192 | [docs(product): define TramAI positioning](product/positioning.md) | ✅ Canonical thesis, audiences, boundaries, and messaging |
 | #193 | docs(readme): rewrite README around governed workflows | ✅ Governed first-run story and adoption paths |
 | #194 | [docs(article): draft governed JVM AI workflow article](articles/governed-ai-workflows-for-the-jvm.md) | ✅ Publishable article and companion talk outline |
-| #195 | docs(examples): add example selection guide | Which example to run when |
+| #195 | [docs(examples): add example selection guide](../examples/README.md) | ✅ Decision tree, prerequisites, capability depth, and learning paths |
 | #196 | docs(comparison): add careful comparison with Spring AI/LangChain4j | Differentiation without unfair claims |
 
 **Tasks:**
@@ -409,6 +409,7 @@ Move from optional signature verification to a more formal signing/attestation m
 | #192 | docs(product): define TramAI positioning |
 | #193 | docs(readme): rewrite README around governed workflows |
 | #194 | docs(article): draft governed JVM AI workflow article |
+| #195 | docs(examples): add example selection guide |
 
 **Outcome:** TramAI becomes easier to explain, adopt, and evaluate.
 

@@ -4843,6 +4843,7 @@ tasks.register("verifyReadmePositioning") {
 tasks.named("check") {
     dependsOn("verifyReadmePositioning")
     dependsOn("verifyGovernedWorkflowArticle")
+    dependsOn("verifyExampleSelectionGuide")
 }
 
 // ──────────────────────────────────────────────
@@ -4993,6 +4994,261 @@ tasks.register("verifyGovernedWorkflowArticle") {
         logger.lifecycle("  - All required phrases present")
         logger.lifecycle("  - All link targets verified")
         logger.lifecycle("  - Talk outline sections present")
+        logger.lifecycle("  - Forbidden claims absent")
+        logger.lifecycle("  - No premature competitor comparisons")
+    }
+}
+
+// ──────────────────────────────────────────────
+// Task: verifyExampleSelectionGuide
+// ──────────────────────────────────────────────
+
+tasks.register("verifyExampleSelectionGuide") {
+    group = "verification"
+    description = "Verifies the example selection guide covers eight examples with correct classifications, commands, and non-claims."
+
+    doLast {
+        val guide = file("examples/README.md")
+        require(guide.isFile) {
+            "Missing example selection guide at ${guide.absolutePath}"
+        }
+        val text = guide.readText()
+
+        // ── Section extraction helper ──
+        fun sectionBetween(start: String, end: String): String {
+            val s = text.indexOf(start)
+            require(s >= 0) { "Missing section start: '$start'" }
+            val e = text.indexOf(end, s + start.length)
+            require(e >= 0) { "Missing section end marker after '$start': '$end'" }
+            return text.substring(s, e)
+        }
+
+        // Required headings
+        val requiredHeadings = listOf(
+            "## Start Here",
+            "## Choose by Goal",
+            "## Example Matrix",
+            "## Recommended Learning Paths",
+            "## Example Profiles",
+            "## What the Examples Do Not Prove",
+        )
+        for (heading in requiredHeadings) {
+            require(text.contains(heading)) {
+                "Guide missing required heading: '$heading'"
+            }
+        }
+
+        // Required profiles
+        val requiredProfiles = listOf(
+            "### Governed Workflow",
+            "### Support Agent",
+            "### Kotlin Spring Boot Example",
+            "### Approval Resume",
+            "### Spring Sovereign Starter",
+            "### Sovereign Document Intelligence",
+            "### Sovereign Offline Verification",
+            "### Sovereign Lab",
+        )
+        for (profile in requiredProfiles) {
+            require(text.contains(profile)) {
+                "Guide missing required profile: '$profile'"
+            }
+        }
+
+        // Required commands
+        val requiredCommands = listOf(
+            "./gradlew :examples:governed-workflow:run",
+            "./gradlew :examples:support-agent:run",
+            "./gradlew :examples:approval-resume:test",
+            "./gradlew :examples:spring-sovereign-starter:bootRun",
+            "./gradlew :examples:sovereign-document-intelligence:run",
+            "./gradlew -p examples/kotlin-springboot-example bootRun",
+            "./scripts/verify-zero-egress.sh",
+            "./gradlew verifySovereignLabProfile",
+        )
+        for (cmd in requiredCommands) {
+            require(text.contains(cmd)) {
+                "Guide must contain command: '$cmd'"
+            }
+        }
+
+        // Required phrases
+        val requiredPhrases = listOf(
+            "no credentials",
+            "embedded PostgreSQL",
+            "no Docker",
+            "separate Gradle build",
+            "in-memory",
+            "reference workflow",
+            "verification harness",
+            "physical local-model evaluation",
+            "not a production deployment template",
+            "active development",
+        )
+        for (phrase in requiredPhrases) {
+            require(text.contains(phrase, ignoreCase = true)) {
+                "Guide must contain: '$phrase'"
+            }
+        }
+
+        // Target existence validation
+        val navTargets = listOf(
+            "examples/governed-workflow",
+            "examples/support-agent",
+            "examples/kotlin-springboot-example",
+            "examples/approval-resume",
+            "examples/spring-sovereign-starter",
+            "examples/sovereign-document-intelligence",
+            "examples/sovereign-offline-verification",
+            "examples/sovereign-lab",
+        )
+        for (path in navTargets) {
+            val target = file(path)
+            require(target.exists()) {
+                "Guide navigation target does not exist: $path"
+            }
+        }
+
+        // Script target
+        val scriptTarget = file("scripts/verify-zero-egress.sh")
+        require(scriptTarget.exists()) {
+            "Guide script target does not exist: scripts/verify-zero-egress.sh"
+        }
+
+        // Root example modules in settings.gradle.kts
+        val settingsText = file("settings.gradle.kts").readText()
+        val rootModules = listOf(
+            "examples:support-agent",
+            "examples:sovereign-document-intelligence",
+            "examples:sovereign-offline-verification",
+            "examples:spring-sovereign-starter",
+            "examples:governed-workflow",
+            "examples:approval-resume",
+        )
+        for (module in rootModules) {
+            require(settingsText.contains("\"$module\"")) {
+                "settings.gradle.kts must still include root example module: $module"
+            }
+        }
+
+        // ── Section-scoped checks ──
+
+        // Governed Workflow
+        val gwSection = sectionBetween("### Governed Workflow", "### Support Agent")
+        require(gwSection.contains("no credentials")) {
+            "Governed Workflow section must contain 'no credentials'"
+        }
+        require(gwSection.contains("composition")) {
+            "Governed Workflow section must contain 'composition'"
+        }
+
+        // Support Agent
+        val saSection = sectionBetween("### Support Agent", "### Kotlin Spring Boot Example")
+        require(saSection.contains("Ollama")) {
+            "Support Agent section must contain 'Ollama'"
+        }
+        require(saSection.contains("MockAiProvider")) {
+            "Support Agent section must contain 'MockAiProvider'"
+        }
+
+        // Kotlin Spring Boot Example
+        val ktSection = sectionBetween("### Kotlin Spring Boot Example", "### Approval Resume")
+        require(ktSection.contains("separate Gradle build")) {
+            "Kotlin Spring Boot Example section must contain 'separate Gradle build'"
+        }
+        require(ktSection.contains("0.3.1")) {
+            "Kotlin Spring Boot Example section must contain '0.3.1'"
+        }
+
+        // Approval Resume
+        val arSection = sectionBetween("### Approval Resume", "### Spring Sovereign Starter")
+        require(arSection.contains("embedded PostgreSQL")) {
+            "Approval Resume section must contain 'embedded PostgreSQL'"
+        }
+        require(arSection.contains("no Docker")) {
+            "Approval Resume section must contain 'no Docker'"
+        }
+        require(arSection.contains("at-most-once", ignoreCase = true)) {
+            "Approval Resume section must contain 'at-most-once'"
+        }
+
+        // Spring Sovereign Starter
+        val ssSection = sectionBetween("### Spring Sovereign Starter", "### Sovereign Document Intelligence")
+        require(ssSection.contains("in-memory")) {
+            "Spring Sovereign Starter section must contain 'in-memory'"
+        }
+        require(ssSection.contains("state is lost on restart")) {
+            "Spring Sovereign Starter section must contain 'state is lost on restart'"
+        }
+
+        // Sovereign Document Intelligence
+        val sdiSection = sectionBetween("### Sovereign Document Intelligence", "### Sovereign Offline Verification")
+        require(sdiSection.contains("reference workflow")) {
+            "Sovereign Document Intelligence section must contain 'reference workflow'"
+        }
+        require(sdiSection.contains("not a production deployment template")) {
+            "Sovereign Document Intelligence section must contain 'not a production deployment template'"
+        }
+
+        // Sovereign Offline Verification
+        val sovSection = sectionBetween("### Sovereign Offline Verification", "### Sovereign Lab")
+        require(sovSection.contains("verification harness")) {
+            "Sovereign Offline Verification section must contain 'verification harness'"
+        }
+
+        // Sovereign Lab
+        val labSection = sectionBetween("### Sovereign Lab", "## Recommended Learning Paths")
+        require(labSection.contains("PostgreSQL")) {
+            "Sovereign Lab section must contain 'PostgreSQL'"
+        }
+        require(labSection.contains("local model")) {
+            "Sovereign Lab section must contain 'local model'"
+        }
+        require(labSection.contains("advanced")) {
+            "Sovereign Lab section must contain 'advanced'"
+        }
+
+        // Forbidden claims (case-insensitive)
+        val forbiddenClaims = listOf(
+            "all examples require no credentials",
+            "all examples are production-ready",
+            "proves compliance",
+            "certifies compliance",
+            "guarantees sovereignty",
+            "LOCAL means air-gapped",
+            "every TramAI deployment has zero egress",
+            "all side effects execute exactly once",
+            "every workflow resumes exactly once",
+            "remote MCP tools are governed",
+            "support-agent demonstrates sovereign governance",
+        )
+        for (claim in forbiddenClaims) {
+            require(!text.contains(claim, ignoreCase = true)) {
+                "Forbidden claim in guide: '$claim'"
+            }
+        }
+
+        // No premature competitor comparisons (reserved for PR #196)
+        val forbiddenComparisons = listOf(
+            "Spring AI lacks",
+            "LangChain4j lacks",
+            "better than Spring AI",
+            "better than LangChain4j",
+        )
+        for (phrase in forbiddenComparisons) {
+            require(!text.contains(phrase, ignoreCase = true)) {
+                "Forbidden comparison in guide: '$phrase'"
+            }
+        }
+
+        logger.lifecycle("Example selection guide verification complete.")
+        logger.lifecycle("  - Guide exists with all required headings")
+        logger.lifecycle("  - All 8 example profiles present")
+        logger.lifecycle("  - All required commands present")
+        logger.lifecycle("  - All required phrases present")
+        logger.lifecycle("  - All navigation targets and scripts exist")
+        logger.lifecycle("  - Six root example modules still in settings.gradle.kts")
+        logger.lifecycle("  - Section-scoped checks pass")
         logger.lifecycle("  - Forbidden claims absent")
         logger.lifecycle("  - No premature competitor comparisons")
     }

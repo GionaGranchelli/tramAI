@@ -105,7 +105,7 @@ Standalone and Spring Boot integration. Adopt only the capabilities you need wit
 | Inspect the complete sovereign architecture | [`examples/sovereign-document-intelligence`](examples/sovereign-document-intelligence) |
 | Make a basic AI call | [30-Minute Quickstart](docs/guides/quickstart.md) |
 | Integrate with Spring Boot | [Spring Boot Guide](docs/guides/spring-boot.md) |
-| Test workflows deterministically | [Governed Workflow Testing](docs/guides/governed-workflow-testing.md) |
+| Compare every example and its prerequisites | [Example Selection Guide](examples/README.md) |
 | Understand current maturity | [Project Status](docs/STATUS.md) |
 
 ---
@@ -153,6 +153,7 @@ TramAI targets JVM 21+. Building the repository requires a JDK 21 toolchain.
 ## Documentation
 
 - [Beyond the Model Call](docs/articles/governed-ai-workflows-for-the-jvm.md) — publishable introduction to governed AI workflows on the JVM
+- [Example Selection Guide](examples/README.md) — choose a demo, integration sample, reference workflow, or verification harness
 - [Product Positioning](docs/product/positioning.md) — canonical positioning, audiences, pillars, claim boundaries
 - [Project Status](docs/STATUS.md) — detailed implementation and maturity tracking
 - [Post-Sovereignty Roadmap](docs/POST-SOVEREIGNTY-ROADMAP.md) — current and planned development phases
