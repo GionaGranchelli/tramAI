@@ -30,14 +30,14 @@ Amazon Bedrock is AWS's managed AI service, providing access to Claude, Llama, a
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-bedrock:0.3.1")
+    implementation("dev.tramai:tramai-bedrock:0.4.0")
 }
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.3.1"))
+implementation(platform("dev.tramai:tramai-bom:0.4.0"))
 implementation("dev.tramai:tramai-bedrock")
 ```
 

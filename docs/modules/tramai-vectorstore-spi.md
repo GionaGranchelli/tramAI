@@ -19,7 +19,7 @@ This module provides the core `VectorStore` interfaces required by `tramai-rag`.
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-vectorstore-spi:0.3.1")
+    implementation("dev.tramai:tramai-vectorstore-spi:0.4.0")
 }
 ```
 

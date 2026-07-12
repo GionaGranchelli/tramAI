@@ -31,14 +31,14 @@ Gemini offers competitive pricing, a generous free tier, large context windows, 
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-gemini:0.3.1")
+    implementation("dev.tramai:tramai-gemini:0.4.0")
 }
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.3.1"))
+implementation(platform("dev.tramai:tramai-bom:0.4.0"))
 implementation("dev.tramai:tramai-gemini")
 ```
 

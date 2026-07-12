@@ -41,7 +41,7 @@ This comparison:
 |---|---|---|
 | Spring AI | 2.0.0 stable docs | Broad Spring-native AI integration project |
 | LangChain4j | 1.17.2 stable release | Core stable; guardrails and agentic module explicitly experimental |
-| TramAI | 0.3.1 tagged core plus master governance boundary | Sovereign runtime RC+/enterprise proof; no stable 1.0 API |
+| TramAI | 0.4.0 published core plus master governance boundary | Sovereign runtime RC+/enterprise proof; no stable 1.0 API |
 
 ### Official sources reviewed
 
@@ -138,7 +138,7 @@ Typed outputs, tools, interception, local models, RAG, observability, and workfl
 | **MCP client** | Implemented | Implemented | Not implemented (governed remote MCP client) |
 | **MCP server** | Implemented | Community server implementation | Workflow server implemented |
 | **Provider / vector breadth** | Major strength | Major strength | Available but not primary differentiation |
-| **Release maturity** | Stable 2.0.0 | Stable 1.17.2; guardrails and agentic module experimental | 0.3.1 core; governance on master under RC+/evolving boundary |
+| **Release maturity** | Stable 2.0.0 | Stable 1.17.2; guardrails and agentic module experimental | 0.4.0 core; governance on master under RC+/evolving boundary |
 
 **Important qualification — Spring AI:**
 

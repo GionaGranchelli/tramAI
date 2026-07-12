@@ -30,9 +30,9 @@ Connects a `ChatMemoryStore` (database) with an optional in-memory cache (`Messa
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-memory:0.3.1")
+    implementation("dev.tramai:tramai-memory:0.4.0")
     // If you need durable storage (Postgres, Redis, File):
-    implementation("dev.tramai:tramai-memory-store:0.3.1")
+    implementation("dev.tramai:tramai-memory-store:0.4.0")
 }
 ```
 

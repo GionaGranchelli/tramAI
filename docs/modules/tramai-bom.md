@@ -23,7 +23,7 @@ Tramai has **11 publishable modules** (`tramai-core`, `tramai-engine`, `tramai-s
 - `tramai-spring` depends on several modules
 - `tramai-testing` depends on `tramai-core` and `tramai-engine`
 
-Without a BOM, a consumer who mixes versions (e.g., `tramai-core:0.3.1` with `tramai-engine:0.3.1`) risks `NoSuchMethodError`, binary-incompatible SPI types, or broken annotation processing at runtime. The BOM eliminates this category of error entirely.
+Without a BOM, a consumer who mixes versions (e.g., `tramai-core:0.4.0` with `tramai-engine:0.4.0`) risks `NoSuchMethodError`, binary-incompatible SPI types, or broken annotation processing at runtime. The BOM eliminates this category of error entirely.
 
 ### When to use the BOM
 
@@ -40,7 +40,7 @@ Without a BOM, a consumer who mixes versions (e.g., `tramai-core:0.3.1` with `tr
 ```kotlin
 dependencies {
     // 1. Import the BOM
-    implementation(platform("dev.tramai:tramai-bom:0.3.1"))
+    implementation(platform("dev.tramai:tramai-bom:0.4.0"))
 
     // 2. Declare Tramai modules without versions
     implementation("dev.tramai:tramai-orchestration")
@@ -54,7 +54,7 @@ Gradle's `platform()` notation activates the version constraints from the BOM. A
 To **override** a single module version (e.g., to test a snapshot):
 
 ```kotlin
-implementation("dev.tramai:tramai-openai:0.3.1-SNAPSHOT") // explicit version wins
+implementation("dev.tramai:tramai-openai:0.4.0-SNAPSHOT") // explicit version wins
 ```
 
 ### Maven
@@ -65,7 +65,7 @@ implementation("dev.tramai:tramai-openai:0.3.1-SNAPSHOT") // explicit version wi
         <dependency>
             <groupId>dev.tramai</groupId>
             <artifactId>tramai-bom</artifactId>
-            <version>0.3.1</version>
+            <version>0.4.0</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>

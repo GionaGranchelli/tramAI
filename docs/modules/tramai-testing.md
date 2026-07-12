@@ -51,7 +51,7 @@ Use `tramai-testing` **whenever you write integration tests for Tramai `@AiServi
 
 ```kotlin
 dependencies {
-    testImplementation("dev.tramai:tramai-testing:0.3.1")
+    testImplementation("dev.tramai:tramai-testing:0.4.0")
 }
 ```
 
@@ -61,7 +61,7 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-testing</artifactId>
-    <version>0.3.1</version>
+    <version>0.4.0</version>
     <scope>test</scope>
 </dependency>
 ```

@@ -13,7 +13,7 @@ This module provides a concrete implementation of `VectorStore` that connects to
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-vectorstore-chroma:0.3.1")
+    implementation("dev.tramai:tramai-vectorstore-chroma:0.4.0")
 }
 ```
 

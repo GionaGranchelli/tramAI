@@ -14,7 +14,12 @@ springBoot {
 }
 
 group = "dev.tramai.examples"
-version = "0.3.1"
+
+val tramaiConsumerVersion = providers
+    .gradleProperty("tramaiVersion")
+    .orElse("0.4.0")
+
+version = tramaiConsumerVersion.get()
 
 java {
     toolchain {
@@ -35,14 +40,14 @@ repositories {
 }
 
 dependencies {
-    implementation("dev.tramai:tramai-spring:0.3.1")
-    implementation("dev.tramai:tramai-orchestration:0.3.1")
+    implementation("dev.tramai:tramai-spring:${tramaiConsumerVersion.get()}")
+    implementation("dev.tramai:tramai-orchestration:${tramaiConsumerVersion.get()}")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor:1.10.2")
 
-    testImplementation("dev.tramai:tramai-testing:0.3.1")
+    testImplementation("dev.tramai:tramai-testing:${tramaiConsumerVersion.get()}")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 }
 

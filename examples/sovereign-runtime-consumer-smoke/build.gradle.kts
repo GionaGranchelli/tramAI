@@ -1,6 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-val tramaiVersion = providers.gradleProperty("tramaiVersion").orElse("0.3.1")
+val tramaiVersion = providers.gradleProperty("tramaiVersion").orElse("0.4.0")
 val sovereignRuntimeVerificationRepo = providers
     .gradleProperty("sovereignRuntimeVerificationRepo")
     .orNull

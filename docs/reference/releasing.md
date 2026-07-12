@@ -369,7 +369,7 @@ gpg --keyserver keyserver.ubuntu.com --recv-keys <your-signing-key-fingerprint>
 
 If this step fails, do not tag the release yet. Central will reject the deployment with an invalid-signature error because it cannot resolve the public key for the uploaded signatures.
 
-In GitHub Actions, that means running `Publish` with `workflow_dispatch` and setting the `version` input to the intended release version, for example `0.3.1`.
+In GitHub Actions, that means running `Publish` with `workflow_dispatch` and setting the `version` input to the intended release version, for example `0.4.0`.
 
 ## Guarded Real-Provider Checks
 
@@ -419,7 +419,7 @@ These checks are intentionally light-touch. They verify that Tramai can make a r
 1. Freeze scope and confirm the checklist in `docs/reference/release-<version>.md`.
 2. Update `CHANGELOG.md` from snapshot wording to the release entry.
 3. Commit the release-ready state.
-4. Create and push a tag such as `v0.3.1`.
+4. Create and push a tag such as `v0.x.0` (matching the version being released).
 5. Verify the `Publish` workflow result, including the Central Portal handoff step.
 6. Open the deployment in Central Portal and confirm validation succeeds.
 7. Publish from the Portal UI.

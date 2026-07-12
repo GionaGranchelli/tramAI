@@ -1,6 +1,10 @@
 # Post-Sovereignty TramAI Roadmap
 
 > **Status:** Active roadmap — defines the next phase after Sovereign Lab Evidence Handoff v1.
+>
+> Release train: TramAI 0.5.0  
+> Development version: 0.5.0-SNAPSHOT  
+> Baseline: TramAI 0.4.0 completed and published the Sovereign Runtime and Sovereign Evidence Handoff milestones.
 
 ---
 
@@ -36,17 +40,17 @@ TramAI should become:
 
 ## Roadmap Overview
 
-| Phase | Epic | Purpose | Priority |
-|-------|------|---------|----------|
-| 0 | Roadmap/RFC | Align scope and stop sovereignty drift | P0 |
-| 1 | Workflow API Stability | Define stable/preview/internal workflow APIs | P0 |
-| 2 | Structured Output Contracts | Make typed contract lifecycle explicit and tested | P0 |
-| 3 | Workflow Ergonomics | Improve developer experience for real workflows | P0 |
-| 4 | Approval & Human Gates | Make approval flows easier and safer to use | P1 |
-| 5 | Runtime Evidence Export | Connect real runtime decisions to evidence artifacts | P1 |
-| 6 | Tool/MCP Governance | Govern tool calls and future MCP integrations | P2 |
-| 7 | Product Narrative | Prepare docs/articles/talk material | P2 |
-| 8 | (Deferred) Future Optional Tracks | Release Console, compliance mapping, attestation | P3 |
+| Phase | Epic | Purpose | Priority | Status |
+|---|---|---|---|---|
+| 0 | Roadmap/RFC | Align scope and stop sovereignty drift | P0 | ✅ Complete |
+| 1 | Workflow API Stability | Define stable/preview/internal workflow APIs | P0 | ✅ Complete |
+| 2 | Structured Output Contracts | Make typed contract lifecycle explicit and tested | P0 | ✅ Complete |
+| 3 | Workflow Ergonomics | Improve developer experience for real workflows | P0 | ✅ Complete |
+| 4 | Approval & Human Gates | Make approval flows easier and safer to use | P1 | ✅ Complete |
+| 5 | Runtime Evidence Export | Connect real runtime decisions to evidence artifacts | P1 | 🔧 Exporters complete, bundle integration pending |
+| 6 | Tool/MCP Governance | Govern tool calls and future MCP integrations | P2 | 🔧 Enforcement proofs complete, usage example pending |
+| 7 | Product Narrative | Prepare docs/articles/talk material | P2 | ✅ Complete |
+| 8 | Deferred Future Tracks | Release Console, compliance mapping, attestation | P3 | ⏸ Deferred |
 
 ---
 
@@ -228,13 +232,13 @@ A new TramAI user should understand:
 
 **Proposed PRs:**
 
-| PR | Title | Purpose |
-|----|-------|---------|
-| #183 | docs(evidence): define runtime evidence export model | Design doc |
-| #184 | test(evidence): export policy decision evidence | Export allow/deny/require-approval policy decisions |
-| #185 | test(evidence): export approval decision evidence | Export approved/denied human approval decisions |
-| #186 | test(evidence): export provider routing evidence | Export selected/fallback/blocked provider route decisions |
-| #187 | docs(evidence): map runtime events to evidence bundle sections | Human-readable mapping |
+| PR | Title | Purpose | Status |
+|----|-------|---------|--------|
+| #183 | docs(evidence): define runtime evidence export model | Design doc | ✅ Merged |
+| #184 | test(evidence): export policy decision evidence | Export allow/deny/require-approval policy decisions | ✅ Merged |
+| #185 | test(evidence): export approval decision evidence | Export approved/denied human approval decisions | ✅ Merged |
+| #186 | test(evidence): export provider routing evidence | Export selected/fallback/blocked provider route decisions | ✅ Merged |
+| #187 | docs(evidence): map runtime events to evidence bundle sections | Human-readable mapping | ✅ Merged |
 
 **Tasks:**
 1. Define runtime evidence record shape
@@ -263,13 +267,13 @@ A new TramAI user should understand:
 
 **Proposed PRs:**
 
-| PR | Title | Purpose |
-|----|-------|---------|
-| #188 | docs(security): define tool permission model | Trust zones and permissions |
-| #189 | docs(mcp): define MCP governance boundary | What MCP support should/should not mean |
-| #190 | test(tooling): audit tool exposure policy decisions | Tool exposure audit events |
-| #191 | test(tooling): prove fail-closed tool execution denial | Execution denial, ordering, retries, audit, evidence |
-| TBD | docs(tooling): add tool governance examples | Usage guide |
+| PR | Title | Purpose | Status |
+|----|-------|---------|--------|
+| #188 | docs(security): define tool permission model | Trust zones and permissions | ✅ Merged |
+| #189 | docs(mcp): define MCP governance boundary | What MCP support should/should not mean | ✅ Merged |
+| #190 | test(tooling): audit tool exposure policy decisions | Tool exposure audit events | ✅ Merged |
+| #191 | test(tooling): prove fail-closed tool execution denial | Execution denial, ordering, retries, audit, evidence | ✅ Merged |
+| TBD | docs(tooling): add tool governance examples | Usage guide | 🔧 Pending |
 
 **Tasks:**
 1. Define trusted/internal/external tool classes
@@ -390,33 +394,50 @@ Move from optional signature verification to a more formal signing/attestation m
 
 ### Milestone 4 — Approval and Evidence Bridge
 
-| PR | Title |
-|----|-------|
-| #178 | docs(approval): add approval workflow ergonomics guide |
-| #179 | example(approval): add approved-denied resume example |
-| #180 | test(approval): verify approval decision evidence |
-| #181 | test(approval): verify repeat denial evidence |
-| #182 | docs(approval): define approval failure taxonomy |
-| TBD | docs(evidence): define runtime evidence export model |
-| TBD | test(evidence): export policy decision evidence |
+| PR | Title | Status |
+|----|-------|--------|
+| #178 | docs(approval): add approval workflow ergonomics guide | ✅ Merged |
+| #179 | example(approval): add approved-denied resume example | ✅ Merged |
+| #180 | test(approval): verify approval decision evidence | ✅ Merged |
+| #181 | test(approval): verify repeat denial evidence | ✅ Merged |
+| #182 | docs(approval): define approval failure taxonomy | ✅ Merged |
+| #183 | docs(evidence): define runtime evidence export model | ✅ Merged |
+| #184 | test(evidence): export policy decision evidence | ✅ Merged |
+| #185 | test(evidence): export approval decision evidence | ✅ Merged |
+| #186 | test(evidence): export provider routing evidence | ✅ Merged |
+| #187 | docs(evidence): map runtime events to evidence bundle sections | ✅ Merged |
 
 **Outcome:** Runtime decisions produce reviewable evidence.
 
 ### Milestone 5 — Tool Governance and Product Narrative
 
-| PR | Title |
-|----|-------|
-| #188 | docs(security): define tool permission model |
-| #189 | docs(mcp): define MCP governance boundary |
-| #190 | test(tooling): audit tool exposure policy decisions |
-| #191 | test(tooling): prove fail-closed tool execution denial |
-| #192 | docs(product): define TramAI positioning |
-| #193 | docs(readme): rewrite README around governed workflows |
-| #194 | docs(article): draft governed JVM AI workflow article |
-| #195 | docs(examples): add example selection guide |
-| #196 | docs(comparison): position TramAI alongside Spring AI and LangChain4j |
+| PR | Title | Status |
+|----|-------|--------|
+| #188 | docs(security): define tool permission model | ✅ Merged |
+| #189 | docs(mcp): define MCP governance boundary | ✅ Merged |
+| #190 | test(tooling): audit tool exposure policy decisions | ✅ Merged |
+| #191 | test(tooling): prove fail-closed tool execution denial | ✅ Merged |
+| #192 | docs(product): define TramAI positioning | ✅ Merged |
+| #193 | docs(readme): rewrite README around governed workflows | ✅ Merged |
+| #194 | docs(article): draft governed JVM AI workflow article | ✅ Merged |
+| #195 | docs(examples): add example selection guide | ✅ Merged |
+| #196 | docs(comparison): position TramAI alongside Spring AI and LangChain4j | ✅ Merged |
 
 **Outcome:** ✅ TramAI is easier to explain, adopt, evaluate, and position alongside established JVM AI frameworks.
+
+---
+
+## Remaining 0.5.0 Sequence
+
+The following work remains for the 0.5.0 development train before a release candidate can be declared:
+
+| Item | Area | Description | Status |
+|------|------|-------------|--------|
+| JavaBean DTO schema generation | Structured Output | Support for JavaBean-style DTOs in structured output schema generation | 🔧 Pending |
+| Runtime evidence bundle wiring | Evidence | Wire runtime evidence exporters into the evidence bundle | 🔧 Pending |
+| Dedicated tool.permission evidence | Evidence | Add dedicated `tool.permission` runtime-evidence type (separate from generic `policy.decision`) | 🔧 Pending |
+| Tool-governance usage example | Documentation | Add tool governance usage examples | 🔧 Pending |
+| Final 0.5.0 release readiness | Release | Declare RC, verify all acceptance criteria, publish | 🔧 Pending |
 
 ---
 
@@ -489,4 +510,4 @@ Each phase epic moves from roadmap to implementation when:
 
 ---
 
-*Last updated: 2026-07-06*
+*Last updated: 2026-07-12*

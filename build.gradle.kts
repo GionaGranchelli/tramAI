@@ -39,7 +39,7 @@ sonar {
 }
 
 val tramaiGroup = providers.gradleProperty("tramaiGroup").orElse("dev.tramai")
-val tramaiVersion = providers.gradleProperty("tramaiVersion").orElse("0.3.1")
+val tramaiVersion = providers.gradleProperty("tramaiVersion").orElse("0.5.0-SNAPSHOT")
 val tramaiProjectUrl = providers.gradleProperty("tramaiProjectUrl").orElse("https://github.com/GionaGranchelli/tramAI")
 val tramaiScmUrl = providers.gradleProperty("tramaiScmUrl").orElse("https://github.com/GionaGranchelli/tramAI.git")
 val tramaiScmConnection = providers.gradleProperty("tramaiScmConnection").orElse("scm:git:https://github.com/GionaGranchelli/tramAI.git")
@@ -1627,6 +1627,35 @@ tasks.register("verifySovereignRuntimeVerificationRepoClosure") {
             "Missing verification repo at ${repoDir.absolutePath}. Run verifySovereignRuntimeSignedBundle first."
         }
 
+        // Helper: resolve actual artifact filenames under SNAPSHOT versioning
+        // Gradle's maven-publish plugin uses Maven unique snapshot naming:
+        // moduleDir/tramai-core-0.5.0-20260712.154741-1.pom instead of
+        // moduleDir/tramai-core-0.5.0-SNAPSHOT.pom.
+        fun resolveArtifactFile(moduleDir: java.io.File, baseNameWithoutVersion: String, extension: String): java.io.File {
+            val literal = moduleDir.resolve("$baseNameWithoutVersion-$expectedVersion.$extension")
+            if (literal.isFile) return literal
+            // If the literal doesn't exist, try unique snapshot naming by
+            // scanning maven-metadata.xml for actual artifact filenames.
+            val metadata = moduleDir.resolve("maven-metadata.xml")
+            if (metadata.isFile) {
+                val text = metadata.readText()
+                val snapshotVersion = Regex("""<snapshotVersion>.*?<extension>$extension</extension>.*?</snapshotVersion>""")
+                    .find(text, 0)
+                if (snapshotVersion != null) {
+                    val value = Regex("""<value>([^<]+)</value>""").find(snapshotVersion.value)
+                    if (value != null) {
+                        val artifact = moduleDir.resolve("$baseNameWithoutVersion-${value.groupValues[1]}.$extension")
+                        if (artifact.isFile) return artifact
+                    }
+                }
+                // Fallback: scan the directory for matching files
+                val glob = moduleDir.listFiles()
+                    ?.firstOrNull { it.name.endsWith(".$extension") && it.name.startsWith("$baseNameWithoutVersion-") }
+                if (glob != null) return glob
+            }
+            return literal
+        }
+
         val bomOnlyModules = setOf("tramai-bom")
 
         // Validate every module in the sovereignBundleModuleNames list
@@ -1636,10 +1665,8 @@ tasks.register("verifySovereignRuntimeVerificationRepoClosure") {
                 "Missing module directory in verification repo for $moduleName at ${moduleDir.absolutePath}"
             }
 
-            val baseName = "$moduleName-$expectedVersion"
-
             // POM is required for every module
-            val pom = moduleDir.resolve("$baseName.pom")
+            val pom = resolveArtifactFile(moduleDir, moduleName, "pom")
             require(pom.isFile) {
                 "Missing POM in verification repo for $moduleName at ${pom.absolutePath}"
             }
@@ -1648,7 +1675,7 @@ tasks.register("verifySovereignRuntimeVerificationRepoClosure") {
             }
 
             // Gradle module metadata is required for every module — must be non-empty
-            val moduleMetadata = moduleDir.resolve("$baseName.module")
+            val moduleMetadata = resolveArtifactFile(moduleDir, moduleName, "module")
             require(moduleMetadata.isFile) {
                 "Missing module metadata in verification repo for $moduleName at ${moduleMetadata.absolutePath}"
             }
@@ -1658,7 +1685,7 @@ tasks.register("verifySovereignRuntimeVerificationRepoClosure") {
 
             // JAR is required for runtime modules (not BOM)
             if (moduleName !in bomOnlyModules) {
-                val jar = moduleDir.resolve("$baseName.jar")
+                val jar = resolveArtifactFile(moduleDir, moduleName, "jar")
                 require(jar.isFile) {
                     "Missing JAR in verification repo for $moduleName at ${jar.absolutePath}"
                 }
@@ -5178,8 +5205,8 @@ tasks.register("verifyExampleSelectionGuide") {
         require(ktSection.contains("separate Gradle build")) {
             "Kotlin Spring Boot Example section must contain 'separate Gradle build'"
         }
-        require(ktSection.contains("0.3.1")) {
-            "Kotlin Spring Boot Example section must contain '0.3.1'"
+        require(ktSection.contains("0.4.0")) {
+            "Kotlin Spring Boot Example section must contain '0.4.0'"
         }
         require(ktSection.contains("gemma4:e4b")) {
             "Kotlin Spring Boot Example section must specify 'gemma4:e4b' model"
@@ -5364,7 +5391,7 @@ tasks.register("verifyJvmAiFrameworkComparison") {
             "July 12, 2026",
             "Spring AI 2.0.0",
             "LangChain4j 1.17.2",
-            "0.3.1",
+            "0.4.0",
             "dated snapshot",
             "official documentation",
             "not an evergreen benchmark",
@@ -5650,7 +5677,163 @@ tasks.register("verifyWorkflowApiStabilityBoundary") {
         logger.lifecycle("  - Allowed/forbidden claims sections verified")
     }
 }
+// ──────────────────────────────────────────────
+// Task: verifyDevelopmentVersionAlignment
+// ──────────────────────────────────────────────
+
+tasks.register("verifyDevelopmentVersionAlignment") {
+    group = "verification"
+    description = "Verifies the repository version surfaces are aligned: 0.5.0-SNAPSHOT for master, 0.4.0 as latest stable."
+
+    doLast {
+        // 1. gradle.properties contains 0.5.0-SNAPSHOT
+        val propsFile = file("gradle.properties")
+        require(propsFile.isFile) { "Missing gradle.properties" }
+        val propsText = propsFile.readText()
+        require(propsText.contains("tramaiVersion=0.5.0-SNAPSHOT")) {
+            "gradle.properties must set tramaiVersion=0.5.0-SNAPSHOT"
+        }
+
+        // 2. Build fallback is 0.5.0-SNAPSHOT
+        val buildFile = file("build.gradle.kts")
+        val buildText = buildFile.readText()
+        require(buildText.contains("\"tramaiVersion\"")) {
+            "build.gradle.kts must reference tramaiVersion Gradle property"
+        }
+        require(buildText.contains("orElse(\"0.5.0-SNAPSHOT\")")) {
+            "build.gradle.kts fallback must be 0.5.0-SNAPSHOT"
+        }
+
+        // 3. CHANGELOG.md retains ## Unreleased
+        val changelog = file("CHANGELOG.md")
+        val changelogText = changelog.readText()
+        require(changelogText.contains("## Unreleased")) {
+            "CHANGELOG.md must retain ## Unreleased heading"
+        }
+
+        // 4. Unreleased section identifies target 0.5.0
+        val unreleasedSection = changelogText.substringAfter("## Unreleased")
+            .substringBefore("## ")
+        require(unreleasedSection.contains("Target release: TramAI 0.5.0")) {
+            "Unreleased section must identify target TramAI 0.5.0"
+        }
+        require(unreleasedSection.contains("Development version: 0.5.0-SNAPSHOT")) {
+            "Unreleased section must identify Development version 0.5.0-SNAPSHOT"
+        }
+
+        // 5. STATUS.md identifies 0.4.0 as latest stable
+        val statusDoc = file("docs/STATUS.md")
+        val statusText = statusDoc.readText()
+        require(statusText.contains("0.4.0") && statusText.contains("Latest published release")) {
+            "STATUS.md must identify 0.4.0 as latest published release"
+        }
+
+        // 6. STATUS.md identifies 0.5.0-SNAPSHOT as current development
+        require(statusText.contains("0.5.0-SNAPSHOT") && statusText.contains("Current Development Train")) {
+            "STATUS.md must identify 0.5.0-SNAPSHOT as current development"
+        }
+
+        // 7. Roadmap identifies release train 0.5.0
+        val roadmap = file("docs/POST-SOVEREIGNTY-ROADMAP.md")
+        val roadmapText = roadmap.readText()
+        require(roadmapText.contains("Release train: TramAI 0.5.0")) {
+            "Roadmap must identify release train 0.5.0"
+        }
+        // 7b. Roadmap tables use valid Markdown (no line starting with ||)
+        require(!roadmapText.lineSequence().any { it.trimStart().startsWith("||") }) {
+            "Roadmap contains malformed Markdown table rows beginning with '||' — pipe prefixes must be a single |"
+        }
+
+        // 8. Framework comparison uses 0.4.0 as latest tagged boundary
+        val comparisonDoc = file("docs/comparison/jvm-ai-frameworks.md")
+        require(comparisonDoc.isFile) {
+            "Missing JVM AI framework comparison document at ${comparisonDoc.absolutePath} — PR #196 is required"
+        }
+        val comparisonText = comparisonDoc.readText()
+        require(comparisonText.contains("0.4.0 published")) {
+            "Comparison must use 0.4.0 as latest published release boundary"
+        }
+
+        // 9. Architecture overview no longer promises KSP in 0.4.0
+        val archDoc = file("docs/architecture/overview.md")
+        val archText = archDoc.readText()
+        require(!archText.contains("In `0.4.0`, the planned direction")) {
+            "Architecture overview must not promise KSP in 0.4.0 — 0.4.0 is already released"
+        }
+
+        // 10. Consumer docs use 0.4.0, not 0.3.1, for active dependency examples
+        val consumerDocs = listOf(
+            "README.md",
+            "docs/guides/getting-started.md",
+            "docs/guides/quickstart.md",
+            "docs/guides/spring-boot.md",
+            "docs/guides/standalone-usage.md",
+            "docs/guides/tutorial-invoice-analyzer.md",
+            "docs/module-guide.md",
+            "examples/README.md",
+            "examples/support-agent/build.gradle.kts",
+            "examples/kotlin-springboot-example/build.gradle.kts",
+            "examples/kotlin-native-smoke-example/build.gradle.kts",
+            "examples/sovereign-runtime-consumer-smoke/build.gradle.kts",
+            "examples/spring-sovereign-starter/build.gradle.kts",
+        )
+        // Also check all module docs
+        val moduleDocsDir = file("docs/modules")
+        val moduleDocs = if (moduleDocsDir.isDirectory) {
+            moduleDocsDir.listFiles().orEmpty().filter { it.name.endsWith(".md") }.map { it.path }
+        } else emptyList()
+        val allConsumerDocs = consumerDocs + moduleDocs
+
+        val staleGradleCoordinate = Regex("""dev\.tramai:[a-z0-9-]+:0\.3\.1""")
+        val staleMavenVersion = Regex("""<version>\s*0\.3\.1\s*</version>""")
+        val staleVersionVariable = Regex("""tramaiVersion\s*=\s*"0\.3\.1"""")
+        val staleProjectVersion = Regex("""version\s*=\s*"0\.3\.1"""")
+
+        // Known historical files that intentionally reference 0.3.1
+        val historicalAllowlist = setOf(
+            "docs/releases/CHANGELOG-0.3.1.md",
+            "docs/guides/secure-defaults-migration.md",
+            "docs/reference/release-0.1.0.md",
+        )
+
+        for (path in allConsumerDocs) {
+            val f = file(path)
+            if (!f.isFile) continue
+            if (f.canonicalPath in historicalAllowlist.map { file(it).canonicalPath }) continue
+            val content = f.readText()
+            require(!staleGradleCoordinate.containsMatchIn(content)) {
+                "Consumer doc $path still contains dev.tramai:*:0.3.1 dependency reference"
+            }
+            require(!staleMavenVersion.containsMatchIn(content)) {
+                "Consumer doc $path still contains Maven <version>0.3.1</version>"
+            }
+            require(!staleVersionVariable.containsMatchIn(content)) {
+                "Consumer doc $path still contains tramaiVersion = \"0.3.1\""
+            }
+            require(!staleProjectVersion.containsMatchIn(content)) {
+                "Consumer doc $path still contains project version = \"0.3.1\""
+            }
+        }
+
+        // 11. Historical 0.3.1 release records still exist
+        require(file("docs/releases/CHANGELOG-0.3.1.md").isFile) {
+            "Historical CHANGELOG-0.3.1.md must still exist"
+        }
+
+        logger.lifecycle("Development version alignment verification complete.")
+        logger.lifecycle("  - gradle.properties: 0.5.0-SNAPSHOT")
+        logger.lifecycle("  - Build fallback: 0.5.0-SNAPSHOT")
+        logger.lifecycle("  - STATUS.md: 0.4.0 stable, 0.5.0-SNAPSHOT developing")
+        logger.lifecycle("  - CHANGELOG: ## Unreleased targets 0.5.0")
+        logger.lifecycle("  - Roadmap: release train 0.5.0")
+        logger.lifecycle("  - Comparison: 0.4.0 published baseline")
+        logger.lifecycle("  - Architecture: no stale KSP promise")
+        logger.lifecycle("  - Consumer docs: no stale 0.3.1 dependency references")
+        logger.lifecycle("  - Historical records: preserved")
+    }
+}
 
 tasks.named("check") {
     dependsOn("verifyWorkflowApiStabilityBoundary")
+    dependsOn("verifyDevelopmentVersionAlignment")
 }

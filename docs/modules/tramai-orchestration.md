@@ -44,7 +44,7 @@ Do **not** use it for single-turn AI calls — `tramai-engine` with an `@AiServi
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-orchestration:0.3.1")
+    implementation("dev.tramai:tramai-orchestration:0.4.0")
 }
 ```
 
@@ -54,14 +54,14 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-orchestration</artifactId>
-    <version>0.3.1</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.3.1"))
+implementation(platform("dev.tramai:tramai-bom:0.4.0"))
 implementation("dev.tramai:tramai-orchestration")
 ```
 

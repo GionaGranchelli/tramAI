@@ -56,14 +56,14 @@ Workflows defined with `tramai-orchestration` run inside a JVM process. Without 
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-server:0.3.1")
+    implementation("dev.tramai:tramai-server:0.4.0")
 }
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.3.1"))
+implementation(platform("dev.tramai:tramai-bom:0.4.0"))
 implementation("dev.tramai:tramai-server")
 ```
 
@@ -75,7 +75,7 @@ plugins {
 }
 
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.3.1"))
+    implementation(platform("dev.tramai:tramai-bom:0.4.0"))
     implementation("dev.tramai:tramai-server")
     implementation("dev.tramai:tramai-orchestration")
     // your workflow definitions

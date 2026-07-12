@@ -39,7 +39,7 @@ Without this module, Tramai runs with no-op observers — operations and workflo
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-observability:0.3.1")
+    implementation("dev.tramai:tramai-observability:0.4.0")
     // You also need an OpenTelemetry SDK + exporter runtime dependency:
     runtimeOnly("io.opentelemetry:opentelemetry-exporter-otlp:...")
     runtimeOnly("io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:...")
@@ -52,7 +52,7 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-observability</artifactId>
-    <version>0.3.1</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 

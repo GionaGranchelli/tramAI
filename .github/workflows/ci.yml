@@ -37,7 +37,11 @@ jobs:
         run: ./gradlew publishToMavenLocal
 
       - name: Run example smoke test
-        run: ./gradlew -p examples/kotlin-springboot-example test
+        run: |
+          TRAMAI_VERSION="$(grep '^tramaiVersion=' gradle.properties | cut -d= -f2)"
+          echo "Smoke test version: ${TRAMAI_VERSION}"
+          ./gradlew -p examples/kotlin-springboot-example test \
+            -PtramaiVersion="${TRAMAI_VERSION}"
 
       - name: Upload test reports
         if: failure()
@@ -70,7 +74,7 @@ jobs:
         run: ./gradlew :examples:spring-sovereign-starter:e2eTest
 
       - name: Verify Sovereign Runtime closure
-        run: ./gradlew verifySovereignRuntimeClosure
+        run: ./gradlew verifySovereignRuntimeClosure --no-configuration-cache --rerun-tasks
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
