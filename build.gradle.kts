@@ -4844,6 +4844,7 @@ tasks.named("check") {
     dependsOn("verifyReadmePositioning")
     dependsOn("verifyGovernedWorkflowArticle")
     dependsOn("verifyExampleSelectionGuide")
+    dependsOn("verifyJvmAiFrameworkComparison")
 }
 
 // ──────────────────────────────────────────────
@@ -5288,6 +5289,244 @@ tasks.register("verifyExampleSelectionGuide") {
         logger.lifecycle("  - Section-scoped checks pass")
         logger.lifecycle("  - Forbidden claims absent")
         logger.lifecycle("  - No premature competitor comparisons")
+    }
+}
+
+// ──────────────────────────────────────────────
+// Task: verifyJvmAiFrameworkComparison
+// ──────────────────────────────────────────────
+
+tasks.register("verifyJvmAiFrameworkComparison") {
+    group = "verification"
+    description = "Verifies the JVM AI framework comparison document."
+
+    doLast {
+        val doc = file("docs/comparison/jvm-ai-frameworks.md")
+        require(doc.isFile) {
+            "Missing comparison document at ${doc.absolutePath}"
+        }
+        val text = doc.readText()
+
+        // ── Section extraction helper ──
+        fun sectionBetween(start: String, end: String): String {
+            val s = text.indexOf(start)
+            require(s >= 0) { "Missing section start: '$start'" }
+            val e = text.indexOf(end, s + start.length)
+            require(e >= 0) { "Missing section end marker after '$start': '$end'" }
+            return text.substring(s, e)
+        }
+
+        // Section boundaries
+        val springOptimization = sectionBetween("### Spring AI", "### LangChain4j")
+        val langChainOptimization = sectionBetween("### LangChain4j", "### TramAI")
+        val capabilitySection = sectionBetween("## Capability Comparison", "## Choose Spring AI When")
+        val springChoiceSection = sectionBetween("## Choose Spring AI When", "## Choose LangChain4j When")
+        val langChainChoiceSection = sectionBetween("## Choose LangChain4j When", "## Choose TramAI When")
+        val tramaiChoiceSection = sectionBetween("## Choose TramAI When", "## Where TramAI Is Weaker Today")
+        val weaknessesSection = sectionBetween("## Where TramAI Is Weaker Today", "## Coexistence and Migration")
+        val coexistenceSection = sectionBetween("## Coexistence and Migration", "## Limitations and Non-Claims")
+
+        // Spring AI content: optimization + capability (table + qualification) + choice
+        val springAiContent = springOptimization + "\n" +
+            sectionBetween("## Capability Comparison", "## Choose LangChain4j When")
+
+        // LangChain4j content: optimization + capability (table + qualification) + choice
+        val langChainContent = langChainOptimization + "\n" +
+            sectionBetween("## Capability Comparison", "## Choose TramAI When")
+
+        // TramAI content: comparison table + choice + weaknesses
+        val tramaiContent = sectionBetween("## Capability Comparison", "## Choose Spring AI When") + "\n" +
+            tramaiChoiceSection + "\n" + weaknessesSection
+
+        // Required headings
+        val requiredHeadings = listOf(
+            "## Scope and Method",
+            "## Version and Source Snapshot",
+            "## What the Three Projects Optimize For",
+            "## Shared Capabilities",
+            "## Capability Comparison",
+            "## Choose Spring AI When",
+            "## Choose LangChain4j When",
+            "## Choose TramAI When",
+            "## Where TramAI Is Weaker Today",
+            "## Coexistence and Migration",
+            "## Limitations and Non-Claims",
+            "## Source Notes",
+        )
+        for (heading in requiredHeadings) {
+            require(text.contains(heading)) {
+                "Comparison missing required heading: '$heading'"
+            }
+        }
+
+        // Required snapshot phrases
+        val snapshotPhrases = listOf(
+            "July 12, 2026",
+            "Spring AI 2.0.0",
+            "LangChain4j 1.17.2",
+            "0.3.1",
+            "dated snapshot",
+            "official documentation",
+            "not an evergreen benchmark",
+        )
+        for (phrase in snapshotPhrases) {
+            require(text.contains(phrase, ignoreCase = true)) {
+                "Comparison must contain: '$phrase'"
+            }
+        }
+
+        // Required Spring AI acknowledgements (scoped to Spring AI sections)
+        val springAiTerms = listOf(
+            "ChatClient",
+            "Advisors",
+            "ToolCallingManager",
+            "structured output",
+            "observability",
+            "MCP client",
+            "MCP server",
+            "RAG",
+        )
+        for (term in springAiTerms) {
+            require(springAiContent.contains(term, ignoreCase = true)) {
+                "Spring AI section must acknowledge '$term'"
+            }
+        }
+
+        // Required LangChain4j acknowledgements (scoped to LangChain4j sections)
+        val langchainTerms = listOf(
+            "AI Services",
+            "structured outputs",
+            "guardrails",
+            "HumanInTheLoop",
+            "PendingResponse",
+            "persistent `AgenticScope`",
+            "dynamic model selection",
+            "compensation",
+            "MCP client",
+            "experimental",
+        )
+        for (term in langchainTerms) {
+            require(langChainContent.contains(term, ignoreCase = true)) {
+                "LangChain4j section must acknowledge '$term'"
+            }
+        }
+
+        // Required TramAI boundaries (scoped to TramAI sections: comparison table, choice, weaknesses)
+        val tramaiTerms = listOf(
+            "policy",
+            "DLP",
+            "approval",
+            "replay-safe",
+            "trust-zone",
+            "tamper-evident",
+            "RC+",
+            "active development",
+        )
+        for (term in tramaiTerms) {
+            require(tramaiContent.contains(term, ignoreCase = true)) {
+                "TramAI section must contain '$term'"
+            }
+        }
+
+        // Required maturity acknowledgements (scoped to relevant sections)
+        val langChainMaturityTerms = listOf(
+            "guardrails are experimental",
+            "agentic module is experimental",
+        )
+        for (term in langChainMaturityTerms) {
+            require(langChainContent.contains(term, ignoreCase = true)) {
+                "Comparison must acknowledge maturity: '$term'"
+            }
+        }
+
+        val springMaturityTerms = listOf(
+            "MCP security",
+            "work in progress",
+        )
+        for (term in springMaturityTerms) {
+            require(springAiContent.contains(term, ignoreCase = true)) {
+                "Comparison must acknowledge maturity: '$term'"
+            }
+        }
+
+        val tramaiMaturityTerms = listOf(
+            "governed remote MCP client",
+            "not implemented",
+            "no stable sovereign 1.0 API",
+        )
+        for (term in tramaiMaturityTerms) {
+            require(tramaiContent.contains(term, ignoreCase = true)) {
+                "Comparison must acknowledge maturity: '$term'"
+            }
+        }
+
+        // Required coexistence boundaries (scoped to Coexistence section)
+        val coexistenceTerms = listOf(
+            "not a drop-in replacement",
+            "no official interoperability adapter",
+            "architectural composition",
+            "not a shipped adapter",
+        )
+        for (term in coexistenceTerms) {
+            require(coexistenceSection.contains(term, ignoreCase = true)) {
+                "Comparison must contain coexistence boundary: '$term'"
+            }
+        }
+
+        // Official source-domain validation (link presence, not network access)
+        val requiredSpringLink = "docs.spring.io/spring-ai/reference"
+        val requiredLangchainLink = "docs.langchain4j.dev"
+        val requiredLangchainRepoLink = "github.com/langchain4j/langchain4j"
+        require(text.contains(requiredSpringLink)) {
+            "Comparison must link to docs.spring.io/spring-ai/reference"
+        }
+        require(text.contains(requiredLangchainLink)) {
+            "Comparison must link to docs.langchain4j.dev"
+        }
+        require(text.contains(requiredLangchainRepoLink)) {
+            "Comparison must link to github.com/langchain4j/langchain4j"
+        }
+
+        // Forbidden claims (case-insensitive)
+        val forbiddenClaims = listOf(
+            "Spring AI lacks governance",
+            "LangChain4j lacks governance",
+            "Spring AI has no policy",
+            "LangChain4j has no policy",
+            "Spring AI cannot block requests",
+            "LangChain4j cannot block requests",
+            "Spring AI has no tool controls",
+        )
+        for (claim in forbiddenClaims) {
+            require(!text.contains(claim, ignoreCase = true)) {
+                "Forbidden claim in comparison: '$claim'"
+            }
+        }
+
+        // Row-level comparison matrix checks (against capability section only)
+        val matrixRows = listOf(
+            "| **MCP client** | Implemented | Implemented | Not implemented",
+            "| **MCP server** | Implemented | Community server",
+            "| **Release maturity** | Stable 2.0.0",
+            "Dedicated DLP/redaction",
+            "Policy enforcement points with explicit ALLOW/DENY/REQUIRE_APPROVAL",
+        )
+        for (row in matrixRows) {
+            require(capabilitySection.contains(row, ignoreCase = true)) {
+                "Capability comparison table must contain row fragment: '$row'"
+            }
+        }
+
+        logger.lifecycle("JVM AI framework comparison verification complete.")
+        logger.lifecycle("  - All required headings present")
+        logger.lifecycle("  - All snapshot phrases present")
+        logger.lifecycle("  - Spring AI acknowledgements verified (section-scoped)")
+        logger.lifecycle("  - LangChain4j acknowledgements verified (section-scoped)")
+        logger.lifecycle("  - TramAI boundaries verified (section-scoped)")
+        logger.lifecycle("  - Maturity and coexistence boundaries present (section-scoped)")
+        logger.lifecycle("  - Comparison matrix rows verified (capability section)")
+        logger.lifecycle("  - Official source links present")
+        logger.lifecycle("  - Forbidden claims absent")
     }
 }
 

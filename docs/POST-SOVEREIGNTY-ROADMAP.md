@@ -302,7 +302,7 @@ A new TramAI user should understand:
 | #193 | docs(readme): rewrite README around governed workflows | ✅ Governed first-run story and adoption paths |
 | #194 | [docs(article): draft governed JVM AI workflow article](articles/governed-ai-workflows-for-the-jvm.md) | ✅ Publishable article and companion talk outline |
 | #195 | [docs(examples): add example selection guide](../examples/README.md) | ✅ Decision tree, prerequisites, capability depth, and learning paths |
-| #196 | docs(comparison): add careful comparison with Spring AI/LangChain4j | Differentiation without unfair claims |
+| #196 | [docs(comparison): position TramAI alongside Spring AI and LangChain4j](comparison/jvm-ai-frameworks.md) | ✅ Dated, official-source comparison and selection guide |
 
 **Tasks:**
 1. Define one-sentence positioning
@@ -318,6 +318,10 @@ A new TramAI user should understand:
 - Comparison avoids unfair or unverifiable claims.
 - Article draft exists.
 - Claims are guarded: no compliance/certification/production overreach.
+
+---
+
+**Outcome:** ✅ TramAI is easier to explain, adopt, evaluate, and position alongside established JVM AI frameworks.
 
 ---
 
@@ -410,8 +414,9 @@ Move from optional signature verification to a more formal signing/attestation m
 | #193 | docs(readme): rewrite README around governed workflows |
 | #194 | docs(article): draft governed JVM AI workflow article |
 | #195 | docs(examples): add example selection guide |
+| #196 | docs(comparison): position TramAI alongside Spring AI and LangChain4j |
 
-**Outcome:** TramAI becomes easier to explain, adopt, and evaluate.
+**Outcome:** ✅ TramAI is easier to explain, adopt, evaluate, and position alongside established JVM AI frameworks.
 
 ---
 
