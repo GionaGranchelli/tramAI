@@ -105,6 +105,7 @@ Standalone and Spring Boot integration. Adopt only the capabilities you need wit
 | Inspect the complete sovereign architecture | [`examples/sovereign-document-intelligence`](examples/sovereign-document-intelligence) |
 | Make a basic AI call | [30-Minute Quickstart](docs/guides/quickstart.md) |
 | Integrate with Spring Boot | [Spring Boot Guide](docs/guides/spring-boot.md) |
+| Test workflows deterministically | [Governed Workflow Testing](docs/guides/governed-workflow-testing.md) |
 | Compare every example and its prerequisites | [Example Selection Guide](examples/README.md) |
 | Understand current maturity | [Project Status](docs/STATUS.md) |
 

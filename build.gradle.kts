@@ -5092,27 +5092,36 @@ tasks.register("verifyExampleSelectionGuide") {
         }
 
         // Target existence validation
-        val navTargets = listOf(
-            "examples/governed-workflow",
-            "examples/support-agent",
-            "examples/kotlin-springboot-example",
-            "examples/approval-resume",
-            "examples/spring-sovereign-starter",
-            "examples/sovereign-document-intelligence",
-            "examples/sovereign-offline-verification",
-            "examples/sovereign-lab",
+        // Link-to-target validation — verifies both that the link text exists
+        // in the guide AND that the target file exists on disk
+        val requiredLinks = mapOf(
+            "spring-sovereign-starter/README.md" to
+                "examples/spring-sovereign-starter/README.md",
+            "kotlin-springboot-example/README.md" to
+                "examples/kotlin-springboot-example/README.md",
+            "sovereign-lab/README.md" to "examples/sovereign-lab/README.md",
         )
-        for (path in navTargets) {
-            val target = file(path)
-            require(target.exists()) {
-                "Guide navigation target does not exist: $path"
+        for ((link, targetPath) in requiredLinks) {
+            require(text.contains(link)) {
+                "Guide must contain relative link: $link"
+            }
+            val target = file(targetPath)
+            require(target.isFile) {
+                "Guide link target does not exist: $targetPath"
             }
         }
 
-        // Script target
-        val scriptTarget = file("scripts/verify-zero-egress.sh")
-        require(scriptTarget.exists()) {
-            "Guide script target does not exist: scripts/verify-zero-egress.sh"
+        // Offline harness link points to script (no README)
+        require(text.contains("../scripts/verify-zero-egress.sh")) {
+            "Guide must link the offline verification script as ../scripts/verify-zero-egress.sh"
+        }
+        require(file("scripts/verify-zero-egress.sh").isFile) {
+            "Offline verification script does not exist: scripts/verify-zero-egress.sh"
+        }
+
+        // Prohibit duplicated prefix inside examples/README.md
+        require(!text.contains("examples/sovereign-lab/README.md")) {
+            "Links inside examples/README.md must not repeat the examples/ prefix"
         }
 
         // Root example modules in settings.gradle.kts
@@ -5150,6 +5159,12 @@ tasks.register("verifyExampleSelectionGuide") {
         require(saSection.contains("MockAiProvider")) {
             "Support Agent section must contain 'MockAiProvider'"
         }
+        require(saSection.contains("@AiDescription")) {
+            "Support Agent section must contain '@AiDescription'"
+        }
+        require(!saSection.contains("@Structured")) {
+            "Support Agent section must not reference '@Structured' — the example uses @AiDescription"
+        }
 
         // Kotlin Spring Boot Example
         val ktSection = sectionBetween("### Kotlin Spring Boot Example", "### Approval Resume")
@@ -5158,6 +5173,12 @@ tasks.register("verifyExampleSelectionGuide") {
         }
         require(ktSection.contains("0.3.1")) {
             "Kotlin Spring Boot Example section must contain '0.3.1'"
+        }
+        require(ktSection.contains("gemma4:e4b")) {
+            "Kotlin Spring Boot Example section must specify 'gemma4:e4b' model"
+        }
+        require(ktSection.contains("deepseek-r1:8b-64k")) {
+            "Kotlin Spring Boot Example section must specify 'deepseek-r1:8b-64k' model"
         }
 
         // Approval Resume
@@ -5194,6 +5215,15 @@ tasks.register("verifyExampleSelectionGuide") {
         val sovSection = sectionBetween("### Sovereign Offline Verification", "### Sovereign Lab")
         require(sovSection.contains("verification harness")) {
             "Sovereign Offline Verification section must contain 'verification harness'"
+        }
+        require(sovSection.contains("Docker")) {
+            "Sovereign Offline Verification section must document Docker requirement"
+        }
+        require(sovSection.contains("Python 3")) {
+            "Sovereign Offline Verification section must document Python 3 requirement"
+        }
+        require(sovSection.contains("--network=none")) {
+            "Sovereign Offline Verification section must mention --network=none"
         }
 
         // Sovereign Lab
@@ -5246,7 +5276,8 @@ tasks.register("verifyExampleSelectionGuide") {
         logger.lifecycle("  - All 8 example profiles present")
         logger.lifecycle("  - All required commands present")
         logger.lifecycle("  - All required phrases present")
-        logger.lifecycle("  - All navigation targets and scripts exist")
+        logger.lifecycle("  - All link targets verified (guide text + filesystem)")
+        logger.lifecycle("  - No duplicated examples/ prefix in links")
         logger.lifecycle("  - Six root example modules still in settings.gradle.kts")
         logger.lifecycle("  - Section-scoped checks pass")
         logger.lifecycle("  - Forbidden claims absent")

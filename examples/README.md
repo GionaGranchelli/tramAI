@@ -48,7 +48,7 @@ It is deterministic, requires no credentials or external model, and shows typed 
 | Spring Sovereign Starter | Starter integration | Deterministic | None for basic path | In-memory by default | Sovereign configuration | `./gradlew :examples:spring-sovereign-starter:bootRun` |
 | Sovereign Document Intelligence | Reference workflow | Repository-local example provider | None required | Runtime stores/artifacts | Full reference architecture | `./gradlew :examples:sovereign-document-intelligence:run` |
 | Sovereign Offline Verification | Verification harness | Loopback provider | Controlled network environment | Evidence files | Offline verification | `./scripts/verify-zero-egress.sh` |
-| Sovereign Lab | Physical lab | Yes, local | PostgreSQL, local model, optional Docker | JDBC | Full local evaluation | Follow lab quickstart in `examples/sovereign-lab/README.md` |
+| Sovereign Lab | Physical lab | Yes, local | PostgreSQL, local model, optional Docker | JDBC | Full local evaluation | Follow lab quickstart in [sovereign-lab/README.md](sovereign-lab/README.md) |
 
 ---
 
@@ -84,7 +84,7 @@ It is deterministic, requires no credentials or external model, and shows typed 
 
 **Requires:** Ollama with `gemma4:e2b` for the runtime path. Tests use `MockAiProvider` and do not require Ollama.
 
-**Demonstrates:** `@AiService` annotations, typed responses, structured output with `@Structured`, tool calling, retry policies, and deterministic testing with fake providers.
+**Demonstrates:** `@AiService` annotations, typed `Response` output with `@AiDescription` fields, tool calling, retry policies, and deterministic testing with `MockAiProvider`.
 
 **Does not demonstrate:** sovereign governance, durable approval, policy enforcement, audit evidence, or sovereign persistence. This is a core AI integration example consuming released 0.3.1 artifacts.
 
@@ -101,7 +101,14 @@ It is deterministic, requires no credentials or external model, and shows typed 
 ./gradlew -p examples/kotlin-springboot-example bootRun
 ```
 
-**Requires:** a separate Gradle build (not part of the root project), released 0.3.1 dependencies, and Ollama.
+**Requires:** a separate Gradle build (not part of the root project), released 0.3.1 dependencies, Ollama, and the configured models:
+
+```bash
+ollama pull gemma4:e4b
+ollama pull deepseek-r1:8b-64k
+```
+
+See the [Kotlin Spring Boot example README](kotlin-springboot-example/README.md) for endpoints and manual requests.
 
 **Demonstrates:** raw text generation, streaming responses, tool calling, structured output mapped to typed DTOs, HTTP endpoints, persisted workflow orchestration with checkpoint inspection and resume.
 
@@ -183,7 +190,9 @@ A `--release-bundle-manifest` argument is available for release/evidence artifac
 ./scripts/verify-zero-egress.sh
 ```
 
-**Requires:** a controlled network environment in which external egress is expected to fail. No real model, no credentials, no external infrastructure beyond the verification harness itself.
+See the [verification script](../scripts/verify-zero-egress.sh) for implementation details.
+
+**Requires:** Docker and Python 3. The script builds the verification image, runs it with `--network=none`, and validates the generated report. No real model or API credentials are required.
 
 **Demonstrates:** creating a temporary local model artifact, verifying its digest, using a loopback HTTP provider, configuring the runtime in OFFLINE mode, executing external network probes, and writing verification and evidence output.
 
@@ -214,7 +223,7 @@ These validate configuration and Spring wiring without invoking a real model.
 - Encryption key
 - Optionally Docker Compose
 
-See `examples/sovereign-lab/README.md` for the full setup guide.
+See the [Sovereign Lab README](sovereign-lab/README.md) for the full setup guide.
 
 **Demonstrates:** full local-model sovereign evaluation with PostgreSQL persistence, approval workflow, REST control plane, reviewer UI, evidence bundles, and zero-egress configuration.
 
