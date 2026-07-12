@@ -302,7 +302,7 @@ A new TramAI user should understand:
 | #193 | docs(readme): rewrite README around governed workflows | ✅ Governed first-run story and adoption paths |
 | #194 | [docs(article): draft governed JVM AI workflow article](articles/governed-ai-workflows-for-the-jvm.md) | ✅ Publishable article and companion talk outline |
 | #195 | [docs(examples): add example selection guide](../examples/README.md) | ✅ Decision tree, prerequisites, capability depth, and learning paths |
-| #196 | [docs(comparison): position TramAI alongside Spring AI and LangChain4j](../comparison/jvm-ai-frameworks.md) | ✅ Dated, official-source comparison and selection guide |
+| #196 | [docs(comparison): position TramAI alongside Spring AI and LangChain4j](comparison/jvm-ai-frameworks.md) | ✅ Dated, official-source comparison and selection guide |
 
 **Tasks:**
 1. Define one-sentence positioning
