@@ -434,7 +434,7 @@ The following work remains for the 0.5.0 development train before a release cand
 | Item | Area | Description | Status |
 |------|------|-------------|--------|
 | JavaBean DTO schema generation | Structured Output | Support for JavaBean-style DTOs in structured output schema generation and matching validation | ✅ Complete — PR #198 |
-| Runtime evidence bundle wiring | Evidence | Wire runtime evidence exporters into the evidence bundle | 🔧 Pending |
+| Runtime evidence bundle wiring | Evidence | Wire runtime evidence exporters into the evidence bundle | ✅ Complete — PR #199 |
 | Dedicated tool.permission evidence | Evidence | Add dedicated `tool.permission` runtime-evidence type (separate from generic `policy.decision`) | 🔧 Pending |
 | Tool-governance usage example | Documentation | Add tool governance usage examples | 🔧 Pending |
 | Final 0.5.0 release readiness | Release | Declare RC, verify all acceptance criteria, publish | 🔧 Pending |
