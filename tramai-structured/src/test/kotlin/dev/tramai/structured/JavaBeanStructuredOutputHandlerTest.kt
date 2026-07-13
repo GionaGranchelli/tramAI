@@ -535,6 +535,55 @@ class JavaBeanStructuredOutputHandlerTest {
     }
 
     @Test
+    fun `root generic JavaBean preserves range validation bindings`() {
+        // confidence=1.5 violates @AiRange(0.0, 1.0) — must be caught post-deserialization
+        val result = handler.analyze(
+            rawResponse = """
+                {
+                  "value": {
+                    "status": "approved",
+                    "confidence": 1.5,
+                    "reasons": ["valid"]
+                  }
+                }
+            """.trimIndent(),
+            targetType = typeOf<JavaBeanStructuredOutputFixtures.JavaEnvelope<JavaScoredResult>>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
+        val failure = result as StructuredOutputResult.Failure
+        assertThat(failure.errorSummary).contains("confidence")
+    }
+
+    @Test
+    fun `prefixed array response is correctly extracted`() {
+        val result = handler.analyze(
+            rawResponse = "Here is the requested JSON:\n[\n  {\"status\":\"ok\",\"confidence\":0.5,\"reasons\":[\"a\"]}\n]",
+            targetType = typeOf<List<JavaScoredResult>>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Success::class.java)
+    }
+
+    @Test
+    fun `valid root generic JavaBean with valid values succeeds`() {
+        val result = handler.analyze(
+            rawResponse = """
+                {
+                  "value": {
+                    "status": "approved",
+                    "confidence": 0.8,
+                    "reasons": ["good"]
+                  }
+                }
+            """.trimIndent(),
+            targetType = typeOf<JavaBeanStructuredOutputFixtures.JavaEnvelope<JavaScoredResult>>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Success::class.java)
+    }
+
+    @Test
     fun `valid nested collection with List of List of JavaBeans succeeds`() {
         val result = handler.analyze(
             rawResponse = """

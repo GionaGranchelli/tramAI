@@ -635,7 +635,8 @@ class JacksonStructuredOutputHandler(
                 if (klass.isKotlinClass()) {
                     validateObject(value, klass)
                 } else {
-                    validateJavaBean(value, klass)
+                    val javaType = objectMapper.typeFactory.constructType(targetType.javaType)
+                    validateJavaBean(value, javaType)
                 }
             }
             else -> null
@@ -687,14 +688,6 @@ class JacksonStructuredOutputHandler(
     }
 
     // -- JavaBean validation path --
-
-    private fun validateJavaBean(
-        value: Any,
-        type: KClass<*>,
-    ): String? {
-        val javaType = objectMapper.typeFactory.constructType(type.java)
-        return validateJavaBean(value, javaType)
-    }
 
     /**
      * Recursive JavaBean value validator that mirrors [schemaForJavaType].
@@ -855,19 +848,30 @@ class JacksonStructuredOutputHandler(
         }
 
         val firstChar = trimmed.firstOrNull() ?: throw IllegalArgumentException("Empty response")
-        // Detect whether the outermost structure is an array or object.
-        return if (firstChar == '[') {
-            val lastArray = trimmed.lastIndexOf(']')
-            if (lastArray > 0) trimmed.substring(0, lastArray + 1)
-            else throw IllegalArgumentException("Could not find a matching closing bracket")
-        } else {
-            val firstObject = trimmed.indexOf('{')
-            val lastObject = trimmed.lastIndexOf('}')
-            if (firstObject >= 0 && lastObject > firstObject) {
-                trimmed.substring(firstObject, lastObject + 1)
-            } else {
-                throw IllegalArgumentException("Could not find a JSON object or array in the model response")
+        val objectStart = trimmed.indexOf('{').takeIf { it >= 0 }
+        val arrayStart = trimmed.indexOf('[').takeIf { it >= 0 }
+
+        return when {
+            // Detect whichever opening delimiter occurs first (handles prose-prefixed responses)
+            arrayStart != null && (objectStart == null || arrayStart < objectStart) -> {
+                val end = trimmed.lastIndexOf(']')
+                require(end > arrayStart) {
+                    "Could not find a matching closing bracket"
+                }
+                trimmed.substring(arrayStart, end + 1)
             }
+
+            objectStart != null -> {
+                val end = trimmed.lastIndexOf('}')
+                require(end > objectStart) {
+                    "Could not find a matching closing brace"
+                }
+                trimmed.substring(objectStart, end + 1)
+            }
+
+            else -> throw IllegalArgumentException(
+                "Could not find a JSON object or array in the model response"
+            )
         }
     }
 }
