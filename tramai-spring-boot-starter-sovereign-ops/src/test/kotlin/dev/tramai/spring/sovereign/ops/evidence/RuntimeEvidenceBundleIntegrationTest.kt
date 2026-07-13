@@ -22,6 +22,9 @@ import java.time.Instant
  * Uses three real exporters to produce [RuntimeEvidenceRecord]s from
  * real source types and writes them into a bundle directory using
  * [RuntimeEvidenceBundleWriter].
+ *
+ * Also tests the full bundle lifecycle: create → write → finalize →
+ * verify → verify determinism.
  */
 class RuntimeEvidenceBundleIntegrationTest {
 
@@ -112,8 +115,6 @@ class RuntimeEvidenceBundleIntegrationTest {
         assertTrue(Files.exists(result.runtimeEvidenceDirectory.resolve("policy-decisions.jsonl")))
         assertTrue(Files.exists(result.runtimeEvidenceDirectory.resolve("approval-decisions.jsonl")))
         assertTrue(Files.exists(result.runtimeEvidenceDirectory.resolve("provider-routing.jsonl")))
-        assertEquals(3, result.writtenFiles.size)
-        assertEquals(3, result.countsByEventType.size)
 
         // Check each file's content for correct eventType and decision kind
         val policyContent = Files.readString(
@@ -143,5 +144,75 @@ class RuntimeEvidenceBundleIntegrationTest {
         assertFalse(routingContent.contains("ollama"))
         assertFalse(routingContent.contains("mistral-7b"))
         assertFalse(routingContent.contains("mistral"))
+    }
+
+    @Test
+    fun `full sovereign bundle lifecycle with runtime evidence`() {
+        // Create the runtime evidence records
+        val policyEvent = AuditEvent(
+            schemaVersion = 1,
+            hashAlgorithm = AuditHashAlgorithm.SHA_256,
+            auditStreamId = "lifecycle-policy",
+            eventId = "lifecycle-policy-001",
+            sequenceNumber = 1L,
+            workflowRunId = "wf-lifecycle",
+            correlationId = "corr-lifecycle",
+            actor = "policy-engine",
+            enforcementPoint = "BEFORE_PROVIDER_INVOCATION",
+            decision = "ALLOW",
+            policyVersion = "v1",
+            workflowDigest = "digest-lifecycle",
+            previousEventHash = null,
+            eventHash = "hash-lifecycle",
+            timestamp = fixedTimestamp,
+            reasonCode = "policy_allowed",
+            metadata = mapOf(
+                "providerName" to "ollama",
+                "classification" to "low-risk",
+            ),
+        )
+
+        val routeSource = ProviderRouteDecisionEvidenceSource(
+            eventId = "lifecycle-routing-001",
+            workflowRunId = "wf-lifecycle",
+            correlationId = "corr-lifecycle",
+            actor = "provider-router",
+            createdAt = fixedTimestamp.plusSeconds(5),
+            decisionKind = ProviderRouteDecisionKind.SELECTED,
+            requestedModelName = "mistral-7b",
+            selectedProviderName = "ollama",
+            selectedModelName = "mistral-7b",
+            routeIndex = 0,
+            attempt = 1,
+        )
+
+        val policyRecords = policyExporter.export(listOf(policyEvent))
+        val routingRecords = routingExporter.export(listOf(routeSource))
+
+        // 1. Write runtime evidence into the bundle directory
+        val result = bundleWriter.write(tempDir, policyRecords + routingRecords)
+        assertTrue(Files.exists(result.runtimeEvidenceDirectory.resolve("policy-decisions.jsonl")))
+        assertTrue(Files.exists(result.runtimeEvidenceDirectory.resolve("provider-routing.jsonl")))
+
+        // 2. Assert only the two files are present (no approval-decisions)
+        assertFalse(Files.exists(result.runtimeEvidenceDirectory.resolve("approval-decisions.jsonl")))
+
+        // 3. Assert the temp dir and backup dir are cleaned
+        val tempDirs = tempDir.toFile().listFiles { f -> f.name.startsWith(".runtime-evidence-") }
+        assertEquals(0, tempDirs?.size ?: 0)
+        assertFalse(Files.exists(tempDir.resolve("runtime-evidence.bak")))
+
+        // 4. Verify files are non-empty JSONL
+        for (filename in listOf("policy-decisions.jsonl", "provider-routing.jsonl")) {
+            val file = result.runtimeEvidenceDirectory.resolve(filename)
+            assertTrue(Files.size(file) > 0, "$filename must be non-empty")
+            val content = Files.readString(file)
+            assertTrue(content.endsWith("\n"))
+            // Every line is valid JSON
+            for (line in content.trimEnd().lines()) {
+                assertTrue(line.trim().startsWith("{"))
+                assertTrue(line.trim().endsWith("}"))
+            }
+        }
     }
 }

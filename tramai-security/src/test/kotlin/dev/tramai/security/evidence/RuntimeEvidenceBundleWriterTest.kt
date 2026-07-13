@@ -19,6 +19,9 @@ class RuntimeEvidenceBundleWriterTest {
 
     private val fixedTimestamp = Instant.parse("2026-07-13T10:00:00Z")
 
+    private val validSha256 =
+        "sha256:0000000000000000000000000000000000000000000000000000000000000001"
+
     private val policyRecord = RuntimeEvidenceRecord(
         eventId = "evt-policy-001",
         eventType = "policy.decision",
@@ -32,7 +35,7 @@ class RuntimeEvidenceBundleWriterTest {
             subjectDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000001",
             payloadDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000002",
         ),
-        metadata = mapOf("providerName" to "ollama"),
+        metadata = mapOf("providerName" to "ollama", "classification" to "low"),
     )
 
     private val approvalRecord = RuntimeEvidenceRecord(
@@ -64,7 +67,10 @@ class RuntimeEvidenceBundleWriterTest {
             subjectDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000005",
             payloadDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000006",
         ),
-        metadata = mapOf("requestedModelDigest" to "sha256:abc", "attempt" to "1"),
+        metadata = mapOf(
+            "requestedModelDigest" to "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "attempt" to "1",
+        ),
     )
 
     // ─── 1. Policy records write to policy-decisions.jsonl ──────────────
@@ -165,9 +171,11 @@ class RuntimeEvidenceBundleWriterTest {
             writer.write(tempDir, listOf(badRecord))
         }
         assertTrue(ex.message!!.contains("Unknown event type"))
-        // No runtime-evidence directory should exist
+        // No runtime-evidence directory or temp dir should remain
         assertFalse(Files.exists(tempDir.resolve("runtime-evidence")))
-        assertFalse(Files.exists(tempDir.resolve("runtime-evidence.tmp")))
+        // Unique temp dir is cleaned up — just verify no .runtime-evidence- prefixes remain
+        val leftovers = tempDir.toFile().listFiles { f -> f.name.startsWith(".runtime-evidence-") }
+        assertEquals(0, leftovers?.size ?: 0)
     }
 
     // ─── 9. Invalid decision kind fails ─────────────────────────────────
@@ -194,12 +202,25 @@ class RuntimeEvidenceBundleWriterTest {
         assertTrue(ex.message!!.contains("Unsupported schemaVersion"))
     }
 
-    // ─── 11. Duplicate event ID fails ───────────────────────────────────
+    // ─── 11. Duplicate event ID fails (global, across families) ─────────
 
     @Test
     fun `duplicate event ID fails`() {
         val ex = assertThrows<IllegalArgumentException> {
             writer.write(tempDir, listOf(policyRecord, policyRecord))
+        }
+        assertTrue(ex.message!!.contains("Duplicate runtime evidence eventId"))
+    }
+
+    @Test
+    fun `duplicate event ID fails across event families`() {
+        val policyDup = policyRecord.copy(
+            eventType = "approval.decision",
+            source = RuntimeEvidenceSource(component = "approval-control-plane", module = null),
+            decision = RuntimeEvidenceDecision(kind = "APPROVED", reasonCode = null),
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(tempDir, listOf(policyRecord, policyDup))
         }
         assertTrue(ex.message!!.contains("Duplicate runtime evidence eventId"))
     }
@@ -218,14 +239,15 @@ class RuntimeEvidenceBundleWriterTest {
     }
 
     // ─── 13. Failed write leaves previous section intact ────────────────
+    // This tests a validation failure (before any filesystem op).
 
     @Test
-    fun `failed write leaves previous section intact`() {
+    fun `failed write leaves previous section intact on validation failure`() {
         writer.write(tempDir, listOf(policyRecord))
         val policyPath = tempDir.resolve("runtime-evidence/policy-decisions.jsonl")
         val contentBefore = Files.readString(policyPath)
 
-        // Attempt a write with an invalid record
+        // Attempt a write with an invalid record (fails during validation)
         try {
             writer.write(tempDir, listOf(approvalRecord.copy(eventType = "bad.type")))
         } catch (_: IllegalArgumentException) {
@@ -256,8 +278,9 @@ class RuntimeEvidenceBundleWriterTest {
     @Test
     fun `output contains no temporary files after success`() {
         writer.write(tempDir, listOf(policyRecord, approvalRecord, providerRecord))
-        // No .tmp directory should remain
-        assertFalse(Files.exists(tempDir.resolve("runtime-evidence.tmp")))
+        // No temp directory should remain
+        val leftovers = tempDir.toFile().listFiles { f -> f.name.startsWith(".runtime-evidence-") }
+        assertEquals(0, leftovers?.size ?: 0)
         // Only the three JSONL files and the runtime-evidence directory
         val files = tempDir.resolve("runtime-evidence").toFile().listFiles() ?: emptyArray()
         val jsonlFiles = files.filter { it.name.endsWith(".jsonl") }
@@ -268,8 +291,6 @@ class RuntimeEvidenceBundleWriterTest {
 
     @Test
     fun `valid digests pass through writer`() {
-        // Digest format is validated by RuntimeEvidenceDigests.init at construction.
-        // This test confirms that valid digests are accepted by the writer.
         val result = writer.write(tempDir, listOf(policyRecord))
         assertEquals(1, result.countsByEventType["policy.decision"])
     }
@@ -278,14 +299,17 @@ class RuntimeEvidenceBundleWriterTest {
 
     @Test
     fun `write result contains correct paths and counts`() {
-        val result = writer.write(tempDir, listOf(policyRecord, policyRecord.copy(
-            eventId = "evt-policy-002",
-            createdAt = fixedTimestamp.plusSeconds(1),
-            digests = RuntimeEvidenceDigests(
-                subjectDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000007",
-                payloadDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000008",
+        val result = writer.write(tempDir, listOf(
+            policyRecord,
+            policyRecord.copy(
+                eventId = "evt-policy-002",
+                createdAt = fixedTimestamp.plusSeconds(1),
+                digests = RuntimeEvidenceDigests(
+                    subjectDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000007",
+                    payloadDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000008",
+                ),
             ),
-        )))
+        ))
         assertEquals(tempDir.resolve("runtime-evidence"), result.runtimeEvidenceDirectory)
         assertEquals(listOf("policy-decisions.jsonl"), result.writtenFiles.map { it.toString() })
         assertEquals(mapOf("policy.decision" to 2), result.countsByEventType)
@@ -336,5 +360,170 @@ class RuntimeEvidenceBundleWriterTest {
         val lines = content.trimEnd().lines()
         assertTrue(lines[0].contains("evt-a"), "First line should be evt-a")
         assertTrue(lines[1].contains("evt-b"), "Second line should be evt-b")
+    }
+
+    // ─── 20. Wrong source component is rejected ─────────────────────────
+
+    @Test
+    fun `wrong source component is rejected`() {
+        val badRecord = policyRecord.copy(
+            source = RuntimeEvidenceSource(component = "provider-router")
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(tempDir, listOf(badRecord))
+        }
+        assertTrue(ex.message!!.contains("source.component must be"))
+        assertTrue(ex.message!!.contains("policy-engine"))
+    }
+
+    // ─── 21. Unallowlisted metadata key is rejected ─────────────────────
+
+    @Test
+    fun `unallowlisted metadata key is rejected`() {
+        val badRecord = policyRecord.copy(
+            metadata = mapOf("forbiddenPrompt" to "sensitive data")
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(tempDir, listOf(badRecord))
+        }
+        assertTrue(ex.message!!.contains("not allowlisted"))
+    }
+
+    // ─── 22. Non-code-shaped reasonCode is rejected ─────────────────────
+
+    @Test
+    fun `non-code-shaped reasonCode is rejected`() {
+        val badRecord = policyRecord.copy(
+            decision = RuntimeEvidenceDecision(
+                kind = "ALLOW",
+                reasonCode = "Customer John Smith medical details with PII and secrets",
+            )
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(tempDir, listOf(badRecord))
+        }
+        assertTrue(ex.message!!.contains("reasonCode must match"))
+    }
+
+    // ─── 23. Blank eventId is rejected ──────────────────────────────────
+
+    @Test
+    fun `blank eventId is rejected`() {
+        val badRecord = policyRecord.copy(eventId = "   ")
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(tempDir, listOf(badRecord))
+        }
+        assertTrue(ex.message!!.contains("eventId must not be blank"))
+    }
+
+    // ─── 24. Invalid metadata digest in approval record is rejected ─────
+
+    @Test
+    fun `invalid metadata digest in approval record is rejected`() {
+        val badRecord = approvalRecord.copy(
+            metadata = mapOf("reasonDigest" to "sha256:abc")
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(tempDir, listOf(badRecord))
+        }
+        assertTrue(ex.message!!.contains("reasonDigest must match"))
+    }
+
+    // ─── 25. Invalid metadata digest in routing record is rejected ──────
+
+    @Test
+    fun `invalid metadata digest in routing record is rejected`() {
+        val badRecord = providerRecord.copy(
+            metadata = mapOf(
+                "requestedModelDigest" to "not-a-digest",
+                "attempt" to "1",
+            )
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(tempDir, listOf(badRecord))
+        }
+        assertTrue(ex.message!!.contains("requestedModelDigest must match"))
+    }
+
+    // ─── 26. Negative routeIndex is rejected ────────────────────────────
+
+    @Test
+    fun `negative routeIndex is rejected`() {
+        val badRecord = providerRecord.copy(
+            metadata = mapOf(
+                "requestedModelDigest" to "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "routeIndex" to "-1",
+            )
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(tempDir, listOf(badRecord))
+        }
+        assertTrue(ex.message!!.contains("routeIndex must be a non-negative integer"))
+    }
+
+    // ─── 27. Zero routeIndex is accepted (valid) ────────────────────────
+
+    @Test
+    fun `zero routeIndex is accepted`() {
+        val record = providerRecord.copy(
+            metadata = mapOf(
+                "requestedModelDigest" to "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "routeIndex" to "0",
+                "attempt" to "1",
+            )
+        )
+        val result = writer.write(tempDir, listOf(record))
+        assertEquals(1, result.writtenFiles.size)
+    }
+
+    // ─── 28. Stale .bak directory from a previous crash is cleaned ─────
+
+    @Test
+    fun `stale backup directory is cleaned before write`() {
+        // Write once to create the section
+        writer.write(tempDir, listOf(policyRecord))
+
+        // Simulate a stale backup
+        val backupDir = tempDir.resolve("runtime-evidence.bak")
+        Files.createDirectories(backupDir)
+        val staleFile = backupDir.resolve("stale-evidence.jsonl")
+        Files.writeString(staleFile, "stale")
+
+        // Write again — should clean the stale backup and succeed
+        val result = writer.write(tempDir, listOf(approvalRecord))
+        assertTrue(Files.exists(result.runtimeEvidenceDirectory.resolve("approval-decisions.jsonl")))
+        assertFalse(Files.exists(backupDir))
+    }
+
+    // ─── 29. Unique temp dir name avoids cross-writer interference ──────
+
+    @Test
+    fun `unique temp dir name is used`() {
+        // Run two writes and verify each uses a unique temp dir
+        writer.write(tempDir, listOf(policyRecord))
+        writer.write(tempDir, listOf(approvalRecord))
+
+        // After success, no temp or backup dirs should remain
+        val tempDirs = tempDir.toFile().listFiles { f ->
+            f.name.startsWith(".runtime-evidence-")
+        }
+        assertEquals(0, tempDirs?.size ?: 0)
+        assertFalse(Files.exists(tempDir.resolve("runtime-evidence.bak")))
+    }
+
+    // ─── 30. Valid approval metadata digests pass ───────────────────────
+
+    @Test
+    fun `valid approval metadata digests pass`() {
+        val record = approvalRecord.copy(
+            metadata = mapOf(
+                "approvalVersion" to "2",
+                "reasonDigest" to "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "eventKeyDigest" to "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "reasonLength" to "42",
+            )
+        )
+        val result = writer.write(tempDir, listOf(record))
+        assertEquals(1, result.writtenFiles.size)
     }
 }

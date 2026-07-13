@@ -8,13 +8,13 @@
 
 ## What This Model Covers
 
-This document defines the evidence shape for exporting TramAI runtime decisions into reviewable, digest-verifiable artifacts. It covers three event families:
+This document defines the evidence shape for exporting TramAI runtime decisions into reviewable, digest-verifiable artifacts. It covers three event families, all implemented:
 
 1. **Policy decisions** — allow/deny/require-approval outcomes produced by policy evaluation at runtime.
 2. **Approval decisions** — approve/deny outcomes produced by the approval decision control plane.
-3. **Provider routing decisions** — selected/fallback/blocked routes (defined as a future event family; not yet implemented).
+3. **Provider routing decisions** — selected/fallback/blocked routes produced by the provider router at runtime.
 
-The model defines the record shape, bundle placement, verification semantics, and privacy/sanitisation rules. It does **not** implement an exporter, generate bundle files, or claim that evidence proves correctness or compliance.
+The model defines the record shape, bundle placement, verification semantics, and privacy/sanitisation rules. All three exporters, the `RuntimeEvidenceBundleWriter`, and the bundle verifier are implemented.
 
 ---
 
@@ -56,12 +56,12 @@ Every exported runtime event follows a common record shape:
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
 | `schemaVersion` | Yes | `string` | Must be `"runtime-evidence.v1"`. The verifier rejects unknown versions. |
-| `eventId` | Yes | `string` (UUID) | Unique identifier for the event. |
+| `eventId` | Yes | `string` (UUID) | Unique identifier for the event. Must be globally unique across all event families. |
 | `eventType` | Yes | `string` | One of the defined event family types. |
 | `workflowRunId` | No | `string\|null` | Present when the decision is scoped to a workflow run. |
 | `correlationId` | No | `string\|null` | Correlation identifier for cross-referencing. |
 | `actor` | No | `string\|null` | Identity of the component or human that produced the decision. |
-| `createdAt` | Yes | `string` (ISO-8601) | Timestamp of the decision. |
+| `createdAt` | Yes | `string` (ISO-8601) | Timestamp of the decision. Validated with actual datetime parsing. |
 | `source.component` | Yes | `string` | The component that produced the event. |
 | `source.module` | No | `string\|null` | Optional sub-module or policy name. |
 | `decision.kind` | Yes | `string` | The decision outcome. See event families below. |
@@ -113,30 +113,27 @@ The existing approval decision control plane creates outbox records with event k
 
 **Source:** The outbox records produced by `SovereignOpsApprovalDecisionControlPlane` (see [approval decision evidence tests](../../tramai-spring-boot-starter-sovereign-persistence-jdbc/src/test/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalDecisionControlPlaneTest.kt)).
 
-### C. Provider Routing Decisions (Future)
+### C. Provider Routing Decisions (Implemented)
 
-Provider routing decisions will be produced when the provider resolution layer selects, falls back, or blocks a route to a model provider.
+Provider routing decisions are produced when the provider resolution layer selects, falls back, or blocks a route to a model provider. All three decision kinds are exported by `ProviderRoutingRuntimeEvidenceExporter`.
 
-| Field | Value (future) |
-|-------|----------------|
+| Field | Value |
+|-------|-------|
 | `eventType` | `"provider.route"` |
 | `source.component` | `"provider-router"` |
-| `decision.kind` | `SELECTED`, `FALLBACK`, `BLOCKED` (not yet implemented) |
-
-This family is reserved for a future PR. No provider routing exporter exists yet. The record shape is defined here so that downstream bundle placement and verifier responsibilities can be designed consistently.
+| `decision.kind` | `SELECTED`, `FALLBACK`, `BLOCKED` |
 
 ---
 
 ## Evidence Bundle Placement
 
-When a runtime evidence exporter is implemented (future PR), the exported records should be placed in the sovereign evidence bundle under a `runtime-evidence/` directory:
+Runtime evidence records are placed in the sovereign evidence bundle under a `runtime-evidence/` directory by `RuntimeEvidenceBundleWriter`:
 
 ```
 runtime-evidence/
-  manifest.json        # Optional sub-manifest for the runtime evidence directory
   policy-decisions.jsonl     # Newline-delimited JSON policy decision records
   approval-decisions.jsonl   # Newline-delimited JSON approval decision records
-  provider-routing.jsonl     # Future: newline-delimited JSON provider routing records
+  provider-routing.jsonl     # Newline-delimited JSON provider routing records
 ```
 
 A human-readable summary could also be generated:
@@ -147,7 +144,7 @@ runtime-decisions.md   # Human-readable summary of runtime decisions
 
 **JSONL** (newline-delimited JSON) is recommended for machine-verifiable runtime events: each line is a complete JSON record, making the file streamable and appendable. The human-readable `.md` parallel is optional and can be generated from the JSONL data.
 
-The existing evidence bundle directory structure is defined in the [Sovereign Lab Evidence Chain](../../examples/sovereign-lab/EVIDENCE-CHAIN.md). The `runtime-evidence/` directory would be added alongside the existing artifacts (`manifest.json`, `command-log.md`, `approval-flow.md`, `restart-proof.md`, etc.).
+No sub-manifest is placed under `runtime-evidence/`. The root `manifest.json` at the bundle level records the file digests of every artifact, including runtime evidence files.
 
 ---
 
@@ -196,13 +193,9 @@ These rules are not optional. A verifier that encounters raw sensitive data in a
 
 ## Non-Claims
 
-- This model does not implement an evidence exporter.
-- It does not generate evidence bundle files.
-- It does not add new database schema, audit APIs, or persistence semantics.
-- It does not implement provider routing export, policy export, or approval export.
-- The defined record shape is a design boundary — actual exporter implementations may adjust field names or add optional fields while preserving the required field contract.
 - Evidence records prove that a decision was recorded with a specific outcome. They do not prove the decision was correct, compliant, or sufficiently reviewed.
 - Bundle artifacts are local, reviewable evidence artifacts — they are not production deployments, compliance submissions, or certification materials.
+- The bundle verifier checks structural integrity and digest consistency. It does not verify correctness of recorded decisions.
 
 ---
 
@@ -219,7 +212,9 @@ The following PRs (in order) will implement the runtime evidence export defined 
 | #199 | Add verifier rules for runtime evidence records | ✅ Implemented |
 | #199 | Integrate runtime evidence into the sovereign lab evidence bundle lifecycle | ✅ Implemented |
 
-Exporter PRs reference this model. The bundle lifecycle integration and verifier enforcement are implemented in PR #199.
+All three exporters and the bundle writer/verifier are implemented. No further PRs are required for the core runtime evidence lifecycle.
+
+Automatic background evidence exporting and scheduled polling of approval outboxes remain unimplemented and are out of scope for 0.5.0.
 
 ---
 

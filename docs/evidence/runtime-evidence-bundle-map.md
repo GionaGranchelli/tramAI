@@ -18,19 +18,18 @@ Runtime evidence artifacts live under a dedicated `runtime-evidence/` directory 
 
 ```
 runtime-evidence/
-  manifest.json                # Optional sub-manifest for the runtime evidence directory
   policy-decisions.jsonl       # Machine-verifiable policy decision records
   approval-decisions.jsonl     # Machine-verifiable approval decision records
   provider-routing.jsonl       # Machine-verifiable provider routing records
 ```
+
+The bundle-level `manifest.json` (at the root of the evidence bundle) records the file digests of every artifact present, including runtime evidence files. There is no sub-manifest under `runtime-evidence/`.
 
 A human-readable summary **may** be derived from the JSONL files as:
 
 ```
 runtime-decisions.md           # Reviewer-facing summary (derived from JSONL, not a competing source of truth)
 ```
-
-The bundle-level `manifest.json` (at the root of the evidence bundle) records the file digests of every artifact present. A separate `runtime-evidence/manifest.json` can later describe sub-file semantics but is not required at this stage.
 
 ---
 

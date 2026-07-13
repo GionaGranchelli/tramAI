@@ -31,6 +31,7 @@ import os
 import pathlib
 import re
 import sys
+from datetime import datetime
 
 bundle_dir = pathlib.Path(sys.argv[1]).resolve()
 manifest_path = bundle_dir / "manifest.json"
@@ -59,6 +60,15 @@ def file_sha256_and_size(path: pathlib.Path) -> tuple[str, int]:
             size += len(chunk)
             hasher.update(chunk)
     return hasher.hexdigest(), size
+
+def validate_iso_timestamp(value: str, context: str) -> None:
+    """Actual datetime parsing, not just regex."""
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            fail(f"{context}: timestamp must include timezone offset")
+    except (ValueError, TypeError):
+        fail(f"{context}: timestamp is not valid ISO-8601: {value}")
 
 reject_symlinks()
 
@@ -210,22 +220,51 @@ EVIDENCE_METADATA_KEYS = {
 }
 
 SHA256_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
-ISO_TIMESTAMP_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$"
-)
+REASON_CODE_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
+
+# Strict key sets — reject unknown fields at every level
+ROOT_KEYS = {
+    "schemaVersion", "eventId", "eventType", "workflowRunId",
+    "correlationId", "actor", "createdAt", "source", "decision",
+    "digests", "metadata",
+}
+SOURCE_KEYS = {"component", "module"}
+DECISION_KEYS = {"kind", "reasonCode"}
+DIGEST_KEYS = {"subjectDigest", "payloadDigest"}
+
+# Optional fields that can be null
+NULLABLE_ROOT_FIELDS = {"workflowRunId", "correlationId", "actor"}
+
+def check_valid_string(value, name, context) -> None:
+    """Check a value is a non-empty string (or None/NULL for nullable fields)."""
+    if value is None:
+        return
+    if not isinstance(value, str) or not value.strip():
+        fail(f"{context}: {name} must be a non-empty string, got {repr(value)}")
 
 def validate_runtime_evidence():
     if not runtime_evidence_dir.exists():
         return  # Optional section — absent is valid
 
     if not runtime_evidence_dir.is_dir():
-        fail(f"runtime-evidence must be a directory")
+        fail("runtime-evidence must be a directory")
 
+    # Reject nested directories
+    for path in runtime_evidence_dir.iterdir():
+        if path.is_dir():
+            fail(f"runtime-evidence contains unexpected directory: {path.name}")
+
+    # Collect present files and track for minimum files check
     present_files = set()
-    if runtime_evidence_dir.exists():
-        for path in runtime_evidence_dir.iterdir():
-            if path.is_file():
-                present_files.add(path.name)
+    for path in runtime_evidence_dir.iterdir():
+        if path.is_file():
+            present_files.add(path.name)
+
+    if not present_files:
+        fail("runtime-evidence directory must contain at least one known JSONL file")
+
+    # Track global event ID uniqueness across all files
+    seen_event_ids = set()
 
     # Each known file that IS present must be non-empty and in manifest.json files[]
     for filename, expected_event_type in EVIDENCE_FILES.items():
@@ -241,12 +280,15 @@ def validate_runtime_evidence():
             fail(f"runtime-evidence/{filename} must contain at least one record")
 
         # Verify each JSONL line
+        record_count = 0
         with file_path.open("r", encoding="utf-8") as f:
             line_num = 0
             for line_num, line in enumerate(f, 1):
                 stripped = line.strip()
                 if not stripped:
                     continue  # Skip empty lines
+
+                record_count += 1
 
                 # Must be valid JSON
                 try:
@@ -256,6 +298,14 @@ def validate_runtime_evidence():
 
                 if not isinstance(record, dict):
                     fail(f"runtime-evidence/{filename} line {line_num}: root must be an object")
+
+                # Strict key set: reject unknown fields at root
+                for key in record:
+                    if key not in ROOT_KEYS:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"unknown root field '{key}'. Allowed: {sorted(ROOT_KEYS)}"
+                        )
 
                 # schemaVersion
                 sv = record.get("schemaVersion")
@@ -270,20 +320,38 @@ def validate_runtime_evidence():
                         f"eventType '{et}' does not match expected '{expected_event_type}'"
                     )
 
-                # eventId must be non-empty string
+                # eventId must be non-blank string
                 eid = record.get("eventId")
-                if not isinstance(eid, str) or not eid:
-                    fail(f"runtime-evidence/{filename} line {line_num}: eventId must be a non-empty string")
+                if not isinstance(eid, str) or not eid.strip():
+                    fail(f"runtime-evidence/{filename} line {line_num}: eventId must be a non-blank string")
 
-                # createdAt must be valid ISO-8601
+                # Global event ID uniqueness
+                if eid in seen_event_ids:
+                    fail(f"runtime-evidence/{filename} line {line_num}: duplicate eventId '{eid}'")
+                seen_event_ids.add(eid)
+
+                # createdAt must be valid ISO-8601 (actual parsing)
                 cat = record.get("createdAt")
-                if not isinstance(cat, str) or not ISO_TIMESTAMP_RE.match(cat):
-                    fail(f"runtime-evidence/{filename} line {line_num}: createdAt must be valid ISO-8601 timestamp")
+                if not isinstance(cat, str):
+                    fail(f"runtime-evidence/{filename} line {line_num}: createdAt must be a string")
+                validate_iso_timestamp(cat, f"runtime-evidence/{filename} line {line_num}: createdAt")
 
-                # source
+                # Optional nullable root fields — check string|None
+                for field in NULLABLE_ROOT_FIELDS:
+                    val = record.get(field)
+                    if val is not None and not isinstance(val, str):
+                        fail(f"runtime-evidence/{filename} line {line_num}: {field} must be a string or null")
+
+                # source — strict key set
                 src = record.get("source")
                 if not isinstance(src, dict):
                     fail(f"runtime-evidence/{filename} line {line_num}: source must be an object")
+                for key in src:
+                    if key not in SOURCE_KEYS:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"unknown source field '{key}'. Allowed: {sorted(SOURCE_KEYS)}"
+                        )
                 expected_component = EXPECTED_SOURCE_COMPONENTS.get(expected_event_type)
                 actual_component = src.get("component")
                 if expected_component and actual_component != expected_component:
@@ -291,11 +359,20 @@ def validate_runtime_evidence():
                         f"runtime-evidence/{filename} line {line_num}: "
                         f"source.component must be '{expected_component}', got '{actual_component}'"
                     )
+                src_module = src.get("module")
+                if src_module is not None and not isinstance(src_module, str):
+                    fail(f"runtime-evidence/{filename} line {line_num}: source.module must be a string or null")
 
-                # decision
+                # decision — strict key set
                 dec = record.get("decision")
                 if not isinstance(dec, dict):
                     fail(f"runtime-evidence/{filename} line {line_num}: decision must be an object")
+                for key in dec:
+                    if key not in DECISION_KEYS:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"unknown decision field '{key}'. Allowed: {sorted(DECISION_KEYS)}"
+                        )
                 kind = dec.get("kind")
                 allowed_kinds = ALLOWED_DECISION_KINDS.get(expected_event_type, set())
                 if kind not in allowed_kinds:
@@ -303,11 +380,30 @@ def validate_runtime_evidence():
                         f"runtime-evidence/{filename} line {line_num}: "
                         f"unsupported decision.kind '{kind}'. Allowed: {','.join(sorted(allowed_kinds))}"
                     )
+                # reasonCode format check
+                reason_code = dec.get("reasonCode")
+                if reason_code is not None:
+                    if not isinstance(reason_code, str):
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"decision.reasonCode must be a string or null"
+                        )
+                    if not REASON_CODE_RE.match(reason_code):
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"decision.reasonCode must match ^[a-zA-Z0-9][a-zA-Z0-9._-]{{0,127}}$"
+                        )
 
-                # digests
+                # digests — strict key set
                 dig = record.get("digests")
                 if not isinstance(dig, dict):
                     fail(f"runtime-evidence/{filename} line {line_num}: digests must be an object")
+                for key in dig:
+                    if key not in DIGEST_KEYS:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"unknown digests field '{key}'. Allowed: {sorted(DIGEST_KEYS)}"
+                        )
                 sd = dig.get("subjectDigest", "")
                 if not SHA256_DIGEST_RE.match(str(sd)):
                     fail(f"runtime-evidence/{filename} line {line_num}: subjectDigest must match sha256:<64 hex>")
@@ -333,7 +429,11 @@ def validate_runtime_evidence():
                             f"metadata value for '{key}' must be a string"
                         )
 
-    # Reject unknown JSONL files in runtime-evidence/
+        # Record count check: must contain at least one record
+        if record_count == 0:
+            fail(f"runtime-evidence/{filename} must contain at least one JSON record")
+
+    # Reject unknown files in runtime-evidence/
     for path in runtime_evidence_dir.iterdir():
         if not path.is_file():
             continue

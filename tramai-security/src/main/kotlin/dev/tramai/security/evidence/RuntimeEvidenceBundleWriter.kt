@@ -3,10 +3,14 @@ package dev.tramai.security.evidence
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.FileVisitOption
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
+import java.nio.file.attribute.BasicFileAttributes
+import java.util.EnumSet
 
 /**
  * Writes [RuntimeEvidenceRecord] lists into a sovereign evidence bundle's
@@ -23,21 +27,27 @@ import java.security.MessageDigest
  *
  * ## Fail-closed validation
  *
- * Before writing anything, the entire record set is validated:
+ * Before writing anything, the entire record set is validated by
+ * [RuntimeEvidenceContractValidator]. The validator enforces both the
+ * structural rules (schema version, event type, decision kind, digest format)
+ * and the privacy/semantic rules (source component, metadata allowlists,
+ * reason code format, strict key sets) so the writer can never produce a
+ * section that the verifier would reject.
  *
- * - `schemaVersion` must be `"runtime-evidence.v1"`
- * - `eventType` must be a known type
- * - `decision.kind` must be valid for the event type
- * - `eventId` must be non-empty
- * - `eventId` must be unique across all records of the same event type
- * - `digests.subjectDigest` must match `^sha256:[0-9a-f]{64}$`
- * - `digests.payloadDigest` must match `^sha256:[0-9a-f]{64}$`
+ * ## Transactional section replacement
  *
- * ## Atomic section replacement
+ * The writer uses a unique temporary sibling directory and a backup-based
+ * transactional strategy:
  *
- * The writer uses a temporary sibling directory and `ATOMIC_MOVE` to
- * replace the entire `runtime-evidence/` directory, preventing stale or
- * partially written evidence.
+ * 1. A unique temporary directory is created as a sibling of `runtime-evidence/`.
+ * 2. New evidence is written into the temporary directory.
+ * 3. If `runtime-evidence/` exists, it is moved to `runtime-evidence.bak/`.
+ * 4. The temporary directory is moved to `runtime-evidence/`.
+ * 5. On success, the backup is deleted.
+ * 6. On failure, the backup is restored to `runtime-evidence/`.
+ *
+ * This guarantees that the completed previous section remains recoverable
+ * until the replacement has succeeded.
  *
  * ## Empty input
  *
@@ -48,7 +58,7 @@ class RuntimeEvidenceBundleWriter {
 
     /**
      * Writes the given records into the bundle's `runtime-evidence/`
-     * directory, replacing any existing section atomically.
+     * directory, replacing any existing section transactionally.
      *
      * @param bundleDirectory root directory of the evidence bundle
      * @param records runtime evidence records to write
@@ -65,18 +75,22 @@ class RuntimeEvidenceBundleWriter {
             "Runtime evidence record list must not be empty"
         }
 
-        validateRecords(records)
+        RuntimeEvidenceContractValidator.validate(records)
 
         val grouped = records
             .sortedWith(compareBy(RuntimeEvidenceRecord::createdAt, RuntimeEvidenceRecord::eventId))
             .groupBy { it.eventType }
 
+        // Use a unique temporary sibling directory so a crash cannot
+        // leave stale evidence in a fixed-name temp dir that a later
+        // write would promote.
         val runtimeEvidenceDir = bundleDirectory.resolve(RUNTIME_EVIDENCE_DIR)
-        val tempDir = bundleDirectory.resolve("$RUNTIME_EVIDENCE_DIR.tmp")
+        val tempDir = Files.createTempDirectory(
+            bundleDirectory,
+            ".runtime-evidence-",
+        )
 
         try {
-            Files.createDirectories(tempDir)
-
             val writtenFiles = mutableListOf<Path>()
             val countsByEventType = mutableMapOf<String, Int>()
 
@@ -91,8 +105,8 @@ class RuntimeEvidenceBundleWriter {
                 countsByEventType[eventType] = typedRecords.size
             }
 
-            // Atomic replace of the runtime-evidence directory
-            replaceDirectoryAtomically(tempDir, runtimeEvidenceDir)
+            // Transactional replace of the runtime-evidence directory
+            replaceDirectoryTransactionally(tempDir, runtimeEvidenceDir)
 
             return RuntimeEvidenceBundleWriteResult(
                 runtimeEvidenceDirectory = runtimeEvidenceDir,
@@ -102,9 +116,7 @@ class RuntimeEvidenceBundleWriter {
         } catch (e: Exception) {
             // Clean up temp directory on failure
             try {
-                if (Files.exists(tempDir)) {
-                    tempDir.toFile().deleteRecursively()
-                }
+                deleteSafely(tempDir)
             } catch (_: Exception) {
                 // Best-effort cleanup
             }
@@ -113,74 +125,98 @@ class RuntimeEvidenceBundleWriter {
     }
 
     /**
-     * Validates the entire record set before writing anything.
-     * Every rule is enforced with `require` so failures are always
-     * `IllegalArgumentException`.
+     * Replaces [target] directory with [source] directory transactionally.
+     *
+     * The strategy:
+     * 1. Clean any stale backup from a previous crash.
+     * 2. Move existing target → backup.
+     * 3. Move source → target.
+     * 4. On success, delete backup.
+     * 5. On failure, restore backup → target.
+     *
+     * The previous completed section remains recoverable until the
+     * replacement has succeeded.
      */
-    private fun validateRecords(records: List<RuntimeEvidenceRecord>) {
-        val seenIdsByEventType = mutableMapOf<String, MutableSet<String>>()
+    private fun replaceDirectoryTransactionally(source: Path, target: Path) {
+        val backup = target.resolveSibling("$RUNTIME_EVIDENCE_DIR.bak")
 
-        for (record in records) {
-            require(record.schemaVersion == SCHEMA_VERSION) {
-                "Unsupported schemaVersion: ${record.schemaVersion}. " +
-                    "Expected: $SCHEMA_VERSION"
-            }
+        // Phase 0: clean stale backup from a previous crash
+        if (Files.exists(backup)) {
+            deleteSafely(backup)
+        }
 
-            require(record.eventType in EVENT_FILES) {
-                "Unknown event type: ${record.eventType}. " +
-                    "Supported: ${EVENT_FILES.keys}"
-            }
+        // Phase 1: move existing target to backup
+        if (Files.exists(target)) {
+            atomicMoveOrFallback(target, backup)
+        }
 
-            val allowedKinds = requireNotNull(ALLOWED_DECISION_KINDS[record.eventType]) {
-                "No allowed decision kinds defined for event type: ${record.eventType}"
+        // Phase 2: move new source to target
+        try {
+            atomicMoveOrFallback(source, target)
+        } catch (e: Exception) {
+            // Phase 3: restore backup on failure
+            try {
+                if (Files.exists(backup)) {
+                    // Remove any partial target created by a failed move
+                    if (Files.exists(target)) {
+                        deleteSafely(target)
+                    }
+                    atomicMoveOrFallback(backup, target)
+                }
+            } catch (_: Exception) {
+                // Best-effort restore — original content is in backup/
+                // Target may be empty or partially written
             }
-            require(record.decision.kind in allowedKinds) {
-                "Invalid decision.kind '${record.decision.kind}' for event type " +
-                    "'${record.eventType}'. Allowed: $allowedKinds"
-            }
+            throw e
+        }
 
-            require(record.eventId.isNotEmpty()) {
-                "eventId must not be empty"
-            }
-
-            // Unique eventId within each event family
-            val seenIds = seenIdsByEventType.getOrPut(record.eventType) { mutableSetOf() }
-            require(record.eventId !in seenIds) {
-                "Duplicate runtime evidence eventId: ${record.eventId} " +
-                    "(eventType: ${record.eventType})"
-            }
-            seenIds.add(record.eventId)
-
-            // Digests are validated by RuntimeEvidenceDigests.init, but
-            // we re-validate defensively
-            require(DIGEST_REGEX.matches(record.digests.subjectDigest)) {
-                "subjectDigest must match ^sha256:[0-9a-f]{64}$: ${record.digests.subjectDigest}"
-            }
-            require(DIGEST_REGEX.matches(record.digests.payloadDigest)) {
-                "payloadDigest must match ^sha256:[0-9a-f]{64}$: ${record.digests.payloadDigest}"
-            }
+        // Phase 4: delete backup on success
+        if (Files.exists(backup)) {
+            deleteSafely(backup)
         }
     }
 
     /**
-     * Replaces [target] directory with [source] directory atomically
-     * when possible, with a controlled fallback.
+     * Moves [source] to [target] with `ATOMIC_MOVE` if supported,
+     * falling back to a regular move.
      */
-    private fun replaceDirectoryAtomically(source: Path, target: Path) {
-        // Remove existing target directory if present
-        if (Files.exists(target)) {
-            target.toFile().deleteRecursively()
-        }
-
+    private fun atomicMoveOrFallback(source: Path, target: Path) {
         try {
             Files.move(source, target, StandardCopyOption.ATOMIC_MOVE)
         } catch (_: AtomicMoveNotSupportedException) {
-            // Fallback: move without atomic guarantee
             Files.move(source, target)
         }
     }
 
-    private companion object {
+    /**
+     * Deletes a directory tree without following symbolic links.
+     * Rejects any symlink encountered.
+     */
+    private fun deleteSafely(path: Path) {
+        Files.walkFileTree(
+            path,
+            EnumSet.noneOf(FileVisitOption::class.java),
+            Int.MAX_VALUE,
+            object : SimpleFileVisitor<Path>() {
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    if (attrs.isSymbolicLink || Files.isSymbolicLink(file)) {
+                        throw IOException(
+                            "Symlink detected in evidence directory, rejecting: $file"
+                        )
+                    }
+                    Files.delete(file)
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun postVisitDirectory(dir: Path, exc: IOException?): FileVisitResult {
+                    Files.delete(dir)
+                    return FileVisitResult.CONTINUE
+                }
+            },
+        )
+    }
+
+    internal companion object {
         internal const val RUNTIME_EVIDENCE_DIR = "runtime-evidence"
         internal const val SCHEMA_VERSION = "runtime-evidence.v1"
 
@@ -196,7 +232,41 @@ class RuntimeEvidenceBundleWriter {
             "provider.route" to setOf("SELECTED", "FALLBACK", "BLOCKED"),
         )
 
-        private val DIGEST_REGEX = Regex("^sha256:[0-9a-f]{64}$")
+        /**
+         * Expected source.component values per event type.
+         */
+        internal val EXPECTED_SOURCE_COMPONENTS = mapOf(
+            "policy.decision" to "policy-engine",
+            "approval.decision" to "approval-control-plane",
+            "provider.route" to "provider-router",
+        )
+
+        /**
+         * Allowlisted metadata keys per event family.
+         */
+        internal val ALLOWED_METADATA_KEYS = mapOf(
+            "policy.decision" to setOf(
+                "providerName", "modelName", "toolName", "classification",
+                "classificationSource", "riskLevel", "fallbackProviderName",
+                "attr_cacheReuse", "attr_fallbackReason",
+            ),
+            "approval.decision" to setOf(
+                "approvalVersion", "reasonDigest", "reasonLength",
+                "outboxStatus", "eventKeyDigest",
+            ),
+            "provider.route" to setOf(
+                "requestedModelDigest", "selectedProviderDigest", "selectedModelDigest",
+                "previousProviderDigest", "previousModelDigest", "routeIndex",
+                "attempt", "fallbackReason",
+            ),
+        )
+
+        internal val DIGEST_REGEX = Regex("^sha256:[0-9a-f]{64}$")
+
+        /**
+         * Regex for sanitised reason codes: code-shaped values only.
+         */
+        internal val REASON_CODE_REGEX = Regex("^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
     }
 }
 
