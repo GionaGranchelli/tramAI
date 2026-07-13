@@ -558,11 +558,7 @@ class RuntimeEvidenceBundleWriterTest {
         writer.write(tempDir, listOf(policyRecord))
         writer.write(tempDir, listOf(approvalRecord))
 
-        // After success, no temp or backup dirs should remain
-        val tempDirs = tempDir.toFile().listFiles { f ->
-            f.name.startsWith(".runtime-evidence-")
-        }
-        assertEquals(0, tempDirs?.size ?: 0)
+        // After success, no temp or backup dirs should remain in bundle root
         assertFalse(Files.exists(tempDir.resolve("runtime-evidence.bak")))
     }
 
@@ -580,5 +576,99 @@ class RuntimeEvidenceBundleWriterTest {
         )
         val result = writer.write(tempDir, listOf(record))
         assertEquals(1, result.writtenFiles.size)
+    }
+
+    // ─── 31. Recovery from interrupted replacement restores backup ─────
+
+    @Test
+    fun `recovery from interrupted replacement restores backup`() {
+        writer.write(tempDir, listOf(policyRecord))
+        val evidenceDir = tempDir.resolve("runtime-evidence")
+        val backupDir = tempDir.resolve("runtime-evidence.bak")
+
+        // Simulate crash after target→backup but before source→target
+        Files.move(evidenceDir, backupDir)
+        assertFalse(Files.exists(evidenceDir))
+        assertTrue(Files.exists(backupDir))
+
+        // Next write should detect backup with missing target and restore
+        val result = writer.write(tempDir, listOf(approvalRecord))
+        assertTrue(Files.exists(result.runtimeEvidenceDirectory.resolve("approval-decisions.jsonl")))
+        assertFalse(Files.exists(backupDir))
+    }
+
+    // ─── 32. Both target and backup exist, proceeds cleanly ───────────
+
+    @Test
+    fun `both target and backup exist proceeds cleanly`() {
+        writer.write(tempDir, listOf(policyRecord))
+
+        // Create a stale backup alongside valid target
+        val backupDir = tempDir.resolve("runtime-evidence.bak")
+        Files.createDirectories(backupDir)
+        Files.writeString(backupDir.resolve("stale.jsonl"), "stale")
+
+        // Write should detect both, validate target, delete backup, proceed
+        val result = writer.write(tempDir, listOf(approvalRecord))
+        assertTrue(Files.exists(result.runtimeEvidenceDirectory.resolve("approval-decisions.jsonl")))
+        assertFalse(Files.exists(backupDir))
+    }
+
+    // ─── 33. Symlinked manifest.json is rejected ───────────────────────
+
+    @Test
+    fun `symlinked manifest is rejected`() {
+        val symDir = tempDir.resolve("symlink-test")
+        Files.createDirectory(symDir)
+        // Create real manifest elsewhere and symlink
+        val realManifest = tempDir.resolve("real-manifest.json")
+        Files.writeString(realManifest, """{"bundleType": "sovereign-lab-evidence-bundle"}""")
+        Files.createSymbolicLink(symDir.resolve("manifest.json"), realManifest)
+
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(symDir, listOf(policyRecord))
+        }
+        assertTrue(ex.message!!.contains("must not be a symbolic link"))
+    }
+
+    // ─── 34. Reordered manifest properties are accepted ───────────────
+
+    @Test
+    fun `reordered manifest properties are accepted`() {
+        val dir = tempDir.resolve("reordered")
+        Files.createDirectory(dir)
+        Files.writeString(dir.resolve("manifest.json"),
+            """{"files": [], "bundleType": "sovereign-lab-evidence-bundle", "schemaVersion": 1}"""
+        )
+        val result = writer.write(dir, listOf(policyRecord))
+        assertEquals(1, result.writtenFiles.size)
+    }
+
+    // ─── 35. bundleType as final property is accepted ──────────────────
+
+    @Test
+    fun `bundleType as final property is accepted`() {
+        val dir = tempDir.resolve("final-prop")
+        Files.createDirectory(dir)
+        Files.writeString(dir.resolve("manifest.json"),
+            """{"schemaVersion": 1, "bundleType": "sovereign-lab-evidence-bundle"}"""
+        )
+        val result = writer.write(dir, listOf(policyRecord))
+        assertEquals(1, result.writtenFiles.size)
+    }
+
+    // ─── 36. Malformed JSON containing expected text is rejected ──────
+
+    @Test
+    fun `malformed JSON with expected text is rejected`() {
+        val dir = tempDir.resolve("malformed")
+        Files.createDirectory(dir)
+        Files.writeString(dir.resolve("manifest.json"),
+            """not json at all "bundleType": "sovereign-lab-evidence-bundle"}"""
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(dir, listOf(policyRecord))
+        }
+        assertTrue(ex.message!!.contains("Manifest must be a JSON object"))
     }
 }

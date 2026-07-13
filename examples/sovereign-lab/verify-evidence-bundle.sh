@@ -380,7 +380,7 @@ def validate_runtime_evidence():
                         f"runtime-evidence/{filename} line {line_num}: "
                         f"unsupported decision.kind '{kind}'. Allowed: {','.join(sorted(allowed_kinds))}"
                     )
-                # reasonCode format check
+                # reasonCode format check — family-specific allowlists
                 reason_code = dec.get("reasonCode")
                 if reason_code is not None:
                     if not isinstance(reason_code, str):
@@ -388,11 +388,33 @@ def validate_runtime_evidence():
                             f"runtime-evidence/{filename} line {line_num}: "
                             f"decision.reasonCode must be a string or null"
                         )
-                    if not REASON_CODE_RE.match(reason_code):
-                        fail(
-                            f"runtime-evidence/{filename} line {line_num}: "
-                            f"decision.reasonCode must match ^[a-zA-Z0-9][a-zA-Z0-9._-]{{0,127}}$"
-                        )
+                    if expected_event_type == "approval.decision":
+                        _APPROVAL_REASON_CODES = {"approval-approved", "approval-denied"}
+                        if reason_code not in _APPROVAL_REASON_CODES:
+                            fail(
+                                f"runtime-evidence/{filename} line {line_num}: "
+                                f"decision.reasonCode must be one of "
+                                f"{sorted(_APPROVAL_REASON_CODES)} "
+                                f"for approval.decision, got: {reason_code}"
+                            )
+                    elif expected_event_type == "provider.route":
+                        _ROUTING_REASON_CODES = {
+                            "provider-selected", "provider-fallback", "provider-blocked",
+                        }
+                        if reason_code not in _ROUTING_REASON_CODES:
+                            fail(
+                                f"runtime-evidence/{filename} line {line_num}: "
+                                f"decision.reasonCode must be one of "
+                                f"{sorted(_ROUTING_REASON_CODES)} "
+                                f"for provider.route, got: {reason_code}"
+                            )
+                    else:  # policy.decision — use format regex
+                        if not REASON_CODE_RE.match(reason_code):
+                            fail(
+                                f"runtime-evidence/{filename} line {line_num}: "
+                                f"decision.reasonCode must match "
+                                f"^[a-zA-Z0-9][a-zA-Z0-9._-]{{0,127}}$"
+                            )
 
                 # digests — strict key set
                 dig = record.get("digests")
@@ -428,6 +450,92 @@ def validate_runtime_evidence():
                             f"runtime-evidence/{filename} line {line_num}: "
                             f"metadata value for '{key}' must be a string"
                         )
+
+                # ── Family-specific metadata value validation ────────
+                if expected_event_type == "approval.decision":
+                    # reasonDigest and eventKeyDigest must be valid sha256 digests
+                    for dk in ("reasonDigest", "eventKeyDigest"):
+                        dv = meta.get(dk)
+                        if dv is not None:
+                            if not SHA256_DIGEST_RE.match(str(dv)):
+                                fail(
+                                    f"runtime-evidence/{filename} line {line_num}: "
+                                    f"metadata '{dk}' must match sha256:<64 hex>, got: {dv}"
+                                )
+                    # reasonLength must be a non-negative integer
+                    rl = meta.get("reasonLength")
+                    if rl is not None:
+                        try:
+                            rl_int = int(rl)
+                            if rl_int < 0:
+                                raise ValueError()
+                        except (ValueError, TypeError):
+                            fail(
+                                f"runtime-evidence/{filename} line {line_num}: "
+                                f"metadata 'reasonLength' must be a non-negative integer, got: {rl}"
+                            )
+                    # approvalVersion must be a non-negative integer
+                    av = meta.get("approvalVersion")
+                    if av is not None:
+                        try:
+                            av_int = int(av)
+                            if av_int < 0:
+                                raise ValueError()
+                        except (ValueError, TypeError):
+                            fail(
+                                f"runtime-evidence/{filename} line {line_num}: "
+                                f"metadata 'approvalVersion' must be a non-negative integer, got: {av}"
+                            )
+                elif expected_event_type == "provider.route":
+                    # All five *Digest fields must be valid sha256 digests
+                    for dk in ("requestedModelDigest", "selectedProviderDigest",
+                               "selectedModelDigest", "previousProviderDigest",
+                               "previousModelDigest"):
+                        dv = meta.get(dk)
+                        if dv is not None:
+                            if not SHA256_DIGEST_RE.match(str(dv)):
+                                fail(
+                                    f"runtime-evidence/{filename} line {line_num}: "
+                                    f"metadata '{dk}' must match sha256:<64 hex>, got: {dv}"
+                                )
+                    # routeIndex must be non-negative integer
+                    ri = meta.get("routeIndex")
+                    if ri is not None:
+                        try:
+                            ri_int = int(ri)
+                            if ri_int < 0:
+                                raise ValueError()
+                        except (ValueError, TypeError):
+                            fail(
+                                f"runtime-evidence/{filename} line {line_num}: "
+                                f"metadata 'routeIndex' must be a non-negative integer, got: {ri}"
+                            )
+                    # attempt must be non-negative integer
+                    at = meta.get("attempt")
+                    if at is not None:
+                        try:
+                            at_int = int(at)
+                            if at_int < 0:
+                                raise ValueError()
+                        except (ValueError, TypeError):
+                            fail(
+                                f"runtime-evidence/{filename} line {line_num}: "
+                                f"metadata 'attempt' must be a non-negative integer, got: {at}"
+                            )
+                    # fallbackReason must be in routing allowlist
+                    fb = meta.get("fallbackReason")
+                    if fb is not None:
+                        ALLOWED_ROUTING_REASONS = {
+                            "provider-failure", "streaming-startup-failure",
+                            "circuit-breaker-open", "model-registry-blocked",
+                            "policy-blocked", "no-route",
+                        }
+                        if fb not in ALLOWED_ROUTING_REASONS:
+                            fail(
+                                f"runtime-evidence/{filename} line {line_num}: "
+                                f"metadata 'fallbackReason' must be one of "
+                                f"{sorted(ALLOWED_ROUTING_REASONS)}, got: {fb}"
+                            )
 
         # Record count check: must contain at least one record
         if record_count == 0:

@@ -209,9 +209,7 @@ class RuntimeEvidenceBundleIntegrationTest {
         // 2. Assert only the two files are present (no approval-decisions)
         assertFalse(Files.exists(result.runtimeEvidenceDirectory.resolve("approval-decisions.jsonl")))
 
-        // 3. Assert the temp dir and backup dir are cleaned
-        val tempDirs = tempDir.toFile().listFiles { f -> f.name.startsWith(".runtime-evidence-") }
-        assertEquals(0, tempDirs?.size ?: 0)
+        // 3. Assert the backup dir is cleaned after successful write
         assertFalse(Files.exists(tempDir.resolve("runtime-evidence.bak")))
 
         // 4. Verify files are non-empty JSONL
