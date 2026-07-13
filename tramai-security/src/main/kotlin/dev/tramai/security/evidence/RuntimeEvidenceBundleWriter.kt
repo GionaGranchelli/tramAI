@@ -36,15 +36,24 @@ import java.util.EnumSet
  *
  * ## Transactional section replacement
  *
- * The writer uses a unique temporary sibling directory and a backup-based
- * transactional strategy:
+ * The writer uses a unique temporary sibling directory (outside the bundle
+ * directory) and a backup-based transactional strategy:
  *
- * 1. A unique temporary directory is created as a sibling of `runtime-evidence/`.
+ * 1. A unique temporary directory is created as a sibling of the bundle root.
  * 2. New evidence is written into the temporary directory.
  * 3. If `runtime-evidence/` exists, it is moved to `runtime-evidence.bak/`.
  * 4. The temporary directory is moved to `runtime-evidence/`.
  * 5. On success, the backup is deleted.
  * 6. On failure, the backup is restored to `runtime-evidence/`.
+ *
+ * Before any move, the state of target and backup is evaluated:
+ *
+ * | Target | Backup | Action |
+ * |--------|--------|--------|
+ * | Exists | Absent | Normal: backup target, replace, delete backup |
+ * | Absent | Exists | Recovery: restore backup, then proceed |
+ * | Exists | Exists | Ambiguous: validate target, delete backup, proceed |
+ * | Absent | Absent | No previous section: just replace |
  *
  * This guarantees that the completed previous section remains recoverable
  * until the replacement has succeeded.
@@ -76,26 +85,7 @@ class RuntimeEvidenceBundleWriter {
         }
 
         // Fail closed: require a valid evidence bundle root.
-        val manifestPath = bundleDirectory.resolve("manifest.json")
-        require(Files.exists(bundleDirectory) && Files.isDirectory(bundleDirectory)) {
-            "bundleDirectory must exist and be a directory: $bundleDirectory"
-        }
-        require(Files.exists(manifestPath) && Files.isRegularFile(manifestPath)) {
-            "bundleDirectory must contain manifest.json: $manifestPath"
-        }
-        val manifestContent = Files.readString(manifestPath)
-        val bundleType = manifestContent
-            .substringAfter("\"bundleType\"")
-            .substringAfter(":")
-            .substringBefore(",")
-            .trim()
-            .trim('"')
-            .trimEnd('}')
-            .trim()
-        require(bundleType == "sovereign-lab-evidence-bundle") {
-            "manifest.json must declare bundleType " +
-                "\"sovereign-lab-evidence-bundle\", got: $bundleType"
-        }
+        requireBundleRoot(bundleDirectory)
 
         RuntimeEvidenceContractValidator.validate(records)
 
@@ -103,13 +93,11 @@ class RuntimeEvidenceBundleWriter {
             .sortedWith(compareBy(RuntimeEvidenceRecord::createdAt, RuntimeEvidenceRecord::eventId))
             .groupBy { it.eventType }
 
-        // Use a unique temporary sibling directory so a crash cannot
-        // leave stale evidence in a fixed-name temp dir that a later
-        // write would promote.
-        val runtimeEvidenceDir = bundleDirectory.resolve(RUNTIME_EVIDENCE_DIR)
+        // Use a unique temporary sibling directory OUTSIDE the bundle root
+        // so a crashed temp dir can never be mistaken for legitimate evidence.
         val tempDir = Files.createTempDirectory(
-            bundleDirectory,
-            ".runtime-evidence-",
+            bundleDirectory.parent ?: bundleDirectory.fileSystem.rootDirectories.first(),
+            ".${RUNTIME_EVIDENCE_DIR}-",
         )
 
         try {
@@ -128,10 +116,10 @@ class RuntimeEvidenceBundleWriter {
             }
 
             // Transactional replace of the runtime-evidence directory
-            replaceDirectoryTransactionally(tempDir, runtimeEvidenceDir)
+            replaceDirectoryTransactionally(tempDir, bundleDirectory.resolve(RUNTIME_EVIDENCE_DIR))
 
             return RuntimeEvidenceBundleWriteResult(
-                runtimeEvidenceDirectory = runtimeEvidenceDir,
+                runtimeEvidenceDirectory = bundleDirectory.resolve(RUNTIME_EVIDENCE_DIR),
                 writtenFiles = writtenFiles,
                 countsByEventType = countsByEventType,
             )
@@ -147,28 +135,80 @@ class RuntimeEvidenceBundleWriter {
     }
 
     /**
-     * Replaces [target] directory with [source] directory transactionally.
+     * Validates that [bundleDirectory] contains a valid sovereign-lab
+     * evidence bundle manifest.
+     */
+    private fun requireBundleRoot(bundleDirectory: Path) {
+        val manifestPath = bundleDirectory.resolve("manifest.json")
+        require(Files.exists(bundleDirectory) && Files.isDirectory(bundleDirectory)) {
+            "bundleDirectory must exist and be a directory: $bundleDirectory"
+        }
+        require(Files.exists(manifestPath) && Files.isRegularFile(manifestPath)) {
+            "bundleDirectory must contain manifest.json: $manifestPath"
+        }
+        require(!Files.isSymbolicLink(manifestPath)) {
+            "manifest.json must not be a symbolic link"
+        }
+
+        val manifestContent = Files.readString(manifestPath)
+        val bundleType = ManifestJsonReader.readString(manifestContent, "bundleType")
+        require(bundleType == "sovereign-lab-evidence-bundle") {
+            "manifest.json must declare bundleType " +
+                "\"sovereign-lab-evidence-bundle\", got: $bundleType"
+        }
+    }
+
+    /**
+     * Replaces [target] directory with [source] directory transactionally,
+     * using a state machine that handles crash recovery.
      *
-     * The strategy:
-     * 1. Clean any stale backup from a previous crash.
-     * 2. Move existing target → backup.
-     * 3. Move source → target.
-     * 4. On success, delete backup.
-     * 5. On failure, restore backup → target.
+     * Before any move, the state of target and backup is evaluated:
      *
-     * The previous completed section remains recoverable until the
-     * replacement has succeeded.
+     * | Target | Backup | Action |
+     * |--------|--------|--------|
+     * | Exists | Absent | Normal: backup target, replace, delete backup |
+     * | Absent | Exists | Recovery: restore backup, then proceed |
+     * | Exists | Exists | Ambiguous: validate target, delete backup, proceed |
+     * | Absent | Absent | No previous section: just replace |
      */
     private fun replaceDirectoryTransactionally(source: Path, target: Path) {
         val backup = target.resolveSibling("$RUNTIME_EVIDENCE_DIR.bak")
 
-        // Phase 0: clean stale backup from a previous crash
-        if (Files.exists(backup)) {
-            deleteSafely(backup)
+        val targetExists = Files.exists(target)
+        val backupExists = Files.exists(backup)
+
+        when {
+            // Recovery: a previous replacement was interrupted after
+            // moving target to backup but before completing the move.
+            !targetExists && backupExists -> {
+                atomicMoveOrFallback(backup, target)
+            }
+
+            // Ambiguous: both exist — replacement probably committed
+            // before cleanup. Validate target and remove backup.
+            targetExists && backupExists -> {
+                val targetFiles = target.toFile().listFiles()
+                require(targetFiles != null && targetFiles.isNotEmpty()) {
+                    "Ambiguous state: both runtime-evidence and backup exist, " +
+                        "and target appears invalid"
+                }
+                deleteSafely(backup)
+            }
+
+            // Normal: clean stale backup, proceed
+            targetExists && !backupExists -> {
+                // No stale backup to clean — normal case
+            }
+
+            // No previous section
+            !targetExists && !backupExists -> {
+                // Nothing to do
+            }
         }
 
         // Phase 1: move existing target to backup
         if (Files.exists(target)) {
+            // Note: we check again because recovery may have restored target
             atomicMoveOrFallback(target, backup)
         }
 
@@ -179,7 +219,6 @@ class RuntimeEvidenceBundleWriter {
             // Phase 3: restore backup on failure
             try {
                 if (Files.exists(backup)) {
-                    // Remove any partial target created by a failed move
                     if (Files.exists(target)) {
                         deleteSafely(target)
                     }
