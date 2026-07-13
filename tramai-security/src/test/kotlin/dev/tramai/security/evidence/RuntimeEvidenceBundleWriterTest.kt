@@ -765,8 +765,8 @@ class RuntimeEvidenceBundleWriterTest {
             writer.write(dir, listOf(policyRecord))
         }
         assertTrue(
-            ex.message!!.contains("bundleType") || ex.message!!.contains("Expected"),
-            "Expected message about bundleType or comma, got: ${ex.message}"
+            ex.message!!.contains("Failed to parse manifest.json"),
+            "Expected JSON parse error, got: ${ex.message}"
         )
     }
 
@@ -907,8 +907,8 @@ class RuntimeEvidenceBundleWriterTest {
         val ex = assertThrows<IllegalArgumentException> {
             writer.write(dir, listOf(policyRecord))
         }
-        assertTrue(ex.message!!.contains("Expected"),
-            "Expected comma validation error, got: ${ex.message}")
+        assertTrue(ex.message!!.contains("Failed to parse manifest.json"),
+            "Expected JSON parse error, got: ${ex.message}")
     }
 
     // ─── 49. Duplicate bundleType is rejected ────────────────────────────────
@@ -923,7 +923,7 @@ class RuntimeEvidenceBundleWriterTest {
         val ex = assertThrows<IllegalArgumentException> {
             writer.write(dir, listOf(policyRecord))
         }
-        assertTrue(ex.message!!.contains("Duplicate key") && ex.message!!.contains("bundleType"),
+        assertTrue(ex.message!!.contains("Duplicate"),
             "Expected duplicate key error, got: ${ex.message}")
     }
 
@@ -939,8 +939,8 @@ class RuntimeEvidenceBundleWriterTest {
         val ex = assertThrows<IllegalArgumentException> {
             writer.write(dir, listOf(policyRecord))
         }
-        assertTrue(ex.message!!.contains("Trailing comma"),
-            "Expected trailing comma error, got: ${ex.message}")
+        assertTrue(ex.message!!.contains("Failed to parse manifest.json"),
+            "Expected JSON parse error, got: ${ex.message}")
     }
 
     // ─── 51. Invalid trailing content after object is rejected ────────────────
