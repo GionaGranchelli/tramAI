@@ -73,7 +73,7 @@ class PolicyDecisionRuntimeEvidenceExporterTest {
         workflowRunId = "wf-run-001",
         correlationId = "corr-001",
         actor = "policy-engine",
-        enforcementPoint = "BEFORE_TOOL_EXECUTION",
+        enforcementPoint = "BEFORE_PROVIDER_INVOCATION",
         decision = "REQUIRE_APPROVAL",
         policyVersion = "v1",
         workflowDigest = "digest-abc",
@@ -404,5 +404,75 @@ class PolicyDecisionRuntimeEvidenceExporterTest {
         assertEquals("DENY", record.decision.kind)
         assertEquals("policy_denied", record.decision.reasonCode)
         assertTrue(digestRegex.matches(record.digests.payloadDigest))
+    }
+
+    // ─── O: Tool exposure events are excluded from policy export ─────────
+
+    @Test
+    fun `tool exposure events are excluded from policy export`() {
+        val toolExposure = allowEvent.copy(
+            eventId = "evt-tool-exposure",
+            enforcementPoint = "BEFORE_TOOL_EXPOSURE",
+            decision = "ALLOW",
+            metadata = mapOf("toolName" to "calculator", "enforcementPoint" to "BEFORE_TOOL_EXPOSURE"),
+        )
+        val results = exporter.export(listOf(toolExposure))
+        assertEquals(0, results.size, "Tool exposure events must not appear as policy.decision")
+    }
+
+    // ─── P: Tool execution events are excluded from policy export ────────
+
+    @Test
+    fun `tool execution events are excluded from policy export`() {
+        val toolExecution = denyEvent.copy(
+            eventId = "evt-tool-execution",
+            enforcementPoint = "BEFORE_TOOL_EXECUTION",
+            decision = "DENY",
+            metadata = mapOf("toolName" to "payment", "enforcementPoint" to "BEFORE_TOOL_EXECUTION"),
+        )
+        val results = exporter.export(listOf(toolExecution))
+        assertEquals(0, results.size, "Tool execution events must not appear as policy.decision")
+    }
+
+    // ─── Q: Tool reinjection events are excluded from policy export ──────
+
+    @Test
+    fun `tool reinjection events are excluded from policy export`() {
+        val toolReinjection = allowEvent.copy(
+            eventId = "evt-tool-reinjection",
+            enforcementPoint = "BEFORE_TOOL_RESULT_REINJECTION",
+            decision = "ALLOW",
+            metadata = mapOf("toolName" to "search", "enforcementPoint" to "BEFORE_TOOL_RESULT_REINJECTION"),
+        )
+        val results = exporter.export(listOf(toolReinjection))
+        assertEquals(0, results.size, "Tool reinjection events must not appear as policy.decision")
+    }
+
+    // ─── R: Non-tool policy events continue to export ────────────────────
+
+    @Test
+    fun `non-tool policy events continue to export as policy decision`() {
+        val providerPolicy = allowEvent.copy(
+            eventId = "evt-provider-policy",
+            enforcementPoint = "BEFORE_PROVIDER_INVOCATION",
+        )
+        val results = exporter.export(listOf(providerPolicy))
+        assertEquals(1, results.size)
+        assertEquals("policy.decision", results[0].eventType)
+        assertEquals("evt-provider-policy", results[0].eventId)
+    }
+
+    // ─── S: Combining tool and non-tool events excludes tools only ───────
+
+    @Test
+    fun `combining tool and non-tool events excludes tool events only`() {
+        val toolEvent = allowEvent.copy(
+            eventId = "evt-tool-combo",
+            enforcementPoint = "BEFORE_TOOL_EXECUTION",
+        )
+        val results = exporter.export(listOf(toolEvent, allowEvent))
+        assertEquals(1, results.size)
+        assertEquals("evt-allow-001", results[0].eventId)
+        assertEquals("policy.decision", results[0].eventType)
     }
 }

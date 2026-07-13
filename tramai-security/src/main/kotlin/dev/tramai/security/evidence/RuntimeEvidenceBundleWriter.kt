@@ -293,12 +293,14 @@ class RuntimeEvidenceBundleWriter {
             "policy.decision" to "policy-decisions.jsonl",
             "approval.decision" to "approval-decisions.jsonl",
             "provider.route" to "provider-routing.jsonl",
+            "tool.permission" to "tool-permissions.jsonl",
         )
 
         internal val ALLOWED_DECISION_KINDS = mapOf(
             "policy.decision" to setOf("ALLOW", "DENY", "REQUIRE_APPROVAL"),
             "approval.decision" to setOf("APPROVED", "DENIED"),
             "provider.route" to setOf("SELECTED", "FALLBACK", "BLOCKED"),
+            "tool.permission" to setOf("ALLOW", "DENY", "REQUIRE_APPROVAL"),
         )
 
         /**
@@ -308,6 +310,7 @@ class RuntimeEvidenceBundleWriter {
             "policy.decision" to "policy-engine",
             "approval.decision" to "approval-control-plane",
             "provider.route" to "provider-router",
+            "tool.permission" to "policy-engine",
         )
 
         /**
@@ -327,6 +330,10 @@ class RuntimeEvidenceBundleWriter {
                 "requestedModelDigest", "selectedProviderDigest", "selectedModelDigest",
                 "previousProviderDigest", "previousModelDigest", "routeIndex",
                 "attempt", "fallbackReason",
+            ),
+            "tool.permission" to setOf(
+                "toolName", "enforcementPoint", "riskLevel",
+                "classification", "classificationSource",
             ),
         )
 

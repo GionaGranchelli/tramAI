@@ -32,6 +32,8 @@ internal object RuntimeEvidenceContractValidator {
         "model-registry-blocked", "policy-blocked", "no-route",
     )
 
+    private val TOOL_RISK_LEVELS = setOf("LOW", "MEDIUM", "HIGH", "CRITICAL")
+
     fun validate(records: List<RuntimeEvidenceRecord>) {
         val seenEventIds = mutableSetOf<String>()
 
@@ -184,6 +186,24 @@ internal object RuntimeEvidenceContractValidator {
                     }
                 }
             }
+            "tool.permission" -> {
+                val toolName = record.metadata["toolName"]
+                require(!toolName.isNullOrBlank()) {
+                    "Metadata toolName is required and must not be blank for tool.permission"
+                }
+                val enforcementPoint = record.metadata["enforcementPoint"]
+                require(enforcementPoint in TOOL_ENFORCEMENT_POINTS) {
+                    "Metadata enforcementPoint must be one of $TOOL_ENFORCEMENT_POINTS " +
+                        "for tool.permission, got: $enforcementPoint"
+                }
+                val riskLevel = record.metadata["riskLevel"]
+                if (riskLevel != null) {
+                    require(riskLevel in TOOL_RISK_LEVELS) {
+                        "Metadata riskLevel must be one of $TOOL_RISK_LEVELS " +
+                            "for tool.permission, got: $riskLevel"
+                    }
+                }
+            }
         }
     }
 
@@ -204,7 +224,7 @@ internal object RuntimeEvidenceContractValidator {
                         "for provider.route: $reasonCode"
                 }
             }
-            "policy.decision" -> {
+            "policy.decision", "tool.permission" -> {
                 require(RuntimeEvidenceBundleWriter.REASON_CODE_REGEX.matches(reasonCode)) {
                     "decision.reasonCode must match ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$: " +
                         reasonCode

@@ -33,6 +33,7 @@ class PolicyDecisionRuntimeEvidenceExporter {
      */
     fun export(events: List<AuditEvent>): List<RuntimeEvidenceRecord> =
         events
+            .filterNot { it.enforcementPoint in TOOL_ENFORCEMENT_POINTS }
             .filter { it.decision in ALLOWED_DECISIONS }
             .map { it.toRuntimeEvidenceRecord() }
 

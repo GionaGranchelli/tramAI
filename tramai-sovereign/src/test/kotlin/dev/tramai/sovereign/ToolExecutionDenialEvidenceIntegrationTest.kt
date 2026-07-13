@@ -23,6 +23,7 @@ import dev.tramai.security.audit.InMemoryAuditStore
 import dev.tramai.security.audit.toCanonicalJson
 import dev.tramai.security.evidence.PolicyDecisionRuntimeEvidenceExporter
 import dev.tramai.security.evidence.RuntimeEvidenceJsonlWriter
+import dev.tramai.security.evidence.ToolPermissionRuntimeEvidenceExporter
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -38,14 +39,15 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Composed integration tests proving that tool execution denials produce
- * durable audit records and safe generic runtime evidence through the full
- * end-to-end chain: TramaiEngine → PolicyEnforcementHelper →
+ * durable audit records and safe dedicated tool.permission runtime evidence
+ * through the full end-to-end chain: TramaiEngine → PolicyEnforcementHelper →
  * AuditEnginePolicyDecisionAuditEmitter → AuditEngine → InMemoryAuditStore →
- * PolicyDecisionRuntimeEvidenceExporter.
+ * ToolPermissionRuntimeEvidenceExporter.
  *
- * These tests exercise the *existing* generic policy.decision evidence path.
- * A dedicated tool.permission event type and tool-permissions.jsonl are not
- * yet implemented.
+ * The tool.permission event type is the dedicated evidence family for all
+ * three tool enforcement points (BEFORE_TOOL_EXPOSURE, BEFORE_TOOL_EXECUTION,
+ * BEFORE_TOOL_RESULT_REINJECTION). Tool events are excluded from the generic
+ * policy.decision evidence path.
  */
 class ToolExecutionDenialEvidenceIntegrationTest {
 
@@ -170,10 +172,10 @@ class ToolExecutionDenialEvidenceIntegrationTest {
             "riskLevel must be present in safe audit metadata")
     }
 
-    // --- Test 10: Denied execution exports as safe generic evidence ------------
+    // --- Test 10: Denied execution exports as dedicated tool.permission evidence --
 
     @Test
-    fun `denied execution exports as safe generic policy decision evidence`() = runTest {
+    fun `denied execution exports as dedicated tool permission evidence`() = runTest {
         val (engine, store, tool) = buildFixture()
         val service = engine.create<PaymentService>()
 
@@ -182,7 +184,7 @@ class ToolExecutionDenialEvidenceIntegrationTest {
         assertEquals(0, tool.callCount.get(), "Tool must not execute")
 
         val events = store.readStream(fixedStreamId)
-        val exporter = PolicyDecisionRuntimeEvidenceExporter()
+        val exporter = ToolPermissionRuntimeEvidenceExporter()
         val records = exporter.export(events)
 
         val execDenialRecords = records.filter {
@@ -191,12 +193,13 @@ class ToolExecutionDenialEvidenceIntegrationTest {
         assertEquals(1, execDenialRecords.size, "Expected one exported DENY record for payment tool")
 
         val record = execDenialRecords[0]
-        assertEquals("policy.decision", record.eventType)
+        assertEquals("tool.permission", record.eventType)
         assertEquals("DENY", record.decision.kind)
         assertEquals("tool-execution-denied", record.decision.reasonCode)
         assertEquals("policy-engine", record.source.component)
         assertEquals("payment", record.metadata["toolName"])
         assertEquals("HIGH", record.metadata["riskLevel"])
+        assertEquals("BEFORE_TOOL_EXECUTION", record.metadata["enforcementPoint"])
         assertNotNull(record.digests.subjectDigest)
         assertNotNull(record.digests.payloadDigest)
     }
@@ -213,7 +216,7 @@ class ToolExecutionDenialEvidenceIntegrationTest {
         assertEquals(0, tool.callCount.get(), "Tool must not execute")
 
         val events = store.readStream(fixedStreamId)
-        val exporter = PolicyDecisionRuntimeEvidenceExporter()
+        val exporter = ToolPermissionRuntimeEvidenceExporter()
         val records = exporter.export(events)
 
         val sensitiveValues = setOf(
