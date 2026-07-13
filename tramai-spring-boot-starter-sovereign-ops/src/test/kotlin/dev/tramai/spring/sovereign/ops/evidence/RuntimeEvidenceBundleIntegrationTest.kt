@@ -10,6 +10,7 @@ import dev.tramai.security.evidence.RuntimeEvidenceBundleWriter
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -31,12 +32,23 @@ class RuntimeEvidenceBundleIntegrationTest {
     @TempDir
     lateinit var tempDir: Path
 
+    @BeforeEach
+    fun setUpBundleRoot() {
+        createBundleManifest(tempDir)
+    }
+
     private val policyExporter = PolicyDecisionRuntimeEvidenceExporter()
     private val approvalExporter = ApprovalDecisionRuntimeEvidenceExporter()
     private val routingExporter = ProviderRoutingRuntimeEvidenceExporter()
     private val bundleWriter = RuntimeEvidenceBundleWriter()
 
     private val fixedTimestamp = Instant.parse("2026-07-13T10:00:00Z")
+
+    private fun createBundleManifest(dir: Path) {
+        dir.resolve("manifest.json").toFile().writeText(
+            """{"bundleType": "sovereign-lab-evidence-bundle", "schemaVersion": 1, "claimBoundary": {}, "requiredFiles": [], "files": []}"""
+        )
+    }
 
     @Test
     fun `three real exporters produce complete runtime evidence section`() {

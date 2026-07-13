@@ -3,6 +3,7 @@ package dev.tramai.security.evidence
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
@@ -15,12 +16,23 @@ class RuntimeEvidenceBundleWriterTest {
     @TempDir
     lateinit var tempDir: Path
 
+    @BeforeEach
+    fun setUpBundleRoot() {
+        createBundleManifest(tempDir)
+    }
+
     private val writer = RuntimeEvidenceBundleWriter()
 
     private val fixedTimestamp = Instant.parse("2026-07-13T10:00:00Z")
 
     private val validSha256 =
         "sha256:0000000000000000000000000000000000000000000000000000000000000001"
+
+    private fun createBundleManifest(dir: Path) {
+        dir.resolve("manifest.json").toFile().writeText(
+            """{"bundleType": "sovereign-lab-evidence-bundle", "schemaVersion": 1, "claimBoundary": {}, "requiredFiles": [], "files": []}"""
+        )
+    }
 
     private val policyRecord = RuntimeEvidenceRecord(
         eventId = "evt-policy-001",
@@ -160,6 +172,27 @@ class RuntimeEvidenceBundleWriterTest {
             writer.write(tempDir, emptyList())
         }
         assertTrue(ex.message!!.contains("must not be empty"))
+    }
+
+    @Test
+    fun `write fails without valid bundle manifest`() {
+        val missingManifestDir = Files.createDirectory(tempDir.resolve("missing-manifest"))
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(missingManifestDir, listOf(policyRecord))
+        }
+        assertTrue(ex.message!!.contains("manifest.json"))
+    }
+
+    @Test
+    fun `write fails with wrong bundle type in manifest`() {
+        val wrongManifestDir = Files.createDirectory(tempDir.resolve("wrong-manifest"))
+        wrongManifestDir.resolve("manifest.json").toFile().writeText(
+            """{"bundleType": "wrong-type"}"""
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(wrongManifestDir, listOf(policyRecord))
+        }
+        assertTrue(ex.message!!.contains("bundleType"))
     }
 
     // ─── 8. Unknown event type fails before filesystem mutation ─────────
@@ -403,6 +436,28 @@ class RuntimeEvidenceBundleWriterTest {
             writer.write(tempDir, listOf(badRecord))
         }
         assertTrue(ex.message!!.contains("reasonCode must match"))
+    }
+
+    @Test
+    fun `approval reasonCode outside allowlist is rejected`() {
+        val badRecord = approvalRecord.copy(
+            decision = RuntimeEvidenceDecision(kind = "APPROVED", reasonCode = "approval-pending")
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(tempDir, listOf(badRecord))
+        }
+        assertTrue(ex.message!!.contains("approval.decision"))
+    }
+
+    @Test
+    fun `provider routing reasonCode outside allowlist is rejected`() {
+        val badRecord = providerRecord.copy(
+            decision = RuntimeEvidenceDecision(kind = "SELECTED", reasonCode = "provider-retry")
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(tempDir, listOf(badRecord))
+        }
+        assertTrue(ex.message!!.contains("provider.route"))
     }
 
     // ─── 23. Blank eventId is rejected ──────────────────────────────────

@@ -75,6 +75,28 @@ class RuntimeEvidenceBundleWriter {
             "Runtime evidence record list must not be empty"
         }
 
+        // Fail closed: require a valid evidence bundle root.
+        val manifestPath = bundleDirectory.resolve("manifest.json")
+        require(Files.exists(bundleDirectory) && Files.isDirectory(bundleDirectory)) {
+            "bundleDirectory must exist and be a directory: $bundleDirectory"
+        }
+        require(Files.exists(manifestPath) && Files.isRegularFile(manifestPath)) {
+            "bundleDirectory must contain manifest.json: $manifestPath"
+        }
+        val manifestContent = Files.readString(manifestPath)
+        val bundleType = manifestContent
+            .substringAfter("\"bundleType\"")
+            .substringAfter(":")
+            .substringBefore(",")
+            .trim()
+            .trim('"')
+            .trimEnd('}')
+            .trim()
+        require(bundleType == "sovereign-lab-evidence-bundle") {
+            "manifest.json must declare bundleType " +
+                "\"sovereign-lab-evidence-bundle\", got: $bundleType"
+        }
+
         RuntimeEvidenceContractValidator.validate(records)
 
         val grouped = records

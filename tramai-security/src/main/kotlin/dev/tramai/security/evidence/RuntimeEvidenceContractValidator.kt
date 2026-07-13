@@ -21,6 +21,12 @@ package dev.tramai.security.evidence
  * | numeric metadata values are valid | Routing family (routeIndex, attempt) |
  */
 internal object RuntimeEvidenceContractValidator {
+    private val APPROVAL_REASON_CODES = setOf("approval-approved", "approval-denied")
+    private val ROUTING_REASON_CODES = setOf(
+        "provider-selected",
+        "provider-fallback",
+        "provider-blocked",
+    )
 
     fun validate(records: List<RuntimeEvidenceRecord>) {
         val seenEventIds = mutableSetOf<String>()
@@ -164,9 +170,26 @@ internal object RuntimeEvidenceContractValidator {
 
     private fun validateReasonCode(record: RuntimeEvidenceRecord) {
         val reasonCode = record.decision.reasonCode
-        if (reasonCode != null) {
-            require(RuntimeEvidenceBundleWriter.REASON_CODE_REGEX.matches(reasonCode)) {
-                "decision.reasonCode must match ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$: $reasonCode"
+        if (reasonCode == null) return
+
+        when (record.eventType) {
+            "approval.decision" -> {
+                require(reasonCode in APPROVAL_REASON_CODES) {
+                    "decision.reasonCode must be one of $APPROVAL_REASON_CODES " +
+                        "for approval.decision: $reasonCode"
+                }
+            }
+            "provider.route" -> {
+                require(reasonCode in ROUTING_REASON_CODES) {
+                    "decision.reasonCode must be one of $ROUTING_REASON_CODES " +
+                        "for provider.route: $reasonCode"
+                }
+            }
+            "policy.decision" -> {
+                require(RuntimeEvidenceBundleWriter.REASON_CODE_REGEX.matches(reasonCode)) {
+                    "decision.reasonCode must match ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$: " +
+                        reasonCode
+                }
             }
         }
     }
