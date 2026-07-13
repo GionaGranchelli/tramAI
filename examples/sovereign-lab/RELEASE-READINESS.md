@@ -30,8 +30,8 @@ All commands must pass before the evidence bundle can be considered release-cand
 
 A valid evidence bundle follows this lifecycle:
 
-```
-create → fill → finalize → verify
+```text
+create → export runtime records → write runtime-evidence → fill → finalize → verify
 ```
 
 Required commands:
@@ -39,7 +39,10 @@ Required commands:
 ```bash
 examples/sovereign-lab/create-evidence-bundle.sh
 
-# Fill generated evidence files and copy reports into reports/
+# 1. Export runtime decision records via PolicyDecisionRuntimeEvidenceExporter,
+#    ApprovalDecisionRuntimeEvidenceExporter, ProviderRoutingRuntimeEvidenceExporter
+# 2. Write them with RuntimeEvidenceBundleWriter
+# 3. Fill generated evidence files and copy reports into reports/
 
 examples/sovereign-lab/finalize-evidence-bundle.sh \
   examples/sovereign-lab/build/evidence-bundles/<timestamp>
@@ -163,10 +166,14 @@ Before treating a sovereign lab run as release-candidate evidence:
 
 - [ ] Required Gradle verification commands pass.
 - [ ] Evidence bundle is created.
+- [ ] Runtime decision records are exported and written via `RuntimeEvidenceBundleWriter`.
 - [ ] Evidence files are filled.
 - [ ] Generated reports are copied into `reports/`.
 - [ ] Bundle is finalized.
 - [ ] Bundle verifier passes.
+- [ ] If runtime evidence export was active, expected JSONL files are present.
+- [ ] Runtime evidence files are included in `manifest.json`.
+- [ ] Bundle verifier passes runtime-evidence structural checks.
 - [ ] `manifest.json` contains the expected claim boundary.
 - [ ] `files[]` includes copied reports.
 - [ ] Post-finalization tamper detection has been tested.

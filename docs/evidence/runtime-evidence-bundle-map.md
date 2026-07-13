@@ -1,6 +1,6 @@
 # Runtime Evidence Bundle Map
 
-> **Status:** Mapping — defines where runtime-evidence.v1 records live in the sovereign evidence bundle and how reviewers, verifiers, and export tools should interpret them.
+> **Status:** Implemented — `RuntimeEvidenceBundleWriter` in `tramai-security` writes runtime-evidence JSONL into the bundle, and the verifier checks its structural integrity.
 > **Phase:** Phase 5 — Runtime Evidence Export of the [Post-Sovereignty Roadmap](../POST-SOVEREIGNTY-ROADMAP.md).
 > **Prerequisites:** [Runtime Evidence Export Model](runtime-evidence-export-model.md), [Sovereign Lab Evidence Chain](../../examples/sovereign-lab/EVIDENCE-CHAIN.md).
 
@@ -176,12 +176,13 @@ A verifier that encounters raw sensitive data in a runtime evidence record must 
 
 ## Non-Claims
 
-- This document maps JSONL files to bundle locations. It does not generate bundle files.
-- It does not define runtime wiring, export triggers, or scheduling.
-- It does not add verifier enforcement rules.
-- It does not modify the bundle creation, finalisation, or verification scripts.
-- Evidence records prove that a decision was recorded with a specific outcome. They do not prove the decision was correct, compliant, or sufficiently reviewed.
-- Bundle artifacts are local, reviewable evidence artifacts — not production deployments, compliance submissions, or certification materials.
+- This document maps JSONL files to bundle locations. It does not generate bundle files automatically.
+- Runtime evidence export requires explicit `RuntimeEvidenceBundleWriter` invocation. No automatic
+  scheduling or background export is provided.
+- Evidence records prove that a decision was recorded with a specific outcome. They do not prove
+  the decision was correct, compliant, or sufficiently reviewed.
+- Bundle artifacts are local, reviewable evidence artifacts — not production deployments, compliance
+  submissions, or certification materials.
 
 ---
 

@@ -17,6 +17,7 @@ A reviewer should receive a finalized evidence bundle directory containing:
 - `manifest.json`
 - required evidence markdown files
 - optional copied reports under `reports/`
+- optional `runtime-evidence/` directory with machine-verifiable decision records
 
 The bundle should already have been finalized with:
 

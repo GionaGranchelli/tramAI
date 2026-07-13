@@ -80,11 +80,14 @@ This does not validate whether the evidence is complete, correct, audited, compl
 Use this flow when producing a completed evidence bundle:
 
 1. **Create** a bundle.
-2. **Fill** the evidence templates.
-3. **Copy** generated reports into reports/.
-4. **Finalize** the bundle.
-5. **Verify** the finalized bundle.
-6. **Share** the bundle.
+2. **Export** runtime decision records.
+3. **Write** runtime-evidence JSONL into the bundle.
+4. **Fill** the remaining evidence templates.
+5. **Copy** generated reports into reports/.
+6. **Finalize** the bundle.
+7. **Verify** the finalized bundle.
+8. **Package** the bundle (optional).
+9. **Share** the bundle.
 
 ### 1. Create the bundle
 
@@ -92,7 +95,28 @@ Use this flow when producing a completed evidence bundle:
 examples/sovereign-lab/create-evidence-bundle.sh
 ```
 
-### 2. Fill the evidence files
+### 2. Export runtime decision records
+
+Use the three runtime evidence exporters to produce `RuntimeEvidenceRecord` objects:
+
+```kotlin
+val policyRecords = PolicyDecisionRuntimeEvidenceExporter().export(policyEvents)
+val approvalRecords = ApprovalDecisionRuntimeEvidenceExporter().export(approvalOutboxRecords)
+val routingRecords = ProviderRoutingRuntimeEvidenceExporter().export(routeDecisions)
+```
+
+### 3. Write runtime-evidence JSONL
+
+```kotlin
+val bundleDir = Path.of("examples/sovereign-lab/build/evidence-bundles/<timestamp>")
+val result = RuntimeEvidenceBundleWriter().write(
+    bundleDirectory = bundleDir,
+    records = policyRecords + approvalRecords + routingRecords,
+)
+// result.writtenFiles contains policy-decisions.jsonl, approval-decisions.jsonl, provider-routing.jsonl
+```
+
+### 4. Fill the remaining evidence files
 
 Edit the generated files under:
 
@@ -102,7 +126,7 @@ examples/sovereign-lab/build/evidence-bundles/<timestamp>/
 
 Capture command output, environment details, approval flow proof, restart proof, JDBC persistence proof, and optional benchmark diagnostics.
 
-### 3. Finalize the bundle
+### 5. Finalize the bundle
 
 After editing evidence files, refresh the manifest digests:
 
@@ -111,7 +135,7 @@ examples/sovereign-lab/finalize-evidence-bundle.sh \
   examples/sovereign-lab/build/evidence-bundles/<timestamp>
 ```
 
-### 4. Verify the finalized bundle
+### 6. Verify the finalized bundle
 
 ```bash
 examples/sovereign-lab/verify-evidence-bundle.sh \

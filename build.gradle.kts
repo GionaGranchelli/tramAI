@@ -3204,7 +3204,7 @@ tasks.register("verifySovereignLabProfile") {
 
         val evidenceChainText = evidenceChain.readText()
         listOf(
-            "create → fill → finalize → verify → readiness → review → package → extract → re-verify",
+            "create → export runtime records → write runtime-evidence → fill → finalize → verify → readiness → review → package → extract → re-verify",
             "create-evidence-bundle.sh",
             "finalize-evidence-bundle.sh",
             "verify-evidence-bundle.sh",
@@ -3714,6 +3714,98 @@ $pythonCode
             negRunVerifier(manifestSymlinkDir, "symlink")
             negRunFinalizer(manifestSymlinkDir, "symlink")
         }
+
+        // ── Runtime evidence negative fixtures ──
+
+        val rtDir = negDir.resolve("runtime-evidence-fixtures")
+        if (rtDir.exists()) rtDir.deleteRecursively()
+        rtDir.mkdirs()
+
+        fun writeRtEvidence(bundle: File, filename: String, vararg lines: String) {
+            val dir = bundle.resolve("runtime-evidence")
+            dir.mkdirs()
+            val file = dir.resolve(filename)
+            file.writeText(lines.joinToString("\n") + "\n")
+        }
+
+        fun createRtNegFixture(name: String): File {
+            val target = rtDir.resolve(name)
+            if (target.exists()) target.deleteRecursively()
+            bundle.copyRecursively(target, overwrite = true)
+            return target
+        }
+
+        fun negFinalizeRt(bundleDir: File) {
+            val p = ProcessBuilder("bash", finalizer.absolutePath, bundleDir.absolutePath)
+                .inheritIO().start()
+            require(p.waitFor() == 0) { "Finalization failed for ${bundleDir.name}" }
+        }
+
+        val validJsonlLine = """{"schemaVersion":"runtime-evidence.v1","eventId":"evt-001","eventType":"policy.decision","workflowRunId":null,"correlationId":null,"actor":null,"createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine","module":"v1"},"decision":{"kind":"ALLOW","reasonCode":"policy_allowed"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"},"metadata":{"providerName":"ollama"}}"""
+
+        // Case: Malformed JSON line
+        val malformedDir = createRtNegFixture("malformed-json-line")
+        writeRtEvidence(malformedDir, "policy-decisions.jsonl", "this is not json")
+        negFinalizeRt(malformedDir)
+        negRunVerifier(malformedDir, "invalid JSON")
+
+        // Case: Blank file (must contain at least one record)
+        val blankDir = createRtNegFixture("blank-jsonl-file")
+        val blankFile = blankDir.resolve("runtime-evidence/policy-decisions.jsonl")
+        blankFile.parentFile.mkdirs()
+        blankFile.writeText("")
+        negFinalizeRt(blankDir)
+        negRunVerifier(blankDir, "must contain at least one record")
+
+        // Case: Wrong schema version
+        val badSchemaDir = createRtNegFixture("wrong-schema-version")
+        writeRtEvidence(badSchemaDir, "policy-decisions.jsonl",
+            """{"schemaVersion":"evidences.v2","eventId":"evt-002","eventType":"policy.decision","createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine"},"decision":{"kind":"ALLOW"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"}}"""
+        )
+        negFinalizeRt(badSchemaDir)
+        negRunVerifier(badSchemaDir, "unsupported schemaVersion")
+
+        // Case: Event/file mismatch
+        val mismatchDir = createRtNegFixture("event-file-mismatch")
+        writeRtEvidence(mismatchDir, "approval-decisions.jsonl",
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"evt-003","eventType":"policy.decision","createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine"},"decision":{"kind":"ALLOW"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"}}"""
+        )
+        negFinalizeRt(mismatchDir)
+        negRunVerifier(mismatchDir, "does not match expected")
+
+        // Case: Invalid decision kind
+        val badKindDir = createRtNegFixture("invalid-decision-kind")
+        writeRtEvidence(badKindDir, "policy-decisions.jsonl",
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"evt-004","eventType":"policy.decision","createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine"},"decision":{"kind":"INVALID_KIND"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"}}"""
+        )
+        negFinalizeRt(badKindDir)
+        negRunVerifier(badKindDir, "unsupported decision.kind")
+
+        // Case: Unknown metadata key
+        val badMetaDir = createRtNegFixture("unknown-metadata-key")
+        writeRtEvidence(badMetaDir, "policy-decisions.jsonl",
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"evt-005","eventType":"policy.decision","createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine"},"decision":{"kind":"ALLOW"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"},"metadata":{"rawPrompt":"this should be rejected"}}"""
+        )
+        negFinalizeRt(badMetaDir)
+        negRunVerifier(badMetaDir, "not allowlisted")
+
+        // Case: Runtime file removed from files[] in manifest
+        val missingManifestDir = createRtNegFixture("runtime-file-missing-from-manifest")
+        writeRtEvidence(missingManifestDir, "policy-decisions.jsonl", validJsonlLine)
+        // Re-finalize (will include the file), then remove it from manifest
+        val reFinalProcess = ProcessBuilder("bash", finalizer.absolutePath, missingManifestDir.absolutePath)
+            .inheritIO().start()
+        require(reFinalProcess.waitFor() == 0) { "Finalization failed for runtime-file-missing-from-manifest" }
+        mutateManifest(missingManifestDir,
+            """m["files"] = [f for f in m["files"] if f["path"] != "runtime-evidence/policy-decisions.jsonl"]"""
+        )
+        negRunVerifier(missingManifestDir, "manifest")
+
+        // Case: Unknown JSONL filename
+        val unknownFileDir = createRtNegFixture("unknown-runtime-jsonl")
+        writeRtEvidence(unknownFileDir, "secret-events.jsonl", validJsonlLine)
+        negFinalizeRt(unknownFileDir)
+        negRunVerifier(unknownFileDir, "unknown file")
 
         // Clean up negative fixture directories
         negDir.deleteRecursively()

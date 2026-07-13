@@ -29,6 +29,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import sys
 
 bundle_dir = pathlib.Path(sys.argv[1]).resolve()
@@ -140,6 +141,206 @@ for relative in required_files:
 
     if relative not in files_by_path:
         fail(f"files metadata missing for required file: {relative}")
+
+# Every actual file in the bundle (except manifest.json) must appear in files[]
+existing_paths = set()
+for path in bundle_dir.rglob("*"):
+    if not path.is_file():
+        continue
+    relative = path.relative_to(bundle_dir).as_posix()
+    if relative == "manifest.json":
+        continue
+    if os.path.isabs(relative) or ".." in pathlib.PurePosixPath(relative).parts:
+        fail(f"bundle file must be a safe relative path: {relative}")
+    existing_paths.add(relative)
+
+unmanifested = existing_paths - set(files_by_path.keys())
+if unmanifested:
+    fail(
+        "bundle contains files missing from manifest: "
+        + ", ".join(sorted(unmanifested))
+    )
+
+# ── runtime-evidence section ──────────────────────────────────────
+# Optional section: can be absent entirely. If present, validate.
+
+RUNTIME_EVIDENCE_DIR = "runtime-evidence"
+runtime_evidence_dir = bundle_dir / RUNTIME_EVIDENCE_DIR
+
+# Known runtime evidence files and their expected event types
+EVIDENCE_FILES = {
+    "policy-decisions.jsonl": "policy.decision",
+    "approval-decisions.jsonl": "approval.decision",
+    "provider-routing.jsonl": "provider.route",
+}
+
+# Allowed decision kinds per event type
+ALLOWED_DECISION_KINDS = {
+    "policy.decision": {"ALLOW", "DENY", "REQUIRE_APPROVAL"},
+    "approval.decision": {"APPROVED", "DENIED"},
+    "provider.route": {"SELECTED", "FALLBACK", "BLOCKED"},
+}
+
+# Expected source component per event type
+EXPECTED_SOURCE_COMPONENTS = {
+    "policy.decision": "policy-engine",
+    "approval.decision": "approval-control-plane",
+    "provider.route": "provider-router",
+}
+
+# Metadata allowlists per event family
+POLICY_METADATA_KEYS = {
+    "providerName", "modelName", "toolName", "classification",
+    "classificationSource", "riskLevel", "fallbackProviderName",
+    "attr_cacheReuse", "attr_fallbackReason",
+}
+APPROVAL_METADATA_KEYS = {
+    "approvalVersion", "reasonDigest", "reasonLength",
+    "outboxStatus", "eventKeyDigest",
+}
+ROUTING_METADATA_KEYS = {
+    "requestedModelDigest", "selectedProviderDigest", "selectedModelDigest",
+    "previousProviderDigest", "previousModelDigest", "routeIndex",
+    "attempt", "fallbackReason",
+}
+EVIDENCE_METADATA_KEYS = {
+    "policy.decision": POLICY_METADATA_KEYS,
+    "approval.decision": APPROVAL_METADATA_KEYS,
+    "provider.route": ROUTING_METADATA_KEYS,
+}
+
+SHA256_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+ISO_TIMESTAMP_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$"
+)
+
+def validate_runtime_evidence():
+    if not runtime_evidence_dir.exists():
+        return  # Optional section — absent is valid
+
+    if not runtime_evidence_dir.is_dir():
+        fail(f"runtime-evidence must be a directory")
+
+    present_files = set()
+    if runtime_evidence_dir.exists():
+        for path in runtime_evidence_dir.iterdir():
+            if path.is_file():
+                present_files.add(path.name)
+
+    # Each known file that IS present must be non-empty and in manifest.json files[]
+    for filename, expected_event_type in EVIDENCE_FILES.items():
+        file_path = runtime_evidence_dir / filename
+        if not file_path.exists():
+            continue  # File is optional — may be absent independently
+
+        if not file_path.is_file():
+            fail(f"runtime-evidence/{filename} must be a file")
+
+        file_size = file_path.stat().st_size
+        if file_size == 0:
+            fail(f"runtime-evidence/{filename} must contain at least one record")
+
+        # Verify each JSONL line
+        with file_path.open("r", encoding="utf-8") as f:
+            line_num = 0
+            for line_num, line in enumerate(f, 1):
+                stripped = line.strip()
+                if not stripped:
+                    continue  # Skip empty lines
+
+                # Must be valid JSON
+                try:
+                    record = json.loads(stripped)
+                except json.JSONDecodeError as exc:
+                    fail(f"runtime-evidence/{filename} line {line_num}: invalid JSON: {exc}")
+
+                if not isinstance(record, dict):
+                    fail(f"runtime-evidence/{filename} line {line_num}: root must be an object")
+
+                # schemaVersion
+                sv = record.get("schemaVersion")
+                if sv != "runtime-evidence.v1":
+                    fail(f"runtime-evidence/{filename} line {line_num}: unsupported schemaVersion: {sv}")
+
+                # eventType must match file
+                et = record.get("eventType")
+                if et != expected_event_type:
+                    fail(
+                        f"runtime-evidence/{filename} line {line_num}: "
+                        f"eventType '{et}' does not match expected '{expected_event_type}'"
+                    )
+
+                # eventId must be non-empty string
+                eid = record.get("eventId")
+                if not isinstance(eid, str) or not eid:
+                    fail(f"runtime-evidence/{filename} line {line_num}: eventId must be a non-empty string")
+
+                # createdAt must be valid ISO-8601
+                cat = record.get("createdAt")
+                if not isinstance(cat, str) or not ISO_TIMESTAMP_RE.match(cat):
+                    fail(f"runtime-evidence/{filename} line {line_num}: createdAt must be valid ISO-8601 timestamp")
+
+                # source
+                src = record.get("source")
+                if not isinstance(src, dict):
+                    fail(f"runtime-evidence/{filename} line {line_num}: source must be an object")
+                expected_component = EXPECTED_SOURCE_COMPONENTS.get(expected_event_type)
+                actual_component = src.get("component")
+                if expected_component and actual_component != expected_component:
+                    fail(
+                        f"runtime-evidence/{filename} line {line_num}: "
+                        f"source.component must be '{expected_component}', got '{actual_component}'"
+                    )
+
+                # decision
+                dec = record.get("decision")
+                if not isinstance(dec, dict):
+                    fail(f"runtime-evidence/{filename} line {line_num}: decision must be an object")
+                kind = dec.get("kind")
+                allowed_kinds = ALLOWED_DECISION_KINDS.get(expected_event_type, set())
+                if kind not in allowed_kinds:
+                    fail(
+                        f"runtime-evidence/{filename} line {line_num}: "
+                        f"unsupported decision.kind '{kind}'. Allowed: {','.join(sorted(allowed_kinds))}"
+                    )
+
+                # digests
+                dig = record.get("digests")
+                if not isinstance(dig, dict):
+                    fail(f"runtime-evidence/{filename} line {line_num}: digests must be an object")
+                sd = dig.get("subjectDigest", "")
+                if not SHA256_DIGEST_RE.match(str(sd)):
+                    fail(f"runtime-evidence/{filename} line {line_num}: subjectDigest must match sha256:<64 hex>")
+                pd = dig.get("payloadDigest", "")
+                if not SHA256_DIGEST_RE.match(str(pd)):
+                    fail(f"runtime-evidence/{filename} line {line_num}: payloadDigest must match sha256:<64 hex>")
+
+                # metadata allowlist
+                meta = record.get("metadata", {})
+                if not isinstance(meta, dict):
+                    fail(f"runtime-evidence/{filename} line {line_num}: metadata must be an object")
+                allowed_meta = EVIDENCE_METADATA_KEYS.get(expected_event_type, set())
+                for key in meta:
+                    if key not in allowed_meta:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"metadata key '{key}' is not allowlisted for {expected_event_type}"
+                        )
+                    val = meta[key]
+                    if not isinstance(val, str):
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"metadata value for '{key}' must be a string"
+                        )
+
+    # Reject unknown JSONL files in runtime-evidence/
+    for path in runtime_evidence_dir.iterdir():
+        if not path.is_file():
+            continue
+        if path.name not in EVIDENCE_FILES:
+            fail(f"runtime-evidence contains unknown file: {path.name}")
+
+validate_runtime_evidence()
 
 # Verify every files[] entry matches actual file contents
 for path, entry in files_by_path.items():
