@@ -3448,12 +3448,38 @@ tasks.register("verifySovereignLabEvidenceBundle") {
             "Evidence bundle verifier rejected a clean generated bundle (exit $cleanExitCode)."
         }
 
+        // ── Positive runtime-evidence: add valid records before finalization ──
+
+        val rtEvidenceDir = bundle.resolve("runtime-evidence")
+        rtEvidenceDir.mkdirs()
+
+        fun writeRtLine(filename: String, vararg lines: String) {
+            rtEvidenceDir.resolve(filename).writeText(lines.joinToString("\n") + "\n")
+        }
+
+        // Valid policy decision record
+        writeRtLine("policy-decisions.jsonl",
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"lifecycle-policy-001","eventType":"policy.decision","workflowRunId":"wf-lc","correlationId":"corr-lc","actor":"policy-engine","createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine","module":"v1"},"decision":{"kind":"ALLOW","reasonCode":"policy_allowed"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"},"metadata":{"providerName":"ollama","classification":"low"}}"""
+        )
+
+        // Valid approval decision record
+        writeRtLine("approval-decisions.jsonl",
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"lifecycle-approval-001","eventType":"approval.decision","workflowRunId":"wf-lc","correlationId":"corr-lc2","actor":"human-approver","createdAt":"2026-07-13T10:00:10Z","source":{"component":"approval-control-plane","module":"approval"},"decision":{"kind":"APPROVED","reasonCode":"approval-approved"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000003","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000004"},"metadata":{"approvalVersion":"1","reasonDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","reasonLength":"29"}}"""
+        )
+
+        // Valid provider routing record
+        writeRtLine("provider-routing.jsonl",
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"lifecycle-routing-001","eventType":"provider.route","workflowRunId":"wf-lc","correlationId":"corr-lc3","actor":"provider-router","createdAt":"2026-07-13T10:00:20Z","source":{"component":"provider-router","module":"tramai-engine"},"decision":{"kind":"SELECTED","reasonCode":"provider-selected"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000005","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000006"},"metadata":{"requestedModelDigest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","routeIndex":"0","attempt":"1"}}"""
+        )
+
+        logger.lifecycle("verifySovereignLabEvidenceBundle: added positive runtime-evidence to ${bundle.absolutePath}")
+
         // ── lifecycle: edit → fail → finalize → pass → tamper → fail ──
 
         val evidenceFile = bundle.resolve("command-log.md")
         evidenceFile.appendText("\nOperator captured command output.\n")
 
-        // Edited bundle must fail before finalization
+        // Verify before finalization must fail (manifest is stale or missing files)
         val preFinalizeProcess = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
             .redirectErrorStream(true)
             .start()
@@ -3464,9 +3490,11 @@ tasks.register("verifySovereignLabEvidenceBundle") {
         }
         require(
             preFinalizeOutput.contains("sha256 mismatch") ||
-            preFinalizeOutput.contains("sizeBytes mismatch")
+            preFinalizeOutput.contains("sizeBytes mismatch") ||
+            preFinalizeOutput.contains("missing from manifest") ||
+            preFinalizeOutput.contains("files missing from manifest")
         ) {
-            "Evidence bundle verifier failure before finalization should explain digest or size mismatch. Output: $preFinalizeOutput"
+            "Evidence bundle verifier failure before finalization should explain digest or size mismatch or missing files. Output: $preFinalizeOutput"
         }
 
         // Finalize to refresh manifest digests
@@ -3487,21 +3515,72 @@ tasks.register("verifySovereignLabEvidenceBundle") {
             "Evidence bundle verifier rejected a finalized bundle (exit $postFinalizeExitCode)."
         }
 
+        // ── Positive runtime-evidence manifest checks ──
+
+        val manifestAfterRt = bundle.resolve("manifest.json").readText()
+        for (rtFile in listOf(
+            "runtime-evidence/policy-decisions.jsonl",
+            "runtime-evidence/approval-decisions.jsonl",
+            "runtime-evidence/provider-routing.jsonl",
+        )) {
+            require(manifestAfterRt.contains(rtFile)) {
+                "manifest.json must contain runtime-evidence path '$rtFile' after finalization. " +
+                    "Manifest: $manifestAfterRt"
+            }
+        }
+        logger.lifecycle(
+            "verifySovereignLabEvidenceBundle: positive runtime-evidence finalized " +
+                "and verified with 3 files in manifest.json"
+        )
+
+        // ── Positive runtime-evidence tamper test ──
+        // Tamper WITHOUT re-finalizing so verifier catches stale manifest
+
+        val tamperedRtFile = bundle.resolve("runtime-evidence/policy-decisions.jsonl")
+        val originalRtContent = tamperedRtFile.readText()
+        tamperedRtFile.appendText("\n{\"tampered\":true}\n")
+        val tamperVerifyProc = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val tamperVerifyOutput = tamperVerifyProc.inputStream.bufferedReader().readText()
+        val tamperVerifyExit = tamperVerifyProc.waitFor()
+        require(tamperVerifyExit != 0) {
+            "Verifier must reject a tampered runtime-evidence file, but exit was $tamperVerifyExit. Output: $tamperVerifyOutput"
+        }
+        require(
+            tamperVerifyOutput.contains("sha256 mismatch") ||
+            tamperVerifyOutput.contains("sizeBytes mismatch") ||
+            tamperVerifyOutput.contains("unknown root field")
+        ) {
+            "Verifier failure after runtime-evidence tamper should explain digest, size, or unknown field. Output: $tamperVerifyOutput"
+        }
+        logger.lifecycle(
+            "verifySovereignLabEvidenceBundle: tampered runtime-evidence correctly rejected with stale-manifest detection"
+        )
+
+        // Restore original content and re-finalize for subsequent tests
+        tamperedRtFile.writeText(originalRtContent)
+        val restoreFinalizeProc = ProcessBuilder("bash", finalizer.absolutePath, bundle.absolutePath)
+            .inheritIO().start()
+        require(restoreFinalizeProc.waitFor() == 0) { "Failed to re-finalize after tamper recovery" }
+
         // Post-finalization tamper must fail
         evidenceFile.appendText("\nTampered after finalization.\n")
         val tamperedAfterProcess = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
             .redirectErrorStream(true)
             .start()
         val tamperedAfterOutput = tamperedAfterProcess.inputStream.bufferedReader().readText()
-        val tamperedAfterExitCode = tamperedAfterProcess.waitFor()
-        require(tamperedAfterExitCode != 0) {
+        val tamperedAfterExit = tamperedAfterProcess.waitFor()
+        require(tamperedAfterExit != 0) {
             "Evidence bundle verifier must fail after a finalized bundle is tampered with."
         }
         require(
             tamperedAfterOutput.contains("sha256 mismatch") ||
-            tamperedAfterOutput.contains("sizeBytes mismatch")
+            tamperedAfterOutput.contains("sizeBytes mismatch") ||
+            tamperedAfterOutput.contains("unknown root field") ||
+            tamperedAfterOutput.contains("unsupported schemaVersion")
         ) {
-            "Evidence bundle verifier failure after tampering should explain digest or size mismatch. Output: $tamperedAfterOutput"
+            "Evidence bundle verifier failure after tampering should explain digest, size, or structural mismatch. Output: $tamperedAfterOutput"
         }
 
         // ── copied reports regression ──

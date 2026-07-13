@@ -27,6 +27,10 @@ internal object RuntimeEvidenceContractValidator {
         "provider-fallback",
         "provider-blocked",
     )
+    private val ALLOWED_FALLBACK_REASONS = setOf(
+        "provider-failure", "streaming-startup-failure", "circuit-breaker-open",
+        "model-registry-blocked", "policy-blocked", "no-route",
+    )
 
     fun validate(records: List<RuntimeEvidenceRecord>) {
         val seenEventIds = mutableSetOf<String>()
@@ -134,8 +138,17 @@ internal object RuntimeEvidenceContractValidator {
                 }
                 val reasonLength = record.metadata["reasonLength"]
                 if (reasonLength != null) {
-                    reasonLength.toIntOrNull()
-                        ?: error("Metadata reasonLength must be a valid integer: $reasonLength")
+                    val parsed = reasonLength.toIntOrNull()
+                    require(parsed != null && parsed >= 0) {
+                        "Metadata reasonLength must be a non-negative integer: $reasonLength"
+                    }
+                }
+                val approvalVersion = record.metadata["approvalVersion"]
+                if (approvalVersion != null) {
+                    val parsed = approvalVersion.toIntOrNull()
+                    require(parsed != null && parsed >= 0) {
+                        "Metadata approvalVersion must be a non-negative integer: $approvalVersion"
+                    }
                 }
             }
             "provider.route" -> {
@@ -162,6 +175,12 @@ internal object RuntimeEvidenceContractValidator {
                     val parsed = attempt.toIntOrNull()
                     require(parsed != null && parsed >= 0) {
                         "Metadata attempt must be a non-negative integer: $attempt"
+                    }
+                }
+                val fallbackReason = record.metadata["fallbackReason"]
+                if (fallbackReason != null) {
+                    require(fallbackReason in ALLOWED_FALLBACK_REASONS) {
+                        "Metadata fallbackReason must be one of $ALLOWED_FALLBACK_REASONS: $fallbackReason"
                     }
                 }
             }

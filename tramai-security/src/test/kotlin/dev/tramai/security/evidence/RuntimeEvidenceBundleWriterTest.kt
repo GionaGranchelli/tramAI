@@ -671,4 +671,120 @@ class RuntimeEvidenceBundleWriterTest {
         }
         assertTrue(ex.message!!.contains("Manifest must be a JSON object"))
     }
+
+    // ─── 37. Negative approvalVersion is rejected ──────────────────────
+
+    @Test
+    fun `negative approvalVersion is rejected`() {
+        val badRecord = approvalRecord.copy(
+            metadata = mapOf("approvalVersion" to "-5")
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(tempDir, listOf(badRecord))
+        }
+        assertTrue(ex.message!!.contains("approvalVersion must be a non-negative integer"))
+    }
+
+    // ─── 38. Negative reasonLength is rejected ──────────────────────────
+
+    @Test
+    fun `negative reasonLength is rejected`() {
+        val badRecord = approvalRecord.copy(
+            metadata = mapOf("reasonLength" to "-1")
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(tempDir, listOf(badRecord))
+        }
+        assertTrue(ex.message!!.contains("reasonLength must be a non-negative integer"))
+    }
+
+    // ─── 39. Invalid fallbackReason is rejected ────────────────────────
+
+    @Test
+    fun `invalid fallbackReason is rejected`() {
+        val badRecord = providerRecord.copy(
+            metadata = mapOf(
+                "requestedModelDigest" to "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "fallbackReason" to "raw customer information",
+            )
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(tempDir, listOf(badRecord))
+        }
+        assertTrue(ex.message!!.contains("fallbackReason must be one of"))
+    }
+
+    // ─── 40. Valid fallbackReason passes ───────────────────────────────
+
+    @Test
+    fun `valid fallbackReason passes`() {
+        val record = providerRecord.copy(
+            metadata = mapOf(
+                "requestedModelDigest" to "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "fallbackReason" to "provider-failure",
+            )
+        )
+        val result = writer.write(tempDir, listOf(record))
+        assertEquals(1, result.writtenFiles.size)
+    }
+
+    // ─── 41. Relative single-segment path works ────────────────────────
+
+    @Test
+    fun `relative single-segment path works`() {
+        val relDir = Path.of("build/test-rel-path")
+        try {
+            relDir.toFile().mkdirs()
+            createBundleManifest(relDir)
+            val result = writer.write(relDir, listOf(policyRecord))
+            assertTrue(Files.exists(result.runtimeEvidenceDirectory.resolve("policy-decisions.jsonl")))
+        } finally {
+            relDir.toFile().deleteRecursively()
+        }
+    }
+
+    // ─── 42. Missing comma in manifest is rejected ─────────────────────
+
+    @Test
+    fun `missing comma in manifest is rejected`() {
+        val dir = tempDir.resolve("no-comma")
+        Files.createDirectory(dir)
+        Files.writeString(dir.resolve("manifest.json"),
+            """{"schemaVersion": 1 "bundleType": "sovereign-lab-evidence-bundle"}"""
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(dir, listOf(policyRecord))
+        }
+        assertTrue(
+            ex.message!!.contains("bundleType") || ex.message!!.contains("Expected"),
+            "Expected message about bundleType or comma, got: ${ex.message}"
+        )
+    }
+
+    // ─── 43. Invalid target with valid backup fails closed ────────────
+
+    @Test
+    fun `invalid target with valid backup preserves backup`() {
+        writer.write(tempDir, listOf(policyRecord))
+        val evidenceDir = tempDir.resolve("runtime-evidence")
+        val backupDir = tempDir.resolve("runtime-evidence.bak")
+
+        // Corrupt the target with a non-evidence file
+        evidenceDir.toFile().listFiles()?.forEach { it.delete() }
+        Files.writeString(evidenceDir.resolve("corrupt.txt"), "garbage")
+
+        // Create a valid backup
+        Files.createDirectories(backupDir)
+        Files.writeString(backupDir.resolve("policy-decisions.jsonl"),
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"bkp-1","eventType":"policy.decision","createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine"},"decision":{"kind":"ALLOW","reasonCode":"policy_allowed"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"},"metadata":{}}"""
+        )
+
+        // Write should fail because target is invalid and backup exists
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(tempDir, listOf(approvalRecord))
+        }
+        assertTrue(ex.message!!.contains("Ambiguous state"))
+        // Backup should still exist
+        assertTrue(Files.exists(backupDir))
+    }
 }

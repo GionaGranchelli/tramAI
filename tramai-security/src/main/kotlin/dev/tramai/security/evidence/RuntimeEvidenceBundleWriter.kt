@@ -84,8 +84,14 @@ class RuntimeEvidenceBundleWriter {
             "Runtime evidence record list must not be empty"
         }
 
+        // Normalize bundle directory to handle relative single-segment paths
+        val normalizedBundleDir = bundleDirectory.toAbsolutePath().normalize()
+        val tempParent = requireNotNull(normalizedBundleDir.parent) {
+            "bundleDirectory must have a parent directory for temp file placement: $bundleDirectory"
+        }
+
         // Fail closed: require a valid evidence bundle root.
-        requireBundleRoot(bundleDirectory)
+        requireBundleRoot(normalizedBundleDir)
 
         RuntimeEvidenceContractValidator.validate(records)
 
@@ -95,8 +101,9 @@ class RuntimeEvidenceBundleWriter {
 
         // Use a unique temporary sibling directory OUTSIDE the bundle root
         // so a crashed temp dir can never be mistaken for legitimate evidence.
+        val runtimeEvidenceDir = normalizedBundleDir.resolve(RUNTIME_EVIDENCE_DIR)
         val tempDir = Files.createTempDirectory(
-            bundleDirectory.parent ?: bundleDirectory.fileSystem.rootDirectories.first(),
+            tempParent,
             ".${RUNTIME_EVIDENCE_DIR}-",
         )
 
@@ -116,10 +123,10 @@ class RuntimeEvidenceBundleWriter {
             }
 
             // Transactional replace of the runtime-evidence directory
-            replaceDirectoryTransactionally(tempDir, bundleDirectory.resolve(RUNTIME_EVIDENCE_DIR))
+            replaceDirectoryTransactionally(tempDir, runtimeEvidenceDir)
 
             return RuntimeEvidenceBundleWriteResult(
-                runtimeEvidenceDirectory = bundleDirectory.resolve(RUNTIME_EVIDENCE_DIR),
+                runtimeEvidenceDirectory = runtimeEvidenceDir,
                 writtenFiles = writtenFiles,
                 countsByEventType = countsByEventType,
             )
@@ -159,6 +166,25 @@ class RuntimeEvidenceBundleWriter {
     }
 
     /**
+     * Validates that a target directory looks like a valid
+     * runtime-evidence section. Returns true if it does, false otherwise.
+     */
+    private fun isValidEvidenceSection(target: Path): Boolean {
+        if (!Files.exists(target) || !Files.isDirectory(target)) return false
+        if (Files.isSymbolicLink(target)) return false
+        val files = target.toFile().listFiles() ?: return false
+        val knownFilenames = EVENT_FILES.values.toSet()
+        var hasKnownFile = false
+        for (file in files) {
+            if (file.isDirectory) return false
+            if (file.name in knownFilenames && file.length() > 0) {
+                hasKnownFile = true
+            }
+        }
+        return hasKnownFile
+    }
+
+    /**
      * Replaces [target] directory with [source] directory transactionally,
      * using a state machine that handles crash recovery.
      *
@@ -168,7 +194,8 @@ class RuntimeEvidenceBundleWriter {
      * |--------|--------|--------|
      * | Exists | Absent | Normal: backup target, replace, delete backup |
      * | Absent | Exists | Recovery: restore backup, then proceed |
-     * | Exists | Exists | Ambiguous: validate target, delete backup, proceed |
+     * | Exists & Valid | Exists | Ambiguous: validate target, delete backup, proceed |
+     * | Exists & Invalid | Exists | Ambiguous with risk: preserve both, fail closed |
      * | Absent | Absent | No previous section: just replace |
      */
     private fun replaceDirectoryTransactionally(source: Path, target: Path) {
@@ -184,13 +211,13 @@ class RuntimeEvidenceBundleWriter {
                 atomicMoveOrFallback(backup, target)
             }
 
-            // Ambiguous: both exist — replacement probably committed
-            // before cleanup. Validate target and remove backup.
+            // Ambiguous: both exist — validate target before
+            // deleting backup. If target is invalid, preserve both.
             targetExists && backupExists -> {
-                val targetFiles = target.toFile().listFiles()
-                require(targetFiles != null && targetFiles.isNotEmpty()) {
+                require(isValidEvidenceSection(target)) {
                     "Ambiguous state: both runtime-evidence and backup exist, " +
-                        "and target appears invalid"
+                        "and target is not a valid evidence section. " +
+                        "Backup preserved for manual recovery at: $backup"
                 }
                 deleteSafely(backup)
             }

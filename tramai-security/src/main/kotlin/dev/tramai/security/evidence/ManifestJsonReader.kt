@@ -93,10 +93,16 @@ internal object ManifestJsonReader {
                 pos = skipValue(body, pos)
             }
 
-            // Skip whitespace and optional comma
+            // Skip whitespace and required comma
             pos = skipWhitespace(body, pos)
-            if (pos < body.length && body[pos] == ',') {
+            if (pos >= body.length) break
+            if (body[pos] == '}') break  // End of object
+            if (body[pos] == ',') {
                 pos++
+            } else {
+                throw IllegalArgumentException(
+                    "Expected ',' or '}' at position $pos, got: ${body[pos]}"
+                )
             }
         }
 
@@ -129,6 +135,7 @@ internal object ManifestJsonReader {
             when (content[pos]) {
                 '{', '[' -> depth++
                 '}', ']' -> {
+                    if (depth == 0) return pos
                     depth--
                     if (depth < 0) return pos + 1
                 }
