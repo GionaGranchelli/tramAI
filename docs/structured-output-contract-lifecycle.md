@@ -97,7 +97,22 @@ The Jackson-based handler (`JacksonStructuredOutputHandler`) generates a JSON sc
 | `Map<*, *>` | Unsupported — throws `IllegalStateException` |
 | Data class / POJO | `{"type": "object", "properties": {...}, "required": [...], "additionalProperties": false}` |
 
-Object properties are discovered via `KClass.memberProperties` filtered to `PUBLIC` visibility, sorted alphabetically by name. Non-nullable properties are added to the `required` array. Nullable types include `"nullable": true` in the schema.
+Object properties are discovered via language-specific paths:
+
+- **Kotlin classes**: `KClass.memberProperties` filtered to `PUBLIC` visibility, sorted alphabetically by name. Non-nullable properties are added to the `required` array. Nullable types include `"nullable": true` in the schema.
+- **Conventional JavaBeans**: Jackson `deserializationConfig.introspect()`. Only properties that are both writable (setter/writable field) AND readable (getter/readable field) are included. Every discovered property is required (fail-closed — Java primitives cannot express nullability). Getter-only calculated and setter-only write-only properties are excluded.
+
+JavaBean property type mapping mirrors the Kotlin path:
+
+| Java type | Schema |
+|-----------|--------|
+| `String`, `CharSequence` | `{"type": "string"}` |
+| `int`, `long`, `short`, `byte` and wrappers | `{"type": "integer"}` |
+| `float`, `double` and wrappers | `{"type": "number"}` |
+| `boolean` / `Boolean` | `{"type": "boolean"}` |
+| `Collection` (List, Set, ArrayList, etc.) | `{"type": "array", "items": <schema>}` |
+| `Map` and subclasses | Unsupported — throws `IllegalStateException` |
+| JavaBean class | `{"type": "object", "properties": {...}, "required": [...], "additionalProperties": false}` |
 
 The schema is serialized as a pretty-printed JSON string (`schemaJson`) and injected into the model prompt via `operation.initialMessages(arguments, contract.schemaJson)`.
 
@@ -107,7 +122,7 @@ The schema is serialized as a pretty-printed JSON string (`schemaJson`) and inje
 |--------|--------|
 | Contract generated per invocation (not cached) | Code-proven — `createContract` called each `executeStructured` |
 | Schema uses Jackson `ObjectMapper` with Kotlin module | Code-proven |
-| Object property discovery uses `KClass.memberProperties` | Code-proven |
+| Object property discovery uses `KClass.memberProperties` for Kotlin, `Jackson deserialization introspection` for JavaBeans | Code-proven — `kotlinObjectSchema()` and `javaBeanObjectSchema()` |
 | Schema injected into model prompt | Code-proven — `initialMessages(..., schemaJson)` |
 | `Map` types return an error at schema generation time | Code-proven |
 
@@ -130,6 +145,7 @@ The schema is serialized as a pretty-printed JSON string (`schemaJson`) and inje
 | `max` | `Double` | Inclusive upper bound |
 
 Target: numeric properties (`PROPERTY`, `FIELD`, `VALUE_PARAMETER`).
+For JavaBeans, annotations are looked up in order: backing field → setter parameter → constructor parameter → getter → setter method.
 
 Contributes to schema:
 ```json
@@ -237,10 +253,22 @@ objectMapper.readerFor(javaType).readValue<Any>(jsonCandidate)
 
 ### Parse failure paths
 
-| Failure | Error message pattern | Feedback sent to model |
-|---------|----------------------|----------------------|
-| No JSON found | `"Could not find a JSON object or array in the model response"` | `"Your previous response did not contain valid JSON. Return only valid JSON that matches the requested schema."` |
-| JSON present but won't deserialize | Varies (Jackson exception message) | `"Your previous response contained JSON that could not be parsed into the requested output type. Return corrected JSON only."` |
+|| Failure | Error message pattern | Feedback sent to model |
+||---------|----------------------|----------------------|
+|| No JSON found | `"Could not find a JSON object or array in the model response"` | `"Your previous response did not contain valid JSON. Return only valid JSON that matches the requested schema."` |
+|| JSON present but won't deserialize | Varies (Jackson exception message) | `"Your previous response contained JSON that could not be parsed into the requested output type. Return corrected JSON only."` |
+
+#### Step 3: Pre-deserialization shape validation (JavaBean types)
+
+Before deserialization, the raw JSON tree is validated against the target type using a recursive shape walker (`validateJsonShape` / `validateJavaJsonShape`). This catches missing required keys that Jackson cannot detect post-hoc because Java primitive fields (int, double, boolean) are initialized to their zero value by Jackson and can never be null.
+
+| Type | Shape check |
+|------|-------------|
+| Scalar (`String`, `int`, `boolean`, etc.) | No shape constraints |
+| `List<T>` | Node must be an array; items recursively checked with `T` |
+| Kotlin object | Public properties recursively checked |
+| JavaBean | Every required key must exist and not be null; properties recursively checked |
+| Collection items | Recursively walked regardless of whether the item is an object, array, or scalar |
 
 ### Code-proven facts
 
@@ -270,10 +298,10 @@ After successful deserialization, `validateValue(value, targetType)` performs st
 |------|----------------|
 | Null check | If `value == null` and `targetType` is non-nullable, returns `"Value must not be null"` |
 | Primitive scalars | `String`, `Int`, `Long`, `Short`, `Float`, `Double`, `Boolean` — no validation beyond type check |
-| List items | Recursively validates each element against the item `KType` |
+| List items | Recursively validates each element against the item `KType` or `JavaType.contentType` |
 | Objects | Calls `validateObject()` on the deserialized instance |
 
-#### Object validation (`validateObject`)
+###### Object validation (`validateObject` — Kotlin classes)
 
 For each public property (sorted alphabetically):
 
@@ -281,6 +309,16 @@ For each public property (sorted alphabetically):
 2. **`@AIRange` check** — If present, verifies numeric value is within `[min, max]`.
 3. **`@AIMinItems` check** — If present, verifies collection size meets minimum.
 4. **Recursive validation** — Validates nested property values.
+
+###### Object validation (`validateJavaValue` — JavaBeans)
+
+JavaBean validation is a unified recursive validator (`validateJavaValue`) that mirrors the schema paths (`schemaForJavaType`). For each discovered JavaBean property:
+
+1. **Null check** — Every required property must not be null (caught pre-deserialization by shape validation; post-deserialization check catches any remaining cases).
+2. **`@AIRange` check** — Same as Kotlin path.
+3. **`@AIMinItems` check** — Same as Kotlin path.
+4. **Collections** — Every item is recursively validated; null items are rejected; nested collections (e.g., `List<List<JavaDecision>>`) are fully walked.
+5. **Nested JavaBeans** — Every property is recursively validated using the full parameterized `JavaType` (generic type bindings preserved).
 
 ### Validation failure path
 
@@ -302,7 +340,9 @@ When validation fails, the handler returns `StructuredOutputResult.Failure` with
 ### What is NOT proven by code
 
 - Whether non-public properties (e.g., `internal`, `protected`) that bypass validation cause silent data loss.
-- Whether Java records or POJOs with getter-only properties are fully validated.
+- Whether Java records or immutable constructor-only DTOs are fully validated. (Confirmed unsupported — getter-only calculated and setter-only write-only properties are excluded via the readable/writable filter.)
+- Whether Java nullability annotations (`@Nullable`, `@NonNull`) are interpreted. (They are not — all discovered JavaBean properties are required by convention.)
+- Whether custom Iterable implementations (non-Collection) receive correct validation. (They do not — only `java.util.Collection` is supported.)
 
 ---
 
@@ -444,7 +484,7 @@ The following behaviors were verified with tests in PR #169. Custom validator de
 | Does `@AIRange` affect both schema and validation? | Code shows both — test coverage exists but may not cover edge cases. |
 | Does `@AIMinItems` affect both schema and validation? | Same as above. |
 | Does repair feedback include actionable parse/validation errors? | `feedbackMessage` includes `errorSummary` — test coverage exists but repair integration (engine-level retry) is not fully tested. |
-| Does Java-facing structured output behavior match Kotlin-facing behavior? | The handler uses `targetType.javaType` — Java interop coverage is limited. |
+| Does Java-facing structured output behavior match Kotlin-facing behavior? | PR #198 adds full JavaBean support via Jackson introspection — property discovery, required enforcement, annotation validation, recursive validation, and pre-deserialization shape checks all match the Kotlin path. Java records and immutable POJOs remain unproven. |
 | What is the exact repair prompt shape? | Currently internal — should be documented or tested if it becomes stable. |
 | Are there edge cases in JSON extraction (nested braces, multiple JSON objects)? | Extraction is greedy (first `{` to last `}`) — edge cases are not tested. |
 

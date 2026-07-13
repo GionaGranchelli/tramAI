@@ -70,7 +70,7 @@ Summary:
 | Area | Status |
 |---|---|
 | Typed AI services (`@AiService`, `@Operation`) | Implemented / evolving |
-| Structured output (schema generation, validation, retry) | Implemented / evolving |
+| Structured output (schema generation, validation, retry) — Kotlin and JavaBean | Implemented / evolving |
 | Provider adapters (Ollama, OpenAI, Anthropic, Azure, Bedrock, Gemini, DeepSeek) | Implemented / evolving |
 | Deterministic testing (`tramai-testing`, zero-network mock providers) | Implemented |
 | Policy engine (`tramai-security`) | Implemented / evolving |
