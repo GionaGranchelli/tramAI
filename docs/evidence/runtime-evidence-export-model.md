@@ -8,13 +8,14 @@
 
 ## What This Model Covers
 
-This document defines the evidence shape for exporting TramAI runtime decisions into reviewable, digest-verifiable artifacts. It covers three event families, all implemented:
+This document defines the evidence shape for exporting TramAI runtime decisions into reviewable, digest-verifiable artifacts. It covers four event families, all implemented:
 
 1. **Policy decisions** — allow/deny/require-approval outcomes produced by policy evaluation at runtime.
 2. **Approval decisions** — approve/deny outcomes produced by the approval decision control plane.
 3. **Provider routing decisions** — selected/fallback/blocked routes produced by the provider router at runtime.
+4. **Tool permission decisions** — allow/deny/require-approval outcomes for tool exposure, execution, and result reinjection.
 
-The model defines the record shape, bundle placement, verification semantics, and privacy/sanitisation rules. All three exporters, the `RuntimeEvidenceBundleWriter`, and the bundle verifier are implemented.
+The model defines the record shape, bundle placement, verification semantics, and privacy/sanitisation rules. All four exporters, the `RuntimeEvidenceBundleWriter`, and the bundle verifier are implemented.
 
 ---
 
@@ -123,6 +124,30 @@ Provider routing decisions are produced when the provider resolution layer selec
 | `source.component` | `"provider-router"` |
 | `decision.kind` | `SELECTED`, `FALLBACK`, `BLOCKED` |
 
+### D. Tool Permission Decisions (Implemented)
+
+Tool permission decisions are produced when the policy engine evaluates a tool at any enforcement point: before the tool is exposed to the model, before it is executed, or before its result is reinjected into the model context. All tool enforcement events are partitioned into the `tool.permission` family and excluded from `policy.decision`.
+
+| Field | Value |
+|-------|-------|
+| `eventType` | `"tool.permission"` |
+| `source.component` | `"policy-engine"` |
+| `decision.kind` | `ALLOW`, `DENY`, `REQUIRE_APPROVAL` |
+
+**Required metadata:**
+- `toolName` — name of the tool being governed (non-blank string)
+- `enforcementPoint` — one of `BEFORE_TOOL_EXPOSURE`, `BEFORE_TOOL_EXECUTION`, `BEFORE_TOOL_RESULT_REINJECTION`
+
+**Optional metadata:**
+- `riskLevel` — one of `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`
+- `classification` — data classification label
+- `classificationSource` — source of the classification
+
+**Never includes:**
+- Raw tool arguments, secrets, or API keys
+- `REDACT_RESULT` or `ALLOW_INTERNAL_ONLY` decisions (not valid for tool.permission)
+- Provider or model metadata
+
 ---
 
 ## Evidence Bundle Placement
@@ -134,6 +159,7 @@ runtime-evidence/
   policy-decisions.jsonl     # Newline-delimited JSON policy decision records
   approval-decisions.jsonl   # Newline-delimited JSON approval decision records
   provider-routing.jsonl     # Newline-delimited JSON provider routing records
+  tool-permissions.jsonl     # Newline-delimited JSON tool permission records
 ```
 
 A human-readable summary could also be generated:
@@ -209,10 +235,11 @@ The following PRs (in order) will implement the runtime evidence export defined 
 | #185 | Implement approval decision exporter: capture `approval.decision` events from the outbox store and write to `approval-decisions.jsonl` | ✅ Implemented |
 | #186 | Implement provider routing exporter: capture `provider.route` events | ✅ Implemented |
 | #187 | Map runtime events to evidence bundle sections | ✅ Documented |
-| #199 | Add verifier rules for runtime evidence records | ✅ Implemented |
-| #199 | Integrate runtime evidence into the sovereign lab evidence bundle lifecycle | ✅ Implemented |
+|| #199 | Add verifier rules for runtime evidence records | ✅ Implemented |
+|| #199 | Integrate runtime evidence into the sovereign lab evidence bundle lifecycle | ✅ Implemented |
+|| #200 | Add dedicated tool.permission runtime evidence family | ✅ Implemented |
 
-All three exporters and the bundle writer/verifier are implemented. No further PRs are required for the core runtime evidence lifecycle.
+All four exporters and the bundle writer/verifier are implemented. No further PRs are required for the core runtime evidence lifecycle.
 
 Automatic background evidence exporting and scheduled polling of approval outboxes remain unimplemented and are out of scope for 0.5.0.
 

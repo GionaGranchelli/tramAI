@@ -3472,6 +3472,11 @@ tasks.register("verifySovereignLabEvidenceBundle") {
             """{"schemaVersion":"runtime-evidence.v1","eventId":"lifecycle-routing-001","eventType":"provider.route","workflowRunId":"wf-lc","correlationId":"corr-lc3","actor":"provider-router","createdAt":"2026-07-13T10:00:20Z","source":{"component":"provider-router","module":"tramai-engine"},"decision":{"kind":"SELECTED","reasonCode":"provider-selected"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000005","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000006"},"metadata":{"requestedModelDigest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","routeIndex":"0","attempt":"1"}}"""
         )
 
+        // Valid tool permission record
+        writeRtLine("tool-permissions.jsonl",
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"lifecycle-tool-001","eventType":"tool.permission","workflowRunId":"wf-lc","correlationId":"corr-lc4","actor":"policy-engine","createdAt":"2026-07-13T10:00:30Z","source":{"component":"policy-engine","module":"v1"},"decision":{"kind":"DENY","reasonCode":"tool_denied"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000007","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000008"},"metadata":{"toolName":"payment","enforcementPoint":"BEFORE_TOOL_EXECUTION","riskLevel":"HIGH"}}"""
+        )
+
         logger.lifecycle("verifySovereignLabEvidenceBundle: added positive runtime-evidence to ${bundle.absolutePath}")
 
         // ── lifecycle: edit → fail → finalize → pass → tamper → fail ──
@@ -3522,6 +3527,7 @@ tasks.register("verifySovereignLabEvidenceBundle") {
             "runtime-evidence/policy-decisions.jsonl",
             "runtime-evidence/approval-decisions.jsonl",
             "runtime-evidence/provider-routing.jsonl",
+            "runtime-evidence/tool-permissions.jsonl",
         )) {
             require(manifestAfterRt.contains(rtFile)) {
                 "manifest.json must contain runtime-evidence path '$rtFile' after finalization. " +
@@ -3530,7 +3536,7 @@ tasks.register("verifySovereignLabEvidenceBundle") {
         }
         logger.lifecycle(
             "verifySovereignLabEvidenceBundle: positive runtime-evidence finalized " +
-                "and verified with 3 files in manifest.json"
+                "and verified with 4 files in manifest.json"
         )
 
         // ── Positive runtime-evidence tamper test ──
@@ -3563,6 +3569,34 @@ tasks.register("verifySovereignLabEvidenceBundle") {
         val restoreFinalizeProc = ProcessBuilder("bash", finalizer.absolutePath, bundle.absolutePath)
             .inheritIO().start()
         require(restoreFinalizeProc.waitFor() == 0) { "Failed to re-finalize after tamper recovery" }
+
+        // ── tool-permissions.jsonl tamper test ──
+        val tamperedToolFile = bundle.resolve("runtime-evidence/tool-permissions.jsonl")
+        val originalToolContent = tamperedToolFile.readText()
+        tamperedToolFile.appendText("\n{\"tampered\":true}\n")
+        val tamperToolProc = ProcessBuilder("bash", verifier.absolutePath, bundle.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+        val tamperToolOutput = tamperToolProc.inputStream.bufferedReader().readText()
+        val tamperToolExit = tamperToolProc.waitFor()
+        require(tamperToolExit != 0) {
+            "Verifier must reject tampered tool-permissions.jsonl, but exit was $tamperToolExit. Output: $tamperToolOutput"
+        }
+        require(
+            tamperToolOutput.contains("sha256 mismatch") ||
+            tamperToolOutput.contains("sizeBytes mismatch") ||
+            tamperToolOutput.contains("unknown root field")
+        ) {
+            "Verifier failure after tool-permissions.jsonl tamper should explain digest, size, or unknown field. Output: $tamperToolOutput"
+        }
+        logger.lifecycle(
+            "verifySovereignLabEvidenceBundle: tampered tool-permissions.jsonl correctly rejected"
+        )
+        // Restore tool content and re-finalize
+        tamperedToolFile.writeText(originalToolContent)
+        val restoreToolProc = ProcessBuilder("bash", finalizer.absolutePath, bundle.absolutePath)
+            .inheritIO().start()
+        require(restoreToolProc.waitFor() == 0) { "Failed to re-finalize after tool-permissions tamper recovery" }
 
         // Post-finalization tamper must fail
         evidenceFile.appendText("\nTampered after finalization.\n")
@@ -3885,6 +3919,48 @@ $pythonCode
         writeRtEvidence(unknownFileDir, "secret-events.jsonl", validJsonlLine)
         negFinalizeRt(unknownFileDir)
         negRunVerifier(unknownFileDir, "unknown file")
+
+        // ── Tool permission negative fixtures ──
+
+        // Case: tool-permissions.jsonl with invalid decision kind
+        val badToolKindDir = createRtNegFixture("tool-permission-invalid-decision")
+        writeRtEvidence(badToolKindDir, "tool-permissions.jsonl",
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"evt-tool-bad-001","eventType":"tool.permission","createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine"},"decision":{"kind":"REDACT_RESULT","reasonCode":"tool_denied"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"},"metadata":{"toolName":"payment","enforcementPoint":"BEFORE_TOOL_EXECUTION","riskLevel":"HIGH"}}"""
+        )
+        negFinalizeRt(badToolKindDir)
+        negRunVerifier(badToolKindDir, "unsupported decision.kind")
+
+        // Case: tool-permissions.jsonl with missing toolName
+        val missingToolNameDir = createRtNegFixture("tool-permission-missing-toolname")
+        writeRtEvidence(missingToolNameDir, "tool-permissions.jsonl",
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"evt-tool-bad-002","eventType":"tool.permission","createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine"},"decision":{"kind":"DENY","reasonCode":"tool_denied"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"},"metadata":{"enforcementPoint":"BEFORE_TOOL_EXECUTION","riskLevel":"HIGH"}}"""
+        )
+        negFinalizeRt(missingToolNameDir)
+        negRunVerifier(missingToolNameDir, "toolName")
+
+        // Case: tool-permissions.jsonl with invalid enforcementPoint
+        val badEpDir = createRtNegFixture("tool-permission-bad-enforcementpoint")
+        writeRtEvidence(badEpDir, "tool-permissions.jsonl",
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"evt-tool-bad-003","eventType":"tool.permission","createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine"},"decision":{"kind":"DENY","reasonCode":"tool_denied"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"},"metadata":{"toolName":"payment","enforcementPoint":"BEFORE_TOOL_SOMETHING","riskLevel":"HIGH"}}"""
+        )
+        negFinalizeRt(badEpDir)
+        negRunVerifier(badEpDir, "enforcementPoint")
+
+        // Case: tool-permissions.jsonl with invalid riskLevel
+        val badRiskDir = createRtNegFixture("tool-permission-bad-risklevel")
+        writeRtEvidence(badRiskDir, "tool-permissions.jsonl",
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"evt-tool-bad-004","eventType":"tool.permission","createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine"},"decision":{"kind":"DENY","reasonCode":"tool_denied"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"},"metadata":{"toolName":"payment","enforcementPoint":"BEFORE_TOOL_EXECUTION","riskLevel":"ULTRA_HIGH"}}"""
+        )
+        negFinalizeRt(badRiskDir)
+        negRunVerifier(badRiskDir, "riskLevel")
+
+        // Case: tool-permissions.jsonl with wrong source.component
+        val badToolSrcDir = createRtNegFixture("tool-permission-wrong-source")
+        writeRtEvidence(badToolSrcDir, "tool-permissions.jsonl",
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"evt-tool-bad-005","eventType":"tool.permission","createdAt":"2026-07-13T10:00:00Z","source":{"component":"provider-router"},"decision":{"kind":"DENY","reasonCode":"tool_denied"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"},"metadata":{"toolName":"payment","enforcementPoint":"BEFORE_TOOL_EXECUTION","riskLevel":"HIGH"}}"""
+        )
+        negFinalizeRt(badToolSrcDir)
+        negRunVerifier(badToolSrcDir, "source.component")
 
         // Clean up negative fixture directories
         negDir.deleteRecursively()

@@ -4,6 +4,7 @@ import dev.tramai.security.audit.AuditEvent
 import dev.tramai.security.audit.AuditHashAlgorithm
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -217,16 +218,20 @@ class ToolPermissionRuntimeEvidenceExporterTest {
     // ─── 9. Enforcement point is present in metadata ────────────────────
 
     @Test
-    fun `enforcement point is present in metadata when supplied`() {
+    fun `enforcement point is enriched from top-level audit field`() {
         val event = exposureAllowEvent.copy(
+            eventId = "evt-enrich-001",
             metadata = mapOf(
                 "toolName" to "weather-tool",
                 "riskLevel" to "LOW",
-                "enforcementPoint" to "BEFORE_TOOL_EXPOSURE",
             ),
+            // enforcementPoint is a top-level field, not in metadata
         )
         val record = exporter.export(listOf(event)).single()
+        // Exporter must enrich enforcementPoint from the top-level audit field
         assertEquals("BEFORE_TOOL_EXPOSURE", record.metadata["enforcementPoint"])
+        // enforcementPoint in metadata must match the event's top-level field
+        assertEquals(event.enforcementPoint, record.metadata["enforcementPoint"])
     }
 
     // ─── 10. Tool name and risk level are preserved ─────────────────────
@@ -360,9 +365,16 @@ class ToolPermissionRuntimeEvidenceExporterTest {
         val exposureRecord = exporter.export(listOf(exposureAllowEvent)).single()
         val reinjectionRecord = exporter.export(listOf(reinjectionAllowEvent)).single()
 
-        assertEquals(exposureRecord.digests.subjectDigest, reinjectionRecord.digests.subjectDigest)
-        assertNotNull(exposureRecord.digests.payloadDigest)
-        assertNotNull(reinjectionRecord.digests.payloadDigest)
+        assertEquals(
+            exposureRecord.digests.subjectDigest,
+            reinjectionRecord.digests.subjectDigest,
+            "subjectDigest depends on auditStreamId only — same stream = same digest",
+        )
+        assertNotEquals(
+            exposureRecord.digests.payloadDigest,
+            reinjectionRecord.digests.payloadDigest,
+            "payloadDigest includes enforcementPoint in canonical metadata — different enforcement points must produce different digests",
+        )
     }
 
     // ─── 16. Empty input produces empty result ──────────────────────────
@@ -371,6 +383,28 @@ class ToolPermissionRuntimeEvidenceExporterTest {
     fun `empty events list returns empty list`() {
         val results = exporter.export(emptyList())
         assertTrue(results.isEmpty())
+    }
+
+    // ─── 17. Invalid decisions are filtered out ──────────────────────────
+
+    @Test
+    fun `invalid decision kind REDACT_RESULT is filtered out`() {
+        val event = exposureAllowEvent.copy(
+            eventId = "evt-invalid-decision-001",
+            decision = "REDACT_RESULT",
+        )
+        val results = exporter.export(listOf(event))
+        assertTrue(results.isEmpty(), "REDACT_RESULT is not a valid tool.permission decision")
+    }
+
+    @Test
+    fun `invalid decision kind ALLOW_INTERNAL_ONLY is filtered out`() {
+        val event = exposureAllowEvent.copy(
+            eventId = "evt-invalid-decision-002",
+            decision = "ALLOW_INTERNAL_ONLY",
+        )
+        val results = exporter.export(listOf(event))
+        assertTrue(results.isEmpty(), "ALLOW_INTERNAL_ONLY is not a valid tool.permission decision")
     }
 
     // ─── Additional: Actor is preserved ─────────────────────────────────

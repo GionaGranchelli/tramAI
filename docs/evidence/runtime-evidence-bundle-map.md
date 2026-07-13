@@ -8,7 +8,7 @@
 
 ## Purpose
 
-The three runtime evidence exporters introduced in #184–#186 produce runtime-evidence.v1 JSONL records. This document maps those records to their evidence bundle locations so reviewers, verifiers, and downstream export tools can locate them without guessing.
+The four runtime evidence exporters (policy decisions, approval decisions, provider routing, and tool permissions) produce runtime-evidence.v1 JSONL records. This document maps those records to their evidence bundle locations so reviewers, verifiers, and downstream export tools can locate them without guessing.
 
 ---
 
@@ -21,6 +21,7 @@ runtime-evidence/
   policy-decisions.jsonl       # Machine-verifiable policy decision records
   approval-decisions.jsonl     # Machine-verifiable approval decision records
   provider-routing.jsonl       # Machine-verifiable provider routing records
+  tool-permissions.jsonl       # Machine-verifiable tool permission records
 ```
 
 The bundle-level `manifest.json` (at the root of the evidence bundle) records the file digests of every artifact present, including runtime evidence files. There is no sub-manifest under `runtime-evidence/`.
@@ -38,10 +39,11 @@ runtime-decisions.md           # Reviewer-facing summary (derived from JSONL, no
 Each event family maps to exactly one JSONL file:
 
 | Event family | `eventType` | JSONL file | Exporter |
-|---|---|---|---|
+|---|---|---|---|---|
 | Policy decisions | `policy.decision` | `runtime-evidence/policy-decisions.jsonl` | `PolicyDecisionRuntimeEvidenceExporter` (#184) |
 | Approval decisions | `approval.decision` | `runtime-evidence/approval-decisions.jsonl` | `ApprovalDecisionRuntimeEvidenceExporter` (#185) |
 | Provider routing | `provider.route` | `runtime-evidence/provider-routing.jsonl` | `ProviderRoutingRuntimeEvidenceExporter` (#186) |
+| Tool permissions | `tool.permission` | `runtime-evidence/tool-permissions.jsonl` | `ToolPermissionRuntimeEvidenceExporter` (#200) |
 
 ---
 
@@ -114,6 +116,27 @@ Each line records a single provider route decision. The exported record includes
 
 Unknown reason codes are normalised to the generic `"provider-fallback"` or `"provider-blocked"` constant.
 
+### tool-permissions.jsonl
+
+**Expected decision kinds:** `ALLOW`, `DENY`, `REQUIRE_APPROVAL`
+
+Each line records a single tool permission decision from the policy engine at one of three enforcement points: before a tool is exposed to the model, before it is executed, or before its result is reinjected into the model context. Tool enforcement events are partitioned into `tool.permission` and excluded from `policy.decision`.
+
+**Required metadata:**
+- `toolName` — name of the tool being governed
+- `enforcementPoint` — one of `BEFORE_TOOL_EXPOSURE`, `BEFORE_TOOL_EXECUTION`, `BEFORE_TOOL_RESULT_REINJECTION`
+
+**Optional metadata:**
+- `riskLevel` — one of `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`
+- `classification`
+- `classificationSource`
+
+**Never includes:**
+- Raw tool arguments, secrets, or API keys
+- `REDACT_RESULT` or `ALLOW_INTERNAL_ONLY` decisions (not valid for tool.permission)
+- Provider or model metadata
+- Policy decision metadata (providerName, modelName, fallbackProviderName)
+
 ### runtime-decisions.md (optional reviewer summary)
 
 A human-readable Markdown summary **may** be generated from the three JSONL files. It must be derived from the JSONL data, not manually edited as a competing source of truth.
@@ -143,7 +166,7 @@ A bundle verifier that inspects `runtime-evidence/` should:
 
 - Confirm each expected JSONL file exists if the exporter was active.
 - Confirm every line is valid JSON and matches the `runtime-evidence.v1` schema.
-- Confirm `eventType` is one of `policy.decision`, `approval.decision`, or `provider.route`.
+- Confirm `eventType` is one of `policy.decision`, `approval.decision`, `provider.route`, or `tool.permission`.
 - Confirm `decision.kind` is valid for the given `eventType`.
 - Confirm digest strings match `^sha256:[0-9a-f]{64}$`.
 - Confirm records do not contain forbidden raw fields (prompts, secrets, tokens, raw comments).
