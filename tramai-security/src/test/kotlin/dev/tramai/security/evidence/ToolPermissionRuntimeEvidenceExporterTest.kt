@@ -315,9 +315,10 @@ class ToolPermissionRuntimeEvidenceExporterTest {
 
         // Only allowed keys remain
         assertEquals(
-            setOf("toolName", "riskLevel", "classificationSource"),
+            setOf("enforcementPoint", "toolName", "riskLevel", "classificationSource"),
             record.metadata.keys,
         )
+        assertEquals("BEFORE_TOOL_EXPOSURE", record.metadata["enforcementPoint"])
     }
 
     // ─── 14. Payload digest is deterministic (same input = same digest) ─

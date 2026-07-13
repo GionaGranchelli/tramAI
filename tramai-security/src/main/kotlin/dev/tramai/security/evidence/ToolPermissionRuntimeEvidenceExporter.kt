@@ -54,7 +54,12 @@ internal fun AuditEvent.toToolPermissionRuntimeEvidenceRecord(): RuntimeEvidence
         "Tool enforcement event $eventId is missing required metadata.toolName"
     }
 
-    val safeMetadata = metadata.filterKeys { it in TOOL_PERMISSION_ALLOWED_METADATA_KEYS }
+    val safeMetadata = mutableMapOf<String, String>().apply {
+        // Preserve enforcementPoint from the audit-event top-level field
+        put("enforcementPoint", enforcementPoint)
+        // Filter remaining metadata to the allowlist
+        putAll(metadata.filterKeys { it in TOOL_PERMISSION_ALLOWED_METADATA_KEYS && it != "enforcementPoint" })
+    }
     val payloadDigest = computeToolPermissionPayloadDigest(safeMetadata)
 
     return RuntimeEvidenceRecord(
