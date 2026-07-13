@@ -39,7 +39,7 @@ runtime-decisions.md           # Reviewer-facing summary (derived from JSONL, no
 Each event family maps to exactly one JSONL file:
 
 | Event family | `eventType` | JSONL file | Exporter |
-|---|---|---|---|---|
+|---|---|---|---|
 | Policy decisions | `policy.decision` | `runtime-evidence/policy-decisions.jsonl` | `PolicyDecisionRuntimeEvidenceExporter` (#184) |
 | Approval decisions | `approval.decision` | `runtime-evidence/approval-decisions.jsonl` | `ApprovalDecisionRuntimeEvidenceExporter` (#185) |
 | Provider routing | `provider.route` | `runtime-evidence/provider-routing.jsonl` | `ProviderRoutingRuntimeEvidenceExporter` (#186) |
@@ -139,7 +139,7 @@ Each line records a single tool permission decision from the policy engine at on
 
 ### runtime-decisions.md (optional reviewer summary)
 
-A human-readable Markdown summary **may** be generated from the three JSONL files. It must be derived from the JSONL data, not manually edited as a competing source of truth.
+A human-readable Markdown summary **may** be generated from the four JSONL files. It must be derived from the JSONL data, not manually edited as a competing source of truth.
 
 ---
 

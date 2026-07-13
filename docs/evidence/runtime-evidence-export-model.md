@@ -235,9 +235,9 @@ The following PRs (in order) will implement the runtime evidence export defined 
 | #185 | Implement approval decision exporter: capture `approval.decision` events from the outbox store and write to `approval-decisions.jsonl` | ✅ Implemented |
 | #186 | Implement provider routing exporter: capture `provider.route` events | ✅ Implemented |
 | #187 | Map runtime events to evidence bundle sections | ✅ Documented |
-|| #199 | Add verifier rules for runtime evidence records | ✅ Implemented |
-|| #199 | Integrate runtime evidence into the sovereign lab evidence bundle lifecycle | ✅ Implemented |
-|| #200 | Add dedicated tool.permission runtime evidence family | ✅ Implemented |
+| #199 | Add verifier rules for runtime evidence records | ✅ Implemented |
+| #199 | Integrate runtime evidence into the sovereign lab evidence bundle lifecycle | ✅ Implemented |
+| #200 | Add dedicated tool.permission runtime evidence family | ✅ Implemented |
 
 All four exporters and the bundle writer/verifier are implemented. No further PRs are required for the core runtime evidence lifecycle.
 
