@@ -531,10 +531,11 @@ class RuntimeEvidenceBundleWriterTest {
         assertEquals(1, result.writtenFiles.size)
     }
 
-    // ─── 28. Stale .bak directory from a previous crash is cleaned ─────
+    // ─── 28. Stale .bak directory from a previous crash ──────────────────
+    // Now fails closed: both target and backup exist means ambiguous state.
 
     @Test
-    fun `stale backup directory is cleaned before write`() {
+    fun `stale backup directory is preserved when both exist`() {
         // Write once to create the section
         writer.write(tempDir, listOf(policyRecord))
 
@@ -544,10 +545,14 @@ class RuntimeEvidenceBundleWriterTest {
         val staleFile = backupDir.resolve("stale-evidence.jsonl")
         Files.writeString(staleFile, "stale")
 
-        // Write again — should clean the stale backup and succeed
-        val result = writer.write(tempDir, listOf(approvalRecord))
-        assertTrue(Files.exists(result.runtimeEvidenceDirectory.resolve("approval-decisions.jsonl")))
-        assertFalse(Files.exists(backupDir))
+        // Write again — both exist, must fail closed
+        val ex = assertThrows<IllegalStateException> {
+            writer.write(tempDir, listOf(approvalRecord))
+        }
+        assertTrue(ex.message!!.contains("Ambiguous runtime-evidence recovery state"))
+        // Both directories preserved
+        assertTrue(Files.exists(tempDir.resolve("runtime-evidence")))
+        assertTrue(Files.exists(backupDir))
     }
 
     // ─── 29. Unique temp dir name avoids cross-writer interference ──────
@@ -597,10 +602,10 @@ class RuntimeEvidenceBundleWriterTest {
         assertFalse(Files.exists(backupDir))
     }
 
-    // ─── 32. Both target and backup exist, proceeds cleanly ───────────
+    // ─── 32. Both target and backup exist fails closed ──────────────────
 
     @Test
-    fun `both target and backup exist proceeds cleanly`() {
+    fun `both target and backup exist fails closed`() {
         writer.write(tempDir, listOf(policyRecord))
 
         // Create a stale backup alongside valid target
@@ -608,10 +613,14 @@ class RuntimeEvidenceBundleWriterTest {
         Files.createDirectories(backupDir)
         Files.writeString(backupDir.resolve("stale.jsonl"), "stale")
 
-        // Write should detect both, validate target, delete backup, proceed
-        val result = writer.write(tempDir, listOf(approvalRecord))
-        assertTrue(Files.exists(result.runtimeEvidenceDirectory.resolve("approval-decisions.jsonl")))
-        assertFalse(Files.exists(backupDir))
+        // Write should detect both and fail closed
+        val ex = assertThrows<IllegalStateException> {
+            writer.write(tempDir, listOf(approvalRecord))
+        }
+        assertTrue(ex.message!!.contains("Ambiguous runtime-evidence recovery state"))
+        // Both directories preserved
+        assertTrue(Files.exists(tempDir.resolve("runtime-evidence")))
+        assertTrue(Files.exists(backupDir))
     }
 
     // ─── 33. Symlinked manifest.json is rejected ───────────────────────
@@ -780,11 +789,173 @@ class RuntimeEvidenceBundleWriterTest {
         )
 
         // Write should fail because target is invalid and backup exists
-        val ex = assertThrows<IllegalArgumentException> {
+        val ex = assertThrows<IllegalStateException> {
             writer.write(tempDir, listOf(approvalRecord))
         }
-        assertTrue(ex.message!!.contains("Ambiguous state"))
+        assertTrue(ex.message!!.contains("Ambiguous runtime-evidence recovery state"))
         // Backup should still exist
         assertTrue(Files.exists(backupDir))
+    }
+
+    // ─── 44. Non-empty malformed known JSONL plus valid backup fails closed ─────
+
+    @Test
+    fun `malformed known jsonl with valid backup fails closed`() {
+        writer.write(tempDir, listOf(policyRecord))
+        val evidenceDir = tempDir.resolve("runtime-evidence")
+        val backupDir = tempDir.resolve("runtime-evidence.bak")
+
+        // Replace valid JSONL with garbage of same known filename
+        Files.writeString(evidenceDir.resolve("policy-decisions.jsonl"), "this is not valid json\n")
+
+        // Create a valid backup
+        Files.createDirectories(backupDir)
+        Files.writeString(backupDir.resolve("policy-decisions.jsonl"),
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"bkp-2","eventType":"policy.decision","createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine"},"decision":{"kind":"ALLOW","reasonCode":"policy_allowed"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"},"metadata":{}}"""
+        )
+
+        val ex = assertThrows<IllegalStateException> {
+            writer.write(tempDir, listOf(approvalRecord))
+        }
+        assertTrue(ex.message!!.contains("Ambiguous runtime-evidence recovery state"))
+        assertTrue(Files.exists(backupDir))
+    }
+
+    // ─── 45. Valid known JSONL plus unknown sibling file fails closed ─────────
+
+    @Test
+    fun `known jsonl with unknown sibling and valid backup fails closed`() {
+        writer.write(tempDir, listOf(policyRecord))
+        val evidenceDir = tempDir.resolve("runtime-evidence")
+        val backupDir = tempDir.resolve("runtime-evidence.bak")
+
+        // Keep valid policy-decisions.jsonl but add an unknown file
+        Files.writeString(evidenceDir.resolve("secret-events.jsonl"), "garbage\n")
+
+        // Create a valid backup
+        Files.createDirectories(backupDir)
+        Files.writeString(backupDir.resolve("policy-decisions.jsonl"),
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"bkp-3","eventType":"policy.decision","createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine"},"decision":{"kind":"ALLOW","reasonCode":"policy_allowed"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"},"metadata":{}}"""
+        )
+
+        val ex = assertThrows<IllegalStateException> {
+            writer.write(tempDir, listOf(approvalRecord))
+        }
+        assertTrue(ex.message!!.contains("Ambiguous runtime-evidence recovery state"))
+        assertTrue(Files.exists(backupDir))
+    }
+
+    // ─── 46. Valid known JSONL plus empty second known file fails closed ──────
+
+    @Test
+    fun `known jsonl with empty second file and valid backup fails closed`() {
+        writer.write(tempDir, listOf(policyRecord))
+        val evidenceDir = tempDir.resolve("runtime-evidence")
+        val backupDir = tempDir.resolve("runtime-evidence.bak")
+
+        // Keep valid policy-decisions.jsonl but add an empty known file
+        Files.writeString(evidenceDir.resolve("approval-decisions.jsonl"), "")
+
+        // Create a valid backup
+        Files.createDirectories(backupDir)
+        Files.writeString(backupDir.resolve("policy-decisions.jsonl"),
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"bkp-4","eventType":"policy.decision","createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine"},"decision":{"kind":"ALLOW","reasonCode":"policy_allowed"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"},"metadata":{}}"""
+        )
+
+        val ex = assertThrows<IllegalStateException> {
+            writer.write(tempDir, listOf(approvalRecord))
+        }
+        assertTrue(ex.message!!.contains("Ambiguous runtime-evidence recovery state"))
+        assertTrue(Files.exists(backupDir))
+    }
+
+    // ─── 47. Symlink named policy-decisions.jsonl fails closed ────────────────
+
+    @Test
+    fun `symlink evidence file with valid backup fails closed`() {
+        writer.write(tempDir, listOf(policyRecord))
+        val evidenceDir = tempDir.resolve("runtime-evidence")
+        val backupDir = tempDir.resolve("runtime-evidence.bak")
+
+        // Replace valid file with a symlink pointing outside the bundle
+        Files.delete(evidenceDir.resolve("policy-decisions.jsonl"))
+        Files.createSymbolicLink(evidenceDir.resolve("policy-decisions.jsonl"),
+            Path.of("/etc/passwd"))
+
+        // Create a valid backup
+        Files.createDirectories(backupDir)
+        Files.writeString(backupDir.resolve("policy-decisions.jsonl"),
+            """{"schemaVersion":"runtime-evidence.v1","eventId":"bkp-5","eventType":"policy.decision","createdAt":"2026-07-13T10:00:00Z","source":{"component":"policy-engine"},"decision":{"kind":"ALLOW","reasonCode":"policy_allowed"},"digests":{"subjectDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000001","payloadDigest":"sha256:0000000000000000000000000000000000000000000000000000000000000002"},"metadata":{}}"""
+        )
+
+        val ex = assertThrows<IllegalStateException> {
+            writer.write(tempDir, listOf(approvalRecord))
+        }
+        assertTrue(ex.message!!.contains("Ambiguous runtime-evidence recovery state"))
+        assertTrue(Files.exists(backupDir))
+    }
+
+    // ─── 48. Missing comma after bundleType (bundleType first) is rejected ─────
+
+    @Test
+    fun `missing comma after bundleType is rejected`() {
+        val dir = tempDir.resolve("no-comma-bundleType-first")
+        Files.createDirectory(dir)
+        Files.writeString(dir.resolve("manifest.json"),
+            """{"bundleType":"sovereign-lab-evidence-bundle" "schemaVersion":1}"""
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(dir, listOf(policyRecord))
+        }
+        assertTrue(ex.message!!.contains("Expected"),
+            "Expected comma validation error, got: ${ex.message}")
+    }
+
+    // ─── 49. Duplicate bundleType is rejected ────────────────────────────────
+
+    @Test
+    fun `duplicate bundleType is rejected`() {
+        val dir = tempDir.resolve("dup-bundleType")
+        Files.createDirectory(dir)
+        Files.writeString(dir.resolve("manifest.json"),
+            """{"bundleType":"sovereign-lab-evidence-bundle", "bundleType":"other"}"""
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(dir, listOf(policyRecord))
+        }
+        assertTrue(ex.message!!.contains("Duplicate key") && ex.message!!.contains("bundleType"),
+            "Expected duplicate key error, got: ${ex.message}")
+    }
+
+    // ─── 50. Trailing comma after last property is rejected ────────────────────
+
+    @Test
+    fun `trailing comma in manifest is rejected`() {
+        val dir = tempDir.resolve("trailing-comma")
+        Files.createDirectory(dir)
+        Files.writeString(dir.resolve("manifest.json"),
+            """{"bundleType":"sovereign-lab-evidence-bundle",}"""
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(dir, listOf(policyRecord))
+        }
+        assertTrue(ex.message!!.contains("Trailing comma"),
+            "Expected trailing comma error, got: ${ex.message}")
+    }
+
+    // ─── 51. Invalid trailing content after object is rejected ────────────────
+
+    @Test
+    fun `invalid trailing content after manifest is rejected`() {
+        val dir = tempDir.resolve("trailing-content")
+        Files.createDirectory(dir)
+        Files.writeString(dir.resolve("manifest.json"),
+            """{"bundleType":"sovereign-lab-evidence-bundle"}extra"""
+        )
+        val ex = assertThrows<IllegalArgumentException> {
+            writer.write(dir, listOf(policyRecord))
+        }
+        assertTrue(ex.message!!.contains("Manifest must be a JSON object"),
+            "Expected JSON object validation error, got: ${ex.message}")
     }
 }

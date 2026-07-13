@@ -166,25 +166,6 @@ class RuntimeEvidenceBundleWriter {
     }
 
     /**
-     * Validates that a target directory looks like a valid
-     * runtime-evidence section. Returns true if it does, false otherwise.
-     */
-    private fun isValidEvidenceSection(target: Path): Boolean {
-        if (!Files.exists(target) || !Files.isDirectory(target)) return false
-        if (Files.isSymbolicLink(target)) return false
-        val files = target.toFile().listFiles() ?: return false
-        val knownFilenames = EVENT_FILES.values.toSet()
-        var hasKnownFile = false
-        for (file in files) {
-            if (file.isDirectory) return false
-            if (file.name in knownFilenames && file.length() > 0) {
-                hasKnownFile = true
-            }
-        }
-        return hasKnownFile
-    }
-
-    /**
      * Replaces [target] directory with [source] directory transactionally,
      * using a state machine that handles crash recovery.
      *
@@ -194,8 +175,7 @@ class RuntimeEvidenceBundleWriter {
      * |--------|--------|--------|
      * | Exists | Absent | Normal: backup target, replace, delete backup |
      * | Absent | Exists | Recovery: restore backup, then proceed |
-     * | Exists & Valid | Exists | Ambiguous: validate target, delete backup, proceed |
-     * | Exists & Invalid | Exists | Ambiguous with risk: preserve both, fail closed |
+     * | Exists | Exists | Both preserved: fail closed for manual recovery |
      * | Absent | Absent | No previous section: just replace |
      */
     private fun replaceDirectoryTransactionally(source: Path, target: Path) {
@@ -211,15 +191,16 @@ class RuntimeEvidenceBundleWriter {
                 atomicMoveOrFallback(backup, target)
             }
 
-            // Ambiguous: both exist — validate target before
-            // deleting backup. If target is invalid, preserve both.
+            // Ambiguous: both exist — fail closed. No heuristic can
+            // distinguish a valid target from a superficially plausible
+            // one, so preserving both is the only safe action.
             targetExists && backupExists -> {
-                require(isValidEvidenceSection(target)) {
-                    "Ambiguous state: both runtime-evidence and backup exist, " +
-                        "and target is not a valid evidence section. " +
-                        "Backup preserved for manual recovery at: $backup"
-                }
-                deleteSafely(backup)
+                error(
+                    "Ambiguous runtime-evidence recovery state: " +
+                        "both runtime-evidence/ and runtime-evidence.bak/ exist. " +
+                        "Both directories are preserved for manual recovery. " +
+                        "Backup: $backup"
+                )
             }
 
             // Normal: clean stale backup, proceed

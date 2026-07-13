@@ -3555,7 +3555,7 @@ tasks.register("verifySovereignLabEvidenceBundle") {
             "Verifier failure after runtime-evidence tamper should explain digest, size, or unknown field. Output: $tamperVerifyOutput"
         }
         logger.lifecycle(
-            "verifySovereignLabEvidenceBundle: tampered runtime-evidence correctly rejected with stale-manifest detection"
+            "verifySovereignLabEvidenceBundle: tampered runtime-evidence correctly rejected"
         )
 
         // Restore original content and re-finalize for subsequent tests

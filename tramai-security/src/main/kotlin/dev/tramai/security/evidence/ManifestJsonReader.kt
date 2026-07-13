@@ -10,13 +10,18 @@ package dev.tramai.security.evidence
  *
  * - Reordered properties
  * - Pretty-printed JSON (whitespace between tokens)
- * - bundleType as the final property (no trailing comma)
+ * - bundleType as any property position
  * - Escaped quotes within string values
  *
  * It rejects:
  * - Nested objects (intentionally unsupported)
  * - Arrays as top-level values
- * - Malformed JSON
+ * - Malformed JSON (missing commas, trailing garbage)
+ * - Duplicate keys
+ *
+ * Unlike a lenient parser, this reader validates the entire object
+ * structure even after finding the target key. This prevents
+ * malformed content after `bundleType` from going undetected.
  */
 internal object ManifestJsonReader {
 
@@ -47,6 +52,8 @@ internal object ManifestJsonReader {
      */
     private fun parseFieldValue(body: String, targetKey: String): String? {
         var pos = 0
+        var targetValue: String? = null
+
         while (pos < body.length) {
             // Skip whitespace
             pos = skipWhitespace(body, pos)
@@ -81,7 +88,12 @@ internal object ManifestJsonReader {
             if (body[pos] == '"') {
                 val valueEnd = findStringEnd(body, pos + 1)
                 val value = body.substring(pos + 1, valueEnd)
-                if (key == targetKey) return value
+                if (key == targetKey) {
+                    require(targetValue == null) {
+                        "Duplicate key '$targetKey'"
+                    }
+                    targetValue = value
+                }
                 pos = valueEnd + 1
             } else {
                 // Skip non-string values (numbers, booleans, null, objects, arrays)
@@ -99,6 +111,18 @@ internal object ManifestJsonReader {
             if (body[pos] == '}') break  // End of object
             if (body[pos] == ',') {
                 pos++
+                // Check for trailing comma immediately after consuming it
+                val afterComma = skipWhitespace(body, pos)
+                if (afterComma >= body.length) {
+                    throw IllegalArgumentException(
+                        "Trailing comma at end of object"
+                    )
+                }
+                if (body[afterComma] == '}') {
+                    throw IllegalArgumentException(
+                        "Trailing comma before '}'"
+                    )
+                }
             } else {
                 throw IllegalArgumentException(
                     "Expected ',' or '}' at position $pos, got: ${body[pos]}"
@@ -106,7 +130,7 @@ internal object ManifestJsonReader {
             }
         }
 
-        return null
+        return targetValue
     }
 
     /**
