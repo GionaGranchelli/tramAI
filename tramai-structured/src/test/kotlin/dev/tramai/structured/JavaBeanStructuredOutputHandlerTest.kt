@@ -398,4 +398,167 @@ class JavaBeanStructuredOutputHandlerTest {
         val failure = result as StructuredOutputResult.Failure
         assertThat(failure.feedbackMessage).contains("corrected JSON")
     }
+
+    // ---------------------------------------------------------------
+    // Root collection, mixed types, and advanced validation
+    // ---------------------------------------------------------------
+
+    @Test
+    fun `missing primitive in root List of JavaBeans fails`() {
+        val result = handler.analyze(
+            rawResponse = """
+                [
+                  {
+                    "status": "approved",
+                    "reasons": ["valid"]
+                  }
+                ]
+            """.trimIndent(),
+            targetType = typeOf<List<JavaScoredResult>>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
+        val failure = result as StructuredOutputResult.Failure
+        assertThat(failure.errorSummary).contains("confidence")
+    }
+
+    @Test
+    fun `null nested property inside root List of JavaBeans fails`() {
+        val result = handler.analyze(
+            rawResponse = """
+                [
+                  {
+                    "decision": {
+                      "outcome": null
+                    }
+                  }
+                ]
+            """.trimIndent(),
+            targetType = typeOf<List<JavaClaimResult>>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
+        val failure = result as StructuredOutputResult.Failure
+        assertThat(failure.errorSummary).contains("outcome")
+    }
+
+    @Test
+    fun `missing primitive inside nested collection List of List fails`() {
+        val result = handler.analyze(
+            rawResponse = """
+                {
+                  "decisionGroups": [
+                    [
+                      {
+                        "outcome": "ok"
+                      },
+                      {}
+                    ]
+                  ]
+                }
+            """.trimIndent(),
+            targetType = typeOf<JavaNestedCollectionResult>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
+        val failure = result as StructuredOutputResult.Failure
+        assertThat(failure.errorSummary).contains("outcome")
+    }
+
+    @Test
+    fun `nested generic envelope preserves type bindings during validation`() {
+        // Missing nested primitive inside payload.value.count should fail
+        val result = handler.analyze(
+            rawResponse = """
+                {
+                  "payload": {
+                    "value": {
+                      "active": true,
+                      "timestamp": 1000,
+                      "score": 1.0
+                    }
+                  }
+                }
+            """.trimIndent(),
+            targetType = typeOf<JavaBeanStructuredOutputFixtures.JavaEnvelopeHolder>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
+        val failure = result as StructuredOutputResult.Failure
+        assertThat(failure.errorSummary).contains("count")
+        assertThat(failure.errorSummary).contains("payload")
+    }
+
+    @Test
+    fun `custom Map subclass is rejected as unsupported`() {
+        assertThatThrownBy {
+            handler.createContract(typeOf<JavaBeanStructuredOutputFixtures.JavaMapSubclassResult>())
+        }.isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("Unsupported structured output type")
+    }
+
+    @Test
+    fun `missing primitive in JavaBean nested inside Kotlin data class fails`() {
+        val result = handler.analyze(
+            rawResponse = """
+                {
+                  "bean": {
+                    "status": "ok",
+                    "reasons": ["good"]
+                  }
+                }
+            """.trimIndent(),
+            targetType = typeOf<KotlinWrapsJavaBean>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Failure::class.java)
+        val failure = result as StructuredOutputResult.Failure
+        assertThat(failure.errorSummary).contains("confidence")
+    }
+
+    @Test
+    fun `valid root List of JavaBeans with all required fields succeeds`() {
+        val result = handler.analyze(
+            rawResponse = """
+                [
+                  {
+                    "status": "ok",
+                    "confidence": 0.9,
+                    "reasons": ["a"]
+                  }
+                ]
+            """.trimIndent(),
+            targetType = typeOf<List<JavaScoredResult>>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Success::class.java)
+    }
+
+    @Test
+    fun `valid nested collection with List of List of JavaBeans succeeds`() {
+        val result = handler.analyze(
+            rawResponse = """
+                {
+                  "decisionGroups": [
+                    [
+                      {
+                        "outcome": "approved"
+                      }
+                    ]
+                  ]
+                }
+            """.trimIndent(),
+            targetType = typeOf<JavaNestedCollectionResult>(),
+        )
+
+        assertThat(result).isInstanceOf(StructuredOutputResult.Success::class.java)
+    }
 }
+
+/**
+ * Kotlin data class wrapping a JavaBean — used to test mixed Kotlin/JavaBean
+ * shape validation (primitive enforcement through Kotlin wrapper).
+ */
+private data class KotlinWrapsJavaBean(
+    val bean: JavaBeanStructuredOutputFixtures.JavaScoredResult,
+)

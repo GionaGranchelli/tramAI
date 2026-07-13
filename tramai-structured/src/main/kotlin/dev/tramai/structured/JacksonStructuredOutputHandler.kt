@@ -59,26 +59,25 @@ class JacksonStructuredOutputHandler(
 
         val javaType = objectMapper.typeFactory.constructType(targetType.javaType)
 
-        // Pre-deserialization shape validation for JavaBean types.
-        // Required for primitive properties that cannot be null after deserialization.
-        val classifier = targetType.classifier
-        if (classifier is KClass<*> && !classifier.isKotlinClass()) {
-            val jsonNode = try {
-                objectMapper.readTree(jsonCandidate)
-            } catch (_: Exception) {
-                return StructuredOutputResult.Failure(
-                    rawResponse = rawResponse,
-                    errorSummary = "Could not parse the JSON payload",
-                    feedbackMessage = "Your previous response contained JSON that could not be parsed into the requested output type. Return corrected JSON only.",
-                )
-            }
-            validateJavaBeanJsonShape(jsonNode, javaType, "")?.let { error ->
-                return StructuredOutputResult.Failure(
-                    rawResponse = rawResponse,
-                    errorSummary = error,
-                    feedbackMessage = "Your previous response failed validation: $error. Return corrected JSON only.",
-                )
-            }
+        // Parse once for pre-deserialisation shape validation.
+        // Required for primitive fields (int, double, boolean) that can never be
+        // null after Jackson deserialisation and therefore cannot be detected post-hoc.
+        val jsonNode = try {
+            objectMapper.readTree(jsonCandidate)
+        } catch (_: Exception) {
+            return StructuredOutputResult.Failure(
+                rawResponse = rawResponse,
+                errorSummary = "Could not parse the JSON payload",
+                feedbackMessage = "Your previous response contained JSON that could not be parsed into the requested output type. Return corrected JSON only.",
+            )
+        }
+
+        validateJsonShape(jsonNode, targetType, "")?.let { error ->
+            return StructuredOutputResult.Failure(
+                rawResponse = rawResponse,
+                errorSummary = error,
+                feedbackMessage = "Your previous response failed validation: $error. Return corrected JSON only.",
+            )
         }
 
         val value = try {
@@ -239,7 +238,6 @@ class JacksonStructuredOutputHandler(
         val description: AiDescription?,
         val range: AiRange?,
         val minItems: AiMinItems?,
-        val isPrimitive: Boolean,
         val read: (Any) -> Any?,
     )
 
@@ -334,7 +332,6 @@ class JacksonStructuredOutputHandler(
                     description = findJavaAnnotation(property, AiDescription::class.java),
                     range = findJavaAnnotation(property, AiRange::class.java),
                     minItems = findJavaAnnotation(property, AiMinItems::class.java),
-                    isPrimitive = propType.rawClass.isPrimitive,
                     read = { target -> javaPropertyRead(target, property) },
                 )
             }
@@ -410,10 +407,9 @@ class JacksonStructuredOutputHandler(
                 linkedMapOf("type" to "number")
             rawClass == Boolean::class.java || rawClass == java.lang.Boolean::class.java ->
                 linkedMapOf("type" to "boolean")
-            rawClass == java.util.Map::class.java || rawClass == java.util.HashMap::class.java ->
+            java.util.Map::class.java.isAssignableFrom(rawClass) ->
                 error("Unsupported structured output type: $javaType")
-            java.util.Collection::class.java.isAssignableFrom(rawClass) ||
-                java.lang.Iterable::class.java.isAssignableFrom(rawClass) -> {
+            java.util.Collection::class.java.isAssignableFrom(rawClass) -> {
                 val itemType = javaType.contentType
                     ?: error("List structured output type must declare an item type: $javaType")
                 val items = schemaForJavaType(itemType, context)
@@ -500,53 +496,116 @@ class JacksonStructuredOutputHandler(
     // -----------------------------------------------------------------------
 
     /**
-     * Validates the raw JSON tree against the JavaBean schema *before*
-     * deserialization. This catches missing required primitive fields
-     * (e.g. missing int/double/boolean) which can never be null after
-     * deserialization and therefore cannot be detected post-hoc.
+     * Recursive shape validator that mirrors [schemaForType].
+     *
+     * Walks the raw JSON tree against the target [KType] to verify:
+     * - scalars: no shape constraints
+     * - List<T>: node must be array, recurse items with T
+     * - Kotlin object: recurse public properties
+     * - JavaBean: every required key must exist (catches missing primitives)
      */
-    private fun validateJavaBeanJsonShape(
+    private fun validateJsonShape(
         node: JsonNode,
-        javaType: JavaType,
+        targetType: KType,
+        path: String,
+    ): String? {
+        val classifier = targetType.classifier
+        return when (classifier) {
+            String::class, Int::class, Long::class, Short::class,
+            Float::class, Double::class, Boolean::class -> null
+
+            List::class, MutableList::class -> {
+                if (!node.isArray) return "Expected an array at $path"
+                val itemType = targetType.arguments.firstOrNull()?.type ?: return null
+                for (i in 0 until node.size()) {
+                    validateJsonShape(node[i], itemType, "$path[$i]")?.let { return it }
+                }
+                null
+            }
+
+            is KClass<*> -> {
+                val klass = classifier as KClass<*>
+                if (klass.isKotlinClass()) {
+                    validateKotlinJsonShape(node, klass, path)
+                } else {
+                    val javaType = objectMapper.typeFactory.constructType(targetType.javaType)
+                    validateJavaJsonShape(node, javaType, path)
+                }
+            }
+
+            else -> null
+        }
+    }
+
+    /**
+     * Shape-validate a Kotlin class: recurse into each public property.
+     */
+    private fun validateKotlinJsonShape(
+        node: JsonNode,
+        type: KClass<*>,
         path: String,
     ): String? {
         if (!node.isObject) return null
 
-        val properties = javaBeanProperties(javaType)
-
-        for (prop in properties) {
-            val propPath = if (path.isEmpty()) "'${prop.name}'" else "$path.'${prop.name}'"
-            val fieldNode = node.get(prop.name)
-
-            if (fieldNode == null || fieldNode.isNull) {
-                return "Property $propPath is required"
-            }
-
-            // Recurse into nested objects
-            if (isJavaLangObject(prop.type.rawClass)) {
-                if (fieldNode.isObject) {
-                    val nestedJavaType = objectMapper.typeFactory.constructType(prop.type.rawClass)
-                    validateJavaBeanJsonShape(fieldNode, nestedJavaType, propPath)?.let { return it }
+        type.memberProperties
+            .filter { it.visibility == KVisibility.PUBLIC }
+            .sortedBy { it.name }
+            .forEach { prop ->
+                val propPath = if (path.isEmpty()) "'${prop.name}'" else "$path.'${prop.name}'"
+                val fieldNode = node.get(prop.name)
+                if (fieldNode != null && !fieldNode.isNull) {
+                    validateJsonShape(fieldNode, prop.returnType, propPath)?.let { return it }
                 }
             }
-
-            // Recurse into collection item objects
-            if (java.util.Collection::class.java.isAssignableFrom(prop.type.rawClass) ||
-                java.lang.Iterable::class.java.isAssignableFrom(prop.type.rawClass)
-            ) {
-                val itemType = prop.type.contentType
-                if (itemType != null && fieldNode.isArray) {
-                    for (i in 0 until fieldNode.size()) {
-                        val itemNode = fieldNode[i]
-                        if (itemNode.isObject) {
-                            validateJavaBeanJsonShape(itemNode, itemType, "$propPath[$i]")?.let { return it }
-                        }
-                    }
-                }
-            }
-        }
-
         return null
+    }
+
+    /**
+     * Shape-validate a JavaBean: every required key must exist and not be null.
+     * Recursively mirrors [schemaForJavaType] using the full parameterized [JavaType].
+     */
+    private fun validateJavaJsonShape(
+        node: JsonNode,
+        javaType: JavaType,
+        path: String,
+    ): String? {
+        val rawClass = javaType.rawClass
+
+        when {
+            // Scalars — no required-key constraints
+            isScalarJavaType(rawClass) -> return null
+
+            // Maps — unsupported
+            java.util.Map::class.java.isAssignableFrom(rawClass) ->
+                return "Unsupported structured output type: $javaType"
+
+            // Collections — recurse items with full contentType
+            java.util.Collection::class.java.isAssignableFrom(rawClass) -> {
+                if (!node.isArray) return null
+                val itemType = javaType.contentType ?: return null
+                for (i in 0 until node.size()) {
+                    validateJavaJsonShape(node[i], itemType, "$path[$i]")?.let { return it }
+                }
+                return null
+            }
+
+            // JavaBean — check required keys + recurse
+            isJavaLangObject(rawClass) -> {
+                if (!node.isObject) return null
+                val properties = javaBeanProperties(javaType)
+                for (prop in properties) {
+                    val propPath = if (path.isEmpty()) "'${prop.name}'" else "$path.'${prop.name}'"
+                    val fieldNode = node.get(prop.name)
+                    if (fieldNode == null || fieldNode.isNull) {
+                        return "Property $propPath is required"
+                    }
+                    validateJavaJsonShape(fieldNode, prop.type, propPath)?.let { return it }
+                }
+                return null
+            }
+
+            else -> return null
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -716,15 +775,12 @@ class JacksonStructuredOutputHandler(
             return "Unsupported structured output type: $javaType"
         }
 
-        // Collections / iterables — validate every item recursively
-        if (java.util.Collection::class.java.isAssignableFrom(rawClass) ||
-            java.lang.Iterable::class.java.isAssignableFrom(rawClass)
-        ) {
+        // Collections — validate every item recursively
+        if (java.util.Collection::class.java.isAssignableFrom(rawClass)) {
             val itemType = javaType.contentType ?: return null
             val items = when (value) {
                 is List<*> -> value
                 is Collection<*> -> value.toList()
-                is Iterable<*> -> value.toList()
                 else -> return null
             }
             items.forEachIndexed { index, item ->
@@ -744,24 +800,20 @@ class JacksonStructuredOutputHandler(
             return null
         }
 
-        // JavaBean — validate every property recursively
+        // JavaBean — validate every property recursively using the same JavaType
         if (isJavaLangObject(rawClass)) {
-            val properties = javaBeanProperties(
-                objectMapper.typeFactory.constructType(rawClass)
-            )
+            val properties = javaBeanProperties(javaType)
             for (prop in properties) {
                 val propValue = prop.read(value)
                 val propPath = "$path.'${prop.name}'"
-                propValue?.let { pv ->
-                    validateJavaValue(
-                        value = pv,
-                        javaType = prop.type,
-                        path = propPath,
-                        required = prop.required,
-                        range = prop.range,
-                        minItems = prop.minItems,
-                    )?.let { return it }
-                }
+                validateJavaValue(
+                    value = propValue,
+                    javaType = prop.type,
+                    path = propPath,
+                    required = prop.required,
+                    range = prop.range,
+                    minItems = prop.minItems,
+                )?.let { return it }
             }
             return null
         }
@@ -802,18 +854,20 @@ class JacksonStructuredOutputHandler(
             }
         }
 
-        val firstObject = trimmed.indexOf('{')
-        val lastObject = trimmed.lastIndexOf('}')
-        if (firstObject >= 0 && lastObject > firstObject) {
-            return trimmed.substring(firstObject, lastObject + 1)
+        val firstChar = trimmed.firstOrNull() ?: throw IllegalArgumentException("Empty response")
+        // Detect whether the outermost structure is an array or object.
+        return if (firstChar == '[') {
+            val lastArray = trimmed.lastIndexOf(']')
+            if (lastArray > 0) trimmed.substring(0, lastArray + 1)
+            else throw IllegalArgumentException("Could not find a matching closing bracket")
+        } else {
+            val firstObject = trimmed.indexOf('{')
+            val lastObject = trimmed.lastIndexOf('}')
+            if (firstObject >= 0 && lastObject > firstObject) {
+                trimmed.substring(firstObject, lastObject + 1)
+            } else {
+                throw IllegalArgumentException("Could not find a JSON object or array in the model response")
+            }
         }
-
-        val firstArray = trimmed.indexOf('[')
-        val lastArray = trimmed.lastIndexOf(']')
-        if (firstArray >= 0 && lastArray > firstArray) {
-            return trimmed.substring(firstArray, lastArray + 1)
-        }
-
-        throw IllegalArgumentException("Could not find a JSON object or array in the model response")
     }
 }

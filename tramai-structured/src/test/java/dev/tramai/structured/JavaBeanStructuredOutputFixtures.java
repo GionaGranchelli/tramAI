@@ -437,4 +437,48 @@ public final class JavaBeanStructuredOutputFixtures {
             this.inner = inner;
         }
     }
+
+    // ------------------------------------------------------------------
+    // EnvelopeHolder — preserves generic type bindings in nested validation
+    // ------------------------------------------------------------------
+
+    public static class JavaEnvelopeHolder {
+
+        private JavaEnvelope<JavaPrimitiveResult> payload;
+
+        public JavaEnvelopeHolder() {
+        }
+
+        public JavaEnvelope<JavaPrimitiveResult> getPayload() {
+            return payload;
+        }
+
+        public void setPayload(JavaEnvelope<JavaPrimitiveResult> payload) {
+            this.payload = payload;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Custom Map subclass — must be rejected as unsupported map, not treated as JavaBean
+    // ------------------------------------------------------------------
+
+    public static class JavaCustomMap extends java.util.HashMap<String, String> {
+        // empty — exists to test Map isAssignableFrom detection
+    }
+
+    public static class JavaMapSubclassResult {
+
+        private JavaCustomMap properties;
+
+        public JavaMapSubclassResult() {
+        }
+
+        public JavaCustomMap getProperties() {
+            return properties;
+        }
+
+        public void setProperties(JavaCustomMap properties) {
+            this.properties = properties;
+        }
+    }
 }
