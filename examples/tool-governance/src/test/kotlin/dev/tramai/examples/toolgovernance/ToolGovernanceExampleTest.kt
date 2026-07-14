@@ -2,8 +2,6 @@ package dev.tramai.examples.toolgovernance
 
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
-import dev.tramai.core.approval.Sha256Digest
-import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.policy.*
@@ -18,6 +16,7 @@ import dev.tramai.security.approval.InMemoryApprovalContinuationStore
 import dev.tramai.security.approval.InMemoryApprovalStore
 import dev.tramai.security.approval.SecureRandomApprovalTokenGenerator
 import dev.tramai.security.approval.Sha256ApprovalTokenDigester
+import dev.tramai.security.approval.Sha256ToolArgumentsDigester
 import dev.tramai.security.approval.UuidApprovalIdGenerator
 import dev.tramai.security.audit.*
 import dev.tramai.security.evidence.PolicyDecisionRuntimeEvidenceExporter
@@ -69,7 +68,7 @@ class ToolGovernanceExampleTest {
         val store = InMemoryAuditStore()
         val auditEngine = AuditEngine(store, clock = fixedClock)
         val streamId = "test-customer-lookup"
-        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = AuditStreamIdResolver(streamId))
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = FixedAuditStreamIdResolver(streamId))
         val tool = CustomerLookupTool()
         val engine = TramaiEngine(
             provider = DeterministicToolProvider("customer_lookup"),
@@ -84,7 +83,7 @@ class ToolGovernanceExampleTest {
         val store = InMemoryAuditStore()
         val auditEngine = AuditEngine(store, clock = fixedClock)
         val streamId = "test-account-delete"
-        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = AuditStreamIdResolver(streamId))
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = FixedAuditStreamIdResolver(streamId))
         val tool = AccountDeleteTool()
         val baselinePolicy = DefaultPolicyEngine(PolicyConfiguration.preview())
         val engine = TramaiEngine(
@@ -106,7 +105,7 @@ class ToolGovernanceExampleTest {
         val store = InMemoryAuditStore()
         val auditEngine = AuditEngine(store, clock = fixedClock)
         val streamId = "test-payment"
-        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = AuditStreamIdResolver(streamId))
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = FixedAuditStreamIdResolver(streamId))
         val tool = PaymentTool()
         val approvalGateCoordinator = DefaultApprovalGateCoordinator(
             store = InMemoryApprovalStore(clock = fixedClock),
@@ -121,12 +120,7 @@ class ToolGovernanceExampleTest {
             toolRegistry = ToolRegistry(mapOf("payment" to tool)),
             policyDecisionAuditEmitter = emitter,
             policyEngine = DefaultPolicyEngine(PolicyConfiguration.preview()),
-            toolArgumentsDigester = ToolArgumentsDigester {
-                val hex = java.security.MessageDigest.getInstance("SHA-256")
-                    .digest(it.reveal().toByteArray())
-                    .joinToString("") { "%02x".format(it) }
-                Sha256Digest.of("sha256:$hex")
-            },
+            toolArgumentsDigester = Sha256ToolArgumentsDigester(),
             approvalGateCoordinator = approvalGateCoordinator,
             approvalContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock),
             clock = fixedClock,
@@ -199,6 +193,7 @@ class ToolGovernanceExampleTest {
         // Exposure should be ALLOW
         val exposureEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXPOSURE" }
         assertTrue(exposureEvents.isNotEmpty(), "Must have BEFORE_TOOL_EXPOSURE events")
+        assertEquals("ALLOW", exposureEvents.single().decision)
 
         // Execution should be DENY
         val execEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXECUTION" }
@@ -240,6 +235,7 @@ class ToolGovernanceExampleTest {
         // Exposure should be ALLOW
         val exposureEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXPOSURE" }
         assertTrue(exposureEvents.isNotEmpty(), "Must have BEFORE_TOOL_EXPOSURE events")
+        assertEquals("ALLOW", exposureEvents.single().decision)
 
         // Execution should be REQUIRE_APPROVAL
         val execEvents = events.filter { it.enforcementPoint == "BEFORE_TOOL_EXECUTION" }
@@ -343,7 +339,7 @@ class ToolGovernanceExampleTest {
         val engine = TramaiEngine(
             provider = provider,
             toolRegistry = ToolRegistry(mapOf("account_delete" to tool)),
-            policyDecisionAuditEmitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, AuditStreamIdResolver("test-no-provider-continuation")),
+            policyDecisionAuditEmitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, FixedAuditStreamIdResolver("test-no-provider-continuation")),
             policyEngine = PolicyEngine { context ->
                 if (context.enforcementPoint == EnforcementPoint.BEFORE_TOOL_EXECUTION && context.toolName == "account_delete") {
                     PolicyDecision.Deny(reason = "denied", reasonCode = "test-denied")
@@ -407,7 +403,7 @@ class ToolGovernanceExampleTest {
         val store = InMemoryAuditStore()
         val auditEngine = AuditEngine(store, clock = fixedClock)
         val streamId = "test-privacy"
-        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = AuditStreamIdResolver(streamId))
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = FixedAuditStreamIdResolver(streamId))
         val tool = PaymentTool()
         val approvalGateCoordinator = DefaultApprovalGateCoordinator(
             store = InMemoryApprovalStore(clock = fixedClock),
@@ -417,26 +413,26 @@ class ToolGovernanceExampleTest {
             decisionValidator = AllowAnyApprovalDecisionValidator,
             clock = fixedClock,
         )
+        // Sensitive arguments passed through the provider's toolCallArgs, not via service input
+        val sensitiveArgs = """{"account":"NL00BANK0123456789","apiKey":"secret-value","amount":5000}"""
         val engine = TramaiEngine(
-            provider = DeterministicToolProvider("payment"),
+            provider = DeterministicToolProvider(
+                toolName = "payment",
+                toolCallArgs = sensitiveArgs,
+            ),
             toolRegistry = ToolRegistry(mapOf("payment" to tool)),
             policyDecisionAuditEmitter = emitter,
             policyEngine = DefaultPolicyEngine(PolicyConfiguration.preview()),
-            toolArgumentsDigester = ToolArgumentsDigester {
-                val hex = java.security.MessageDigest.getInstance("SHA-256")
-                    .digest(it.reveal().toByteArray())
-                    .joinToString("") { "%02x".format(it) }
-                Sha256Digest.of("sha256:$hex")
-            },
+            toolArgumentsDigester = Sha256ToolArgumentsDigester(),
             approvalGateCoordinator = approvalGateCoordinator,
             approvalContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock),
             clock = fixedClock,
         )
         val service = engine.create<PaymentToolService>()
 
-        // Sensitive arguments that must never appear in evidence
+        // Sensitive arguments are in the provider's toolCallArgs, not in service input
         try {
-            service.pay("""{"account":"NL00BANK0123456789","apiKey":"secret-value","amount":5000}""")
+            service.pay("submit payment")
         } catch (_: ApprovalSuspendedException) {
             // expected
         }

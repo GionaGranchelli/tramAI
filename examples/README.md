@@ -42,7 +42,7 @@ It is deterministic, requires no credentials or external model, and shows typed 
 
 | Example | Type | Real model | External infrastructure | Persistence | Governance depth | Primary command |
 |---|---|---|---|---|---|---|
-| Tool Governance | Learning demo | No | None | None | Tool permission outcomes | `./gradlew :examples:tool-governance:test` |
+| Tool Governance | Learning demo | No | None | None | Tool permission outcomes | `./gradlew :examples:tool-governance:run` |
 | Governed Workflow | Learning demo | No | None | None | Composition | `./gradlew :examples:governed-workflow:run` |
 | Support Agent | Core API demo | Ollama for runtime | Ollama | None | Basic AI integration | `./gradlew :examples:support-agent:run` |
 | Kotlin Spring Boot | Integration application | Ollama | Ollama | File checkpoints | Core workflow integration | `./gradlew -p examples/kotlin-springboot-example bootRun` |

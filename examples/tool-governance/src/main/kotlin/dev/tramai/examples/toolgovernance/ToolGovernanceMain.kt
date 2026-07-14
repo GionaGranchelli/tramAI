@@ -2,10 +2,8 @@ package dev.tramai.examples.toolgovernance
 
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
-import dev.tramai.core.approval.Sha256Digest
-import dev.tramai.core.approval.ToolArgumentsDigester
-import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.exception.ApprovalSuspendedException
+import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.policy.*
 import dev.tramai.engine.TramaiEngine
 import dev.tramai.engine.ToolRegistry
@@ -18,11 +16,11 @@ import dev.tramai.security.approval.InMemoryApprovalContinuationStore
 import dev.tramai.security.approval.InMemoryApprovalStore
 import dev.tramai.security.approval.SecureRandomApprovalTokenGenerator
 import dev.tramai.security.approval.Sha256ApprovalTokenDigester
+import dev.tramai.security.approval.Sha256ToolArgumentsDigester
 import dev.tramai.security.approval.UuidApprovalIdGenerator
 import dev.tramai.security.audit.*
 import dev.tramai.security.evidence.PolicyDecisionRuntimeEvidenceExporter
 import dev.tramai.security.evidence.ToolPermissionRuntimeEvidenceExporter
-import dev.tramai.security.evidence.RuntimeEvidenceJsonlWriter
 import kotlinx.coroutines.runBlocking
 import java.time.Clock
 import java.time.Instant
@@ -86,7 +84,7 @@ object ToolGovernanceMain {
         val store = InMemoryAuditStore()
         val auditEngine = AuditEngine(store, clock = fixedClock)
         val streamId = "tool-governance-customer-lookup"
-        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = AuditStreamIdResolver(streamId))
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = FixedAuditStreamIdResolver(streamId))
         val baselinePolicy = DefaultPolicyEngine(PolicyConfiguration.preview())
         val engine = TramaiEngine(
             provider = provider,
@@ -117,7 +115,7 @@ object ToolGovernanceMain {
         val store = InMemoryAuditStore()
         val auditEngine = AuditEngine(store, clock = fixedClock)
         val streamId = "tool-governance-account-delete"
-        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = AuditStreamIdResolver(streamId))
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = FixedAuditStreamIdResolver(streamId))
         val baselinePolicy = DefaultPolicyEngine(PolicyConfiguration.preview())
 
         // Policy wrapper that denies account_delete at BEFORE_TOOL_EXECUTION
@@ -162,7 +160,7 @@ object ToolGovernanceMain {
         val store = InMemoryAuditStore()
         val auditEngine = AuditEngine(store, clock = fixedClock)
         val streamId = "tool-governance-payment"
-        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = AuditStreamIdResolver(streamId))
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = FixedAuditStreamIdResolver(streamId))
         val baselinePolicy = DefaultPolicyEngine(PolicyConfiguration.preview())
 
         val approvalGateCoordinator = DefaultApprovalGateCoordinator(
@@ -179,12 +177,7 @@ object ToolGovernanceMain {
             toolRegistry = ToolRegistry(mapOf("payment" to tool)),
             policyDecisionAuditEmitter = emitter,
             policyEngine = baselinePolicy,
-            toolArgumentsDigester = ToolArgumentsDigester {
-                val hex = java.security.MessageDigest.getInstance("SHA-256")
-                    .digest(it.reveal().toByteArray())
-                    .joinToString("") { "%02x".format(it) }
-                Sha256Digest.of("sha256:$hex")
-            },
+            toolArgumentsDigester = Sha256ToolArgumentsDigester(),
             approvalGateCoordinator = approvalGateCoordinator,
             approvalContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock),
             clock = fixedClock,
@@ -255,6 +248,6 @@ object ToolGovernanceMain {
 /**
  * Simple AuditStreamIdResolver that returns a fixed string.
  */
-internal class AuditStreamIdResolver(private val streamId: String) : dev.tramai.security.audit.AuditStreamIdResolver {
+internal class FixedAuditStreamIdResolver(private val streamId: String) : dev.tramai.security.audit.AuditStreamIdResolver {
     override fun resolve(context: PolicyContext): String = streamId
 }

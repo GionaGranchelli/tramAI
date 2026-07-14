@@ -83,10 +83,15 @@ The `DefaultPolicyEngine` evaluates the tool's risk (HIGH) and approval mode (HU
 ## Running the Example
 
 ```bash
-./gradlew :examples:tool-governance:test
+./gradlew :examples:tool-governance:run
 ```
 
 No credentials, Docker, or network access required.
+
+> Also run the deterministic test suite to verify all tool governance scenarios:
+> ```bash
+> ./gradlew :examples:tool-governance:test
+> ```
 
 ---
 

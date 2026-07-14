@@ -6109,10 +6109,18 @@ tasks.register("verifyToolGovernanceExample") {
         require(examplesReadme.contains("./gradlew :examples:tool-governance:run")) {
             "examples/README.md must contain the exact run command"
         }
+        // Verify the example matrix uses :run as primary command
+        val matrixLine = examplesReadme.lines().find { it.contains("Tool Governance") && it.contains("./gradlew") }
+        require(matrixLine != null && matrixLine.contains(":run")) {
+            "examples/README.md example matrix must use :run as primary command for tool-governance, found: ${matrixLine?.take(80)}"
+        }
         require(guideFile.isFile) {
             "docs/guides/governed-tool-use.md must exist"
         }
         val guideText = guideFile.readText()
+        require(guideText.contains("./gradlew :examples:tool-governance:run")) {
+            "governed-tool-use.md must contain the run command"
+        }
         for (ep in listOf("BEFORE_TOOL_EXPOSURE", "BEFORE_TOOL_EXECUTION", "BEFORE_TOOL_RESULT_REINJECTION")) {
             require(guideText.contains(ep)) {
                 "governed-tool-use.md must mention enforcement point '$ep'"
