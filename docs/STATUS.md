@@ -121,17 +121,16 @@ The 0.5.0 train contains the post-sovereignty roadmap: workflow API stability, s
 
 - Workflow API stability boundary
 - Structured-output lifecycle and repair hardening
+- JavaBean DTO schema generation
 - Governed workflow examples and diagnostics
 - Approval ergonomics and failure taxonomy
-- Runtime evidence exporters
+- Runtime evidence exporters and bundle wiring
+- Dedicated tool.permission runtime evidence family
 - Tool exposure/execution governance proofs
 - Product positioning and JVM framework comparison
 
 ### Still incomplete for 0.5.0
 
-- JavaBean DTO schema generation
-- Runtime evidence bundle wiring
-- Dedicated tool.permission evidence
 - Tool-governance usage example
 - Final 0.5.0 release readiness
 
