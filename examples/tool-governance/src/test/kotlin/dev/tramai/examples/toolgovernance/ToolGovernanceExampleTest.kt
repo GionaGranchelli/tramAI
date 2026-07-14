@@ -21,6 +21,7 @@ import dev.tramai.security.approval.Sha256ApprovalTokenDigester
 import dev.tramai.security.approval.UuidApprovalIdGenerator
 import dev.tramai.security.audit.*
 import dev.tramai.security.evidence.PolicyDecisionRuntimeEvidenceExporter
+import dev.tramai.security.evidence.RuntimeEvidenceJsonlWriter
 import dev.tramai.security.evidence.ToolPermissionRuntimeEvidenceExporter
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.*
@@ -272,10 +273,26 @@ class ToolGovernanceExampleTest {
         val events = store.readStream(streamId)
         val policyExporter = PolicyDecisionRuntimeEvidenceExporter()
         val policyRecords = policyExporter.export(events)
+        val toolExporter = ToolPermissionRuntimeEvidenceExporter()
+        val toolRecords = toolExporter.export(events)
 
-        // No tool.permission events in policy.decision evidence
-        val toolEventsInPolicy = policyRecords.filter { it.eventType == "tool.permission" }
-        assertEquals(0, toolEventsInPolicy.size, "Tool events must not appear in policy.decision evidence")
+        // Event-ID based partition check: tool audit events must not appear in policy.decision evidence
+        val toolEnforcementPoints = setOf("BEFORE_TOOL_EXPOSURE", "BEFORE_TOOL_EXECUTION", "BEFORE_TOOL_RESULT_REINJECTION")
+        val toolAuditEventIds = events
+            .filter { it.enforcementPoint in toolEnforcementPoints }
+            .map { it.eventId }
+            .toSet()
+
+        assertTrue(
+            policyRecords.none { it.eventId in toolAuditEventIds },
+            "Tool audit events must not appear in policy.decision evidence"
+        )
+
+        assertEquals(
+            toolAuditEventIds,
+            toolRecords.map { it.eventId }.toSet(),
+            "Every tool audit event must appear in tool.permission evidence"
+        )
     }
 
     // ── Test 5: Evidence isolation across three tools ────────────────────
@@ -381,4 +398,60 @@ class ToolGovernanceExampleTest {
 
     // ── Test 10: Security metadata tests are above. Deterministic tool ──
     //     provider is exercised by the scenario tests; no isolated test needed.
+
+    // ── Test 11: Sensitive arguments never appear in serialized evidence ──
+
+    @Test
+    fun `sensitive tool arguments never appear in serialized evidence`() = runTest {
+        // Configure a fixture with deliberately sensitive arguments
+        val store = InMemoryAuditStore()
+        val auditEngine = AuditEngine(store, clock = fixedClock)
+        val streamId = "test-privacy"
+        val emitter = AuditEnginePolicyDecisionAuditEmitter(auditEngine, streamIdResolver = AuditStreamIdResolver(streamId))
+        val tool = PaymentTool()
+        val approvalGateCoordinator = DefaultApprovalGateCoordinator(
+            store = InMemoryApprovalStore(clock = fixedClock),
+            approvalIdGenerator = UuidApprovalIdGenerator(),
+            approvalTokenGenerator = SecureRandomApprovalTokenGenerator(),
+            approvalTokenDigester = Sha256ApprovalTokenDigester(),
+            decisionValidator = AllowAnyApprovalDecisionValidator,
+            clock = fixedClock,
+        )
+        val engine = TramaiEngine(
+            provider = DeterministicToolProvider("payment"),
+            toolRegistry = ToolRegistry(mapOf("payment" to tool)),
+            policyDecisionAuditEmitter = emitter,
+            policyEngine = DefaultPolicyEngine(PolicyConfiguration.preview()),
+            toolArgumentsDigester = ToolArgumentsDigester {
+                val hex = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(it.reveal().toByteArray())
+                    .joinToString("") { "%02x".format(it) }
+                Sha256Digest.of("sha256:$hex")
+            },
+            approvalGateCoordinator = approvalGateCoordinator,
+            approvalContinuationStore = InMemoryApprovalContinuationStore(clock = fixedClock),
+            clock = fixedClock,
+        )
+        val service = engine.create<PaymentToolService>()
+
+        // Sensitive arguments that must never appear in evidence
+        try {
+            service.pay("""{"account":"NL00BANK0123456789","apiKey":"secret-value","amount":5000}""")
+        } catch (_: ApprovalSuspendedException) {
+            // expected
+        }
+
+        val events = store.readStream(streamId)
+        val toolExporter = ToolPermissionRuntimeEvidenceExporter()
+        val toolRecords = toolExporter.export(events)
+
+        // Serialize to JSONL
+        val jsonlLines = RuntimeEvidenceJsonlWriter.write(toolRecords)
+
+        // Assert sensitive values never appear in evidence
+        assertFalse(jsonlLines.contains("NL00BANK0123456789"), "Evidence must not contain raw account number")
+        assertFalse(jsonlLines.contains("secret-value"), "Evidence must not contain raw API key")
+        assertFalse(jsonlLines.contains("5000"), "Evidence must not contain raw amount")
+        assertFalse(jsonlLines.contains("\"account\""), "Evidence must not contain the substring 'account' in raw form")
+    }
 }

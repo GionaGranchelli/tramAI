@@ -72,7 +72,7 @@ class AccountDeleteTool : ResolvedTool {
  * Payment execution tool — HIGH risk, HUMAN_REQUIRED approval.
  *
  * Permission: payment.execute
- * The baseline DefaultPolicyEngine grants exposure (customer.read is in allowedPermissions)
+ * The baseline DefaultPolicyEngine grants exposure via the wildcard permission (allowedPermissions contains "*")
  * but the execution policy gate returns REQUIRE_APPROVAL because HIGH risk with
  * HUMAN_REQUIRED approval is above the approval threshold.
  */

@@ -62,7 +62,7 @@ It is deterministic, requires no credentials or external model, and shows typed 
 
 **Run:**
 ```bash
-./gradlew :examples:tool-governance:test
+./gradlew :examples:tool-governance:run
 ```
 
 **Requires:** nothing — deterministic, no credentials, no external model, no Docker.

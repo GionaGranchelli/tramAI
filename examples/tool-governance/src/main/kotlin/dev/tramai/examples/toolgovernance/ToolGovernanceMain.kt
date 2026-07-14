@@ -241,8 +241,13 @@ object ToolGovernanceMain {
             }
         }
 
-        // Verify: no tool events appear in policy.decision evidence
-        val toolEventsInPolicy = policyRecords.filter { it.eventType == "tool.permission" }
+        // Verify: no tool events appear in policy.decision evidence (event-ID based partition check)
+        val toolEnforcementPoints = setOf("BEFORE_TOOL_EXPOSURE", "BEFORE_TOOL_EXECUTION", "BEFORE_TOOL_RESULT_REINJECTION")
+        val toolAuditEventIds = events
+            .filter { it.enforcementPoint in toolEnforcementPoints }
+            .map { it.eventId }
+            .toSet()
+        val toolEventsInPolicy = policyRecords.filter { it.eventId in toolAuditEventIds }
         println("  ── cross-check: tool events in policy.decision evidence: ${toolEventsInPolicy.size} ──")
     }
 }

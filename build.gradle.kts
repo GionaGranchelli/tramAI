@@ -6106,8 +6106,8 @@ tasks.register("verifyToolGovernanceExample") {
         require(file("examples/tool-governance/README.md").isFile) {
             "examples/tool-governance/README.md must exist"
         }
-        require(examplesReadme.contains("./gradlew :examples:tool-governance:test")) {
-            "examples/README.md must contain the exact test command"
+        require(examplesReadme.contains("./gradlew :examples:tool-governance:run")) {
+            "examples/README.md must contain the exact run command"
         }
         require(guideFile.isFile) {
             "docs/guides/governed-tool-use.md must exist"

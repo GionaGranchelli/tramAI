@@ -1,5 +1,10 @@
 plugins {
     kotlin("jvm")
+    application
+}
+
+application {
+    mainClass.set("dev.tramai.examples.toolgovernance.ToolGovernanceMain")
 }
 
 group = "dev.tramai.examples"
