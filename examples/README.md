@@ -26,6 +26,7 @@ It is deterministic, requires no credentials or external model, and shows typed 
 
 | Goal | Recommended path |
 |---|---|
+| Learn governed AI service, policy, and approval patterns | [Tool Governance](#tool-governance) |
 | See a governed workflow in five minutes | [Governed Workflow](#governed-workflow) |
 | Learn typed AI services, tools, and structured output | [Support Agent](#support-agent) |
 | Explore a conventional Spring Boot backend integration | [Kotlin Spring Boot Example](#kotlin-spring-boot-example) |
@@ -41,6 +42,7 @@ It is deterministic, requires no credentials or external model, and shows typed 
 
 | Example | Type | Real model | External infrastructure | Persistence | Governance depth | Primary command |
 |---|---|---|---|---|---|---|
+| Tool Governance | Learning demo | No | None | None | Tool permission outcomes | `./gradlew :examples:tool-governance:test` |
 | Governed Workflow | Learning demo | No | None | None | Composition | `./gradlew :examples:governed-workflow:run` |
 | Support Agent | Core API demo | Ollama for runtime | Ollama | None | Basic AI integration | `./gradlew :examples:support-agent:run` |
 | Kotlin Spring Boot | Integration application | Ollama | Ollama | File checkpoints | Core workflow integration | `./gradlew -p examples/kotlin-springboot-example bootRun` |
@@ -53,6 +55,25 @@ It is deterministic, requires no credentials or external model, and shows typed 
 ---
 
 ## Example Profiles
+
+### Tool Governance
+
+**Choose this when:** you want to understand tool permission outcomes (ALLOW, DENY, REQUIRE_APPROVAL) and the dedicated `tool.permission` runtime evidence family.
+
+**Run:**
+```bash
+./gradlew :examples:tool-governance:test
+```
+
+**Requires:** nothing — deterministic, no credentials, no external model, no Docker.
+
+**Demonstrates:** three deterministic tool governance scenarios — read-only lookup (ALLOW), account deletion (DENY via policy wrapper), payment (REQUIRE_APPROVAL via approval suspension). Each scenario verifies tool execution count, enforcement point decisions, and dedicated `tool.permission` runtime evidence export. Shows that tool enforcement events are excluded from generic `policy.decision` evidence.
+
+**Does not demonstrate:** durable approval storage, replay persistence, audit export, sovereign deployment, `REDACT_RESULT`, `ALLOW_INTERNAL_ONLY`, or MCP governance.
+
+**Next step:** [Governed Workflow](#governed-workflow) for composition patterns, or [Approval Resume](#approval-resume) for durable human approval.
+
+---
 
 ### Governed Workflow
 

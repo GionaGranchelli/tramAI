@@ -48,7 +48,7 @@ TramAI should become:
 | 3 | Workflow Ergonomics | Improve developer experience for real workflows | P0 | ✅ Complete |
 | 4 | Approval & Human Gates | Make approval flows easier and safer to use | P1 | ✅ Complete |
 | 5 | Runtime Evidence Export | Connect real runtime decisions to evidence artifacts | P1 | ✅ Complete — PR #200 adds dedicated tool.permission family |
-| 6 | Tool/MCP Governance | Govern tool calls and future MCP integrations | P2 | 🔧 Enforcement proofs complete, usage example pending |
+| 6 | Tool/MCP Governance | Govern tool calls and future MCP integrations | P2 | ✅ Complete — PR #201 adds runnable tool-governance example |
 | 7 | Product Narrative | Prepare docs/articles/talk material | P2 | ✅ Complete |
 | 8 | Deferred Future Tracks | Release Console, compliance mapping, attestation | P3 | ⏸ Deferred |
 
@@ -276,14 +276,14 @@ A new TramAI user should understand:
 | #190 | test(tooling): audit tool exposure policy decisions | Tool exposure audit events | ✅ Merged |
 | #191 | test(tooling): prove fail-closed tool execution denial | Execution denial, ordering, retries, audit, evidence | ✅ Merged |
 | #200 | feat(evidence): add dedicated tool.permission runtime evidence family | Partition tool events from generic policy.decision | ✅ Merged |
-| TBD | docs(tooling): add tool governance examples | Usage guide | 🔧 Pending |
+| #201 | example(tooling): add governed tool permission example | Three scenarios with ALLOW/DENY/REQUIRE_APPROVAL + tool.permission evidence | ✅ Merged |
 
 **Tasks:**
 1. Define trusted/internal/external tool classes
 2. Define policy decision points for tools
 3. Define approval-required tool classes
 4. Audit tool exposure and execution policy decisions
-5. Verify denied-tool execution through the generic policy audit path and dedicated tool.permission evidence path
+6. Verify denied-tool execution through the generic policy audit path and dedicated tool.permission evidence path (PR #201 adds a runnable example)
 6. Define MCP connector non-goals
 
 **Acceptance criteria:**
@@ -439,7 +439,7 @@ The following work remains for the 0.5.0 development train before a release cand
 
 | Item | Area | Description | Status |
 |------|------|-------------|--------|
-| Tool-governance usage example | Documentation | Add tool governance usage examples | 🔧 Pending |
+|| Tool-governance usage example | Documentation | Add tool governance usage examples | ✅ Complete — PR #201 |
 | Final 0.5.0 release readiness | Release | Declare RC, verify all acceptance criteria, publish | 🔧 Pending |
 
 ---

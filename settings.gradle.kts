@@ -48,4 +48,5 @@ include(
     "examples:spring-sovereign-starter",
     "examples:governed-workflow",
     "examples:approval-resume",
+    "examples:tool-governance",
 )

@@ -127,11 +127,11 @@ The 0.5.0 train contains the post-sovereignty roadmap: workflow API stability, s
 - Runtime evidence exporters and bundle wiring
 - Dedicated tool.permission runtime evidence family
 - Tool exposure/execution governance proofs
+- Tool-governance usage example
 - Product positioning and JVM framework comparison
 
 ### Still incomplete for 0.5.0
 
-- Tool-governance usage example
 - Final 0.5.0 release readiness
 
 ## Sovereign Runtime

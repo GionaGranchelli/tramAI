@@ -222,7 +222,8 @@ The tool permission model is intentionally broader than MCP. Documenting tool go
 | #190 | Verify tool exposure policy audit | ✅ Verified |
 | #191 | Verify tool execution denial and generic evidence | ✅ Verified |
 | #200 | Add dedicated tool.permission evidence family and tool-permissions.jsonl | ✅ Implemented |
-| TBD | Add tool governance examples: usage guide with deny/approval scenarios | 🔧 Pending |
+| #201 | Add tool governance usage examples: deny/approval scenarios with tool.permission evidence | ✅ Implemented |
+| TBD | Add MCP governance examples | 🔧 Pending |
 
 Implementation PRs should reference this model. Tool audit events should follow the runtime-evidence.v1 record shape defined in Phase 5.
 
