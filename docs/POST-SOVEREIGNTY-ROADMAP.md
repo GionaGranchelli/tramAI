@@ -47,7 +47,7 @@ TramAI should become:
 | 2 | Structured Output Contracts | Make typed contract lifecycle explicit and tested | P0 | ✅ Complete |
 | 3 | Workflow Ergonomics | Improve developer experience for real workflows | P0 | ✅ Complete |
 | 4 | Approval & Human Gates | Make approval flows easier and safer to use | P1 | ✅ Complete |
-|| 5 | Runtime Evidence Export | Connect real runtime decisions to evidence artifacts | P1 | ✅ Complete — PR #200 adds dedicated tool.permission family |
+| 5 | Runtime Evidence Export | Connect real runtime decisions to evidence artifacts | P1 | ✅ Complete — PR #200 adds dedicated tool.permission family |
 | 6 | Tool/MCP Governance | Govern tool calls and future MCP integrations | P2 | 🔧 Enforcement proofs complete, usage example pending |
 | 7 | Product Narrative | Prepare docs/articles/talk material | P2 | ✅ Complete |
 | 8 | Deferred Future Tracks | Release Console, compliance mapping, attestation | P3 | ⏸ Deferred |
@@ -237,10 +237,10 @@ A new TramAI user should understand:
 | #183 | docs(evidence): define runtime evidence export model | Design doc | ✅ Merged |
 | #184 | test(evidence): export policy decision evidence | Export allow/deny/require-approval policy decisions | ✅ Merged |
 | #185 | test(evidence): export approval decision evidence | Export approved/denied human approval decisions | ✅ Merged |
-|| #186 | test(evidence): export provider routing evidence | Export selected/fallback/blocked provider route decisions | ✅ Merged |
-|| #187 | docs(evidence): map runtime events to evidence bundle sections | Human-readable mapping | ✅ Merged |
-|| #199 | Wire runtime evidence into sovereign evidence bundles | Bundle writer, verifier rules, lifecycle | ✅ Merged |
-|| #200 | Add dedicated tool.permission runtime evidence family | Partition tool events from policy.decision | ✅ Merged |
+| #186 | test(evidence): export provider routing evidence | Export selected/fallback/blocked provider route decisions | ✅ Merged |
+| #187 | docs(evidence): map runtime events to evidence bundle sections | Human-readable mapping | ✅ Merged |
+| #199 | Wire runtime evidence into sovereign evidence bundles | Bundle writer, verifier rules, lifecycle | ✅ Merged |
+| #200 | Add dedicated tool.permission runtime evidence family | Partition tool events from policy.decision | ✅ Merged |
 
 **Tasks:**
 1. Define runtime evidence record shape
@@ -273,17 +273,17 @@ A new TramAI user should understand:
 |----|-------|---------|--------|
 | #188 | docs(security): define tool permission model | Trust zones and permissions | ✅ Merged |
 | #189 | docs(mcp): define MCP governance boundary | What MCP support should/should not mean | ✅ Merged |
-|| #190 | test(tooling): audit tool exposure policy decisions | Tool exposure audit events | ✅ Merged |
-|| #191 | test(tooling): prove fail-closed tool execution denial | Execution denial, ordering, retries, audit, evidence | ✅ Merged |
-|| #200 | feat(evidence): add dedicated tool.permission runtime evidence family | Partition tool events from generic policy.decision | ✅ Merged |
-|| TBD | docs(tooling): add tool governance examples | Usage guide | 🔧 Pending |
+| #190 | test(tooling): audit tool exposure policy decisions | Tool exposure audit events | ✅ Merged |
+| #191 | test(tooling): prove fail-closed tool execution denial | Execution denial, ordering, retries, audit, evidence | ✅ Merged |
+| #200 | feat(evidence): add dedicated tool.permission runtime evidence family | Partition tool events from generic policy.decision | ✅ Merged |
+| TBD | docs(tooling): add tool governance examples | Usage guide | 🔧 Pending |
 
 **Tasks:**
 1. Define trusted/internal/external tool classes
 2. Define policy decision points for tools
 3. Define approval-required tool classes
 4. Audit tool exposure and execution policy decisions
-5. Verify denied-tool execution through generic policy.decision audit and evidence paths
+5. Verify denied-tool execution through the generic policy audit path and dedicated tool.permission evidence path
 6. Define MCP connector non-goals
 
 **Acceptance criteria:**
@@ -406,11 +406,11 @@ Move from optional signature verification to a more formal signing/attestation m
 | #182 | docs(approval): define approval failure taxonomy | ✅ Merged |
 | #183 | docs(evidence): define runtime evidence export model | ✅ Merged |
 | #184 | test(evidence): export policy decision evidence | ✅ Merged |
-|| #185 | test(evidence): export approval decision evidence | ✅ Merged |
-|| #186 | test(evidence): export provider routing evidence | ✅ Merged |
-|| #187 | docs(evidence): map runtime events to evidence bundle sections | ✅ Merged |
-|| #199 | feat(evidence): wire runtime decisions into sovereign evidence bundles | ✅ Merged |
-|| #200 | feat(evidence): add dedicated tool.permission runtime evidence family | ✅ Merged |
+| #185 | test(evidence): export approval decision evidence | ✅ Merged |
+| #186 | test(evidence): export provider routing evidence | ✅ Merged |
+| #187 | docs(evidence): map runtime events to evidence bundle sections | ✅ Merged |
+| #199 | feat(evidence): wire runtime decisions into sovereign evidence bundles | ✅ Merged |
+| #200 | feat(evidence): add dedicated tool.permission runtime evidence family | ✅ Merged |
 
 **Outcome:** Runtime decisions produce reviewable evidence.
 
@@ -421,13 +421,13 @@ Move from optional signature verification to a more formal signing/attestation m
 | #188 | docs(security): define tool permission model | ✅ Merged |
 | #189 | docs(mcp): define MCP governance boundary | ✅ Merged |
 | #190 | test(tooling): audit tool exposure policy decisions | ✅ Merged |
-|| #191 | test(tooling): prove fail-closed tool execution denial | ✅ Merged |
-|| #192 | docs(product): define TramAI positioning | ✅ Merged |
-|| #193 | docs(readme): rewrite README around governed workflows | ✅ Merged |
-|| #194 | docs(article): draft governed JVM AI workflow article | ✅ Merged |
-|| #195 | docs(examples): add example selection guide | ✅ Merged |
-|| #196 | docs(comparison): position TramAI alongside Spring AI and LangChain4j | ✅ Merged |
-|| #200 | feat(evidence): add dedicated tool.permission runtime evidence family | ✅ Merged |
+| #191 | test(tooling): prove fail-closed tool execution denial | ✅ Merged |
+| #192 | docs(product): define TramAI positioning | ✅ Merged |
+| #193 | docs(readme): rewrite README around governed workflows | ✅ Merged |
+| #194 | docs(article): draft governed JVM AI workflow article | ✅ Merged |
+| #195 | docs(examples): add example selection guide | ✅ Merged |
+| #196 | docs(comparison): position TramAI alongside Spring AI and LangChain4j | ✅ Merged |
+| #200 | feat(evidence): add dedicated tool.permission runtime evidence family | ✅ Merged |
 
 **Outcome:** ✅ TramAI is easier to explain, adopt, evaluate, and position alongside established JVM AI frameworks.
 
@@ -437,10 +437,10 @@ Move from optional signature verification to a more formal signing/attestation m
 
 The following work remains for the 0.5.0 development train before a release candidate can be declared:
 
-|| Item | Area | Description | Status |
-||------|------|-------------|--------|
-|| Tool-governance usage example | Documentation | Add tool governance usage examples | 🔧 Pending |
-|| Final 0.5.0 release readiness | Release | Declare RC, verify all acceptance criteria, publish | 🔧 Pending |
+| Item | Area | Description | Status |
+|------|------|-------------|--------|
+| Tool-governance usage example | Documentation | Add tool governance usage examples | 🔧 Pending |
+| Final 0.5.0 release readiness | Release | Declare RC, verify all acceptance criteria, publish | 🔧 Pending |
 
 ---
 

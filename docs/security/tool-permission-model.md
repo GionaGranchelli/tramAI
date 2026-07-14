@@ -207,8 +207,7 @@ The tool permission model is intentionally broader than MCP. Documenting tool go
 ## Non-Claims
 
 - This model defines a vocabulary and decision taxonomy. It does not implement runtime enforcement beyond what is described.
-- It does not add new Kotlin enums, policy engine behavior, or MCP connector support.
-- It does not implement MCP connector support, runtime tool registration, or tool result filtering.
+- It does not add new Kotlin enums, policy engine behavior, MCP connector support, runtime tool registration, or tool result filtering.
 - Default approval requirements are design guidance, not runtime defaults.
 - No production-readiness, compliance, or certification claims are made.
 
@@ -218,12 +217,12 @@ The tool permission model is intentionally broader than MCP. Documenting tool go
 
 | PR | Scope | Status |
 |----|-------|--------|
-|| #188 | Define tool permission model (this document) | ✅ Documented |
-|| #189 | Define MCP governance boundary | ✅ Documented |
-|| #190 | Verify tool exposure policy audit | ✅ Verified |
-|| #191 | Verify tool execution denial and generic evidence | ✅ Verified |
-|| #200 | Add dedicated tool.permission evidence family and tool-permissions.jsonl | ✅ Implemented |
-|| TBD | Add tool governance examples: usage guide with deny/approval scenarios | 🔧 Pending |
+| #188 | Define tool permission model (this document) | ✅ Documented |
+| #189 | Define MCP governance boundary | ✅ Documented |
+| #190 | Verify tool exposure policy audit | ✅ Verified |
+| #191 | Verify tool execution denial and generic evidence | ✅ Verified |
+| #200 | Add dedicated tool.permission evidence family and tool-permissions.jsonl | ✅ Implemented |
+| TBD | Add tool governance examples: usage guide with deny/approval scenarios | 🔧 Pending |
 
 Implementation PRs should reference this model. Tool audit events should follow the runtime-evidence.v1 record shape defined in Phase 5.
 
