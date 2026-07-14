@@ -47,7 +47,7 @@ TramAI should become:
 | 2 | Structured Output Contracts | Make typed contract lifecycle explicit and tested | P0 | ✅ Complete |
 | 3 | Workflow Ergonomics | Improve developer experience for real workflows | P0 | ✅ Complete |
 | 4 | Approval & Human Gates | Make approval flows easier and safer to use | P1 | ✅ Complete |
-| 5 | Runtime Evidence Export | Connect real runtime decisions to evidence artifacts | P1 | 🔧 Exporters complete, bundle integration pending |
+| 5 | Runtime Evidence Export | Connect real runtime decisions to evidence artifacts | P1 | ✅ Complete — PR #200 adds dedicated tool.permission family |
 | 6 | Tool/MCP Governance | Govern tool calls and future MCP integrations | P2 | 🔧 Enforcement proofs complete, usage example pending |
 | 7 | Product Narrative | Prepare docs/articles/talk material | P2 | ✅ Complete |
 | 8 | Deferred Future Tracks | Release Console, compliance mapping, attestation | P3 | ⏸ Deferred |
@@ -239,6 +239,8 @@ A new TramAI user should understand:
 | #185 | test(evidence): export approval decision evidence | Export approved/denied human approval decisions | ✅ Merged |
 | #186 | test(evidence): export provider routing evidence | Export selected/fallback/blocked provider route decisions | ✅ Merged |
 | #187 | docs(evidence): map runtime events to evidence bundle sections | Human-readable mapping | ✅ Merged |
+| #199 | Wire runtime evidence into sovereign evidence bundles | Bundle writer, verifier rules, lifecycle | ✅ Merged |
+| #200 | Add dedicated tool.permission runtime evidence family | Partition tool events from policy.decision | ✅ Merged |
 
 **Tasks:**
 1. Define runtime evidence record shape
@@ -273,6 +275,7 @@ A new TramAI user should understand:
 | #189 | docs(mcp): define MCP governance boundary | What MCP support should/should not mean | ✅ Merged |
 | #190 | test(tooling): audit tool exposure policy decisions | Tool exposure audit events | ✅ Merged |
 | #191 | test(tooling): prove fail-closed tool execution denial | Execution denial, ordering, retries, audit, evidence | ✅ Merged |
+| #200 | feat(evidence): add dedicated tool.permission runtime evidence family | Partition tool events from generic policy.decision | ✅ Merged |
 | TBD | docs(tooling): add tool governance examples | Usage guide | 🔧 Pending |
 
 **Tasks:**
@@ -280,7 +283,7 @@ A new TramAI user should understand:
 2. Define policy decision points for tools
 3. Define approval-required tool classes
 4. Audit tool exposure and execution policy decisions
-5. Verify denied-tool execution through generic policy.decision audit and evidence paths
+5. Verify denied-tool execution through the generic policy audit path and dedicated tool.permission evidence path
 6. Define MCP connector non-goals
 
 **Acceptance criteria:**
@@ -406,6 +409,8 @@ Move from optional signature verification to a more formal signing/attestation m
 | #185 | test(evidence): export approval decision evidence | ✅ Merged |
 | #186 | test(evidence): export provider routing evidence | ✅ Merged |
 | #187 | docs(evidence): map runtime events to evidence bundle sections | ✅ Merged |
+| #199 | feat(evidence): wire runtime decisions into sovereign evidence bundles | ✅ Merged |
+| #200 | feat(evidence): add dedicated tool.permission runtime evidence family | ✅ Merged |
 
 **Outcome:** Runtime decisions produce reviewable evidence.
 
@@ -422,6 +427,7 @@ Move from optional signature verification to a more formal signing/attestation m
 | #194 | docs(article): draft governed JVM AI workflow article | ✅ Merged |
 | #195 | docs(examples): add example selection guide | ✅ Merged |
 | #196 | docs(comparison): position TramAI alongside Spring AI and LangChain4j | ✅ Merged |
+| #200 | feat(evidence): add dedicated tool.permission runtime evidence family | ✅ Merged |
 
 **Outcome:** ✅ TramAI is easier to explain, adopt, evaluate, and position alongside established JVM AI frameworks.
 
@@ -433,9 +439,6 @@ The following work remains for the 0.5.0 development train before a release cand
 
 | Item | Area | Description | Status |
 |------|------|-------------|--------|
-| JavaBean DTO schema generation | Structured Output | Support for JavaBean-style DTOs in structured output schema generation and matching validation | ✅ Complete — PR #198 |
-| Runtime evidence bundle wiring | Evidence | Wire runtime evidence exporters into the evidence bundle | ✅ Complete — PR #199 |
-| Dedicated tool.permission evidence | Evidence | Add dedicated `tool.permission` runtime-evidence type (separate from generic `policy.decision`) | 🔧 Pending |
 | Tool-governance usage example | Documentation | Add tool governance usage examples | 🔧 Pending |
 | Final 0.5.0 release readiness | Release | Declare RC, verify all acceptance criteria, publish | 🔧 Pending |
 

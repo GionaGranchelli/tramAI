@@ -1,6 +1,6 @@
 # Tool Permission Model
 
-> **Status:** Design boundary — defines the trust and risk taxonomy for governed tool use in TramAI.
+> **Status:** Design boundary with implemented evidence — defines the trust and risk taxonomy for governed tool use in TramAI. The dedicated `tool.permission` runtime evidence family is implemented (PR #200).
 > **Phase:** Phase 6 — Tool and MCP Governance of the [Post-Sovereignty Roadmap](../POST-SOVEREIGNTY-ROADMAP.md).
 > **Prerequisites:** [Security Model](SECURITY-MODEL.md), [Runtime Evidence Export Model](../evidence/runtime-evidence-export-model.md).
 
@@ -101,9 +101,9 @@ The current `PolicyDecision` sealed type supports three outcomes:
 | `DENY` | Tool must not be exposed or invoked. The operation receives a policy rejection. |
 | `REQUIRE_APPROVAL` | Tool requires human approval before execution. The workflow suspends until approval is received. |
 
-These are already implemented and used by the policy decision evidence exporter (#184).
+These are already implemented and used by the policy decision evidence exporter (#184) and the tool permission evidence exporter (#200).
 
-### Proposed Tool-Specific Extensions
+### Future Decision Extensions
 
 The following decisions are defined here as a design boundary for future tool governance:
 
@@ -112,7 +112,7 @@ The following decisions are defined here as a design boundary for future tool go
 | `REDACT_RESULT` | Tool may be invoked, but its result must be filtered or redacted before returning to the caller. | Future — not yet implemented |
 | `ALLOW_INTERNAL_ONLY` | Tool may run only inside the sovereign/local boundary. If the deployment is not sovereign, the tool is denied. | Future — not yet implemented |
 
-These decisions require future implementation before they can be treated as runtime outcomes. They are documented here so that tool governance rules and approval defaults can be designed consistently.
+These decisions require future implementation. The `tool.permission` evidence exporter (PR #200) actively filters them out, so `REDACT_RESULT` and `ALLOW_INTERNAL_ONLY` records never appear in runtime evidence.
 
 ---
 
@@ -175,18 +175,18 @@ The following decisions are **not yet implemented** and should not be assumed as
 
 ## Audit and Evidence Expectations
 
-Each tool permission decision should produce an audit event. The runtime evidence model (Phase 5) already defines the record shape for runtime decisions — tool permission events will follow the same `runtime-evidence.v1` schema:
+Each tool permission decision produces an audit event and is exported as dedicated `tool.permission` runtime evidence. The runtime evidence model (Phase 5) defines the record shape for runtime decisions — tool permission events follow the `runtime-evidence.v1` schema:
 
 | Field | Expected value |
 |-------|---------------|
 | `eventType` | `tool.permission` |
 | `source.component` | `policy-engine` |
-| `decision.kind` | `ALLOW`, `DENY`, `REQUIRE_APPROVAL`, `REDACT_RESULT`, or `ALLOW_INTERNAL_ONLY` |
-| `metadata` | Tool name, trust class, risk class, operation identifier |
+| `decision.kind` | `ALLOW`, `DENY`, or `REQUIRE_APPROVAL` |
+| `metadata` | `toolName` (required), `enforcementPoint` (required), `riskLevel`, `classification`, `classificationSource` |
 
-Tool audit events are **not implemented** as dedicated `tool.permission` evidence. Tool enforcement decisions currently use the generic policy audit path and can be exported as `policy.decision` evidence. A dedicated `tool.permission` event type and `tool-permissions.jsonl` bundle section are not yet implemented. They are reserved for a future test PR.
+Tool enforcement events (`BEFORE_TOOL_EXPOSURE`, `BEFORE_TOOL_EXECUTION`, `BEFORE_TOOL_RESULT_REINJECTION`) are partitioned into the `tool.permission` family and excluded from generic `policy.decision` evidence. The `ToolPermissionRuntimeEvidenceExporter` (PR #200) writes to `runtime-evidence/tool-permissions.jsonl` in the evidence bundle.
 
-The [Runtime Evidence Bundle Map](../evidence/runtime-evidence-bundle-map.md) currently covers policy, approval, and provider routing event families. A future update should add a `tool-permissions.jsonl` section for tool audit events.
+The [Runtime Evidence Bundle Map](../evidence/runtime-evidence-bundle-map.md) covers all four runtime evidence families, including `tool-permissions.jsonl`.
 
 ---
 
@@ -206,12 +206,9 @@ The tool permission model is intentionally broader than MCP. Documenting tool go
 
 ## Non-Claims
 
-- This model defines a vocabulary and decision taxonomy. It does not implement runtime enforcement.
-- It does not add new Kotlin enums, policy engine behavior, or tool audit event export.
-- It does not implement MCP connector support, runtime tool registration, or tool result filtering.
-- It does not add verifier rules, evidence export, or approval gate wiring.
+- This model defines a vocabulary and decision taxonomy. It does not implement runtime enforcement beyond what is described.
+- It does not add new Kotlin enums, policy engine behavior, MCP connector support, runtime tool registration, or tool result filtering.
 - Default approval requirements are design guidance, not runtime defaults.
-- Evidence expectations describe the future shape — no new evidence events are emitted today.
 - No production-readiness, compliance, or certification claims are made.
 
 ---
@@ -224,8 +221,8 @@ The tool permission model is intentionally broader than MCP. Documenting tool go
 | #189 | Define MCP governance boundary | ✅ Documented |
 | #190 | Verify tool exposure policy audit | ✅ Verified |
 | #191 | Verify tool execution denial and generic evidence | ✅ Verified |
-| TBD | Add dedicated tool.permission evidence family and tool-permissions.jsonl | Pending |
-| TBD | Add tool governance examples: usage guide with deny/approval scenarios | Pending |
+| #200 | Add dedicated tool.permission evidence family and tool-permissions.jsonl | ✅ Implemented |
+| TBD | Add tool governance examples: usage guide with deny/approval scenarios | 🔧 Pending |
 
 Implementation PRs should reference this model. Tool audit events should follow the runtime-evidence.v1 record shape defined in Phase 5.
 

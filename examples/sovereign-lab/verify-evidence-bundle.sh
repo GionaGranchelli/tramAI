@@ -182,6 +182,7 @@ EVIDENCE_FILES = {
     "policy-decisions.jsonl": "policy.decision",
     "approval-decisions.jsonl": "approval.decision",
     "provider-routing.jsonl": "provider.route",
+    "tool-permissions.jsonl": "tool.permission",
 }
 
 # Allowed decision kinds per event type
@@ -189,6 +190,7 @@ ALLOWED_DECISION_KINDS = {
     "policy.decision": {"ALLOW", "DENY", "REQUIRE_APPROVAL"},
     "approval.decision": {"APPROVED", "DENIED"},
     "provider.route": {"SELECTED", "FALLBACK", "BLOCKED"},
+    "tool.permission": {"ALLOW", "DENY", "REQUIRE_APPROVAL"},
 }
 
 # Expected source component per event type
@@ -196,6 +198,7 @@ EXPECTED_SOURCE_COMPONENTS = {
     "policy.decision": "policy-engine",
     "approval.decision": "approval-control-plane",
     "provider.route": "provider-router",
+    "tool.permission": "policy-engine",
 }
 
 # Metadata allowlists per event family
@@ -213,10 +216,15 @@ ROUTING_METADATA_KEYS = {
     "previousProviderDigest", "previousModelDigest", "routeIndex",
     "attempt", "fallbackReason",
 }
+TOOL_PERMISSION_METADATA_KEYS = {
+    "toolName", "enforcementPoint", "riskLevel", "classification",
+    "classificationSource",
+}
 EVIDENCE_METADATA_KEYS = {
     "policy.decision": POLICY_METADATA_KEYS,
     "approval.decision": APPROVAL_METADATA_KEYS,
     "provider.route": ROUTING_METADATA_KEYS,
+    "tool.permission": TOOL_PERMISSION_METADATA_KEYS,
 }
 
 SHA256_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -408,6 +416,14 @@ def validate_runtime_evidence():
                                 f"{sorted(_ROUTING_REASON_CODES)} "
                                 f"for provider.route, got: {reason_code}"
                             )
+                    elif expected_event_type == "tool.permission":
+                        if not REASON_CODE_RE.match(reason_code):
+                            fail(
+                                f"runtime-evidence/{filename} line {line_num}: "
+                                f"decision.reasonCode must match "
+                                f"^[a-zA-Z0-9][a-zA-Z0-9._-]{{0,127}}$ "
+                                f"for tool.permission, got: {reason_code}"
+                            )
                     else:  # policy.decision — use format regex
                         if not REASON_CODE_RE.match(reason_code):
                             fail(
@@ -535,6 +551,36 @@ def validate_runtime_evidence():
                                 f"runtime-evidence/{filename} line {line_num}: "
                                 f"metadata 'fallbackReason' must be one of "
                                 f"{sorted(ALLOWED_ROUTING_REASONS)}, got: {fb}"
+                            )
+                elif expected_event_type == "tool.permission":
+                    # toolName must be non-blank
+                    tn = meta.get("toolName")
+                    if not isinstance(tn, str) or not tn.strip():
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"metadata 'toolName' is required and must be non-blank"
+                        )
+                    # enforcementPoint must be one of the three tool enforcement points
+                    ep = meta.get("enforcementPoint")
+                    _TOOL_ENFORCEMENT_POINTS = {
+                        "BEFORE_TOOL_EXPOSURE", "BEFORE_TOOL_EXECUTION",
+                        "BEFORE_TOOL_RESULT_REINJECTION",
+                    }
+                    if ep not in _TOOL_ENFORCEMENT_POINTS:
+                        fail(
+                            f"runtime-evidence/{filename} line {line_num}: "
+                            f"metadata 'enforcementPoint' must be one of "
+                            f"{sorted(_TOOL_ENFORCEMENT_POINTS)}, got: {ep}"
+                        )
+                    # riskLevel, if present, must be one of the allowed values
+                    rl = meta.get("riskLevel")
+                    if rl is not None:
+                        _ALLOWED_RISK_LEVELS = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+                        if rl not in _ALLOWED_RISK_LEVELS:
+                            fail(
+                                f"runtime-evidence/{filename} line {line_num}: "
+                                f"metadata 'riskLevel' must be one of "
+                                f"{sorted(_ALLOWED_RISK_LEVELS)}, got: {rl}"
                             )
 
         # Record count check: must contain at least one record
