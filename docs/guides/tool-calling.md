@@ -164,6 +164,8 @@ Tool calling is intentionally constrained:
 - provider-native tool calling may be used under the hood, but the user-facing model stays TramAI-owned
 - streaming-plus-tool-calling is not the primary public contract today
 
+> **Next:** see the [Governed Tool Use Guide](governed-tool-use.md) for how tool permission decisions (ALLOW, DENY, REQUIRE_APPROVAL) are enforced and evidenced through the tool.permission runtime evidence family.
+
 ---
 
 ## Design Intent

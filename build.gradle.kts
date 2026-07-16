@@ -6080,7 +6080,84 @@ tasks.register("verifyDevelopmentVersionAlignment") {
     }
 }
 
+// ──────────────────────────────────────────────
+// Task: verifyToolGovernanceExample
+// ──────────────────────────────────────────────
+
+tasks.register("verifyToolGovernanceExample") {
+    group = "verification"
+    description = "Verifies the tool-governance example module and guide are correctly wired."
+
+    doLast {
+        val exampleDir = file("examples/tool-governance")
+        val settingsText = file("settings.gradle.kts").readText()
+        val examplesReadme = file("examples/README.md").readText()
+        val guideFile = file("docs/guides/governed-tool-use.md")
+
+        require(exampleDir.isDirectory) {
+            "examples/tool-governance/ directory must exist"
+        }
+        require(settingsText.contains("\"examples:tool-governance\"")) {
+            "settings.gradle.kts must include examples:tool-governance"
+        }
+        require(file("examples/tool-governance/src/main/kotlin/dev/tramai/examples/toolgovernance/ToolGovernanceMain.kt").isFile) {
+            "ToolGovernanceMain.kt must exist"
+        }
+        require(file("examples/tool-governance/README.md").isFile) {
+            "examples/tool-governance/README.md must exist"
+        }
+        require(examplesReadme.contains("./gradlew :examples:tool-governance:run")) {
+            "examples/README.md must contain the exact run command"
+        }
+        // Verify the example matrix uses :run as primary command
+        val matrixLine = examplesReadme.lines().find { it.contains("Tool Governance") && it.contains("./gradlew") }
+        require(matrixLine != null && matrixLine.contains(":run")) {
+            "examples/README.md example matrix must use :run as primary command for tool-governance, found: ${matrixLine?.take(80)}"
+        }
+        require(guideFile.isFile) {
+            "docs/guides/governed-tool-use.md must exist"
+        }
+        val guideText = guideFile.readText()
+        require(guideText.contains("./gradlew :examples:tool-governance:run")) {
+            "governed-tool-use.md must contain the run command"
+        }
+        for (ep in listOf("BEFORE_TOOL_EXPOSURE", "BEFORE_TOOL_EXECUTION", "BEFORE_TOOL_RESULT_REINJECTION")) {
+            require(guideText.contains(ep)) {
+                "governed-tool-use.md must mention enforcement point '$ep'"
+            }
+        }
+        for (decision in listOf("ALLOW", "DENY", "REQUIRE_APPROVAL")) {
+            require(guideText.contains(decision)) {
+                "governed-tool-use.md must mention decision '$decision'"
+            }
+        }
+        require(guideText.contains("tool.permission")) {
+            "governed-tool-use.md must reference tool.permission evidence"
+        }
+        require(guideText.contains("exposure permission is not execution permission")) {
+            "governed-tool-use.md must state that exposure permission is not execution permission"
+        }
+        require(guideText.contains("never appear")) {
+            "governed-tool-use.md must contain privacy boundaries"
+        }
+        require(guideText.contains("compliance") && guideText.contains("certification")) {
+            "governed-tool-use.md must contain non-compliance and non-certification boundaries"
+        }
+
+        val roadmapText = file("docs/POST-SOVEREIGNTY-ROADMAP.md").readText()
+        require(roadmapText.contains("PR #201")) {
+            "POST-SOVEREIGNTY-ROADMAP.md must reference PR #201"
+        }
+
+        logger.lifecycle("verifyToolGovernanceExample: all documentation guards passed.")
+    }
+}
+
+// ──────────────────────────────────────────────
+// Task: check
+
 tasks.named("check") {
     dependsOn("verifyWorkflowApiStabilityBoundary")
     dependsOn("verifyDevelopmentVersionAlignment")
+    dependsOn("verifyToolGovernanceExample")
 }
