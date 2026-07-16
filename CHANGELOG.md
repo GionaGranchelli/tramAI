@@ -63,6 +63,8 @@
 - Sovereign evidence bundle tamper rejection lifecycle: finalize → verify → tamper → reject → restore → re-finalize (PR #200).
 - Standalone consumer resolution from the sovereign runtime verification repository (PR #197).
 - Local publication closure through signed bundle dry-run and consumer smoke test (PR #197).
+- Approved-resume worker lifecycle with real SPI queue name `ApprovedContinuationResumeQueue` (PR #112–PR #117).
+- Reviewer UI gated behind `rest-control-plane-enabled` flat property (PR #110).
 
 ### Known limitations and non-goals
 
