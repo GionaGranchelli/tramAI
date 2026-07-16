@@ -860,7 +860,7 @@ tasks.register("verifySovereignRuntimeSignedBundle") {
     // (build-local by default). If someone passes -PtramaiPublishReleaseUrl pointing
     // to a remote server, the dependent publish tasks must never be triggered.
     val userProvidedUrl = providers.gradleProperty("tramaiPublishReleaseUrl").orNull
-    if (userProvidedUrl != null && !userProvidedUrl.startsWith("file:")) {
+    if (userProvidedUrl != null && userProvidedUrl.isNotEmpty() && !userProvidedUrl.startsWith("file:")) {
         throw GradleException(
             "verifySovereignRuntimeSignedBundle only supports file:// repositories for local " +
             "verification. Got: $userProvidedUrl. The sovereign bundle dry-run publishes " +
