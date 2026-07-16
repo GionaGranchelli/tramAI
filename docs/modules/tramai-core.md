@@ -37,7 +37,7 @@ Without `tramai-core`, no two Tramai modules could communicate. It provides:
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-core:0.4.0")
+    implementation("dev.tramai:tramai-core:0.5.0")
 }
 ```
 

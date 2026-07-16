@@ -4,7 +4,7 @@
 > **Module type:** `provider`
 > **Source files:** 2 — `OpenAiProvider.kt` (430 LOC) + `ExperimentalCodexAuth.kt`
 > **Test files:** 2 — `OpenAiProviderTest.kt`, `OpenAiProviderIntegrationTest.kt`
-> **Build:** `dev.tramai:tramai-openai:0.4.0`
+> **Build:** `dev.tramai:tramai-openai:0.5.0`
 
 ---
 
@@ -36,7 +36,7 @@ Don't use this module when you need a non-OpenAI-compatible provider — use `tr
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-openai:0.4.0")
+    implementation("dev.tramai:tramai-openai:0.5.0")
 }
 ```
 
@@ -53,7 +53,7 @@ dependencies {
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.4.0"))
+implementation(platform("dev.tramai:tramai-bom:0.5.0"))
 implementation("dev.tramai:tramai-openai")
 ```
 

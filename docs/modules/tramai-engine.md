@@ -30,7 +30,7 @@ You only interact with it directly if you are building a custom integration or n
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-engine:0.4.0")
+    implementation("dev.tramai:tramai-engine:0.5.0")
 }
 ```
 
@@ -47,7 +47,7 @@ dependencies {
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.4.0"))
+implementation(platform("dev.tramai:tramai-bom:0.5.0"))
 implementation("dev.tramai:tramai-engine")
 ```
 
@@ -432,7 +432,7 @@ Requires adding `tramai-memory` to your dependencies:
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-memory:0.4.0")
+    implementation("dev.tramai:tramai-memory:0.5.0")
 }
 ```
 

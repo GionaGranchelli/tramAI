@@ -2,7 +2,7 @@
 
 > **One-liner:** Generates JSON schemas from Kotlin types, extracts and validates structured objects from LLM responses.
 > **Module type:** `core`
-> **Build coordinates:** `dev.tramai:tramai-structured:0.4.0`
+> **Build coordinates:** `dev.tramai:tramai-structured:0.5.0`
 
 ---
 
@@ -44,7 +44,7 @@ Without this module, every consumer would reimplement JSON extraction, schema ge
 **Gradle (Kotlin DSL):**
 
 ```kotlin
-implementation("dev.tramai:tramai-structured:0.4.0")
+implementation("dev.tramai:tramai-structured:0.5.0")
 ```
 
 **Maven:**

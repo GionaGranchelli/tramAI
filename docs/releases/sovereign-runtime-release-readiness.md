@@ -119,13 +119,15 @@ Also runnable via the canonical verification chain: `./gradlew verifySovereignRu
 ## Release Risks
 
 | Risk | Severity | Mitigation |
-|---|---|---|
+|------|----------|------------|
 | APIs are still evolving | Medium | active-development banner on README and docs |
-| File persistence is local-node only | Medium | Documented as local-only; DB-backed persistence is future work |
-| No production monitoring dashboard | Low | Worker observability runbook exists (see [runbook](../operations/sovereign-ops-worker-observability-runbook.md)); production dashboard and environment-specific alert thresholds remain non-goals |
-| No DB-backed outbox | Medium | Explicitly listed as future work |
-| No distributed leader election | Medium | Worker assumes single-node operation; documented |
-| Sovereign ops worker is opt-in, disabled by default | Low | Production users must explicitly enable |
+| Preview APIs may evolve | Medium | Documented as preview in API stability boundary; build guards prevent accidental promotion |
+| JDBC implementations are internal | Medium | Documented as internal in API stability boundary; consumers should depend on SPIs only |
+| No key rotation | Low | Documented as deferred; encrypted resume credential custody uses fixed key |
+| Reviewer UI is not production-grade | Low | Disabled by default; documented as preview |
+| Alert thresholds need tuning | Low | Alert examples carry WARNING headers stating thresholds must be tuned |
+| External credentials not in deterministic gate | Low | External credential validation is out of scope for the sovereign offline verification harness |
+| Evidence verifies structure not truth | Low | Documented as structural tamper-evidence only; no evidence-truth claims
 
 ## Merge-Readiness Checklist
 
@@ -138,7 +140,7 @@ Also runnable via the canonical verification chain: `./gradlew verifySovereignRu
 - [x] No Maven Central claim for sovereign runtime modules unless verified
 - [x] CHANGELOG.md has Unreleased section
 
-Checklist last verified: 2026-07-12 (PR #197 0.5.0 development baseline reconciliation). JDBC persistence, worker lease coordination, and production deployment runbook were completed after the original 0.4.0 RC boundary — see "Not Included in the Original 0.4.0 RC" section above.
+Checklist last verified: 2026-07-14 (PR #202 0.5.0 release preparation).
 
 ## Sovereign Runtime Release-Candidate CI Gate
 

@@ -9,7 +9,7 @@ It complements the historical release notes and validation pages under `docs/ref
 Before cutting a release:
 
 - `./gradlew verifyReleaseReadiness` passes
-- `./gradlew -p examples/kotlin-springboot-example test` passes
+- `./gradlew -p examples/kotlin-springboot-example smokeTest` passes
 - the board and specs reflect the actual repository state
 - the changelog is updated for the version being released
 

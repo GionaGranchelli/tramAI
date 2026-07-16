@@ -62,7 +62,7 @@ Standalone + OpenAI:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.4.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
     implementation("dev.tramai:tramai-standalone")
     implementation("dev.tramai:tramai-openai")
 }
@@ -72,7 +72,7 @@ Spring Boot + OpenAI:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.4.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
     implementation("dev.tramai:tramai-spring")
     implementation("dev.tramai:tramai-openai")
 }
@@ -82,7 +82,7 @@ Standalone + Ollama:
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.4.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
     implementation("dev.tramai:tramai-standalone")
     implementation("dev.tramai:tramai-ollama")
 }
@@ -98,7 +98,7 @@ Import the BOM:
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.4.0</version>
+      <version>0.5.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -197,7 +197,7 @@ Use this when you are not sure what to add:
 - depending on `tramai-core` directly and expecting it to be the full runtime
 - forgetting to add a provider module
 - skipping the BOM and then mixing module versions manually
-- adding every module “just in case” instead of starting with one runtime module and one provider
+- adding every module "just in case" instead of starting with one runtime module and one provider
 
 ## Next Steps
 

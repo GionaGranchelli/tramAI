@@ -45,14 +45,14 @@ Do **not** use it for library-embedded usage (a single process calling workflows
 
 ```kotlin
 dependencies {
-    implementation("dev.tramai:tramai-platform:0.4.0")
+    implementation("dev.tramai:tramai-platform:0.5.0")
 }
 ```
 
 **Bill of Materials:**
 
 ```kotlin
-implementation(platform("dev.tramai:tramai-bom:0.4.0"))
+implementation(platform("dev.tramai:tramai-bom:0.5.0"))
 implementation("dev.tramai:tramai-platform")
 ```
 

@@ -17,7 +17,7 @@ group = "dev.tramai.examples"
 
 val tramaiConsumerVersion = providers
     .gradleProperty("tramaiVersion")
-    .orElse("0.4.0")
+    .orElse("0.5.0")
 
 version = tramaiConsumerVersion.get()
 

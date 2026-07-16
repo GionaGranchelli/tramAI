@@ -10,7 +10,7 @@ Add the module to your app and configure at least one provider.
 
 ```kotlin
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.4.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
     implementation("dev.tramai:tramai-spring")
     implementation("dev.tramai:tramai-openai")
 }
@@ -24,7 +24,7 @@ dependencies {
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.4.0</version>
+      <version>0.5.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -72,7 +72,7 @@ tramai:
     gpt-4o: openai
   providers:
     openai:
-      api-key: ${OPENAI_API_KEY}
+      api-key: ***
       base-url: https://api.openai.com/v1
 ```
 
@@ -95,7 +95,7 @@ tramai:
     gpt-4o: openai
   providers:
     openai:
-      api-key: ${OPENAI_API_KEY}
+      api-key: ***
       base-url: https://api.openai.com/v1
 ```
 
@@ -129,7 +129,7 @@ tramai:
       soft-max-tokens-per-operation: 8000
   providers:
     openai:
-      api-key: ${OPENAI_API_KEY}
+      api-key: ***
     ollama:
       base-url: http://localhost:11434
 ```
@@ -224,7 +224,7 @@ tramai:
     claude-sonnet-4-20250514: anthropic
   providers:
     anthropic:
-      api-key: ${ANTHROPIC_API_KEY}
+      api-key: ${ANTH...KEY}
 ```
 
 Example using Ollama:

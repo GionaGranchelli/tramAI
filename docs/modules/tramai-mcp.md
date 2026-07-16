@@ -4,7 +4,7 @@
 > **Module type:** `adapter`
 > **Source files:** 3 — `TramaiMcpServer.kt`, `McpToolHandlers.kt`, `TramaiMcpAutoConfiguration.kt`
 > **Test files:** 1 — `TramaiMcpServerTest.kt`
-> **Build:** `dev.tramai:tramai-mcp:0.4.0`
+> **Build:** `dev.tramai:tramai-mcp:0.5.0`
 > **Depends on:** `tramai-server` (required), `tramai-structured` (required), `spring-boot-autoconfigure`, `spring-context`, MCP Kotlin SDK, Ktor CIO
 
 ---
@@ -53,7 +53,7 @@ Don't use this module when:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.4.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
     implementation("dev.tramai:tramai-server")  // required dependency
     implementation("dev.tramai:tramai-mcp")
 }

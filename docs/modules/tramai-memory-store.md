@@ -29,7 +29,7 @@ Implementations of this interface can be bound to Postgres, Redis, MongoDB, or e
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-memory-store:0.4.0")
+    implementation("dev.tramai:tramai-memory-store:0.5.0")
 }
 ```
 

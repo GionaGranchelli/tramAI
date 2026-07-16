@@ -3,7 +3,7 @@
 > **One-liner:** Minimal framework-free entry point that wires core, engine, and structured output into a single `Tramai.create<T>()` call.
 > **Module type:** `composition`
 > **Source files:** 1 file — `Tramai.kt` (241 LOC)
-> **Build:** `dev.tramai:tramai-standalone:0.4.0`
+> **Build:** `dev.tramai:tramai-standalone:0.5.0`
 
 ---
 
@@ -43,8 +43,8 @@ Don't use this module when:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-standalone:0.4.0")
-    implementation("dev.tramai:tramai-ollama:0.4.0") // or tramai-openai, tramai-anthropic
+    implementation("dev.tramai:tramai-standalone:0.5.0")
+    implementation("dev.tramai:tramai-ollama:0.5.0") // or tramai-openai, tramai-anthropic
 }
 ```
 

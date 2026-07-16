@@ -440,7 +440,7 @@ The following work remains for the 0.5.0 development train before a release cand
 | Item | Area | Description | Status |
 |------|------|-------------|--------|
 | Tool-governance usage example | Documentation | Add tool governance usage examples | ✅ Complete — PR #201 |
-| Final 0.5.0 release readiness | Release | Declare RC, verify all acceptance criteria, publish | 🔧 Pending |
+| Final 0.5.0 release readiness | Release | Declare RC, verify all acceptance criteria, publish | 🟡 Release prepared — publication pending |
 
 ---
 
