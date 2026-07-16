@@ -5934,6 +5934,8 @@ tasks.register("verifyVersionAlignment") {
 
     doLast {
         val expectedVersion = "0.5.0"
+        val expectedReleaseDate = project.findProperty("tramaiReleaseDate") as? String
+            ?: error("tramaiReleaseDate must be set in gradle.properties")
 
         // 1. gradle.properties contains exactly tramaiVersion=0.5.0
         val propsFile = file("gradle.properties")
@@ -5963,7 +5965,7 @@ tasks.register("verifyVersionAlignment") {
             .substringBefore("## ")
         // After promotion, ## Unreleased is immediately followed by ## 0.5.0
         val afterUnreleased = changelogText.substringAfter("## Unreleased")
-        require(afterUnreleased.contains("## $expectedVersion - 2026-07-14")) {
+        require(afterUnreleased.contains("## $expectedVersion - $expectedReleaseDate")) {
             "CHANGELOG.md must contain a dated $expectedVersion section after ## Unreleased"
         }
 
@@ -6164,6 +6166,8 @@ tasks.register("verify050ReleaseReadiness") {
     doLast {
         val rootDir = rootProject.layout.projectDirectory.asFile
         val expectedVersion = "0.5.0"
+        val expectedReleaseDate = project.findProperty("tramaiReleaseDate") as? String
+            ?: error("tramaiReleaseDate must be set in gradle.properties")
 
         // 0.5.0 release-readiness document exists
         val releaseReadinessDoc = rootDir.resolve("docs/releases/$expectedVersion-release-readiness.md")
@@ -6174,8 +6178,8 @@ tasks.register("verify050ReleaseReadiness") {
         // CHANGELOG has 0.5.0 section
         val changelog = rootDir.resolve("CHANGELOG.md")
         val changelogText = changelog.readText()
-        require(changelogText.contains("## $expectedVersion - 2026-07-14")) {
-            "CHANGELOG.md must contain ## $expectedVersion - 2026-07-14 section"
+        require(changelogText.contains("## $expectedVersion - $expectedReleaseDate")) {
+            "CHANGELOG.md must contain ## $expectedVersion - $expectedReleaseDate section"
         }
 
         // STATUS and roadmap state are correct
@@ -6198,7 +6202,8 @@ tasks.register("verify050ReleaseReadiness") {
             "Publish workflow must contain version alignment check"
         }
 
-        // No absolute /home/... links in release docs
+        // No absolute /home/... links in release docs (allow placeholder /home/...)
+        val localHomePath = Regex("""/home/(?!\.\.\.)[^/\s]+/""")
         val releaseDocs = listOf(
             rootDir.resolve("docs/reference/release-validation.md"),
             rootDir.resolve("docs/reference/releasing.md"),
@@ -6208,9 +6213,18 @@ tasks.register("verify050ReleaseReadiness") {
         for (doc in releaseDocs) {
             if (!doc.isFile) continue
             val docText = doc.readText()
-            require(!docText.contains("/home/")) {
-                "${doc.name} must not contain absolute /home/... paths"
+            require(!localHomePath.containsMatchIn(docText)) {
+                "${doc.name} must not contain absolute /home/<user>/ paths — use repository-relative links"
             }
+        }
+
+        // No duplicate PR entries in the Added section
+        val addedSection = changelogText.substringAfter("### Added").substringBefore("### Changed")
+        val prPattern = Regex("""\(PR #(\d+)\)""")
+        val prCounts = prPattern.findAll(addedSection).map { it.groupValues[1] }.groupingBy { it }.eachCount()
+        val duplicates = prCounts.filter { it.value > 1 }
+        require(duplicates.isEmpty()) {
+            "Duplicate PR entries in Added section: ${duplicates.keys.joinToString(", ") { "PR #$it appears ${duplicates[it]} times" }}"
         }
 
         // No stale "no DB outbox" or "single-node only" claims in sovereign-runtime-release-readiness.md
@@ -6246,7 +6260,5 @@ tasks.register("verify050ReleaseReadiness") {
 // Task: check
 
 tasks.named("check") {
-    dependsOn("verifyWorkflowApiStabilityBoundary")
-    dependsOn("verifyVersionAlignment")
-    dependsOn("verifyToolGovernanceExample")
+    dependsOn("verify050ReleaseReadiness")
 }

@@ -138,7 +138,7 @@ jobs:
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
         run: |
-          ./gradlew verifyReleaseReadiness --no-configuration-cache
+          ./gradlew verify050ReleaseReadiness --no-configuration-cache
           ./gradlew verifySovereignRuntimePublication --no-configuration-cache
           ./gradlew verifySovereignRuntimeSignedBundle --no-configuration-cache
           ./gradlew publishToMavenLocal --no-configuration-cache
@@ -149,7 +149,7 @@ jobs:
         if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
-        run: ./gradlew verifyReleaseReadiness --no-configuration-cache
+        run: ./gradlew verify050ReleaseReadiness --no-configuration-cache
 
       - name: Run SonarQube analysis
         if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}

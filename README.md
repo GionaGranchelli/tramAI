@@ -7,7 +7,7 @@
 
 TramAI is a **Kotlin-first JVM runtime for governed AI workflows**, combining typed AI contracts with runtime policy, human approval, controlled model routing, and verifiable execution evidence.
 
-> **TramAI is under active development.** Core library version 0.5.0 is the latest published release; work on the next release train is under active development on `master`. See [Project Status](docs/STATUS.md). The canonical [Product Positioning](docs/product/positioning.md) defines audiences, pillars, boundaries, and messaging.
+> **TramAI is under active development.** TramAI 0.5.0 is the current release candidate. Version 0.4.0 remains the latest published release until 0.5.0 completes Central Portal publication. Work on the next release train is under active development on `master`. See [Project Status](docs/STATUS.md). The canonical [Product Positioning](docs/product/positioning.md) defines audiences, pillars, boundaries, and messaging.
 
 ---
 

@@ -6,7 +6,7 @@ It is the public credibility summary for the current release line, with older re
 
 ## Validation Snapshot
 
-Validated on: `2026-07-14`
+Validated on: `2026-07-16`
 
 The repository has been exercised through these concrete paths:
 

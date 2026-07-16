@@ -140,7 +140,7 @@ Also runnable via the canonical verification chain: `./gradlew verifySovereignRu
 - [x] No Maven Central claim for sovereign runtime modules unless verified
 - [x] CHANGELOG.md has Unreleased section
 
-Checklist last verified: 2026-07-14 (PR #202 0.5.0 release preparation).
+Checklist last verified: 2026-07-16 (PR #202 0.5.0 release preparation).
 
 ## Sovereign Runtime Release-Candidate CI Gate
 
