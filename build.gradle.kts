@@ -6056,13 +6056,26 @@ tasks.register("verifyVersionAlignment") {
                 "Consumer doc $path still contains tramaiVersion = \"0.5.0-SNAPSHOT\""
             }
 
-            // If the doc has any dev.tramai coordinate, it must be 0.5.0 (not 0.4.0, 0.3.1, etc.)
-            val anyDevTramaiCoordinate = Regex("""dev\.tramai:[a-z0-9-]+:\d+\.\d+\.\d+""")
-            val expectedCoordinate = Regex("""dev\.tramai:[a-z0-9-]+:$expectedVersion""")
-            if (anyDevTramaiCoordinate.containsMatchIn(content)) {
-                require(expectedCoordinate.containsMatchIn(content)) {
-                    "Consumer doc $path has a dev.tramai dependency coordinate but not $expectedVersion"
-                }
+            // Reject any stale Gradle coordinates (dev.tramai:*:x.y.z where x.y.z != 0.5.0)
+            val gradleCoordinatePattern =
+                Regex("""dev\.tramai:[a-z0-9-]+:([0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?)""")
+            val staleGradleCoords = gradleCoordinatePattern.findAll(content)
+                .filter { it.groupValues[1] != expectedVersion }
+                .map { it.value }
+                .toList()
+            require(staleGradleCoords.isEmpty()) {
+                "Consumer doc $path contains stale TramAI Gradle coordinates: ${staleGradleCoords.joinToString()}"
+            }
+
+            // Reject any stale Maven versions in dev.tramai dependency blocks
+            val mavenDevTramaiDependency =
+                Regex("""<groupId>dev\.tramai</groupId>.*?<version>\s*([0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?)\s*</version>""", setOf(RegexOption.DOT_MATCHES_ALL))
+            val staleMvnVersions = mavenDevTramaiDependency.findAll(content)
+                .filter { it.groupValues[1] != expectedVersion }
+                .map { it.value }
+                .toList()
+            require(staleMvnVersions.isEmpty()) {
+                "Consumer doc $path contains stale TramAI Maven versions: ${staleMvnVersions.joinToString()}"
             }
         }
 

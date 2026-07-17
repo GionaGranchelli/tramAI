@@ -53,7 +53,7 @@ implementation("dev.tramai:tramai-structured:0.5.0")
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-structured</artifactId>
-    <version>0.4.0</version>
+    <version>0.5.0</version>
 </dependency>
 ```
 

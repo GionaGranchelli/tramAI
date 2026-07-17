@@ -76,6 +76,21 @@ jobs:
             echo "::error::Could not resolve TramAI version from gradle.properties or tag or input."
             exit 1
           fi
+
+          # --- Validate version before persisting to GITHUB_ENV ---
+          # Must match the committed tramaiVersion in gradle.properties
+          COMMITTED_VERSION="$(grep '^tramaiVersion=' gradle.properties | cut -d= -f2)"
+          if [[ "$TRAMAI_VERSION_RESOLVED" != "$COMMITTED_VERSION" ]]; then
+            echo "::error::Resolved version $TRAMAI_VERSION_RESOLVED does not match committed version $COMMITTED_VERSION"
+            exit 1
+          fi
+
+          # Reject multiline / control-character injection
+          if [[ "$TRAMAI_VERSION_RESOLVED" == *$'\n'* || "$TRAMAI_VERSION_RESOLVED" == *$'\r'* ]]; then
+            echo "::error::Version must be a single-line value"
+            exit 1
+          fi
+
           echo "TRAMAI_VERSION=${TRAMAI_VERSION_RESOLVED}" >> "$GITHUB_ENV"
 
           # --- IS_RELEASE_VERSION derived from resolved version ---
@@ -93,6 +108,11 @@ jobs:
             PUBLISH_MODE="remote-release"
           else
             PUBLISH_MODE="${INPUT_PUBLISH_MODE:-local-dry-run}"
+          fi
+          # Explicit allowlist for publish mode to guard against unexpected input
+          if [[ "$PUBLISH_MODE" != "local-dry-run" && "$PUBLISH_MODE" != "remote-release" ]]; then
+            echo "::error::Invalid publish mode: $PUBLISH_MODE. Must be local-dry-run or remote-release."
+            exit 1
           fi
           echo "TRAMAI_PUBLISH_MODE=${PUBLISH_MODE}" >> "$GITHUB_ENV"
 
