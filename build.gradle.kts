@@ -5941,11 +5941,13 @@ tasks.register("verifyVersionAlignment") {
         val propsFile = file("gradle.properties")
         require(propsFile.isFile) { "Missing gradle.properties" }
         val propsText = propsFile.readText()
-        require(propsText.contains("tramaiVersion=$expectedVersion")) {
-            "gradle.properties must set tramaiVersion=$expectedVersion"
-        }
-        require(!propsText.contains("tramaiVersion=$expectedVersion-SNAPSHOT")) {
-            "gradle.properties must not contain -SNAPSHOT suffix for a release"
+        val committedVersion = propsText
+            .lineSequence()
+            .single { it.startsWith("tramaiVersion=") }
+            .substringAfter("=")
+            .trim()
+        require(committedVersion == expectedVersion) {
+            "gradle.properties must set tramaiVersion exactly to $expectedVersion, got '$committedVersion'"
         }
 
         // 2. Build fallback is 0.5.0
@@ -5968,10 +5970,6 @@ tasks.register("verifyVersionAlignment") {
         require(afterUnreleased.contains("## $expectedVersion - $expectedReleaseDate")) {
             "CHANGELOG.md must contain a dated $expectedVersion section after ## Unreleased"
         }
-
-        // 4. Active Gradle and Maven dependency snippets use 0.5.0
-        val newVersionCoordinate = Regex("""dev\.tramai:[a-z0-9-]+:$expectedVersion""")
-        val newMavenVersion = Regex("""<version>\s*$expectedVersion\s*</version>""")
 
         // 5. No active 0.5.0-SNAPSHOT references remain
         val snapshotGradleCoordinate = Regex("""dev\.tramai:[a-z0-9-]+:0\.5\.0-SNAPSHOT""")
@@ -6016,6 +6014,9 @@ tasks.register("verifyVersionAlignment") {
             "docs/guides/standalone-usage.md",
             "docs/guides/tutorial-invoice-analyzer.md",
             "docs/module-guide.md",
+            "docs/STATUS.md",
+            "docs/POST-SOVEREIGNTY-ROADMAP.md",
+            "docs/reference/releasing.md",
             "examples/README.md",
             "examples/support-agent/build.gradle.kts",
             "examples/kotlin-springboot-example/build.gradle.kts",
@@ -6053,6 +6054,15 @@ tasks.register("verifyVersionAlignment") {
             }
             require(!snapshotVariable.containsMatchIn(content)) {
                 "Consumer doc $path still contains tramaiVersion = \"0.5.0-SNAPSHOT\""
+            }
+
+            // If the doc has any dev.tramai coordinate, it must be 0.5.0 (not 0.4.0, 0.3.1, etc.)
+            val anyDevTramaiCoordinate = Regex("""dev\.tramai:[a-z0-9-]+:\d+\.\d+\.\d+""")
+            val expectedCoordinate = Regex("""dev\.tramai:[a-z0-9-]+:$expectedVersion""")
+            if (anyDevTramaiCoordinate.containsMatchIn(content)) {
+                require(expectedCoordinate.containsMatchIn(content)) {
+                    "Consumer doc $path has a dev.tramai dependency coordinate but not $expectedVersion"
+                }
             }
         }
 

@@ -49,9 +49,11 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Resolve version (single source of truth)
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [[ -n "${{ github.event.inputs.version }}" ]]; then
-            RESOLVED_VERSION="${{ github.event.inputs.version }}"
+          if [[ -n "$INPUT_VERSION" ]]; then
+            RESOLVED_VERSION="$INPUT_VERSION"
           else
             RESOLVED_VERSION="$(grep '^tramaiVersion=' gradle.properties | cut -d= -f2)"
           fi

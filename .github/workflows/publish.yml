@@ -57,12 +57,18 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Resolve version and flags
+        env:
+          # Map workflow_dispatch inputs to env vars to avoid shell injection
+          # from directly interpolated ${{ github.event.inputs.* }} expressions.
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_PUBLISH_MODE: ${{ github.event.inputs.publishMode }}
+          INPUT_CONFIRM_RELEASE: ${{ github.event.inputs.confirmRemoteRelease }}
         run: |
           # --- Resolve version once (single source of truth) ---
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             TRAMAI_VERSION_RESOLVED="${GITHUB_REF_NAME#v}"
-          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
-            TRAMAI_VERSION_RESOLVED="${{ github.event.inputs.version }}"
+          elif [[ -n "$INPUT_VERSION" ]]; then
+            TRAMAI_VERSION_RESOLVED="$INPUT_VERSION"
           else
             TRAMAI_VERSION_RESOLVED="$(grep '^tramaiVersion=' gradle.properties | cut -d= -f2)"
           fi
@@ -86,12 +92,12 @@ jobs:
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             PUBLISH_MODE="remote-release"
           else
-            PUBLISH_MODE="${{ github.event.inputs.publishMode || 'local-dry-run' }}"
+            PUBLISH_MODE="${INPUT_PUBLISH_MODE:-local-dry-run}"
           fi
           echo "TRAMAI_PUBLISH_MODE=${PUBLISH_MODE}" >> "$GITHUB_ENV"
 
           # --- Remote release confirmation ---
-          if [[ "${{ github.event.inputs.confirmRemoteRelease }}" == "RELEASE" ]]; then
+          if [[ "$INPUT_CONFIRM_RELEASE" == "RELEASE" ]]; then
             REMOTE_CONFIRMED="true"
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             REMOTE_CONFIRMED="true"
@@ -125,8 +131,8 @@ jobs:
             echo "::error::Requested release version $TRAMAI_VERSION does not match committed version $COMMITTED_VERSION"
             exit 1
           fi
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            TAG="${{ github.ref_name }}"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            TAG="$GITHUB_REF_NAME"
             if [[ "$TAG" != "v${COMMITTED_VERSION}" ]]; then
               echo "::error::Tag $TAG does not match v$COMMITTED_VERSION"
               exit 1
