@@ -32,6 +32,8 @@ data class BaselineIdentity(
     @JsonProperty("commitSha") val commitSha: String = "",
     @JsonProperty("baselineCommitSha") val baselineCommitSha: String = "",
     @JsonProperty("measuredCommitSha") val measuredCommitSha: String = "",
+    @JsonProperty("workingTreeClean") val workingTreeClean: Boolean = true,
+    @JsonProperty("measuredSourceTreeHash") val measuredSourceTreeHash: String = "",
     @JsonProperty("commitTimestamp") val commitTimestamp: String = "",
     @JsonProperty("tramaiVersion") val tramaiVersion: String = "0.5.0",
     @JsonProperty("toolchain") val toolchain: ToolchainInfo = ToolchainInfo()
@@ -223,6 +225,7 @@ data class SurvivingMutant(
 
 data class RuntimeSafetyBaseline(
     val cancellationCatches: List<CancellationCatchFinding> = emptyList(),
+    val testCancellationCatches: List<CancellationCatchFinding> = emptyList(),
     val globalState: List<GlobalStateFinding> = emptyList(),
     val nondeterminism: List<NondeterminismFinding> = emptyList()
 )

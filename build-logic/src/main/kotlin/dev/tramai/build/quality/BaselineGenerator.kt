@@ -44,13 +44,56 @@ class BaselineGenerator(
         return baseline
     }
 
+    /**
+     * Generates the complete baseline with all measurements populated.
+     * Used by the verifier for comparison. Unlike generateFullBaseline(),
+     * this populates structural, safety, protocol, API, dependency, and test-quality sections.
+     */
+    fun generateCompleteBaseline(): BaselineDocument {
+        val baseline = generateFullBaseline()
+        val graphAnalyzer = ModuleGraphAnalyzer(rootProject)
+        val sourceMetricsAnalyzer = SourceMetricsAnalyzer(rootProject)
+        val cancellationInventory = CancellationCatchInventory(rootProject)
+        val globalStateInventory = GlobalStateInventory(rootProject)
+        val nondeterminismInventory = NondeterminismInventory(rootProject)
+
+        val structural = generateModuleDependencyGraph(graphAnalyzer)
+        val productionCatches = cancellationInventory.inventory().filter { !it.file.contains("/test/") }
+        val testCatches = cancellationInventory.inventory().filter { it.file.contains("/test/") }
+
+        return baseline.copy(
+            structural = structural.copy(
+                sourceMetrics = generateSourceMetrics(sourceMetricsAnalyzer.analyze()),
+                structuralHotspots = generateStructuralHotspots()
+            ),
+            runtimeSafety = RuntimeSafetyBaseline(
+                cancellationCatches = productionCatches,
+                testCancellationCatches = testCatches,
+                globalState = globalStateInventory.inventory(),
+                nondeterminism = nondeterminismInventory.inventory()
+            ),
+            dependencies = baseline.dependencies.copy(
+                resolvedDependencies = generateResolvedDependencyGraph()
+            ),
+            protocolCatalog = generateRuntimeProtocolCatalog(),
+            api = generateApiBaseline(),
+            testQuality = baseline.testQuality.copy(
+                testPerformance = generateTestPerformance()
+            )
+        )
+    }
+
     fun generateIdentity(): BaselineIdentity {
+        val workingTreeClean = isWorkingTreeClean()
+        val sourceTreeHash = if (workingTreeClean) computeSourceTreeHash() else ""
         return BaselineIdentity(
             repository = "GionaGranchelli/tramAI",
             releaseTag = "v0.5.0",
             commitSha = baselineGitIdentity.baselineCommitSha,
             baselineCommitSha = baselineGitIdentity.baselineCommitSha,
             measuredCommitSha = baselineGitIdentity.measuredCommitSha,
+            workingTreeClean = workingTreeClean,
+            measuredSourceTreeHash = sourceTreeHash,
             commitTimestamp = baselineGitIdentity.commitTimestamp,
             tramaiVersion = rootProject.findProperty("tramaiVersion")?.toString() ?: "0.5.0",
             toolchain = ToolchainInfo(
@@ -420,33 +463,6 @@ class BaselineGenerator(
             totalTestCount = modulePerformance.values.sumOf { it.testCount }
         )
         ReportNormalizer.writeJson(result, File(outputDir, "test-performance.json"))
-        return result
-    }
-
-    fun generateCompleteBaseline(): BaselineDocument {
-        val base = generateFullBaseline()
-        val graphAnalyzer = ModuleGraphAnalyzer(rootProject)
-        val structural = generateModuleDependencyGraph(graphAnalyzer).copy(
-            sourceMetrics = generateSourceMetrics(SourceMetricsAnalyzer(rootProject).analyze()),
-            structuralHotspots = generateStructuralHotspots()
-        )
-        val result = base.copy(
-            structural = structural,
-            api = generateApiBaseline(),
-            dependencies = DependencyBaseline(resolvedDependencies = generateResolvedDependencyGraph()),
-            testQuality = TestQualityBaseline(
-                testPerformance = generateTestPerformance(),
-                coverage = CoverageData(),
-                mutation = MutationData()
-            ),
-            runtimeSafety = RuntimeSafetyBaseline(
-                cancellationCatches = CancellationCatchInventory(rootProject).inventory(),
-                globalState = GlobalStateInventory(rootProject).inventory(),
-                nondeterminism = NondeterminismInventory(rootProject).inventory()
-            ),
-            protocolCatalog = generateRuntimeProtocolCatalog()
-        )
-        ReportNormalizer.writeJson(result, File(outputDir, "current-baseline.json"))
         return result
     }
 
@@ -834,6 +850,40 @@ class BaselineGenerator(
             "EVENT" in normalized || ".event." in value -> "event-name"
             "REASON" in normalized || "CODE" in normalized -> "reason-code"
             else -> "runtime-protocol"
+        }
+    }
+
+    private fun isWorkingTreeClean(): Boolean {
+        return try {
+            val process = ProcessBuilder(listOf("git", "status", "--porcelain"))
+                .directory(rootProject.rootDir)
+                .redirectErrorStream(true)
+                .start()
+            val output = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            process.waitFor() == 0 && output.isBlank()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun computeSourceTreeHash(): String {
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val sourceDirs = listOf("src/main/kotlin", "src/test/kotlin", "gradle/libs.versions.toml", "build.gradle.kts", "settings.gradle.kts")
+            for (dir in sourceDirs) {
+                val file = File(rootProject.rootDir, dir)
+                if (file.isFile) {
+                    digest.update(file.readBytes())
+                } else if (file.isDirectory) {
+                    file.walkTopDown().filter { it.isFile && it.extension == "kt" }.sortedBy { it.absolutePath }.forEach {
+                        digest.update(it.absolutePath.removePrefix(rootProject.rootDir.absolutePath).toByteArray())
+                        digest.update(it.readBytes())
+                    }
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (_: Exception) {
+            ""
         }
     }
 
