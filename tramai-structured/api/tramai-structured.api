@@ -1,0 +1,11 @@
+public final class dev/tramai/structured/JacksonStructuredOutputHandler : dev/tramai/core/structured/StructuredOutputHandler {
+	public fun <init> ()V
+	public fun <init> (Lcom/fasterxml/jackson/databind/ObjectMapper;)V
+	public synthetic fun <init> (Lcom/fasterxml/jackson/databind/ObjectMapper;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun analyze (Ljava/lang/String;Lkotlin/reflect/KType;)Ldev/tramai/core/structured/StructuredOutputResult;
+	public fun createContract (Lkotlin/reflect/KType;)Ldev/tramai/core/structured/StructuredOutputContract;
+	public fun deserialize (Ljava/lang/Object;Lkotlin/reflect/KType;)Ljava/lang/Object;
+	public fun generateSchema (Lkotlin/reflect/KType;)Ljava/lang/String;
+	public fun serialize (Ljava/lang/Object;)Ljava/lang/Object;
+}
+

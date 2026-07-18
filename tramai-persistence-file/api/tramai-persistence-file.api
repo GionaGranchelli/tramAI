@@ -1,0 +1,709 @@
+public final class dev/tramai/persistence/file/AesGcmFileEncryption {
+	public static final field INSTANCE Ldev/tramai/persistence/file/AesGcmFileEncryption;
+	public final fun decrypt (Ljavax/crypto/SecretKey;Ldev/tramai/persistence/file/EncryptedFileEnvelopeV1;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)[B
+	public static synthetic fun decrypt$default (Ldev/tramai/persistence/file/AesGcmFileEncryption;Ljavax/crypto/SecretKey;Ldev/tramai/persistence/file/EncryptedFileEnvelopeV1;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)[B
+	public final fun encrypt (Ljavax/crypto/SecretKey;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[B)Lkotlin/Pair;
+}
+
+public final class dev/tramai/persistence/file/EncryptedFileEnvelopeV1 {
+	public static final field Companion Ldev/tramai/persistence/file/EncryptedFileEnvelopeV1$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/persistence/file/EncryptedFileEnvelopeV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/EncryptedFileEnvelopeV1;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/file/EncryptedFileEnvelopeV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCiphertextBase64 ()Ljava/lang/String;
+	public final fun getEnvelopeVersion ()I
+	public final fun getKeyId ()Ljava/lang/String;
+	public final fun getNonceBase64 ()Ljava/lang/String;
+	public final fun getRecordKeyDigest ()Ljava/lang/String;
+	public final fun getRecordType ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/EncryptedFileEnvelopeV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/EncryptedFileEnvelopeV1;
+}
+
+public final class dev/tramai/persistence/file/FileApprovalContinuationStore : dev/tramai/core/approval/ApprovalContinuationStore {
+	public static final field Companion Ldev/tramai/persistence/file/FileApprovalContinuationStore$Companion;
+	public fun cancel (Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun claimForExecution (Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun complete (Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun create (Ldev/tramai/core/approval/ApprovalContinuation;Ldev/tramai/core/approval/SensitiveToolArguments;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun expire (Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun findStaleClaimed (Ljava/time/Instant;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun forceCancelClaimed (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun sweepExpired (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun verifyAll ()V
+}
+
+public final class dev/tramai/persistence/file/FileApprovalContinuationStore$Companion {
+}
+
+public final class dev/tramai/persistence/file/FileApprovalStore : dev/tramai/core/approval/ApprovalStore {
+	public static final field Companion Ldev/tramai/persistence/file/FileApprovalStore$Companion;
+	public fun consumeApprovedOrReplay-LJPQ52o (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun create (Ldev/tramai/core/approval/ApprovalRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun transition (Ljava/lang/String;JLdev/tramai/core/approval/ApprovalTransition;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun verifyAll ()V
+}
+
+public final class dev/tramai/persistence/file/FileApprovalStore$Companion {
+}
+
+public final class dev/tramai/persistence/file/FileAuditStore : dev/tramai/security/audit/AuditStore {
+	public static final field Companion Ldev/tramai/persistence/file/FileAuditStore$Companion;
+	public fun appendNext (Ljava/lang/String;Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun latestEvent (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun readStream (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun readStreamPage (Ljava/lang/String;Ljava/lang/Long;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun verifyAll ()V
+}
+
+public final class dev/tramai/persistence/file/FileAuditStore$Companion {
+}
+
+public final class dev/tramai/persistence/file/FileBackedSovereignStores : java/lang/AutoCloseable {
+	public static final field Companion Ldev/tramai/persistence/file/FileBackedSovereignStores$Companion;
+	public synthetic fun <init> (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/security/audit/AuditStore;Ldev/tramai/engine/SuspendedInvocationStore;Ljava/io/RandomAccessFile;Ljava/nio/channels/FileLock;Ljava/nio/file/Path;Ldev/tramai/persistence/file/FileStoreLease;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun close ()V
+	public final fun getApprovalContinuationStore ()Ldev/tramai/core/approval/ApprovalContinuationStore;
+	public final fun getApprovalStore ()Ldev/tramai/core/approval/ApprovalStore;
+	public final fun getAuditStore ()Ldev/tramai/security/audit/AuditStore;
+	public final fun getSuspendedInvocationStore ()Ldev/tramai/engine/SuspendedInvocationStore;
+}
+
+public final class dev/tramai/persistence/file/FileBackedSovereignStores$Companion {
+	public final fun open (Ldev/tramai/persistence/file/FileBackedStoreConfiguration;)Ldev/tramai/persistence/file/FileBackedSovereignStores;
+}
+
+public final class dev/tramai/persistence/file/FileBackedStoreConfiguration {
+	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/persistence/file/FileStoreEncryptionConfiguration;Z)V
+	public synthetic fun <init> (Ljava/nio/file/Path;Ldev/tramai/persistence/file/FileStoreEncryptionConfiguration;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/nio/file/Path;
+	public final fun component2 ()Ldev/tramai/persistence/file/FileStoreEncryptionConfiguration;
+	public final fun component3 ()Z
+	public final fun copy (Ljava/nio/file/Path;Ldev/tramai/persistence/file/FileStoreEncryptionConfiguration;Z)Ldev/tramai/persistence/file/FileBackedStoreConfiguration;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/FileBackedStoreConfiguration;Ljava/nio/file/Path;Ldev/tramai/persistence/file/FileStoreEncryptionConfiguration;ZILjava/lang/Object;)Ldev/tramai/persistence/file/FileBackedStoreConfiguration;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEncryption ()Ldev/tramai/persistence/file/FileStoreEncryptionConfiguration;
+	public final fun getRootDirectory ()Ljava/nio/file/Path;
+	public final fun getVerifyOnOpen ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/FileStoreConfigurationException : dev/tramai/persistence/file/FileStoreException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public final class dev/tramai/persistence/file/FileStoreCorruptionException : dev/tramai/persistence/file/FileStoreException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public final class dev/tramai/persistence/file/FileStoreEncryptionConfiguration {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/persistence/file/FileStoreEncryptionKeyProvider;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/persistence/file/FileStoreEncryptionKeyProvider;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/persistence/file/FileStoreEncryptionKeyProvider;)Ldev/tramai/persistence/file/FileStoreEncryptionConfiguration;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/FileStoreEncryptionConfiguration;Ljava/lang/String;Ldev/tramai/persistence/file/FileStoreEncryptionKeyProvider;ILjava/lang/Object;)Ldev/tramai/persistence/file/FileStoreEncryptionConfiguration;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActiveKeyId ()Ljava/lang/String;
+	public final fun getKeyProvider ()Ldev/tramai/persistence/file/FileStoreEncryptionKeyProvider;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/persistence/file/FileStoreEncryptionKeyProvider {
+	public abstract fun resolve (Ljava/lang/String;)Ljavax/crypto/SecretKey;
+}
+
+public abstract class dev/tramai/persistence/file/FileStoreException : java/lang/RuntimeException {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public final class dev/tramai/persistence/file/FileStoreLockUnavailableException : dev/tramai/persistence/file/FileStoreException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/persistence/file/FileStorePermissionException : dev/tramai/persistence/file/FileStoreException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/persistence/file/FileStoreSha256 {
+	public static final field INSTANCE Ldev/tramai/persistence/file/FileStoreSha256;
+	public final fun digest (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/FileStoreUnsupportedFormatException : dev/tramai/persistence/file/FileStoreException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/persistence/file/FileSuspendedInvocationStore : dev/tramai/engine/SuspendedInvocationStore {
+	public static final field Companion Ldev/tramai/persistence/file/FileSuspendedInvocationStore$Companion;
+	public fun create (Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/engine/SensitiveReplayEnvelope;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun remove (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun revealReplayEnvelope (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun revealSensitiveContext (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun verifyAll ()V
+}
+
+public final class dev/tramai/persistence/file/FileSuspendedInvocationStore$Companion {
+}
+
+public final class dev/tramai/persistence/file/PersistedApprovalBindingV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedApprovalBindingV1$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedApprovalBindingV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedApprovalBindingV1;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedApprovalBindingV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalTokenDigest ()Ljava/lang/String;
+	public final fun getArgumentsDigest ()Ljava/lang/String;
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public final fun getToolName ()Ljava/lang/String;
+	public final fun getWorkflowDigest ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedApprovalBindingV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedApprovalBindingV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedApprovalContinuationRecordV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedApprovalContinuationRecordV1$Companion;
+	public fun <init> (ILdev/tramai/persistence/file/PersistedApprovalContinuationV1;Ljava/lang/String;)V
+	public synthetic fun <init> (ILdev/tramai/persistence/file/PersistedApprovalContinuationV1;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ldev/tramai/persistence/file/PersistedApprovalContinuationV1;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (ILdev/tramai/persistence/file/PersistedApprovalContinuationV1;Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedApprovalContinuationRecordV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedApprovalContinuationRecordV1;ILdev/tramai/persistence/file/PersistedApprovalContinuationV1;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedApprovalContinuationRecordV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArguments ()Ljava/lang/String;
+	public final fun getContinuation ()Ldev/tramai/persistence/file/PersistedApprovalContinuationV1;
+	public final fun getSchemaVersion ()I
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedApprovalContinuationRecordV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedApprovalContinuationRecordV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedApprovalContinuationV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedApprovalContinuationV1$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+	public synthetic fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()Ljava/lang/String;
+	public final fun component13 ()Ljava/lang/String;
+	public final fun component14 ()Ljava/lang/String;
+	public final fun component15 ()Ljava/lang/String;
+	public final fun component16 ()Ljava/lang/String;
+	public final fun component17 ()Ljava/lang/String;
+	public final fun component18 ()Ljava/lang/String;
+	public final fun component19 ()J
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)Ldev/tramai/persistence/file/PersistedApprovalContinuationV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedApprovalContinuationV1;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedApprovalContinuationV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalExpiresAt ()Ljava/lang/String;
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getArgumentsDigest ()Ljava/lang/String;
+	public final fun getClaimedAt ()Ljava/lang/String;
+	public final fun getClaimedBy ()Ljava/lang/String;
+	public final fun getCompletedAt ()Ljava/lang/String;
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getCreatedAt ()Ljava/lang/String;
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getRecoveryReasonCode ()Ljava/lang/String;
+	public final fun getRecoveryResolvedAt ()Ljava/lang/String;
+	public final fun getRecoveryResolvedBy ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public final fun getStatus ()Ljava/lang/String;
+	public final fun getToolCallId ()Ljava/lang/String;
+	public final fun getToolName ()Ljava/lang/String;
+	public final fun getVersion ()J
+	public final fun getWorkflowDigest ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedApprovalContinuationV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedApprovalContinuationV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedApprovalRequestV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedApprovalRequestV1$Companion;
+	public fun <init> (ILjava/lang/String;Ldev/tramai/persistence/file/PersistedApprovalBindingV1;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+	public synthetic fun <init> (ILjava/lang/String;Ldev/tramai/persistence/file/PersistedApprovalBindingV1;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()Ljava/lang/String;
+	public final fun component13 ()J
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ldev/tramai/persistence/file/PersistedApprovalBindingV1;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ldev/tramai/persistence/file/PersistedApprovalBindingV1;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)Ldev/tramai/persistence/file/PersistedApprovalRequestV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedApprovalRequestV1;ILjava/lang/String;Ldev/tramai/persistence/file/PersistedApprovalBindingV1;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedApprovalRequestV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getBinding ()Ldev/tramai/persistence/file/PersistedApprovalBindingV1;
+	public final fun getConsumedAt ()Ljava/lang/String;
+	public final fun getConsumedBy ()Ljava/lang/String;
+	public final fun getDecidedAt ()Ljava/lang/String;
+	public final fun getDecidedBy ()Ljava/lang/String;
+	public final fun getDecisionComment ()Ljava/lang/String;
+	public final fun getExpiresAt ()Ljava/lang/String;
+	public final fun getRequestedAt ()Ljava/lang/String;
+	public final fun getRequestedBy ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public final fun getStatus ()Ljava/lang/String;
+	public final fun getVersion ()J
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedApprovalRequestV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedApprovalRequestV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedAuditEventV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedAuditEventV1$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)V
+	public synthetic fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()Ljava/lang/String;
+	public final fun component13 ()Ljava/lang/String;
+	public final fun component14 ()Ljava/lang/String;
+	public final fun component15 ()Ljava/lang/String;
+	public final fun component16 ()Ljava/lang/String;
+	public final fun component17 ()Ljava/util/Map;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()J
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)Ldev/tramai/persistence/file/PersistedAuditEventV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedAuditEventV1;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedAuditEventV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActor ()Ljava/lang/String;
+	public final fun getAuditStreamId ()Ljava/lang/String;
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getDecision ()Ljava/lang/String;
+	public final fun getEnforcementPoint ()Ljava/lang/String;
+	public final fun getEventHash ()Ljava/lang/String;
+	public final fun getEventId ()Ljava/lang/String;
+	public final fun getHashAlgorithm ()Ljava/lang/String;
+	public final fun getMetadata ()Ljava/util/Map;
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getPreviousEventHash ()Ljava/lang/String;
+	public final fun getReasonCode ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public final fun getSequenceNumber ()J
+	public final fun getTimestamp ()Ljava/lang/String;
+	public final fun getWorkflowDigest ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedAuditEventV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedAuditEventV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedContentPartV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedContentPartV1$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedContentPartV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedContentPartV1;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedContentPartV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDataBase64 ()Ljava/lang/String;
+	public final fun getMimeType ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public final fun getText ()Ljava/lang/String;
+	public final fun getType ()Ljava/lang/String;
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedContentPartV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedContentPartV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedDtosKt {
+	public static final fun toDomain (Ldev/tramai/persistence/file/PersistedApprovalBindingV1;)Ldev/tramai/core/approval/ApprovalBinding;
+	public static final fun toDomain (Ldev/tramai/persistence/file/PersistedApprovalContinuationRecordV1;)Ldev/tramai/core/approval/ApprovalContinuation;
+	public static final fun toDomain (Ldev/tramai/persistence/file/PersistedApprovalContinuationV1;)Ldev/tramai/core/approval/ApprovalContinuation;
+	public static final fun toDomain (Ldev/tramai/persistence/file/PersistedApprovalRequestV1;)Ldev/tramai/core/approval/ApprovalRequest;
+	public static final fun toDomain (Ldev/tramai/persistence/file/PersistedAuditEventV1;)Ldev/tramai/security/audit/AuditEvent;
+	public static final fun toPersistedV1 (Ldev/tramai/core/approval/ApprovalBinding;)Ldev/tramai/persistence/file/PersistedApprovalBindingV1;
+	public static final fun toPersistedV1 (Ldev/tramai/core/approval/ApprovalContinuation;)Ldev/tramai/persistence/file/PersistedApprovalContinuationV1;
+	public static final fun toPersistedV1 (Ldev/tramai/core/approval/ApprovalRequest;)Ldev/tramai/persistence/file/PersistedApprovalRequestV1;
+	public static final fun toPersistedV1 (Ldev/tramai/security/audit/AuditEvent;)Ldev/tramai/persistence/file/PersistedAuditEventV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedEngineExecutionIdentityV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedEngineExecutionIdentityV1$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedEngineExecutionIdentityV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedEngineExecutionIdentityV1;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedEngineExecutionIdentityV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActorId ()Ljava/lang/String;
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public final fun getWorkflowDigest ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedEngineExecutionIdentityV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedEngineExecutionIdentityV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedExecutionSecurityContextV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedExecutionSecurityContextV1$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedExecutionSecurityContextV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedExecutionSecurityContextV1;ILjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedExecutionSecurityContextV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getClassificationSource ()Ljava/lang/String;
+	public final fun getDataClassification ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedExecutionSecurityContextV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedExecutionSecurityContextV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedMessageV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedMessageV1$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/util/List;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/util/List;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/util/List;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/util/List;)Ldev/tramai/persistence/file/PersistedMessageV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedMessageV1;ILjava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedMessageV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getContent ()Ljava/lang/String;
+	public final fun getContentParts ()Ljava/util/List;
+	public final fun getRole ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public final fun getToolCallId ()Ljava/lang/String;
+	public final fun getToolCalls ()Ljava/util/List;
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedMessageV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedMessageV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedReplayEnvelopeV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1$Companion;
+	public fun <init> (ILjava/util/List;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (ILjava/util/List;)Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;ILjava/util/List;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessages ()Ljava/util/List;
+	public final fun getSchemaVersion ()I
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedReplayEnvelopeV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedResumeOperationReferenceV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedResumeOperationReferenceV1$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedResumeOperationReferenceV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedResumeOperationReferenceV1;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedResumeOperationReferenceV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getJvmMethodDescriptor ()Ljava/lang/String;
+	public final fun getMethodName ()Ljava/lang/String;
+	public final fun getResumeDefinitionDigest ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public final fun getServiceInterface ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedResumeOperationReferenceV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedResumeOperationReferenceV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedResumeToolReferenceV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedResumeToolReferenceV1$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedResumeToolReferenceV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedResumeToolReferenceV1;ILjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedResumeToolReferenceV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDeclarationDigest ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public final fun getToolName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedResumeToolReferenceV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedResumeToolReferenceV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ldev/tramai/persistence/file/PersistedEngineExecutionIdentityV1;Ldev/tramai/persistence/file/PersistedExecutionSecurityContextV1;Ldev/tramai/persistence/file/PersistedResumeOperationReferenceV1;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/persistence/file/PersistedTokenBudgetSnapshotV1;Ldev/tramai/persistence/file/PersistedResumeToolReferenceV1;Ldev/tramai/persistence/file/PersistedToolSecurityMetadataV1;)V
+	public final fun component1 ()I
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()I
+	public final fun component13 ()Ldev/tramai/persistence/file/PersistedTokenBudgetSnapshotV1;
+	public final fun component14 ()Ldev/tramai/persistence/file/PersistedResumeToolReferenceV1;
+	public final fun component15 ()Ldev/tramai/persistence/file/PersistedToolSecurityMetadataV1;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()I
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ldev/tramai/persistence/file/PersistedEngineExecutionIdentityV1;
+	public final fun component8 ()Ldev/tramai/persistence/file/PersistedExecutionSecurityContextV1;
+	public final fun component9 ()Ldev/tramai/persistence/file/PersistedResumeOperationReferenceV1;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ldev/tramai/persistence/file/PersistedEngineExecutionIdentityV1;Ldev/tramai/persistence/file/PersistedExecutionSecurityContextV1;Ldev/tramai/persistence/file/PersistedResumeOperationReferenceV1;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/persistence/file/PersistedTokenBudgetSnapshotV1;Ldev/tramai/persistence/file/PersistedResumeToolReferenceV1;Ldev/tramai/persistence/file/PersistedToolSecurityMetadataV1;)Ldev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ldev/tramai/persistence/file/PersistedEngineExecutionIdentityV1;Ldev/tramai/persistence/file/PersistedExecutionSecurityContextV1;Ldev/tramai/persistence/file/PersistedResumeOperationReferenceV1;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/persistence/file/PersistedTokenBudgetSnapshotV1;Ldev/tramai/persistence/file/PersistedResumeToolReferenceV1;Ldev/tramai/persistence/file/PersistedToolSecurityMetadataV1;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getConversationId ()Ljava/lang/String;
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getHistorySize ()I
+	public final fun getIdentity ()Ldev/tramai/persistence/file/PersistedEngineExecutionIdentityV1;
+	public final fun getOperationReference ()Ldev/tramai/persistence/file/PersistedResumeOperationReferenceV1;
+	public final fun getReplayEnvelopeDigest ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public final fun getSecurityContext ()Ldev/tramai/persistence/file/PersistedExecutionSecurityContextV1;
+	public final fun getTokenBudgetSnapshot ()Ldev/tramai/persistence/file/PersistedTokenBudgetSnapshotV1;
+	public final fun getToolCallId ()Ljava/lang/String;
+	public final fun getToolCallIndex ()I
+	public final fun getToolName ()Ljava/lang/String;
+	public final fun getToolReference ()Ldev/tramai/persistence/file/PersistedResumeToolReferenceV1;
+	public final fun getToolSecurity ()Ldev/tramai/persistence/file/PersistedToolSecurityMetadataV1;
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedSuspendedInvocationRecordV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedSuspendedInvocationRecordV1$Companion;
+	public fun <init> (ILdev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ldev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;
+	public final fun component3 ()Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;
+	public final fun copy (ILdev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;)Ldev/tramai/persistence/file/PersistedSuspendedInvocationRecordV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedSuspendedInvocationRecordV1;ILdev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedSuspendedInvocationRecordV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMetadata ()Ldev/tramai/persistence/file/PersistedSuspendedInvocationMetadataV1;
+	public final fun getReplayEnvelope ()Ldev/tramai/persistence/file/PersistedReplayEnvelopeV1;
+	public final fun getSchemaVersion ()I
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedSuspendedInvocationRecordV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedSuspendedInvocationRecordV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedTokenBudgetSnapshotV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedTokenBudgetSnapshotV1$Companion;
+	public fun <init> (IJJDDZ)V
+	public final fun component1 ()I
+	public final fun component2 ()J
+	public final fun component3 ()J
+	public final fun component4 ()D
+	public final fun component5 ()D
+	public final fun component6 ()Z
+	public final fun copy (IJJDDZ)Ldev/tramai/persistence/file/PersistedTokenBudgetSnapshotV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedTokenBudgetSnapshotV1;IJJDDZILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedTokenBudgetSnapshotV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getSchemaVersion ()I
+	public final fun getTotalInputCost ()D
+	public final fun getTotalInputTokens ()J
+	public final fun getTotalOutputCost ()D
+	public final fun getTotalOutputTokens ()J
+	public final fun getWarnIfExceeded ()Z
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedTokenBudgetSnapshotV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedTokenBudgetSnapshotV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedToolCallV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedToolCallV1$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedToolCallV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedToolCallV1;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedToolCallV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArgumentsJson ()Ljava/lang/String;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedToolCallV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedToolCallV1;
+}
+
+public final class dev/tramai/persistence/file/PersistedToolSecurityMetadataV1 {
+	public static final field Companion Ldev/tramai/persistence/file/PersistedToolSecurityMetadataV1$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedToolSecurityMetadataV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/PersistedToolSecurityMetadataV1;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/file/PersistedToolSecurityMetadataV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApproval ()Ljava/lang/String;
+	public final fun getAudit ()Ljava/lang/String;
+	public final fun getCompatibilityMode ()Ljava/lang/String;
+	public final fun getManagedNetworkEgress ()Ljava/lang/String;
+	public final fun getPermission ()Ljava/lang/String;
+	public final fun getRisk ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/PersistedToolSecurityMetadataV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/PersistedToolSecurityMetadataV1;
+}
+
+public final class dev/tramai/persistence/file/StoreManifestV1 {
+	public static final field Companion Ldev/tramai/persistence/file/StoreManifestV1$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;)Ldev/tramai/persistence/file/StoreManifestV1;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/file/StoreManifestV1;ILjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/file/StoreManifestV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCreatedAt ()Ljava/lang/String;
+	public final fun getFormatVersion ()I
+	public final fun getModule ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun toJson ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/file/StoreManifestV1$Companion {
+	public final fun fromJson (Ljava/lang/String;)Ldev/tramai/persistence/file/StoreManifestV1;
+}
+

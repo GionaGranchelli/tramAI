@@ -1,0 +1,122 @@
+public final class dev/tramai/persistence/jdbc/JdbcApprovalContinuationStore : dev/tramai/core/approval/ApprovalContinuationStore {
+	public static final field Companion Ldev/tramai/persistence/jdbc/JdbcApprovalContinuationStore$Companion;
+	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcContinuationArgumentsCodec;Ljava/time/Clock;ILjava/time/Duration;)V
+	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcContinuationArgumentsCodec;Ljava/time/Clock;ILjava/time/Duration;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun cancel (Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun claimForExecution (Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun complete (Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun create (Ldev/tramai/core/approval/ApprovalContinuation;Ldev/tramai/core/approval/SensitiveToolArguments;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun expire (Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun findStaleClaimed (Ljava/time/Instant;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun forceCancelClaimed (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun sweepExpired (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/persistence/jdbc/JdbcApprovalContinuationStore$Companion {
+}
+
+public final class dev/tramai/persistence/jdbc/JdbcApprovalStore : dev/tramai/core/approval/ApprovalStore {
+	public fun <init> (Ljavax/sql/DataSource;Ljava/time/Clock;IILjava/time/Duration;)V
+	public synthetic fun <init> (Ljavax/sql/DataSource;Ljava/time/Clock;IILjava/time/Duration;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun consumeApprovedOrReplay-LJPQ52o (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun create (Ldev/tramai/core/approval/ApprovalRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun transition (Ljava/lang/String;JLdev/tramai/core/approval/ApprovalTransition;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/persistence/jdbc/JdbcAuditPayloadCodec {
+	public abstract fun decode (Ldev/tramai/persistence/jdbc/JdbcEncryptedAuditPayload;)[B
+	public abstract fun encode ([B)Ldev/tramai/persistence/jdbc/JdbcEncryptedAuditPayload;
+}
+
+public final class dev/tramai/persistence/jdbc/JdbcAuditStore : dev/tramai/security/audit/AuditStore {
+	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcAuditPayloadCodec;Ljava/time/Clock;I)V
+	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcAuditPayloadCodec;Ljava/time/Clock;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun appendNext (Ljava/lang/String;Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun latestEvent (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun readStream (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun readStreamPage (Ljava/lang/String;Ljava/lang/Long;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/persistence/jdbc/JdbcContinuationArgumentsCodec {
+	public abstract fun decode (Ldev/tramai/persistence/jdbc/JdbcEncryptedContinuationArguments;)[B
+	public abstract fun encode ([B)Ldev/tramai/persistence/jdbc/JdbcEncryptedContinuationArguments;
+}
+
+public final class dev/tramai/persistence/jdbc/JdbcEncryptedAuditPayload {
+	public fun <init> ([BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;)V
+	public final fun component1 ()[B
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()[B
+	public final fun component5 ()Ljava/lang/String;
+	public final fun copy ([BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;)Ldev/tramai/persistence/jdbc/JdbcEncryptedAuditPayload;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/jdbc/JdbcEncryptedAuditPayload;[BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/jdbc/JdbcEncryptedAuditPayload;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAlgorithm ()Ljava/lang/String;
+	public final fun getCiphertext ()[B
+	public final fun getKeyId ()Ljava/lang/String;
+	public final fun getNonce ()[B
+	public final fun getPayloadDigest ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/jdbc/JdbcEncryptedContinuationArguments {
+	public fun <init> ([BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;)V
+	public final fun component1 ()[B
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()[B
+	public final fun component5 ()Ljava/lang/String;
+	public final fun copy ([BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;)Ldev/tramai/persistence/jdbc/JdbcEncryptedContinuationArguments;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/jdbc/JdbcEncryptedContinuationArguments;[BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/jdbc/JdbcEncryptedContinuationArguments;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAlgorithm ()Ljava/lang/String;
+	public final fun getCiphertext ()[B
+	public final fun getKeyId ()Ljava/lang/String;
+	public final fun getNonce ()[B
+	public final fun getPayloadDigest ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/persistence/jdbc/JdbcEncryptedReplayEnvelope {
+	public fun <init> ([BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;)V
+	public final fun component1 ()[B
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()[B
+	public final fun component5 ()Ljava/lang/String;
+	public final fun copy ([BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;)Ldev/tramai/persistence/jdbc/JdbcEncryptedReplayEnvelope;
+	public static synthetic fun copy$default (Ldev/tramai/persistence/jdbc/JdbcEncryptedReplayEnvelope;[BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;ILjava/lang/Object;)Ldev/tramai/persistence/jdbc/JdbcEncryptedReplayEnvelope;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAlgorithm ()Ljava/lang/String;
+	public final fun getCiphertext ()[B
+	public final fun getKeyId ()Ljava/lang/String;
+	public final fun getNonce ()[B
+	public final fun getPayloadDigest ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec {
+	public abstract fun decode (Ldev/tramai/persistence/jdbc/JdbcEncryptedReplayEnvelope;)[B
+	public abstract fun encode ([B)Ldev/tramai/persistence/jdbc/JdbcEncryptedReplayEnvelope;
+}
+
+public final class dev/tramai/persistence/jdbc/JdbcSuspendedInvocationStore : dev/tramai/engine/SuspendedInvocationStore {
+	public static final field Companion Ldev/tramai/persistence/jdbc/JdbcSuspendedInvocationStore$Companion;
+	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec;Ljava/time/Clock;)V
+	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun create (Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/engine/SensitiveReplayEnvelope;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun remove (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun revealReplayEnvelope (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun revealSensitiveContext (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/persistence/jdbc/JdbcSuspendedInvocationStore$Companion {
+}
+

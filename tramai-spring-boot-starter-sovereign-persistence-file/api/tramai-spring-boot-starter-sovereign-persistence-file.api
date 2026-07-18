@@ -1,0 +1,73 @@
+public final class dev/tramai/spring/sovereign/persistence/file/FileSovereignOpsAuditOutboxStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore, java/lang/AutoCloseable {
+	public static final field Companion Ldev/tramai/spring/sovereign/persistence/file/FileSovereignOpsAuditOutboxStore$Companion;
+	public fun append (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun claimPending (Ljava/lang/String;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun close ()V
+	public fun findByEventKey (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun isDurable ()Z
+	public fun listByStatus (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun listExpiredEmitting (Ljava/time/Instant;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun listPending (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markEmitted (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markFailed (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Ljava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markReadyForDispatch (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun rebuildIndex ()V
+	public final fun verifyAll ()V
+}
+
+public final class dev/tramai/spring/sovereign/persistence/file/FileSovereignOpsAuditOutboxStore$Companion {
+}
+
+public final class dev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceAutoConfiguration {
+	public fun <init> ()V
+	public final fun approvalContinuationStore (Ldev/tramai/persistence/file/FileBackedSovereignStores;)Ldev/tramai/core/approval/ApprovalContinuationStore;
+	public final fun approvalStore (Ldev/tramai/persistence/file/FileBackedSovereignStores;)Ldev/tramai/core/approval/ApprovalStore;
+	public final fun auditStore (Ldev/tramai/persistence/file/FileBackedSovereignStores;)Ldev/tramai/security/audit/AuditStore;
+	public final fun sovereignFileBackedStores (Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties;)Ldev/tramai/persistence/file/FileBackedSovereignStores;
+	public final fun sovereignOpsAuditOutboxStore (Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties;Ldev/tramai/persistence/file/FileBackedSovereignStores;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;
+	public final fun suspendedInvocationStore (Ldev/tramai/persistence/file/FileBackedSovereignStores;)Ldev/tramai/engine/SuspendedInvocationStore;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/nio/file/Path;Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties$Encryption;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/nio/file/Path;Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties$Encryption;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/nio/file/Path;
+	public final fun component3 ()Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties$Encryption;
+	public final fun copy (Ljava/lang/String;Ljava/nio/file/Path;Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties$Encryption;)Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties;Ljava/lang/String;Ljava/nio/file/Path;Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties$Encryption;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBaseDir ()Ljava/nio/file/Path;
+	public final fun getEncryption ()Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties$Encryption;
+	public final fun getType ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun setBaseDir (Ljava/nio/file/Path;)V
+	public final fun setEncryption (Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties$Encryption;)V
+	public final fun setType (Ljava/lang/String;)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties$Encryption {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/nio/file/Path;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/nio/file/Path;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/nio/file/Path;
+	public final fun copy (Ljava/lang/String;Ljava/nio/file/Path;)Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties$Encryption;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties$Encryption;Ljava/lang/String;Ljava/nio/file/Path;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties$Encryption;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKeyEnv ()Ljava/lang/String;
+	public final fun getKeyFile ()Ljava/nio/file/Path;
+	public fun hashCode ()I
+	public final fun setKeyEnv (Ljava/lang/String;)V
+	public final fun setKeyFile (Ljava/nio/file/Path;)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/file/SovereignStoreKeyLoader {
+	public static final field INSTANCE Ldev/tramai/spring/sovereign/persistence/file/SovereignStoreKeyLoader;
+	public final fun load (Ldev/tramai/spring/sovereign/persistence/file/SovereignFilePersistenceProperties;)[B
+}
+

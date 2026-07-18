@@ -1,0 +1,11 @@
+public final class dev/tramai/spring/sovereign/ops/micrometer/MicrometerSovereignOpsAuditOutboxWorkerObserver : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerObserver {
+	public fun <init> (Lio/micrometer/core/instrument/MeterRegistry;)V
+	public fun onCycleCompleted (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerRunSummary;)V
+	public fun onCycleFailed (Ljava/lang/String;Ljava/lang/String;)V
+}
+
+public class dev/tramai/spring/sovereign/ops/micrometer/SovereignOpsOutboxMicrometerAutoConfiguration {
+	public fun <init> ()V
+	public fun micrometerSovereignOpsAuditOutboxWorkerObserverContribution (Lio/micrometer/core/instrument/MeterRegistry;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerObserverContribution;
+}
+

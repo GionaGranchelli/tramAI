@@ -1,0 +1,15 @@
+public final class dev/tramai/dashboard/DashboardAutoConfiguration : org/springframework/web/servlet/config/annotation/WebMvcConfigurer {
+	public fun <init> ()V
+	public fun addResourceHandlers (Lorg/springframework/web/servlet/config/annotation/ResourceHandlerRegistry;)V
+	public final fun dashboardSettingsController (Lorg/springframework/context/ApplicationContext;Lcom/fasterxml/jackson/databind/ObjectMapper;)Ldev/tramai/dashboard/DashboardSettingsController;
+}
+
+public final class dev/tramai/dashboard/DashboardMarker {
+	public fun <init> ()V
+}
+
+public final class dev/tramai/dashboard/DashboardSettingsController {
+	public fun <init> (Lorg/springframework/context/ApplicationContext;Lcom/fasterxml/jackson/databind/ObjectMapper;)V
+	public final fun settings (Ljakarta/servlet/http/HttpServletRequest;)Ljava/lang/String;
+}
+

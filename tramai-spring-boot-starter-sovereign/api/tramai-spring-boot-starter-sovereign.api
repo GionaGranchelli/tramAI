@@ -1,0 +1,71 @@
+public final class dev/tramai/spring/sovereign/SovereignTramaiAutoConfiguration {
+	public static final field Companion Ldev/tramai/spring/sovereign/SovereignTramaiAutoConfiguration$Companion;
+	public fun <init> ()V
+	public final fun approvalContinuationStore (Ljava/time/Clock;)Ldev/tramai/core/approval/ApprovalContinuationStore;
+	public final fun approvalGateCoordinator (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/core/approval/ApprovalTokenDigester;Ljava/time/Clock;)Ldev/tramai/core/approval/ApprovalGateCoordinator;
+	public final fun approvalStore (Ljava/time/Clock;)Ldev/tramai/core/approval/ApprovalStore;
+	public final fun approvalTokenDigester ()Ldev/tramai/core/approval/ApprovalTokenDigester;
+	public final fun auditStore ()Ldev/tramai/security/audit/AuditStore;
+	public final fun modelRegistry (Ldev/tramai/spring/sovereign/SovereignTramaiProperties;)Ldev/tramai/core/model/ModelRegistry;
+	public final fun sovereignClock ()Ljava/time/Clock;
+	public final fun sovereignProfileConfiguration (Ldev/tramai/spring/sovereign/SovereignTramaiProperties;)Ldev/tramai/sovereign/SovereignProfileConfiguration;
+	public final fun sovereignTramai (Ldev/tramai/sovereign/SovereignProfileConfiguration;Ldev/tramai/core/model/ModelRegistry;Ldev/tramai/security/audit/AuditStore;Lorg/springframework/beans/factory/ObjectProvider;Ldev/tramai/spring/sovereign/SovereignTramaiProperties;Ldev/tramai/spring/sovereign/SovereignTramaiAutoConfiguration$SovereignTramaiInfrastructure;)Ldev/tramai/sovereign/SovereignTramai;
+	public final fun sovereignTramaiInfrastructure (Ldev/tramai/core/approval/ApprovalGateCoordinator;Ldev/tramai/core/approval/ApprovalContinuationStore;Lorg/springframework/beans/factory/ObjectProvider;Ldev/tramai/core/approval/ToolArgumentsDigester;Ljava/time/Clock;)Ldev/tramai/spring/sovereign/SovereignTramaiAutoConfiguration$SovereignTramaiInfrastructure;
+	public final fun sovereignTramaiRuntime (Ldev/tramai/sovereign/SovereignTramai;)Ldev/tramai/sovereign/SovereignTramaiRuntime;
+	public final fun toolArgumentsDigester ()Ldev/tramai/core/approval/ToolArgumentsDigester;
+}
+
+public final class dev/tramai/spring/sovereign/SovereignTramaiAutoConfiguration$Companion {
+}
+
+public final class dev/tramai/spring/sovereign/SovereignTramaiAutoConfiguration$SovereignTramaiInfrastructure {
+	public fun <init> (Ldev/tramai/core/approval/ApprovalGateCoordinator;Ldev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/engine/SuspendedInvocationStore;Ldev/tramai/core/approval/ToolArgumentsDigester;Ljava/time/Clock;)V
+	public final fun component1 ()Ldev/tramai/core/approval/ApprovalGateCoordinator;
+	public final fun component2 ()Ldev/tramai/core/approval/ApprovalContinuationStore;
+	public final fun component3 ()Ldev/tramai/engine/SuspendedInvocationStore;
+	public final fun component4 ()Ldev/tramai/core/approval/ToolArgumentsDigester;
+	public final fun component5 ()Ljava/time/Clock;
+	public final fun copy (Ldev/tramai/core/approval/ApprovalGateCoordinator;Ldev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/engine/SuspendedInvocationStore;Ldev/tramai/core/approval/ToolArgumentsDigester;Ljava/time/Clock;)Ldev/tramai/spring/sovereign/SovereignTramaiAutoConfiguration$SovereignTramaiInfrastructure;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/SovereignTramaiAutoConfiguration$SovereignTramaiInfrastructure;Ldev/tramai/core/approval/ApprovalGateCoordinator;Ldev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/engine/SuspendedInvocationStore;Ldev/tramai/core/approval/ToolArgumentsDigester;Ljava/time/Clock;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/SovereignTramaiAutoConfiguration$SovereignTramaiInfrastructure;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalContinuationStore ()Ldev/tramai/core/approval/ApprovalContinuationStore;
+	public final fun getApprovalGateCoordinator ()Ldev/tramai/core/approval/ApprovalGateCoordinator;
+	public final fun getClock ()Ljava/time/Clock;
+	public final fun getSuspendedInvocationStore ()Ldev/tramai/engine/SuspendedInvocationStore;
+	public final fun getToolArgumentsDigester ()Ldev/tramai/core/approval/ToolArgumentsDigester;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/SovereignTramaiProperties {
+	public fun <init> ()V
+	public fun <init> (ZLjava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Map;Ljava/util/Map;)V
+	public synthetic fun <init> (ZLjava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Map;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Ljava/util/Set;
+	public final fun component3 ()Ljava/util/Set;
+	public final fun component4 ()Ljava/util/Set;
+	public final fun component5 ()Ljava/util/Set;
+	public final fun component6 ()Ljava/util/Map;
+	public final fun component7 ()Ljava/util/Map;
+	public final fun copy (ZLjava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Map;Ljava/util/Map;)Ldev/tramai/spring/sovereign/SovereignTramaiProperties;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/SovereignTramaiProperties;ZLjava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Map;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/SovereignTramaiProperties;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowedModels ()Ljava/util/Set;
+	public final fun getAllowedPermissions ()Ljava/util/Set;
+	public final fun getAllowedProviders ()Ljava/util/Set;
+	public final fun getAllowedTools ()Ljava/util/Set;
+	public final fun getEnabled ()Z
+	public final fun getModels ()Ljava/util/Map;
+	public final fun getProviderZones ()Ljava/util/Map;
+	public fun hashCode ()I
+	public final fun setAllowedModels (Ljava/util/Set;)V
+	public final fun setAllowedPermissions (Ljava/util/Set;)V
+	public final fun setAllowedProviders (Ljava/util/Set;)V
+	public final fun setAllowedTools (Ljava/util/Set;)V
+	public final fun setEnabled (Z)V
+	public final fun setModels (Ljava/util/Map;)V
+	public final fun setProviderZones (Ljava/util/Map;)V
+	public fun toString ()Ljava/lang/String;
+}
+

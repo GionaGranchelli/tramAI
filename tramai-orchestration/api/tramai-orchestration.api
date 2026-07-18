@@ -1,0 +1,1119 @@
+public abstract class dev/tramai/orchestration/AbstractWorkflowBuilder {
+	public fun <init> ()V
+	public final fun aiStep (Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun aiStep (Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun aiStep (Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function3;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun aiStep (Ljava/lang/String;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public static synthetic fun aiStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function3;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun branchStep (Ljava/lang/String;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun codexStep (Ljava/lang/String;Ldev/tramai/orchestration/CodexStepConfig;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function4;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun codexStep (Ljava/lang/String;Ldev/tramai/orchestration/CodexStepConfig;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public static synthetic fun codexStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ldev/tramai/orchestration/CodexStepConfig;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function4;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public static synthetic fun codexStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ldev/tramai/orchestration/CodexStepConfig;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun delayStep (Ljava/lang/String;JLjava/util/concurrent/TimeUnit;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun gateStep (Ljava/lang/String;Lkotlin/jvm/functions/Function3;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun hermesStep (Ljava/lang/String;Ldev/tramai/orchestration/HermesStepConfig;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function4;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun hermesStep (Ljava/lang/String;Ldev/tramai/orchestration/HermesStepConfig;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public static synthetic fun hermesStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ldev/tramai/orchestration/HermesStepConfig;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function4;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public static synthetic fun hermesStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ldev/tramai/orchestration/HermesStepConfig;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun httpStep (Ljava/lang/String;Ldev/tramai/orchestration/HttpStepConfig;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public static synthetic fun httpStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ldev/tramai/orchestration/HttpStepConfig;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun localStep (Ljava/lang/String;Lkotlin/jvm/functions/Function3;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun mcpStep (Ljava/lang/String;Ldev/tramai/orchestration/McpStepConfig;Ldev/tramai/orchestration/McpToolCallDefinition;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function4;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun mcpStep (Ljava/lang/String;Ldev/tramai/orchestration/McpStepConfig;Ldev/tramai/orchestration/McpToolCallDefinition;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public static synthetic fun mcpStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ldev/tramai/orchestration/McpStepConfig;Ldev/tramai/orchestration/McpToolCallDefinition;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function4;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public static synthetic fun mcpStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ldev/tramai/orchestration/McpStepConfig;Ldev/tramai/orchestration/McpToolCallDefinition;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun parallelStep (Ljava/lang/String;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun pluginStep (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun pluginStep (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Lkotlin/jvm/functions/Function4;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public static synthetic fun pluginStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public static synthetic fun pluginStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Lkotlin/jvm/functions/Function4;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public final fun shellStep (Ljava/lang/String;Ldev/tramai/orchestration/ShellStepConfig;Ldev/tramai/orchestration/ShellCommandDefinition;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+	public static synthetic fun shellStep$default (Ldev/tramai/orchestration/AbstractWorkflowBuilder;Ljava/lang/String;Ldev/tramai/orchestration/ShellStepConfig;Ldev/tramai/orchestration/ShellCommandDefinition;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function4;ILjava/lang/Object;)Ldev/tramai/orchestration/AbstractWorkflowBuilder;
+}
+
+public final class dev/tramai/orchestration/BranchBuilder {
+	public fun <init> ()V
+	public final fun branch (Ljava/lang/String;Lkotlin/jvm/functions/Function1;)V
+	public final fun default (Lkotlin/jvm/functions/Function1;)V
+}
+
+public final class dev/tramai/orchestration/BranchWorkflowBuilder : dev/tramai/orchestration/AbstractWorkflowBuilder {
+	public fun <init> ()V
+}
+
+public final class dev/tramai/orchestration/CodexStepConfig {
+	public fun <init> ()V
+	public fun <init> (JJLjava/lang/String;Ljava/lang/String;Ldev/tramai/core/security/StepSecurityConfig;)V
+	public synthetic fun <init> (JJLjava/lang/String;Ljava/lang/String;Ldev/tramai/core/security/StepSecurityConfig;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ldev/tramai/core/security/StepSecurityConfig;
+	public final fun copy (JJLjava/lang/String;Ljava/lang/String;Ldev/tramai/core/security/StepSecurityConfig;)Ldev/tramai/orchestration/CodexStepConfig;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/CodexStepConfig;JJLjava/lang/String;Ljava/lang/String;Ldev/tramai/core/security/StepSecurityConfig;ILjava/lang/Object;)Ldev/tramai/orchestration/CodexStepConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCliPath ()Ljava/lang/String;
+	public final fun getMaxOutputBytes ()J
+	public final fun getSecurity ()Ldev/tramai/core/security/StepSecurityConfig;
+	public final fun getTimeoutSeconds ()J
+	public final fun getWorkdir ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/DefaultInstructionDefense : dev/tramai/core/security/InstructionDefense {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/orchestration/DefaultInstructionDefense;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/DefaultInstructionDefense;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/orchestration/DefaultInstructionDefense;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCustomInstructions ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+	public fun wrap (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/DefaultOutputValidator : dev/tramai/core/security/OutputValidator {
+	public static final field Companion Ldev/tramai/orchestration/DefaultOutputValidator$Companion;
+	public static final field RULE_BOUNDARY_PROBING Ljava/lang/String;
+	public static final field RULE_EXTRACTION_SYSTEM_PROMPT Ljava/lang/String;
+	public static final field RULE_REPEAT_ABOVE Ljava/lang/String;
+	public fun <init> ()V
+	public fun <init> (Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun copy (Ljava/util/List;)Ldev/tramai/orchestration/DefaultOutputValidator;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/DefaultOutputValidator;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/orchestration/DefaultOutputValidator;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPatterns ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+	public fun validate (Ljava/lang/String;)Ldev/tramai/core/security/ValidationResult;
+}
+
+public final class dev/tramai/orchestration/DefaultOutputValidator$Companion {
+	public final fun getDefaultPatterns ()Ljava/util/List;
+}
+
+public final class dev/tramai/orchestration/DefaultPromptSanitizer : dev/tramai/core/security/PromptSanitizer {
+	public static final field INSTANCE Ldev/tramai/orchestration/DefaultPromptSanitizer;
+	public static final field RULE_CONTROL_CHAR Ljava/lang/String;
+	public static final field RULE_DELIMITER_TRICK Ljava/lang/String;
+	public static final field RULE_JAILBREAK_FRAGMENT Ljava/lang/String;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getTriggeredRules (Ljava/lang/String;)Ljava/util/List;
+	public fun hashCode ()I
+	public fun sanitize (Ljava/lang/String;)Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/DefaultWorkflowCheckpointPathStrategy : dev/tramai/orchestration/WorkflowCheckpointPathStrategy {
+	public fun <init> (Ljava/lang/String;)V
+	public fun resolve (Ljava/nio/file/Path;Ljava/lang/String;Ljava/lang/String;)Ljava/nio/file/Path;
+}
+
+public abstract interface class dev/tramai/orchestration/ExternalStepExecutor {
+	public abstract fun execute (Ljava/util/Map;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/orchestration/ExternalStepExecutorFactory {
+	public abstract fun create ()Ldev/tramai/orchestration/ExternalStepExecutor;
+	public abstract fun getTypeId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/ExternalStepExecutorNotRegisteredException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/orchestration/ExternalStepExecutorRegistry : dev/tramai/orchestration/ExternalStepExecutorResolver {
+	public fun <init> ()V
+	public final fun clear ()V
+	public fun create (Ljava/lang/String;)Ldev/tramai/orchestration/ExternalStepExecutor;
+	public fun isRegistered (Ljava/lang/String;)Z
+	public final fun register (Ldev/tramai/orchestration/ExternalStepExecutorFactory;)V
+	public fun registeredTypeIds ()Ljava/util/Set;
+	public final fun replaceAll (Ljava/util/Collection;)V
+	public final fun typeIds ()Ljava/util/Set;
+	public final fun unregister (Ljava/lang/String;)V
+}
+
+public abstract interface class dev/tramai/orchestration/ExternalStepExecutorResolver {
+	public abstract fun create (Ljava/lang/String;)Ldev/tramai/orchestration/ExternalStepExecutor;
+	public abstract fun isRegistered (Ljava/lang/String;)Z
+	public abstract fun registeredTypeIds ()Ljava/util/Set;
+}
+
+public final class dev/tramai/orchestration/FileWorkflowCheckpointStore : dev/tramai/orchestration/WorkflowCheckpointCatalog, dev/tramai/orchestration/WorkflowCheckpointStore {
+	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;)V
+	public synthetic fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun listCheckpoints (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun load (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun save (Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/FileWorkflowLeaseStore : dev/tramai/orchestration/WorkflowLeaseCheckpointFence, dev/tramai/orchestration/WorkflowLeaseStore {
+	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;Lkotlin/jvm/functions/Function0;)V
+	public synthetic fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun claim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun currentLease (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun release (Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun renew (Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun saveCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/GateDecision {
+	public static final field Companion Ldev/tramai/orchestration/GateDecision$Companion;
+	public fun <init> (ZLjava/lang/String;)V
+	public synthetic fun <init> (ZLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (ZLjava/lang/String;)Ldev/tramai/orchestration/GateDecision;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/GateDecision;ZLjava/lang/String;ILjava/lang/Object;)Ldev/tramai/orchestration/GateDecision;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowed ()Z
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/GateDecision$Companion {
+	public final fun allow ()Ldev/tramai/orchestration/GateDecision;
+	public final fun reject (Ljava/lang/String;)Ldev/tramai/orchestration/GateDecision;
+}
+
+public final class dev/tramai/orchestration/HermesStepConfig {
+	public fun <init> ()V
+	public fun <init> (JJLjava/lang/String;Ljava/lang/String;Ldev/tramai/core/security/StepSecurityConfig;)V
+	public synthetic fun <init> (JJLjava/lang/String;Ljava/lang/String;Ldev/tramai/core/security/StepSecurityConfig;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ldev/tramai/core/security/StepSecurityConfig;
+	public final fun copy (JJLjava/lang/String;Ljava/lang/String;Ldev/tramai/core/security/StepSecurityConfig;)Ldev/tramai/orchestration/HermesStepConfig;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/HermesStepConfig;JJLjava/lang/String;Ljava/lang/String;Ldev/tramai/core/security/StepSecurityConfig;ILjava/lang/Object;)Ldev/tramai/orchestration/HermesStepConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCliPath ()Ljava/lang/String;
+	public final fun getMaxOutputBytes ()J
+	public final fun getModel ()Ljava/lang/String;
+	public final fun getSecurity ()Ldev/tramai/core/security/StepSecurityConfig;
+	public final fun getTimeoutSeconds ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/HttpRequest {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/Map;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;)Ldev/tramai/orchestration/HttpRequest;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/HttpRequest;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/orchestration/HttpRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBody ()Ljava/lang/String;
+	public final fun getHeaders ()Ljava/util/Map;
+	public final fun getMethod ()Ljava/lang/String;
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/HttpResponse {
+	public fun <init> (ILjava/util/Map;Ljava/lang/String;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/util/Map;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (ILjava/util/Map;Ljava/lang/String;)Ldev/tramai/orchestration/HttpResponse;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/HttpResponse;ILjava/util/Map;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/orchestration/HttpResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBody ()Ljava/lang/String;
+	public final fun getHeaders ()Ljava/util/Map;
+	public final fun getStatus ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/HttpStepConfig {
+	public fun <init> ()V
+	public fun <init> (JJLjava/util/Set;ILjava/util/Set;)V
+	public synthetic fun <init> (JJLjava/util/Set;ILjava/util/Set;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun component3 ()Ljava/util/Set;
+	public final fun component4 ()I
+	public final fun component5 ()Ljava/util/Set;
+	public final fun copy (JJLjava/util/Set;ILjava/util/Set;)Ldev/tramai/orchestration/HttpStepConfig;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/HttpStepConfig;JJLjava/util/Set;ILjava/util/Set;ILjava/lang/Object;)Ldev/tramai/orchestration/HttpStepConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowedHosts ()Ljava/util/Set;
+	public final fun getMaxResponseBytes ()J
+	public final fun getMaxRetries ()I
+	public final fun getRetryOnStatus ()Ljava/util/Set;
+	public final fun getTimeoutSeconds ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/InMemoryWorkflowCheckpointStore : dev/tramai/orchestration/StepAttemptRecordStore, dev/tramai/orchestration/WorkflowCheckpointCatalog, dev/tramai/orchestration/WorkflowCheckpointStore {
+	public fun <init> ()V
+	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun latestStepAttempt (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun listCheckpoints (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun listStepAttempts (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun load (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun recordStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun save (Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun updateStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/InMemoryWorkflowLeaseStore : dev/tramai/orchestration/WorkerRegistryStore, dev/tramai/orchestration/WorkflowLeaseCheckpointFence, dev/tramai/orchestration/WorkflowLeaseStore {
+	public fun <init> ()V
+	public fun <init> (Lkotlin/jvm/functions/Function0;)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun claim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun currentLease (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun listActiveWorkers (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun listStaleWorkers (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun registerWorker (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun release (Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun renew (Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun saveCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun unregisterWorker (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun updateHeartbeat (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/JdbcWorkflowCheckpointStore : dev/tramai/orchestration/WorkflowCheckpointCatalog, dev/tramai/orchestration/WorkflowCheckpointStore {
+	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;)V
+	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun createTableSql ()Ljava/lang/String;
+	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun listCheckpoints (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun load (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun save (Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/JdbcWorkflowCheckpointTable {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/orchestration/JdbcWorkflowCheckpointTable;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLastCompletedStepNameColumn ()Ljava/lang/String;
+	public final fun getMetadataColumn ()Ljava/lang/String;
+	public final fun getNextStepIndexColumn ()Ljava/lang/String;
+	public final fun getRevisionColumn ()Ljava/lang/String;
+	public final fun getSavedAtEpochMillisColumn ()Ljava/lang/String;
+	public final fun getStatePayloadColumn ()Ljava/lang/String;
+	public final fun getStepExecutionsColumn ()Ljava/lang/String;
+	public final fun getTableName ()Ljava/lang/String;
+	public final fun getWorkflowIdColumn ()Ljava/lang/String;
+	public final fun getWorkflowNameColumn ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/JdbcWorkflowLeaseStore : dev/tramai/orchestration/WorkflowLeaseCheckpointFence, dev/tramai/orchestration/WorkflowLeaseStore {
+	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowLeaseTable;Lkotlin/jvm/functions/Function0;)V
+	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcWorkflowLeaseTable;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun claim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun createTableSql ()Ljava/lang/String;
+	public fun currentLease (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun release (Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun renew (Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun saveCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/JdbcWorkflowLeaseTable {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/orchestration/JdbcWorkflowLeaseTable;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/JdbcWorkflowLeaseTable;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/orchestration/JdbcWorkflowLeaseTable;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAcquiredAtEpochMillisColumn ()Ljava/lang/String;
+	public final fun getCheckpointRevisionColumn ()Ljava/lang/String;
+	public final fun getExpiresAtEpochMillisColumn ()Ljava/lang/String;
+	public final fun getLeaseIdColumn ()Ljava/lang/String;
+	public final fun getOwnerIdColumn ()Ljava/lang/String;
+	public final fun getTableName ()Ljava/lang/String;
+	public final fun getWorkflowIdColumn ()Ljava/lang/String;
+	public final fun getWorkflowNameColumn ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/LoggingTramaiWorkerObserver : dev/tramai/orchestration/TramaiWorkerObserver {
+	public static final field Companion Ldev/tramai/orchestration/LoggingTramaiWorkerObserver$Companion;
+	public fun <init> ()V
+	public fun <init> (Lkotlin/jvm/functions/Function1;)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun onDrainProgress (Ljava/lang/String;II)V
+	public fun onLeaseAcquired (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseContested (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseExpired (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseReleaseFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onLeaseReleased (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseRenewalFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onLeaseRenewed (Ljava/lang/String;Ljava/lang/String;J)V
+	public fun onPollFailed (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onShutdownComplete (Ljava/lang/String;)V
+	public fun onShutdownStarted (Ljava/lang/String;)V
+	public fun onStepAttemptCompleted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onStepAttemptFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onStepAttemptStarted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onUnknownAttempt (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+	public fun onWorkTakenOver (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onWorkerHeartbeat (Ljava/lang/String;JI)V
+	public fun onWorkerStarted (Ljava/lang/String;)V
+	public fun onWorkerStopped (Ljava/lang/String;)V
+	public fun onWorkflowAbandoned (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+}
+
+public final class dev/tramai/orchestration/LoggingTramaiWorkerObserver$Companion {
+}
+
+public final class dev/tramai/orchestration/MarkdownWorkflowCheckpointStore : dev/tramai/orchestration/WorkflowCheckpointStore {
+	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;)V
+	public synthetic fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun load (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun save (Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/McpStepConfig {
+	public static final field Companion Ldev/tramai/orchestration/McpStepConfig$Companion;
+	public fun <init> ()V
+	public fun <init> (JJZLjava/util/Set;Ljava/util/Set;Ljava/util/Set;Z)V
+	public synthetic fun <init> (JJZLjava/util/Set;Ljava/util/Set;Ljava/util/Set;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun component3 ()Z
+	public final fun component4 ()Ljava/util/Set;
+	public final fun component5 ()Ljava/util/Set;
+	public final fun component6 ()Ljava/util/Set;
+	public final fun copy (JJZLjava/util/Set;Ljava/util/Set;Ljava/util/Set;Z)Ldev/tramai/orchestration/McpStepConfig;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/McpStepConfig;JJZLjava/util/Set;Ljava/util/Set;Ljava/util/Set;ZILjava/lang/Object;)Ldev/tramai/orchestration/McpStepConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowedCommands ()Ljava/util/Set;
+	public final fun getDeniedCommands ()Ljava/util/Set;
+	public final fun getMaxOutputBytes ()J
+	public final fun getReconnect ()Z
+	public final fun getTimeoutSeconds ()J
+	public final fun getToolAllowlist ()Ljava/util/Set;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/McpStepConfig$Companion {
+	public final fun unrestricted ()Ldev/tramai/orchestration/McpStepConfig;
+}
+
+public final class dev/tramai/orchestration/McpToolCall {
+	public fun <init> (Ljava/util/List;Ljava/util/Map;Ljava/lang/String;Ljava/util/Map;)V
+	public synthetic fun <init> (Ljava/util/List;Ljava/util/Map;Ljava/lang/String;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Ljava/util/Map;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/util/Map;
+	public final fun copy (Ljava/util/List;Ljava/util/Map;Ljava/lang/String;Ljava/util/Map;)Ldev/tramai/orchestration/McpToolCall;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/McpToolCall;Ljava/util/List;Ljava/util/Map;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/orchestration/McpToolCall;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArguments ()Ljava/util/Map;
+	public final fun getServerCommand ()Ljava/util/List;
+	public final fun getServerEnv ()Ljava/util/Map;
+	public final fun getToolName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/McpToolCallDefinition {
+	public fun <init> (Ljava/util/List;Ljava/util/Map;Ljava/lang/String;Ljava/util/Set;)V
+	public synthetic fun <init> (Ljava/util/List;Ljava/util/Map;Ljava/lang/String;Ljava/util/Set;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Ljava/util/Map;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/util/Set;
+	public final fun copy (Ljava/util/List;Ljava/util/Map;Ljava/lang/String;Ljava/util/Set;)Ldev/tramai/orchestration/McpToolCallDefinition;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/McpToolCallDefinition;Ljava/util/List;Ljava/util/Map;Ljava/lang/String;Ljava/util/Set;ILjava/lang/Object;)Ldev/tramai/orchestration/McpToolCallDefinition;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArgumentKeys ()Ljava/util/Set;
+	public final fun getServerCommand ()Ljava/util/List;
+	public final fun getServerEnv ()Ljava/util/Map;
+	public final fun getToolName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/McpToolResult {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Z)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Z
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Z)Ldev/tramai/orchestration/McpToolResult;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/McpToolResult;Ljava/lang/String;Ljava/lang/String;ZILjava/lang/Object;)Ldev/tramai/orchestration/McpToolResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getContent ()Ljava/lang/String;
+	public final fun getStructuredContent ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun isError ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/McpTransportConnection {
+	public fun <init> (Lkotlinx/io/Source;Lkotlinx/io/Sink;Lkotlin/jvm/functions/Function1;)V
+	public synthetic fun <init> (Lkotlinx/io/Source;Lkotlinx/io/Sink;Lkotlin/jvm/functions/Function1;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lkotlinx/io/Source;
+	public final fun component2 ()Lkotlinx/io/Sink;
+	public final fun component3 ()Lkotlin/jvm/functions/Function1;
+	public final fun copy (Lkotlinx/io/Source;Lkotlinx/io/Sink;Lkotlin/jvm/functions/Function1;)Ldev/tramai/orchestration/McpTransportConnection;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/McpTransportConnection;Lkotlinx/io/Source;Lkotlinx/io/Sink;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Ldev/tramai/orchestration/McpTransportConnection;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCleanup ()Lkotlin/jvm/functions/Function1;
+	public final fun getInput ()Lkotlinx/io/Source;
+	public final fun getOutput ()Lkotlinx/io/Sink;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/orchestration/McpTransportProvider {
+	public abstract fun connect (Ldev/tramai/orchestration/McpToolCall;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/ModHashPartitionStrategy : dev/tramai/orchestration/PartitionAssignmentStrategy {
+	public fun <init> ()V
+	public fun ownsPartition (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/NoOpExternalStepExecutorResolver : dev/tramai/orchestration/ExternalStepExecutorResolver {
+	public static final field INSTANCE Ldev/tramai/orchestration/NoOpExternalStepExecutorResolver;
+	public fun create (Ljava/lang/String;)Ldev/tramai/orchestration/ExternalStepExecutor;
+	public fun isRegistered (Ljava/lang/String;)Z
+	public fun registeredTypeIds ()Ljava/util/Set;
+}
+
+public final class dev/tramai/orchestration/NoOpTramaiWorkerObserver : dev/tramai/orchestration/TramaiWorkerObserver {
+	public static final field INSTANCE Ldev/tramai/orchestration/NoOpTramaiWorkerObserver;
+	public fun onDrainProgress (Ljava/lang/String;II)V
+	public fun onLeaseAcquired (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseContested (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseExpired (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseReleaseFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onLeaseReleased (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseRenewalFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onLeaseRenewed (Ljava/lang/String;Ljava/lang/String;J)V
+	public fun onPollFailed (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onShutdownComplete (Ljava/lang/String;)V
+	public fun onShutdownStarted (Ljava/lang/String;)V
+	public fun onStepAttemptCompleted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onStepAttemptFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onStepAttemptStarted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onUnknownAttempt (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+	public fun onWorkTakenOver (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onWorkerHeartbeat (Ljava/lang/String;JI)V
+	public fun onWorkerStarted (Ljava/lang/String;)V
+	public fun onWorkerStopped (Ljava/lang/String;)V
+	public fun onWorkflowAbandoned (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+}
+
+public final class dev/tramai/orchestration/NoOpWorkflowObserver : dev/tramai/orchestration/WorkflowObserver {
+	public static final field INSTANCE Ldev/tramai/orchestration/NoOpWorkflowObserver;
+	public fun onMissedTick (Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onScheduledTick (Ljava/lang/String;Ljava/time/Instant;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onSkippedTick (Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepCompleted (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepStarted (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowCompleted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowEvent (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowFailed (Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowStarted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+}
+
+public final class dev/tramai/orchestration/NonReplayableStepStateUnknownException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getAttemptTime ()J
+	public final fun getPriorWorkerId ()Ljava/lang/String;
+	public final fun getRecoveryInstructions ()Ljava/lang/String;
+	public final fun getRunId ()Ljava/lang/String;
+	public final fun getStepName ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/orchestration/PartitionAssignmentStrategy {
+	public abstract fun ownsPartition (Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/ReplayPolicy : java/lang/Enum {
+	public static final field EXTERNALLY_IDEMPOTENT Ldev/tramai/orchestration/ReplayPolicy;
+	public static final field IDEMPOTENT Ldev/tramai/orchestration/ReplayPolicy;
+	public static final field NON_REPLAYABLE Ldev/tramai/orchestration/ReplayPolicy;
+	public static final field PURE Ldev/tramai/orchestration/ReplayPolicy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/orchestration/ReplayPolicy;
+	public static fun values ()[Ldev/tramai/orchestration/ReplayPolicy;
+}
+
+public final class dev/tramai/orchestration/ShellCommand {
+	public fun <init> (Ljava/util/List;Ljava/lang/String;Ljava/util/Map;)V
+	public synthetic fun <init> (Ljava/util/List;Ljava/lang/String;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/Map;
+	public final fun copy (Ljava/util/List;Ljava/lang/String;Ljava/util/Map;)Ldev/tramai/orchestration/ShellCommand;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/ShellCommand;Ljava/util/List;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/orchestration/ShellCommand;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCommand ()Ljava/util/List;
+	public final fun getEnv ()Ljava/util/Map;
+	public final fun getWorkdir ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/ShellCommandDefinition {
+	public fun <init> (Ljava/lang/String;ZLjava/util/Set;)V
+	public synthetic fun <init> (Ljava/lang/String;ZLjava/util/Set;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Z
+	public final fun component3 ()Ljava/util/Set;
+	public final fun copy (Ljava/lang/String;ZLjava/util/Set;)Ldev/tramai/orchestration/ShellCommandDefinition;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/ShellCommandDefinition;Ljava/lang/String;ZLjava/util/Set;ILjava/lang/Object;)Ldev/tramai/orchestration/ShellCommandDefinition;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEnvKeys ()Ljava/util/Set;
+	public final fun getExecutable ()Ljava/lang/String;
+	public final fun getHasWorkdir ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/ShellResult {
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Z)V
+	public synthetic fun <init> (ILjava/lang/String;Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Z
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Z)Ldev/tramai/orchestration/ShellResult;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/ShellResult;ILjava/lang/String;Ljava/lang/String;ZILjava/lang/Object;)Ldev/tramai/orchestration/ShellResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getExitCode ()I
+	public final fun getStderr ()Ljava/lang/String;
+	public final fun getStdout ()Ljava/lang/String;
+	public final fun getTruncated ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/ShellStepConfig {
+	public fun <init> ()V
+	public fun <init> (JJZZLjava/util/Set;Ljava/util/Set;Ljava/nio/charset/Charset;)V
+	public synthetic fun <init> (JJZZLjava/util/Set;Ljava/util/Set;Ljava/nio/charset/Charset;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun component3 ()Z
+	public final fun component4 ()Z
+	public final fun component5 ()Ljava/util/Set;
+	public final fun component6 ()Ljava/util/Set;
+	public final fun component7 ()Ljava/nio/charset/Charset;
+	public final fun copy (JJZZLjava/util/Set;Ljava/util/Set;Ljava/nio/charset/Charset;)Ldev/tramai/orchestration/ShellStepConfig;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/ShellStepConfig;JJZZLjava/util/Set;Ljava/util/Set;Ljava/nio/charset/Charset;ILjava/lang/Object;)Ldev/tramai/orchestration/ShellStepConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowedCommands ()Ljava/util/Set;
+	public final fun getCharset ()Ljava/nio/charset/Charset;
+	public final fun getDeniedCommands ()Ljava/util/Set;
+	public final fun getFailOnNonZeroExit ()Z
+	public final fun getFailOnStderr ()Z
+	public final fun getMaxOutputBytes ()J
+	public final fun getTimeoutSeconds ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/StaleWorkflowLeaseException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/orchestration/StepAttemptRecord {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/StepAttemptStatus;JLjava/lang/Long;Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/StepAttemptStatus;JLjava/lang/Long;Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ldev/tramai/orchestration/ReplayPolicy;
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ldev/tramai/orchestration/StepAttemptStatus;
+	public final fun component7 ()J
+	public final fun component8 ()Ljava/lang/Long;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/StepAttemptStatus;JLjava/lang/Long;Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/orchestration/StepAttemptRecord;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/StepAttemptRecord;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/StepAttemptStatus;JLjava/lang/Long;Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/orchestration/StepAttemptRecord;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttemptId ()Ljava/lang/String;
+	public final fun getCompletedAt ()Ljava/lang/Long;
+	public final fun getIdempotencyKey ()Ljava/lang/String;
+	public final fun getInputFingerprint ()Ljava/lang/String;
+	public final fun getLeaseToken ()Ljava/lang/String;
+	public final fun getOutputSummary ()Ljava/lang/String;
+	public final fun getReplayPolicy ()Ldev/tramai/orchestration/ReplayPolicy;
+	public final fun getRunId ()Ljava/lang/String;
+	public final fun getStartedAt ()J
+	public final fun getStatus ()Ldev/tramai/orchestration/StepAttemptStatus;
+	public final fun getStepName ()Ljava/lang/String;
+	public final fun getWorkerId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/orchestration/StepAttemptRecordStore {
+	public abstract fun latestStepAttempt (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun listStepAttempts (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun recordStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun updateStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/StepAttemptStatus : java/lang/Enum {
+	public static final field CANCELLED Ldev/tramai/orchestration/StepAttemptStatus;
+	public static final field COMPLETED Ldev/tramai/orchestration/StepAttemptStatus;
+	public static final field FAILED Ldev/tramai/orchestration/StepAttemptStatus;
+	public static final field STARTED Ldev/tramai/orchestration/StepAttemptStatus;
+	public static final field UNKNOWN Ldev/tramai/orchestration/StepAttemptStatus;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/orchestration/StepAttemptStatus;
+	public static fun values ()[Ldev/tramai/orchestration/StepAttemptStatus;
+}
+
+public final class dev/tramai/orchestration/StopPolicy {
+	public fun <init> ()V
+	public fun <init> (II)V
+	public synthetic fun <init> (IIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()I
+	public final fun copy (II)Ldev/tramai/orchestration/StopPolicy;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/StopPolicy;IIILjava/lang/Object;)Ldev/tramai/orchestration/StopPolicy;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxParallelBranches ()I
+	public final fun getMaxStepExecutions ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/TramaiWorker : java/lang/AutoCloseable {
+	public fun <init> (Ldev/tramai/orchestration/WorkerConfig;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpointCatalog;Ldev/tramai/orchestration/StepAttemptRecordStore;Ljava/util/Map;Ldev/tramai/orchestration/TramaiWorkerObserver;Ldev/tramai/orchestration/PartitionAssignmentStrategy;)V
+	public synthetic fun <init> (Ldev/tramai/orchestration/WorkerConfig;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpointCatalog;Ldev/tramai/orchestration/StepAttemptRecordStore;Ljava/util/Map;Ldev/tramai/orchestration/TramaiWorkerObserver;Ldev/tramai/orchestration/PartitionAssignmentStrategy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ldev/tramai/orchestration/WorkerConfig;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/util/Map;Ldev/tramai/orchestration/TramaiWorkerObserver;Ldev/tramai/orchestration/PartitionAssignmentStrategy;)V
+	public synthetic fun <init> (Ldev/tramai/orchestration/WorkerConfig;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/util/Map;Ldev/tramai/orchestration/TramaiWorkerObserver;Ldev/tramai/orchestration/PartitionAssignmentStrategy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun close ()V
+	public final fun crash (Ljava/util/concurrent/CancellationException;)V
+	public static synthetic fun crash$default (Ldev/tramai/orchestration/TramaiWorker;Ljava/util/concurrent/CancellationException;ILjava/lang/Object;)V
+	public final fun latestFailure (Ljava/lang/String;)Ljava/lang/Throwable;
+	public final fun shutdown (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun start (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/TramaiWorkerKt {
+	public static final fun registerWorkerBinding (Ldev/tramai/orchestration/Workflow;Ldev/tramai/orchestration/WorkflowStateCodec;Ldev/tramai/orchestration/WorkflowDelayWakeupScheduler;Z)Ldev/tramai/orchestration/Workflow;
+	public static synthetic fun registerWorkerBinding$default (Ldev/tramai/orchestration/Workflow;Ldev/tramai/orchestration/WorkflowStateCodec;Ldev/tramai/orchestration/WorkflowDelayWakeupScheduler;ZILjava/lang/Object;)Ldev/tramai/orchestration/Workflow;
+}
+
+public abstract interface class dev/tramai/orchestration/TramaiWorkerObserver {
+	public fun onDrainProgress (Ljava/lang/String;II)V
+	public fun onLeaseAcquired (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseContested (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseExpired (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseReleaseFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onLeaseReleased (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseRenewalFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onLeaseRenewed (Ljava/lang/String;Ljava/lang/String;J)V
+	public fun onPollFailed (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onShutdownComplete (Ljava/lang/String;)V
+	public fun onShutdownStarted (Ljava/lang/String;)V
+	public fun onStepAttemptCompleted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onStepAttemptFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onStepAttemptStarted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onUnknownAttempt (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+	public fun onWorkTakenOver (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onWorkerHeartbeat (Ljava/lang/String;JI)V
+	public fun onWorkerStarted (Ljava/lang/String;)V
+	public fun onWorkerStopped (Ljava/lang/String;)V
+	public fun onWorkflowAbandoned (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+}
+
+public final class dev/tramai/orchestration/TramaiWorkerObserver$DefaultImpls {
+	public static fun onDrainProgress (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;II)V
+	public static fun onLeaseAcquired (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;Ljava/lang/String;)V
+	public static fun onLeaseContested (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public static fun onLeaseExpired (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;Ljava/lang/String;)V
+	public static fun onLeaseReleaseFailed (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public static fun onLeaseReleased (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;Ljava/lang/String;)V
+	public static fun onLeaseRenewalFailed (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public static fun onLeaseRenewed (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;Ljava/lang/String;J)V
+	public static fun onPollFailed (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public static fun onShutdownComplete (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;)V
+	public static fun onShutdownStarted (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;)V
+	public static fun onStepAttemptCompleted (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public static fun onStepAttemptFailed (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public static fun onStepAttemptStarted (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public static fun onUnknownAttempt (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+	public static fun onWorkTakenOver (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public static fun onWorkerHeartbeat (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;JI)V
+	public static fun onWorkerStarted (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;)V
+	public static fun onWorkerStopped (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;)V
+	public static fun onWorkflowAbandoned (Ldev/tramai/orchestration/TramaiWorkerObserver;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+}
+
+public final class dev/tramai/orchestration/WorkerConfig {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;JJJZI)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;JJJZIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/Set;
+	public final fun component4 ()J
+	public final fun component5 ()J
+	public final fun component6 ()J
+	public final fun component7 ()Z
+	public final fun component8 ()I
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;JJJZI)Ldev/tramai/orchestration/WorkerConfig;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/WorkerConfig;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;JJJZIILjava/lang/Object;)Ldev/tramai/orchestration/WorkerConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCapabilityLabels ()Ljava/util/Set;
+	public final fun getDrainTimeoutMillis ()J
+	public final fun getLeaseDurationMillis ()J
+	public final fun getPartitionEnabled ()Z
+	public final fun getPollIntervalMillis ()J
+	public final fun getPoolName ()Ljava/lang/String;
+	public final fun getWorkerCount ()I
+	public final fun getWorkerId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/WorkerRegistryRecord {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;Ljava/lang/String;JJ)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/util/Set;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()J
+	public final fun component7 ()J
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;Ljava/lang/String;JJ)Ldev/tramai/orchestration/WorkerRegistryRecord;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/WorkerRegistryRecord;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;Ljava/lang/String;JJILjava/lang/Object;)Ldev/tramai/orchestration/WorkerRegistryRecord;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCapabilityLabels ()Ljava/util/Set;
+	public final fun getHost ()Ljava/lang/String;
+	public final fun getLastHeartbeatEpochMillis ()J
+	public final fun getPoolName ()Ljava/lang/String;
+	public final fun getRegisteredAtEpochMillis ()J
+	public final fun getVersion ()Ljava/lang/String;
+	public final fun getWorkerId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/orchestration/WorkerRegistryStore {
+	public abstract fun listActiveWorkers (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun listStaleWorkers (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun registerWorker (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun unregisterWorker (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun updateHeartbeat (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/Workflow {
+	public final fun getDefinitionVersion ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getResultType ()Lkotlin/reflect/KType;
+	public final fun getSchedule ()Ldev/tramai/orchestration/WorkflowScheduleDefinition;
+	public final fun getStateType ()Lkotlin/reflect/KType;
+	public final fun requiredExternalStepTypes ()Ljava/util/Set;
+	public final fun resume (Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun resume$default (Ldev/tramai/orchestration/Workflow;Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun run (Ljava/lang/Object;Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun run$default (Ldev/tramai/orchestration/Workflow;Ljava/lang/Object;Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/WorkflowBranchSelectionException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/orchestration/WorkflowBuilder : dev/tramai/orchestration/AbstractWorkflowBuilder {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/reflect/KType;)V
+	public final fun buildTyped (Ldev/tramai/orchestration/StopPolicy;Ljava/time/Clock;Ldev/tramai/orchestration/ExternalStepExecutorResolver;Lkotlin/reflect/KType;Lkotlin/jvm/functions/Function1;)Ldev/tramai/orchestration/Workflow;
+	public final fun getSchedule ()Ldev/tramai/orchestration/WorkflowScheduleDefinition;
+	public final fun setSchedule (Ldev/tramai/orchestration/WorkflowScheduleDefinition;)V
+}
+
+public final class dev/tramai/orchestration/WorkflowCheckpoint {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;JLjava/util/Map;J)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;JLjava/util/Map;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()I
+	public final fun component4 ()I
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()J
+	public final fun component8 ()Ljava/util/Map;
+	public final fun component9 ()J
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;JLjava/util/Map;J)Ldev/tramai/orchestration/WorkflowCheckpoint;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/String;Ljava/lang/String;IILjava/lang/String;Ljava/lang/String;JLjava/util/Map;JILjava/lang/Object;)Ldev/tramai/orchestration/WorkflowCheckpoint;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLastCompletedStepName ()Ljava/lang/String;
+	public final fun getMetadata ()Ljava/util/Map;
+	public final fun getNextStepIndex ()I
+	public final fun getRevision ()J
+	public final fun getSavedAtEpochMillis ()J
+	public final fun getStatePayload ()Ljava/lang/String;
+	public final fun getStepExecutions ()I
+	public final fun getWorkflowId ()Ljava/lang/String;
+	public final fun getWorkflowName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/orchestration/WorkflowCheckpointCatalog {
+	public abstract fun listCheckpoints (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/WorkflowCheckpointConflictException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public abstract interface class dev/tramai/orchestration/WorkflowCheckpointPathStrategy {
+	public abstract fun resolve (Ljava/nio/file/Path;Ljava/lang/String;Ljava/lang/String;)Ljava/nio/file/Path;
+}
+
+public abstract interface class dev/tramai/orchestration/WorkflowCheckpointStore {
+	public abstract fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun delete$default (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public abstract fun load (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun save (Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun save$default (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/WorkflowCheckpointStore$DefaultImpls {
+	public static synthetic fun delete$default (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun save$default (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/WorkflowCodexException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getStepName ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/WorkflowContext {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/util/Map;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/Map;
+	public final fun copy (Ljava/lang/String;Ljava/util/Map;)Ldev/tramai/orchestration/WorkflowContext;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/WorkflowContext;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/orchestration/WorkflowContext;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttributes ()Ljava/util/Map;
+	public final fun getWorkflowId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/orchestration/WorkflowDelayWakeupScheduler {
+	public abstract fun scheduleDelayWakeup (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/WorkflowGateRejectedException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/orchestration/WorkflowHermesException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getStepName ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/WorkflowHttpException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;ILjava/lang/Throwable;)V
+	public final fun getAttempt ()I
+	public final fun getRedactedUrl ()Ljava/lang/String;
+	public final fun getStepName ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/WorkflowKt {
+	public static final field DEFAULT_WORKFLOW_DEFINITION_VERSION Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/WorkflowLease {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JJ)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/Long;
+	public final fun component6 ()J
+	public final fun component7 ()J
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JJ)Ldev/tramai/orchestration/WorkflowLease;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JJILjava/lang/Object;)Ldev/tramai/orchestration/WorkflowLease;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAcquiredAtEpochMillis ()J
+	public final fun getCheckpointRevision ()Ljava/lang/Long;
+	public final fun getExpiresAtEpochMillis ()J
+	public final fun getLeaseId ()Ljava/lang/String;
+	public final fun getOwnerId ()Ljava/lang/String;
+	public final fun getWorkflowId ()Ljava/lang/String;
+	public final fun getWorkflowName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/orchestration/WorkflowLeaseCheckpointFence {
+	public abstract fun deleteCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun saveCheckpointIfLeaseOwner (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowCheckpoint;Ljava/lang/Long;Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/WorkflowLeaseConflictException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/orchestration/WorkflowLeasePolicy {
+	public fun <init> (Ljava/lang/String;J)V
+	public synthetic fun <init> (Ljava/lang/String;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()J
+	public final fun copy (Ljava/lang/String;J)Ldev/tramai/orchestration/WorkflowLeasePolicy;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/WorkflowLeasePolicy;Ljava/lang/String;JILjava/lang/Object;)Ldev/tramai/orchestration/WorkflowLeasePolicy;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLeaseDurationMillis ()J
+	public final fun getOwnerId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/orchestration/WorkflowLeaseStore {
+	public abstract fun claim (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun currentLease (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun release (Ldev/tramai/orchestration/WorkflowLease;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun renew (Ldev/tramai/orchestration/WorkflowLease;Ljava/lang/Long;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/WorkflowLimitExceededException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/orchestration/WorkflowMcpException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getStepName ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/orchestration/WorkflowObserver {
+	public fun onMissedTick (Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onScheduledTick (Ljava/lang/String;Ljava/time/Instant;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onSkippedTick (Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepCompleted (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepStarted (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowCompleted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowEvent (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ldev/tramai/orchestration/WorkflowContext;)V
+	public static synthetic fun onWorkflowEvent$default (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ldev/tramai/orchestration/WorkflowContext;ILjava/lang/Object;)V
+	public fun onWorkflowFailed (Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowStarted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+}
+
+public final class dev/tramai/orchestration/WorkflowObserver$DefaultImpls {
+	public static fun onMissedTick (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public static fun onScheduledTick (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/time/Instant;Ldev/tramai/orchestration/WorkflowContext;)V
+	public static fun onSkippedTick (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public static fun onStepCompleted (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public static fun onStepFailed (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
+	public static fun onStepStarted (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public static fun onWorkflowCompleted (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public static fun onWorkflowEvent (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ldev/tramai/orchestration/WorkflowContext;)V
+	public static synthetic fun onWorkflowEvent$default (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ldev/tramai/orchestration/WorkflowContext;ILjava/lang/Object;)V
+	public static fun onWorkflowFailed (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
+	public static fun onWorkflowStarted (Ldev/tramai/orchestration/WorkflowObserver;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+}
+
+public final class dev/tramai/orchestration/WorkflowPersistence {
+	public fun <init> (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowStateCodec;Ldev/tramai/orchestration/WorkflowDelayWakeupScheduler;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowLeasePolicy;Z)V
+	public synthetic fun <init> (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowStateCodec;Ldev/tramai/orchestration/WorkflowDelayWakeupScheduler;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowLeasePolicy;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/orchestration/WorkflowCheckpointStore;
+	public final fun component2 ()Ldev/tramai/orchestration/WorkflowStateCodec;
+	public final fun component3 ()Ldev/tramai/orchestration/WorkflowDelayWakeupScheduler;
+	public final fun component4 ()Ldev/tramai/orchestration/WorkflowLeaseStore;
+	public final fun component5 ()Ldev/tramai/orchestration/WorkflowLeasePolicy;
+	public final fun component6 ()Z
+	public final fun copy (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowStateCodec;Ldev/tramai/orchestration/WorkflowDelayWakeupScheduler;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowLeasePolicy;Z)Ldev/tramai/orchestration/WorkflowPersistence;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/WorkflowPersistence;Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/WorkflowStateCodec;Ldev/tramai/orchestration/WorkflowDelayWakeupScheduler;Ldev/tramai/orchestration/WorkflowLeaseStore;Ldev/tramai/orchestration/WorkflowLeasePolicy;ZILjava/lang/Object;)Ldev/tramai/orchestration/WorkflowPersistence;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCheckpointStore ()Ldev/tramai/orchestration/WorkflowCheckpointStore;
+	public final fun getDelayWakeupScheduler ()Ldev/tramai/orchestration/WorkflowDelayWakeupScheduler;
+	public final fun getDeleteCheckpointOnCompletion ()Z
+	public final fun getLeasePolicy ()Ldev/tramai/orchestration/WorkflowLeasePolicy;
+	public final fun getLeaseStore ()Ldev/tramai/orchestration/WorkflowLeaseStore;
+	public final fun getStateCodec ()Ldev/tramai/orchestration/WorkflowStateCodec;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/WorkflowResumeException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public abstract interface class dev/tramai/orchestration/WorkflowScheduleDefinition {
+	public fun canonicalForm ()Ljava/lang/String;
+	public abstract fun getExpression ()Ljava/lang/String;
+	public abstract fun getKind ()Ljava/lang/String;
+	public abstract fun getZoneId ()Ljava/time/ZoneId;
+	public abstract fun validate ()V
+}
+
+public final class dev/tramai/orchestration/WorkflowScheduleDefinition$DefaultImpls {
+	public static fun canonicalForm (Ldev/tramai/orchestration/WorkflowScheduleDefinition;)Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/WorkflowShellException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getStepName ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/orchestration/WorkflowStateCodec {
+	public abstract fun decode (Ljava/lang/String;)Ljava/lang/Object;
+	public abstract fun encode (Ljava/lang/Object;)Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/WorkflowSuspendedException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+

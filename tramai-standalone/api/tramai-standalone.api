@@ -1,0 +1,58 @@
+public final class dev/tramai/standalone/Tramai {
+	public static final field Companion Ldev/tramai/standalone/Tramai$Companion;
+	public synthetic fun <init> (Ldev/tramai/core/provider/ProviderRegistry;Ldev/tramai/engine/ToolRegistry;Ldev/tramai/core/observation/OperationObserver;Ldev/tramai/core/observation/OperationInterceptor;Ldev/tramai/engine/OperationResponseCache;Ldev/tramai/engine/CircuitBreakerSettings;Ldev/tramai/engine/RetryPolicySettings;Ldev/tramai/engine/TokenBudgetSettings;Ldev/tramai/core/security/DlpInterceptor;Ldev/tramai/core/security/DlpRedactionAuditEmitter;Ldev/tramai/engine/ToolResultFilteringSettings;Ldev/tramai/engine/EngineEventObserver;Ldev/tramai/core/security/PromptSanitizer;Ldev/tramai/core/memory/ChatMemory;Ldev/tramai/core/policy/PolicyDecisionAuditEmitter;Ldev/tramai/core/policy/PolicyEngine;Ldev/tramai/core/model/ModelRegistry;Ldev/tramai/core/model/ModelRegistrySettings;Ldev/tramai/engine/SuspendedInvocationStore;Ldev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/core/approval/ToolArgumentsDigester;Ldev/tramai/core/approval/ApprovalGateCoordinator;Ldev/tramai/core/approval/ApprovalLifecycleAuditEmitter;Ljava/time/Clock;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder ()Ldev/tramai/standalone/Tramai$Builder;
+	public final fun create (Lkotlin/reflect/KClass;)Ljava/lang/Object;
+	public final fun runtime ()Ldev/tramai/standalone/TramaiRuntime;
+}
+
+public final class dev/tramai/standalone/Tramai$Builder {
+	public fun <init> ()V
+	public final fun approvalContinuationStore (Ldev/tramai/core/approval/ApprovalContinuationStore;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun approvalGateCoordinator (Ldev/tramai/core/approval/ApprovalGateCoordinator;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun approvalLifecycleAudit (Ldev/tramai/core/approval/ApprovalLifecycleAuditEmitter;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun build ()Ldev/tramai/standalone/Tramai;
+	public final fun cache (Ldev/tramai/engine/OperationResponseCache;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun circuitBreaker (Ldev/tramai/engine/CircuitBreakerSettings;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun clock (Ljava/time/Clock;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun defaultProvider (Ljava/lang/String;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun dlp (Ldev/tramai/core/security/DlpInterceptor;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun dlpRedactionAudit (Ldev/tramai/core/security/DlpRedactionAuditEmitter;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun engineEventObserver (Ldev/tramai/engine/EngineEventObserver;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun fallbackModel (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun fallbackProvider (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun interceptor (Ldev/tramai/core/observation/OperationInterceptor;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun memory (Ldev/tramai/core/memory/ChatMemory;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun model (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun modelRegistry (Ldev/tramai/core/model/ModelRegistry;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun modelRegistrySettings (Ldev/tramai/core/model/ModelRegistrySettings;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun observer (Ldev/tramai/core/observation/OperationObserver;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun policyDecisionAudit (Ldev/tramai/core/policy/PolicyDecisionAuditEmitter;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun policyEngine (Ldev/tramai/core/policy/PolicyEngine;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun promptSanitizer (Ldev/tramai/core/security/PromptSanitizer;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun provider (Ldev/tramai/core/provider/ModelProvider;Ljava/lang/String;Z)Ldev/tramai/standalone/Tramai$Builder;
+	public static synthetic fun provider$default (Ldev/tramai/standalone/Tramai$Builder;Ldev/tramai/core/provider/ModelProvider;Ljava/lang/String;ZILjava/lang/Object;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun retryPolicy (Ldev/tramai/engine/RetryPolicySettings;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun suspendedInvocationStore (Ldev/tramai/engine/SuspendedInvocationStore;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun tokenBudget (Ldev/tramai/engine/TokenBudgetSettings;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun toolArgumentsDigester (Ldev/tramai/core/approval/ToolArgumentsDigester;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun toolResultFiltering (Ldev/tramai/engine/ToolResultFilteringSettings;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun tools (Ljava/lang/Iterable;)Ldev/tramai/standalone/Tramai$Builder;
+	public final fun tools ([Ldev/tramai/core/model/TramaiTool;)Ldev/tramai/standalone/Tramai$Builder;
+}
+
+public final class dev/tramai/standalone/Tramai$Companion {
+	public final fun builder ()Ldev/tramai/standalone/Tramai$Builder;
+}
+
+public final class dev/tramai/standalone/TramaiKt {
+	public static final fun Tramai (Lkotlin/jvm/functions/Function1;)Ldev/tramai/standalone/Tramai;
+}
+
+public final class dev/tramai/standalone/TramaiRuntime : java/lang/AutoCloseable {
+	public fun close ()V
+	public final fun create (Lkotlin/reflect/KClass;)Ljava/lang/Object;
+	public final fun registerService (Lkotlin/reflect/KClass;)V
+	public final fun resumeApproval (Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+

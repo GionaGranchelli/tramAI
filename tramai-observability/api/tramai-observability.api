@@ -1,0 +1,52 @@
+public final class dev/tramai/observability/OpenTelemetryOperationObserver : dev/tramai/core/observation/OperationObserver {
+	public fun <init> (Lio/opentelemetry/api/OpenTelemetry;Ljava/lang/String;)V
+	public synthetic fun <init> (Lio/opentelemetry/api/OpenTelemetry;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lio/opentelemetry/api/trace/Tracer;Lio/opentelemetry/api/metrics/Meter;)V
+	public synthetic fun <init> (Lio/opentelemetry/api/trace/Tracer;Lio/opentelemetry/api/metrics/Meter;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun onCallStarted (Ldev/tramai/core/observation/OperationCallContext;)Ldev/tramai/core/observation/OperationObservation;
+}
+
+public final class dev/tramai/observability/OpenTelemetryTramaiWorkerObserver : dev/tramai/orchestration/TramaiWorkerObserver {
+	public fun <init> (Lio/opentelemetry/api/OpenTelemetry;Ljava/lang/String;)V
+	public synthetic fun <init> (Lio/opentelemetry/api/OpenTelemetry;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lio/opentelemetry/api/trace/Tracer;Lio/opentelemetry/api/metrics/Meter;)V
+	public synthetic fun <init> (Lio/opentelemetry/api/trace/Tracer;Lio/opentelemetry/api/metrics/Meter;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun onDrainProgress (Ljava/lang/String;II)V
+	public fun onLeaseAcquired (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseContested (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseExpired (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseReleaseFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onLeaseReleased (Ljava/lang/String;Ljava/lang/String;)V
+	public fun onLeaseRenewalFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onLeaseRenewed (Ljava/lang/String;Ljava/lang/String;J)V
+	public fun onPollFailed (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onShutdownComplete (Ljava/lang/String;)V
+	public fun onShutdownStarted (Ljava/lang/String;)V
+	public fun onStepAttemptCompleted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onStepAttemptFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun onStepAttemptStarted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onUnknownAttempt (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+	public fun onWorkTakenOver (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun onWorkerHeartbeat (Ljava/lang/String;JI)V
+	public fun onWorkerStarted (Ljava/lang/String;)V
+	public fun onWorkerStopped (Ljava/lang/String;)V
+	public fun onWorkflowAbandoned (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+}
+
+public final class dev/tramai/observability/OpenTelemetryWorkflowObserver : dev/tramai/orchestration/WorkflowObserver {
+	public fun <init> (Lio/opentelemetry/api/OpenTelemetry;Ljava/lang/String;)V
+	public synthetic fun <init> (Lio/opentelemetry/api/OpenTelemetry;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lio/opentelemetry/api/trace/Tracer;Lio/opentelemetry/api/metrics/Meter;)V
+	public synthetic fun <init> (Lio/opentelemetry/api/trace/Tracer;Lio/opentelemetry/api/metrics/Meter;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun onMissedTick (Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onScheduledTick (Ljava/lang/String;Ljava/time/Instant;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onSkippedTick (Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepCompleted (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepStarted (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowCompleted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowEvent (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowFailed (Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowStarted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+}
+

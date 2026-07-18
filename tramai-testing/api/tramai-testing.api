@@ -1,0 +1,140 @@
+public final class dev/tramai/testing/MethodAssertion {
+	public final fun andCalledTool (Ljava/lang/String;)Ldev/tramai/testing/MethodAssertion;
+	public final fun andCalledToolTimes (Ljava/lang/String;I)Ldev/tramai/testing/MethodAssertion;
+	public final fun andFailedWith (Lkotlin/reflect/KClass;)Ldev/tramai/testing/MethodAssertion;
+	public final fun andObservedFailure (Lkotlin/reflect/KClass;)Ldev/tramai/testing/MethodAssertion;
+	public final fun andObservedParseFailure ()Ldev/tramai/testing/MethodAssertion;
+	public final fun andParsedSuccessfully ()Ldev/tramai/testing/MethodAssertion;
+	public final fun andRetried (I)Ldev/tramai/testing/MethodAssertion;
+	public final fun emittedProvider (Ljava/lang/String;)Ldev/tramai/testing/MethodAssertion;
+	public final fun wasCalledTimes (I)Ldev/tramai/testing/MethodAssertion;
+}
+
+public final class dev/tramai/testing/MockAiProvider : dev/tramai/core/provider/ModelProvider, dev/tramai/testing/RecordedRequestProvider {
+	public static final field Companion Ldev/tramai/testing/MockAiProvider$Companion;
+	public synthetic fun <init> (Ljava/util/Map;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun complete (Ldev/tramai/core/model/ModelRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getRequests ()Ljava/util/List;
+	public fun providerId ()Ljava/lang/String;
+	public fun supportsCapability (Ldev/tramai/core/provider/ProviderCapability;)Z
+}
+
+public final class dev/tramai/testing/MockAiProvider$Builder {
+	public fun <init> ()V
+	public final fun build ()Ldev/tramai/testing/MockAiProvider;
+	public final fun onMethod (Ljava/lang/String;)Ldev/tramai/testing/MockAiProvider$Builder$MethodResponseBuilder;
+}
+
+public final class dev/tramai/testing/MockAiProvider$Builder$MethodResponseBuilder {
+	public fun <init> (Ldev/tramai/testing/MockAiProvider$Builder;Ljava/lang/String;)V
+	public final fun respondWith (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/testing/MockAiProvider$Companion {
+	public final fun invoke (Lkotlin/jvm/functions/Function1;)Ldev/tramai/testing/MockAiProvider;
+}
+
+public final class dev/tramai/testing/MockTool : dev/tramai/core/model/TramaiTool {
+	public static final field Companion Ldev/tramai/testing/MockTool$Companion;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/reflect/KClass;Lkotlin/jvm/functions/Function2;)V
+	public fun execute (Ljava/lang/Object;Ldev/tramai/core/model/ToolExecutionContext;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getCalls ()Ljava/util/List;
+	public fun getDescription ()Ljava/lang/String;
+	public fun getIdempotent ()Z
+	public fun getInputType ()Lkotlin/reflect/KClass;
+	public fun getName ()Ljava/lang/String;
+	public fun getSecurity ()Ldev/tramai/core/policy/ToolSecurityMetadata;
+	public fun getSideEffectLevel ()Ldev/tramai/core/model/SideEffectLevel;
+}
+
+public final class dev/tramai/testing/MockTool$Companion {
+}
+
+public abstract interface class dev/tramai/testing/RecordedRequestProvider {
+	public abstract fun getRequests ()Ljava/util/List;
+}
+
+public final class dev/tramai/testing/RecordingOperationObserver : dev/tramai/core/observation/OperationObserver {
+	public fun <init> ()V
+	public final fun getCallRecords ()Ljava/util/List;
+	public fun onCallStarted (Ldev/tramai/core/observation/OperationCallContext;)Ldev/tramai/core/observation/OperationObservation;
+}
+
+public final class dev/tramai/testing/RecordingOperationObserver$CallRecord {
+	public fun <init> (Ldev/tramai/core/observation/OperationCallContext;Ldev/tramai/core/model/ModelResponse;Ljava/lang/Throwable;Ljava/lang/String;Ljava/lang/Boolean;Ljava/util/List;)V
+	public synthetic fun <init> (Ldev/tramai/core/observation/OperationCallContext;Ldev/tramai/core/model/ModelResponse;Ljava/lang/Throwable;Ljava/lang/String;Ljava/lang/Boolean;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/core/observation/OperationCallContext;
+	public final fun component2 ()Ldev/tramai/core/model/ModelResponse;
+	public final fun component3 ()Ljava/lang/Throwable;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/Boolean;
+	public final fun component6 ()Ljava/util/List;
+	public final fun copy (Ldev/tramai/core/observation/OperationCallContext;Ldev/tramai/core/model/ModelResponse;Ljava/lang/Throwable;Ljava/lang/String;Ljava/lang/Boolean;Ljava/util/List;)Ldev/tramai/testing/RecordingOperationObserver$CallRecord;
+	public static synthetic fun copy$default (Ldev/tramai/testing/RecordingOperationObserver$CallRecord;Ldev/tramai/core/observation/OperationCallContext;Ldev/tramai/core/model/ModelResponse;Ljava/lang/Throwable;Ljava/lang/String;Ljava/lang/Boolean;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/testing/RecordingOperationObserver$CallRecord;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getContext ()Ldev/tramai/core/observation/OperationCallContext;
+	public final fun getEngineEvents ()Ljava/util/List;
+	public final fun getParseFailureSummary ()Ljava/lang/String;
+	public final fun getParseSuccess ()Ljava/lang/Boolean;
+	public final fun getProviderFailure ()Ljava/lang/Throwable;
+	public final fun getResponse ()Ldev/tramai/core/model/ModelResponse;
+	public fun hashCode ()I
+	public final fun setParseFailureSummary (Ljava/lang/String;)V
+	public final fun setParseSuccess (Ljava/lang/Boolean;)V
+	public final fun setProviderFailure (Ljava/lang/Throwable;)V
+	public final fun setResponse (Ldev/tramai/core/model/ModelResponse;)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/testing/RecordingOperationObserver$EngineEvent {
+	public fun <init> (Ljava/lang/String;Ljava/util/Map;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/Map;
+	public final fun copy (Ljava/lang/String;Ljava/util/Map;)Ldev/tramai/testing/RecordingOperationObserver$EngineEvent;
+	public static synthetic fun copy$default (Ldev/tramai/testing/RecordingOperationObserver$EngineEvent;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/testing/RecordingOperationObserver$EngineEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttributes ()Ljava/util/Map;
+	public final fun getName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/testing/SimulatedFailureProvider : dev/tramai/core/provider/ModelProvider, dev/tramai/testing/RecordedRequestProvider {
+	public static final field Companion Ldev/tramai/testing/SimulatedFailureProvider$Companion;
+	public synthetic fun <init> (Ljava/util/Map;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun complete (Ldev/tramai/core/model/ModelRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getRequests ()Ljava/util/List;
+	public fun providerId ()Ljava/lang/String;
+	public fun supportsCapability (Ldev/tramai/core/provider/ProviderCapability;)Z
+}
+
+public final class dev/tramai/testing/SimulatedFailureProvider$Builder {
+	public fun <init> ()V
+	public final fun build ()Ldev/tramai/testing/SimulatedFailureProvider;
+	public final fun onMethod (Ljava/lang/String;)Ldev/tramai/testing/SimulatedFailureProvider$Builder$MethodOutcomeBuilder;
+}
+
+public final class dev/tramai/testing/SimulatedFailureProvider$Builder$MethodOutcomeBuilder {
+	public fun <init> (Ldev/tramai/testing/SimulatedFailureProvider$Builder;Ljava/lang/String;)V
+	public final fun failWith (Ljava/lang/Throwable;)V
+	public final fun nonRetryableFailure (Ljava/lang/String;Ljava/lang/Integer;)V
+	public static synthetic fun nonRetryableFailure$default (Ldev/tramai/testing/SimulatedFailureProvider$Builder$MethodOutcomeBuilder;Ljava/lang/String;Ljava/lang/Integer;ILjava/lang/Object;)V
+	public final fun respondWith (Ldev/tramai/core/model/ModelResponse;)V
+	public final fun respondWith (Ljava/lang/String;)V
+	public final fun retryableFailure (Ljava/lang/String;Ljava/lang/Integer;)V
+	public static synthetic fun retryableFailure$default (Ldev/tramai/testing/SimulatedFailureProvider$Builder$MethodOutcomeBuilder;Ljava/lang/String;Ljava/lang/Integer;ILjava/lang/Object;)V
+}
+
+public final class dev/tramai/testing/SimulatedFailureProvider$Companion {
+	public final fun invoke (Lkotlin/jvm/functions/Function1;)Ldev/tramai/testing/SimulatedFailureProvider;
+}
+
+public final class dev/tramai/testing/TramaiAssertion {
+	public final fun whenCalled (Ljava/lang/String;)Ldev/tramai/testing/MethodAssertion;
+}
+
+public final class dev/tramai/testing/TramaiAssertions {
+	public static final field INSTANCE Ldev/tramai/testing/TramaiAssertions;
+	public final fun assertThat (Ldev/tramai/testing/RecordedRequestProvider;Ldev/tramai/testing/RecordingOperationObserver;)Ldev/tramai/testing/TramaiAssertion;
+}
+

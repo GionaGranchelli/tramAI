@@ -1,0 +1,23 @@
+public final class dev/tramai/spring/provider/openai/OpenAiCompatibleProviderAutoConfiguration {
+	public fun <init> ()V
+	public final fun localLabModelProvider (Ldev/tramai/spring/provider/openai/TramaiProviderProperties;)Ldev/tramai/openai/OpenAiCompatibleProvider;
+}
+
+public final class dev/tramai/spring/provider/openai/TramaiProviderProperties {
+	public fun <init> ()V
+	public final fun getProviders ()Ljava/util/Map;
+	public final fun setProviders (Ljava/util/Map;)V
+}
+
+public final class dev/tramai/spring/provider/openai/TramaiProviderProperties$ProviderEntry {
+	public fun <init> ()V
+	public final fun getApiKey ()Ljava/lang/String;
+	public final fun getBaseUrl ()Ljava/lang/String;
+	public final fun getModel ()Ljava/lang/String;
+	public final fun getType ()Ljava/lang/String;
+	public final fun setApiKey (Ljava/lang/String;)V
+	public final fun setBaseUrl (Ljava/lang/String;)V
+	public final fun setModel (Ljava/lang/String;)V
+	public final fun setType (Ljava/lang/String;)V
+}
+

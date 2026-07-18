@@ -1,13 +1,62 @@
 {
   "api" : {
-    "publicApiDumps" : { },
-    "apiCheckHash" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    "publicApiDumps" : {
+      "examples/approval-resume/api/approval-resume.api" : "be4709542bbc886c66eb0d78831cfd3dbb1cf504a4014320c525e476ad39b2a6",
+      "examples/governed-workflow/api/governed-workflow.api" : "b3ee83f560825697577849c6305fde1a5dffa490134601b8340bd4cb3a135afe",
+      "examples/sovereign-document-intelligence/api/sovereign-document-intelligence.api" : "6b80a310b6a3ac589ddad0dd3d9012507eaab4a16609cbe9533f3d3849c21dc9",
+      "examples/sovereign-offline-verification/api/sovereign-offline-verification.api" : "a48797a2f76f407f68142d630243bf6edbf98b690517e522b12d34231b55816c",
+      "examples/spring-sovereign-starter/api/spring-sovereign-starter.api" : "f92bf424759d4828674ef9a94943c39254f95c67363edfd3f4167a81f5ea1ce4",
+      "examples/support-agent/api/support-agent.api" : "cb21841cb311d8486d3b28a82a1a5d5506cfde0ecbf453e6c3ca4002d0bc677f",
+      "examples/tool-governance/api/tool-governance.api" : "c41686cba3f0e7c2b983f2b2c5857e76dfedbb737f2941412f1d3bfe96ed89aa",
+      "tramai-anthropic/api/tramai-anthropic.api" : "7ad8e368cce87adc9ca0f0dbe108ebef8b623ac5a863e708fad332642d3d3ff6",
+      "tramai-azure-openai/api/tramai-azure-openai.api" : "7e055e3340eb44d75d350e98302b2808d8a7746cf56fc44c11e6f88ebef8860d",
+      "tramai-bedrock/api/tramai-bedrock.api" : "e9696f2e0f80b640606acbfb224a6602b8ac27d6042c03489233aea41f252cce",
+      "tramai-core/api/tramai-core.api" : "8d35ad8eda056b096708cc3a2757243c7f6d66e34544777770b090e010849f35",
+      "tramai-dashboard/api/tramai-dashboard.api" : "401df09a86056a57cb802c8213b557934dfb6f5234913b6c7ace9e7034cba324",
+      "tramai-deepseek/api/tramai-deepseek.api" : "8a64e7d2f32d0fd394c3205c10860d5f313c9c2e7885e496d14a9d8e93bcde8f",
+      "tramai-embedding/api/tramai-embedding.api" : "771df206c57ccd6c15683e560d94fe3d6ca9b3a4822f39a31f23e16196a140b1",
+      "tramai-engine/api/tramai-engine.api" : "0b11ca17df6344b07cffebe99b7173daa28dfa00f885f0d65bc43c6c2258a2f8",
+      "tramai-gemini/api/tramai-gemini.api" : "766a36eebc86939560288fff8ea25966a1e27c016e73eb371277199d075f09db",
+      "tramai-mcp/api/tramai-mcp.api" : "8b13d347290850adaca588dacd2ffdc3baf5edddcc520ea665278980081e3cba",
+      "tramai-memory-store/api/tramai-memory-store.api" : "76945cbeb663a14202af867927b27c55fc950567183ee5561490bc06a213968f",
+      "tramai-memory/api/tramai-memory.api" : "91d36e00031f4cd8760190c2235a0d5a41afad4884aefc070a9de26378611b49",
+      "tramai-observability/api/tramai-observability.api" : "d99ea2bd3c0a8116d5e23c183e8d72d4bcead70970c1ee02269482ac925cb6af",
+      "tramai-ollama/api/tramai-ollama.api" : "6dfa1fcb49c05721052d885747e756f639f09a948fd805613634feaa664f96ba",
+      "tramai-openai/api/tramai-openai.api" : "25e9c3c0ef7df7113420cd51ddccb03b04eec8f3e19a9076a0130eb553878fad",
+      "tramai-orchestration/api/tramai-orchestration.api" : "02fac688a8629099e8254c8a73f7fbd8936b93ccba3617a454a851a84a8eee32",
+      "tramai-persistence-file/api/tramai-persistence-file.api" : "2c116948a04c020d41bb3e8af5339b542f1398f8ddfc706b5b0ecfde0f6e583d",
+      "tramai-persistence-jdbc/api/tramai-persistence-jdbc.api" : "ced39e6c362b4d0fe3d49dac8d83957569cd203ca4fdb3526c6c5a65103b4af1",
+      "tramai-platform/api/tramai-platform.api" : "a903bd9bb237a63264056afefd20b279c4f5242bdd22d19e1b5d72979327844e",
+      "tramai-rag/api/tramai-rag.api" : "ec59d47a7b238ee8a0d53dbe7c4444e9edf339f2555c233effcea0c1a943063e",
+      "tramai-scheduler/api/tramai-scheduler.api" : "5e1ae0be11be0b3d00edb1ff02cf49409603bb4ea32e49a9dbc47ae71187f795",
+      "tramai-security/api/tramai-security.api" : "3c8c378d46640e2ee840bb6690d9a2686a0d536ba024c723a72d5b604d479ecc",
+      "tramai-server/api/tramai-server.api" : "8048ecbd5f1c14d6c904249a072ec91b0b855496a45d4a490eab29fee0060829",
+      "tramai-sovereign/api/tramai-sovereign.api" : "6bb531e6a223e31245abaca492bb8b904fbf56e11e2f48609f73b9fba4790ed5",
+      "tramai-spring-boot-starter-local-provider-openai/api/tramai-spring-boot-starter-local-provider-openai.api" : "4b771e853f98c1adb429dcd9900f307adfc9881d7661320132c3029825808c53",
+      "tramai-spring-boot-starter-sovereign-ops-actuator/api/tramai-spring-boot-starter-sovereign-ops-actuator.api" : "05a3531b9065995630677adaf812c7857bfc49eb6b6c56d7723cc2132dad1442",
+      "tramai-spring-boot-starter-sovereign-ops-micrometer/api/tramai-spring-boot-starter-sovereign-ops-micrometer.api" : "0cf2876ae7ddeae47d19813365e44e4a341f51c7d4c19c05baf59ae6544070d9",
+      "tramai-spring-boot-starter-sovereign-ops-observability/api/tramai-spring-boot-starter-sovereign-ops-observability.api" : "4776f95a12a92c8c92bb20abebcf0e7139df45243934fc09f728cf8927cd4341",
+      "tramai-spring-boot-starter-sovereign-ops-rest/api/tramai-spring-boot-starter-sovereign-ops-rest.api" : "557d7bc526deabc861690bd3ddd925985e436de59c4326e0f11107d14006c712",
+      "tramai-spring-boot-starter-sovereign-ops/api/tramai-spring-boot-starter-sovereign-ops.api" : "7be32364555f5c9448962715c295f0986550d70a69c9171133205c81b2ec279e",
+      "tramai-spring-boot-starter-sovereign-persistence-file/api/tramai-spring-boot-starter-sovereign-persistence-file.api" : "5bc9017a274bd0f85682ddb81f1a07d40ee73c4a0212f0a51aac0bfe4ee5d2c4",
+      "tramai-spring-boot-starter-sovereign-persistence-jdbc/api/tramai-spring-boot-starter-sovereign-persistence-jdbc.api" : "a362d955e271d5318ba65359f090dd3410b5a5e0af79836ff39ff36aec314bf3",
+      "tramai-spring-boot-starter-sovereign/api/tramai-spring-boot-starter-sovereign.api" : "70c86244d32ef2b5f4858a8977094a5aefa2b3c0a9a676539f8e97587c31ed54",
+      "tramai-spring/api/tramai-spring.api" : "0ecd86d573f7da65200b295cfd5cf17bd650f2c518f0ff5fc13bc1481740b7e7",
+      "tramai-standalone/api/tramai-standalone.api" : "03c1f2ffc37f54e0141ec1e3651c39dede669f37679ff5a82db21632cb98e7f1",
+      "tramai-structured/api/tramai-structured.api" : "62d29a84424c540ce27d5ab715685acf42ecda0e164f9ff9e1ede62cf33eef58",
+      "tramai-testing/api/tramai-testing.api" : "8f3d629d7e8631d45f9fe320a06adc8c4dbbf248d2696208b09534b1813700fc",
+      "tramai-vectorstore-chroma/api/tramai-vectorstore-chroma.api" : "6bb7dc1efd5196f060bac1c8b37a02647338537bf8425c946a4311970d5e6499",
+      "tramai-vectorstore-pgvector/api/tramai-vectorstore-pgvector.api" : "57a56af9de87a8b28316386f18ec9f84c5c645c94d221d13e3d53034155dd75a",
+      "tramai-vectorstore-spi/api/tramai-vectorstore-spi.api" : "b09757fce45e7bc0eb7d72b660dc946496b28648f2b7e16fe17d387063d90bed"
+    },
+    "apiCheckHash" : "500267015e61ffcaf3a7aa6acec2cc69f5b2bad7480f14682e44026f481c1835"
   },
   "baselineIdentity" : {
     "baselineCommitSha" : "494bc6856bae046d3e6f6c3611f4c8d7eb14b955",
     "commitSha" : "494bc6856bae046d3e6f6c3611f4c8d7eb14b955",
     "commitTimestamp" : "2026-07-18T18:55:10+02:00",
-    "measuredCommitSha" : "93c84dccfbea6783f638b5c5f6df00ece92a53a8",
+    "measuredCommitSha" : "785f2d07a2169134fefbd9f9db898372a3076ee0",
+    "measuredSourceTreeHash" : "",
     "releaseTag" : "v0.5.0",
     "repository" : "GionaGranchelli/tramAI",
     "toolchain" : {
@@ -16,7 +65,8 @@
       "jvmTarget" : "21",
       "kotlin" : "2.3.0"
     },
-    "tramaiVersion" : "0.1.0"
+    "tramaiVersion" : "0.1.0",
+    "workingTreeClean" : false
   },
   "dependencies" : {
     "resolvedDependencies" : [ ],
@@ -547,13 +597,58 @@
       "catchType" : "Exception",
       "isSuspendCapable" : true,
       "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
+      "transformsException" : true,
+      "risk" : "high"
     }, {
       "module" : "tramai-bedrock",
       "file" : "tramai-bedrock/src/main/kotlin/dev/tramai/bedrock/BedrockProvider.kt",
       "function" : "complete",
       "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-bedrock",
+      "file" : "tramai-bedrock/src/main/kotlin/dev/tramai/bedrock/BedrockProvider.kt",
+      "function" : "stream",
+      "catchType" : "Exception",
+      "isSuspendCapable" : false,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "medium"
+    }, {
+      "module" : "tramai-core",
+      "file" : "tramai-core/src/main/kotlin/dev/tramai/core/provider/ProviderFailures.kt",
+      "function" : "parseRetryAfterMillis",
+      "catchType" : "runCatching",
+      "isSuspendCapable" : false,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "medium"
+    }, {
+      "module" : "tramai-dashboard",
+      "file" : "tramai-dashboard/src/main/kotlin/dev/tramai/dashboard/DashboardSettingsController.kt",
+      "function" : "ApplicationContext",
+      "catchType" : "runCatching",
+      "isSuspendCapable" : false,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "medium"
+    }, {
+      "module" : "tramai-embedding",
+      "file" : "tramai-embedding/src/main/kotlin/dev/tramai/embedding/OllamaEmbeddingModel.kt",
+      "function" : "embedAll",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-embedding",
+      "file" : "tramai-embedding/src/main/kotlin/dev/tramai/embedding/OpenAiEmbeddingModel.kt",
+      "function" : "embedAll",
+      "catchType" : "Exception",
       "isSuspendCapable" : true,
       "rethrowsCancellation" : false,
       "transformsException" : false,
@@ -588,25 +683,7 @@
     }, {
       "module" : "tramai-engine",
       "file" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
-      "function" : "callProviderWithRetries",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-engine",
-      "file" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
       "function" : "executeToolAttempt",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-engine",
-      "file" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
-      "function" : "suspendToolExecution",
       "catchType" : "Exception",
       "isSuspendCapable" : true,
       "rethrowsCancellation" : false,
@@ -695,629 +772,8 @@
       "risk" : "critical"
     }, {
       "module" : "tramai-engine",
-      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/PolicyAuditWiringTest.kt",
-      "function" : "latestEvent",
-      "catchType" : "RuntimeException",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-engine",
-      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
-      "function" : "execute",
-      "catchType" : "runCatching",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-engine",
-      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
-      "function" : "execute",
-      "catchType" : "runCatching",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-engine",
-      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
-      "function" : "execute",
-      "catchType" : "runCatching",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-engine",
-      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
-      "function" : "execute",
-      "catchType" : "runCatching",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-engine",
-      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
-      "function" : "execute",
-      "catchType" : "runCatching",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-engine",
-      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
-      "function" : "execute",
-      "catchType" : "runCatching",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-engine",
-      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
-      "function" : "execute",
-      "catchType" : "runCatching",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-gemini",
-      "file" : "tramai-gemini/src/main/kotlin/dev/tramai/gemini/GeminiProvider.kt",
-      "function" : "complete",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-gemini",
-      "file" : "tramai-gemini/src/main/kotlin/dev/tramai/gemini/GeminiProvider.kt",
-      "function" : "FlowCollector",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-ollama",
-      "file" : "tramai-ollama/src/main/kotlin/dev/tramai/ollama/OllamaProvider.kt",
-      "function" : "complete",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-ollama",
-      "file" : "tramai-ollama/src/main/kotlin/dev/tramai/ollama/OllamaProvider.kt",
-      "function" : "FlowCollector",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-openai",
-      "file" : "tramai-openai/src/main/kotlin/dev/tramai/openai/OpenAiProvider.kt",
-      "function" : "complete",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HermesStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HermesStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/CodexStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/CodexStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/TramaiWorker.kt",
-      "function" : "shutdown",
-      "catchType" : "runCatching",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/TramaiWorker.kt",
-      "function" : "pollLoop",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/TramaiWorker.kt",
-      "function" : "executeClaimedWorkflow",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/TramaiWorker.kt",
-      "function" : "renewLeaseLoop",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/TramaiWorker.kt",
-      "function" : "releaseLease",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ShellStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ShellStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ShellStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
-      "function" : "runMcpCall",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-      "function" : "run",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-      "function" : "executeStep",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-      "function" : "execute",
-      "catchType" : "runCatching",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-persistence-jdbc",
-      "file" : "tramai-persistence-jdbc/src/main/kotlin/dev/tramai/persistence/jdbc/JdbcSuspendedInvocationStore.kt",
-      "function" : "remove",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-persistence-jdbc",
-      "file" : "tramai-persistence-jdbc/src/main/kotlin/dev/tramai/persistence/jdbc/JdbcAuditStore.kt",
-      "function" : "appendNext",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-platform",
-      "file" : "tramai-platform/src/main/kotlin/dev/tramai/platform/PlatformWorkflowService.kt",
-      "function" : "executeRunSafely",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-security",
-      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/DefaultApprovalGateCoordinator.kt",
-      "function" : "cancelApproval",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-security",
-      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/InMemoryApprovalRecoveryCoordinator.kt",
-      "function" : "findStaleClaims",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-security",
-      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/InMemoryApprovalRecoveryCoordinator.kt",
-      "function" : "forceCancelClaimed",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-security",
-      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/InMemoryApprovalRecoveryCoordinator.kt",
-      "function" : "forceCancelClaimed",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-server",
-      "file" : "tramai-server/src/main/kotlin/dev/tramai/server/WorkflowController.kt",
-      "function" : "executeRunSafely",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-ops",
-      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovalResumeControlPlane.kt",
-      "function" : "resume",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-ops",
-      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/DefaultSovereignApprovalOperations.kt",
-      "function" : "denyApproval",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-ops",
-      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsApprovalMutationStore.kt",
-      "function" : "mutateApprovalWithAuditIntent",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-ops",
-      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxDispatcher.kt",
-      "function" : "dispatchPending",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-ops",
-      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/DefaultSovereignOpsAuditOutboxOperations.kt",
-      "function" : "recoverPrepared",
-      "catchType" : "RuntimeException",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-ops",
-      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxBackgroundWorker.kt",
-      "function" : "runOnce",
-      "catchType" : "RuntimeException",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-ops",
-      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxBackgroundWorker.kt",
-      "function" : "runOnce",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-ops",
-      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxBackgroundWorker.kt",
-      "function" : "runOnce",
-      "catchType" : "RuntimeException",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-ops",
-      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxBackgroundWorker.kt",
-      "function" : "runOnce",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-ops",
-      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsApprovalRequestMutationStore.kt",
-      "function" : "createApprovalRequest",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-ops",
-      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovedContinuationResumeWorker.kt",
-      "function" : "processItem",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-ops",
-      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovedContinuationResumeWorker.kt",
-      "function" : "processItem",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
-      "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalMutationStore.kt",
-      "function" : "mutateApprovalWithAuditIntent",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
-      "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalRequestMutationStore.kt",
-      "function" : "createApprovalRequest",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
-      "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStore.kt",
-      "function" : "append",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
-      "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStore.kt",
-      "function" : "markReadyForDispatch",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
-      "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStore.kt",
-      "function" : "claimPending",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
-      "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStore.kt",
-      "function" : "markEmitted",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
-      "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStore.kt",
-      "function" : "markFailed",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-standalone",
-      "file" : "tramai-standalone/src/main/kotlin/dev/tramai/standalone/Tramai.kt",
-      "function" : "execute",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-standalone",
-      "file" : "tramai-standalone/src/main/kotlin/dev/tramai/standalone/Tramai.kt",
-      "function" : "execute",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tool-governance",
-      "file" : "examples/tool-governance/src/main/kotlin/dev/tramai/examples/toolgovernance/ToolGovernanceMain.kt",
-      "function" : "scenarioCustomerLookup",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tool-governance",
-      "file" : "examples/tool-governance/src/main/kotlin/dev/tramai/examples/toolgovernance/ToolGovernanceMain.kt",
-      "function" : "scenarioAccountDelete",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tool-governance",
-      "file" : "examples/tool-governance/src/main/kotlin/dev/tramai/examples/toolgovernance/ToolGovernanceMain.kt",
-      "function" : "scenarioPayment",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "critical"
-    }, {
-      "module" : "tramai-embedding",
-      "file" : "tramai-embedding/src/main/kotlin/dev/tramai/embedding/OllamaEmbeddingModel.kt",
-      "function" : "embedAll",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-embedding",
-      "file" : "tramai-embedding/src/main/kotlin/dev/tramai/embedding/OpenAiEmbeddingModel.kt",
-      "function" : "embedAll",
+      "file" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
+      "function" : "inspectDlpAuthoritatively",
       "catchType" : "Exception",
       "isSuspendCapable" : true,
       "rethrowsCancellation" : false,
@@ -1326,8 +782,8 @@
     }, {
       "module" : "tramai-engine",
       "file" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
-      "function" : "inspectDlpAuthoritatively",
-      "catchType" : "Exception",
+      "function" : "callProviderWithRetries",
+      "catchType" : "Throwable",
       "isSuspendCapable" : true,
       "rethrowsCancellation" : false,
       "transformsException" : true,
@@ -1343,301 +799,13 @@
       "risk" : "high"
     }, {
       "module" : "tramai-engine",
-      "file" : "tramai-engine/src/main/kotlin/dev/tramai/engine/ModelRegistryEnforcer.kt",
-      "function" : "authorize",
+      "file" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
+      "function" : "suspendToolExecution",
       "catchType" : "Exception",
       "isSuspendCapable" : true,
       "rethrowsCancellation" : false,
       "transformsException" : true,
       "risk" : "high"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HermesStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/CodexStep.kt",
-      "function" : "execute",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
-      "function" : "connect",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-orchestration",
-      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
-      "function" : "executeMcpCall",
-      "catchType" : "runCatching",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-rag",
-      "file" : "tramai-rag/src/main/kotlin/dev/tramai/rag/RagPipeline.kt",
-      "function" : "index",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-rag",
-      "file" : "tramai-rag/src/main/kotlin/dev/tramai/rag/RagPipeline.kt",
-      "function" : "index",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-rag",
-      "file" : "tramai-rag/src/main/kotlin/dev/tramai/rag/RagPipeline.kt",
-      "function" : "index",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-rag",
-      "file" : "tramai-rag/src/main/kotlin/dev/tramai/rag/RagPipeline.kt",
-      "function" : "index",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-rag",
-      "file" : "tramai-rag/src/main/kotlin/dev/tramai/rag/RagPipeline.kt",
-      "function" : "index",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-rag",
-      "file" : "tramai-rag/src/main/kotlin/dev/tramai/rag/RagPipeline.kt",
-      "function" : "query",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-rag",
-      "file" : "tramai-rag/src/main/kotlin/dev/tramai/rag/loaders/UrlDocumentLoader.kt",
-      "function" : "load",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-security",
-      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/DefaultApprovalGateCoordinator.kt",
-      "function" : "createApproval",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-security",
-      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/DefaultApprovalGateCoordinator.kt",
-      "function" : "authorizeResume",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-security",
-      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/DefaultApprovalGateCoordinator.kt",
-      "function" : "prepareResumeAuthorization",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-security",
-      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/InMemoryApprovalRecoveryCoordinator.kt",
-      "function" : "findStaleClaims",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-security",
-      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/InMemoryApprovalRecoveryCoordinator.kt",
-      "function" : "forceCancelClaimed",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-security",
-      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/InMemoryApprovalRecoveryCoordinator.kt",
-      "function" : "forceCancelClaimed",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-server",
-      "file" : "tramai-server/src/main/kotlin/dev/tramai/server/WorkflowController.kt",
-      "function" : "executeResumeSafely",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-sovereign",
-      "file" : "tramai-sovereign/src/main/kotlin/dev/tramai/sovereign/SovereignTramai.kt",
-      "function" : "verifySingleArtifact",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-sovereign",
-      "file" : "tramai-sovereign/src/main/kotlin/dev/tramai/sovereign/SovereignTramai.kt",
-      "function" : "sanitizedArtifactReason",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-vectorstore-chroma",
-      "file" : "tramai-vectorstore-chroma/src/main/kotlin/dev/tramai/vectorstore/chroma/ChromaVectorStore.kt",
-      "function" : "upsert",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-vectorstore-chroma",
-      "file" : "tramai-vectorstore-chroma/src/main/kotlin/dev/tramai/vectorstore/chroma/ChromaVectorStore.kt",
-      "function" : "search",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-vectorstore-chroma",
-      "file" : "tramai-vectorstore-chroma/src/main/kotlin/dev/tramai/vectorstore/chroma/ChromaVectorStore.kt",
-      "function" : "delete",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-vectorstore-chroma",
-      "file" : "tramai-vectorstore-chroma/src/main/kotlin/dev/tramai/vectorstore/chroma/ChromaVectorStore.kt",
-      "function" : "listCollections",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-vectorstore-pgvector",
-      "file" : "tramai-vectorstore-pgvector/src/main/kotlin/dev/tramai/vectorstore/pgvector/PgVectorStore.kt",
-      "function" : "upsert",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-vectorstore-pgvector",
-      "file" : "tramai-vectorstore-pgvector/src/main/kotlin/dev/tramai/vectorstore/pgvector/PgVectorStore.kt",
-      "function" : "upsert",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-vectorstore-pgvector",
-      "file" : "tramai-vectorstore-pgvector/src/main/kotlin/dev/tramai/vectorstore/pgvector/PgVectorStore.kt",
-      "function" : "search",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-vectorstore-pgvector",
-      "file" : "tramai-vectorstore-pgvector/src/main/kotlin/dev/tramai/vectorstore/pgvector/PgVectorStore.kt",
-      "function" : "delete",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-vectorstore-pgvector",
-      "file" : "tramai-vectorstore-pgvector/src/main/kotlin/dev/tramai/vectorstore/pgvector/PgVectorStore.kt",
-      "function" : "listCollections",
-      "catchType" : "Exception",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "high"
-    }, {
-      "module" : "tramai-bedrock",
-      "file" : "tramai-bedrock/src/main/kotlin/dev/tramai/bedrock/BedrockProvider.kt",
-      "function" : "stream",
-      "catchType" : "Exception",
-      "isSuspendCapable" : false,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "medium"
-    }, {
-      "module" : "tramai-core",
-      "file" : "tramai-core/src/main/kotlin/dev/tramai/core/provider/ProviderFailures.kt",
-      "function" : "parseRetryAfterMillis",
-      "catchType" : "runCatching",
-      "isSuspendCapable" : false,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "medium"
-    }, {
-      "module" : "tramai-dashboard",
-      "file" : "tramai-dashboard/src/main/kotlin/dev/tramai/dashboard/DashboardSettingsController.kt",
-      "function" : "ApplicationContext",
-      "catchType" : "runCatching",
-      "isSuspendCapable" : false,
-      "rethrowsCancellation" : false,
-      "transformsException" : false,
-      "risk" : "medium"
     }, {
       "module" : "tramai-engine",
       "file" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
@@ -1676,6 +844,24 @@
       "risk" : "medium"
     }, {
       "module" : "tramai-engine",
+      "file" : "tramai-engine/src/main/kotlin/dev/tramai/engine/ModelRegistryEnforcer.kt",
+      "function" : "authorize",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-engine",
+      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/PolicyAuditWiringTest.kt",
+      "function" : "latestEvent",
+      "catchType" : "RuntimeException",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-engine",
       "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/ApprovalEngineEdgeCaseTest.kt",
       "function" : "triggerSuspension",
       "catchType" : "Exception",
@@ -1708,8 +894,71 @@
       "catchType" : "Throwable",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : false,
+      "transformsException" : true,
       "risk" : "medium"
+    }, {
+      "module" : "tramai-engine",
+      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
+      "function" : "execute",
+      "catchType" : "runCatching",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-engine",
+      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
+      "function" : "execute",
+      "catchType" : "runCatching",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-engine",
+      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
+      "function" : "execute",
+      "catchType" : "runCatching",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-engine",
+      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
+      "function" : "execute",
+      "catchType" : "runCatching",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-engine",
+      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
+      "function" : "execute",
+      "catchType" : "runCatching",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-engine",
+      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
+      "function" : "execute",
+      "catchType" : "runCatching",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-engine",
+      "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
+      "function" : "execute",
+      "catchType" : "runCatching",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
     }, {
       "module" : "tramai-engine",
       "file" : "tramai-engine/src/test/kotlin/dev/tramai/engine/TramaiEngineTest.kt",
@@ -1809,6 +1058,24 @@
       "rethrowsCancellation" : false,
       "transformsException" : false,
       "risk" : "medium"
+    }, {
+      "module" : "tramai-gemini",
+      "file" : "tramai-gemini/src/main/kotlin/dev/tramai/gemini/GeminiProvider.kt",
+      "function" : "complete",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-gemini",
+      "file" : "tramai-gemini/src/main/kotlin/dev/tramai/gemini/GeminiProvider.kt",
+      "function" : "FlowCollector",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
     }, {
       "module" : "tramai-mcp",
       "file" : "tramai-mcp/src/main/kotlin/dev/tramai/mcp/McpToolHandlers.kt",
@@ -1843,7 +1110,7 @@
       "catchType" : "runCatching",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : true,
+      "transformsException" : false,
       "risk" : "medium"
     }, {
       "module" : "tramai-memory-store",
@@ -1855,6 +1122,33 @@
       "transformsException" : false,
       "risk" : "medium"
     }, {
+      "module" : "tramai-ollama",
+      "file" : "tramai-ollama/src/main/kotlin/dev/tramai/ollama/OllamaProvider.kt",
+      "function" : "complete",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-ollama",
+      "file" : "tramai-ollama/src/main/kotlin/dev/tramai/ollama/OllamaProvider.kt",
+      "function" : "FlowCollector",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-openai",
+      "file" : "tramai-openai/src/main/kotlin/dev/tramai/openai/OpenAiProvider.kt",
+      "function" : "complete",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
       "module" : "tramai-openai",
       "file" : "tramai-openai/src/main/kotlin/dev/tramai/openai/OpenAiProvider.kt",
       "function" : "stream",
@@ -1863,6 +1157,105 @@
       "rethrowsCancellation" : false,
       "transformsException" : false,
       "risk" : "medium"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HermesStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HermesStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HermesStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/CodexStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/CodexStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/CodexStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/TramaiWorker.kt",
+      "function" : "shutdown",
+      "catchType" : "runCatching",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/TramaiWorker.kt",
+      "function" : "executeClaimedWorkflow",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/TramaiWorker.kt",
+      "function" : "renewLeaseLoop",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/TramaiWorker.kt",
+      "function" : "releaseLease",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/TramaiWorker.kt",
+      "function" : "pollLoop",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
     }, {
       "module" : "tramai-orchestration",
       "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/TramaiWorker.kt",
@@ -1892,6 +1285,69 @@
       "risk" : "medium"
     }, {
       "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ShellStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ShellStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ShellStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
       "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
       "function" : "String",
       "catchType" : "runCatching",
@@ -1899,6 +1355,60 @@
       "rethrowsCancellation" : false,
       "transformsException" : false,
       "risk" : "medium"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
+      "function" : "execute",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
+      "function" : "runMcpCall",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
+      "function" : "executeMcpCall",
+      "catchType" : "runCatching",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
+      "function" : "connect",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
     }, {
       "module" : "tramai-orchestration",
       "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
@@ -1911,11 +1421,38 @@
     }, {
       "module" : "tramai-orchestration",
       "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
+      "function" : "run",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
+      "function" : "executeStep",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
+      "function" : "execute",
+      "catchType" : "runCatching",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-orchestration",
+      "file" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
       "function" : "resume",
       "catchType" : "Throwable",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : false,
+      "transformsException" : true,
       "risk" : "medium"
     }, {
       "module" : "tramai-orchestration",
@@ -1924,7 +1461,7 @@
       "catchType" : "runCatching",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : false,
+      "transformsException" : true,
       "risk" : "medium"
     }, {
       "module" : "tramai-orchestration",
@@ -2131,7 +1668,7 @@
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : false,
+      "transformsException" : true,
       "risk" : "medium"
     }, {
       "module" : "tramai-persistence-file",
@@ -2140,7 +1677,7 @@
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : false,
+      "transformsException" : true,
       "risk" : "medium"
     }, {
       "module" : "tramai-persistence-file",
@@ -2149,7 +1686,7 @@
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : true,
+      "transformsException" : false,
       "risk" : "medium"
     }, {
       "module" : "tramai-persistence-file",
@@ -2158,7 +1695,7 @@
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : false,
+      "transformsException" : true,
       "risk" : "medium"
     }, {
       "module" : "tramai-persistence-file",
@@ -2167,7 +1704,7 @@
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : false,
+      "transformsException" : true,
       "risk" : "medium"
     }, {
       "module" : "tramai-persistence-file",
@@ -2203,7 +1740,7 @@
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : true,
+      "transformsException" : false,
       "risk" : "medium"
     }, {
       "module" : "tramai-persistence-file",
@@ -2338,7 +1875,7 @@
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : false,
+      "transformsException" : true,
       "risk" : "medium"
     }, {
       "module" : "tramai-persistence-file",
@@ -2356,7 +1893,7 @@
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : true,
+      "transformsException" : false,
       "risk" : "medium"
     }, {
       "module" : "tramai-persistence-file",
@@ -2406,11 +1943,20 @@
     }, {
       "module" : "tramai-persistence-jdbc",
       "file" : "tramai-persistence-jdbc/src/main/kotlin/dev/tramai/persistence/jdbc/JdbcSuspendedInvocationStore.kt",
+      "function" : "remove",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-persistence-jdbc",
+      "file" : "tramai-persistence-jdbc/src/main/kotlin/dev/tramai/persistence/jdbc/JdbcSuspendedInvocationStore.kt",
       "function" : "decryptAndDeserialize",
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : true,
+      "transformsException" : false,
       "risk" : "medium"
     }, {
       "module" : "tramai-persistence-jdbc",
@@ -2419,7 +1965,25 @@
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "medium"
+    }, {
+      "module" : "tramai-persistence-jdbc",
+      "file" : "tramai-persistence-jdbc/src/main/kotlin/dev/tramai/persistence/jdbc/JdbcAuditStore.kt",
+      "function" : "appendNext",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
       "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-persistence-jdbc",
+      "file" : "tramai-persistence-jdbc/src/main/kotlin/dev/tramai/persistence/jdbc/JdbcAuditStore.kt",
+      "function" : "mapEventRow",
+      "catchType" : "Exception",
+      "isSuspendCapable" : false,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
       "risk" : "medium"
     }, {
       "module" : "tramai-persistence-jdbc",
@@ -2428,16 +1992,7 @@
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : true,
-      "risk" : "medium"
-    }, {
-      "module" : "tramai-persistence-jdbc",
-      "file" : "tramai-persistence-jdbc/src/main/kotlin/dev/tramai/persistence/jdbc/JdbcAuditStore.kt",
-      "function" : "mapEventRow",
-      "catchType" : "Exception",
-      "isSuspendCapable" : false,
-      "rethrowsCancellation" : false,
-      "transformsException" : true,
+      "transformsException" : false,
       "risk" : "medium"
     }, {
       "module" : "tramai-persistence-jdbc",
@@ -2505,12 +2060,21 @@
     }, {
       "module" : "tramai-platform",
       "file" : "tramai-platform/src/main/kotlin/dev/tramai/platform/PlatformWorkflowService.kt",
+      "function" : "executeRunSafely",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-platform",
+      "file" : "tramai-platform/src/main/kotlin/dev/tramai/platform/PlatformWorkflowService.kt",
       "function" : "decodeInitialState",
       "catchType" : "Throwable",
       "isSuspendCapable" : false,
-      "rethrowsCancellation" : false,
+      "rethrowsCancellation" : true,
       "transformsException" : true,
-      "risk" : "medium"
+      "risk" : "accepted"
     }, {
       "module" : "tramai-platform",
       "file" : "tramai-platform/src/main/kotlin/dev/tramai/platform/PluginManager.kt",
@@ -2520,6 +2084,69 @@
       "rethrowsCancellation" : false,
       "transformsException" : false,
       "risk" : "medium"
+    }, {
+      "module" : "tramai-rag",
+      "file" : "tramai-rag/src/main/kotlin/dev/tramai/rag/RagPipeline.kt",
+      "function" : "index",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-rag",
+      "file" : "tramai-rag/src/main/kotlin/dev/tramai/rag/RagPipeline.kt",
+      "function" : "index",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-rag",
+      "file" : "tramai-rag/src/main/kotlin/dev/tramai/rag/RagPipeline.kt",
+      "function" : "query",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-rag",
+      "file" : "tramai-rag/src/main/kotlin/dev/tramai/rag/RagPipeline.kt",
+      "function" : "index",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-rag",
+      "file" : "tramai-rag/src/main/kotlin/dev/tramai/rag/RagPipeline.kt",
+      "function" : "index",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-rag",
+      "file" : "tramai-rag/src/main/kotlin/dev/tramai/rag/RagPipeline.kt",
+      "function" : "index",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-rag",
+      "file" : "tramai-rag/src/main/kotlin/dev/tramai/rag/loaders/UrlDocumentLoader.kt",
+      "function" : "load",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
     }, {
       "module" : "tramai-scheduler",
       "file" : "tramai-scheduler/src/main/kotlin/dev/tramai/scheduler/CronSchedule.kt",
@@ -2545,7 +2172,7 @@
       "catchType" : "Throwable",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : false,
+      "transformsException" : true,
       "risk" : "medium"
     }, {
       "module" : "tramai-security",
@@ -2608,8 +2235,44 @@
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : false,
+      "transformsException" : true,
       "risk" : "medium"
+    }, {
+      "module" : "tramai-security",
+      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/DefaultApprovalGateCoordinator.kt",
+      "function" : "createApproval",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-security",
+      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/DefaultApprovalGateCoordinator.kt",
+      "function" : "cancelApproval",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-security",
+      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/DefaultApprovalGateCoordinator.kt",
+      "function" : "authorizeResume",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-security",
+      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/DefaultApprovalGateCoordinator.kt",
+      "function" : "prepareResumeAuthorization",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
     }, {
       "module" : "tramai-security",
       "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/DefaultApprovalGateCoordinator.kt",
@@ -2619,6 +2282,60 @@
       "rethrowsCancellation" : false,
       "transformsException" : false,
       "risk" : "medium"
+    }, {
+      "module" : "tramai-security",
+      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/InMemoryApprovalRecoveryCoordinator.kt",
+      "function" : "findStaleClaims",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-security",
+      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/InMemoryApprovalRecoveryCoordinator.kt",
+      "function" : "forceCancelClaimed",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-security",
+      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/InMemoryApprovalRecoveryCoordinator.kt",
+      "function" : "forceCancelClaimed",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-security",
+      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/InMemoryApprovalRecoveryCoordinator.kt",
+      "function" : "forceCancelClaimed",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-security",
+      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/InMemoryApprovalRecoveryCoordinator.kt",
+      "function" : "forceCancelClaimed",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-security",
+      "file" : "tramai-security/src/main/kotlin/dev/tramai/security/approval/InMemoryApprovalRecoveryCoordinator.kt",
+      "function" : "findStaleClaims",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
     }, {
       "module" : "tramai-security",
       "file" : "tramai-security/src/test/kotlin/dev/tramai/security/approval/InMemoryApprovalStoreTest.kt",
@@ -2874,12 +2591,30 @@
     }, {
       "module" : "tramai-server",
       "file" : "tramai-server/src/main/kotlin/dev/tramai/server/WorkflowController.kt",
+      "function" : "executeResumeSafely",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-server",
+      "file" : "tramai-server/src/main/kotlin/dev/tramai/server/WorkflowController.kt",
       "function" : "decodeInitialState",
       "catchType" : "Throwable",
       "isSuspendCapable" : false,
-      "rethrowsCancellation" : false,
+      "rethrowsCancellation" : true,
       "transformsException" : true,
-      "risk" : "medium"
+      "risk" : "accepted"
+    }, {
+      "module" : "tramai-server",
+      "file" : "tramai-server/src/main/kotlin/dev/tramai/server/WorkflowController.kt",
+      "function" : "executeRunSafely",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : true,
+      "transformsException" : true,
+      "risk" : "accepted"
     }, {
       "module" : "tramai-server",
       "file" : "tramai-server/src/main/kotlin/dev/tramai/server/InMemoryWorkerRegistry.kt",
@@ -2962,6 +2697,24 @@
       "transformsException" : true,
       "risk" : "medium"
     }, {
+      "module" : "tramai-sovereign",
+      "file" : "tramai-sovereign/src/main/kotlin/dev/tramai/sovereign/SovereignTramai.kt",
+      "function" : "verifySingleArtifact",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-sovereign",
+      "file" : "tramai-sovereign/src/main/kotlin/dev/tramai/sovereign/SovereignTramai.kt",
+      "function" : "sanitizedArtifactReason",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
       "module" : "tramai-spring",
       "file" : "tramai-spring/src/main/kotlin/dev/tramai/spring/AiToolScanner.kt",
       "function" : "findAnnotatedBeans",
@@ -3004,7 +2757,7 @@
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : true,
+      "transformsException" : false,
       "risk" : "medium"
     }, {
       "module" : "tramai-spring",
@@ -3015,6 +2768,24 @@
       "rethrowsCancellation" : false,
       "transformsException" : false,
       "risk" : "medium"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-ops",
+      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovalResumeControlPlane.kt",
+      "function" : "resume",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-ops",
+      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/DefaultSovereignApprovalOperations.kt",
+      "function" : "denyApproval",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
     }, {
       "module" : "tramai-spring-boot-starter-sovereign-ops",
       "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/CompositeApprovedContinuationResumeWorkerObserver.kt",
@@ -3080,6 +2851,69 @@
       "risk" : "medium"
     }, {
       "module" : "tramai-spring-boot-starter-sovereign-ops",
+      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsApprovalMutationStore.kt",
+      "function" : "mutateApprovalWithAuditIntent",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-ops",
+      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxDispatcher.kt",
+      "function" : "dispatchPending",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-ops",
+      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/DefaultSovereignOpsAuditOutboxOperations.kt",
+      "function" : "recoverPrepared",
+      "catchType" : "RuntimeException",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-ops",
+      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxBackgroundWorker.kt",
+      "function" : "runOnce",
+      "catchType" : "RuntimeException",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-ops",
+      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxBackgroundWorker.kt",
+      "function" : "runOnce",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-ops",
+      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxBackgroundWorker.kt",
+      "function" : "runOnce",
+      "catchType" : "RuntimeException",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-ops",
+      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxBackgroundWorker.kt",
+      "function" : "runOnce",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-ops",
       "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/CompositeSovereignOpsAuditOutboxWorkerObserver.kt",
       "function" : "onCycleCompleted",
       "catchType" : "RuntimeException",
@@ -3098,8 +2932,26 @@
       "risk" : "medium"
     }, {
       "module" : "tramai-spring-boot-starter-sovereign-ops",
+      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/InMemorySovereignOpsApprovalRequestMutationStore.kt",
+      "function" : "createApprovalRequest",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-ops",
       "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerLifecycle.kt",
       "function" : "start",
+      "catchType" : "Exception",
+      "isSuspendCapable" : false,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "medium"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-ops",
+      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerLifecycle.kt",
+      "function" : "notifyCycleCompleted",
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
@@ -3141,6 +2993,24 @@
       "rethrowsCancellation" : false,
       "transformsException" : false,
       "risk" : "medium"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-ops",
+      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovedContinuationResumeWorker.kt",
+      "function" : "processItem",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-ops",
+      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsApprovedContinuationResumeWorker.kt",
+      "function" : "processItem",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
     }, {
       "module" : "tramai-spring-boot-starter-sovereign-ops",
       "file" : "tramai-spring-boot-starter-sovereign-ops/src/test/kotlin/dev/tramai/spring/sovereign/ops/SovereignOpsAutoConfigurationTest.kt",
@@ -3521,13 +3391,76 @@
       "risk" : "medium"
     }, {
       "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
+      "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalMutationStore.kt",
+      "function" : "mutateApprovalWithAuditIntent",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
+      "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalRequestMutationStore.kt",
+      "function" : "createApprovalRequest",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
       "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/inbox/JdbcApprovalInboxQueryService.kt",
       "function" : "decodeCursor",
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : true,
+      "transformsException" : false,
       "risk" : "medium"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
+      "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStore.kt",
+      "function" : "markReadyForDispatch",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
+      "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStore.kt",
+      "function" : "markFailed",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
+      "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStore.kt",
+      "function" : "append",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
+      "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStore.kt",
+      "function" : "claimPending",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
+      "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStore.kt",
+      "function" : "markEmitted",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
     }, {
       "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
       "file" : "tramai-spring-boot-starter-sovereign-persistence-jdbc/src/main/kotlin/dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStore.kt",
@@ -3589,7 +3522,7 @@
       "catchType" : "Exception",
       "isSuspendCapable" : false,
       "rethrowsCancellation" : false,
-      "transformsException" : true,
+      "transformsException" : false,
       "risk" : "medium"
     }, {
       "module" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
@@ -3682,6 +3615,24 @@
       "transformsException" : false,
       "risk" : "medium"
     }, {
+      "module" : "tramai-standalone",
+      "file" : "tramai-standalone/src/main/kotlin/dev/tramai/standalone/Tramai.kt",
+      "function" : "execute",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-standalone",
+      "file" : "tramai-standalone/src/main/kotlin/dev/tramai/standalone/Tramai.kt",
+      "function" : "execute",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
       "module" : "tramai-structured",
       "file" : "tramai-structured/src/main/kotlin/dev/tramai/structured/JacksonStructuredOutputHandler.kt",
       "function" : "analyze",
@@ -3708,6 +3659,87 @@
       "rethrowsCancellation" : false,
       "transformsException" : false,
       "risk" : "medium"
+    }, {
+      "module" : "tramai-vectorstore-chroma",
+      "file" : "tramai-vectorstore-chroma/src/main/kotlin/dev/tramai/vectorstore/chroma/ChromaVectorStore.kt",
+      "function" : "listCollections",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-vectorstore-chroma",
+      "file" : "tramai-vectorstore-chroma/src/main/kotlin/dev/tramai/vectorstore/chroma/ChromaVectorStore.kt",
+      "function" : "upsert",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-vectorstore-chroma",
+      "file" : "tramai-vectorstore-chroma/src/main/kotlin/dev/tramai/vectorstore/chroma/ChromaVectorStore.kt",
+      "function" : "search",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-vectorstore-chroma",
+      "file" : "tramai-vectorstore-chroma/src/main/kotlin/dev/tramai/vectorstore/chroma/ChromaVectorStore.kt",
+      "function" : "delete",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-vectorstore-pgvector",
+      "file" : "tramai-vectorstore-pgvector/src/main/kotlin/dev/tramai/vectorstore/pgvector/PgVectorStore.kt",
+      "function" : "upsert",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-vectorstore-pgvector",
+      "file" : "tramai-vectorstore-pgvector/src/main/kotlin/dev/tramai/vectorstore/pgvector/PgVectorStore.kt",
+      "function" : "upsert",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-vectorstore-pgvector",
+      "file" : "tramai-vectorstore-pgvector/src/main/kotlin/dev/tramai/vectorstore/pgvector/PgVectorStore.kt",
+      "function" : "search",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-vectorstore-pgvector",
+      "file" : "tramai-vectorstore-pgvector/src/main/kotlin/dev/tramai/vectorstore/pgvector/PgVectorStore.kt",
+      "function" : "delete",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
+    }, {
+      "module" : "tramai-vectorstore-pgvector",
+      "file" : "tramai-vectorstore-pgvector/src/main/kotlin/dev/tramai/vectorstore/pgvector/PgVectorStore.kt",
+      "function" : "listCollections",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : true,
+      "risk" : "high"
     }, {
       "module" : "tramai-vectorstore-pgvector",
       "file" : "tramai-vectorstore-pgvector/src/main/kotlin/dev/tramai/vectorstore/pgvector/PgVectorStore.kt",
@@ -3772,15 +3804,34 @@
       "transformsException" : false,
       "risk" : "medium"
     }, {
-      "module" : "tramai-spring-boot-starter-sovereign-ops",
-      "file" : "tramai-spring-boot-starter-sovereign-ops/src/main/kotlin/dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerLifecycle.kt",
-      "function" : "notifyCycleCompleted",
+      "module" : "tool-governance",
+      "file" : "examples/tool-governance/src/main/kotlin/dev/tramai/examples/toolgovernance/ToolGovernanceMain.kt",
+      "function" : "scenarioCustomerLookup",
       "catchType" : "Exception",
-      "isSuspendCapable" : false,
-      "rethrowsCancellation" : true,
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
       "transformsException" : false,
-      "risk" : "accepted"
+      "risk" : "critical"
+    }, {
+      "module" : "tool-governance",
+      "file" : "examples/tool-governance/src/main/kotlin/dev/tramai/examples/toolgovernance/ToolGovernanceMain.kt",
+      "function" : "scenarioAccountDelete",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tool-governance",
+      "file" : "examples/tool-governance/src/main/kotlin/dev/tramai/examples/toolgovernance/ToolGovernanceMain.kt",
+      "function" : "scenarioPayment",
+      "catchType" : "Exception",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
     } ],
+    "testCancellationCatches" : [ ],
     "globalState" : [ {
       "module" : "tramai-azure-openai",
       "file" : "tramai-azure-openai/src/main/kotlin/dev/tramai/azureopenai/AzureOpenAiProvider.kt",

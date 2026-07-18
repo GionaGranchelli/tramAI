@@ -1,0 +1,13 @@
+public final class dev/tramai/spring/sovereign/ops/observability/OpenTelemetrySovereignOpsAuditOutboxWorkerObserver : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerObserver {
+	public fun <init> (Lio/opentelemetry/api/OpenTelemetry;Ljava/lang/String;)V
+	public synthetic fun <init> (Lio/opentelemetry/api/OpenTelemetry;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lio/opentelemetry/api/metrics/Meter;)V
+	public fun onCycleCompleted (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerRunSummary;)V
+	public fun onCycleFailed (Ljava/lang/String;Ljava/lang/String;)V
+}
+
+public class dev/tramai/spring/sovereign/ops/observability/SovereignOpsOutboxObservabilityAutoConfiguration {
+	public fun <init> ()V
+	public fun openTelemetrySovereignOpsAuditOutboxWorkerObserverContribution (Lio/opentelemetry/api/OpenTelemetry;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerObserverContribution;
+}
+
