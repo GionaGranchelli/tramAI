@@ -14,7 +14,7 @@ import org.w3c.dom.Element
  * Orchestrates all baseline generation steps and writes the unified baseline JSON.
  */
 class BaselineGenerator(
-    private val rootProject: Project,
+    val rootProject: Project,
     private val outputDir: File = File(rootProject.layout.buildDirectory.get().asFile, "reports/maintainability"),
     private val writeRepositoryArtifacts: Boolean = true
 ) {

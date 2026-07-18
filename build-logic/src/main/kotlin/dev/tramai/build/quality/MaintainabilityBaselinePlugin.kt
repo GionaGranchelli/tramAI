@@ -39,9 +39,13 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             description = "Generates the module dependency graph (JSON, DOT, Mermaid)"
             doLast {
                 val structural = generator.generateModuleDependencyGraph(graphAnalyzer)
-                println("Module dependency graph generated: ${structural.dependencyGraph.edges.size} edges, ${structural.dependencyGraph.cycles.size} cycles")
-                if (structural.dependencyGraph.cycles.isNotEmpty()) {
-                    println("WARNING: Dependency cycles detected: ${structural.dependencyGraph.cycles}")
+                val prodEdges = structural.moduleDependencies.edges.size
+                val prodCycles = structural.moduleDependencies.cycles.size
+                println("Module dependency graph: $prodEdges production edges, $prodCycles cycles")
+                val testEdges = structural.moduleDependenciesTest.edges.size
+                println("Test dependency graph: $testEdges test edges")
+                if (structural.moduleDependencies.cycles.isNotEmpty()) {
+                    println("WARNING: Production dependency cycles detected")
                 }
             }
         }
@@ -140,11 +144,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             doLast {
                 val baseline = generator.generateFullBaseline()
 
-                // Update structural section
+                // Update with fresh measurements
                 val graph = graphAnalyzer.analyze()
                 val structural = generator.generateModuleDependencyGraph(graphAnalyzer)
 
-                // Merge all generated data into baseline
                 val updated = baseline.copy(
                     structural = structural.copy(
                         sourceMetrics = generator.generateSourceMetrics(sourceMetricsAnalyzer.analyze()),
@@ -158,7 +161,11 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     dependencies = baseline.dependencies.copy(
                         resolvedDependencies = generator.generateResolvedDependencyGraph()
                     ),
-                    protocolCatalog = generator.generateRuntimeProtocolCatalog()
+                    protocolCatalog = generator.generateRuntimeProtocolCatalog(),
+                    api = generator.generateApiBaseline(),
+                    testQuality = baseline.testQuality.copy(
+                        testPerformance = generator.generateTestPerformance()
+                    )
                 )
 
                 generator.updateBaselineJson(updated)
@@ -168,97 +175,39 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
         // ---- Verification Tasks ----
 
-        project.tasks.register("verifyModuleDependencyGraph") {
-            group = "maintainability"
-            description = "Checks for dependency cycles and forbidden edges"
-            doLast {
-                val graph = graphAnalyzer.analyze()
-                if (graph.cycles.isNotEmpty()) {
-                    val msg = "Dependency cycles detected: ${graph.cycles.map { it.joinToString(" -> ") }}"
-                    println("WARNING: $msg")
-                } else {
-                    println("Dependency graph: no cycles detected")
-                }
-            }
-        }
-
-        project.tasks.register("verifyCancellationCatchInventory") {
-            group = "maintainability"
-            description = "Checks no new critical/high cancellation catch findings"
-            doLast {
-                val findings = cancellationInventory.inventory()
-                val critical = findings.count { it.risk == "critical" }
-                val high = findings.count { it.risk == "high" }
-                if (critical > 0) {
-                    println("WARNING: $critical critical cancellation catch findings exist")
-                }
-                if (high > 0) {
-                    println("WARNING: $high high-risk cancellation catch findings exist")
-                }
-                if (critical == 0 && high == 0) {
-                    println("Cancellation catch inventory: clean")
-                }
-            }
-        }
-
-        project.tasks.register("verifyGlobalStateInventory") {
-            group = "maintainability"
-            description = "Checks no new global mutable state"
-            doLast {
-                val findings = globalStateInventory.inventory()
-                if (findings.isNotEmpty()) {
-                    println("WARNING: ${findings.size} global mutable state instances exist. See deviations for accepted items.")
-                } else {
-                    println("Global state inventory: clean")
-                }
-            }
-        }
-
-        project.tasks.register("verifyNondeterminismInventory") {
-            group = "maintainability"
-            description = "Checks no new direct nondeterminism sources"
-            doLast {
-                val findings = nondeterminismInventory.inventory()
-                if (findings.isNotEmpty()) {
-                    println("WARNING: ${findings.size} direct nondeterminism sources found")
-                } else {
-                    println("Nondeterminism inventory: clean")
-                }
-            }
-        }
-
-        project.tasks.register("verifyBaselineFreshness") {
-            group = "maintainability"
-            description = "Verifies committed baseline matches regeneration"
-            doLast {
-                val baselineFile = File(project.rootDir, "config/quality/0.6.0-baseline.json")
-                if (!baselineFile.exists()) {
-                    println("WARNING: No committed baseline found. Run generateMaintainabilityBaseline first.")
-                    return@doLast
-                }
-                // Re-generate and diff the identity section
-                val identity = generator.generateIdentity()
-                println("Baseline identity check: repository=${identity.repository}, sha=${identity.commitSha.take(7)}")
-                println("Baseline freshness: committed baseline exists (full diff requires regeneration)")
-            }
-        }
-
+        // Single unified verification task that uses the comparison engine.
+        // Replaces the old warning-only per-inventory tasks.
         project.tasks.register("verifyMaintainabilityBaseline") {
             group = "maintainability"
-            description = "Runs all verification tasks"
-            dependsOn(
-                "verifyModuleDependencyGraph",
-                "verifyCancellationCatchInventory",
-                "verifyGlobalStateInventory",
-                "verifyNondeterminismInventory",
-                "verifyBaselineFreshness"
-            )
+            description = "Compares current measurements against committed baseline and rejects regressions"
             doLast {
-                println("Maintainability baseline verification complete.")
+                val report = BaselineVerifier.verify(project)
+
+                // Print report
+                report.failures.forEach { project.logger.error("FAIL: $it") }
+                report.warnings.forEach { project.logger.warn("WARN: $it") }
+                report.acceptedDeviations.forEach { project.logger.info("ACCEPTED: $it") }
+
+                if (!report.passed) {
+                    val summary = "Maintainability baseline verification FAILED:\n" +
+                        report.failures.joinToString("\n") { "  - $it" } +
+                        "\n\nRun './gradlew generateMaintainabilityBaseline' to regenerate." +
+                        "\nAdd deviations to config/quality/maintainability-deviations.yml for accepted regressions."
+                    throw org.gradle.api.GradleException(summary)
+                }
+
+                println("Maintainability baseline verification PASSED.")
+                if (report.acceptedDeviations.isNotEmpty()) {
+                    println("Accepted deviations: ${report.acceptedDeviations.size}")
+                }
+                if (report.warnings.isNotEmpty()) {
+                    println("Warnings: ${report.warnings.size}")
+                }
                 println("Reports: ${project.buildDir}/reports/maintainability/")
             }
         }
 
+        // Full verification adds mutation/coverage checks (currently stubs)
         project.tasks.register("verifyFullMaintainabilityBaseline") {
             group = "maintainability"
             description = "Full verification including dependency resolution and coverage"

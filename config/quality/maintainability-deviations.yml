@@ -38,10 +38,10 @@ deviations:
 
   - id: MQ-0003
     metric: fileSize
-    scope: "tramai-engine: Workflow.kt"
-    baseline: 0
-    allowed: 0
-    reason: "Workflow orchestration is a known monolith. Decomposition is a major 0.6.0 goal. Baseline will be populated by structural hotspot generation."
+    scope: "tramai-orchestration: Workflow.kt"
+    baseline: 1858
+    allowed: 1858
+    reason: "Workflow orchestration is a known monolith combining metadata, execution, persistence, DSL, and observers. Decomposition is a major 0.6.0 goal (Phase 4)."
     acceptedAt: "2026-07-18"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
@@ -57,11 +57,11 @@ deviations:
     owner: "GionaGranchelli"
 
   - id: MQ-0005
-    metric: broadExceptionCatch
-    scope: "tramai-engine: retry policy"
-    baseline: 0
-    allowed: 0
-    reason: "Retry policy uses broad catches for resilience. Cancellation rethrow audit is part of Phase 0 cancellation inventory."
+    metric: cancellationCriticalCount
+    scope: "tramai-*"
+    baseline: 7
+    allowed: 7
+    reason: "Broad exception catches in suspend-capable execution paths. Cancellation rethrow audit and cleanup is part of Phase 1 correctness hotfixes."
     acceptedAt: "2026-07-18"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"

@@ -37,9 +37,11 @@ class ModuleGraphAnalyzer(private val rootProject: Project) {
                 try {
                     for (dep in config.dependencies) {
                         if (dep is ProjectDependency) {
+                            val targetProject = projects.firstOrNull { it.name == dep.name }
+                            val targetPath = targetProject?.path ?: ":${dep.name}"
                             val edge = DependencyEdge(
                                 from = proj.path,
-                                to = dep.dependencyProject.path,
+                                to = targetPath,
                                 scope = config.name
                             )
                             if (config.name in productionConfigurations) {

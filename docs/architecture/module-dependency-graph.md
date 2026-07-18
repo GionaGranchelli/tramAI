@@ -10,13 +10,13 @@ This document is generated as a complete unit by `generateModuleDependencyGraph`
 
 | Module | Gradle path | Layer | Publishable |
 |---|---|---|---:|
-| `approval-resume` | `:examples:approval-resume` | unknown | no |
-| `governed-workflow` | `:examples:governed-workflow` | unknown | no |
-| `sovereign-document-intelligence` | `:examples:sovereign-document-intelligence` | unknown | no |
-| `sovereign-offline-verification` | `:examples:sovereign-offline-verification` | unknown | no |
-| `spring-sovereign-starter` | `:examples:spring-sovereign-starter` | unknown | no |
-| `support-agent` | `:examples:support-agent` | unknown | no |
-| `tool-governance` | `:examples:tool-governance` | unknown | no |
+| `approval-resume` | `:examples:approval-resume` | applications-examples | no |
+| `governed-workflow` | `:examples:governed-workflow` | applications-examples | no |
+| `sovereign-document-intelligence` | `:examples:sovereign-document-intelligence` | applications-examples | no |
+| `sovereign-offline-verification` | `:examples:sovereign-offline-verification` | applications-examples | no |
+| `spring-sovereign-starter` | `:examples:spring-sovereign-starter` | applications-examples | no |
+| `support-agent` | `:examples:support-agent` | applications-examples | no |
+| `tool-governance` | `:examples:tool-governance` | applications-examples | no |
 | `tramai-anthropic` | `:tramai-anthropic` | provider-adapters | yes |
 | `tramai-azure-openai` | `:tramai-azure-openai` | provider-adapters | yes |
 | `tramai-bedrock` | `:tramai-bedrock` | provider-adapters | yes |
@@ -70,9 +70,6 @@ graph TD
   tramai_deepseek --> tramai_openai
   tramai_engine --> tramai_core
   tramai_engine --> tramai_security
-  tramai_engine --> tramai_engine
-  tramai_engine --> tramai_engine
-  tramai_engine --> tramai_structured
   tramai_gemini --> tramai_core
   tramai_mcp --> tramai_server
   tramai_mcp --> tramai_structured
@@ -80,13 +77,9 @@ graph TD
   tramai_memory_store --> tramai_core
   tramai_observability --> tramai_core
   tramai_observability --> tramai_orchestration
-  tramai_observability --> tramai_engine
-  tramai_observability --> tramai_structured
   tramai_ollama --> tramai_core
   tramai_openai --> tramai_core
   tramai_orchestration --> tramai_core
-  tramai_orchestration --> tramai_engine
-  tramai_orchestration --> tramai_testing
   tramai_persistence_file --> tramai_core
   tramai_persistence_file --> tramai_engine
   tramai_persistence_file --> tramai_security
@@ -109,12 +102,10 @@ graph TD
   tramai_spring --> tramai_anthropic
   tramai_spring --> tramai_openai
   tramai_spring --> tramai_ollama
-  tramai_spring --> tramai_security
   tramai_spring_boot_starter_local_provider_openai --> tramai_openai
   tramai_spring_boot_starter_sovereign --> tramai_core
   tramai_spring_boot_starter_sovereign --> tramai_security
   tramai_spring_boot_starter_sovereign --> tramai_sovereign
-  tramai_spring_boot_starter_sovereign --> tramai_spring
   tramai_spring_boot_starter_sovereign_ops --> tramai_core
   tramai_spring_boot_starter_sovereign_ops --> tramai_security
   tramai_spring_boot_starter_sovereign_ops --> tramai_sovereign
@@ -131,164 +122,141 @@ graph TD
   tramai_spring_boot_starter_sovereign_persistence_jdbc --> tramai_spring_boot_starter_sovereign_ops
   tramai_spring_boot_starter_sovereign_persistence_jdbc --> tramai_persistence_jdbc
   tramai_spring_boot_starter_sovereign_persistence_jdbc --> tramai_security
-  tramai_spring_boot_starter_sovereign_persistence_jdbc --> tramai_spring_boot_starter_sovereign_ops_actuator
   tramai_standalone --> tramai_core
   tramai_standalone --> tramai_engine
   tramai_standalone --> tramai_structured
-  tramai_standalone --> tramai_testing
   tramai_structured --> tramai_core
   tramai_testing --> tramai_core
-  tramai_testing --> tramai_standalone
   tramai_vectorstore_chroma --> tramai_vectorstore_spi
   tramai_vectorstore_pgvector --> tramai_vectorstore_spi
-  approval_resume --> tramai_spring_boot_starter_sovereign
-  approval_resume --> tramai_spring
-  approval_resume --> tramai_spring_boot_starter_sovereign_persistence_jdbc
-  approval_resume --> tramai_spring_boot_starter_sovereign_ops
-  approval_resume --> tramai_engine
-  governed_workflow --> tramai_orchestration
-  sovereign_document_intelligence --> tramai_sovereign
-  sovereign_document_intelligence --> tramai_security
-  sovereign_document_intelligence --> tramai_core
-  sovereign_document_intelligence --> tramai_engine
-  sovereign_offline_verification --> tramai_sovereign
-  sovereign_offline_verification --> tramai_security
-  sovereign_offline_verification --> tramai_core
-  sovereign_offline_verification --> tramai_engine
-  spring_sovereign_starter --> tramai_spring_boot_starter_sovereign
-  spring_sovereign_starter --> tramai_spring
-  spring_sovereign_starter --> tramai_spring_boot_starter_sovereign_persistence_jdbc
-  spring_sovereign_starter --> tramai_spring_boot_starter_sovereign_ops
-  spring_sovereign_starter --> tramai_spring_boot_starter_sovereign_ops_rest
-  spring_sovereign_starter --> tramai_openai
-  spring_sovereign_starter --> tramai_spring_boot_starter_local_provider_openai
-  spring_sovereign_starter --> tramai_engine
-  support_agent --> tramai_standalone
-  support_agent --> tramai_ollama
-  support_agent --> tramai_testing
-  tool_governance --> tramai_bom
-  tool_governance --> tramai_engine
-  tool_governance --> tramai_structured
-  tool_governance --> tramai_security
+  examples_approval_resume --> tramai_spring_boot_starter_sovereign
+  examples_approval_resume --> tramai_spring
+  examples_approval_resume --> tramai_spring_boot_starter_sovereign_persistence_jdbc
+  examples_approval_resume --> tramai_spring_boot_starter_sovereign_ops
+  examples_governed_workflow --> tramai_orchestration
+  examples_sovereign_document_intelligence --> tramai_sovereign
+  examples_sovereign_document_intelligence --> tramai_security
+  examples_sovereign_document_intelligence --> tramai_core
+  examples_sovereign_document_intelligence --> tramai_engine
+  examples_sovereign_offline_verification --> tramai_sovereign
+  examples_sovereign_offline_verification --> tramai_security
+  examples_sovereign_offline_verification --> tramai_core
+  examples_sovereign_offline_verification --> tramai_engine
+  examples_spring_sovereign_starter --> tramai_spring_boot_starter_sovereign
+  examples_spring_sovereign_starter --> tramai_spring
+  examples_spring_sovereign_starter --> tramai_spring_boot_starter_sovereign_persistence_jdbc
+  examples_spring_sovereign_starter --> tramai_spring_boot_starter_sovereign_ops
+  examples_spring_sovereign_starter --> tramai_spring_boot_starter_sovereign_ops_rest
+  examples_spring_sovereign_starter --> tramai_openai
+  examples_spring_sovereign_starter --> tramai_spring_boot_starter_local_provider_openai
+  examples_support_agent --> tramai_standalone
+  examples_support_agent --> tramai_ollama
+  examples_tool_governance --> tramai_bom
+  examples_tool_governance --> tramai_engine
+  examples_tool_governance --> tramai_structured
+  examples_tool_governance --> tramai_security
 ```
 
 ## Dependency Edges
 
 | From | To | Scope |
 |---|---|---|
-| `approval-resume` | `tramai-engine` | implementation |
-| `approval-resume` | `tramai-spring` | implementation |
-| `approval-resume` | `tramai-spring-boot-starter-sovereign` | implementation |
-| `approval-resume` | `tramai-spring-boot-starter-sovereign-ops` | implementation |
-| `approval-resume` | `tramai-spring-boot-starter-sovereign-persistence-jdbc` | implementation |
-| `governed-workflow` | `tramai-orchestration` | implementation |
-| `sovereign-document-intelligence` | `tramai-core` | implementation |
-| `sovereign-document-intelligence` | `tramai-engine` | implementation |
-| `sovereign-document-intelligence` | `tramai-security` | implementation |
-| `sovereign-document-intelligence` | `tramai-sovereign` | implementation |
-| `sovereign-offline-verification` | `tramai-core` | implementation |
-| `sovereign-offline-verification` | `tramai-engine` | implementation |
-| `sovereign-offline-verification` | `tramai-security` | implementation |
-| `sovereign-offline-verification` | `tramai-sovereign` | implementation |
-| `spring-sovereign-starter` | `tramai-engine` | implementation |
-| `spring-sovereign-starter` | `tramai-openai` | implementation |
-| `spring-sovereign-starter` | `tramai-spring` | implementation |
-| `spring-sovereign-starter` | `tramai-spring-boot-starter-local-provider-openai` | implementation |
-| `spring-sovereign-starter` | `tramai-spring-boot-starter-sovereign` | implementation |
-| `spring-sovereign-starter` | `tramai-spring-boot-starter-sovereign-ops` | implementation |
-| `spring-sovereign-starter` | `tramai-spring-boot-starter-sovereign-ops-rest` | implementation |
-| `spring-sovereign-starter` | `tramai-spring-boot-starter-sovereign-persistence-jdbc` | implementation |
-| `support-agent` | `tramai-ollama` | implementation |
-| `support-agent` | `tramai-standalone` | implementation |
-| `support-agent` | `tramai-testing` | implementation |
-| `tool-governance` | `tramai-bom` | implementation |
-| `tool-governance` | `tramai-engine` | implementation |
-| `tool-governance` | `tramai-security` | implementation |
-| `tool-governance` | `tramai-structured` | implementation |
-| `tramai-anthropic` | `tramai-core` | api |
-| `tramai-azure-openai` | `tramai-core` | api |
-| `tramai-bedrock` | `tramai-core` | api |
-| `tramai-deepseek` | `tramai-core` | api |
-| `tramai-deepseek` | `tramai-openai` | api |
-| `tramai-engine` | `tramai-core` | api |
-| `tramai-engine` | `tramai-engine` | api |
-| `tramai-engine` | `tramai-engine` | implementation |
-| `tramai-engine` | `tramai-security` | implementation |
-| `tramai-engine` | `tramai-structured` | implementation |
-| `tramai-gemini` | `tramai-core` | api |
-| `tramai-mcp` | `tramai-server` | api |
-| `tramai-mcp` | `tramai-structured` | implementation |
-| `tramai-memory` | `tramai-core` | api |
-| `tramai-memory-store` | `tramai-core` | api |
-| `tramai-observability` | `tramai-core` | api |
-| `tramai-observability` | `tramai-engine` | implementation |
-| `tramai-observability` | `tramai-orchestration` | implementation |
-| `tramai-observability` | `tramai-structured` | implementation |
-| `tramai-ollama` | `tramai-core` | api |
-| `tramai-openai` | `tramai-core` | api |
-| `tramai-orchestration` | `tramai-core` | api |
-| `tramai-orchestration` | `tramai-engine` | implementation |
-| `tramai-orchestration` | `tramai-testing` | implementation |
-| `tramai-persistence-file` | `tramai-core` | api |
-| `tramai-persistence-file` | `tramai-engine` | api |
-| `tramai-persistence-file` | `tramai-security` | api |
-| `tramai-persistence-jdbc` | `tramai-core` | api |
-| `tramai-persistence-jdbc` | `tramai-engine` | api |
-| `tramai-persistence-jdbc` | `tramai-security` | api |
-| `tramai-platform` | `tramai-orchestration` | api |
-| `tramai-platform` | `tramai-server` | implementation |
-| `tramai-rag` | `tramai-core` | api |
-| `tramai-rag` | `tramai-embedding` | api |
-| `tramai-rag` | `tramai-vectorstore-spi` | api |
-| `tramai-scheduler` | `tramai-orchestration` | api |
-| `tramai-security` | `tramai-core` | api |
-| `tramai-server` | `tramai-orchestration` | api |
-| `tramai-server` | `tramai-scheduler` | implementation |
-| `tramai-sovereign` | `tramai-security` | api |
-| `tramai-sovereign` | `tramai-standalone` | api |
-| `tramai-spring` | `tramai-anthropic` | implementation |
-| `tramai-spring` | `tramai-ollama` | implementation |
-| `tramai-spring` | `tramai-openai` | implementation |
-| `tramai-spring` | `tramai-security` | compileOnly |
-| `tramai-spring` | `tramai-security` | implementation |
-| `tramai-spring` | `tramai-standalone` | api |
-| `tramai-spring-boot-starter-local-provider-openai` | `tramai-openai` | api |
-| `tramai-spring-boot-starter-sovereign` | `tramai-core` | api |
-| `tramai-spring-boot-starter-sovereign` | `tramai-security` | api |
-| `tramai-spring-boot-starter-sovereign` | `tramai-sovereign` | api |
-| `tramai-spring-boot-starter-sovereign` | `tramai-spring` | implementation |
-| `tramai-spring-boot-starter-sovereign-ops` | `tramai-core` | api |
-| `tramai-spring-boot-starter-sovereign-ops` | `tramai-engine` | implementation |
-| `tramai-spring-boot-starter-sovereign-ops` | `tramai-security` | api |
-| `tramai-spring-boot-starter-sovereign-ops` | `tramai-sovereign` | api |
-| `tramai-spring-boot-starter-sovereign-ops` | `tramai-spring-boot-starter-sovereign` | api |
-| `tramai-spring-boot-starter-sovereign-ops-actuator` | `tramai-spring-boot-starter-sovereign-ops` | api |
-| `tramai-spring-boot-starter-sovereign-ops-micrometer` | `tramai-spring-boot-starter-sovereign-ops` | api |
-| `tramai-spring-boot-starter-sovereign-ops-observability` | `tramai-spring-boot-starter-sovereign-ops` | api |
-| `tramai-spring-boot-starter-sovereign-ops-rest` | `tramai-spring-boot-starter-sovereign-ops` | api |
-| `tramai-spring-boot-starter-sovereign-persistence-file` | `tramai-persistence-file` | api |
-| `tramai-spring-boot-starter-sovereign-persistence-file` | `tramai-spring-boot-starter-sovereign` | api |
-| `tramai-spring-boot-starter-sovereign-persistence-file` | `tramai-spring-boot-starter-sovereign-ops` | api |
-| `tramai-spring-boot-starter-sovereign-persistence-jdbc` | `tramai-persistence-jdbc` | api |
-| `tramai-spring-boot-starter-sovereign-persistence-jdbc` | `tramai-security` | api |
-| `tramai-spring-boot-starter-sovereign-persistence-jdbc` | `tramai-spring-boot-starter-sovereign` | api |
-| `tramai-spring-boot-starter-sovereign-persistence-jdbc` | `tramai-spring-boot-starter-sovereign-ops` | api |
-| `tramai-spring-boot-starter-sovereign-persistence-jdbc` | `tramai-spring-boot-starter-sovereign-ops-actuator` | implementation |
-| `tramai-standalone` | `tramai-core` | api |
-| `tramai-standalone` | `tramai-engine` | api |
-| `tramai-standalone` | `tramai-structured` | api |
-| `tramai-standalone` | `tramai-testing` | implementation |
-| `tramai-structured` | `tramai-core` | api |
-| `tramai-testing` | `tramai-core` | api |
-| `tramai-testing` | `tramai-standalone` | implementation |
-| `tramai-vectorstore-chroma` | `tramai-vectorstore-spi` | api |
-| `tramai-vectorstore-pgvector` | `tramai-vectorstore-spi` | api |
+| `:examples:approval-resume` | `:tramai-spring` | implementation |
+| `:examples:approval-resume` | `:tramai-spring-boot-starter-sovereign` | implementation |
+| `:examples:approval-resume` | `:tramai-spring-boot-starter-sovereign-ops` | implementation |
+| `:examples:approval-resume` | `:tramai-spring-boot-starter-sovereign-persistence-jdbc` | implementation |
+| `:examples:governed-workflow` | `:tramai-orchestration` | implementation |
+| `:examples:sovereign-document-intelligence` | `:tramai-core` | implementation |
+| `:examples:sovereign-document-intelligence` | `:tramai-engine` | implementation |
+| `:examples:sovereign-document-intelligence` | `:tramai-security` | implementation |
+| `:examples:sovereign-document-intelligence` | `:tramai-sovereign` | implementation |
+| `:examples:sovereign-offline-verification` | `:tramai-core` | implementation |
+| `:examples:sovereign-offline-verification` | `:tramai-engine` | implementation |
+| `:examples:sovereign-offline-verification` | `:tramai-security` | implementation |
+| `:examples:sovereign-offline-verification` | `:tramai-sovereign` | implementation |
+| `:examples:spring-sovereign-starter` | `:tramai-openai` | implementation |
+| `:examples:spring-sovereign-starter` | `:tramai-spring` | implementation |
+| `:examples:spring-sovereign-starter` | `:tramai-spring-boot-starter-local-provider-openai` | implementation |
+| `:examples:spring-sovereign-starter` | `:tramai-spring-boot-starter-sovereign` | implementation |
+| `:examples:spring-sovereign-starter` | `:tramai-spring-boot-starter-sovereign-ops` | implementation |
+| `:examples:spring-sovereign-starter` | `:tramai-spring-boot-starter-sovereign-ops-rest` | implementation |
+| `:examples:spring-sovereign-starter` | `:tramai-spring-boot-starter-sovereign-persistence-jdbc` | implementation |
+| `:examples:support-agent` | `:tramai-ollama` | implementation |
+| `:examples:support-agent` | `:tramai-standalone` | implementation |
+| `:examples:tool-governance` | `:tramai-bom` | implementation |
+| `:examples:tool-governance` | `:tramai-engine` | implementation |
+| `:examples:tool-governance` | `:tramai-security` | implementation |
+| `:examples:tool-governance` | `:tramai-structured` | implementation |
+| `:tramai-anthropic` | `:tramai-core` | api |
+| `:tramai-azure-openai` | `:tramai-core` | api |
+| `:tramai-bedrock` | `:tramai-core` | api |
+| `:tramai-deepseek` | `:tramai-core` | api |
+| `:tramai-deepseek` | `:tramai-openai` | api |
+| `:tramai-engine` | `:tramai-core` | api |
+| `:tramai-engine` | `:tramai-security` | implementation |
+| `:tramai-gemini` | `:tramai-core` | api |
+| `:tramai-mcp` | `:tramai-server` | api |
+| `:tramai-mcp` | `:tramai-structured` | implementation |
+| `:tramai-memory` | `:tramai-core` | api |
+| `:tramai-memory-store` | `:tramai-core` | api |
+| `:tramai-observability` | `:tramai-core` | api |
+| `:tramai-observability` | `:tramai-orchestration` | implementation |
+| `:tramai-ollama` | `:tramai-core` | api |
+| `:tramai-openai` | `:tramai-core` | api |
+| `:tramai-orchestration` | `:tramai-core` | api |
+| `:tramai-persistence-file` | `:tramai-core` | api |
+| `:tramai-persistence-file` | `:tramai-engine` | api |
+| `:tramai-persistence-file` | `:tramai-security` | api |
+| `:tramai-persistence-jdbc` | `:tramai-core` | api |
+| `:tramai-persistence-jdbc` | `:tramai-engine` | api |
+| `:tramai-persistence-jdbc` | `:tramai-security` | api |
+| `:tramai-platform` | `:tramai-orchestration` | api |
+| `:tramai-platform` | `:tramai-server` | implementation |
+| `:tramai-rag` | `:tramai-core` | api |
+| `:tramai-rag` | `:tramai-embedding` | api |
+| `:tramai-rag` | `:tramai-vectorstore-spi` | api |
+| `:tramai-scheduler` | `:tramai-orchestration` | api |
+| `:tramai-security` | `:tramai-core` | api |
+| `:tramai-server` | `:tramai-orchestration` | api |
+| `:tramai-server` | `:tramai-scheduler` | implementation |
+| `:tramai-sovereign` | `:tramai-security` | api |
+| `:tramai-sovereign` | `:tramai-standalone` | api |
+| `:tramai-spring` | `:tramai-anthropic` | implementation |
+| `:tramai-spring` | `:tramai-ollama` | implementation |
+| `:tramai-spring` | `:tramai-openai` | implementation |
+| `:tramai-spring` | `:tramai-security` | compileOnly |
+| `:tramai-spring` | `:tramai-standalone` | api |
+| `:tramai-spring-boot-starter-local-provider-openai` | `:tramai-openai` | api |
+| `:tramai-spring-boot-starter-sovereign` | `:tramai-core` | api |
+| `:tramai-spring-boot-starter-sovereign` | `:tramai-security` | api |
+| `:tramai-spring-boot-starter-sovereign` | `:tramai-sovereign` | api |
+| `:tramai-spring-boot-starter-sovereign-ops` | `:tramai-core` | api |
+| `:tramai-spring-boot-starter-sovereign-ops` | `:tramai-engine` | implementation |
+| `:tramai-spring-boot-starter-sovereign-ops` | `:tramai-security` | api |
+| `:tramai-spring-boot-starter-sovereign-ops` | `:tramai-sovereign` | api |
+| `:tramai-spring-boot-starter-sovereign-ops` | `:tramai-spring-boot-starter-sovereign` | api |
+| `:tramai-spring-boot-starter-sovereign-ops-actuator` | `:tramai-spring-boot-starter-sovereign-ops` | api |
+| `:tramai-spring-boot-starter-sovereign-ops-micrometer` | `:tramai-spring-boot-starter-sovereign-ops` | api |
+| `:tramai-spring-boot-starter-sovereign-ops-observability` | `:tramai-spring-boot-starter-sovereign-ops` | api |
+| `:tramai-spring-boot-starter-sovereign-ops-rest` | `:tramai-spring-boot-starter-sovereign-ops` | api |
+| `:tramai-spring-boot-starter-sovereign-persistence-file` | `:tramai-persistence-file` | api |
+| `:tramai-spring-boot-starter-sovereign-persistence-file` | `:tramai-spring-boot-starter-sovereign` | api |
+| `:tramai-spring-boot-starter-sovereign-persistence-file` | `:tramai-spring-boot-starter-sovereign-ops` | api |
+| `:tramai-spring-boot-starter-sovereign-persistence-jdbc` | `:tramai-persistence-jdbc` | api |
+| `:tramai-spring-boot-starter-sovereign-persistence-jdbc` | `:tramai-security` | api |
+| `:tramai-spring-boot-starter-sovereign-persistence-jdbc` | `:tramai-spring-boot-starter-sovereign` | api |
+| `:tramai-spring-boot-starter-sovereign-persistence-jdbc` | `:tramai-spring-boot-starter-sovereign-ops` | api |
+| `:tramai-standalone` | `:tramai-core` | api |
+| `:tramai-standalone` | `:tramai-engine` | api |
+| `:tramai-standalone` | `:tramai-structured` | api |
+| `:tramai-structured` | `:tramai-core` | api |
+| `:tramai-testing` | `:tramai-core` | api |
+| `:tramai-vectorstore-chroma` | `:tramai-vectorstore-spi` | api |
+| `:tramai-vectorstore-pgvector` | `:tramai-vectorstore-spi` | api |
 
 ## Known Cycles
 
-- `tramai-engine -> tramai-engine`
-- `tramai-engine -> tramai-engine`
-- `tramai-testing -> tramai-standalone -> tramai-testing`
+No dependency cycles were detected.
 
 ## Verification
 

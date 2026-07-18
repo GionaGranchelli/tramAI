@@ -1,413 +1,481 @@
 {
-  "description" : "Starter catalog of runtime protocol identifiers discovered in production Kotlin sources.",
+  "description" : "Starter catalog — 68 entries identified",
   "entries" : [ {
     "category" : "attribute-key",
     "name" : "ATTR_TRAMAI_EVENT_NAME",
     "value" : "tramai.event.name",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryOperationObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_EVENT_NAME",
     "value" : "tramai.event.name",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryWorkflowObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_LEASE_OPERATION",
     "value" : "tramai.lease.operation",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryTramaiWorkerObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_TRAMAI_OP_INTERFACE",
     "value" : "tramai.operation.interface",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryOperationObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_TRAMAI_OP_METHOD",
     "value" : "tramai.operation.method",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryOperationObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_TRAMAI_OUTCOME",
     "value" : "tramai.outcome",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryOperationObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_TRAMAI_RETRY_ATTEMPT",
     "value" : "tramai.retry.attempt",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryOperationObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_WORKER_ATTEMPT_ID",
     "value" : "tramai.worker.attempt_id",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryTramaiWorkerObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_WORKER_ID",
     "value" : "tramai.worker.id",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryTramaiWorkerObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_WORKER_RUN_ID",
     "value" : "tramai.worker.run_id",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryTramaiWorkerObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_WORKER_STEP_NAME",
     "value" : "tramai.worker.step_name",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryTramaiWorkerObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_WORKER_UPTIME_MS",
     "value" : "tramai.worker.uptime_ms",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryTramaiWorkerObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_WORKER_WORKFLOW_ID",
     "value" : "tramai.worker.workflow_id",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryTramaiWorkerObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_WORKFLOW_CONTEXT_PREFIX",
     "value" : "tramai.workflow.context.",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryWorkflowObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_WORKFLOW_ID",
     "value" : "tramai.workflow.id",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryWorkflowObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_WORKFLOW_NAME",
     "value" : "tramai.workflow.name",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryWorkflowObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "attribute-key",
     "name" : "ATTR_WORKFLOW_OUTCOME",
     "value" : "tramai.workflow.outcome",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryWorkflowObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "event-name",
     "name" : "EVENT_CIRCUIT_OPENED",
     "value" : "tramai.circuit.opened",
     "source" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "event-name",
     "name" : "EVENT_ROUTE_SELECTED",
     "value" : "tramai.route.selected",
     "source" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "event-name",
     "name" : "EVENT_STARTUP_RETRY",
     "value" : "tramai.streaming.startup_retry",
     "source" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "metric-name",
     "name" : "DLP_TOOL_REJECTED_METRIC",
     "value" : "tramai.dlp.tool_result_rejected",
     "source" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "metric-name",
     "name" : "METRICS_PREFIX",
     "value" : "tramai.sovereign.approved_resume_worker",
     "source" : "tramai-spring-boot-starter-sovereign-ops-actuator/src/main/kotlin/dev/tramai/spring/sovereign/ops/actuator/ApprovedContinuationResumeWorkerMetricsObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "metric-name",
     "name" : "METRIC_DISPATCHED",
     "value" : "tramai.sovereign.ops.outbox.worker.dispatched.records",
     "source" : "tramai-spring-boot-starter-sovereign-ops-micrometer/src/main/kotlin/dev/tramai/spring/sovereign/ops/micrometer/MicrometerSovereignOpsAuditOutboxWorkerObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "metric-name",
     "name" : "METRIC_RECOVERED",
     "value" : "tramai.sovereign.ops.outbox.worker.recovered.records",
     "source" : "tramai-spring-boot-starter-sovereign-ops-micrometer/src/main/kotlin/dev/tramai/spring/sovereign/ops/micrometer/MicrometerSovereignOpsAuditOutboxWorkerObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "reason-code",
     "name" : "SAFE_REASON_CODE_PATTERN",
     "value" : "[a-z0-9][a-z0-9._:-]{0,63}",
     "source" : "tramai-core/src/main/kotlin/dev/tramai/core/approval/ApprovalRecoveryCoordinator.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "reason-code",
     "name" : "REASON_CODE_REDACTION_APPLIED",
     "value" : "dlp_redaction_applied",
     "source" : "tramai-security/src/main/kotlin/dev/tramai/security/audit/AuditEngineDlpRedactionAuditEmitter.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.approval.authorization_replayed",
     "value" : "tramai.approval.authorization_replayed",
     "source" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.dlp.inspection_failed",
     "value" : "tramai.dlp.inspection_failed",
     "source" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.retry.scheduled",
     "value" : "tramai.retry.scheduled",
     "source" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.scheduler.delay_wakeup.unregistered",
     "value" : "tramai.scheduler.delay_wakeup.unregistered",
     "source" : "tramai-scheduler/src/main/kotlin/dev/tramai/scheduler/ScheduledWorkflowTimer.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.token_budget.hard_limit_exceeded",
     "value" : "tramai.token_budget.hard_limit_exceeded",
     "source" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.token_budget.soft_limit_exceeded",
     "value" : "tramai.token_budget.soft_limit_exceeded",
     "source" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.token_budget.usage_unavailable",
     "value" : "tramai.token_budget.usage_unavailable",
     "source" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.cancelled",
     "value" : "tramai.workflow.cancelled",
     "source" : "tramai-server/src/main/kotlin/dev/tramai/server/WorkflowRunStore.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.cancelling",
     "value" : "tramai.workflow.cancelling",
     "source" : "tramai-server/src/main/kotlin/dev/tramai/server/WorkflowRunStore.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.checkpoint.loaded",
     "value" : "tramai.workflow.checkpoint.loaded",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.checkpoint.saved",
     "value" : "tramai.workflow.checkpoint.saved",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "WORKFLOW_DEFINITION_DIGEST_METADATA_KEY",
     "value" : "tramai.workflow.definition.digest",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "WORKFLOW_DEFINITION_DIGEST_ALGORITHM_METADATA_KEY",
     "value" : "tramai.workflow.definition.digest.algorithm",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "WORKFLOW_DEFINITION_VERSION_METADATA_KEY",
     "value" : "tramai.workflow.definition.version",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "WORKFLOW_DELAY_RESUME_AT_EPOCH_MILLIS_METADATA_KEY",
     "value" : "tramai.workflow.delay.resume_at_epoch_millis",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.delay.resumed",
     "value" : "tramai.workflow.delay.resumed",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "WORKFLOW_DELAY_STEP_METADATA_KEY",
     "value" : "tramai.workflow.delay.step",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.http.request.completed",
     "value" : "tramai.workflow.http.request.completed",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.http.request.retrying",
     "value" : "tramai.workflow.http.request.retrying",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.http.request.started",
     "value" : "tramai.workflow.http.request.started",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.http.request.validation.failed",
     "value" : "tramai.workflow.http.request.validation.failed",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.http.response.truncated",
     "value" : "tramai.workflow.http.response.truncated",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/HttpStep.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.lease.claimed",
     "value" : "tramai.workflow.lease.claimed",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.lease.conflict",
     "value" : "tramai.workflow.lease.conflict",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.lease.released",
     "value" : "tramai.workflow.lease.released",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.lease.renewed",
     "value" : "tramai.workflow.lease.renewed",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.mcp.completed",
     "value" : "tramai.workflow.mcp.completed",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.mcp.reconnecting",
     "value" : "tramai.workflow.mcp.reconnecting",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.mcp.started",
     "value" : "tramai.workflow.mcp.started",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/McpStep.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.running",
     "value" : "tramai.workflow.running",
     "source" : "tramai-server/src/main/kotlin/dev/tramai/server/WorkflowRunStore.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "COMMAND_DENIED",
     "value" : "tramai.workflow.security.command_denied",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/SecurityEvents.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "OUTPUT_REJECTED",
     "value" : "tramai.workflow.security.output_rejected",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/SecurityEvents.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "SANITIZER_TRIGGERED",
     "value" : "tramai.workflow.security.sanitizer_triggered",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/SecurityEvents.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "STEP_EXECUTED",
     "value" : "tramai.workflow.security.step_executed",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/SecurityEvents.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.shell.completed",
     "value" : "tramai.workflow.shell.completed",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ShellStep.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.shell.started",
     "value" : "tramai.workflow.shell.started",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ShellStep.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.shell.timeout",
     "value" : "tramai.workflow.shell.timeout",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ShellStep.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.shell.truncated",
     "value" : "tramai.workflow.shell.truncated",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/ShellStep.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.step.completed",
     "value" : "tramai.workflow.step.completed",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryWorkflowObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.step.failed",
     "value" : "tramai.workflow.step.failed",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryWorkflowObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.step.started",
     "value" : "tramai.workflow.step.started",
     "source" : "tramai-observability/src/main/kotlin/dev/tramai/observability/OpenTelemetryWorkflowObserver.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   }, {
     "category" : "runtime-protocol",
     "name" : "tramai.workflow.suspended",
     "value" : "tramai.workflow.suspended",
     "source" : "tramai-orchestration/src/main/kotlin/dev/tramai/orchestration/Workflow.kt",
-    "consumers" : [ ]
+    "consumers" : [ ],
+    "stability" : "unclassified"
   } ],
   "schemaVersion" : "1"
 }

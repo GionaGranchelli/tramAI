@@ -3,6 +3,7 @@ package dev.tramai.build.quality
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
+import com.fasterxml.jackson.module.kotlin.KotlinModule
 import java.io.File
 
 /**
@@ -11,6 +12,7 @@ import java.io.File
 object ReportNormalizer {
 
     private val mapper: ObjectMapper = ObjectMapper()
+        .registerModule(KotlinModule.Builder().build())
         .registerModule(JavaTimeModule())
         .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
         .enable(SerializationFeature.INDENT_OUTPUT)
@@ -25,6 +27,11 @@ object ReportNormalizer {
 
     fun toJson(value: Any): String {
         return mapper.writeValueAsString(value).replace("\r\n", "\n")
+    }
+
+    fun <T> readJson(file: File, clazz: Class<T>): T {
+        val content = file.readText(Charsets.UTF_8)
+        return mapper.readValue(content, clazz)
     }
 
     /**
