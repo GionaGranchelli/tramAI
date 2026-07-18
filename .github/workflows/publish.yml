@@ -136,11 +136,12 @@ jobs:
           echo "TRAMAI_CAN_REMOTE_PUBLISH=${CAN_PUBLISH}" >> "$GITHUB_ENV"
 
       - name: Fail if remote-release mode is incomplete
-        if: ${{ env.TRAMAI_PUBLISH_MODE == 'remote-release' && env.TRAMAI_CAN_REMOTE_PUBLISH != 'true' }}
         run: |
-          echo "::error::Remote release requested, but release preconditions are not satisfied."
-          echo "::error::Required: non-SNAPSHOT release version, confirmRemoteRelease=RELEASE, publish credentials (URL/username/password), signing credentials, SonarQube secrets."
-          exit 1
+          if [[ "$TRAMAI_PUBLISH_MODE" == "remote-release" && "$TRAMAI_CAN_REMOTE_PUBLISH" != "true" ]]; then
+            echo "::error::Remote release requested, but release preconditions are not satisfied."
+            echo "::error::Required: non-SNAPSHOT release version, confirmRemoteRelease=RELEASE, publish credentials (URL/username/password), signing credentials, SonarQube secrets."
+            exit 1
+          fi
 
       - name: Verify version alignment
         run: |
@@ -160,28 +161,39 @@ jobs:
           fi
 
       - name: Verify build (local-dry-run)
-        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH != 'true' }}
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
         run: |
+          if [[ "$TRAMAI_CAN_REMOTE_PUBLISH" == "true" ]]; then
+            echo "Skipping local-dry-run: remote publish is configured and will run instead."
+            exit 0
+          fi
           ./gradlew verify050ReleaseReadiness --no-configuration-cache
           ./gradlew verifySovereignRuntimePublication --no-configuration-cache
           ./gradlew verifySovereignRuntimeSignedBundle --no-configuration-cache
           ./gradlew publishToMavenLocal --no-configuration-cache
           ./gradlew -p examples/kotlin-springboot-example smokeTest --no-configuration-cache
-          ./gradlew -p examples/sovereign-runtime-consumer-smoke test --no-configuration-cache
+          ./gradlew -p examples/sovereign-runtime-consumer-smoke test --no-configuration-cache \
+            -PsovereignRuntimeVerificationRepo="$GITHUB_WORKSPACE/build/sovereign-runtime-release-verification-repo"
 
       - name: Verify build (remote-release)
-        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}
-        env:
-          ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
-        run: ./gradlew verify050ReleaseReadiness --no-configuration-cache
-
-      - name: Run SonarQube analysis
-        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
         run: |
+          if [[ "$TRAMAI_CAN_REMOTE_PUBLISH" != "true" ]]; then
+            echo "Skipping remote-release verification: remote publish credentials not configured."
+            exit 0
+          fi
+          ./gradlew verify050ReleaseReadiness --no-configuration-cache
+
+      - name: Run SonarQube analysis
+        env:
+          ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
+        run: |
+          if [[ "$TRAMAI_CAN_REMOTE_PUBLISH" != "true" ]]; then
+            echo "Skipping SonarQube analysis: remote publish not configured."
+            exit 0
+          fi
           PROJECT_KEY="${SONAR_PROJECT_KEY:-dev.tramai:tramai}"
           ./gradlew sonar --no-configuration-cache --no-parallel \
             -Dsonar.host.url="$SONAR_HOST_URL" \
@@ -191,7 +203,6 @@ jobs:
             -Dsonar.projectVersion="$TRAMAI_VERSION"
 
       - name: Verify remote publish inputs
-        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
           ORG_GRADLE_PROJECT_tramaiPublishReleaseUrl: ${{ env.TRAMAI_PUBLISH_RELEASE_URL }}
@@ -200,13 +211,21 @@ jobs:
           ORG_GRADLE_PROJECT_tramaiPublishPassword: ${{ env.TRAMAI_PUBLISH_PASSWORD }}
           ORG_GRADLE_PROJECT_signingKey: ${{ env.TRAMAI_SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingPassword: ${{ env.TRAMAI_SIGNING_PASSWORD }}
-        run: ./gradlew verifyReleasePublishInputs --no-configuration-cache
+        run: |
+          if [[ "$TRAMAI_CAN_REMOTE_PUBLISH" != "true" ]]; then
+            echo "Skipping remote publish inputs verification: remote publish not configured."
+            exit 0
+          fi
+          ./gradlew verifyReleasePublishInputs --no-configuration-cache
 
       - name: Verify signing key is published to supported keyservers
-        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}
         env:
           TRAMAI_SIGNING_KEY: ${{ env.TRAMAI_SIGNING_KEY }}
         run: |
+          if [[ "$TRAMAI_CAN_REMOTE_PUBLISH" != "true" ]]; then
+            echo "Skipping signing key verification: remote publish not configured."
+            exit 0
+          fi
           SOURCE_GNUPGHOME="$(mktemp -d)"
           chmod 700 "$SOURCE_GNUPGHOME"
           trap 'rm -rf "$SOURCE_GNUPGHOME"' EXIT
@@ -248,7 +267,6 @@ jobs:
           fi
 
       - name: Publish to configured repository
-        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
           ORG_GRADLE_PROJECT_tramaiPublishReleaseUrl: ${{ env.TRAMAI_PUBLISH_RELEASE_URL }}
@@ -257,14 +275,22 @@ jobs:
           ORG_GRADLE_PROJECT_tramaiPublishPassword: ${{ env.TRAMAI_PUBLISH_PASSWORD }}
           ORG_GRADLE_PROJECT_signingKey: ${{ env.TRAMAI_SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingPassword: ${{ env.TRAMAI_SIGNING_PASSWORD }}
-        run: ./gradlew publish --no-configuration-cache
+        run: |
+          if [[ "$TRAMAI_CAN_REMOTE_PUBLISH" != "true" ]]; then
+            echo "Skipping publish: remote publish not configured."
+            exit 0
+          fi
+          ./gradlew publish --no-configuration-cache
 
       - name: Upload tagged release deployment to Central Portal
-        if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}
         env:
           TRAMAI_PUBLISH_USERNAME: ${{ env.TRAMAI_PUBLISH_USERNAME }}
           TRAMAI_PUBLISH_PASSWORD: ${{ env.TRAMAI_PUBLISH_PASSWORD }}
         run: |
+          if [[ "$TRAMAI_CAN_REMOTE_PUBLISH" != "true" ]]; then
+            echo "Skipping Central Portal upload: remote publish not configured."
+            exit 0
+          fi
           AUTH_TOKEN=$(printf '%s:%s' "$TRAMAI_PUBLISH_USERNAME" "$TRAMAI_PUBLISH_PASSWORD" | base64 | tr -d '\n')
           curl --fail-with-body --retry 3 --retry-delay 5 \
             -X POST \
