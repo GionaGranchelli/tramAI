@@ -23,7 +23,7 @@ This module bundles standard integrations natively:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-embedding:0.4.0")
+    implementation("dev.tramai:tramai-embedding:0.5.0")
 }
 ```
 

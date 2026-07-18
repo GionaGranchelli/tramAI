@@ -39,7 +39,7 @@ sonar {
 }
 
 val tramaiGroup = providers.gradleProperty("tramaiGroup").orElse("dev.tramai")
-val tramaiVersion = providers.gradleProperty("tramaiVersion").orElse("0.5.0-SNAPSHOT")
+val tramaiVersion = providers.gradleProperty("tramaiVersion").orElse("0.5.0")
 val tramaiProjectUrl = providers.gradleProperty("tramaiProjectUrl").orElse("https://github.com/GionaGranchelli/tramAI")
 val tramaiScmUrl = providers.gradleProperty("tramaiScmUrl").orElse("https://github.com/GionaGranchelli/tramAI.git")
 val tramaiScmConnection = providers.gradleProperty("tramaiScmConnection").orElse("scm:git:https://github.com/GionaGranchelli/tramAI.git")
@@ -860,7 +860,7 @@ tasks.register("verifySovereignRuntimeSignedBundle") {
     // (build-local by default). If someone passes -PtramaiPublishReleaseUrl pointing
     // to a remote server, the dependent publish tasks must never be triggered.
     val userProvidedUrl = providers.gradleProperty("tramaiPublishReleaseUrl").orNull
-    if (userProvidedUrl != null && !userProvidedUrl.startsWith("file:")) {
+    if (userProvidedUrl != null && userProvidedUrl.isNotEmpty() && !userProvidedUrl.startsWith("file:")) {
         throw GradleException(
             "verifySovereignRuntimeSignedBundle only supports file:// repositories for local " +
             "verification. Got: $userProvidedUrl. The sovereign bundle dry-run publishes " +
@@ -5925,90 +5925,87 @@ tasks.register("verifyWorkflowApiStabilityBoundary") {
     }
 }
 // ──────────────────────────────────────────────
-// Task: verifyDevelopmentVersionAlignment
+// Task: verifyVersionAlignment
 // ──────────────────────────────────────────────
 
-tasks.register("verifyDevelopmentVersionAlignment") {
+tasks.register("verifyVersionAlignment") {
     group = "verification"
-    description = "Verifies the repository version surfaces are aligned: 0.5.0-SNAPSHOT for master, 0.4.0 as latest stable."
+    description = "Verifies the repository version surfaces are aligned: 0.5.0 as release version."
 
     doLast {
-        // 1. gradle.properties contains 0.5.0-SNAPSHOT
+        val expectedVersion = "0.5.0"
+        val expectedReleaseDate = project.findProperty("tramaiReleaseDate") as? String
+            ?: error("tramaiReleaseDate must be set in gradle.properties")
+
+        // 1. gradle.properties contains exactly tramaiVersion=0.5.0
         val propsFile = file("gradle.properties")
         require(propsFile.isFile) { "Missing gradle.properties" }
         val propsText = propsFile.readText()
-        require(propsText.contains("tramaiVersion=0.5.0-SNAPSHOT")) {
-            "gradle.properties must set tramaiVersion=0.5.0-SNAPSHOT"
+        val committedVersion = propsText
+            .lineSequence()
+            .single { it.startsWith("tramaiVersion=") }
+            .substringAfter("=")
+            .trim()
+        require(committedVersion == expectedVersion) {
+            "gradle.properties must set tramaiVersion exactly to $expectedVersion, got '$committedVersion'"
         }
 
-        // 2. Build fallback is 0.5.0-SNAPSHOT
+        // 2. Build fallback is 0.5.0
         val buildFile = file("build.gradle.kts")
         val buildText = buildFile.readText()
-        require(buildText.contains("\"tramaiVersion\"")) {
-            "build.gradle.kts must reference tramaiVersion Gradle property"
-        }
-        require(buildText.contains("orElse(\"0.5.0-SNAPSHOT\")")) {
-            "build.gradle.kts fallback must be 0.5.0-SNAPSHOT"
+        require(buildText.contains("orElse(\"$expectedVersion\")")) {
+            "build.gradle.kts fallback must be $expectedVersion"
         }
 
-        // 3. CHANGELOG.md retains ## Unreleased
+        // 3. CHANGELOG.md has ## Unreleased present above a dated 0.5.0 section
         val changelog = file("CHANGELOG.md")
         val changelogText = changelog.readText()
         require(changelogText.contains("## Unreleased")) {
             "CHANGELOG.md must retain ## Unreleased heading"
         }
-
-        // 4. Unreleased section identifies target 0.5.0
         val unreleasedSection = changelogText.substringAfter("## Unreleased")
             .substringBefore("## ")
-        require(unreleasedSection.contains("Target release: TramAI 0.5.0")) {
-            "Unreleased section must identify target TramAI 0.5.0"
-        }
-        require(unreleasedSection.contains("Development version: 0.5.0-SNAPSHOT")) {
-            "Unreleased section must identify Development version 0.5.0-SNAPSHOT"
+        // After promotion, ## Unreleased is immediately followed by ## 0.5.0
+        val afterUnreleased = changelogText.substringAfter("## Unreleased")
+        require(afterUnreleased.contains("## $expectedVersion - $expectedReleaseDate")) {
+            "CHANGELOG.md must contain a dated $expectedVersion section after ## Unreleased"
         }
 
-        // 5. STATUS.md identifies 0.4.0 as latest stable
+        // 5. No active 0.5.0-SNAPSHOT references remain
+        val snapshotGradleCoordinate = Regex("""dev\.tramai:[a-z0-9-]+:0\.5\.0-SNAPSHOT""")
+        val snapshotMavenVersion = Regex("""<version>\s*0\.5\.0-SNAPSHOT\s*</version>""")
+        val snapshotVariable = Regex("""tramaiVersion\s*=\s*"0\.5\.0-SNAPSHOT"""")
+
+        // 6. 0.4.0 remains documented as the previous release where relevant
         val statusDoc = file("docs/STATUS.md")
         val statusText = statusDoc.readText()
         require(statusText.contains("0.4.0") && statusText.contains("Latest published release")) {
             "STATUS.md must identify 0.4.0 as latest published release"
         }
 
-        // 6. STATUS.md identifies 0.5.0-SNAPSHOT as current development
-        require(statusText.contains("0.5.0-SNAPSHOT") && statusText.contains("Current Development Train")) {
-            "STATUS.md must identify 0.5.0-SNAPSHOT as current development"
-        }
-
-        // 7. Roadmap identifies release train 0.5.0
+        // 7. The roadmap identifies the completed 0.5.0 train
         val roadmap = file("docs/POST-SOVEREIGNTY-ROADMAP.md")
         val roadmapText = roadmap.readText()
-        require(roadmapText.contains("Release train: TramAI 0.5.0")) {
-            "Roadmap must identify release train 0.5.0"
+        require(roadmapText.contains("Release train: TramAI $expectedVersion")) {
+            "Roadmap must identify release train $expectedVersion"
+        }
+        require(roadmapText.contains("$expectedVersion release")) {
+            "Roadmap must reference $expectedVersion release"
         }
         // 7b. Roadmap tables use valid Markdown (no line starting with ||)
         require(!roadmapText.lineSequence().any { it.trimStart().startsWith("||") }) {
             "Roadmap contains malformed Markdown table rows beginning with '||' — pipe prefixes must be a single |"
         }
 
-        // 8. Framework comparison uses 0.4.0 as latest tagged boundary
-        val comparisonDoc = file("docs/comparison/jvm-ai-frameworks.md")
-        require(comparisonDoc.isFile) {
-            "Missing JVM AI framework comparison document at ${comparisonDoc.absolutePath} — PR #196 is required"
+        // 8. Release notes and readiness documents exist
+        require(file("docs/releases/$expectedVersion-release-readiness.md").isFile) {
+            "Missing $expectedVersion release-readiness document"
         }
-        val comparisonText = comparisonDoc.readText()
-        require(comparisonText.contains("0.4.0 published")) {
-            "Comparison must use 0.4.0 as latest published release boundary"
+        require(file("docs/releases/sovereign-runtime-release-readiness.md").isFile) {
+            "Missing sovereign-runtime release-readiness document"
         }
 
-        // 9. Architecture overview no longer promises KSP in 0.4.0
-        val archDoc = file("docs/architecture/overview.md")
-        val archText = archDoc.readText()
-        require(!archText.contains("In `0.4.0`, the planned direction")) {
-            "Architecture overview must not promise KSP in 0.4.0 — 0.4.0 is already released"
-        }
-
-        // 10. Consumer docs use 0.4.0, not 0.3.1, for active dependency examples
+        // 9. Consumer docs use 0.5.0 for active coordinates (historical records excluded)
         val consumerDocs = listOf(
             "README.md",
             "docs/guides/getting-started.md",
@@ -6017,6 +6014,9 @@ tasks.register("verifyDevelopmentVersionAlignment") {
             "docs/guides/standalone-usage.md",
             "docs/guides/tutorial-invoice-analyzer.md",
             "docs/module-guide.md",
+            "docs/STATUS.md",
+            "docs/POST-SOVEREIGNTY-ROADMAP.md",
+            "docs/reference/releasing.md",
             "examples/README.md",
             "examples/support-agent/build.gradle.kts",
             "examples/kotlin-springboot-example/build.gradle.kts",
@@ -6031,14 +6031,10 @@ tasks.register("verifyDevelopmentVersionAlignment") {
         } else emptyList()
         val allConsumerDocs = consumerDocs + moduleDocs
 
-        val staleGradleCoordinate = Regex("""dev\.tramai:[a-z0-9-]+:0\.3\.1""")
-        val staleMavenVersion = Regex("""<version>\s*0\.3\.1\s*</version>""")
-        val staleVersionVariable = Regex("""tramaiVersion\s*=\s*"0\.3\.1"""")
-        val staleProjectVersion = Regex("""version\s*=\s*"0\.3\.1"""")
-
-        // Known historical files that intentionally reference 0.3.1
+        // Historical allowlist - old release records
         val historicalAllowlist = setOf(
             "docs/releases/CHANGELOG-0.3.1.md",
+            "docs/releases/CHANGELOG-0.4.0.md",
             "docs/guides/secure-defaults-migration.md",
             "docs/reference/release-0.1.0.md",
         )
@@ -6048,34 +6044,54 @@ tasks.register("verifyDevelopmentVersionAlignment") {
             if (!f.isFile) continue
             if (f.canonicalPath in historicalAllowlist.map { file(it).canonicalPath }) continue
             val content = f.readText()
-            require(!staleGradleCoordinate.containsMatchIn(content)) {
-                "Consumer doc $path still contains dev.tramai:*:0.3.1 dependency reference"
+
+            // No stale SNAPSHOT references in active docs
+            require(!snapshotGradleCoordinate.containsMatchIn(content)) {
+                "Consumer doc $path still contains dev.tramai:*:0.5.0-SNAPSHOT dependency reference"
             }
-            require(!staleMavenVersion.containsMatchIn(content)) {
-                "Consumer doc $path still contains Maven <version>0.3.1</version>"
+            require(!snapshotMavenVersion.containsMatchIn(content)) {
+                "Consumer doc $path still contains Maven <version>0.5.0-SNAPSHOT</version>"
             }
-            require(!staleVersionVariable.containsMatchIn(content)) {
-                "Consumer doc $path still contains tramaiVersion = \"0.3.1\""
+            require(!snapshotVariable.containsMatchIn(content)) {
+                "Consumer doc $path still contains tramaiVersion = \"0.5.0-SNAPSHOT\""
             }
-            require(!staleProjectVersion.containsMatchIn(content)) {
-                "Consumer doc $path still contains project version = \"0.3.1\""
+
+            // Reject any stale Gradle coordinates (dev.tramai:*:x.y.z where x.y.z != 0.5.0)
+            val gradleCoordinatePattern =
+                Regex("""dev\.tramai:[a-z0-9-]+:([0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?)""")
+            val staleGradleCoords = gradleCoordinatePattern.findAll(content)
+                .filter { it.groupValues[1] != expectedVersion }
+                .map { it.value }
+                .toList()
+            require(staleGradleCoords.isEmpty()) {
+                "Consumer doc $path contains stale TramAI Gradle coordinates: ${staleGradleCoords.joinToString()}"
+            }
+
+            // Reject any stale Maven versions in dev.tramai dependency blocks
+            val mavenDevTramaiDependency =
+                Regex("""<groupId>dev\.tramai</groupId>.*?<version>\s*([0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?)\s*</version>""", setOf(RegexOption.DOT_MATCHES_ALL))
+            val staleMvnVersions = mavenDevTramaiDependency.findAll(content)
+                .filter { it.groupValues[1] != expectedVersion }
+                .map { it.value }
+                .toList()
+            require(staleMvnVersions.isEmpty()) {
+                "Consumer doc $path contains stale TramAI Maven versions: ${staleMvnVersions.joinToString()}"
             }
         }
 
-        // 11. Historical 0.3.1 release records still exist
-        require(file("docs/releases/CHANGELOG-0.3.1.md").isFile) {
-            "Historical CHANGELOG-0.3.1.md must still exist"
+        // 10. No malformed Markdown tables or prohibited claims
+        require(!roadmapText.lineSequence().any { it.trimStart().startsWith("||") }) {
+            "Roadmap contains malformed Markdown table rows beginning with '||'"
         }
 
-        logger.lifecycle("Development version alignment verification complete.")
-        logger.lifecycle("  - gradle.properties: 0.5.0-SNAPSHOT")
-        logger.lifecycle("  - Build fallback: 0.5.0-SNAPSHOT")
-        logger.lifecycle("  - STATUS.md: 0.4.0 stable, 0.5.0-SNAPSHOT developing")
-        logger.lifecycle("  - CHANGELOG: ## Unreleased targets 0.5.0")
-        logger.lifecycle("  - Roadmap: release train 0.5.0")
-        logger.lifecycle("  - Comparison: 0.4.0 published baseline")
-        logger.lifecycle("  - Architecture: no stale KSP promise")
-        logger.lifecycle("  - Consumer docs: no stale 0.3.1 dependency references")
+        logger.lifecycle("Version alignment verification complete.")
+        logger.lifecycle("  - gradle.properties: $expectedVersion")
+        logger.lifecycle("  - Build fallback: $expectedVersion")
+        logger.lifecycle("  - STATUS.md: 0.4.0 stable, $expectedVersion current")
+        logger.lifecycle("  - CHANGELOG: ## Unreleased + dated $expectedVersion section")
+        logger.lifecycle("  - Roadmap: release train $expectedVersion")
+        logger.lifecycle("  - Release readiness document: present")
+        logger.lifecycle("  - Consumer docs: no stale SNAPSHOT references")
         logger.lifecycle("  - Historical records: preserved")
     }
 }
@@ -6154,10 +6170,118 @@ tasks.register("verifyToolGovernanceExample") {
 }
 
 // ──────────────────────────────────────────────
+// Task: verify050ReleaseReadiness
+// ──────────────────────────────────────────────
+
+tasks.register("verify050ReleaseReadiness") {
+    group = "verification"
+    description = "Aggregates all 0.5.0 release-readiness verification tasks."
+    notCompatibleWithConfigurationCache("Release readiness aggregates execution-time verification tasks.")
+
+    dependsOn(
+        "verifyVersionAlignment",
+        "verifyReleaseReadiness",
+        "verifyWorkflowApiStabilityBoundary",
+        "verifySovereignRuntimeApiBoundary",
+        "verifyToolGovernanceExample",
+    )
+
+    doLast {
+        val rootDir = rootProject.layout.projectDirectory.asFile
+        val expectedVersion = "0.5.0"
+        val expectedReleaseDate = project.findProperty("tramaiReleaseDate") as? String
+            ?: error("tramaiReleaseDate must be set in gradle.properties")
+
+        // 0.5.0 release-readiness document exists
+        val releaseReadinessDoc = rootDir.resolve("docs/releases/$expectedVersion-release-readiness.md")
+        require(releaseReadinessDoc.isFile) {
+            "Missing $expectedVersion release-readiness document at ${releaseReadinessDoc.path}"
+        }
+
+        // CHANGELOG has 0.5.0 section
+        val changelog = rootDir.resolve("CHANGELOG.md")
+        val changelogText = changelog.readText()
+        require(changelogText.contains("## $expectedVersion - $expectedReleaseDate")) {
+            "CHANGELOG.md must contain ## $expectedVersion - $expectedReleaseDate section"
+        }
+
+        // STATUS and roadmap state are correct
+        val statusDoc = rootDir.resolve("docs/STATUS.md")
+        val statusText = statusDoc.readText()
+        require(statusText.contains("0.5.0 release candidate prepared")) {
+            "STATUS.md must mention 0.5.0 release candidate prepared"
+        }
+
+        val roadmap = rootDir.resolve("docs/POST-SOVEREIGNTY-ROADMAP.md")
+        val roadmapText = roadmap.readText()
+        require(roadmapText.contains("Release prepared — publication pending")) {
+            "Roadmap must indicate release prepared — publication pending"
+        }
+
+        // Publish workflow has tag/version matching
+        val publishWorkflow = rootDir.resolve(".github/workflows/publish.yml")
+        val publishText = publishWorkflow.readText()
+        require(publishText.contains("Verify version alignment") || publishText.contains("version alignment")) {
+            "Publish workflow must contain version alignment check"
+        }
+
+        // No absolute /home/... links in release docs (allow placeholder /home/...)
+        val localHomePath = Regex("""/home/(?!\.\.\.)[^/\s]+/""")
+        val releaseDocs = listOf(
+            rootDir.resolve("docs/reference/release-validation.md"),
+            rootDir.resolve("docs/reference/releasing.md"),
+            rootDir.resolve("docs/releases/$expectedVersion-release-readiness.md"),
+            rootDir.resolve("docs/releases/sovereign-runtime-release-readiness.md"),
+        )
+        for (doc in releaseDocs) {
+            if (!doc.isFile) continue
+            val docText = doc.readText()
+            require(!localHomePath.containsMatchIn(docText)) {
+                "${doc.name} must not contain absolute /home/<user>/ paths — use repository-relative links"
+            }
+        }
+
+        // No duplicate PR entries in the Added section
+        val addedSection = changelogText.substringAfter("### Added").substringBefore("### Changed")
+        val prPattern = Regex("""\(PR #(\d+)\)""")
+        val prCounts = prPattern.findAll(addedSection).map { it.groupValues[1] }.groupingBy { it }.eachCount()
+        val duplicates = prCounts.filter { it.value > 1 }
+        require(duplicates.isEmpty()) {
+            "Duplicate PR entries in Added section: ${duplicates.keys.joinToString(", ") { "PR #$it appears ${duplicates[it]} times" }}"
+        }
+
+        // No stale "no DB outbox" or "single-node only" claims in sovereign-runtime-release-readiness.md
+        val sovereignReadiness = rootDir.resolve("docs/releases/sovereign-runtime-release-readiness.md")
+        if (sovereignReadiness.isFile) {
+            val sovereignText = sovereignReadiness.readText()
+            require(!sovereignText.contains("Database persistence is future work")) {
+                "sovereign-runtime-release-readiness.md must not claim 'Database persistence is future work'"
+            }
+            require(!sovereignText.contains("No DB-backed outbox")) {
+                "sovereign-runtime-release-readiness.md must not claim 'No DB-backed outbox'"
+            }
+            require(!sovereignText.contains("worker assumes single-node operation")) {
+                "sovereign-runtime-release-readiness.md must not claim 'worker assumes single-node operation'"
+            }
+        }
+
+        logger.lifecycle("verify050ReleaseReadiness: all checks passed.")
+        logger.lifecycle("  - Version alignment: verified")
+        logger.lifecycle("  - Release readiness: verified")
+        logger.lifecycle("  - Workflow API stability boundary: verified")
+        logger.lifecycle("  - Sovereign runtime API boundary: verified")
+        logger.lifecycle("  - Tool governance example: verified")
+        logger.lifecycle("  - 0.5.0 release-readiness doc: verified")
+        logger.lifecycle("  - CHANGELOG: 0.5.0 section verified")
+        logger.lifecycle("  - STATUS/roadmap: release-ready state verified")
+        logger.lifecycle("  - Publish workflow: version alignment check verified")
+        logger.lifecycle("  - Release docs: no absolute paths or stale claims")
+    }
+}
+
+// ──────────────────────────────────────────────
 // Task: check
 
 tasks.named("check") {
-    dependsOn("verifyWorkflowApiStabilityBoundary")
-    dependsOn("verifyDevelopmentVersionAlignment")
-    dependsOn("verifyToolGovernanceExample")
+    dependsOn("verify050ReleaseReadiness")
 }

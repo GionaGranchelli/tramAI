@@ -4,7 +4,7 @@
 > **Module type:** `framework-adapter`
 > **Source files:** 9 — `EnableTramai.kt`, `TramaiAutoConfiguration.kt`, `TramaiProperties.kt`, `AiServiceBeanDefinitionRegistrar.kt`, `AiServiceFactoryBean.kt`, `AiToolScanner.kt`, `secret/VaultSecretValueResolver.kt`, `secret/AwsSecretsManagerSecretValueResolver.kt`, `secret/AwsSecretsManagerLookupClient.kt`
 > **Test files:** 2 — `VaultSecretValueResolverTest.kt`, `AwsSecretsManagerSecretValueResolverTest.kt`
-> **Build:** `dev.tramai:tramai-spring:0.4.0`
+> **Build:** `dev.tramai:tramai-spring:0.5.0`
 > **Depends on:** `tramai-core`, `tramai-engine`, `tramai-structured`, `tramai-standalone`, plus one or more provider modules (`tramai-openai`, `tramai-anthropic`, `tramai-ollama`)
 
 ---
@@ -45,7 +45,7 @@ Don't use this module when:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation(platform("dev.tramai:tramai-bom:0.4.0"))
+    implementation(platform("dev.tramai:tramai-bom:0.5.0"))
     implementation("dev.tramai:tramai-spring")
     implementation("dev.tramai:tramai-openai") // or tramai-anthropic, tramai-ollama
 }
@@ -58,7 +58,7 @@ dependencies {
     <dependency>
       <groupId>dev.tramai</groupId>
       <artifactId>tramai-bom</artifactId>
-      <version>0.4.0</version>
+      <version>0.5.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>

@@ -113,11 +113,11 @@ Summary:
 
 ## Current Development Train
 
-The `master` branch is developing **TramAI 0.5.0** and publishes local development artifacts as `0.5.0-SNAPSHOT`.
+The `master` branch has been prepared for **TramAI 0.5.0** release.
 
 The 0.5.0 train contains the post-sovereignty roadmap: workflow API stability, structured-output hardening, workflow and approval ergonomics, runtime evidence export, tool governance, and product adoption work.
 
-### Implemented on master, unreleased in 0.5.0
+### Implemented in 0.5.0
 
 - Workflow API stability boundary
 - Structured-output lifecycle and repair hardening
@@ -130,9 +130,11 @@ The 0.5.0 train contains the post-sovereignty roadmap: workflow API stability, s
 - Tool-governance usage example
 - Product positioning and JVM framework comparison
 
-### Still incomplete for 0.5.0
+### 0.5.0 Release Status
 
-- Final 0.5.0 release readiness
+- 0.5.0 release candidate prepared — publication pending
+- Remote publication pending tag and Central Portal acceptance
+- 0.4.0 remains the latest confirmed published version until publication completes
 
 ## Sovereign Runtime
 

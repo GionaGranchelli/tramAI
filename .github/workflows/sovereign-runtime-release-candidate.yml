@@ -49,9 +49,11 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Resolve version (single source of truth)
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [[ -n "${{ github.event.inputs.version }}" ]]; then
-            RESOLVED_VERSION="${{ github.event.inputs.version }}"
+          if [[ -n "$INPUT_VERSION" ]]; then
+            RESOLVED_VERSION="$INPUT_VERSION"
           else
             RESOLVED_VERSION="$(grep '^tramaiVersion=' gradle.properties | cut -d= -f2)"
           fi
@@ -59,6 +61,13 @@ jobs:
             echo "::error::Could not resolve TramAI version from gradle.properties or workflow input."
             exit 1
           fi
+
+          # Reject multiline / control-character injection before persisting
+          if [[ "$RESOLVED_VERSION" == *$'\n'* || "$RESOLVED_VERSION" == *$'\r'* ]]; then
+            echo "::error::Version must be a single-line value"
+            exit 1
+          fi
+
           echo "TRAMAI_VERSION=${RESOLVED_VERSION}" >> "$GITHUB_ENV"
           echo "ORG_GRADLE_PROJECT_tramaiVersion=${RESOLVED_VERSION}" >> "$GITHUB_ENV"
           echo "Resolved version: ${RESOLVED_VERSION}"

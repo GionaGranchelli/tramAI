@@ -57,12 +57,18 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Resolve version and flags
+        env:
+          # Map workflow_dispatch inputs to env vars to avoid shell injection
+          # from directly interpolated ${{ github.event.inputs.* }} expressions.
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_PUBLISH_MODE: ${{ github.event.inputs.publishMode }}
+          INPUT_CONFIRM_RELEASE: ${{ github.event.inputs.confirmRemoteRelease }}
         run: |
           # --- Resolve version once (single source of truth) ---
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             TRAMAI_VERSION_RESOLVED="${GITHUB_REF_NAME#v}"
-          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
-            TRAMAI_VERSION_RESOLVED="${{ github.event.inputs.version }}"
+          elif [[ -n "$INPUT_VERSION" ]]; then
+            TRAMAI_VERSION_RESOLVED="$INPUT_VERSION"
           else
             TRAMAI_VERSION_RESOLVED="$(grep '^tramaiVersion=' gradle.properties | cut -d= -f2)"
           fi
@@ -70,6 +76,21 @@ jobs:
             echo "::error::Could not resolve TramAI version from gradle.properties or tag or input."
             exit 1
           fi
+
+          # --- Validate version before persisting to GITHUB_ENV ---
+          # Must match the committed tramaiVersion in gradle.properties
+          COMMITTED_VERSION="$(grep '^tramaiVersion=' gradle.properties | cut -d= -f2)"
+          if [[ "$TRAMAI_VERSION_RESOLVED" != "$COMMITTED_VERSION" ]]; then
+            echo "::error::Resolved version $TRAMAI_VERSION_RESOLVED does not match committed version $COMMITTED_VERSION"
+            exit 1
+          fi
+
+          # Reject multiline / control-character injection
+          if [[ "$TRAMAI_VERSION_RESOLVED" == *$'\n'* || "$TRAMAI_VERSION_RESOLVED" == *$'\r'* ]]; then
+            echo "::error::Version must be a single-line value"
+            exit 1
+          fi
+
           echo "TRAMAI_VERSION=${TRAMAI_VERSION_RESOLVED}" >> "$GITHUB_ENV"
 
           # --- IS_RELEASE_VERSION derived from resolved version ---
@@ -86,12 +107,17 @@ jobs:
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             PUBLISH_MODE="remote-release"
           else
-            PUBLISH_MODE="${{ github.event.inputs.publishMode || 'local-dry-run' }}"
+            PUBLISH_MODE="${INPUT_PUBLISH_MODE:-local-dry-run}"
+          fi
+          # Explicit allowlist for publish mode to guard against unexpected input
+          if [[ "$PUBLISH_MODE" != "local-dry-run" && "$PUBLISH_MODE" != "remote-release" ]]; then
+            echo "::error::Invalid publish mode: $PUBLISH_MODE. Must be local-dry-run or remote-release."
+            exit 1
           fi
           echo "TRAMAI_PUBLISH_MODE=${PUBLISH_MODE}" >> "$GITHUB_ENV"
 
           # --- Remote release confirmation ---
-          if [[ "${{ github.event.inputs.confirmRemoteRelease }}" == "RELEASE" ]]; then
+          if [[ "$INPUT_CONFIRM_RELEASE" == "RELEASE" ]]; then
             REMOTE_CONFIRMED="true"
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             REMOTE_CONFIRMED="true"
@@ -116,12 +142,29 @@ jobs:
           echo "::error::Required: non-SNAPSHOT release version, confirmRemoteRelease=RELEASE, publish credentials (URL/username/password), signing credentials, SonarQube secrets."
           exit 1
 
+      - name: Verify version alignment
+        run: |
+          COMMITTED_VERSION="$(
+            grep '^tramaiVersion=' gradle.properties | cut -d= -f2
+          )"
+          if [[ "$TRAMAI_VERSION" != "$COMMITTED_VERSION" ]]; then
+            echo "::error::Requested release version $TRAMAI_VERSION does not match committed version $COMMITTED_VERSION"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            TAG="$GITHUB_REF_NAME"
+            if [[ "$TAG" != "v${COMMITTED_VERSION}" ]]; then
+              echo "::error::Tag $TAG does not match v$COMMITTED_VERSION"
+              exit 1
+            fi
+          fi
+
       - name: Verify build (local-dry-run)
         if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH != 'true' }}
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
         run: |
-          ./gradlew verifyReleaseReadiness --no-configuration-cache
+          ./gradlew verify050ReleaseReadiness --no-configuration-cache
           ./gradlew verifySovereignRuntimePublication --no-configuration-cache
           ./gradlew verifySovereignRuntimeSignedBundle --no-configuration-cache
           ./gradlew publishToMavenLocal --no-configuration-cache
@@ -132,7 +175,7 @@ jobs:
         if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}
         env:
           ORG_GRADLE_PROJECT_tramaiVersion: ${{ env.TRAMAI_VERSION }}
-        run: ./gradlew verifyReleaseReadiness --no-configuration-cache
+        run: ./gradlew verify050ReleaseReadiness --no-configuration-cache
 
       - name: Run SonarQube analysis
         if: ${{ env.TRAMAI_CAN_REMOTE_PUBLISH == 'true' }}

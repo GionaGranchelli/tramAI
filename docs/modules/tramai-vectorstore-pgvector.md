@@ -13,7 +13,7 @@ This module provides a concrete implementation of `VectorStore` that connects to
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-vectorstore-pgvector:0.4.0")
+    implementation("dev.tramai:tramai-vectorstore-pgvector:0.5.0")
     // Depending on your stack, you'll need a JDBC driver (e.g. org.postgresql:postgresql)
 }
 ```

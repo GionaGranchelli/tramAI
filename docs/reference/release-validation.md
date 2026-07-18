@@ -6,35 +6,60 @@ It is the public credibility summary for the current release line, with older re
 
 ## Validation Snapshot
 
-Validated on: `2026-04-21`
+Validated on: `2026-07-16`
 
 The repository has been exercised through these concrete paths:
 
-- root publication metadata generation and local Maven publication
-- local signed publication to a file-based Maven repository
-- Spring Boot example consumption from `mavenLocal()`
-- GraalVM native-image compilation and binary execution for a standalone TramAI service
-- OpenTelemetry metrics export over OTLP HTTP
+- 0.5.0 release-readiness task verification
+- signed local publication to a file-based Maven repository
+- sovereign consumer dependency closure verification
+- release artifact manifest generation and verification
+- evidence index generation
+- sovereign evidence bundle verification
+- tool-governance example test execution
+- Spring Boot consumer smoke test
 
 ## Concrete Proof Points
 
-### Local Publication And Consumer Resolution
+### 0.5.0 Release Readiness
 
-The release verification path publishes all TramAI modules to `mavenLocal()` and confirms that the Spring example resolves and uses those published coordinates.
+```bash
+./gradlew verify050ReleaseReadiness --no-configuration-cache --rerun-tasks
+```
+
+This aggregates:
+- version alignment checks (gradle.properties, build fallback, CHANGELOG, roadmap, consumer docs)
+- release readiness checks (publication metadata, published artifacts, observability docs)
+- workflow API stability boundary verification
+- sovereign runtime API boundary verification
+- tool-governance example existence
+- release-readiness document presence
+- CHANGELOG 0.5.0 section presence
+- STATUS and roadmap state correctness
+- publish workflow version alignment check
+- no absolute /home/... paths in release docs
+- no stale "no DB outbox" or "single-node only" claims in sovereign-runtime-release-readiness.md
+
+### Local Publication and Consumer Resolution
+
+The release verification path publishes all TramAI modules to a file-based Maven repository and confirms that the consumer smoke example resolves from the dedicated verification repository.
 
 Relevant commands:
 
 ```bash
 ./gradlew verifyPublicationMetadata
 ./gradlew verifyPublishedLocalArtifacts
-./gradlew -p examples/kotlin-springboot-example test
+./gradlew verifySovereignRuntimePublication
+./gradlew verifySovereignRuntimeSignedBundle
+./gradlew -p examples/sovereign-runtime-consumer-smoke test
 ```
 
 What this proves:
 
 - every publishable module produces a POM with release metadata
 - library modules publish JAR, sources JAR, javadoc JAR, POM, and Gradle module metadata
-- the example application can consume the published modules as a real downstream project
+- the consumer smoke application resolves modules from the dedicated verification repository
+- `dev.tramai` dependencies are resolved from the verification repository, not `mavenLocal` or `mavenCentral`
 
 ### Signed Artifact Proof
 
@@ -43,8 +68,7 @@ The release path was also exercised through a local signed publish into a file-b
 Validated command:
 
 ```bash
-./gradlew verifySignedPublicationBundle \
-  -PtramaiPublishReleaseUrl=file://$PWD/build/release-verification-repo \
+./gradlew verifySovereignRuntimeSignedBundle \
   -PsigningKey="<ascii-armored-test-key>" \
   -PsigningPassword="<test-key-password>" \
   --no-configuration-cache
@@ -52,58 +76,54 @@ Validated command:
 
 What this proves:
 
-- every publishable module can be signed by the Gradle release path
+- every publishable sovereign module can be signed by the Gradle release path
 - signed POMs and module metadata are published
 - signed binary, sources, and javadoc JARs are published for library modules
 
-### Native Image Proof
-
-The repository now includes a minimal native smoke example under `examples/kotlin-native-smoke-example`.
-
-Validated commands:
+### Sovereign Evidence Bundle Verification
 
 ```bash
-JAVA_HOME=/home/gionag/.sdkman/candidates/java/25.0.2-graalce ./gradlew -p examples/kotlin-native-smoke-example nativeSmokeCompile
-./examples/kotlin-native-smoke-example/build/native/nativeSmoke/tramai-native-smoke
+./gradlew verifySovereignLabEvidenceBundle --no-configuration-cache --rerun-tasks
 ```
 
-Observed runtime output:
+This validates the full evidence bundle lifecycle: scaffold verification, manifest generation, digest verification, tamper rejection, and re-finalization.
 
-```text
-native-smoke-ok:native-smoke-model
-```
-
-What this proves:
-
-- TramAI proxy metadata generation is sufficient for a real GraalVM native binary
-- a compiled native executable can instantiate and invoke a real TramAI `@AiService`
-
-### Observability Export Proof
-
-The observability module now includes OTLP HTTP smoke coverage in:
-
-- [OpenTelemetryOperationObserverTest.kt](/home/gionag/Development/aurora/tramai-observability/src/test/kotlin/dev/tramai/observability/OpenTelemetryOperationObserverTest.kt)
-
-Validated command:
+### Tool-Governance Example
 
 ```bash
-./gradlew :tramai-observability:test --tests 'dev.tramai.observability.OpenTelemetryOperationObserverTest'
+./gradlew :examples:tool-governance:test --no-configuration-cache --rerun-tasks
 ```
 
-What this proves:
+This proves that the governed tool usage example compiles and passes all tests.
 
-- TramAI metrics are not only asserted in memory
-- the metrics path is exercised through a collector-facing OTLP HTTP exporter
+### Spring Boot Consumer Smoke
+
+```bash
+./gradlew -p examples/kotlin-springboot-example smokeTest --no-configuration-cache
+```
+
+This proves that the Spring Boot example consumer resolves and uses the published modules.
 
 ## What This Does Not Yet Prove
 
 This validation note does not claim that the following are complete:
 
 - real-provider validation with live external credentials during the release cut
+- Maven Central publication (requires post-merge tag and Central Portal acceptance)
+- key rotation
+- production-grade reviewer UI
+- governed MCP connector
+- evidence truth validation
 
-The Maven Central publication path and release-key signing have been exercised successfully for the current published release line.
+## Current Non-claims
 
-Remaining operator-driven confidence work is still tracked in:
+TramAI 0.5.0 does not:
 
-- [TASK-012](../board/tasks/task-012.md)
-- [TASK-013](../board/tasks/task-013.md)
+- Certify production readiness for every deployment configuration
+- Provide legal compliance, regulatory compliance, or EU AI Act conformity
+- Guarantee security certification (SOC2, ISO 27001)
+- Validate evidence truth — only structural tamper-evidence is verified
+- Provide benchmark guarantees — benchmarks are diagnostic only
+- Replace an audit or compliance review
+- Provide a governed MCP connector
+- Provide key rotation

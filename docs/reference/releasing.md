@@ -8,8 +8,8 @@ It complements the historical release notes and validation pages under `docs/ref
 
 Before cutting a release:
 
-- `./gradlew verifyReleaseReadiness` passes
-- `./gradlew -p examples/kotlin-springboot-example test` passes
+- `./gradlew verify050ReleaseReadiness` passes (aggregates version alignment, metadata, artifact, and API stability guards)
+- `./gradlew -p examples/kotlin-springboot-example smokeTest` passes
 - the board and specs reflect the actual repository state
 - the changelog is updated for the version being released
 
@@ -33,7 +33,7 @@ The publish workflow has been hardened against accidental remote publishing:
 
 Manual workflow runs default to `local-dry-run`. In this mode, the workflow runs:
 
-- `verifyReleaseReadiness`
+- `verify050ReleaseReadiness` (aggregates version alignment, metadata, artifact, and API stability guards)
 - `verifySovereignRuntimePublication`
 - `verifySovereignRuntimeSignedBundle`
 - `publishToMavenLocal`
@@ -122,7 +122,7 @@ That means the first live release flow is:
 Useful commands:
 
 ```bash
-./gradlew verifyReleaseReadiness
+./gradlew verify050ReleaseReadiness
 ./gradlew verifySovereignRuntimePublication
 ./gradlew -p examples/sovereign-runtime-consumer-smoke test
 ./gradlew -p examples/kotlin-springboot-example test
@@ -258,7 +258,7 @@ The workflow does **not** trigger on tags. It is a pre-publish validation gate, 
 **What it runs:**
 
 - `./gradlew test --rerun-tasks` — full test suite
-- `./gradlew verifyReleaseReadiness` — release metadata and artifact validation
+- `./gradlew verify050ReleaseReadiness` — release metadata and artifact validation
 - `./gradlew verifySovereignRuntimePublication` — local sovereign runtime publishability
 - `./gradlew verifySovereignRuntimeSignedBundle` — signed bundle dry-run
 - `./gradlew -p examples/sovereign-runtime-consumer-smoke test` — consumer-resolution smoke

@@ -4,7 +4,7 @@
 > **Module type:** `provider`
 > **Source files:** 1 file — `OllamaProvider.kt` (156 LOC)
 > **Test files:** 2 — `OllamaProviderTest.kt`, `NativeImageSmokeTest.kt`
-> **Build:** `dev.tramai:tramai-ollama:0.4.0`
+> **Build:** `dev.tramai:tramai-ollama:0.5.0`
 
 ---
 
@@ -36,7 +36,7 @@ Don't use this module when:
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.tramai:tramai-ollama:0.4.0")
+    implementation("dev.tramai:tramai-ollama:0.5.0")
 }
 ```
 
@@ -45,7 +45,7 @@ dependencies {
 <dependency>
     <groupId>dev.tramai</groupId>
     <artifactId>tramai-ollama</artifactId>
-    <version>0.4.0</version>
+    <version>0.5.0</version>
 </dependency>
 ```
 

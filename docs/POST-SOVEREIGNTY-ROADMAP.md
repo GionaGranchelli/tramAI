@@ -3,7 +3,7 @@
 > **Status:** Active roadmap — defines the next phase after Sovereign Lab Evidence Handoff v1.
 >
 > Release train: TramAI 0.5.0  
-> Development version: 0.5.0-SNAPSHOT  
+> Release status: Release candidate prepared — publication pending  
 > Baseline: TramAI 0.4.0 completed and published the Sovereign Runtime and Sovereign Evidence Handoff milestones.
 
 ---
@@ -435,12 +435,12 @@ Move from optional signature verification to a more formal signing/attestation m
 
 ## Remaining 0.5.0 Sequence
 
-The following work remains for the 0.5.0 development train before a release candidate can be declared:
+The 0.5.0 release candidate has been prepared and is pending publication:
 
 | Item | Area | Description | Status |
 |------|------|-------------|--------|
 | Tool-governance usage example | Documentation | Add tool governance usage examples | ✅ Complete — PR #201 |
-| Final 0.5.0 release readiness | Release | Declare RC, verify all acceptance criteria, publish | 🔧 Pending |
+| Final 0.5.0 release readiness | Release | Declare RC, verify all acceptance criteria, publish | 🟡 Release prepared — publication pending |
 
 ---
 
@@ -513,4 +513,4 @@ Each phase epic moves from roadmap to implementation when:
 
 ---
 
-*Last updated: 2026-07-12*
+*Last updated: 2026-07-16*
