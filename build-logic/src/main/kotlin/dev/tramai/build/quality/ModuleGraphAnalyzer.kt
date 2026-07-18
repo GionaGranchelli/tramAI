@@ -1,9 +1,7 @@
 package dev.tramai.build.quality
 
 import org.gradle.api.Project
-import org.gradle.api.artifacts.Configuration
 import org.gradle.api.artifacts.ProjectDependency
-import java.io.File
 
 /**
  * Reads the Gradle project model and produces the module dependency graph.
@@ -12,8 +10,8 @@ class ModuleGraphAnalyzer(private val rootProject: Project) {
 
     data class GraphResult(
         val modules: List<ModuleInfo>,
-        val edges: List<DependencyEdge>,
-        val cycles: List<List<String>>
+        val moduleDependencies: DependencyGraphData,
+        val moduleDependenciesTest: DependencyGraphData
     )
 
     fun analyze(): GraphResult {
@@ -27,38 +25,53 @@ class ModuleGraphAnalyzer(private val rootProject: Project) {
             )
         }
 
-        val edges = mutableListOf<DependencyEdge>()
+        val productionConfigurations = setOf("api", "implementation", "compileOnly", "runtimeOnly")
+        val testConfigurations = setOf("testApi", "testImplementation", "testCompileOnly", "testRuntimeOnly")
+        val productionEdges = mutableListOf<DependencyEdge>()
+        val testEdges = mutableListOf<DependencyEdge>()
+
         for (proj in projects) {
             for (config in proj.configurations) {
-                if (!config.name.contains("implementation", ignoreCase = true) &&
-                    !config.name.contains("api", ignoreCase = true) &&
-                    !config.name.contains("compileOnly", ignoreCase = true) &&
-                    !config.name.contains("runtimeOnly", ignoreCase = true)) {
-                    continue
-                }
-                val scope = when {
-                    config.name.contains("api", ignoreCase = true) -> "api"
-                    config.name.contains("implementation", ignoreCase = true) -> "implementation"
-                    config.name.contains("compileOnly", ignoreCase = true) -> "compileOnly"
-                    config.name.contains("runtimeOnly", ignoreCase = true) -> "runtimeOnly"
-                    else -> "implementation"
-                }
+                if (config.name !in productionConfigurations && config.name !in testConfigurations) continue
+
                 try {
                     for (dep in config.dependencies) {
                         if (dep is ProjectDependency) {
-                            val targetName = dep.name ?: dep.group ?: "unknown"
-                            edges.add(DependencyEdge(from = proj.name, to = targetName, scope = scope))
+                            val edge = DependencyEdge(
+                                from = proj.path,
+                                to = dep.dependencyProject.path,
+                                scope = config.name
+                            )
+                            if (config.name in productionConfigurations) {
+                                productionEdges.add(edge)
+                            } else {
+                                testEdges.add(edge)
+                            }
                         }
                     }
                 } catch (_: Exception) {
-                    // Some configurations may not be resolvable at analysis time
+                    // Some lazily-created configurations are not inspectable at analysis time.
                 }
             }
         }
 
-        val cycles = findCycles(modules.map { it.name }, edges)
+        val modulePaths = modules.map { it.path }
+        val distinctProductionEdges = productionEdges.distinct()
+        val distinctTestEdges = testEdges.distinct()
 
-        return GraphResult(modules, edges.distinct(), cycles)
+        return GraphResult(
+            modules = modules,
+            moduleDependencies = DependencyGraphData(
+                modules = modulePaths,
+                edges = distinctProductionEdges,
+                cycles = findCycles(modulePaths, distinctProductionEdges)
+            ),
+            moduleDependenciesTest = DependencyGraphData(
+                modules = modulePaths,
+                edges = distinctTestEdges,
+                cycles = findCycles(modulePaths, distinctTestEdges)
+            )
+        )
     }
 
     private fun classifyLayer(project: Project): String {
@@ -77,7 +90,7 @@ class ModuleGraphAnalyzer(private val rootProject: Project) {
             name in listOf("tramai-rag", "tramai-memory", "tramai-memory-store", "tramai-scheduler",
                 "tramai-embedding") -> "higher-capabilities"
             name.startsWith("tramai-vectorstore") -> "higher-capabilities"
-            name.startsWith("examples:") -> "applications-examples"
+            project.path.startsWith(":examples:") -> "applications-examples"
             name == "tramai-testing" -> "testing-support"
             else -> "unknown"
         }
@@ -169,10 +182,10 @@ class ModuleGraphAnalyzer(private val rootProject: Project) {
 
         for (mod in graph.modules) {
             val color = layerColors[mod.layer] ?: "white"
-            sb.appendLine("  \"${mod.name}\" [fillcolor=$color, label=\"${mod.name}\\n(${mod.layer})\"];")
+            sb.appendLine("  \"${mod.path}\" [fillcolor=$color, label=\"${mod.path}\\n(${mod.layer})\"];")
         }
 
-        for (edge in graph.edges) {
+        for (edge in graph.moduleDependencies.edges) {
             sb.appendLine("  \"${edge.from}\" -> \"${edge.to}\" [label=\"${edge.scope}\"];")
         }
 
@@ -183,8 +196,10 @@ class ModuleGraphAnalyzer(private val rootProject: Project) {
     fun generateMermaid(graph: GraphResult): String {
         val sb = StringBuilder()
         sb.appendLine("graph TD")
-        val safeNames = graph.modules.associate { it.name to it.name.replace("-", "_").replace(":", "_") }
-        for (edge in graph.edges) {
+        val safeNames = graph.modules.associate {
+            it.path to it.path.removePrefix(":").replace("-", "_").replace(":", "_")
+        }
+        for (edge in graph.moduleDependencies.edges) {
             sb.appendLine("  ${safeNames[edge.from]} --> ${safeNames[edge.to]}")
         }
         return sb.toString()

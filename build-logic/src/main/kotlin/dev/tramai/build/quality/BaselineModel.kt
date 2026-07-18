@@ -30,6 +30,8 @@ data class BaselineIdentity(
     @JsonProperty("repository") val repository: String = "GionaGranchelli/tramAI",
     @JsonProperty("releaseTag") val releaseTag: String = "v0.5.0",
     @JsonProperty("commitSha") val commitSha: String = "",
+    @JsonProperty("baselineCommitSha") val baselineCommitSha: String = "",
+    @JsonProperty("measuredCommitSha") val measuredCommitSha: String = "",
     @JsonProperty("commitTimestamp") val commitTimestamp: String = "",
     @JsonProperty("tramaiVersion") val tramaiVersion: String = "0.5.0",
     @JsonProperty("toolchain") val toolchain: ToolchainInfo = ToolchainInfo()
@@ -46,7 +48,8 @@ data class ToolchainInfo(
 @JsonPropertyOrder(alphabetic = true)
 data class StructuralBaseline(
     @JsonProperty("modules") val modules: List<ModuleInfo> = emptyList(),
-    @JsonProperty("dependencyGraph") val dependencyGraph: DependencyGraphData = DependencyGraphData(),
+    @JsonProperty("moduleDependencies") val moduleDependencies: DependencyGraphData = DependencyGraphData(),
+    @JsonProperty("moduleDependenciesTest") val moduleDependenciesTest: DependencyGraphData = DependencyGraphData(),
     @JsonProperty("sourceMetrics") val sourceMetrics: SourceMetricsData = SourceMetricsData(),
     @JsonProperty("structuralHotspots") val structuralHotspots: StructuralHotspots = StructuralHotspots()
 )
@@ -101,6 +104,7 @@ data class SourceTotals(
 data class StructuralHotspots(
     val largestProductionFiles: List<StructuralHotspot> = emptyList(),
     val largestTestFiles: List<StructuralHotspot> = emptyList(),
+    val largestBuildFiles: List<StructuralHotspot> = emptyList(),
     val largestClasses: List<StructuralHotspot> = emptyList(),
     val mostFunctions: List<StructuralHotspot> = emptyList(),
     val longestFunctions: List<StructuralHotspot> = emptyList(),
@@ -152,7 +156,9 @@ data class TestQualityBaseline(
 data class TestPerformanceData(
     val byModule: Map<String, ModuleTestPerformance> = emptyMap(),
     val slowestClasses: List<TestTiming> = emptyList(),
-    val slowestTests: List<TestTiming> = emptyList()
+    val slowestTests: List<TestTiming> = emptyList(),
+    val totalDurationMs: Long = 0,
+    val totalTestCount: Int = 0
 )
 
 data class ModuleTestPerformance(
@@ -171,6 +177,8 @@ data class TestTiming(
 )
 
 data class CoverageData(
+    val status: String = "pending",
+    val note: String = "Requires JaCoCo plugin configuration",
     val byModule: Map<String, ModuleCoverage> = emptyMap(),
     val criticalModules: Map<String, ModuleCoverage> = emptyMap(),
     val overallLineCoverage: Double = 0.0,
@@ -186,6 +194,8 @@ data class ModuleCoverage(
 )
 
 data class MutationData(
+    val status: String = "pending",
+    val note: String = "Requires PITest plugin configuration",
     val byModule: Map<String, ModuleMutationMetrics> = emptyMap(),
     val survivingMutants: List<SurvivingMutant> = emptyList(),
     val equivalentMutants: List<SurvivingMutant> = emptyList(),
@@ -257,7 +267,15 @@ data class ProtocolEntry(
     val name: String,
     val value: String,
     val source: String,
-    val consumers: List<String> = emptyList()
+    val consumers: List<String> = emptyList(),
+    val stability: String = "unclassified"
+)
+
+data class VerificationReport(
+    val passed: Boolean,
+    val failures: List<String> = emptyList(),
+    val warnings: List<String> = emptyList(),
+    val acceptedDeviations: List<String> = emptyList()
 )
 
 data class DeviationsSection(

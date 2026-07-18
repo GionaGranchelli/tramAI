@@ -9,7 +9,9 @@ import java.io.File
 class CancellationCatchInventory(private val rootProject: Project) {
 
     private val broadCatchPatterns = listOf(
-        Regex("""catch\s*\(\s*(?:Exception|Throwable|RuntimeException)"""),
+        Regex(
+            """catch\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*|_)\s*:\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)*(?:Exception|Throwable|RuntimeException)\s*\)"""
+        ),
         Regex("""runCatching\s*\{""")
     )
 
@@ -24,12 +26,14 @@ class CancellationCatchInventory(private val rootProject: Project) {
         val projects = rootProject.allprojects.filter { it != rootProject && it.buildFile.exists() }
 
         for (proj in projects) {
-            val srcDir = File(proj.projectDir, "src/main/kotlin")
-            if (!srcDir.exists()) continue
+            listOf("src/main/kotlin", "src/test/kotlin").forEach { sourceSet ->
+                val srcDir = File(proj.projectDir, sourceSet)
+                if (!srcDir.exists()) return@forEach
 
-            srcDir.walkTopDown().forEach { file ->
-                if (!file.isFile || file.extension != "kt") return@forEach
-                processFile(file, proj.name, findings)
+                srcDir.walkTopDown().forEach { file ->
+                    if (!file.isFile || file.extension != "kt") return@forEach
+                    processFile(file, proj.name, findings)
+                }
             }
         }
 
@@ -64,11 +68,10 @@ class CancellationCatchInventory(private val rootProject: Project) {
                     val transformsException = checkTransformsException(lines, lineIdx)
 
                     val risk = when {
-                        inSuspend && !rethrowsCancellation -> "critical"
-                        inSuspend && transformsException -> "high"
-                        inSuspend -> "medium"
-                        !inSuspend -> "medium"
                         rethrowsCancellation -> "accepted"
+                        inSuspend && transformsException -> "high"
+                        inSuspend -> "critical"
+                        !inSuspend -> "medium"
                         else -> "medium"
                     }
 

@@ -17,6 +17,14 @@ dependencies {
     implementation(kotlin("reflect"))
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.3")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.3")
+    implementation("org.yaml:snakeyaml:2.3")
+
+    testImplementation(gradleTestKit())
+    testImplementation(kotlin("test"))
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 gradlePlugin {

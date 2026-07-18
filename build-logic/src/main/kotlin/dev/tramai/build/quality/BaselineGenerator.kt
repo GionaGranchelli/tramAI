@@ -1,25 +1,36 @@
 package dev.tramai.build.quality
 
 import org.gradle.api.Project
+import org.gradle.api.GradleException
 import org.gradle.api.artifacts.result.ResolvedComponentResult
 import org.gradle.api.artifacts.result.ResolvedDependencyResult
 import java.io.File
 import java.time.Instant
+import java.security.MessageDigest
+import javax.xml.parsers.DocumentBuilderFactory
+import org.w3c.dom.Element
 
 /**
  * Orchestrates all baseline generation steps and writes the unified baseline JSON.
  */
-class BaselineGenerator(private val rootProject: Project) {
+class BaselineGenerator(
+    private val rootProject: Project,
+    private val outputDir: File = File(rootProject.layout.buildDirectory.get().asFile, "reports/maintainability"),
+    private val writeRepositoryArtifacts: Boolean = true
+) {
 
     private val baselineGitIdentity: BaselineGitIdentity by lazy {
         resolveBaselineGitIdentity()
     }
 
-    private val outputDir: File
-        get() = File(rootProject.buildDir, "reports/maintainability")
-
     fun generateFullBaseline(): BaselineDocument {
         val identity = generateIdentity()
+        if (identity.baselineCommitSha != identity.measuredCommitSha) {
+            rootProject.logger.warn(
+                "WARNING: maintainability baseline is measured at ${identity.measuredCommitSha} " +
+                    "but identifies release tag ${identity.releaseTag} at ${identity.baselineCommitSha}"
+            )
+        }
         val baseline = BaselineDocument(
             baselineIdentity = identity,
             generatedAt = deterministicGeneratedAt(identity.commitTimestamp),
@@ -37,7 +48,9 @@ class BaselineGenerator(private val rootProject: Project) {
         return BaselineIdentity(
             repository = "GionaGranchelli/tramAI",
             releaseTag = "v0.5.0",
-            commitSha = baselineGitIdentity.commitSha,
+            commitSha = baselineGitIdentity.baselineCommitSha,
+            baselineCommitSha = baselineGitIdentity.baselineCommitSha,
+            measuredCommitSha = baselineGitIdentity.measuredCommitSha,
             commitTimestamp = baselineGitIdentity.commitTimestamp,
             tramaiVersion = rootProject.findProperty("tramaiVersion")?.toString() ?: "0.5.0",
             toolchain = ToolchainInfo(
@@ -54,25 +67,25 @@ class BaselineGenerator(private val rootProject: Project) {
         outputDir.mkdirs()
 
         // Write JSON
-        ReportNormalizer.writeJson(graph, File(outputDir, "module-dependencies.json"))
+        ReportNormalizer.writeJson(graph.moduleDependencies, File(outputDir, "module-dependencies.json"))
+        ReportNormalizer.writeJson(graph.moduleDependenciesTest, File(outputDir, "module-dependencies-test.json"))
 
         // Write DOT
         File(outputDir, "module-dependencies.dot").writeText(graphAnalyzer.generateDot(graph))
 
         // Write Mermaid to docs
-        val mermaid = graphAnalyzer.generateMermaid(graph)
-        val docsDir = File(rootProject.rootDir, "docs/architecture")
-        docsDir.mkdirs()
-        val mdFile = File(docsDir, "module-dependency-graph.md")
-        mdFile.writeText(generateModuleDependencyGraphMarkdown(graph, mermaid))
+        if (writeRepositoryArtifacts) {
+            val mermaid = graphAnalyzer.generateMermaid(graph)
+            val docsDir = File(rootProject.rootDir, "docs/architecture")
+            docsDir.mkdirs()
+            val mdFile = File(docsDir, "module-dependency-graph.md")
+            mdFile.writeText(generateModuleDependencyGraphMarkdown(graph, mermaid))
+        }
 
         return StructuralBaseline(
             modules = graph.modules,
-            dependencyGraph = DependencyGraphData(
-                modules = graph.modules.map { it.name },
-                edges = graph.edges,
-                cycles = graph.cycles
-            )
+            moduleDependencies = graph.moduleDependencies,
+            moduleDependenciesTest = graph.moduleDependenciesTest
         )
     }
 
@@ -102,7 +115,24 @@ class BaselineGenerator(private val rootProject: Project) {
         val projects = rootProject.allprojects.filter { it != rootProject && it.buildFile.exists() }
         val productionFileSizes = mutableListOf<StructuralHotspot>()
         val testFileSizes = mutableListOf<StructuralHotspot>()
+        val buildFileSizes = mutableListOf<StructuralHotspot>()
+        val classSizes = mutableListOf<StructuralHotspot>()
+        val functionsPerClass = mutableListOf<StructuralHotspot>()
         val constructorParameters = mutableListOf<StructuralHotspot>()
+        val functionParameters = mutableListOf<StructuralHotspot>()
+
+        val rootBuildFile = File(rootProject.rootDir, "build.gradle.kts")
+        if (rootBuildFile.isFile) {
+            buildFileSizes.add(
+                StructuralHotspot(
+                    module = ":",
+                    path = "build.gradle.kts",
+                    declaration = "root build",
+                    metric = "fileSize",
+                    value = ReportNormalizer.countNonBlankLines(rootBuildFile)
+                )
+            )
+        }
 
         for (proj in projects) {
             collectKotlinFiles(File(proj.projectDir, "src/main/kotlin")).forEach { file ->
@@ -116,7 +146,11 @@ class BaselineGenerator(private val rootProject: Project) {
                         value = ReportNormalizer.countNonBlankLines(file)
                     )
                 )
+                val declarationMetrics = scanDeclarationMetrics(proj.name, file, path)
+                classSizes.addAll(declarationMetrics.classSizes)
+                functionsPerClass.addAll(declarationMetrics.functionsPerClass)
                 constructorParameters.addAll(scanConstructorParameters(proj.name, file, path))
+                functionParameters.addAll(scanFunctionParameters(proj.name, file, path))
             }
 
             collectKotlinFiles(File(proj.projectDir, "src/test/kotlin")).forEach { file ->
@@ -143,15 +177,24 @@ class BaselineGenerator(private val rootProject: Project) {
             largestTestFiles = testFileSizes
                 .sortedWith(compareByDescending<StructuralHotspot> { it.value }.thenBy { it.path })
                 .take(20),
-            largestClasses = emptyList(),
-            mostFunctions = emptyList(),
+            largestBuildFiles = buildFileSizes
+                .sortedWith(compareByDescending<StructuralHotspot> { it.value }.thenBy { it.path })
+                .take(20),
+            largestClasses = classSizes
+                .sortedWith(compareByDescending<StructuralHotspot> { it.value }.thenBy { it.path }.thenBy { it.declaration })
+                .take(20),
+            mostFunctions = functionsPerClass
+                .sortedWith(compareByDescending<StructuralHotspot> { it.value }.thenBy { it.path }.thenBy { it.declaration })
+                .take(20),
             longestFunctions = emptyList(),
             highestCyclomaticComplexity = emptyList(),
             highestCognitiveComplexity = emptyList(),
             mostConstructorParameters = constructorParameters
                 .sortedWith(compareByDescending<StructuralHotspot> { it.value }.thenBy { it.path }.thenBy { it.declaration })
                 .take(20),
-            mostFunctionParameters = emptyList(),
+            mostFunctionParameters = functionParameters
+                .sortedWith(compareByDescending<StructuralHotspot> { it.value }.thenBy { it.path }.thenBy { it.declaration })
+                .take(20),
             highestFanOut = emptyList(),
             highestFanIn = emptyList()
         )
@@ -235,13 +278,15 @@ class BaselineGenerator(private val rootProject: Project) {
         )
         val catalogDocument = linkedMapOf(
             "schemaVersion" to "1",
-            "description" to "Starter catalog of runtime protocol identifiers discovered in production Kotlin sources.",
+            "description" to "Starter catalog — ${catalog.entries.size} entries identified",
             "entries" to catalog.entries
         )
-        ReportNormalizer.writeJson(
-            catalogDocument,
-            File(rootProject.rootDir, "config/quality/runtime-protocol-catalog.json")
-        )
+        if (writeRepositoryArtifacts) {
+            ReportNormalizer.writeJson(
+                catalogDocument,
+                File(rootProject.rootDir, "config/quality/runtime-protocol-catalog.json")
+            )
+        }
         ReportNormalizer.writeJson(catalog, File(outputDir, "runtime-protocol-catalog.json"))
         return catalog
     }
@@ -268,6 +313,141 @@ class BaselineGenerator(private val rootProject: Project) {
             File(outputDir, "nondeterminism.json")
         )
         return RuntimeSafetyBaseline(nondeterminism = inventory)
+    }
+
+    fun generateApiBaseline(): ApiBaseline {
+        val dumps = rootProject.rootDir.walkTopDown()
+            .filter { file ->
+                file.isFile &&
+                    file.extension == "api" &&
+                    file.parentFile?.name == "api" &&
+                    !file.toPath().any { it.toString() == "build" }
+            }
+            .associate { file ->
+                ReportNormalizer.repoRelativePath(file, rootProject.rootDir) to sha256(file.readBytes())
+            }
+            .toSortedMap()
+        val aggregateHash = sha256(
+            dumps.entries.joinToString("\n") { (path, hash) -> "$path=$hash" }.toByteArray(Charsets.UTF_8)
+        )
+        val result = ApiBaseline(publicApiDumps = dumps, apiCheckHash = aggregateHash)
+        ReportNormalizer.writeJson(result, File(outputDir, "public-api-dumps.json"))
+        return result
+    }
+
+    fun generateTestPerformance(): TestPerformanceData {
+        val modulePerformance = linkedMapOf<String, ModuleTestPerformance>()
+        val classTimings = mutableListOf<TestTiming>()
+        val testTimings = mutableListOf<TestTiming>()
+
+        rootProject.allprojects
+            .filter { it != rootProject && it.buildFile.exists() }
+            .sortedBy { it.path }
+            .forEach { project ->
+                val resultDir = File(project.layout.buildDirectory.get().asFile, "test-results/test")
+                val xmlFiles = resultDir.listFiles { file ->
+                    file.isFile && file.name.startsWith("TEST-") && file.extension == "xml"
+                }?.sortedBy { it.name }.orEmpty()
+                if (xmlFiles.isEmpty()) return@forEach
+
+                var durationMs = 0L
+                var tests = 0
+                var skipped = 0
+                var failures = 0
+
+                xmlFiles.forEach { xmlFile ->
+                    val document = newSecureDocumentBuilderFactory().newDocumentBuilder().parse(xmlFile)
+                    val suite = document.documentElement
+                    val suiteDuration = secondsToMillis(suite.getAttribute("time"))
+                    val suiteTests = suite.getAttribute("tests").toIntOrNull() ?: 0
+                    val suiteSkipped = suite.getAttribute("skipped").toIntOrNull() ?: 0
+                    val suiteFailures = (suite.getAttribute("failures").toIntOrNull() ?: 0) +
+                        (suite.getAttribute("errors").toIntOrNull() ?: 0)
+                    val className = suite.getAttribute("name").ifBlank {
+                        xmlFile.name.removePrefix("TEST-").removeSuffix(".xml")
+                    }
+
+                    durationMs += suiteDuration
+                    tests += suiteTests
+                    skipped += suiteSkipped
+                    failures += suiteFailures
+                    classTimings.add(
+                        TestTiming(
+                            module = project.path,
+                            className = className,
+                            testName = "<class>",
+                            durationMs = suiteDuration
+                        )
+                    )
+
+                    val cases = suite.getElementsByTagName("testcase")
+                    for (index in 0 until cases.length) {
+                        val case = cases.item(index) as? Element ?: continue
+                        testTimings.add(
+                            TestTiming(
+                                module = project.path,
+                                className = case.getAttribute("classname").ifBlank { className },
+                                testName = case.getAttribute("name").ifBlank { "<unknown>" },
+                                durationMs = secondsToMillis(case.getAttribute("time"))
+                            )
+                        )
+                    }
+                }
+
+                modulePerformance[project.path] = ModuleTestPerformance(
+                    module = project.path,
+                    totalDurationMs = durationMs,
+                    testCount = tests,
+                    skippedCount = skipped,
+                    failureCount = failures
+                )
+            }
+
+        val result = TestPerformanceData(
+            byModule = modulePerformance,
+            slowestClasses = classTimings
+                .sortedWith(compareByDescending<TestTiming> { it.durationMs }.thenBy { it.module }.thenBy { it.className })
+                .take(10),
+            slowestTests = testTimings
+                .sortedWith(
+                    compareByDescending<TestTiming> { it.durationMs }
+                        .thenBy { it.module }
+                        .thenBy { it.className }
+                        .thenBy { it.testName }
+                )
+                .take(10),
+            totalDurationMs = modulePerformance.values.sumOf { it.totalDurationMs },
+            totalTestCount = modulePerformance.values.sumOf { it.testCount }
+        )
+        ReportNormalizer.writeJson(result, File(outputDir, "test-performance.json"))
+        return result
+    }
+
+    fun generateCompleteBaseline(): BaselineDocument {
+        val base = generateFullBaseline()
+        val graphAnalyzer = ModuleGraphAnalyzer(rootProject)
+        val structural = generateModuleDependencyGraph(graphAnalyzer).copy(
+            sourceMetrics = generateSourceMetrics(SourceMetricsAnalyzer(rootProject).analyze()),
+            structuralHotspots = generateStructuralHotspots()
+        )
+        val result = base.copy(
+            structural = structural,
+            api = generateApiBaseline(),
+            dependencies = DependencyBaseline(resolvedDependencies = generateResolvedDependencyGraph()),
+            testQuality = TestQualityBaseline(
+                testPerformance = generateTestPerformance(),
+                coverage = CoverageData(),
+                mutation = MutationData()
+            ),
+            runtimeSafety = RuntimeSafetyBaseline(
+                cancellationCatches = CancellationCatchInventory(rootProject).inventory(),
+                globalState = GlobalStateInventory(rootProject).inventory(),
+                nondeterminism = NondeterminismInventory(rootProject).inventory()
+            ),
+            protocolCatalog = generateRuntimeProtocolCatalog()
+        )
+        ReportNormalizer.writeJson(result, File(outputDir, "current-baseline.json"))
+        return result
     }
 
     fun updateBaselineJson(baseline: BaselineDocument) {
@@ -337,23 +517,49 @@ class BaselineGenerator(private val rootProject: Project) {
         return deduped
     }
 
+    private fun secondsToMillis(value: String): Long =
+        value.toBigDecimalOrNull()?.multiply(1000.toBigDecimal())?.toLong() ?: 0L
+
+    private fun newSecureDocumentBuilderFactory(): DocumentBuilderFactory =
+        DocumentBuilderFactory.newInstance().apply {
+            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+            setFeature("http://xml.org/sax/features/external-general-entities", false)
+            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+            isXIncludeAware = false
+            isExpandEntityReferences = false
+        }
+
+    private fun sha256(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+
     private fun resolveBaselineGitIdentity(): BaselineGitIdentity {
-        val commitSha = runGit("rev-parse", BASELINE_TAG) ?: FALLBACK_BASELINE_SHA
+        val baselineCommitSha = runGit("rev-parse", BASELINE_TAG)
+        val measuredCommitSha = runGit("rev-parse", "HEAD")
         val commitTimestamp = runGit("log", "-1", "--format=%aI", BASELINE_TAG)
-            ?: FALLBACK_BASELINE_TIMESTAMP
-        return BaselineGitIdentity(commitSha, commitTimestamp)
+        return BaselineGitIdentity(baselineCommitSha, measuredCommitSha, commitTimestamp)
     }
 
-    private fun runGit(vararg arguments: String): String? {
-        return try {
+    private fun runGit(vararg arguments: String): String {
+        try {
             val process = ProcessBuilder(listOf("git") + arguments)
                 .directory(rootProject.rootDir)
                 .redirectErrorStream(true)
                 .start()
             val output = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
-            if (process.waitFor() == 0) output.lineSequence().firstOrNull()?.takeIf { it.isNotBlank() } else null
-        } catch (_: Exception) {
-            null
+            if (process.waitFor() != 0 || output.isBlank()) {
+                throw GradleException(
+                    "Unable to resolve maintainability baseline Git identity with " +
+                        "'git ${arguments.joinToString(" ")}': ${output.ifBlank { "no output" }}"
+                )
+            }
+            return output.lineSequence().first()
+        } catch (exception: GradleException) {
+            throw exception
+        } catch (exception: Exception) {
+            throw GradleException(
+                "Unable to run Git while resolving maintainability baseline identity: ${exception.message}",
+                exception
+            )
         }
     }
 
@@ -370,7 +576,7 @@ class BaselineGenerator(private val rootProject: Project) {
     ): String = buildString {
         appendLine("# TramAI 0.6.0 — Module Dependency Graph")
         appendLine()
-        appendLine("> **Baseline:** `$BASELINE_TAG` (`${baselineGitIdentity.commitSha}`)")
+        appendLine("> **Baseline:** `$BASELINE_TAG` (`${baselineGitIdentity.baselineCommitSha}`)")
         appendLine("> **Source:** `build/reports/maintainability/module-dependencies.json`")
         appendLine("> **Schema version:** 1")
         appendLine()
@@ -395,7 +601,7 @@ class BaselineGenerator(private val rootProject: Project) {
         appendLine()
         appendLine("| From | To | Scope |")
         appendLine("|---|---|---|")
-        graph.edges
+        graph.moduleDependencies.edges
             .sortedWith(compareBy<DependencyEdge> { it.from }.thenBy { it.to }.thenBy { it.scope })
             .forEach { edge ->
                 appendLine("| `${edge.from}` | `${edge.to}` | ${edge.scope} |")
@@ -403,10 +609,10 @@ class BaselineGenerator(private val rootProject: Project) {
         appendLine()
         appendLine("## Known Cycles")
         appendLine()
-        if (graph.cycles.isEmpty()) {
+        if (graph.moduleDependencies.cycles.isEmpty()) {
             appendLine("No dependency cycles were detected.")
         } else {
-            graph.cycles.sortedBy { it.joinToString(" -> ") }.forEach { cycle ->
+            graph.moduleDependencies.cycles.sortedBy { it.joinToString(" -> ") }.forEach { cycle ->
                 appendLine("- `${cycle.joinToString(" -> ")}`")
             }
         }
@@ -422,6 +628,96 @@ class BaselineGenerator(private val rootProject: Project) {
             .filter { it.isFile && it.extension == "kt" }
             .sortedBy { it.absolutePath }
             .toList()
+    }
+
+    private fun scanDeclarationMetrics(
+        module: String,
+        file: File,
+        path: String
+    ): DeclarationMetrics {
+        val content = file.readText(Charsets.UTF_8)
+        val classSizes = mutableListOf<StructuralHotspot>()
+        val functionsPerClass = mutableListOf<StructuralHotspot>()
+        val declarationRegex = Regex(
+            """\b(?:(?:data|sealed|open|abstract|value|enum|annotation)\s+)?(class|object)\s+([A-Za-z_][A-Za-z0-9_]*)"""
+        )
+        val functionRegex = Regex("""\bfun\s+(?:<[^>{}]+>\s*)?(?:[A-Za-z_][A-Za-z0-9_]*\.)*([A-Za-z_][A-Za-z0-9_]*)\s*\(""")
+
+        declarationRegex.findAll(content).forEach { declaration ->
+            val openingBrace = content.indexOf('{', declaration.range.last + 1)
+            if (openingBrace < 0) return@forEach
+            val closingBrace = findMatchingBrace(content, openingBrace)
+            if (closingBrace <= openingBrace) return@forEach
+            val body = content.substring(openingBrace + 1, closingBrace)
+            val declarationName = declaration.groupValues[2]
+            classSizes.add(
+                StructuralHotspot(
+                    module = module,
+                    path = path,
+                    declaration = declarationName,
+                    metric = "classSize",
+                    value = body.lineSequence().count { it.isNotBlank() }
+                )
+            )
+            functionsPerClass.add(
+                StructuralHotspot(
+                    module = module,
+                    path = path,
+                    declaration = declarationName,
+                    metric = "functionCount",
+                    value = functionRegex.findAll(body).count()
+                )
+            )
+        }
+        return DeclarationMetrics(classSizes, functionsPerClass)
+    }
+
+    private fun scanFunctionParameters(
+        module: String,
+        file: File,
+        path: String
+    ): List<StructuralHotspot> {
+        val content = file.readText(Charsets.UTF_8)
+        val functionRegex = Regex(
+            """\bfun\s+(?:<[^>{}]+>\s*)?(?:[A-Za-z_][A-Za-z0-9_]*\.)*([A-Za-z_][A-Za-z0-9_]*)\s*\("""
+        )
+        return functionRegex.findAll(content).map { match ->
+            StructuralHotspot(
+                module = module,
+                path = path,
+                declaration = match.groupValues[1],
+                metric = "functionParameterCount",
+                value = countParameters(content, match.range.last)
+            )
+        }.toList()
+    }
+
+    private fun findMatchingBrace(content: String, openingBrace: Int): Int {
+        var depth = 0
+        var quote: Char? = null
+        var escaped = false
+        for (index in openingBrace until content.length) {
+            val char = content[index]
+            if (quote != null) {
+                if (escaped) {
+                    escaped = false
+                } else if (char == '\\') {
+                    escaped = true
+                } else if (char == quote) {
+                    quote = null
+                }
+                continue
+            }
+            when (char) {
+                '"', '\'' -> quote = char
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return index
+                }
+            }
+        }
+        return -1
     }
 
     private fun scanConstructorParameters(
@@ -542,13 +838,17 @@ class BaselineGenerator(private val rootProject: Project) {
     }
 
     private data class BaselineGitIdentity(
-        val commitSha: String,
+        val baselineCommitSha: String,
+        val measuredCommitSha: String,
         val commitTimestamp: String
+    )
+
+    private data class DeclarationMetrics(
+        val classSizes: List<StructuralHotspot>,
+        val functionsPerClass: List<StructuralHotspot>
     )
 
     private companion object {
         const val BASELINE_TAG = "v0.5.0"
-        const val FALLBACK_BASELINE_SHA = "494bc6856bae046d3e6f6c3611f4c8d7eb14b955"
-        const val FALLBACK_BASELINE_TIMESTAMP = "2026-07-18T18:55:10+02:00"
     }
 }
