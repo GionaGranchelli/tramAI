@@ -53,8 +53,14 @@ class DeviationParser(private val rootDir: File) {
                 val owner = entry["owner"]?.toString() ?: ""
 
                 // Validate
+                if (id.isBlank() || id == "MQ-${index}") {
+                    errors.add("Deviation at index $index: id is blank or auto-generated")
+                }
                 if (metric.isBlank()) {
                     errors.add("$id: metric is blank")
+                }
+                if (scope.isBlank()) {
+                    errors.add("$id: scope is blank")
                 }
                 if (baseline == 0 && allowed == 0 && !reason.contains("placeholder", ignoreCase = true)) {
                     // Both zero without explanation — suspicious
@@ -63,8 +69,14 @@ class DeviationParser(private val rootDir: File) {
                 if (reason.isBlank()) {
                     errors.add("$id: reason is blank")
                 }
+                if (acceptedAt.isBlank()) {
+                    errors.add("$id: acceptedAt is blank")
+                }
                 if (targetPhase.isBlank()) {
                     errors.add("$id: targetPhase is blank")
+                }
+                if (owner.isBlank()) {
+                    errors.add("$id: owner is blank")
                 }
 
                 deviations.add(

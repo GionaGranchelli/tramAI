@@ -95,6 +95,19 @@ class BaselineVerifier(
         if (id.tramaiVersion == "unspecified" || id.tramaiVersion.isBlank()) {
             failures.add("Committed baseline has invalid tramaiVersion: '${id.tramaiVersion}'")
         }
+        // Validate version matches the tagged release
+        val taggedVersion = generator.rootProject.findProperty("tramaiVersion")?.toString()
+        if (taggedVersion != null && taggedVersion != "unspecified" && id.tramaiVersion != taggedVersion) {
+            failures.add(
+                "Committed baseline version '${id.tramaiVersion}' does not match gradle.properties tramaiVersion '$taggedVersion'"
+            )
+        }
+        if (!id.workingTreeClean) {
+            failures.add("Committed baseline was generated from a dirty worktree — regenerate from a clean checkout")
+        }
+        if (id.measuredSourceTreeHash.isBlank()) {
+            failures.add("Committed baseline has empty measuredSourceTreeHash")
+        }
         if (id.baselineCommitSha.isNotBlank() && id.measuredCommitSha.isNotBlank() &&
             id.baselineCommitSha != id.measuredCommitSha
         ) {
@@ -126,10 +139,10 @@ class BaselineVerifier(
             failures.add("Current baseline has empty protocol catalog")
         }
         if (current.api.publicApiDumps.isEmpty()) {
-            warnings.add("Current baseline has empty API dumps — run './gradlew apiDump' for publishable modules")
+            failures.add("Current baseline has empty API dumps — run './gradlew apiDump' for publishable modules")
         }
         if (current.dependencies.resolvedDependencies.isEmpty()) {
-            warnings.add("Current baseline has empty resolved dependencies — dependency resolution may be incomplete")
+            failures.add("Current baseline has empty resolved dependencies — dependency resolution may be broken")
         }
     }
 

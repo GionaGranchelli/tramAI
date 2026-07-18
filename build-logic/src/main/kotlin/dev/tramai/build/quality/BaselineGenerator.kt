@@ -869,16 +869,37 @@ class BaselineGenerator(
     private fun computeSourceTreeHash(): String {
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
-            val sourceDirs = listOf("src/main/kotlin", "src/test/kotlin", "gradle/libs.versions.toml", "build.gradle.kts", "settings.gradle.kts")
-            for (dir in sourceDirs) {
-                val file = File(rootProject.rootDir, dir)
-                if (file.isFile) {
-                    digest.update(file.readBytes())
-                } else if (file.isDirectory) {
-                    file.walkTopDown().filter { it.isFile && it.extension == "kt" }.sortedBy { it.absolutePath }.forEach {
-                        digest.update(it.absolutePath.removePrefix(rootProject.rootDir.absolutePath).toByteArray())
-                        digest.update(it.readBytes())
+            // Walk ALL subproject source directories, not just root
+            val allProjects = rootProject.allprojects.filter { it.buildFile.exists() }
+            for (proj in allProjects) {
+                val sourceSets = listOf(
+                    "src/main/kotlin", "src/main/java",
+                    "src/test/kotlin", "src/testFixtures/kotlin"
+                )
+                for (srcDir in sourceSets) {
+                    val dir = File(proj.projectDir, srcDir)
+                    if (dir.isDirectory) {
+                        dir.walkTopDown()
+                            .filter { it.isFile && it.extension in listOf("kt", "java") }
+                            .sortedBy { it.absolutePath }
+                            .forEach {
+                                digest.update(it.absolutePath.removePrefix(rootProject.rootDir.absolutePath).toByteArray())
+                                digest.update(it.readBytes())
+                            }
                     }
+                }
+                // Hash build files
+                if (proj.buildFile.isFile) {
+                    digest.update(proj.buildFile.absolutePath.removePrefix(rootProject.rootDir.absolutePath).toByteArray())
+                    digest.update(proj.buildFile.readBytes())
+                }
+            }
+            // Also hash root build files
+            for (rootFile in listOf("build.gradle.kts", "settings.gradle.kts", "gradle/libs.versions.toml")) {
+                val f = File(rootProject.rootDir, rootFile)
+                if (f.isFile) {
+                    digest.update(rootFile.toByteArray())
+                    digest.update(f.readBytes())
                 }
             }
             digest.digest().joinToString("") { "%02x".format(it) }
