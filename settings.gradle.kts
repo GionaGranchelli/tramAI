@@ -1,5 +1,7 @@
 rootProject.name = "tramai"
 
+includeBuild("build-logic")
+
 include(
     "tramai-anthropic",
     "tramai-azure-openai",
