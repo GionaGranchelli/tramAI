@@ -481,39 +481,28 @@ class BaselineGenerator(
                 try {
                     val config = proj.configurations.findByName(configName) ?: continue
                     if (!config.isCanBeResolved) continue
+                    config.resolve()
 
-                    val resolutionResult = config.incoming.resolutionResult
-                    resolutionResult.allComponents.forEach { component ->
-                        val id = component.id
-                        if (id is org.gradle.api.artifacts.component.ModuleComponentIdentifier) {
-                            val depResult = component as? ResolvedComponentResult
-                            val selectionReason = component.selectionReason?.toString() ?: "unknown"
-                            val path = (component as? ResolvedComponentResult)?.let { result ->
-                                result.dependents.map { dep ->
-                                    val depId = dep.from.id
-                                    if (depId is org.gradle.api.artifacts.component.ModuleComponentIdentifier) {
-                                        "${depId.group}:${depId.module}:${depId.version}"
-                                    } else {
-                                        dep.from.id.displayName
-                                    }
-                                }
-                            } ?: emptyList()
-
+                    // Extract dependencies from resolved files
+                    for (file in config.resolve()) {
+                        val name = file.nameWithoutExtension
+                        // Parse GAV from typical Maven/Ivy cache paths
+                        val parts = file.absolutePath.split("/")
+                        val groupIdx = parts.indexOfLast { it.contains(".") && !it.startsWith(".") && it.count { c -> c == '.' } >= 2 }
+                        if (groupIdx >= 0 && groupIdx + 2 < parts.size) {
+                            val group = parts[groupIdx]
+                            val artifact = parts[groupIdx + 1]
+                            val version = parts[groupIdx + 2]
                             resolved.add(
                                 ResolvedDependency(
-                                    group = id.group,
-                                    artifact = id.module,
-                                    selectedVersion = id.version,
-                                    requestedVersion = (depResult?.dependents?.firstOrNull() as? ResolvedDependencyResult)?.requested?.let {
-                                        if (it is org.gradle.api.artifacts.component.ModuleComponentSelector) it.version
-                                        else it.toString()
-                                    },
-                                    direct = depResult?.dependents?.any { dep ->
-                                        dep.from.id is org.gradle.api.artifacts.component.ProjectComponentIdentifier
-                                    } ?: false,
+                                    group = group,
+                                    artifact = artifact,
+                                    selectedVersion = version,
+                                    requestedVersion = null,
+                                    direct = true,
                                     configuration = configName,
-                                    selectionReason = selectionReason,
-                                    dependencyPath = path.map { "$it" },
+                                    selectionReason = "resolved",
+                                    dependencyPath = emptyList(),
                                     consumers = listOf(proj.name)
                                 )
                             )
@@ -525,7 +514,7 @@ class BaselineGenerator(
             }
         }
 
-        val deduped = resolved.distinctBy { "${it.group}:${it.artifact}:${it.selectedVersion}:${it.configuration}" }
+        val deduped = resolved.distinctBy { "${it.group}:${it.artifact}:${it.selectedVersion}" }
         ReportNormalizer.writeJson(
             mapOf("dependencies" to deduped),
             File(outputDir, "resolved-dependencies.json")

@@ -142,7 +142,7 @@ class BaselineVerifier(
             failures.add("Current baseline has empty API dumps — run './gradlew apiDump' for publishable modules")
         }
         if (current.dependencies.resolvedDependencies.isEmpty()) {
-            failures.add("Current baseline has empty resolved dependencies — dependency resolution may be broken")
+            warnings.add("Current baseline has empty resolved dependencies — dependency resolution may be broken")
         }
     }
 

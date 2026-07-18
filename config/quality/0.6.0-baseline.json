@@ -55,7 +55,7 @@
     "baselineCommitSha" : "494bc6856bae046d3e6f6c3611f4c8d7eb14b955",
     "commitSha" : "494bc6856bae046d3e6f6c3611f4c8d7eb14b955",
     "commitTimestamp" : "2026-07-18T18:55:10+02:00",
-    "measuredCommitSha" : "785f2d07a2169134fefbd9f9db898372a3076ee0",
+    "measuredCommitSha" : "42e6a726e6517bab0e45b69e8309d039b5af3cbf",
     "measuredSourceTreeHash" : "",
     "releaseTag" : "v0.5.0",
     "repository" : "GionaGranchelli/tramAI",
