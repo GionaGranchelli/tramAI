@@ -56,7 +56,7 @@
     "commitSha": "5d0ad69bb547223f8a5c8639b8398276d35eea50",
     "commitTimestamp": "2026-07-18T18:55:10+02:00",
     "measuredCommitSha": "5d0ad69bb547223f8a5c8639b8398276d35eea50",
-    "measuredSourceTreeHash": "",
+    "measuredSourceTreeHash": "1d332dc06612cb50a9e575f5834dc8c9e3ecaf41c61281bff3488a14697510b3",
     "releaseTag": "v0.5.0",
     "repository": "GionaGranchelli/tramAI",
     "toolchain": {
@@ -66,7 +66,7 @@
       "kotlin": "2.3.0"
     },
     "tramaiVersion": "0.5.0",
-    "workingTreeClean": false
+    "workingTreeClean": true
   },
   "dependencies": {
     "resolvedDependencies": [],
