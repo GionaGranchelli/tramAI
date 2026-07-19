@@ -109,7 +109,14 @@ object KotlinCancellationCatchScanner {
         var i = 0
         while (i < lines.size) {
             val trimmed = lines[i].trim()
-            if (trimmed.startsWith("catch") && !trimmed.contains(")")) {
+            // Match lines that contain a catch keyword followed by `(` without a closing `)`.
+            // Common patterns: `catch (`, `} catch (`, `} catch (` 
+            val catchStart = trimmed.indexOf("catch")
+            val isMultiLineCatch = catchStart >= 0 &&
+                trimmed.substring(catchStart).let { after ->
+                    after.startsWith("catch") && after.contains("(") && !after.contains(")")
+                }
+            if (isMultiLineCatch) {
                 val sb = StringBuilder(lines[i])
                 val startIdx = i
                 i++
@@ -168,31 +175,58 @@ object KotlinCancellationCatchScanner {
         return "<unknown>"
     }
 
-    /** Check if the catch block rethrows CancellationException (within catch body). */
+    /** Check if the catch block rethrows CancellationException (within catch body, including nested blocks). */
     private fun checkRethrowsCancellation(lines: List<String>, catchIdx: Int): Boolean {
         val catchBodyEnd = findCatchBodyEnd(lines, catchIdx)
         val end = minOf(catchBodyEnd, lines.size)
+        // Two-pass: first check if CancellationException appears anywhere in the catch body,
+        // then look for throw/rethrow nearby (same or adjacent line) within the body.
+        var hasCancellationRef = false
+        for (i in catchIdx + 1 until end) {
+            if (lines[i].contains("CancellationException")) {
+                hasCancellationRef = true
+                // Check same line for throw/rethrow
+                if (lines[i].contains("throw") || lines[i].contains("rethrow")) return true
+                // Check adjacent lines (before and after) for throw/rethrow
+                val checkRange = maxOf(catchIdx + 1, i - 2)..minOf(end - 1, i + 2)
+                for (j in checkRange) {
+                    if (lines[j].contains("throw") || lines[j].contains("rethrow")) return true
+                }
+            }
+        }
+        // Also catch the case: `if (e is CancellationException) throw e` on one line
+        if (hasCancellationRef) return false  // already checked above
+        // Final pass: any line with both keywords
         for (i in catchIdx + 1 until end) {
             if (lines[i].contains("CancellationException") &&
                 (lines[i].contains("throw") || lines[i].contains("rethrow"))
-            ) {
-                return true
-            }
+            ) return true
         }
         return false
     }
 
-    /** Find the end of the catch body (closing brace of the catch block). */
+    /** Find the end of the catch body (closing brace of the catch block).
+     *  Counts only `{` from the catch line (ignoring `}` which may close the try block),
+     *  then balances from the next line onward. */
     private fun findCatchBodyEnd(lines: List<String>, catchIdx: Int): Int {
-        var braceCount = 0
-        var foundOpening = false
-        for (i in catchIdx until lines.size) {
+        // Count opening braces on the catch line (ignore closes — they belong to try/if blocks)
+        var braceCount = lines[catchIdx].count { it == '{' }
+        if (braceCount == 0) {
+            // No opening brace on catch line — look for it on the next line
+            for (i in catchIdx + 1 until lines.size) {
+                braceCount += lines[i].count { it == '{' }
+                braceCount -= lines[i].count { it == '}' }
+                if (braceCount > 0) break
+                if (braceCount < 0) return i
+            }
+        }
+        // Now balance until we hit 0
+        for (i in catchIdx + 1 until lines.size) {
             braceCount += lines[i].count { it == '{' }
             braceCount -= lines[i].count { it == '}' }
-            if (braceCount > 0) foundOpening = true
-            if (foundOpening && braceCount == 0) return i
+            if (braceCount <= 0) return i
         }
-        return catchIdx + 1
+        return lines.size
     }
 
     /** Returns true if the given position on the line is inside a string literal. */
