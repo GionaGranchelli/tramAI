@@ -1,12 +1,11 @@
 package dev.tramai.build.quality
 
-import org.gradle.api.Project
 import java.io.File
 
 /**
  * Scans Kotlin source files for process-global mutable state patterns.
  */
-class GlobalStateInventory(private val rootProject: Project) {
+class GlobalStateInventory(private val ctx: MeasurementContext) {
 
     private val globalPatterns = listOf(
         // Mutable top-level val/var
@@ -32,154 +31,88 @@ class GlobalStateInventory(private val rootProject: Project) {
 
     fun inventory(): List<GlobalStateFinding> {
         val findings = mutableListOf<GlobalStateFinding>()
-        val projects = rootProject.allprojects.filter { it != rootProject && it.buildFile.exists() }
 
-        for (proj in projects) {
-            val srcDir = File(proj.projectDir, "src/main/kotlin")
-            if (!srcDir.exists()) continue
+        for (mod in ctx.modules) {
+            mod.sourceDirs.forEach { srcDir ->
+                if (!srcDir.exists()) return@forEach
+                srcDir.walkTopDown().forEach { file ->
+                    if (!file.isFile || file.extension != "kt") return@forEach
+                    val content = file.readText()
+                    val relativePath = ReportNormalizer.repoRelativePath(file, ctx.rootDir)
 
-            srcDir.walkTopDown().forEach { file ->
-                if (!file.isFile || file.extension != "kt") return@forEach
-                processFile(file, proj.name, findings)
-            }
-        }
+                    for (pattern in globalPatterns) {
+                        pattern.findAll(content).forEach { match ->
+                            val matched = match.value.trim()
+                            // Skip immutable exclusions
+                            if (immutableExclusions.any { matched.contains(it) }) return@forEach
 
-        return findings
-    }
+                            val declaration = extractDeclaration(content, match.range.first)
+                            val kind = classifyKind(pattern)
+                            val type = extractType(matched)
 
-    private fun processFile(file: File, moduleName: String, findings: MutableList<GlobalStateFinding>) {
-        val lines = file.readLines()
-        val relativePath = ReportNormalizer.repoRelativePath(file, rootProject.rootDir)
-
-        for ((lineIdx, line) in lines.withIndex()) {
-            val trimmed = line.trim()
-
-            // Check for object declarations
-            val objectMatch = Regex("""^\s*object\s+(\w+)""").find(line)
-            if (objectMatch != null) {
-                val name = objectMatch.groupValues[1]
-                if (immutableExclusions.none { name.contains(it) }) {
-                    val isMutable = checkObjectMutability(lines, lineIdx)
-                    if (isMutable) {
-                        findings.add(
-                            GlobalStateFinding(
-                                module = moduleName,
-                                file = relativePath,
-                                declaration = name,
-                                kind = "object",
-                                type = "singleton",
-                                mutable = true,
-                                lifecycle = "process",
-                                threadSafety = checkThreadSafety(lines, lineIdx)
+                            findings.add(
+                                GlobalStateFinding(
+                                    module = mod.name,
+                                    file = relativePath,
+                                    declaration = declaration,
+                                    kind = kind,
+                                    type = type,
+                                    mutable = true,
+                                    lifecycle = "process",
+                                    threadSafety = "unknown"
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
-
-            // Check for companion objects with mutable state
-            if (Regex("""^\s*companion\s+object""").containsMatchIn(line)) {
-                val hasMutable = checkCompanionMutability(lines, lineIdx)
-                if (hasMutable) {
-                    findings.add(
-                        GlobalStateFinding(
-                            module = moduleName,
-                            file = relativePath,
-                            declaration = "companion object",
-                            kind = "companion_object",
-                            type = "companion",
-                            mutable = true,
-                            lifecycle = "class",
-                            threadSafety = "unknown"
-                        )
-                    )
-                }
-            }
-
-            // Check for mutable top-level collections
-            if (Regex("""^(?:val|var)\s+\w+\s*=\s*(?:mutableMapOf|mutableListOf|mutableSetOf|ConcurrentHashMap)""").containsMatchIn(trimmed)) {
-                val declMatch = Regex("""^(?:val|var)\s+(\w+)""").find(trimmed)
-                val name = declMatch?.groupValues?.get(1) ?: "unknown"
-                findings.add(
-                    GlobalStateFinding(
-                        module = moduleName,
-                        file = relativePath,
-                        declaration = name,
-                        kind = "mutable_collection",
-                        type = "collection",
-                        mutable = true,
-                        lifecycle = "process",
-                        threadSafety = if (trimmed.contains("ConcurrentHashMap")) "concurrent" else "unknown"
-                    )
-                )
-            }
-
-            // Check for GlobalScope usage
-            if (trimmed.contains("GlobalScope")) {
-                findings.add(
-                    GlobalStateFinding(
-                        module = moduleName,
-                        file = relativePath,
-                        declaration = "GlobalScope",
-                        kind = "global_scope",
-                        type = "coroutine_scope",
-                        mutable = true,
-                        lifecycle = "process",
-                        threadSafety = "unknown"
-                    )
-                )
-            }
         }
+
+        return findings.distinctBy { "${it.module}::${it.file}::${it.declaration}::${it.kind}" }
     }
 
-    private fun checkObjectMutability(lines: List<String>, startIdx: Int): Boolean {
-        val end = findBlockEnd(lines, startIdx)
-        for (i in startIdx until minOf(end, lines.size)) {
+    private fun extractDeclaration(content: String, offset: Int): String {
+        // Walk backwards from offset to find the containing declaration
+        val before = content.substring(0, offset.coerceAtMost(content.length))
+        val lines = before.lines()
+        for (i in lines.indices.reversed()) {
             val line = lines[i].trim()
-            if (line.contains("var ") ||
-                line.contains("mutable") ||
-                line.contains("ConcurrentHashMap") ||
-                line.contains("AtomicReference") ||
-                line.contains("AtomicBoolean") ||
-                line.contains("AtomicInteger")) {
-                return true
+            when {
+                line.startsWith("object ") -> return line.removePrefix("object ").trim().split(" ").first().trim('{', ':')
+                line.startsWith("class ") -> return line.removePrefix("class ").trim().split("(").first().trim('{', ':')
+                line.startsWith("val ") -> return line.removePrefix("val ").trim().split(" ").first().trim('=', ':')
+                line.startsWith("var ") -> return line.removePrefix("var ").trim().split(" ").first().trim('=', ':')
+                line.contains("companion object") -> return "companion"
             }
         }
-        return false
+        return "<unknown>"
     }
 
-    private fun checkCompanionMutability(lines: List<String>, startIdx: Int): Boolean {
-        val end = findBlockEnd(lines, startIdx)
-        for (i in startIdx until minOf(end, lines.size)) {
-            val line = lines[i].trim()
-            if ((line.contains("var ") || line.contains("mutable")) && !line.startsWith("//")) {
-                return true
-            }
+    private fun classifyKind(pattern: Regex): String {
+        return when (pattern.pattern) {
+            in setOf("""^(?:val|var)\s+\w+\s*[:=].*mutable""") -> "mutable-top-level"
+            in setOf("""^\s*object\s+\w+""") -> "object-singleton"
+            in setOf("""^\s*companion\s+object""") -> "companion-object"
+            in setOf("""(?:mutableMapOf|mutableListOf|mutableSetOf|ConcurrentHashMap|HashMap)\s*[\(<]""") -> "mutable-collection"
+            in setOf("""(?:registry|Registry|singleton|Singleton)\s*[:=]""") -> "global-registry"
+            in setOf("""(?:GlobalScope|ProcessScope|ApplicationScope)""") -> "global-scope"
+            else -> "static-mutable"
         }
-        return false
     }
 
-    private fun checkThreadSafety(lines: List<String>, startIdx: Int): String {
-        val end = findBlockEnd(lines, startIdx)
-        val block = lines.subList(startIdx, minOf(end, lines.size)).joinToString("\n")
+    private fun extractType(matched: String): String {
         return when {
-            block.contains("synchronized") || block.contains("@Synchronized") -> "synchronized"
-            block.contains("ConcurrentHashMap") -> "concurrent"
-            block.contains("AtomicReference") || block.contains("AtomicBoolean") -> "atomic"
-            block.contains("Mutex") || block.contains("withLock") -> "mutex"
+            matched.contains("mutableMapOf") -> "MutableMap"
+            matched.contains("mutableListOf") -> "MutableList"
+            matched.contains("mutableSetOf") -> "MutableSet"
+            matched.contains("ConcurrentHashMap") -> "ConcurrentHashMap"
+            matched.contains("HashMap") -> "HashMap"
+            matched.contains("GlobalScope") -> "CoroutineScope"
+            matched.contains("registry") || matched.contains("Registry") -> "Registry"
+            matched.contains("singleton") || matched.contains("Singleton") -> "Singleton"
+            matched.startsWith("object ") -> "object"
+            matched.startsWith("companion") -> "companion"
             else -> "unknown"
         }
-    }
-
-    private fun findBlockEnd(lines: List<String>, startIdx: Int): Int {
-        var braceCount = 0
-        var found = false
-        for (i in startIdx until lines.size) {
-            braceCount += lines[i].count { it == '{' }
-            braceCount -= lines[i].count { it == '}' }
-            if (braceCount > 0) found = true
-            if (found && braceCount == 0) return i + 1
-        }
-        return startIdx + 1
     }
 }

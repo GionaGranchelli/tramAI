@@ -3,15 +3,6 @@ package dev.tramai.build.quality
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.GradleException
-import org.gradle.api.tasks.TaskContainer
-import org.gradle.api.DefaultTask
-import org.gradle.api.tasks.TaskAction
-import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.OutputFile
-import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.file.RegularFileProperty
-import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.provider.Property
 import java.io.File
 
 /**
@@ -23,15 +14,15 @@ import java.io.File
 abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
     override fun apply(project: Project) {
-        // Only register on root project
         if (project != project.rootProject) return
 
-        val generator = BaselineGenerator(project)
-        val graphAnalyzer = ModuleGraphAnalyzer(project)
-        val sourceMetricsAnalyzer = SourceMetricsAnalyzer(project)
-        val cancellationInventory = CancellationCatchInventory(project)
-        val globalStateInventory = GlobalStateInventory(project)
-        val nondeterminismInventory = NondeterminismInventory(project)
+        val ctx = MeasurementContext.fromProject(project)
+        val generator = BaselineGenerator(ctx)
+        val graphAnalyzer = ModuleGraphAnalyzer(ctx)
+        val sourceMetricsAnalyzer = SourceMetricsAnalyzer(ctx)
+        val cancellationInventory = CancellationCatchInventory(ctx)
+        val globalStateInventory = GlobalStateInventory(ctx)
+        val nondeterminismInventory = NondeterminismInventory(ctx)
 
         // ---- Generation Tasks ----
 
@@ -82,7 +73,9 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 val findings = cancellationInventory.inventory()
                 val critical = findings.count { it.risk == "critical" }
                 val high = findings.count { it.risk == "high" }
-                generator.generateCancellationCatchInventory(findings)
+                val outDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability")
+                outDir.mkdirs()
+                ReportNormalizer.writeJson(mapOf("findings" to findings), File(outDir, "cancellation-safety.json"))
                 println("Cancellation catch inventory: ${findings.size} findings ($critical critical, $high high)")
             }
         }
@@ -92,7 +85,9 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             description = "Scans for process-global mutable state"
             doLast {
                 val findings = globalStateInventory.inventory()
-                generator.generateGlobalStateInventory(findings)
+                val outDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability")
+                outDir.mkdirs()
+                ReportNormalizer.writeJson(mapOf("findings" to findings), File(outDir, "global-state.json"))
                 println("Global state inventory: ${findings.size} mutable globals found")
             }
         }
@@ -102,7 +97,9 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             description = "Scans for direct clock/randomness/identity access"
             doLast {
                 val findings = nondeterminismInventory.inventory()
-                generator.generateNondeterminismInventory(findings)
+                val outDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability")
+                outDir.mkdirs()
+                ReportNormalizer.writeJson(mapOf("findings" to findings), File(outDir, "nondeterminism.json"))
                 val byCategory = findings.groupBy { it.category }
                 println("Nondeterminism inventory: ${findings.size} findings")
                 byCategory.forEach { (cat, items) -> println("  $cat: ${items.size}") }
@@ -127,7 +124,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
-        // ---- Aggregate Tasks ----
+        // ---- Aggregate Task ----
 
         project.tasks.register("generateMaintainabilityBaseline") {
             group = "maintainability"
@@ -143,48 +140,20 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 "generateRuntimeProtocolCatalog"
             )
             doLast {
-                val baseline = generator.generateFullBaseline()
-
-                // Update with fresh measurements
-                val graph = graphAnalyzer.analyze()
-                val structural = generator.generateModuleDependencyGraph(graphAnalyzer)
-
-                val updated = baseline.copy(
-                    structural = structural.copy(
-                        sourceMetrics = generator.generateSourceMetrics(sourceMetricsAnalyzer.analyze()),
-                        structuralHotspots = generator.generateStructuralHotspots()
-                    ),
-                    runtimeSafety = RuntimeSafetyBaseline(
-                        cancellationCatches = cancellationInventory.inventory(),
-                        globalState = globalStateInventory.inventory(),
-                        nondeterminism = nondeterminismInventory.inventory()
-                    ),
-                    dependencies = baseline.dependencies.copy(
-                        resolvedDependencies = generator.generateResolvedDependencyGraph()
-                    ),
-                    protocolCatalog = generator.generateRuntimeProtocolCatalog(),
-                    api = generator.generateApiBaseline(),
-                    testQuality = baseline.testQuality.copy(
-                        testPerformance = generator.generateTestPerformance()
-                    )
-                )
-
-                generator.updateBaselineJson(updated)
-                println("Maintainability baseline generated: ${project.rootDir}/config/quality/0.6.0-baseline.json")
+                val baseline = generator.generateCompleteBaseline()
+                generator.updateBaselineJson(baseline)
+                println("Maintainability baseline generated: ${ctx.rootDir}/config/quality/0.6.0-baseline.json")
             }
         }
 
-        // ---- Verification Tasks ----
+        // ---- Verification ----
 
-        // Single unified verification task that uses the comparison engine.
-        // Replaces the old warning-only per-inventory tasks.
         project.tasks.register("verifyMaintainabilityBaseline") {
             group = "maintainability"
             description = "Compares current measurements against committed baseline and rejects regressions"
             doLast {
                 val report = BaselineVerifier.verify(project)
 
-                // Print report
                 report.failures.forEach { project.logger.error("FAIL: $it") }
                 report.warnings.forEach { project.logger.warn("WARN: $it") }
                 report.acceptedDeviations.forEach { project.logger.info("ACCEPTED: $it") }
@@ -209,27 +178,36 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         }
 
         // ---- Canonical Baseline Generation ----
-        // Only for tagged releases. Fails if HEAD != v0.5.0, worktree is dirty, or source hash is empty.
+        // Only for tagged releases. Runs from a detached v0.5.0 worktree.
+        // Set maintainability.sourceRoot to the worktree path, or run from the
+        // worktree itself.
 
         project.tasks.register("generateCanonicalMaintainabilityBaseline") {
             group = "maintainability"
-            description = "Generates the canonical baseline from the tagged release checkout. Requires clean worktree and HEAD at v0.5.0."
+            description = "Generates the canonical baseline from v0.5.0. Set -Pmaintainability.sourceRoot=<worktree> to scan a detached checkout."
 
             doLast {
-                val canonicalGenerator = BaselineGenerator(
-                    rootProject = project,
-                    outputDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability"),
-                    writeRepositoryArtifacts = false
-                )
+                val sourceRootProp = project.findProperty("maintainability.sourceRoot")?.toString()
+                val canonicalGenerator = if (sourceRootProp != null) {
+                    val sourceRoot = File(sourceRootProp)
+                    if (!sourceRoot.isDirectory) {
+                        throw GradleException("maintainability.sourceRoot='$sourceRootProp' is not a directory")
+                    }
+                    BaselineGenerator.fromDirectory(sourceRoot, analyzerRoot = project.rootDir)
+                } else {
+                    BaselineGenerator.fromProject(project)
+                }
 
                 val baseline = canonicalGenerator.generateCompleteBaseline()
                 val identity = baseline.baselineIdentity
 
+                // Provenance gates
                 if (identity.measuredCommitSha != identity.baselineCommitSha) {
                     throw GradleException(
                         "Canonical baseline must be generated at ${identity.releaseTag}. " +
                             "HEAD=${identity.measuredCommitSha.take(8)}, " +
-                            "tag=${identity.baselineCommitSha.take(8)}"
+                            "tag=${identity.baselineCommitSha.take(8)}. " +
+                            "Use -Pmaintainability.sourceRoot=<v0.5.0-worktree-path>"
                     )
                 }
 
@@ -247,11 +225,23 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     )
                 }
 
-                canonicalGenerator.updateBaselineJson(baseline)
+                if (identity.measuredGitTreeSha.isBlank()) {
+                    throw GradleException(
+                        "Canonical baseline has an empty measuredGitTreeSha. " +
+                            "Ensure git is available in the source root."
+                    )
+                }
+
+                // Write directly to PR branch (not the worktree)
+                val prBaselineFile = File(project.rootDir, "config/quality/0.6.0-baseline.json")
+                ReportNormalizer.writeJson(baseline, prBaselineFile)
+                println("  Wrote canonical baseline to ${prBaselineFile.absolutePath}")
                 println(
                     "Canonical maintainability baseline generated for " +
                         "${identity.releaseTag} at ${identity.measuredCommitSha.take(8)}"
                 )
+                println("  Git tree SHA: ${identity.measuredGitTreeSha.take(8)}")
+                println("  Source tree hash: ${identity.measuredSourceTreeHash.take(16)}...")
             }
         }
 

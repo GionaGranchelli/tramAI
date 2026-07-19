@@ -26,6 +26,7 @@ data class BaselineDocument(
 )
 
 @JsonPropertyOrder(alphabetic = true)
+@JsonInclude(JsonInclude.Include.ALWAYS)
 data class BaselineIdentity(
     @JsonProperty("repository") val repository: String = "GionaGranchelli/tramAI",
     @JsonProperty("releaseTag") val releaseTag: String = "v0.5.0",
@@ -34,6 +35,9 @@ data class BaselineIdentity(
     @JsonProperty("measuredCommitSha") val measuredCommitSha: String = "",
     @JsonProperty("workingTreeClean") val workingTreeClean: Boolean = true,
     @JsonProperty("measuredSourceTreeHash") val measuredSourceTreeHash: String = "",
+    @JsonProperty("measuredGitTreeSha") val measuredGitTreeSha: String = "",
+    @JsonProperty("analyzerCommitSha") val analyzerCommitSha: String = "",
+    @JsonProperty("analyzerSchemaVersion") val analyzerSchemaVersion: String = "1",
     @JsonProperty("commitTimestamp") val commitTimestamp: String = "",
     @JsonProperty("tramaiVersion") val tramaiVersion: String = "0.5.0",
     @JsonProperty("toolchain") val toolchain: ToolchainInfo = ToolchainInfo()

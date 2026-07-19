@@ -1,28 +1,38 @@
 package dev.tramai.build.quality
 
-import org.gradle.api.Project
 import org.gradle.api.GradleException
-import org.gradle.api.artifacts.result.ResolvedComponentResult
-import org.gradle.api.artifacts.result.ResolvedDependencyResult
-import java.io.File
-import java.time.Instant
-import java.security.MessageDigest
-import javax.xml.parsers.DocumentBuilderFactory
+import org.gradle.api.Project
 import org.w3c.dom.Element
+import java.io.File
+import java.security.MessageDigest
+import java.time.Instant
+import javax.xml.parsers.DocumentBuilderFactory
 
 /**
- * Orchestrates all baseline generation steps and writes the unified baseline JSON.
+ * Generates the TramAI 0.6.0 maintainability baseline.
+ *
+ * Two modes:
+ * - **Normal (fromProject):** scans the active Gradle project.
+ * - **Canonical (fromDirectory):** scans a detached v0.5.0 worktree via
+ *   `generateCanonicalMaintainabilityBaseline`, producing an immutable
+ *   reference baseline with verified provenance.
  */
 class BaselineGenerator(
-    val rootProject: Project,
-    private val outputDir: File = File(rootProject.layout.buildDirectory.get().asFile, "reports/maintainability"),
+    private val ctx: MeasurementContext,
+    outputDir: File = File(
+        (ctx.gradleProject?.layout?.buildDirectory?.get()?.asFile ?: File(ctx.rootDir, "build")),
+        "reports/maintainability"
+    ),
     private val writeRepositoryArtifacts: Boolean = true
 ) {
-    /** If set, scan this directory instead of the Gradle project directory. Used for canonical generation from a tag worktree. */
-    private val sourceRoot: File = rootProject.findProperty("maintainability.sourceRoot")
-        ?.toString()
-        ?.let { File(it) }
-        ?: rootProject.rootDir
+    /** Convenience: the Gradle project, if available. */
+    val rootProject: Project? get() = ctx.gradleProject
+
+    /** Directory where reports are written. */
+    private val reportOutputDir: File = outputDir
+
+    /** When set, git commands for analyzer identity resolve from this directory (the PR branch). */
+    private var analyzerRootDir: File? = null
 
     private val baselineGitIdentity: BaselineGitIdentity by lazy {
         resolveBaselineGitIdentity()
@@ -31,12 +41,12 @@ class BaselineGenerator(
     fun generateFullBaseline(): BaselineDocument {
         val identity = generateIdentity()
         if (identity.baselineCommitSha != identity.measuredCommitSha) {
-            rootProject.logger.warn(
+            ctx.gradleProject?.logger?.warn(
                 "WARNING: maintainability baseline is measured at ${identity.measuredCommitSha} " +
                     "but identifies release tag ${identity.releaseTag} at ${identity.baselineCommitSha}"
             )
         }
-        val baseline = BaselineDocument(
+        return BaselineDocument(
             baselineIdentity = identity,
             generatedAt = deterministicGeneratedAt(identity.commitTimestamp),
             generatedBy = "generateMaintainabilityBaseline",
@@ -45,22 +55,15 @@ class BaselineGenerator(
                 javaVersion = Runtime.version().feature().toString()
             )
         )
-
-        return baseline
     }
 
-    /**
-     * Generates the complete baseline with all measurements populated.
-     * Used by the verifier for comparison. Unlike generateFullBaseline(),
-     * this populates structural, safety, protocol, API, dependency, and test-quality sections.
-     */
     fun generateCompleteBaseline(): BaselineDocument {
         val baseline = generateFullBaseline()
-        val graphAnalyzer = ModuleGraphAnalyzer(rootProject)
-        val sourceMetricsAnalyzer = SourceMetricsAnalyzer(rootProject)
-        val cancellationInventory = CancellationCatchInventory(rootProject)
-        val globalStateInventory = GlobalStateInventory(rootProject)
-        val nondeterminismInventory = NondeterminismInventory(rootProject)
+        val graphAnalyzer = ModuleGraphAnalyzer(ctx)
+        val sourceMetricsAnalyzer = SourceMetricsAnalyzer(ctx)
+        val cancellationInventory = CancellationCatchInventory(ctx)
+        val globalStateInventory = GlobalStateInventory(ctx)
+        val nondeterminismInventory = NondeterminismInventory(ctx)
 
         val structural = generateModuleDependencyGraph(graphAnalyzer)
         val productionCatches = cancellationInventory.inventory().filter { !it.file.contains("/test/") }
@@ -89,20 +92,27 @@ class BaselineGenerator(
     }
 
     fun generateIdentity(): BaselineIdentity {
-        val workingTreeClean = isWorkingTreeClean()
+        val workingTreeClean = ctx.isWorkingTreeClean()
         val sourceTreeHash = if (workingTreeClean) computeSourceTreeHash() else ""
+        val gitTreeSha = if (workingTreeClean) computeGitTreeSha() else ""
+        val analyzerSha = computeAnalyzerCommitSha()
+        val version = ctx.gradleProject?.findProperty("tramaiVersion")?.toString()
+            ?: readVersionFromProps() ?: "0.5.0"
         return BaselineIdentity(
             repository = "GionaGranchelli/tramAI",
             releaseTag = "v0.5.0",
             commitSha = baselineGitIdentity.baselineCommitSha,
             baselineCommitSha = baselineGitIdentity.baselineCommitSha,
             measuredCommitSha = baselineGitIdentity.measuredCommitSha,
+            measuredGitTreeSha = gitTreeSha,
             workingTreeClean = workingTreeClean,
             measuredSourceTreeHash = sourceTreeHash,
+            analyzerCommitSha = analyzerSha,
+            analyzerSchemaVersion = "1",
             commitTimestamp = baselineGitIdentity.commitTimestamp,
-            tramaiVersion = rootProject.findProperty("tramaiVersion")?.toString() ?: "0.5.0",
+            tramaiVersion = version,
             toolchain = ToolchainInfo(
-                gradle = rootProject.gradle.gradleVersion,
+                gradle = ctx.gradleProject?.gradle?.gradleVersion ?: "unknown",
                 kotlin = "2.3.0",
                 jvmTarget = "21",
                 ciJdk = "21"
@@ -110,21 +120,53 @@ class BaselineGenerator(
         )
     }
 
+    private fun computeAnalyzerCommitSha(): String {
+        // The analyzer runs from wherever Gradle was invoked (the PR branch).
+        // Resolve HEAD of the project root — this is the commit containing MeasurementContext + scanners.
+        return try {
+            val project = ctx.gradleProject
+            if (project != null) {
+                val process = ProcessBuilder(listOf("git", "rev-parse", "HEAD"))
+                    .directory(project.rootDir)
+                    .redirectErrorStream(true)
+                    .start()
+                process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
+                    .lineSequence().firstOrNull() ?: ""
+            } else {
+                // Canonical mode: try the analyzerRootDir if set
+                analyzerRootDir?.let { rootDir ->
+                    val process = ProcessBuilder(listOf("git", "rev-parse", "HEAD"))
+                        .directory(rootDir)
+                        .redirectErrorStream(true)
+                        .start()
+                    process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
+                        .lineSequence().firstOrNull() ?: ""
+                } ?: ""
+            }
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun readVersionFromProps(): String? {
+        val propsFile = File(ctx.rootDir, "gradle.properties")
+        if (!propsFile.isFile) return null
+        return propsFile.readLines()
+            .firstOrNull { it.trimStart().startsWith("tramaiVersion=") }
+            ?.substringAfter("=")?.trim()
+    }
+
     fun generateModuleDependencyGraph(graphAnalyzer: ModuleGraphAnalyzer): StructuralBaseline {
         val graph = graphAnalyzer.analyze()
-        outputDir.mkdirs()
+        reportOutputDir.mkdirs()
 
-        // Write JSON
-        ReportNormalizer.writeJson(graph.moduleDependencies, File(outputDir, "module-dependencies.json"))
-        ReportNormalizer.writeJson(graph.moduleDependenciesTest, File(outputDir, "module-dependencies-test.json"))
+        ReportNormalizer.writeJson(graph.moduleDependencies, File(reportOutputDir, "module-dependencies.json"))
+        ReportNormalizer.writeJson(graph.moduleDependenciesTest, File(reportOutputDir, "module-dependencies-test.json"))
+        File(reportOutputDir, "module-dependencies.dot").writeText(graphAnalyzer.generateDot(graph))
 
-        // Write DOT
-        File(outputDir, "module-dependencies.dot").writeText(graphAnalyzer.generateDot(graph))
-
-        // Write Mermaid to docs
         if (writeRepositoryArtifacts) {
             val mermaid = graphAnalyzer.generateMermaid(graph)
-            val docsDir = File(rootProject.rootDir, "docs/architecture")
+            val docsDir = File(ctx.rootDir, "docs/architecture")
             docsDir.mkdirs()
             val mdFile = File(docsDir, "module-dependency-graph.md")
             mdFile.writeText(generateModuleDependencyGraphMarkdown(graph, mermaid))
@@ -155,12 +197,11 @@ class BaselineGenerator(
             totals = SourceTotals(totalProdFiles, totalProdLines, totalTestFiles, totalTestLines)
         )
 
-        ReportNormalizer.writeJson(result, File(outputDir, "source-metrics.json"))
+        ReportNormalizer.writeJson(result, File(reportOutputDir, "source-metrics.json"))
         return result
     }
 
     fun generateStructuralHotspots(): StructuralHotspots {
-        val projects = rootProject.allprojects.filter { it != rootProject && it.buildFile.exists() }
         val productionFileSizes = mutableListOf<StructuralHotspot>()
         val testFileSizes = mutableListOf<StructuralHotspot>()
         val buildFileSizes = mutableListOf<StructuralHotspot>()
@@ -169,7 +210,8 @@ class BaselineGenerator(
         val constructorParameters = mutableListOf<StructuralHotspot>()
         val functionParameters = mutableListOf<StructuralHotspot>()
 
-        val rootBuildFile = File(rootProject.rootDir, "build.gradle.kts")
+        // Root build file
+        val rootBuildFile = File(ctx.rootDir, "build.gradle.kts")
         if (rootBuildFile.isFile) {
             buildFileSizes.add(
                 StructuralHotspot(
@@ -182,42 +224,71 @@ class BaselineGenerator(
             )
         }
 
-        for (proj in projects) {
-            collectKotlinFiles(File(proj.projectDir, "src/main/kotlin")).forEach { file ->
-                val path = ReportNormalizer.repoRelativePath(file, rootProject.rootDir)
-                productionFileSizes.add(
+        // Settings and other root files
+        for (rootFile in listOf("settings.gradle.kts", "gradle/libs.versions.toml")) {
+            val f = File(ctx.rootDir, rootFile)
+            if (f.isFile) {
+                buildFileSizes.add(
                     StructuralHotspot(
-                        module = proj.name,
-                        path = path,
-                        declaration = file.nameWithoutExtension,
+                        module = ":",
+                        path = rootFile,
+                        declaration = rootFile.removeSuffix(".kts").removeSuffix(".toml"),
                         metric = "fileSize",
-                        value = ReportNormalizer.countNonBlankLines(file)
-                    )
-                )
-                val declarationMetrics = scanDeclarationMetrics(proj.name, file, path)
-                classSizes.addAll(declarationMetrics.classSizes)
-                functionsPerClass.addAll(declarationMetrics.functionsPerClass)
-                constructorParameters.addAll(scanConstructorParameters(proj.name, file, path))
-                functionParameters.addAll(scanFunctionParameters(proj.name, file, path))
-            }
-
-            collectKotlinFiles(File(proj.projectDir, "src/test/kotlin")).forEach { file ->
-                testFileSizes.add(
-                    StructuralHotspot(
-                        module = proj.name,
-                        path = ReportNormalizer.repoRelativePath(file, rootProject.rootDir),
-                        declaration = file.nameWithoutExtension,
-                        metric = "fileSize",
-                        value = ReportNormalizer.countNonBlankLines(file)
+                        value = ReportNormalizer.countNonBlankLines(f)
                     )
                 )
             }
         }
 
-        // TODO(Phase 0): Populate declaration size and function/complexity rankings with
-        // pinned Kotlin-aware static analysis (Detekt) instead of regex heuristics.
-        // TODO(Phase 0): Populate fan-in/fan-out rankings from JVM dependency analysis
-        // (ArchUnit or equivalent) once the bytecode analysis pipeline is available.
+        for (mod in ctx.modules) {
+            mod.sourceDirs.forEach { srcDir ->
+                collectKotlinFiles(srcDir).forEach { file ->
+                    val path = ReportNormalizer.repoRelativePath(file, ctx.rootDir)
+                    productionFileSizes.add(
+                        StructuralHotspot(
+                            module = mod.name,
+                            path = path,
+                            declaration = file.nameWithoutExtension,
+                            metric = "fileSize",
+                            value = ReportNormalizer.countNonBlankLines(file)
+                        )
+                    )
+                    val declarationMetrics = scanDeclarationMetrics(mod.name, file, path)
+                    classSizes.addAll(declarationMetrics.classSizes)
+                    functionsPerClass.addAll(declarationMetrics.functionsPerClass)
+                    constructorParameters.addAll(scanConstructorParameters(mod.name, file, path))
+                    functionParameters.addAll(scanFunctionParameters(mod.name, file, path))
+                }
+            }
+
+            mod.testSourceDirs.forEach { testDir ->
+                collectKotlinFiles(testDir).forEach { file ->
+                    testFileSizes.add(
+                        StructuralHotspot(
+                            module = mod.name,
+                            path = ReportNormalizer.repoRelativePath(file, ctx.rootDir),
+                            declaration = file.nameWithoutExtension,
+                            metric = "fileSize",
+                            value = ReportNormalizer.countNonBlankLines(file)
+                        )
+                    )
+                }
+            }
+
+            // Module build files
+            if (mod.buildFile.isFile && mod.buildFile != rootBuildFile) {
+                buildFileSizes.add(
+                    StructuralHotspot(
+                        module = mod.name,
+                        path = ReportNormalizer.repoRelativePath(mod.buildFile, ctx.rootDir),
+                        declaration = "${mod.name} build",
+                        metric = "fileSize",
+                        value = ReportNormalizer.countNonBlankLines(mod.buildFile)
+                    )
+                )
+            }
+        }
+
         val result = StructuralHotspots(
             largestProductionFiles = productionFileSizes
                 .sortedWith(compareByDescending<StructuralHotspot> { it.value }.thenBy { it.path })
@@ -247,13 +318,12 @@ class BaselineGenerator(
             highestFanIn = emptyList()
         )
 
-        ReportNormalizer.writeJson(result, File(outputDir, "structural-hotspots.json"))
+        ReportNormalizer.writeJson(result, File(reportOutputDir, "structural-hotspots.json"))
         return result
     }
 
     fun generateRuntimeProtocolCatalog(): ProtocolCatalog {
         val entries = mutableListOf<ProtocolEntry>()
-        val projects = rootProject.allprojects.filter { it != rootProject && it.buildFile.exists() }
         val namedProtocolRegex = Regex(
             """(?:const\s+val|val)\s+([A-Z][A-Z0-9_]*)\s*(?::[^=]+)?=\s*"((?:tramai\.)[^"]+)""""
         )
@@ -264,52 +334,53 @@ class BaselineGenerator(
             """(?:const\s+val|val)\s+([A-Z][A-Z0-9_]*(?:MESSAGE|REASON|CODE)[A-Z0-9_]*)\s*(?::[^=]+)?=\s*"([^"]+)""""
         )
 
-        for (project in projects) {
-            collectKotlinFiles(File(project.projectDir, "src/main/kotlin")).forEach { file ->
-                val source = ReportNormalizer.repoRelativePath(file, rootProject.rootDir)
-                val content = file.readText(Charsets.UTF_8)
+        for (mod in ctx.modules) {
+            mod.sourceDirs.forEach { srcDir ->
+                collectKotlinFiles(srcDir).forEach { file ->
+                    val source = ReportNormalizer.repoRelativePath(file, ctx.rootDir)
+                    val content = file.readText(Charsets.UTF_8)
 
-                namedProtocolRegex.findAll(content).forEach { match ->
-                    val symbol = match.groupValues[1]
-                    val value = match.groupValues[2]
-                    entries.add(
-                        ProtocolEntry(
-                            category = classifyProtocolEntry(symbol, value),
-                            name = symbol,
-                            value = value,
-                            source = source
+                    namedProtocolRegex.findAll(content).forEach { match ->
+                        val symbol = match.groupValues[1]
+                        val value = match.groupValues[2]
+                        entries.add(
+                            ProtocolEntry(
+                                category = classifyProtocolEntry(symbol, value),
+                                name = symbol,
+                                value = value,
+                                source = source
+                            )
                         )
-                    )
-                }
+                    }
 
-                namedArgumentRegex.findAll(content).forEach { match ->
-                    val argument = match.groupValues[1]
-                    val value = match.groupValues[2]
-                    entries.add(
-                        ProtocolEntry(
-                            category = classifyProtocolEntry(argument, value),
-                            name = value,
-                            value = value,
-                            source = source
+                    namedArgumentRegex.findAll(content).forEach { match ->
+                        val value = match.groupValues[2]
+                        entries.add(
+                            ProtocolEntry(
+                                category = classifyProtocolEntry(match.groupValues[1], value),
+                                name = value,
+                                value = value,
+                                source = source
+                            )
                         )
-                    )
-                }
+                    }
 
-                exceptionConstantRegex.findAll(content).forEach { match ->
-                    val symbol = match.groupValues[1]
-                    val value = match.groupValues[2]
-                    entries.add(
-                        ProtocolEntry(
-                            category = if (symbol.contains("REASON") || symbol.contains("CODE")) {
-                                "reason-code"
-                            } else {
-                                "exception-message"
-                            },
-                            name = symbol,
-                            value = value,
-                            source = source
+                    exceptionConstantRegex.findAll(content).forEach { match ->
+                        val symbol = match.groupValues[1]
+                        val value = match.groupValues[2]
+                        entries.add(
+                            ProtocolEntry(
+                                category = if (symbol.contains("REASON") || symbol.contains("CODE")) {
+                                    "reason-code"
+                                } else {
+                                    "exception-message"
+                                },
+                                name = symbol,
+                                value = value,
+                                source = source
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
@@ -332,39 +403,15 @@ class BaselineGenerator(
         if (writeRepositoryArtifacts) {
             ReportNormalizer.writeJson(
                 catalogDocument,
-                File(rootProject.rootDir, "config/quality/runtime-protocol-catalog.json")
+                File(ctx.rootDir, "config/quality/runtime-protocol-catalog.json")
             )
         }
-        ReportNormalizer.writeJson(catalog, File(outputDir, "runtime-protocol-catalog.json"))
+        ReportNormalizer.writeJson(catalog, File(reportOutputDir, "runtime-protocol-catalog.json"))
         return catalog
     }
 
-    fun generateCancellationCatchInventory(inventory: List<CancellationCatchFinding>): RuntimeSafetyBaseline {
-        ReportNormalizer.writeJson(
-            mapOf("findings" to inventory),
-            File(outputDir, "cancellation-safety.json")
-        )
-        return RuntimeSafetyBaseline(cancellationCatches = inventory)
-    }
-
-    fun generateGlobalStateInventory(inventory: List<GlobalStateFinding>): RuntimeSafetyBaseline {
-        ReportNormalizer.writeJson(
-            mapOf("findings" to inventory),
-            File(outputDir, "global-state.json")
-        )
-        return RuntimeSafetyBaseline(globalState = inventory)
-    }
-
-    fun generateNondeterminismInventory(inventory: List<NondeterminismFinding>): RuntimeSafetyBaseline {
-        ReportNormalizer.writeJson(
-            mapOf("findings" to inventory),
-            File(outputDir, "nondeterminism.json")
-        )
-        return RuntimeSafetyBaseline(nondeterminism = inventory)
-    }
-
     fun generateApiBaseline(): ApiBaseline {
-        val dumps = rootProject.rootDir.walkTopDown()
+        val dumps = ctx.rootDir.walkTopDown()
             .filter { file ->
                 file.isFile &&
                     file.extension == "api" &&
@@ -372,14 +419,14 @@ class BaselineGenerator(
                     !file.toPath().any { it.toString() == "build" }
             }
             .associate { file ->
-                ReportNormalizer.repoRelativePath(file, rootProject.rootDir) to sha256(file.readBytes())
+                ReportNormalizer.repoRelativePath(file, ctx.rootDir) to sha256(file.readBytes())
             }
             .toSortedMap()
         val aggregateHash = sha256(
             dumps.entries.joinToString("\n") { (path, hash) -> "$path=$hash" }.toByteArray(Charsets.UTF_8)
         )
         val result = ApiBaseline(publicApiDumps = dumps, apiCheckHash = aggregateHash)
-        ReportNormalizer.writeJson(result, File(outputDir, "public-api-dumps.json"))
+        ReportNormalizer.writeJson(result, File(reportOutputDir, "public-api-dumps.json"))
         return result
     }
 
@@ -388,8 +435,11 @@ class BaselineGenerator(
         val classTimings = mutableListOf<TestTiming>()
         val testTimings = mutableListOf<TestTiming>()
 
-        rootProject.allprojects
-            .filter { it != rootProject && it.buildFile.exists() }
+        // Test performance requires Gradle — skip in canonical mode
+        val gradleProject = ctx.gradleProject ?: return TestPerformanceData()
+
+        gradleProject.allprojects
+            .filter { it != gradleProject && it.buildFile.exists() }
             .sortedBy { it.path }
             .forEach { project ->
                 val resultDir = File(project.layout.buildDirectory.get().asFile, "test-results/test")
@@ -467,18 +517,19 @@ class BaselineGenerator(
             totalDurationMs = modulePerformance.values.sumOf { it.totalDurationMs },
             totalTestCount = modulePerformance.values.sumOf { it.testCount }
         )
-        ReportNormalizer.writeJson(result, File(outputDir, "test-performance.json"))
+        ReportNormalizer.writeJson(result, File(reportOutputDir, "test-performance.json"))
         return result
     }
 
     fun updateBaselineJson(baseline: BaselineDocument) {
-        val baselineFile = File(rootProject.rootDir, "config/quality/0.6.0-baseline.json")
+        val baselineFile = File(ctx.rootDir, "config/quality/0.6.0-baseline.json")
         ReportNormalizer.writeJson(baseline, baselineFile)
     }
 
     fun generateResolvedDependencyGraph(): List<ResolvedDependency> {
+        val gradleProject = ctx.gradleProject ?: return emptyList()
         val resolved = mutableListOf<ResolvedDependency>()
-        val projects = rootProject.allprojects.filter { it != rootProject && it.buildFile.exists() }
+        val projects = gradleProject.allprojects.filter { it != gradleProject && it.buildFile.exists() }
 
         for (proj in projects) {
             val configs = listOf("runtimeClasspath", "compileClasspath")
@@ -488,10 +539,7 @@ class BaselineGenerator(
                     if (!config.isCanBeResolved) continue
                     config.resolve()
 
-                    // Extract dependencies from resolved files
                     for (file in config.resolve()) {
-                        val name = file.nameWithoutExtension
-                        // Parse GAV from typical Maven/Ivy cache paths
                         val parts = file.absolutePath.split("/")
                         val groupIdx = parts.indexOfLast { it.contains(".") && !it.startsWith(".") && it.count { c -> c == '.' } >= 2 }
                         if (groupIdx >= 0 && groupIdx + 2 < parts.size) {
@@ -514,7 +562,6 @@ class BaselineGenerator(
                         }
                     }
                 } catch (_: Exception) {
-                    // Configuration may not be resolvable
                 }
             }
         }
@@ -522,55 +569,167 @@ class BaselineGenerator(
         val deduped = resolved.distinctBy { "${it.group}:${it.artifact}:${it.selectedVersion}" }
         ReportNormalizer.writeJson(
             mapOf("dependencies" to deduped),
-            File(outputDir, "resolved-dependencies.json")
+            File(reportOutputDir, "resolved-dependencies.json")
         )
         return deduped
     }
 
-    private fun secondsToMillis(value: String): Long =
-        value.toBigDecimalOrNull()?.multiply(1000.toBigDecimal())?.toLong() ?: 0L
+    // ─── Private helpers ───
 
-    private fun newSecureDocumentBuilderFactory(): DocumentBuilderFactory =
-        DocumentBuilderFactory.newInstance().apply {
-            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            setFeature("http://xml.org/sax/features/external-general-entities", false)
-            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            isXIncludeAware = false
-            isExpandEntityReferences = false
-        }
-
-    private fun sha256(bytes: ByteArray): String =
-        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
-
-    private fun resolveBaselineGitIdentity(): BaselineGitIdentity {
-        val baselineCommitSha = runGit("rev-parse", "$BASELINE_TAG^{commit}")
-        val measuredCommitSha = runGit("rev-parse", "HEAD")
-        val commitTimestamp = runGit("log", "-1", "--format=%aI", "$BASELINE_TAG^{commit}")
-        return BaselineGitIdentity(baselineCommitSha, measuredCommitSha, commitTimestamp)
+    private fun collectKotlinFiles(sourceDir: File): List<File> {
+        if (!sourceDir.exists()) return emptyList()
+        return sourceDir.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .sortedBy { it.absolutePath }
+            .toList()
     }
 
-    private fun runGit(vararg arguments: String): String {
-        try {
-            val process = ProcessBuilder(listOf("git") + arguments)
-                .directory(rootProject.rootDir)
-                .redirectErrorStream(true)
-                .start()
-            val output = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
-            if (process.waitFor() != 0 || output.isBlank()) {
-                throw GradleException(
-                    "Unable to resolve maintainability baseline Git identity with " +
-                        "'git ${arguments.joinToString(" ")}': ${output.ifBlank { "no output" }}"
+    private fun scanDeclarationMetrics(
+        module: String, file: File, relativePath: String
+    ): DeclarationMetrics {
+        val content = file.readText()
+        val classSizes = mutableListOf<StructuralHotspot>()
+        val functionsPerClass = mutableListOf<StructuralHotspot>()
+
+        // Simple regex-based class/function counting
+        val classRegex = Regex("""^\s*(?:data\s+)?(?:sealed\s+)?(?:abstract\s+)?(?:open\s+)?class\s+(\w+)""", RegexOption.MULTILINE)
+        val funRegex = Regex("""^\s*(?:suspend\s+)?(?:override\s+)?fun\s+(\w+)""", RegexOption.MULTILINE)
+
+        val classMatches = classRegex.findAll(content).toList()
+        val funMatches = funRegex.findAll(content).toList()
+
+        for (classMatch in classMatches) {
+            val className = classMatch.groupValues[1]
+            val classStart = classMatch.range.first
+            val nextClassStart = classMatches.firstOrNull { it.range.first > classStart }?.range?.first ?: content.length
+            val classBody = content.substring(classStart, nextClassStart)
+            val funCount = funRegex.findAll(classBody).count()
+
+            classSizes.add(
+                StructuralHotspot(
+                    module = module, path = relativePath, declaration = className,
+                    metric = "classSize", value = classBody.count { it == '\n' }
                 )
-            }
-            return output.lineSequence().first()
-        } catch (exception: GradleException) {
-            throw exception
-        } catch (exception: Exception) {
-            throw GradleException(
-                "Unable to run Git while resolving maintainability baseline identity: ${exception.message}",
-                exception
+            )
+            functionsPerClass.add(
+                StructuralHotspot(
+                    module = module, path = relativePath, declaration = className,
+                    metric = "functionCount", value = funCount
+                )
             )
         }
+
+        return DeclarationMetrics(classSizes, functionsPerClass)
+    }
+
+    private fun scanConstructorParameters(
+        module: String, file: File, relativePath: String
+    ): List<StructuralHotspot> {
+        val content = file.readText()
+        val results = mutableListOf<StructuralHotspot>()
+        val constructorRegex = Regex(
+            """^\s*(?:data\s+)?(?:sealed\s+)?(?:abstract\s+)?(?:open\s+)?class\s+(\w+)\s*\(([^)]*)\)""",
+            RegexOption.MULTILINE
+        )
+        constructorRegex.findAll(content).forEach { match ->
+            val className = match.groupValues[1]
+            val params = match.groupValues[2]
+            val paramCount = if (params.isBlank()) 0 else params.split(",").size
+            if (paramCount > 0) {
+                results.add(
+                    StructuralHotspot(
+                        module = module, path = relativePath, declaration = className,
+                        metric = "constructorParameterCount", value = paramCount
+                    )
+                )
+            }
+        }
+        return results
+    }
+
+    private fun scanFunctionParameters(
+        module: String, file: File, relativePath: String
+    ): List<StructuralHotspot> {
+        val content = file.readText()
+        val results = mutableListOf<StructuralHotspot>()
+        val funRegex = Regex(
+            """^\s*(?:suspend\s+)?(?:override\s+)?fun\s+(?:<[^>]+>\s*)?(\w+)\s*\(([^)]*)\)""",
+            RegexOption.MULTILINE
+        )
+        funRegex.findAll(content).forEach { match ->
+            val funName = match.groupValues[1]
+            val params = match.groupValues[2]
+            val paramCount = if (params.isBlank()) 0 else params.split(",").size
+            if (paramCount > 2) {
+                results.add(
+                    StructuralHotspot(
+                        module = module, path = relativePath, declaration = funName,
+                        metric = "functionParameterCount", value = paramCount
+                    )
+                )
+            }
+        }
+        return results
+    }
+
+    private fun classifyProtocolEntry(symbol: String, value: String): String {
+        val normalized = symbol.uppercase()
+        return when {
+            "ATTR" in normalized || "ATTRIBUTE" in normalized -> "attribute-key"
+            "METRIC" in normalized -> "metric-name"
+            "SPAN" in normalized -> "span-name"
+            "EVENT" in normalized || ".event." in value -> "event-name"
+            "REASON" in normalized || "CODE" in normalized -> "reason-code"
+            else -> "runtime-protocol"
+        }
+    }
+
+    private fun computeSourceTreeHash(): String {
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            for (mod in ctx.modules) {
+                for (srcDir in mod.sourceDirs + mod.testSourceDirs + mod.testFixtureDirs) {
+                    if (srcDir.isDirectory) {
+                        srcDir.walkTopDown()
+                            .filter { it.isFile && it.extension in listOf("kt", "java") }
+                            .sortedBy { it.absolutePath }
+                            .forEach {
+                                digest.update(it.absolutePath.removePrefix(ctx.rootDir.absolutePath).toByteArray())
+                                digest.update(it.readBytes())
+                            }
+                    }
+                }
+                if (mod.buildFile.isFile) {
+                    digest.update(mod.buildFile.absolutePath.removePrefix(ctx.rootDir.absolutePath).toByteArray())
+                    digest.update(mod.buildFile.readBytes())
+                }
+            }
+            for (rootFile in listOf("build.gradle.kts", "settings.gradle.kts", "gradle/libs.versions.toml")) {
+                val f = File(ctx.rootDir, rootFile)
+                if (f.isFile) {
+                    digest.update(rootFile.toByteArray())
+                    digest.update(f.readBytes())
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun computeGitTreeSha(): String {
+        return try {
+            ctx.runGit("rev-parse", "HEAD^{tree}")
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun resolveBaselineGitIdentity(): BaselineGitIdentity {
+        val baselineCommitSha = ctx.runGit("rev-parse", "$BASELINE_TAG^{commit}")
+        val measuredCommitSha = ctx.runGit("rev-parse", "HEAD")
+        val commitTimestamp = ctx.runGit("log", "-1", "--format=%aI", "$BASELINE_TAG^{commit}")
+        return BaselineGitIdentity(baselineCommitSha, measuredCommitSha, commitTimestamp)
     }
 
     private fun deterministicGeneratedAt(commitTimestamp: String): String {
@@ -581,8 +740,7 @@ class BaselineGenerator(
     }
 
     private fun generateModuleDependencyGraphMarkdown(
-        graph: ModuleGraphAnalyzer.GraphResult,
-        mermaid: String
+        graph: ModuleGraphAnalyzer.GraphResult, mermaid: String
     ): String = buildString {
         appendLine("# TramAI 0.6.0 — Module Dependency Graph")
         appendLine()
@@ -632,275 +790,20 @@ class BaselineGenerator(
         appendLine("Run `./gradlew verifyModuleDependencyGraph` to check the current graph.")
     }
 
-    private fun collectKotlinFiles(sourceDir: File): List<File> {
-        if (!sourceDir.exists()) return emptyList()
-        return sourceDir.walkTopDown()
-            .filter { it.isFile && it.extension == "kt" }
-            .sortedBy { it.absolutePath }
-            .toList()
-    }
+    private fun sha256(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
-    private fun scanDeclarationMetrics(
-        module: String,
-        file: File,
-        path: String
-    ): DeclarationMetrics {
-        val content = file.readText(Charsets.UTF_8)
-        val classSizes = mutableListOf<StructuralHotspot>()
-        val functionsPerClass = mutableListOf<StructuralHotspot>()
-        val declarationRegex = Regex(
-            """\b(?:(?:data|sealed|open|abstract|value|enum|annotation)\s+)?(class|object)\s+([A-Za-z_][A-Za-z0-9_]*)"""
-        )
-        val functionRegex = Regex("""\bfun\s+(?:<[^>{}]+>\s*)?(?:[A-Za-z_][A-Za-z0-9_]*\.)*([A-Za-z_][A-Za-z0-9_]*)\s*\(""")
+    private fun secondsToMillis(value: String): Long =
+        value.toBigDecimalOrNull()?.multiply(1000.toBigDecimal())?.toLong() ?: 0L
 
-        declarationRegex.findAll(content).forEach { declaration ->
-            val openingBrace = content.indexOf('{', declaration.range.last + 1)
-            if (openingBrace < 0) return@forEach
-            val closingBrace = findMatchingBrace(content, openingBrace)
-            if (closingBrace <= openingBrace) return@forEach
-            val body = content.substring(openingBrace + 1, closingBrace)
-            val declarationName = declaration.groupValues[2]
-            classSizes.add(
-                StructuralHotspot(
-                    module = module,
-                    path = path,
-                    declaration = declarationName,
-                    metric = "classSize",
-                    value = body.lineSequence().count { it.isNotBlank() }
-                )
-            )
-            functionsPerClass.add(
-                StructuralHotspot(
-                    module = module,
-                    path = path,
-                    declaration = declarationName,
-                    metric = "functionCount",
-                    value = functionRegex.findAll(body).count()
-                )
-            )
+    private fun newSecureDocumentBuilderFactory(): DocumentBuilderFactory =
+        DocumentBuilderFactory.newInstance().apply {
+            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+            setFeature("http://xml.org/sax/features/external-general-entities", false)
+            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+            isXIncludeAware = false
+            isExpandEntityReferences = false
         }
-        return DeclarationMetrics(classSizes, functionsPerClass)
-    }
-
-    private fun scanFunctionParameters(
-        module: String,
-        file: File,
-        path: String
-    ): List<StructuralHotspot> {
-        val content = file.readText(Charsets.UTF_8)
-        val functionRegex = Regex(
-            """\bfun\s+(?:<[^>{}]+>\s*)?(?:[A-Za-z_][A-Za-z0-9_]*\.)*([A-Za-z_][A-Za-z0-9_]*)\s*\("""
-        )
-        return functionRegex.findAll(content).map { match ->
-            StructuralHotspot(
-                module = module,
-                path = path,
-                declaration = match.groupValues[1],
-                metric = "functionParameterCount",
-                value = countParameters(content, match.range.last)
-            )
-        }.toList()
-    }
-
-    private fun findMatchingBrace(content: String, openingBrace: Int): Int {
-        var depth = 0
-        var quote: Char? = null
-        var escaped = false
-        for (index in openingBrace until content.length) {
-            val char = content[index]
-            if (quote != null) {
-                if (escaped) {
-                    escaped = false
-                } else if (char == '\\') {
-                    escaped = true
-                } else if (char == quote) {
-                    quote = null
-                }
-                continue
-            }
-            when (char) {
-                '"', '\'' -> quote = char
-                '{' -> depth++
-                '}' -> {
-                    depth--
-                    if (depth == 0) return index
-                }
-            }
-        }
-        return -1
-    }
-
-    private fun scanConstructorParameters(
-        module: String,
-        file: File,
-        path: String
-    ): List<StructuralHotspot> {
-        val content = file.readText(Charsets.UTF_8)
-        val findings = mutableListOf<StructuralHotspot>()
-        val recordedOpenParentheses = mutableSetOf<Int>()
-        val classRegex = Regex(
-            """\b(?:data\s+|sealed\s+|open\s+|abstract\s+|value\s+|enum\s+|annotation\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)"""
-        )
-        val classMatches = classRegex.findAll(content).toList()
-
-        classMatches.forEach { classMatch ->
-            val className = classMatch.groupValues[1]
-            val headerStart = classMatch.range.last + 1
-            val headerEnd = content.indexOf('{', headerStart).let { if (it >= 0) it else content.length }
-            val header = content.substring(headerStart, headerEnd)
-            val explicitConstructor = Regex("""\bconstructor\s*\(""").find(header)
-            val openParenthesis = if (explicitConstructor != null) {
-                headerStart + explicitConstructor.range.last
-            } else {
-                header.indexOf('(')
-                    .takeIf { it >= 0 }
-                    ?.let { headerStart + it }
-            }
-
-            if (openParenthesis != null) {
-                recordedOpenParentheses.add(openParenthesis)
-                findings.add(
-                    StructuralHotspot(
-                        module = module,
-                        path = path,
-                        declaration = className,
-                        metric = "constructorParameterCount",
-                        value = countParameters(content, openParenthesis)
-                    )
-                )
-            }
-        }
-
-        Regex("""\bconstructor\s*\(""").findAll(content).forEach { constructorMatch ->
-            val openParenthesis = constructorMatch.range.last
-            if (openParenthesis in recordedOpenParentheses) return@forEach
-            val enclosingClass = classMatches.lastOrNull { it.range.first < constructorMatch.range.first }
-                ?.groupValues
-                ?.get(1)
-                ?: file.nameWithoutExtension
-            findings.add(
-                StructuralHotspot(
-                    module = module,
-                    path = path,
-                    declaration = "$enclosingClass.constructor",
-                    metric = "constructorParameterCount",
-                    value = countParameters(content, openParenthesis)
-                )
-            )
-        }
-
-        return findings
-    }
-
-    private fun countParameters(content: String, openParenthesis: Int): Int {
-        var index = openParenthesis + 1
-        var nesting = 0
-        var parameterCount = 0
-        var currentParameterHasContent = false
-        var quote: Char? = null
-        var escaped = false
-
-        while (index < content.length) {
-            val char = content[index]
-            if (quote != null) {
-                if (escaped) {
-                    escaped = false
-                } else if (char == '\\') {
-                    escaped = true
-                } else if (char == quote) {
-                    quote = null
-                }
-                index++
-                continue
-            }
-
-            when (char) {
-                '"', '\'' -> quote = char
-                '(', '[', '{', '<' -> nesting++
-                ')' -> {
-                    if (nesting == 0) {
-                        return parameterCount + if (currentParameterHasContent) 1 else 0
-                    }
-                    nesting--
-                }
-                ']', '}', '>' -> if (nesting > 0) nesting--
-                ',' -> if (nesting == 0 && currentParameterHasContent) {
-                    parameterCount++
-                    currentParameterHasContent = false
-                }
-                else -> if (!char.isWhitespace()) currentParameterHasContent = true
-            }
-            index++
-        }
-        return 0
-    }
-
-    private fun classifyProtocolEntry(symbol: String, value: String): String {
-        val normalized = symbol.uppercase()
-        return when {
-            "ATTR" in normalized || "ATTRIBUTE" in normalized -> "attribute-key"
-            "METRIC" in normalized -> "metric-name"
-            "SPAN" in normalized -> "span-name"
-            "EVENT" in normalized || ".event." in value -> "event-name"
-            "REASON" in normalized || "CODE" in normalized -> "reason-code"
-            else -> "runtime-protocol"
-        }
-    }
-
-    private fun isWorkingTreeClean(): Boolean {
-        return try {
-            val process = ProcessBuilder(listOf("git", "status", "--porcelain"))
-                .directory(rootProject.rootDir)
-                .redirectErrorStream(true)
-                .start()
-            val output = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            process.waitFor() == 0 && output.isBlank()
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun computeSourceTreeHash(): String {
-        return try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            // Walk ALL subproject source directories, not just root
-            val allProjects = rootProject.allprojects.filter { it.buildFile.exists() }
-            for (proj in allProjects) {
-                val sourceSets = listOf(
-                    "src/main/kotlin", "src/main/java",
-                    "src/test/kotlin", "src/testFixtures/kotlin"
-                )
-                for (srcDir in sourceSets) {
-                    val dir = File(proj.projectDir, srcDir)
-                    if (dir.isDirectory) {
-                        dir.walkTopDown()
-                            .filter { it.isFile && it.extension in listOf("kt", "java") }
-                            .sortedBy { it.absolutePath }
-                            .forEach {
-                                digest.update(it.absolutePath.removePrefix(rootProject.rootDir.absolutePath).toByteArray())
-                                digest.update(it.readBytes())
-                            }
-                    }
-                }
-                // Hash build files
-                if (proj.buildFile.isFile) {
-                    digest.update(proj.buildFile.absolutePath.removePrefix(rootProject.rootDir.absolutePath).toByteArray())
-                    digest.update(proj.buildFile.readBytes())
-                }
-            }
-            // Also hash root build files
-            for (rootFile in listOf("build.gradle.kts", "settings.gradle.kts", "gradle/libs.versions.toml")) {
-                val f = File(rootProject.rootDir, rootFile)
-                if (f.isFile) {
-                    digest.update(rootFile.toByteArray())
-                    digest.update(f.readBytes())
-                }
-            }
-            digest.digest().joinToString("") { "%02x".format(it) }
-        } catch (_: Exception) {
-            ""
-        }
-    }
 
     private data class BaselineGitIdentity(
         val baselineCommitSha: String,
@@ -913,7 +816,25 @@ class BaselineGenerator(
         val functionsPerClass: List<StructuralHotspot>
     )
 
-    private companion object {
+    companion object {
         const val BASELINE_TAG = "v0.5.0"
+
+        /** Create from a Gradle project (normal/CI mode). */
+        fun fromProject(project: Project): BaselineGenerator {
+            val ctx = MeasurementContext.fromProject(project)
+            return BaselineGenerator(ctx)
+        }
+
+        /** Create from a detached worktree directory (canonical mode). */
+        fun fromDirectory(rootDir: File, outputDir: File? = null, analyzerRoot: File? = null): BaselineGenerator {
+            val ctx = MeasurementContext.fromDirectory(rootDir)
+            val gen = BaselineGenerator(
+                ctx = ctx,
+                outputDir = outputDir ?: File(rootDir, "build/reports/maintainability"),
+                writeRepositoryArtifacts = false
+            )
+            gen.analyzerRootDir = analyzerRoot
+            return gen
+        }
     }
 }

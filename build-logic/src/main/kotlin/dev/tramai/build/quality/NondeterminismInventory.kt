@@ -1,12 +1,11 @@
 package dev.tramai.build.quality
 
-import org.gradle.api.Project
 import java.io.File
 
 /**
  * Scans Kotlin source files for direct access to time, identity, and randomness sources.
  */
-class NondeterminismInventory(private val rootProject: Project) {
+class NondeterminismInventory(private val ctx: MeasurementContext) {
 
     private data class PatternDef(val regex: Regex, val category: String, val classification: String)
 
@@ -27,44 +26,35 @@ class NondeterminismInventory(private val rootProject: Project) {
 
     fun inventory(): List<NondeterminismFinding> {
         val findings = mutableListOf<NondeterminismFinding>()
-        val projects = rootProject.allprojects.filter { it != rootProject && it.buildFile.exists() }
 
-        for (proj in projects) {
-            val srcDir = File(proj.projectDir, "src/main/kotlin")
-            if (!srcDir.exists()) continue
+        for (mod in ctx.modules) {
+            mod.sourceDirs.forEach { srcDir ->
+                if (!srcDir.exists()) return@forEach
+                srcDir.walkTopDown().forEach { file ->
+                    if (!file.isFile || file.extension != "kt") return@forEach
+                    val content = file.readText()
+                    val relativePath = ReportNormalizer.repoRelativePath(file, ctx.rootDir)
+                    val lines = content.lines()
 
-            srcDir.walkTopDown().forEach { file ->
-                if (!file.isFile || file.extension != "kt") return@forEach
-                processFile(file, proj.name, findings)
-            }
-        }
-
-        return findings.sortedBy { it.classification }
-    }
-
-    private fun processFile(file: File, moduleName: String, findings: MutableList<NondeterminismFinding>) {
-        val lines = file.readLines()
-        val relativePath = ReportNormalizer.repoRelativePath(file, rootProject.rootDir)
-
-        for ((lineIdx, line) in lines.withIndex()) {
-            // Skip comments
-            val trimmed = line.trim()
-            if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue
-
-            for (pattern in patterns) {
-                if (pattern.regex.containsMatchIn(line)) {
-                    findings.add(
-                        NondeterminismFinding(
-                            module = moduleName,
-                            file = relativePath,
-                            line = lineIdx + 1,
-                            source = pattern.regex.pattern.take(40),
-                            classification = pattern.classification,
-                            category = pattern.category
-                        )
-                    )
+                    for (pat in patterns) {
+                        pat.regex.findAll(content).forEach { match ->
+                            val lineNum = content.substring(0, match.range.first).count { it == '\n' } + 1
+                            findings.add(
+                                NondeterminismFinding(
+                                    module = mod.name,
+                                    file = relativePath,
+                                    line = lineNum,
+                                    source = match.value,
+                                    classification = pat.classification,
+                                    category = pat.category
+                                )
+                            )
+                        }
+                    }
                 }
             }
         }
+
+        return findings
     }
 }

@@ -3,6 +3,8 @@ package dev.tramai.build.quality
 /**
  * Scans raw Kotlin source text for broad exception catches in suspend-capable code.
  * Testable independently of file I/O and Gradle project model.
+ *
+ * Deterministic: same input always produces same output regardless of execution context.
  */
 object KotlinCancellationCatchScanner {
 
@@ -19,15 +21,27 @@ object KotlinCancellationCatchScanner {
         Regex("""\bsuspend\s+\(""")
     )
 
+    /**
+     * Result of line joining: [joined] lines with their [originalIndices] mapping
+     * each joined index back to the first original line that contributed to it.
+     */
+    private data class JoinedLines(
+        val lines: List<String>,
+        val originalIndices: List<Int>  // joined[i] started at original[originalIndices[i]]
+    )
+
     fun scan(source: String, module: String, file: String): List<CancellationCatchFinding> {
         val findings = mutableListOf<CancellationCatchFinding>()
         val lines = source.lines()
         val suspendRanges = findSuspendRanges(lines)
 
-        // Check for multiline catches: join lines within catch blocks
+        // Join multiline catches while tracking original line positions
         val joined = joinCatchLines(lines)
 
-        for ((lineIdx, line) in joined.withIndex()) {
+        for ((joinedIdx, line) in joined.lines.withIndex()) {
+            val originalLineIdx = joined.originalIndices[joinedIdx]
+            val originalLineNum = originalLineIdx + 1  // 1-indexed for suspend range check
+
             // Skip comment lines
             val trimmed = line.trim()
             if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue
@@ -37,9 +51,8 @@ object KotlinCancellationCatchScanner {
                 // Skip matches inside string literals
                 if (isInsideStringLiteral(line, match.range.first)) continue
 
-                val originalLineNum = lineIdx + 1
                 val inSuspend = suspendRanges.any { originalLineNum in it }
-                val functionName = findEnclosingFunction(lines, lineIdx)
+                val functionName = findEnclosingFunction(lines, originalLineIdx)
 
                 val catchType = when {
                     line.contains("Throwable") -> "Throwable"
@@ -49,8 +62,8 @@ object KotlinCancellationCatchScanner {
                     else -> "unknown"
                 }
 
-                val rethrowsCancellation = checkRethrowsCancellation(lines, lineIdx)
-                val transformsException = checkTransformsException(lines, lineIdx)
+                val rethrowsCancellation = checkRethrowsCancellation(lines, originalLineIdx)
+                val transformsException = checkTransformsException(lines, originalLineIdx)
 
                 val risk = when {
                     rethrowsCancellation -> "accepted"
@@ -75,36 +88,45 @@ object KotlinCancellationCatchScanner {
             }
         }
 
-        return findings.sortedByDescending { riskWeight(it.risk) }
+        return findings
+            .sortedByDescending { riskWeight(it.risk) }
+            // Deduplicate: same (module, file, function, catchType) → keep worst risk
+            .distinctBy { "${it.module}::${it.file}::${it.function}::${it.catchType}" }
     }
 
     /**
-     * Joins multiline catch declarations. Kotlin allows:
+     * Joins multiline catch declarations while tracking original line positions.
+     * Kotlin allows:
      *   catch (
      *       e: Exception
      *   ) {
-     * This normalizes them to single lines for pattern matching.
+     * This normalizes them to single lines for pattern matching but preserves
+     * the original starting line index for position-dependent checks.
      */
-    private fun joinCatchLines(lines: List<String>): List<String> {
-        val result = mutableListOf<String>()
+    private fun joinCatchLines(lines: List<String>): JoinedLines {
+        val resultLines = mutableListOf<String>()
+        val resultIndices = mutableListOf<Int>()
         var i = 0
         while (i < lines.size) {
             val trimmed = lines[i].trim()
             if (trimmed.startsWith("catch") && !trimmed.contains(")")) {
                 val sb = StringBuilder(lines[i])
+                val startIdx = i
                 i++
                 while (i < lines.size) {
                     sb.append(" ").append(lines[i].trim())
                     if (lines[i].contains(")")) break
                     i++
                 }
-                result.add(sb.toString())
+                resultLines.add(sb.toString())
+                resultIndices.add(startIdx)
             } else {
-                result.add(lines[i])
+                resultLines.add(lines[i])
+                resultIndices.add(i)
             }
             i++
         }
-        return result
+        return JoinedLines(resultLines, resultIndices)
     }
 
     private fun findSuspendRanges(lines: List<String>): List<IntRange> {
@@ -125,7 +147,7 @@ object KotlinCancellationCatchScanner {
         return ranges
     }
 
-    /** Finds matching closing brace accounting for strings and nested braces. */
+    /** Finds matching closing brace accounting for nested braces. */
     private fun findBlockEnd(lines: List<String>, startIdx: Int): Int {
         var braceCount = 0
         var found = false
@@ -146,9 +168,8 @@ object KotlinCancellationCatchScanner {
         return "<unknown>"
     }
 
-    /** Check if the catch block rethrows CancellationException (within catch body, not later code). */
+    /** Check if the catch block rethrows CancellationException (within catch body). */
     private fun checkRethrowsCancellation(lines: List<String>, catchIdx: Int): Boolean {
-        // Find the catch body scope
         val catchBodyEnd = findCatchBodyEnd(lines, catchIdx)
         val end = minOf(catchBodyEnd, lines.size)
         for (i in catchIdx + 1 until end) {
@@ -161,7 +182,7 @@ object KotlinCancellationCatchScanner {
         return false
     }
 
-    /** Find the end of the catch body (closing brace of the catch block), accounting for nested braces. */
+    /** Find the end of the catch body (closing brace of the catch block). */
     private fun findCatchBodyEnd(lines: List<String>, catchIdx: Int): Int {
         var braceCount = 0
         var foundOpening = false
@@ -187,7 +208,7 @@ object KotlinCancellationCatchScanner {
             if (inString) {
                 if (ch == quoteChar) { inString = false; quoteChar = null }
             } else {
-                if (ch == '"' || ch == '\'') { inString = true; quoteChar = ch }
+                if (ch == '\"' || ch == '\'') { inString = true; quoteChar = ch }
             }
         }
         return inString

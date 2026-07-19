@@ -3,7 +3,6 @@ package dev.tramai.build.quality
 import org.gradle.api.GradleException
 import org.gradle.api.Project
 import java.io.File
-import java.security.MessageDigest
 
 /**
  * Compares the currently generated baseline against the committed baseline.
@@ -12,10 +11,10 @@ import java.security.MessageDigest
  */
 class BaselineVerifier(
     private val generator: BaselineGenerator,
-    private val rootDir: File,
+    private val ctx: MeasurementContext,
     private val reportDir: File
 ) {
-    private val deviationParser = DeviationParser(rootDir)
+    private val deviationParser = DeviationParser(ctx.rootDir)
 
     fun verify(): VerificationReport {
         val failures = mutableListOf<String>()
@@ -23,7 +22,7 @@ class BaselineVerifier(
         val accepted = mutableListOf<String>()
 
         // 1. Load committed baseline
-        val committedFile = File(rootDir, "config/quality/0.6.0-baseline.json")
+        val committedFile = File(ctx.rootDir, "config/quality/0.6.0-baseline.json")
         if (!committedFile.isFile) {
             failures.add("Committed baseline not found: ${committedFile.absolutePath}")
             return VerificationReport(false, failures, warnings, accepted)
@@ -45,7 +44,8 @@ class BaselineVerifier(
                 e.contains("blank", ignoreCase = true) ||
                 e.contains("placeholder", ignoreCase = true) ||
                 e.contains("Missing", ignoreCase = true) ||
-                e.contains("Invalid", ignoreCase = true)
+                e.contains("Invalid", ignoreCase = true) ||
+                e.startsWith("Failed to parse")
         }
         val nonFatalWarnings = deviationResult.errors.filter { it !in fatalErrors }
 
@@ -56,12 +56,13 @@ class BaselineVerifier(
         val orphaned = findOrphanedDeviations(deviationResult.deviations, committed)
         warnings.addAll(orphaned)
 
-        // 3. Verify baseline identity
+        // 3. Verify baseline identity (including independent tree hash)
         verifyBaselineIdentity(committed, failures)
 
-        // 4. Generate current measurements using the COMPLETE baseline method
+        // 4. Generate current measurements
+        val currentCtx = MeasurementContext.fromProject(ctx.gradleProject!!)
         val tempGenerator = BaselineGenerator(
-            rootProject = generator.rootProject,
+            ctx = currentCtx,
             outputDir = reportDir,
             writeRepositoryArtifacts = false
         )
@@ -95,8 +96,8 @@ class BaselineVerifier(
         if (id.tramaiVersion == "unspecified" || id.tramaiVersion.isBlank()) {
             failures.add("Committed baseline has invalid tramaiVersion: '${id.tramaiVersion}'")
         }
-        // Validate version matches the tagged release (read from file, not env-overridden property)
-        val propsFile = File(generator.rootProject.rootDir, "gradle.properties")
+        // Validate version matches the tagged release
+        val propsFile = File(ctx.rootDir, "gradle.properties")
         val propsVersion = if (propsFile.isFile) {
             propsFile.readLines().firstOrNull { it.trimStart().startsWith("tramaiVersion=") }
                 ?.substringAfter("=")?.trim()
@@ -112,6 +113,9 @@ class BaselineVerifier(
         if (id.measuredSourceTreeHash.isBlank()) {
             failures.add("Committed baseline has empty measuredSourceTreeHash")
         }
+        if (id.measuredGitTreeSha.isBlank()) {
+            failures.add("Committed baseline has empty measuredGitTreeSha — regenerate with canonical task")
+        }
         if (id.baselineCommitSha.isNotBlank() && id.measuredCommitSha.isNotBlank() &&
             id.baselineCommitSha != id.measuredCommitSha
         ) {
@@ -120,6 +124,54 @@ class BaselineVerifier(
                     "differs from baselineCommitSha (${id.baselineCommitSha.take(8)}). " +
                     "Regenerate the baseline from tag ${id.releaseTag}."
             )
+        }
+        // Independently verify the git tree SHA: recompute from the committed commit
+        if (id.measuredGitTreeSha.isNotBlank() && id.measuredCommitSha.isNotBlank()) {
+            val recomputedTreeSha = try {
+                ctx.runGit("rev-parse", "${id.measuredCommitSha}^{tree}")
+            } catch (_: Exception) {
+                ""
+            }
+            if (recomputedTreeSha.isNotBlank() && recomputedTreeSha != id.measuredGitTreeSha) {
+                failures.add(
+                    "measuredGitTreeSha (${id.measuredGitTreeSha.take(8)}) does not match " +
+                        "independently computed tree SHA (${recomputedTreeSha.take(8)}) for commit ${id.measuredCommitSha.take(8)}"
+                )
+            }
+        }
+
+        // Verify the release tag resolves to the baseline commit: v0.5.0^{commit} == baselineCommitSha
+        if (id.baselineCommitSha.isNotBlank()) {
+            val tagCommit = try {
+                ctx.runGit("rev-parse", "${id.releaseTag}^{commit}")
+            } catch (_: Exception) {
+                ""
+            }
+            if (tagCommit.isNotBlank() && tagCommit != id.baselineCommitSha) {
+                failures.add(
+                    "Release tag ${id.releaseTag} resolves to ${tagCommit.take(8)}, " +
+                        "but baseline claims ${id.baselineCommitSha.take(8)}"
+                )
+            }
+            // Verify the tag tree: v0.5.0^{commit}^{tree} == measuredGitTreeSha
+            if (id.measuredGitTreeSha.isNotBlank()) {
+                val tagTree = try {
+                    ctx.runGit("rev-parse", "${id.releaseTag}^{tree}")
+                } catch (_: Exception) {
+                    ""
+                }
+                if (tagTree.isNotBlank() && tagTree != id.measuredGitTreeSha) {
+                    failures.add(
+                        "Release tag ${id.releaseTag} tree is ${tagTree.take(8)}, " +
+                            "but baseline records ${id.measuredGitTreeSha.take(8)}"
+                    )
+                }
+            }
+        }
+
+        // Verify analyzer identity is recorded
+        if (id.analyzerCommitSha.isBlank()) {
+            failures.add("Committed baseline has empty analyzerCommitSha — regenerate with canonical task")
         }
     }
 
@@ -159,7 +211,7 @@ class BaselineVerifier(
         "${f.module}::${f.file}::${f.declaration}::${f.kind}"
 
     private fun nondeterminismFindingId(f: NondeterminismFinding): String =
-        "${f.module}::${f.file}::${f.source}::${f.classification}"
+        "${f.module}::${f.file}::${f.line}::${f.source}::${f.classification}"
 
     private fun verifyCancellationCatches(
         committed: BaselineDocument,
@@ -168,7 +220,6 @@ class BaselineVerifier(
         failures: MutableList<String>,
         accepted: MutableList<String>
     ) {
-        // Only compare production catches
         val committedIds = committed.runtimeSafety.cancellationCatches.map { cancellationFindingId(it) }.toSet()
         val currentIds = current.runtimeSafety.cancellationCatches.map { cancellationFindingId(it) }.toSet()
 
@@ -192,6 +243,38 @@ class BaselineVerifier(
                         addedCritical.joinToString("\n") { "  - ${it.module}/${it.file}:${it.function} (${it.catchType})" } +
                         "\nAdd a deviation or fix the regression."
                 )
+            }
+        }
+
+        // Risk worsening: same identity but higher risk
+        val committedByRisk = committed.runtimeSafety.cancellationCatches
+            .associate { cancellationFindingId(it) to it.risk }
+        val worsenedRisks = mutableListOf<String>()
+        for (currentFinding in current.runtimeSafety.cancellationCatches) {
+            val id = cancellationFindingId(currentFinding)
+            val committedRisk = committedByRisk[id]
+            if (committedRisk != null) {
+                val riskOrder = listOf("accepted", "low", "medium", "high", "critical")
+                val committedIdx = riskOrder.indexOf(committedRisk)
+                val currentIdx = riskOrder.indexOf(currentFinding.risk)
+                if (currentIdx > committedIdx) {
+                    worsenedRisks.add(
+                        "${currentFinding.module}/${currentFinding.file}:" +
+                            "${currentFinding.function} (${committedRisk} → ${currentFinding.risk})"
+                    )
+                }
+            }
+        }
+        if (worsenedRisks.isNotEmpty()) {
+            val deviation = deviationParser.findCoveringDeviation(
+                deviations, "cancellationRiskWorsening", "tramai-*", worsenedRisks.size
+            )
+            if (deviation != null) {
+                accepted.add("${worsenedRisks.size} risk worsenings — accepted by ${deviation.id}")
+            } else {
+                worsenedRisks.forEach {
+                    failures.add("Cancellation catch risk worsened: $it")
+                }
             }
         }
 
@@ -283,7 +366,6 @@ class BaselineVerifier(
         failures: MutableList<String>,
         warnings: MutableList<String>
     ) {
-        // Key by category+name+value+source for stable identity
         val committedByKey = committed.protocolCatalog.entries.associateBy {
             "${it.category}::${it.name}::${it.value}::${it.source}"
         }
@@ -291,14 +373,12 @@ class BaselineVerifier(
             "${it.category}::${it.name}::${it.value}::${it.source}"
         }
 
-        // Stable contract entries must not be removed
         for ((key, entry) in committedByKey) {
             if (entry.stability == "stable-contract" && key !in currentByKey) {
                 failures.add("Stable protocol contract removed: ${entry.name} (${entry.category})")
             }
         }
 
-        // Unclassified entries must not increase
         val committedUnclassified = committed.protocolCatalog.entries.count { it.stability == "unclassified" }
         val currentUnclassified = current.protocolCatalog.entries.count { it.stability == "unclassified" }
         if (currentUnclassified > committedUnclassified) {
@@ -313,27 +393,30 @@ class BaselineVerifier(
         failures: MutableList<String>,
         warnings: MutableList<String>
     ) {
-        // Check accepted deviation thresholds
         for (dev in deviations) {
             when (dev.metric) {
                 "constructorParameterCount" -> {
-                    val currentMax = current.structural.structuralHotspots.mostConstructorParameters
-                        .firstOrNull()?.value ?: 0
-                    if (currentMax > dev.allowed) {
-                        failures.add(
-                            "${dev.id}: constructor parameter count ${currentMax} exceeds allowed ${dev.allowed} " +
-                                "(scope: ${dev.scope})"
-                        )
+                    // Match by module and declaration, not just global max
+                    val matchedHotspots = current.structural.structuralHotspots.mostConstructorParameters
+                        .filter { hotspot ->
+                            val scopeModule = dev.scope.removePrefix("\"").removeSuffix("\"").split(":").firstOrNull() ?: ""
+                            hotspot.module == scopeModule || dev.scope == "*"
+                        }
+                    for (hotspot in matchedHotspots) {
+                        if (hotspot.value > dev.allowed) {
+                            failures.add(
+                                "${dev.id}: ${hotspot.module}/${hotspot.declaration} constructor has ${hotspot.value} parameters, " +
+                                    "exceeds allowed ${dev.allowed} (scope: ${dev.scope})"
+                            )
+                        }
                     }
                 }
                 "fileSize" -> {
-                    // Check all hotspots matching the deviation scope
                     val allFiles = current.structural.structuralHotspots.largestProductionFiles +
                         current.structural.structuralHotspots.largestBuildFiles
                     for (hotspot in allFiles) {
-                        if (hotspot.path.contains(dev.scope.removePrefix("\"").removeSuffix("\"").split(":").lastOrNull() ?: "") &&
-                            hotspot.value > dev.allowed
-                        ) {
+                        val scopeFile = dev.scope.removePrefix("\"").removeSuffix("\"").split(":").lastOrNull() ?: ""
+                        if (hotspot.path.contains(scopeFile) && hotspot.value > dev.allowed) {
                             failures.add(
                                 "${dev.id}: file ${hotspot.path} is ${hotspot.value} lines, " +
                                     "exceeds allowed ${dev.allowed} (scope: ${dev.scope})"
@@ -344,7 +427,6 @@ class BaselineVerifier(
             }
         }
 
-        // Warn on new entries in top-5 or >20% growth
         val committedTop = committed.structural.structuralHotspots.largestProductionFiles.take(5).map { it.path }.toSet()
         val currentTop = current.structural.structuralHotspots.largestProductionFiles.take(5).map { it.path }.toSet()
 
@@ -387,9 +469,10 @@ class BaselineVerifier(
 
     companion object {
         fun verify(project: Project): VerificationReport {
-            val generator = BaselineGenerator(project)
+            val ctx = MeasurementContext.fromProject(project)
+            val generator = BaselineGenerator(ctx)
             val reportDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability")
-            return BaselineVerifier(generator, project.rootDir, reportDir).verify()
+            return BaselineVerifier(generator, ctx, reportDir).verify()
         }
     }
 }
