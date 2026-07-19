@@ -127,12 +127,10 @@ class BaselineVerifier(
         }
         // Independently verify the git tree SHA: recompute from the committed commit
         if (id.measuredGitTreeSha.isNotBlank() && id.measuredCommitSha.isNotBlank()) {
-            val recomputedTreeSha = try {
-                ctx.runGit("rev-parse", "${id.measuredCommitSha}^{tree}")
-            } catch (_: Exception) {
-                ""
-            }
-            if (recomputedTreeSha.isNotBlank() && recomputedTreeSha != id.measuredGitTreeSha) {
+            val recomputedTreeSha = resolveRefOrFail(
+                "${id.measuredCommitSha}^{tree}", "measuredCommitSha tree", failures
+            ) ?: return
+            if (recomputedTreeSha != id.measuredGitTreeSha) {
                 failures.add(
                     "measuredGitTreeSha (${id.measuredGitTreeSha.take(8)}) does not match " +
                         "independently computed tree SHA (${recomputedTreeSha.take(8)}) for commit ${id.measuredCommitSha.take(8)}"
@@ -142,25 +140,21 @@ class BaselineVerifier(
 
         // Verify the release tag resolves to the baseline commit: v0.5.0^{commit} == baselineCommitSha
         if (id.baselineCommitSha.isNotBlank()) {
-            val tagCommit = try {
-                ctx.runGit("rev-parse", "${id.releaseTag}^{commit}")
-            } catch (_: Exception) {
-                ""
-            }
-            if (tagCommit.isNotBlank() && tagCommit != id.baselineCommitSha) {
+            val tagCommit = resolveRefOrFail(
+                "${id.releaseTag}^{commit}", "release tag ${id.releaseTag}", failures
+            ) ?: return
+            if (tagCommit != id.baselineCommitSha) {
                 failures.add(
                     "Release tag ${id.releaseTag} resolves to ${tagCommit.take(8)}, " +
                         "but baseline claims ${id.baselineCommitSha.take(8)}"
                 )
             }
-            // Verify the tag tree: v0.5.0^{commit}^{tree} == measuredGitTreeSha
+            // Verify the tag tree: v0.5.0^{tree} == measuredGitTreeSha
             if (id.measuredGitTreeSha.isNotBlank()) {
-                val tagTree = try {
-                    ctx.runGit("rev-parse", "${id.releaseTag}^{tree}")
-                } catch (_: Exception) {
-                    ""
-                }
-                if (tagTree.isNotBlank() && tagTree != id.measuredGitTreeSha) {
+                val tagTree = resolveRefOrFail(
+                    "${id.releaseTag}^{tree}", "release tag ${id.releaseTag} tree", failures
+                ) ?: return
+                if (tagTree != id.measuredGitTreeSha) {
                     failures.add(
                         "Release tag ${id.releaseTag} tree is ${tagTree.take(8)}, " +
                             "but baseline records ${id.measuredGitTreeSha.take(8)}"
@@ -169,9 +163,45 @@ class BaselineVerifier(
             }
         }
 
-        // Verify analyzer identity is recorded
-        if (id.analyzerCommitSha.isBlank()) {
+        // Verify analyzer identity: commit must exist and be reachable from HEAD
+        if (id.analyzerCommitSha.isNotBlank()) {
+            // Check commit exists
+            val analyzerExists = resolveRefOrFail(
+                "${id.analyzerCommitSha}^{commit}", "analyzerCommitSha", failures
+            )
+            if (analyzerExists == null) return
+            // Check analyzer is an ancestor of HEAD
+            val isAncestor = try {
+                val process = ProcessBuilder(
+                    listOf("git", "merge-base", "--is-ancestor", id.analyzerCommitSha, "HEAD")
+                ).directory(ctx.rootDir).redirectErrorStream(true).start()
+                process.waitFor() == 0
+            } catch (_: Exception) {
+                false
+            }
+            if (!isAncestor) {
+                failures.add(
+                    "analyzerCommitSha (${id.analyzerCommitSha.take(8)}) is not an ancestor of HEAD — " +
+                        "the recorded analyzer may not contain the implementation that generated this baseline"
+                )
+            }
+        } else {
             failures.add("Committed baseline has empty analyzerCommitSha — regenerate with canonical task")
+        }
+    }
+
+    private fun resolveRefOrFail(
+        ref: String, label: String, failures: MutableList<String>
+    ): String? {
+        return try {
+            val result = ctx.runGit("rev-parse", ref)
+            if (result.isBlank()) {
+                failures.add("Unable to resolve $label ($ref): empty result — is the tag/commit available?")
+                null
+            } else result
+        } catch (e: Exception) {
+            failures.add("Unable to resolve $label ($ref): ${e.message}")
+            null
         }
     }
 
