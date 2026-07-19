@@ -95,11 +95,15 @@ class BaselineVerifier(
         if (id.tramaiVersion == "unspecified" || id.tramaiVersion.isBlank()) {
             failures.add("Committed baseline has invalid tramaiVersion: '${id.tramaiVersion}'")
         }
-        // Validate version matches the tagged release
-        val taggedVersion = generator.rootProject.findProperty("tramaiVersion")?.toString()
-        if (taggedVersion != null && taggedVersion != "unspecified" && id.tramaiVersion != taggedVersion) {
+        // Validate version matches the tagged release (read from file, not env-overridden property)
+        val propsFile = File(generator.rootProject.rootDir, "gradle.properties")
+        val propsVersion = if (propsFile.isFile) {
+            propsFile.readLines().firstOrNull { it.trimStart().startsWith("tramaiVersion=") }
+                ?.substringAfter("=")?.trim()
+        } else null
+        if (propsVersion != null && id.tramaiVersion != propsVersion) {
             failures.add(
-                "Committed baseline version '${id.tramaiVersion}' does not match gradle.properties tramaiVersion '$taggedVersion'"
+                "Committed baseline version '${id.tramaiVersion}' does not match gradle.properties tramaiVersion '$propsVersion'"
             )
         }
         if (!id.workingTreeClean) {

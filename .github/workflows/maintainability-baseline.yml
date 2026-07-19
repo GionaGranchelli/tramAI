@@ -33,9 +33,7 @@ jobs:
           cache-read-only: true
 
       - name: Verify Maintainability Baseline
-        run: |
-          ./gradlew generateMaintainabilityBaseline --no-daemon
-          ./gradlew verifyMaintainabilityBaseline --no-daemon
+        run: ./gradlew verifyMaintainabilityBaseline --no-daemon
 
       - name: Upload Reports
         if: always()

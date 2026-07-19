@@ -18,6 +18,11 @@ class BaselineGenerator(
     private val outputDir: File = File(rootProject.layout.buildDirectory.get().asFile, "reports/maintainability"),
     private val writeRepositoryArtifacts: Boolean = true
 ) {
+    /** If set, scan this directory instead of the Gradle project directory. Used for canonical generation from a tag worktree. */
+    private val sourceRoot: File = rootProject.findProperty("maintainability.sourceRoot")
+        ?.toString()
+        ?.let { File(it) }
+        ?: rootProject.rootDir
 
     private val baselineGitIdentity: BaselineGitIdentity by lazy {
         resolveBaselineGitIdentity()
@@ -538,9 +543,9 @@ class BaselineGenerator(
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     private fun resolveBaselineGitIdentity(): BaselineGitIdentity {
-        val baselineCommitSha = runGit("rev-parse", BASELINE_TAG)
+        val baselineCommitSha = runGit("rev-parse", "$BASELINE_TAG^{commit}")
         val measuredCommitSha = runGit("rev-parse", "HEAD")
-        val commitTimestamp = runGit("log", "-1", "--format=%aI", BASELINE_TAG)
+        val commitTimestamp = runGit("log", "-1", "--format=%aI", "$BASELINE_TAG^{commit}")
         return BaselineGitIdentity(baselineCommitSha, measuredCommitSha, commitTimestamp)
     }
 

@@ -1,6 +1,6 @@
 # TramAI 0.6.0 — Module Dependency Graph
 
-> **Baseline:** `v0.5.0` (`494bc6856bae046d3e6f6c3611f4c8d7eb14b955`)
+> **Baseline:** `v0.5.0` (`5d0ad69bb547223f8a5c8639b8398276d35eea50`)
 > **Source:** `build/reports/maintainability/module-dependencies.json`
 > **Schema version:** 1
 

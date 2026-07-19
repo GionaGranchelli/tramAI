@@ -2,6 +2,7 @@ package dev.tramai.build.quality
 
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.GradleException
 import org.gradle.api.tasks.TaskContainer
 import org.gradle.api.DefaultTask
 import org.gradle.api.tasks.TaskAction
@@ -193,7 +194,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         report.failures.joinToString("\n") { "  - $it" } +
                         "\n\nRun './gradlew generateMaintainabilityBaseline' to regenerate." +
                         "\nAdd deviations to config/quality/maintainability-deviations.yml for accepted regressions."
-                    throw org.gradle.api.GradleException(summary)
+                    throw GradleException(summary)
                 }
 
                 println("Maintainability baseline verification PASSED.")
@@ -204,6 +205,53 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     println("Warnings: ${report.warnings.size}")
                 }
                 println("Reports: ${project.buildDir}/reports/maintainability/")
+            }
+        }
+
+        // ---- Canonical Baseline Generation ----
+        // Only for tagged releases. Fails if HEAD != v0.5.0, worktree is dirty, or source hash is empty.
+
+        project.tasks.register("generateCanonicalMaintainabilityBaseline") {
+            group = "maintainability"
+            description = "Generates the canonical baseline from the tagged release checkout. Requires clean worktree and HEAD at v0.5.0."
+
+            doLast {
+                val canonicalGenerator = BaselineGenerator(
+                    rootProject = project,
+                    outputDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability"),
+                    writeRepositoryArtifacts = false
+                )
+
+                val baseline = canonicalGenerator.generateCompleteBaseline()
+                val identity = baseline.baselineIdentity
+
+                if (identity.measuredCommitSha != identity.baselineCommitSha) {
+                    throw GradleException(
+                        "Canonical baseline must be generated at ${identity.releaseTag}. " +
+                            "HEAD=${identity.measuredCommitSha.take(8)}, " +
+                            "tag=${identity.baselineCommitSha.take(8)}"
+                    )
+                }
+
+                if (!identity.workingTreeClean) {
+                    throw GradleException(
+                        "Canonical baseline must be generated from a clean worktree. " +
+                            "Commit or stash changes first."
+                    )
+                }
+
+                if (identity.measuredSourceTreeHash.isBlank()) {
+                    throw GradleException(
+                        "Canonical baseline has an empty measuredSourceTreeHash. " +
+                            "Ensure the worktree is clean and git is available."
+                    )
+                }
+
+                canonicalGenerator.updateBaselineJson(baseline)
+                println(
+                    "Canonical maintainability baseline generated for " +
+                        "${identity.releaseTag} at ${identity.measuredCommitSha.take(8)}"
+                )
             }
         }
 
