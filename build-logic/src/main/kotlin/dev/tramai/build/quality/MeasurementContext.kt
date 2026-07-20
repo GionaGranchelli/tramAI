@@ -10,6 +10,9 @@ import java.io.File
  * Directory mode discovers the EXACT same module set as Gradle mode by parsing
  * the multi-argument `include(...)` block in settings.gradle.kts. No filesystem
  * fallback — this guarantees canonical and CI measurements compare the same population.
+ *
+ * All discovered module paths are normalized to Gradle format (leading `:`)
+ * so that canonical and project modes produce identical module identities.
  */
 class MeasurementContext(
     /** Root directory to scan for source files, build files, and git metadata. */
@@ -57,8 +60,9 @@ class MeasurementContext(
     }
 
     companion object {
-        // ── Authoritative module metadata ──
-        // Must match Gradle-mode ModuleGraphAnalyzer.classifyLayer() / isPublishable() exactly.
+        // ── Module metadata (provisional — will move to a machine-readable manifest) ──
+        // NOTE: This hardcoded set is acknowledged as temporary. PR #204 will introduce
+        // a shared module-metadata file consumed by both Gradle publication and analysis.
 
         private val publishableNames = setOf(
             "tramai-anthropic", "tramai-azure-openai", "tramai-bedrock", "tramai-bom",
@@ -145,6 +149,8 @@ class MeasurementContext(
         }
 
         // ── Settings parser (handles multi-line include(...) blocks) ──
+        // All paths are normalized to Gradle format (leading ":") so that
+        // canonical and project modes produce identical module identities.
 
         private fun discoverModulesFromSettings(rootDir: File): List<DiscoveredModule> {
             val settingsFile = File(rootDir, "settings.gradle.kts")
@@ -189,6 +195,9 @@ class MeasurementContext(
          *       "bar",
          *       "examples:baz"
          *   )
+         *
+         * Normalizes paths to Gradle format (leading `:`) so that canonical and
+         * project modes produce identical module identities.
          */
         private fun parseSettingsIncludes(settingsFile: File): List<String> {
             val content = settingsFile.readText()
@@ -200,12 +209,18 @@ class MeasurementContext(
             // Extract all quoted strings from the block
             val quotedRegex = Regex(""""([^"]+)"""")
             return quotedRegex.findAll(blockMatch.groupValues[1]).map { it.groupValues[1] }.toList()
+                .map { normalizeGradlePath(it) }
         }
+
+        /** Normalize a module path to Gradle format (leading colon). */
+        private fun normalizeGradlePath(includePath: String): String =
+            if (includePath.startsWith(":")) includePath else ":$includePath"
     }
 }
 
 /**
  * A module discovered in the source tree, independent of Gradle's project model.
+ * Paths are normalized to Gradle format (leading `:`) regardless of discovery mode.
  */
 data class DiscoveredModule(
     val name: String,

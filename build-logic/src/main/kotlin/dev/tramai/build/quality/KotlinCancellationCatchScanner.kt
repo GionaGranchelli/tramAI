@@ -175,33 +175,51 @@ object KotlinCancellationCatchScanner {
         return "<unknown>"
     }
 
-    /** Check if the catch block rethrows CancellationException (within catch body, including nested blocks). */
+    /** Extract the catch variable name from a catch declaration line. */
+    private fun extractCatchVariable(line: String): String? {
+        val match = Regex("""catch\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*:""").find(line)
+        return match?.groupValues?.get(1)
+    }
+
+    /**
+     * Strips inline comments (// ...) from a line of source code.
+     * Does NOT handle block comments correctly — those are assumed to be
+     * on their own lines (and already skipped by the caller).
+     */
+    private fun stripComment(line: String): String {
+        val idx = line.indexOf("//")
+        return if (idx >= 0) line.substring(0, idx) else line
+    }
+
+    /** Check if the catch block rethrows CancellationException (within catch body, including nested blocks).
+     *  Requires that the caught exception variable itself is rethrown (not just any nearby throw). */
     private fun checkRethrowsCancellation(lines: List<String>, catchIdx: Int): Boolean {
+        val catchVar = extractCatchVariable(lines[catchIdx]) ?: return false
         val catchBodyEnd = findCatchBodyEnd(lines, catchIdx)
         val end = minOf(catchBodyEnd, lines.size)
-        // Two-pass: first check if CancellationException appears anywhere in the catch body,
-        // then look for throw/rethrow nearby (same or adjacent line) within the body.
-        var hasCancellationRef = false
+
+        // Pattern: throw <catchVar> (exact variable rethrow)
+        val throwVarPattern = Regex("""\bthrow\s+${Regex.escape(catchVar)}\b""")
+
         for (i in catchIdx + 1 until end) {
-            if (lines[i].contains("CancellationException")) {
-                hasCancellationRef = true
-                // Check same line for throw/rethrow
-                if (lines[i].contains("throw") || lines[i].contains("rethrow")) return true
-                // Check adjacent lines (before and after) for throw/rethrow
-                val checkRange = maxOf(catchIdx + 1, i - 2)..minOf(end - 1, i + 2)
-                for (j in checkRange) {
-                    if (lines[j].contains("throw") || lines[j].contains("rethrow")) return true
-                }
+            val stripped = stripComment(lines[i])
+            // Skip comment-only lines and string-content-only lines
+            if (stripped.isBlank()) continue
+
+            // Check if this line mentions CancellationException (not in a string or comment — already stripped)
+            val mentionsCancellation = "CancellationException" in stripped &&
+                !isInsideStringLiteral(lines[i], lines[i].indexOf("CancellationException").coerceAtLeast(0))
+
+            if (!mentionsCancellation) continue
+
+            // Check nearby lines (same line ±2) for `throw <catchVar>`
+            val checkRange = maxOf(catchIdx + 1, i - 2)..minOf(end - 1, i + 2)
+            for (j in checkRange) {
+                val checkLine = stripComment(lines[j])
+                if (throwVarPattern.containsMatchIn(checkLine)) return true
             }
         }
-        // Also catch the case: `if (e is CancellationException) throw e` on one line
-        if (hasCancellationRef) return false  // already checked above
-        // Final pass: any line with both keywords
-        for (i in catchIdx + 1 until end) {
-            if (lines[i].contains("CancellationException") &&
-                (lines[i].contains("throw") || lines[i].contains("rethrow"))
-            ) return true
-        }
+
         return false
     }
 

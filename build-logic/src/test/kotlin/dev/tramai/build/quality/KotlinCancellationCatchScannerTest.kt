@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.nio.file.Path
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class KotlinCancellationCatchScannerTest {
@@ -181,6 +182,109 @@ class KotlinCancellationCatchScannerTest {
             """.trimIndent(), "test", "Test.kt"
         )
         assertTrue(findings.isEmpty(), "String literal should not produce a finding")
+    }
+
+    // ── Negative tests for rethrow detection (PR #203 re-review) ──
+
+    @Test
+    fun `cancellation check followed by throw DomainException is not accepted`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    if (e is CancellationException) {
+                        auditCancellation(e)
+                    }
+                    throw DomainOperationException(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertEquals("high", findings.first().risk,
+            "Cancellation check followed by DomainException throw should be high, not accepted")
+    }
+
+    @Test
+    fun `cancellation check followed by unrelated throw is not accepted`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    if (e is CancellationException) {
+                        logCancellation(e)
+                    }
+                    throw IllegalStateException("unexpected")
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertEquals("high", findings.first().risk,
+            "Cancellation check followed by unrelated throw should be high, not accepted")
+    }
+
+    @Test
+    fun `identifier containing rethrow does not trigger rethrow detection`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    if (e is CancellationException) {
+                        rethrowPolicy.record(e)
+                    }
+                    handleError(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertNotEquals("accepted", findings.first().risk,
+            "RethrowPolicy reference should not be accepted as cancellation rethrow")
+    }
+
+    @Test
+    fun `CancellationException in comment is not treated as rethrow check`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    // need to handle CancellationException here
+                    throw DomainException(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertEquals("high", findings.first().risk,
+            "CancellationException in comment should not elevate to accepted")
+    }
+
+    @Test
+    fun `CancellationException in string is not treated as rethrow check`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    val msg = "CancellationException occurred"
+                    throw DomainException(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertEquals("high", findings.first().risk,
+            "CancellationException in string should not elevate to accepted")
     }
 
     // ── Regression tests requested in PR #203 review ──

@@ -10,38 +10,38 @@ This document is generated as a complete unit by `generateModuleDependencyGraph`
 
 | Module | Gradle path | Layer | Publishable |
 |---|---|---|---:|
-| `approval-resume` | `:examples:approval-resume` | applications-examples | yes |
-| `governed-workflow` | `:examples:governed-workflow` | applications-examples | yes |
-| `sovereign-document-intelligence` | `:examples:sovereign-document-intelligence` | applications-examples | yes |
-| `sovereign-offline-verification` | `:examples:sovereign-offline-verification` | applications-examples | yes |
-| `spring-sovereign-starter` | `:examples:spring-sovereign-starter` | applications-examples | yes |
-| `support-agent` | `:examples:support-agent` | applications-examples | yes |
-| `tool-governance` | `:examples:tool-governance` | applications-examples | yes |
+| `approval-resume` | `:examples:approval-resume` | applications-examples | no |
+| `governed-workflow` | `:examples:governed-workflow` | applications-examples | no |
+| `sovereign-document-intelligence` | `:examples:sovereign-document-intelligence` | applications-examples | no |
+| `sovereign-offline-verification` | `:examples:sovereign-offline-verification` | applications-examples | no |
+| `spring-sovereign-starter` | `:examples:spring-sovereign-starter` | applications-examples | no |
+| `support-agent` | `:examples:support-agent` | applications-examples | no |
+| `tool-governance` | `:examples:tool-governance` | applications-examples | no |
 | `tramai-anthropic` | `:tramai-anthropic` | provider-adapters | yes |
 | `tramai-azure-openai` | `:tramai-azure-openai` | provider-adapters | yes |
 | `tramai-bedrock` | `:tramai-bedrock` | provider-adapters | yes |
-| `tramai-bom` | `:tramai-bom` | provider-adapters | yes |
+| `tramai-bom` | `:tramai-bom` | core-contracts | yes |
 | `tramai-core` | `:tramai-core` | core-contracts | yes |
-| `tramai-dashboard` | `:tramai-dashboard` | provider-adapters | no |
+| `tramai-dashboard` | `:tramai-dashboard` | operations-observability | no |
 | `tramai-deepseek` | `:tramai-deepseek` | provider-adapters | yes |
-| `tramai-embedding` | `:tramai-embedding` | provider-adapters | yes |
+| `tramai-embedding` | `:tramai-embedding` | higher-capabilities | yes |
 | `tramai-engine` | `:tramai-engine` | runtime-execution | yes |
 | `tramai-gemini` | `:tramai-gemini` | provider-adapters | yes |
-| `tramai-mcp` | `:tramai-mcp` | provider-adapters | yes |
-| `tramai-memory` | `:tramai-memory` | provider-adapters | yes |
-| `tramai-memory-store` | `:tramai-memory-store` | provider-adapters | yes |
-| `tramai-observability` | `:tramai-observability` | provider-adapters | yes |
+| `tramai-mcp` | `:tramai-mcp` | operations-observability | no |
+| `tramai-memory` | `:tramai-memory` | higher-capabilities | yes |
+| `tramai-memory-store` | `:tramai-memory-store` | higher-capabilities | no |
+| `tramai-observability` | `:tramai-observability` | operations-observability | yes |
 | `tramai-ollama` | `:tramai-ollama` | provider-adapters | yes |
 | `tramai-openai` | `:tramai-openai` | provider-adapters | yes |
 | `tramai-orchestration` | `:tramai-orchestration` | runtime-execution | yes |
-| `tramai-persistence-file` | `:tramai-persistence-file` | provider-adapters | yes |
-| `tramai-persistence-jdbc` | `:tramai-persistence-jdbc` | provider-adapters | yes |
-| `tramai-platform` | `:tramai-platform` | provider-adapters | yes |
-| `tramai-rag` | `:tramai-rag` | provider-adapters | yes |
-| `tramai-scheduler` | `:tramai-scheduler` | runtime-execution | yes |
-| `tramai-security` | `:tramai-security` | governance | yes |
-| `tramai-server` | `:tramai-server` | provider-adapters | yes |
-| `tramai-sovereign` | `:tramai-sovereign` | governance | yes |
+| `tramai-persistence-file` | `:tramai-persistence-file` | persistence | yes |
+| `tramai-persistence-jdbc` | `:tramai-persistence-jdbc` | persistence | no |
+| `tramai-platform` | `:tramai-platform` | operations-observability | yes |
+| `tramai-rag` | `:tramai-rag` | higher-capabilities | yes |
+| `tramai-scheduler` | `:tramai-scheduler` | higher-capabilities | yes |
+| `tramai-security` | `:tramai-security` | governance-security | yes |
+| `tramai-server` | `:tramai-server` | operations-observability | no |
+| `tramai-sovereign` | `:tramai-sovereign` | governance-security | yes |
 | `tramai-spring` | `:tramai-spring` | framework-integrations | yes |
 | `tramai-spring-boot-starter-local-provider-openai` | `:tramai-spring-boot-starter-local-provider-openai` | framework-integrations | yes |
 | `tramai-spring-boot-starter-sovereign` | `:tramai-spring-boot-starter-sovereign` | framework-integrations | yes |
@@ -52,12 +52,12 @@ This document is generated as a complete unit by `generateModuleDependencyGraph`
 | `tramai-spring-boot-starter-sovereign-ops-rest` | `:tramai-spring-boot-starter-sovereign-ops-rest` | framework-integrations | yes |
 | `tramai-spring-boot-starter-sovereign-persistence-file` | `:tramai-spring-boot-starter-sovereign-persistence-file` | framework-integrations | yes |
 | `tramai-spring-boot-starter-sovereign-persistence-jdbc` | `:tramai-spring-boot-starter-sovereign-persistence-jdbc` | framework-integrations | yes |
-| `tramai-standalone` | `:tramai-standalone` | provider-adapters | yes |
-| `tramai-structured` | `:tramai-structured` | core-contracts | yes |
-| `tramai-testing` | `:tramai-testing` | provider-adapters | yes |
-| `tramai-vectorstore-chroma` | `:tramai-vectorstore-chroma` | provider-adapters | yes |
-| `tramai-vectorstore-pgvector` | `:tramai-vectorstore-pgvector` | provider-adapters | yes |
-| `tramai-vectorstore-spi` | `:tramai-vectorstore-spi` | provider-adapters | yes |
+| `tramai-standalone` | `:tramai-standalone` | runtime-execution | yes |
+| `tramai-structured` | `:tramai-structured` | runtime-execution | yes |
+| `tramai-testing` | `:tramai-testing` | testing-support | yes |
+| `tramai-vectorstore-chroma` | `:tramai-vectorstore-chroma` | higher-capabilities | yes |
+| `tramai-vectorstore-pgvector` | `:tramai-vectorstore-pgvector` | higher-capabilities | yes |
+| `tramai-vectorstore-spi` | `:tramai-vectorstore-spi` | higher-capabilities | yes |
 
 ## Dependency Graph
 

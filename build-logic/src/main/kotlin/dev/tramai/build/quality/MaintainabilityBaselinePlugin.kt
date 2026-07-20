@@ -187,6 +187,19 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             description = "Generates the canonical baseline from v0.5.0. Set -Pmaintainability.sourceRoot=<worktree> to scan a detached checkout."
 
             doLast {
+                // Verify the analyzer (PR) checkout is clean before generation
+                val analyzerStatus = ProcessBuilder(listOf("git", "status", "--porcelain"))
+                    .directory(project.rootDir)
+                    .redirectErrorStream(true)
+                    .start()
+                val analyzerOutput = analyzerStatus.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                if (analyzerStatus.waitFor() != 0 || analyzerOutput.isNotBlank()) {
+                    throw GradleException(
+                        "Analyzer checkout must be clean before canonical generation.\n" +
+                            "Commit or stash changes in ${project.rootDir} first."
+                    )
+                }
+
                 val sourceRootProp = project.findProperty("maintainability.sourceRoot")?.toString()
                 val canonicalGenerator = if (sourceRootProp != null) {
                     val sourceRoot = File(sourceRootProp)
