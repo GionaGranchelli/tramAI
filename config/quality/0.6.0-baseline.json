@@ -4,7 +4,7 @@
     "apiCheckHash" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "baselineIdentity" : {
-    "analyzerCommitSha" : "38a356f2293148d502a06ddd92651468ecd1ccd7",
+    "analyzerCommitSha" : "b8c682f006193c9d5dbd9a49e80d36fb80efe3dd",
     "analyzerSchemaVersion" : "1",
     "baselineCommitSha" : "5d0ad69bb547223f8a5c8639b8398276d35eea50",
     "commitSha" : "5d0ad69bb547223f8a5c8639b8398276d35eea50",
@@ -665,6 +665,15 @@
     }, {
       "module" : "tramai-engine",
       "file" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
+      "function" : "callProviderOnce",
+      "catchType" : "Throwable",
+      "isSuspendCapable" : true,
+      "rethrowsCancellation" : false,
+      "transformsException" : false,
+      "risk" : "critical"
+    }, {
+      "module" : "tramai-engine",
+      "file" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
       "function" : "resumeApprovalInternal",
       "catchType" : "Exception",
       "isSuspendCapable" : true,
@@ -761,15 +770,6 @@
       "rethrowsCancellation" : false,
       "transformsException" : false,
       "risk" : "medium"
-    }, {
-      "module" : "tramai-engine",
-      "file" : "tramai-engine/src/main/kotlin/dev/tramai/engine/TramaiEngine.kt",
-      "function" : "callProviderOnce",
-      "catchType" : "Throwable",
-      "isSuspendCapable" : true,
-      "rethrowsCancellation" : true,
-      "transformsException" : false,
-      "risk" : "accepted"
     }, {
       "module" : "tramai-engine",
       "file" : "tramai-engine/src/main/kotlin/dev/tramai/engine/ModelRegistryEnforcer.kt",
@@ -4858,253 +4858,253 @@
   "schemaVersion" : "1",
   "structural" : {
     "moduleDependencies" : {
-      "modules" : [ "tramai-anthropic", "tramai-azure-openai", "tramai-bedrock", "tramai-bom", "tramai-core", "tramai-deepseek", "tramai-embedding", "tramai-engine", "tramai-gemini", "tramai-observability", "tramai-mcp", "tramai-memory", "tramai-memory-store", "tramai-orchestration", "tramai-persistence-file", "tramai-persistence-jdbc", "tramai-openai", "tramai-ollama", "tramai-platform", "tramai-spring", "tramai-spring-boot-starter-sovereign", "tramai-spring-boot-starter-sovereign-persistence-file", "tramai-spring-boot-starter-sovereign-persistence-jdbc", "tramai-spring-boot-starter-sovereign-ops", "tramai-spring-boot-starter-sovereign-ops-rest", "tramai-spring-boot-starter-sovereign-ops-actuator", "tramai-spring-boot-starter-sovereign-ops-micrometer", "tramai-spring-boot-starter-sovereign-ops-observability", "tramai-scheduler", "tramai-security", "tramai-sovereign", "tramai-server", "tramai-standalone", "tramai-structured", "tramai-testing", "tramai-vectorstore-spi", "tramai-vectorstore-chroma", "tramai-vectorstore-pgvector", "tramai-dashboard", "tramai-spring-boot-starter-local-provider-openai", "tramai-rag", "examples:support-agent", "examples:sovereign-document-intelligence", "examples:sovereign-offline-verification", "examples:spring-sovereign-starter", "examples:governed-workflow", "examples:approval-resume", "examples:tool-governance" ],
+      "modules" : [ ":tramai-anthropic", ":tramai-azure-openai", ":tramai-bedrock", ":tramai-bom", ":tramai-core", ":tramai-deepseek", ":tramai-embedding", ":tramai-engine", ":tramai-gemini", ":tramai-observability", ":tramai-mcp", ":tramai-memory", ":tramai-memory-store", ":tramai-orchestration", ":tramai-persistence-file", ":tramai-persistence-jdbc", ":tramai-openai", ":tramai-ollama", ":tramai-platform", ":tramai-spring", ":tramai-spring-boot-starter-sovereign", ":tramai-spring-boot-starter-sovereign-persistence-file", ":tramai-spring-boot-starter-sovereign-persistence-jdbc", ":tramai-spring-boot-starter-sovereign-ops", ":tramai-spring-boot-starter-sovereign-ops-rest", ":tramai-spring-boot-starter-sovereign-ops-actuator", ":tramai-spring-boot-starter-sovereign-ops-micrometer", ":tramai-spring-boot-starter-sovereign-ops-observability", ":tramai-scheduler", ":tramai-security", ":tramai-sovereign", ":tramai-server", ":tramai-standalone", ":tramai-structured", ":tramai-testing", ":tramai-vectorstore-spi", ":tramai-vectorstore-chroma", ":tramai-vectorstore-pgvector", ":tramai-dashboard", ":tramai-spring-boot-starter-local-provider-openai", ":tramai-rag", ":examples:support-agent", ":examples:sovereign-document-intelligence", ":examples:sovereign-offline-verification", ":examples:spring-sovereign-starter", ":examples:governed-workflow", ":examples:approval-resume", ":examples:tool-governance" ],
       "edges" : [ ],
       "cycles" : [ ]
     },
     "moduleDependenciesTest" : {
-      "modules" : [ "tramai-anthropic", "tramai-azure-openai", "tramai-bedrock", "tramai-bom", "tramai-core", "tramai-deepseek", "tramai-embedding", "tramai-engine", "tramai-gemini", "tramai-observability", "tramai-mcp", "tramai-memory", "tramai-memory-store", "tramai-orchestration", "tramai-persistence-file", "tramai-persistence-jdbc", "tramai-openai", "tramai-ollama", "tramai-platform", "tramai-spring", "tramai-spring-boot-starter-sovereign", "tramai-spring-boot-starter-sovereign-persistence-file", "tramai-spring-boot-starter-sovereign-persistence-jdbc", "tramai-spring-boot-starter-sovereign-ops", "tramai-spring-boot-starter-sovereign-ops-rest", "tramai-spring-boot-starter-sovereign-ops-actuator", "tramai-spring-boot-starter-sovereign-ops-micrometer", "tramai-spring-boot-starter-sovereign-ops-observability", "tramai-scheduler", "tramai-security", "tramai-sovereign", "tramai-server", "tramai-standalone", "tramai-structured", "tramai-testing", "tramai-vectorstore-spi", "tramai-vectorstore-chroma", "tramai-vectorstore-pgvector", "tramai-dashboard", "tramai-spring-boot-starter-local-provider-openai", "tramai-rag", "examples:support-agent", "examples:sovereign-document-intelligence", "examples:sovereign-offline-verification", "examples:spring-sovereign-starter", "examples:governed-workflow", "examples:approval-resume", "examples:tool-governance" ],
+      "modules" : [ ":tramai-anthropic", ":tramai-azure-openai", ":tramai-bedrock", ":tramai-bom", ":tramai-core", ":tramai-deepseek", ":tramai-embedding", ":tramai-engine", ":tramai-gemini", ":tramai-observability", ":tramai-mcp", ":tramai-memory", ":tramai-memory-store", ":tramai-orchestration", ":tramai-persistence-file", ":tramai-persistence-jdbc", ":tramai-openai", ":tramai-ollama", ":tramai-platform", ":tramai-spring", ":tramai-spring-boot-starter-sovereign", ":tramai-spring-boot-starter-sovereign-persistence-file", ":tramai-spring-boot-starter-sovereign-persistence-jdbc", ":tramai-spring-boot-starter-sovereign-ops", ":tramai-spring-boot-starter-sovereign-ops-rest", ":tramai-spring-boot-starter-sovereign-ops-actuator", ":tramai-spring-boot-starter-sovereign-ops-micrometer", ":tramai-spring-boot-starter-sovereign-ops-observability", ":tramai-scheduler", ":tramai-security", ":tramai-sovereign", ":tramai-server", ":tramai-standalone", ":tramai-structured", ":tramai-testing", ":tramai-vectorstore-spi", ":tramai-vectorstore-chroma", ":tramai-vectorstore-pgvector", ":tramai-dashboard", ":tramai-spring-boot-starter-local-provider-openai", ":tramai-rag", ":examples:support-agent", ":examples:sovereign-document-intelligence", ":examples:sovereign-offline-verification", ":examples:spring-sovereign-starter", ":examples:governed-workflow", ":examples:approval-resume", ":examples:tool-governance" ],
       "edges" : [ ],
       "cycles" : [ ]
     },
     "modules" : [ {
       "name" : "tramai-anthropic",
-      "path" : "tramai-anthropic",
+      "path" : ":tramai-anthropic",
       "layer" : "provider-adapters",
       "publishable" : true
     }, {
       "name" : "tramai-azure-openai",
-      "path" : "tramai-azure-openai",
+      "path" : ":tramai-azure-openai",
       "layer" : "provider-adapters",
       "publishable" : true
     }, {
       "name" : "tramai-bedrock",
-      "path" : "tramai-bedrock",
+      "path" : ":tramai-bedrock",
       "layer" : "provider-adapters",
       "publishable" : true
     }, {
       "name" : "tramai-bom",
-      "path" : "tramai-bom",
+      "path" : ":tramai-bom",
       "layer" : "core-contracts",
       "publishable" : true
     }, {
       "name" : "tramai-core",
-      "path" : "tramai-core",
+      "path" : ":tramai-core",
       "layer" : "core-contracts",
       "publishable" : true
     }, {
       "name" : "tramai-deepseek",
-      "path" : "tramai-deepseek",
+      "path" : ":tramai-deepseek",
       "layer" : "provider-adapters",
       "publishable" : true
     }, {
       "name" : "tramai-embedding",
-      "path" : "tramai-embedding",
+      "path" : ":tramai-embedding",
       "layer" : "higher-capabilities",
       "publishable" : true
     }, {
       "name" : "tramai-engine",
-      "path" : "tramai-engine",
+      "path" : ":tramai-engine",
       "layer" : "runtime-execution",
       "publishable" : true
     }, {
       "name" : "tramai-gemini",
-      "path" : "tramai-gemini",
+      "path" : ":tramai-gemini",
       "layer" : "provider-adapters",
       "publishable" : true
     }, {
       "name" : "tramai-observability",
-      "path" : "tramai-observability",
+      "path" : ":tramai-observability",
       "layer" : "operations-observability",
       "publishable" : true
     }, {
       "name" : "tramai-mcp",
-      "path" : "tramai-mcp",
+      "path" : ":tramai-mcp",
       "layer" : "operations-observability",
       "publishable" : false
     }, {
       "name" : "tramai-memory",
-      "path" : "tramai-memory",
+      "path" : ":tramai-memory",
       "layer" : "higher-capabilities",
       "publishable" : true
     }, {
       "name" : "tramai-memory-store",
-      "path" : "tramai-memory-store",
+      "path" : ":tramai-memory-store",
       "layer" : "higher-capabilities",
       "publishable" : false
     }, {
       "name" : "tramai-orchestration",
-      "path" : "tramai-orchestration",
+      "path" : ":tramai-orchestration",
       "layer" : "runtime-execution",
       "publishable" : true
     }, {
       "name" : "tramai-persistence-file",
-      "path" : "tramai-persistence-file",
+      "path" : ":tramai-persistence-file",
       "layer" : "persistence",
       "publishable" : true
     }, {
       "name" : "tramai-persistence-jdbc",
-      "path" : "tramai-persistence-jdbc",
+      "path" : ":tramai-persistence-jdbc",
       "layer" : "persistence",
       "publishable" : false
     }, {
       "name" : "tramai-openai",
-      "path" : "tramai-openai",
+      "path" : ":tramai-openai",
       "layer" : "provider-adapters",
       "publishable" : true
     }, {
       "name" : "tramai-ollama",
-      "path" : "tramai-ollama",
+      "path" : ":tramai-ollama",
       "layer" : "provider-adapters",
       "publishable" : true
     }, {
       "name" : "tramai-platform",
-      "path" : "tramai-platform",
+      "path" : ":tramai-platform",
       "layer" : "operations-observability",
       "publishable" : true
     }, {
       "name" : "tramai-spring",
-      "path" : "tramai-spring",
+      "path" : ":tramai-spring",
       "layer" : "framework-integrations",
       "publishable" : true
     }, {
       "name" : "tramai-spring-boot-starter-sovereign",
-      "path" : "tramai-spring-boot-starter-sovereign",
+      "path" : ":tramai-spring-boot-starter-sovereign",
       "layer" : "framework-integrations",
       "publishable" : true
     }, {
       "name" : "tramai-spring-boot-starter-sovereign-persistence-file",
-      "path" : "tramai-spring-boot-starter-sovereign-persistence-file",
+      "path" : ":tramai-spring-boot-starter-sovereign-persistence-file",
       "layer" : "framework-integrations",
       "publishable" : true
     }, {
       "name" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
-      "path" : "tramai-spring-boot-starter-sovereign-persistence-jdbc",
+      "path" : ":tramai-spring-boot-starter-sovereign-persistence-jdbc",
       "layer" : "framework-integrations",
       "publishable" : true
     }, {
       "name" : "tramai-spring-boot-starter-sovereign-ops",
-      "path" : "tramai-spring-boot-starter-sovereign-ops",
+      "path" : ":tramai-spring-boot-starter-sovereign-ops",
       "layer" : "framework-integrations",
       "publishable" : true
     }, {
       "name" : "tramai-spring-boot-starter-sovereign-ops-rest",
-      "path" : "tramai-spring-boot-starter-sovereign-ops-rest",
+      "path" : ":tramai-spring-boot-starter-sovereign-ops-rest",
       "layer" : "framework-integrations",
       "publishable" : true
     }, {
       "name" : "tramai-spring-boot-starter-sovereign-ops-actuator",
-      "path" : "tramai-spring-boot-starter-sovereign-ops-actuator",
+      "path" : ":tramai-spring-boot-starter-sovereign-ops-actuator",
       "layer" : "framework-integrations",
       "publishable" : true
     }, {
       "name" : "tramai-spring-boot-starter-sovereign-ops-micrometer",
-      "path" : "tramai-spring-boot-starter-sovereign-ops-micrometer",
+      "path" : ":tramai-spring-boot-starter-sovereign-ops-micrometer",
       "layer" : "framework-integrations",
       "publishable" : true
     }, {
       "name" : "tramai-spring-boot-starter-sovereign-ops-observability",
-      "path" : "tramai-spring-boot-starter-sovereign-ops-observability",
+      "path" : ":tramai-spring-boot-starter-sovereign-ops-observability",
       "layer" : "framework-integrations",
       "publishable" : true
     }, {
       "name" : "tramai-scheduler",
-      "path" : "tramai-scheduler",
+      "path" : ":tramai-scheduler",
       "layer" : "higher-capabilities",
       "publishable" : true
     }, {
       "name" : "tramai-security",
-      "path" : "tramai-security",
+      "path" : ":tramai-security",
       "layer" : "governance-security",
       "publishable" : true
     }, {
       "name" : "tramai-sovereign",
-      "path" : "tramai-sovereign",
+      "path" : ":tramai-sovereign",
       "layer" : "governance-security",
       "publishable" : true
     }, {
       "name" : "tramai-server",
-      "path" : "tramai-server",
+      "path" : ":tramai-server",
       "layer" : "operations-observability",
       "publishable" : false
     }, {
       "name" : "tramai-standalone",
-      "path" : "tramai-standalone",
+      "path" : ":tramai-standalone",
       "layer" : "runtime-execution",
       "publishable" : true
     }, {
       "name" : "tramai-structured",
-      "path" : "tramai-structured",
+      "path" : ":tramai-structured",
       "layer" : "runtime-execution",
       "publishable" : true
     }, {
       "name" : "tramai-testing",
-      "path" : "tramai-testing",
+      "path" : ":tramai-testing",
       "layer" : "testing-support",
       "publishable" : true
     }, {
       "name" : "tramai-vectorstore-spi",
-      "path" : "tramai-vectorstore-spi",
+      "path" : ":tramai-vectorstore-spi",
       "layer" : "higher-capabilities",
       "publishable" : true
     }, {
       "name" : "tramai-vectorstore-chroma",
-      "path" : "tramai-vectorstore-chroma",
+      "path" : ":tramai-vectorstore-chroma",
       "layer" : "higher-capabilities",
       "publishable" : true
     }, {
       "name" : "tramai-vectorstore-pgvector",
-      "path" : "tramai-vectorstore-pgvector",
+      "path" : ":tramai-vectorstore-pgvector",
       "layer" : "higher-capabilities",
       "publishable" : true
     }, {
       "name" : "tramai-dashboard",
-      "path" : "tramai-dashboard",
+      "path" : ":tramai-dashboard",
       "layer" : "operations-observability",
       "publishable" : false
     }, {
       "name" : "tramai-spring-boot-starter-local-provider-openai",
-      "path" : "tramai-spring-boot-starter-local-provider-openai",
+      "path" : ":tramai-spring-boot-starter-local-provider-openai",
       "layer" : "framework-integrations",
       "publishable" : true
     }, {
       "name" : "tramai-rag",
-      "path" : "tramai-rag",
+      "path" : ":tramai-rag",
       "layer" : "higher-capabilities",
       "publishable" : true
     }, {
       "name" : "support-agent",
-      "path" : "examples:support-agent",
+      "path" : ":examples:support-agent",
       "layer" : "applications-examples",
       "publishable" : false
     }, {
       "name" : "sovereign-document-intelligence",
-      "path" : "examples:sovereign-document-intelligence",
+      "path" : ":examples:sovereign-document-intelligence",
       "layer" : "applications-examples",
       "publishable" : false
     }, {
       "name" : "sovereign-offline-verification",
-      "path" : "examples:sovereign-offline-verification",
+      "path" : ":examples:sovereign-offline-verification",
       "layer" : "applications-examples",
       "publishable" : false
     }, {
       "name" : "spring-sovereign-starter",
-      "path" : "examples:spring-sovereign-starter",
+      "path" : ":examples:spring-sovereign-starter",
       "layer" : "applications-examples",
       "publishable" : false
     }, {
       "name" : "governed-workflow",
-      "path" : "examples:governed-workflow",
+      "path" : ":examples:governed-workflow",
       "layer" : "applications-examples",
       "publishable" : false
     }, {
       "name" : "approval-resume",
-      "path" : "examples:approval-resume",
+      "path" : ":examples:approval-resume",
       "layer" : "applications-examples",
       "publishable" : false
     }, {
       "name" : "tool-governance",
-      "path" : "examples:tool-governance",
+      "path" : ":examples:tool-governance",
       "layer" : "applications-examples",
       "publishable" : false
     } ],
