@@ -253,7 +253,7 @@ Runtime code uses a mixture of injected clocks, `System.currentTimeMillis()`, ra
 
 ## Epic 0.2: Declare architectural invariants
 
-**Goal:** Convert TramAI’s runtime philosophy into enforceable rules.
+**Goal:** Convert TramAI's runtime philosophy into enforceable rules.
 
 ### Required invariants
 
@@ -659,7 +659,7 @@ internal interface InternalWorkflowStep<S> {
 
 ### Tasks
 
-1. Move each built-in step’s execution behind the step contract or a registered executor.
+1. Move each built-in step's execution behind the step contract or a registered executor.
 2. Remove the growing central `when` over concrete step types.
 3. Keep common observation, step counting, persistence, and error handling in one wrapper.
 4. Define which step types can suspend and checkpoint.
@@ -1072,7 +1072,7 @@ sealed interface StructuredTypeDescriptor {
 
 ## Epic 9.1: Define module layers and maturity
 
-**Goal:** Make the repository’s module structure understandable and enforceable.
+**Goal:** Make the repository's module structure understandable and enforceable.
 
 ### Proposed layers
 

@@ -4,7 +4,7 @@
     "apiCheckHash" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "baselineIdentity" : {
-    "analyzerCommitSha" : "26cd9ed8868f78ee90e3e38b9d283cfc8a8bbbd2",
+    "analyzerCommitSha" : "38a356f2293148d502a06ddd92651468ecd1ccd7",
     "analyzerSchemaVersion" : "1",
     "baselineCommitSha" : "5d0ad69bb547223f8a5c8639b8398276d35eea50",
     "commitSha" : "5d0ad69bb547223f8a5c8639b8398276d35eea50",
