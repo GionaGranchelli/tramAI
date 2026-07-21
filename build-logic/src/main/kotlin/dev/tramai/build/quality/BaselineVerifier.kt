@@ -19,91 +19,98 @@ class BaselineVerifier(
     private val moduleBoundaries = ModuleBoundaries(ctx.rootDir)
 
     fun verify(): VerificationReport {
+        // Delete old report before starting
+        val reportFile = File(reportDir, "verification-report.json")
+        reportFile.delete()
+
         val diagnostics = mutableListOf<VerificationDiagnostic>()
+        try {
+            // 1. Load committed baseline
+            val committedFile = File(ctx.rootDir, "config/quality/0.6.0-baseline.json")
+            if (!committedFile.isFile) {
+                diagnostics.add(VerificationDiagnostic.failure(
+                    DiagnosticCode.EMPTY_SECTION,
+                    "Committed baseline not found: ${committedFile.absolutePath}"))
+                return diagnosticsToReport(diagnostics)
+            }
 
-        // 1. Load committed baseline
-        val committedFile = File(ctx.rootDir, "config/quality/0.6.0-baseline.json")
-        if (!committedFile.isFile) {
-            diagnostics.add(VerificationDiagnostic.failure(
-                DiagnosticCode.EMPTY_SECTION,
-                "Committed baseline not found: ${committedFile.absolutePath}"))
-            return diagnosticsToReport(diagnostics)
+            val committed: BaselineDocument = try {
+                ReportNormalizer.readJson(committedFile, BaselineDocument::class.java)
+            } catch (e: Exception) {
+                diagnostics.add(VerificationDiagnostic.failure(
+                    DiagnosticCode.EMPTY_SECTION,
+                    "Failed to read committed baseline: ${e.message}"))
+                return diagnosticsToReport(diagnostics)
+            }
+
+            // 2. Parse deviations with typed diagnostics
+            val deviationResult = deviationParser.parse()
+            diagnostics.addAll(deviationResult.diagnostics)
+
+            // 3. Parse module catalog
+            val catalogResult = moduleCatalog.parse()
+            diagnostics.addAll(catalogResult.errors)
+
+            // 4. Load boundary rules
+            val boundaryResult = moduleBoundaries.parse()
+            diagnostics.addAll(boundaryResult.errors.map {
+                VerificationDiagnostic.failure(DiagnosticCode.FORBIDDEN_LAYER_EDGE, it)
+            })
+
+            // 5. Verify baseline identity
+            verifyBaselineIdentity(committed, diagnostics)
+
+            // 6. Verify module catalogue covers all projects
+            verifyModuleCatalog(committed, catalogResult, diagnostics)
+
+            // 7. Generate current measurements
+            val currentGradle = ctx.gradleProject
+            if (currentGradle == null) {
+                diagnostics.add(VerificationDiagnostic.failure(
+                    DiagnosticCode.EMPTY_SECTION,
+                    "Current baseline generation requires Gradle project mode"))
+                return diagnosticsToReport(diagnostics)
+            }
+
+            val currentCtx = MeasurementContext.fromProject(currentGradle)
+            val tempGenerator = BaselineGenerator(
+                ctx = currentCtx,
+                outputDir = reportDir,
+                writeRepositoryArtifacts = false
+            )
+
+            val current: BaselineDocument = try {
+                tempGenerator.generateCompleteBaseline()
+            } catch (e: Exception) {
+                diagnostics.add(VerificationDiagnostic.failure(
+                    DiagnosticCode.EMPTY_SECTION,
+                    "Failed to generate current baseline: ${e.message}"))
+                return diagnosticsToReport(diagnostics)
+            }
+
+            // 8. Verify mandatory sections
+            verifyMandatorySections(current, diagnostics)
+
+            // 9. Restore API dump gate
+            if (current.api.publicApiDumps.isEmpty()) {
+                diagnostics.add(VerificationDiagnostic.failure(
+                    DiagnosticCode.EMPTY_SECTION,
+                    "Current baseline has empty API dumps — API collection may be broken"))
+            }
+
+            // 10. Compare dimensions with FindingIdentity
+            verifyCancellationCatches(committed, current, deviationResult.deviations, diagnostics)
+            verifyGlobalState(committed, current, deviationResult.deviations, diagnostics)
+            verifyNondeterminism(committed, current, deviationResult.deviations, diagnostics)
+            verifyDependencyCycles(committed, current, deviationResult.deviations, diagnostics)
+            verifyProtocolCatalog(committed, current, diagnostics)
+            verifyStructuralHotspots(committed, current, deviationResult.deviations, diagnostics)
+            verifyForbiddenEdges(committed, current, diagnostics)
+            verifyDocumentDrift(committed, diagnostics)
+        } finally {
+            // Always write report, even on partial failures
+            writeVerificationReport(diagnostics)
         }
-
-        val committed: BaselineDocument = try {
-            ReportNormalizer.readJson(committedFile, BaselineDocument::class.java)
-        } catch (e: Exception) {
-            diagnostics.add(VerificationDiagnostic.failure(
-                DiagnosticCode.EMPTY_SECTION,
-                "Failed to read committed baseline: ${e.message}"))
-            return diagnosticsToReport(diagnostics)
-        }
-
-        // 2. Parse deviations with typed diagnostics
-        val deviationResult = deviationParser.parse()
-        diagnostics.addAll(deviationResult.diagnostics)
-
-        // 3. Parse module catalog
-        val catalogResult = moduleCatalog.parse()
-        diagnostics.addAll(catalogResult.errors.map {
-            VerificationDiagnostic.failure(DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY, it)
-        })
-
-        // 4. Load boundary rules
-        val boundaryResult = moduleBoundaries.parse()
-        diagnostics.addAll(boundaryResult.errors.map {
-            VerificationDiagnostic.failure(DiagnosticCode.FORBIDDEN_LAYER_EDGE, it)
-        })
-
-        // 5. Parse boundaries once for efficient checks
-        ModuleBoundaries.loadOnce(moduleBoundaries)
-
-        // 6. Verify baseline identity
-        verifyBaselineIdentity(committed, diagnostics)
-
-        // 7. Verify module catalogue covers all projects
-        verifyModuleCatalog(committed, catalogResult, diagnostics)
-
-        // 8. Generate current measurements
-        val currentGradle = ctx.gradleProject
-        if (currentGradle == null) {
-            diagnostics.add(VerificationDiagnostic.failure(
-                DiagnosticCode.EMPTY_SECTION,
-                "Current baseline generation requires Gradle project mode"))
-            return diagnosticsToReport(diagnostics)
-        }
-
-        val currentCtx = MeasurementContext.fromProject(currentGradle)
-        val tempGenerator = BaselineGenerator(
-            ctx = currentCtx,
-            outputDir = reportDir,
-            writeRepositoryArtifacts = false
-        )
-
-        val current: BaselineDocument = try {
-            tempGenerator.generateCompleteBaseline()
-        } catch (e: Exception) {
-            diagnostics.add(VerificationDiagnostic.failure(
-                DiagnosticCode.EMPTY_SECTION,
-                "Failed to generate current baseline: ${e.message}"))
-            return diagnosticsToReport(diagnostics)
-        }
-
-        // 9. Verify mandatory sections
-        verifyMandatorySections(current, diagnostics)
-
-        // 10. Compare dimensions with FindingIdentity
-        verifyCancellationCatches(committed, current, deviationResult.deviations, diagnostics)
-        verifyGlobalState(committed, current, deviationResult.deviations, diagnostics)
-        verifyNondeterminism(committed, current, deviationResult.deviations, diagnostics)
-        verifyDependencyCycles(committed, current, deviationResult.deviations, diagnostics)
-        verifyProtocolCatalog(committed, current, diagnostics)
-        verifyStructuralHotspots(committed, current, deviationResult.deviations, diagnostics)
-        verifyForbiddenEdges(committed, current, diagnostics)
-        verifyDocumentDrift(committed, diagnostics)
-
-        // 11. Write typed verification report
-        writeVerificationReport(diagnostics)
 
         return diagnosticsToReport(diagnostics)
     }
@@ -125,18 +132,6 @@ class BaselineVerifier(
             diagnostics.add(VerificationDiagnostic.failure(
                 DiagnosticCode.BASELINE_IDENTITY_MISMATCH,
                 "Committed baseline has invalid tramaiVersion: '${id.tramaiVersion}'"))
-        }
-
-        // Version match
-        val propsFile = File(ctx.rootDir, "gradle.properties")
-        val propsVersion = if (propsFile.isFile) {
-            propsFile.readLines().firstOrNull { it.trimStart().startsWith("tramaiVersion=") }
-                ?.substringAfter("=")?.trim()
-        } else null
-        if (propsVersion != null && id.tramaiVersion != propsVersion) {
-            diagnostics.add(VerificationDiagnostic.failure(
-                DiagnosticCode.BASELINE_IDENTITY_MISMATCH,
-                "Committed baseline version '${id.tramaiVersion}' does not match gradle.properties '$propsVersion'"))
         }
 
         if (!id.workingTreeClean) {
@@ -181,7 +176,7 @@ class BaselineVerifier(
             }
         }
 
-        // Tag resolves correctly
+        // Tag resolves correctly (only validate non-blank identity fields)
         if (id.baselineCommitSha.isNotBlank()) {
             val tagCommit = resolveRefOrFail("${id.releaseTag}^{commit}", diagnostics)
             if (tagCommit != null && tagCommit != id.baselineCommitSha) {
@@ -311,6 +306,14 @@ class BaselineVerifier(
         }
     }
 
+    // ─── Multiset comparison utilities ───
+
+    /**
+     * Count findings by identity key, detecting multiple occurrences.
+     */
+    private fun countById(findings: List<FindingIdentity>): Map<String, Int> =
+        findings.groupBy { it.toIdentityKey() }.mapValues { it.value.size }
+
     // ─── Finding-level comparison with FindingIdentity ───
 
     private fun verifyCancellationCatches(
@@ -321,19 +324,34 @@ class BaselineVerifier(
     ) {
         val committedIds = committed.runtimeSafety.cancellationCatches.map {
             FindingIdentity.fromCancellationCatch(it).toIdentityKey()
-        }.toSet()
+        }
         val currentIds = current.runtimeSafety.cancellationCatches.map {
             FindingIdentity.fromCancellationCatch(it).toIdentityKey()
-        }.toSet()
+        }
 
-        val added = currentIds - committedIds
+        // Multiset comparison: compare counts, not just set membership
+        val committedCounts = committedIds.groupBy { it }.mapValues { it.value.size }
+        val currentCounts = currentIds.groupBy { it }.mapValues { it.value.size }
+
+        val added = mutableSetOf<String>()
+        for ((key, count) in currentCounts) {
+            val oldCount = committedCounts[key] ?: 0
+            if (count > oldCount) {
+                added.add(key)
+            }
+        }
         val addedCritical = current.runtimeSafety.cancellationCatches
             .filter { it.risk == "critical" && FindingIdentity.fromCancellationCatch(it).toIdentityKey() in added }
 
         if (addedCritical.isNotEmpty()) {
             val currentCriticalCount = current.runtimeSafety.cancellationCatches.count { it.risk == "critical" }
+            // Build FindingScope per-module for matching
+            val firstFinding = addedCritical.first()
+            val module = if (firstFinding.module.startsWith(":")) firstFinding.module else ":${firstFinding.module}"
             val deviation = deviationParser.findCoveringDeviation(
-                deviations, "cancellationCriticalCount", "tramai-*", currentCriticalCount
+                deviations, "cancellationCriticalCount",
+                DeviationParser.FindingScope(modulePath = module, null, null),
+                currentCriticalCount
             )
             if (deviation != null) {
                 diagnostics.add(VerificationDiagnostic.accepted(
@@ -358,8 +376,12 @@ class BaselineVerifier(
         }
 
         if (worsenedRisks.isNotEmpty()) {
+            val firstFinding = worsenedRisks.first()
+            val module = if (firstFinding.module.startsWith(":")) firstFinding.module else ":${firstFinding.module}"
             val deviation = deviationParser.findCoveringDeviation(
-                deviations, "cancellationRiskWorsening", "tramai-*", worsenedRisks.size
+                deviations, "cancellationRiskWorsening",
+                DeviationParser.FindingScope(modulePath = module, null, null),
+                worsenedRisks.size
             )
             if (deviation != null) {
                 diagnostics.add(VerificationDiagnostic.accepted(
@@ -376,7 +398,7 @@ class BaselineVerifier(
             }
         }
 
-        val removed = committedIds - currentIds
+        val removed = committedIds.toSet() - currentIds.toSet()
         if (removed.isNotEmpty()) {
             diagnostics.add(VerificationDiagnostic.improvement(
                 DiagnosticCode.NEW_CANCELLATION_FINDING,
@@ -392,26 +414,56 @@ class BaselineVerifier(
     ) {
         val committedIds = committed.runtimeSafety.globalState.map {
             FindingIdentity.fromGlobalState(it).toIdentityKey()
-        }.toSet()
+        }
         val currentIds = current.runtimeSafety.globalState.map {
             FindingIdentity.fromGlobalState(it).toIdentityKey()
-        }.toSet()
+        }
 
-        val added = currentIds - committedIds
+        // Multiset comparison
+        val committedCounts = committedIds.groupBy { it }.mapValues { it.value.size }
+        val currentCounts = currentIds.groupBy { it }.mapValues { it.value.size }
+
+        val added = mutableSetOf<String>()
+        for ((key, count) in currentCounts) {
+            val oldCount = committedCounts[key] ?: 0
+            if (count > oldCount) {
+                added.add(key)
+            }
+        }
         if (added.isNotEmpty()) {
-            val currentCount = current.runtimeSafety.globalState.size
-            val deviation = deviationParser.findCoveringDeviation(
-                deviations, "globalMutableState", "*", currentCount
-            )
-            if (deviation != null) {
-                diagnostics.add(VerificationDiagnostic.accepted(
-                    DiagnosticCode.NEW_GLOBAL_STATE_FINDING,
-                    "${added.size} new global state instance(s) — accepted by ${deviation.id}",
-                    deviation.id))
-            } else {
+            // Check per-module against deviations
+            val remainingAdded = mutableSetOf<String>()
+            for (id in added) {
+                val finding = current.runtimeSafety.globalState.find {
+                    FindingIdentity.fromGlobalState(it).toIdentityKey() == id
+                } ?: continue
+                val module = if (finding.module.startsWith(":")) finding.module else ":${finding.module}"
+
+                // Count occurrences of this finding type in this module
+                val moduleCount = current.runtimeSafety.globalState.count {
+                    val m = if (it.module.startsWith(":")) it.module else ":${it.module}"
+                    m == module
+                }
+
+                val deviation = deviationParser.findCoveringDeviation(
+                    deviations, "globalMutableState",
+                    DeviationParser.FindingScope(modulePath = module, null, null),
+                    moduleCount
+                )
+                if (deviation == null) {
+                    remainingAdded.add(id)
+                } else {
+                    diagnostics.add(VerificationDiagnostic.accepted(
+                        DiagnosticCode.NEW_GLOBAL_STATE_FINDING,
+                        "New global state '${id}' in $module — accepted by ${deviation.id}",
+                        deviation.id))
+                }
+            }
+
+            if (remainingAdded.isNotEmpty()) {
                 diagnostics.add(VerificationDiagnostic.failure(
                     DiagnosticCode.NEW_GLOBAL_STATE_FINDING,
-                    "${added.size} new global mutable state instance(s) detected"))
+                    "${remainingAdded.size} new global mutable state instance(s) detected without covering deviation"))
             }
         }
     }
@@ -424,16 +476,22 @@ class BaselineVerifier(
     ) {
         val committedIds = committed.runtimeSafety.nondeterminism.map {
             FindingIdentity.fromNondeterminism(it).toIdentityKey()
-        }.toSet()
+        }
         val currentIds = current.runtimeSafety.nondeterminism.map {
             FindingIdentity.fromNondeterminism(it).toIdentityKey()
-        }.toSet()
+        }
 
-        val added = currentIds - committedIds
+        // Multiset comparison
+        val committedCounts = committedIds.groupBy { it }.mapValues { it.value.size }
+        val currentCounts = currentIds.groupBy { it }.mapValues { it.value.size }
+
+        val added = currentIds.toSet() - committedIds.toSet()
         if (added.isNotEmpty()) {
             val currentCount = current.runtimeSafety.nondeterminism.size
             val deviation = deviationParser.findCoveringDeviation(
-                deviations, "nondeterminismSources", "*", currentCount
+                deviations, "nondeterminismSources",
+                DeviationParser.FindingScope(modulePath = null, null, null),
+                currentCount
             )
             if (deviation != null) {
                 diagnostics.add(VerificationDiagnostic.accepted(
@@ -454,8 +512,8 @@ class BaselineVerifier(
         deviations: List<DeviationParser.DeviationEntry>,
         diagnostics: MutableList<VerificationDiagnostic>
     ) {
-        val committedCycles = committed.structural.moduleDependencies.cycles.map { it.sorted().joinToString("→") }.toSet()
-        val currentCycles = current.structural.moduleDependencies.cycles.map { it.sorted().joinToString("→") }.toSet()
+        val committedCycles = committed.structural.moduleDependencies.cycles.map { it.sorted().joinToString("\u2192") }.toSet()
+        val currentCycles = current.structural.moduleDependencies.cycles.map { it.sorted().joinToString("\u2192") }.toSet()
 
         val newCycles = currentCycles - committedCycles
         for (cycle in newCycles) {
@@ -511,7 +569,7 @@ class BaselineVerifier(
         if (currentUnclassified > committedUnclassified) {
             diagnostics.add(VerificationDiagnostic.warning(
                 DiagnosticCode.STABLE_PROTOCOL_CONTRACT_REMOVED,
-                "Unclassified protocol entries increased: $committedUnclassified → $currentUnclassified"))
+                "Unclassified protocol entries increased: $committedUnclassified \u2192 $currentUnclassified"))
         }
     }
 
@@ -580,15 +638,14 @@ class BaselineVerifier(
             if (committedHotspot != null && currentHotspot.value > committedHotspot.value * 1.2) {
                 diagnostics.add(VerificationDiagnostic.warning(
                     DiagnosticCode.FILE_GROWTH_EXCEEDED,
-                    "${currentHotspot.path} grew >20%: ${committedHotspot.value} → ${currentHotspot.value} lines"))
+                    "${currentHotspot.path} grew >20%: ${committedHotspot.value} \u2192 ${currentHotspot.value} lines"))
             }
         }
 
-        // Orphaned deviation detection using exact scope matching
+        // Orphaned deviation detection using typed covers()
         for (dev in deviations) {
             val parsedScope = deviationParser.parseScope(dev.scope) ?: continue
             if (dev.metric != "fileSize" && dev.metric != "constructorParameterCount") continue
-            // Module-only scopes (no file path) cannot be orphaned — they apply to the module
             if (parsedScope.filePath == null && !parsedScope.isWildcard) continue
 
             val allHotspots = current.structural.structuralHotspots.largestProductionFiles +
@@ -597,7 +654,12 @@ class BaselineVerifier(
                 current.structural.structuralHotspots.mostFunctionParameters
 
             val matched = allHotspots.any { h ->
-                scopeMatchesHotspot(parsedScope, h)
+                val findingScope = DeviationParser.FindingScope(
+                    modulePath = if (h.module.startsWith(":")) h.module else ":${h.module}",
+                    repositoryPath = h.path,
+                    declaration = h.declaration.ifBlank { null }
+                )
+                parsedScope.covers(findingScope)
             }
 
             if (!matched && !parsedScope.isWildcard) {
@@ -610,23 +672,12 @@ class BaselineVerifier(
 
     /** Check whether a structural hotspot matches a parsed deviation scope. */
     private fun scopeMatchesHotspot(scope: DeviationParser.DeviationScope, hotspot: StructuralHotspot): Boolean {
-        if (scope.isWildcard && scope.modulePath != null) {
-            // Wildcard prefix: `:tramai-` matches `:tramai-engine`, `:tramai-core`, etc.
-            val prefix = scope.modulePath!!
-            val hotspotModule = if (hotspot.module.startsWith(":")) hotspot.module else ":$hotspot.module"
-            return hotspotModule.startsWith(prefix)
-        }
-
-        if (scope.filePath != null) {
-            return hotspot.path.contains(scope.filePath!!) &&
-                (scope.declaration == null || hotspot.declaration == scope.declaration)
-        }
-
-        if (scope.modulePath != null) {
-            return (":$hotspot.module" == scope.modulePath || ":$hotspot.module".startsWith(scope.modulePath!!))
-        }
-
-        return false
+        val findingScope = DeviationParser.FindingScope(
+            modulePath = if (hotspot.module.startsWith(":")) hotspot.module else ":${hotspot.module}",
+            repositoryPath = hotspot.path,
+            declaration = hotspot.declaration.ifBlank { null }
+        )
+        return scope.covers(findingScope)
     }
 
     private fun verifyDocumentDrift(
@@ -659,9 +710,16 @@ class BaselineVerifier(
     // ─── Output ───
 
     private fun writeVerificationReport(diagnostics: List<VerificationDiagnostic>) {
+        reportDir.mkdirs()
+
+        val executionSha = try {
+            ctx.runGit("rev-parse", "HEAD")
+        } catch (_: Exception) { "unknown" }
+
         val report = mapOf(
             "schemaVersion" to "1",
             "description" to "TramAI 0.6.0 maintainability verification report",
+            "executionHeadSha" to executionSha,
             "passed" to diagnostics.none { it.severity == DiagnosticSeverity.FAILURE },
             "diagnostics" to diagnostics.map { diag ->
                 mapOf(

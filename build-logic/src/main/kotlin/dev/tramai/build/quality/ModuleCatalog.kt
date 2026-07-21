@@ -19,7 +19,7 @@ class ModuleCatalog(private val rootDir: File) {
 
     data class CatalogResult(
         val modules: Map<String, ModuleEntry>,
-        val errors: List<String>
+        val errors: List<VerificationDiagnostic>
     )
 
     /** The most recently parsed catalog modules, cached for instance lookups. */
@@ -42,10 +42,14 @@ class ModuleCatalog(private val rootDir: File) {
     fun parse(): CatalogResult {
         val file = File(rootDir, "config/quality/module-catalog.yml")
         if (!file.isFile) {
-            return CatalogResult(emptyMap(), listOf("Module catalog not found: ${file.absolutePath}"))
+            return CatalogResult(emptyMap(), listOf(
+                VerificationDiagnostic.failure(
+                    DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY,
+                    "Module catalog not found: ${file.absolutePath}")
+            ))
         }
 
-        val errors = mutableListOf<String>()
+        val errors = mutableListOf<VerificationDiagnostic>()
         val modules = mutableMapOf<String, ModuleEntry>()
 
         try {
@@ -60,52 +64,81 @@ class ModuleCatalog(private val rootDir: File) {
                 val apiStability = entry["apiStability"]?.toString() ?: ""
 
                 if (path.isBlank()) {
-                    errors.add("Module catalog entry $index: path is blank")
+                    errors.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY,
+                        "Module catalog entry $index: path is blank"))
                     continue
                 }
 
                 if (layer.isBlank()) {
-                    errors.add("$path: layer is blank")
+                    errors.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY,
+                        "$path: layer is blank"))
                 } else if (layer !in validLayers) {
-                    errors.add("$path: invalid layer '$layer'. Valid: $validLayers")
+                    errors.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MODULE_CATALOG_INVALID_LAYER,
+                        "$path: invalid layer '$layer'. Valid: $validLayers",
+                        modulePath = path))
                 }
 
                 if (publishability !in validPublishability) {
-                    errors.add("$path: invalid publishability '$publishability'. Valid: $validPublishability")
+                    errors.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MODULE_CATALOG_INVALID_LAYER,
+                        "$path: invalid publishability '$publishability'. Valid: $validPublishability",
+                        modulePath = path))
                 }
 
                 if (apiStability !in validApiStability) {
-                    errors.add("$path: invalid apiStability '$apiStability'. Valid: $validApiStability")
+                    errors.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MODULE_CATALOG_MISSING_API_STABILITY,
+                        "$path: invalid apiStability '$apiStability'. Valid: $validApiStability",
+                        modulePath = path))
                 }
 
                 // Rules
                 if (publishability == "published" && apiStability == "excluded") {
-                    errors.add("$path: published modules must have an API stability classification (not 'excluded')")
+                    errors.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MODULE_CATALOG_MISSING_API_STABILITY,
+                        "$path: published modules must have an API stability classification (not 'excluded')",
+                        modulePath = path))
                 }
 
                 if (layer == "applications-examples" && publishability != "excluded") {
-                    errors.add("$path: examples must have publishability 'excluded'")
+                    errors.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MODULE_CATALOG_EXAMPLE_PUBLISHABLE,
+                        "$path: examples must have publishability 'excluded'",
+                        modulePath = path))
                 }
 
                 if (publishability == "excluded" && apiStability != "excluded") {
-                    errors.add("$path: excluded modules must have apiStability 'excluded'")
+                    errors.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MODULE_CATALOG_MISSING_API_STABILITY,
+                        "$path: excluded modules must have apiStability 'excluded'",
+                        modulePath = path))
                 }
 
                 // Check duplicate paths
                 if (path in modules) {
-                    errors.add("Module catalog: duplicate path '$path'")
-                } else if (errors.none { it.startsWith("$path:") }) {
+                    errors.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MODULE_CATALOG_DUPLICATE_PATH,
+                        "Module catalog: duplicate path '$path'",
+                        modulePath = path))
+                } else if (errors.none { it.message.startsWith("$path:") }) {
                     // Only add if no fatal errors for this entry
                     modules[path] = ModuleEntry(path, layer, publishability, apiStability)
                 }
             }
 
             if (modules.isEmpty() && errors.isEmpty()) {
-                errors.add("Module catalog is empty — no module entries found")
+                errors.add(VerificationDiagnostic.failure(
+                    DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY,
+                    "Module catalog is empty — no module entries found"))
             }
 
         } catch (e: Exception) {
-            errors.add("Failed to parse module catalog: ${e.message}")
+            errors.add(VerificationDiagnostic.failure(
+                DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY,
+                "Failed to parse module catalog: ${e.message}"))
         }
 
         // Cache parsed modules for instance lookups
@@ -121,19 +154,23 @@ class ModuleCatalog(private val rootDir: File) {
     fun validateAgainstProjects(
         catalogModules: Map<String, ModuleEntry>,
         projectPaths: List<String>,
-        errors: MutableList<String>
+        errors: MutableList<VerificationDiagnostic>
     ) {
         val catalogPaths = catalogModules.keys.toSet()
 
         for (projPath in projectPaths) {
             if (projPath !in catalogPaths) {
-                errors.add("Gradle project '$projPath' has no module-catalog entry")
+                errors.add(VerificationDiagnostic.failure(
+                    DiagnosticCode.MODULE_CATALOG_MISSING_ENTRY,
+                    "Gradle project '$projPath' has no module-catalog entry"))
             }
         }
 
         for (catPath in catalogPaths) {
             if (catPath !in projectPaths) {
-                errors.add("Module-catalog entry '$catPath' does not exist as a Gradle project")
+                errors.add(VerificationDiagnostic.failure(
+                    DiagnosticCode.MODULE_CATALOG_UNKNOWN_ENTRY,
+                    "Module-catalog entry '$catPath' does not exist as a Gradle project"))
             }
         }
     }
@@ -157,4 +194,9 @@ class ModuleCatalog(private val rootDir: File) {
      * Returns whether a module path is published (for dependency validation).
      */
     fun isPublished(path: String): Boolean = publishabilityFor(path) == "published"
+
+    /**
+     * Returns the parsed module entry for a path, or null if not in catalog.
+     */
+    fun entryFor(path: String): ModuleEntry? = parsedModules[path]
 }

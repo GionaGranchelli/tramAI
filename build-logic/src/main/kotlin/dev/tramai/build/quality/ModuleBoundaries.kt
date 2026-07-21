@@ -22,6 +22,8 @@ class ModuleBoundaries(private val rootDir: File) {
     data class AllowedEdgeRule(
         val fromLayer: String? = null,
         val toLayer: String? = null,
+        val fromModule: String? = null,
+        val toModule: String? = null,
         val reason: String
     )
 
@@ -31,6 +33,20 @@ class ModuleBoundaries(private val rootDir: File) {
         val errors: List<String>
     )
 
+    /** Parsed rules, stored as instance fields populated during parse(). */
+    private var forbiddenEdges: List<ForbiddenEdgeRule> = emptyList()
+    private var allowedEdges: List<AllowedEdgeRule> = emptyList()
+
+    /**
+     * Create a ModuleBoundaries with pre-set parsed rules (for testing).
+     */
+    fun fromResult(result: BoundaryResult): ModuleBoundaries {
+        val mb = ModuleBoundaries(rootDir)
+        mb.forbiddenEdges = result.forbiddenEdges
+        mb.allowedEdges = result.allowedEdges
+        return mb
+    }
+
     fun parse(): BoundaryResult {
         val file = File(rootDir, "config/quality/module-boundaries.yml")
         if (!file.isFile) {
@@ -38,8 +54,8 @@ class ModuleBoundaries(private val rootDir: File) {
         }
 
         val errors = mutableListOf<String>()
-        val forbiddenEdges = mutableListOf<ForbiddenEdgeRule>()
-        val allowedEdges = mutableListOf<AllowedEdgeRule>()
+        val parsedForbidden = mutableListOf<ForbiddenEdgeRule>()
+        val parsedAllowed = mutableListOf<AllowedEdgeRule>()
 
         try {
             val yaml = Yaml()
@@ -56,11 +72,11 @@ class ModuleBoundaries(private val rootDir: File) {
 
                 val selfEdge = entry["selfEdge"] as? Boolean
                 if (selfEdge == true) {
-                    forbiddenEdges.add(ForbiddenEdgeRule(selfEdge = true, reason = reason))
+                    parsedForbidden.add(ForbiddenEdgeRule(selfEdge = true, reason = reason))
                     continue
                 }
 
-                forbiddenEdges.add(
+                parsedForbidden.add(
                     ForbiddenEdgeRule(
                         fromLayer = entry["fromLayer"]?.toString(),
                         toLayer = entry["toLayer"]?.toString(),
@@ -78,10 +94,12 @@ class ModuleBoundaries(private val rootDir: File) {
                     errors.add("Allowed edge rule $index: reason is blank")
                     continue
                 }
-                allowedEdges.add(
+                parsedAllowed.add(
                     AllowedEdgeRule(
                         fromLayer = entry["fromLayer"]?.toString(),
                         toLayer = entry["toLayer"]?.toString(),
+                        fromModule = entry["fromModule"]?.toString(),
+                        toModule = entry["toModule"]?.toString(),
                         reason = reason
                     )
                 )
@@ -91,7 +109,11 @@ class ModuleBoundaries(private val rootDir: File) {
             errors.add("Failed to parse boundary rules: ${e.message}")
         }
 
-        return BoundaryResult(forbiddenEdges, allowedEdges, errors)
+        // Store parsed rules as instance fields
+        forbiddenEdges = parsedForbidden
+        allowedEdges = parsedAllowed
+
+        return BoundaryResult(parsedForbidden, parsedAllowed, errors)
     }
 
     /**
@@ -120,7 +142,7 @@ class ModuleBoundaries(private val rootDir: File) {
         val fromPublished = catalog.isPublished(fromPath)
         val toPublishability = catalog.publishabilityFor(toPath) ?: "internal"
 
-        for (rule in parsedForbiddenEdges) {
+        for (rule in forbiddenEdges) {
             if (rule.selfEdge == true) continue // handled above
 
             val layerMatch = rule.fromLayer == null || (rule.fromLayer == fromLayer)
@@ -128,10 +150,12 @@ class ModuleBoundaries(private val rootDir: File) {
             val publishedMatch = rule.fromPublished == null || (rule.fromPublished == fromPublished)
             val pubMatch = rule.toPublishability == null || (rule.toPublishability == toPublishability)
 
-            // Check allowed edge exceptions first
-            val isAllowed = parsedAllowedEdges.any { allowed ->
-                val fromOk = allowed.fromLayer == null || allowed.fromLayer == fromLayer || allowed.fromLayer == "*"
-                val toOk = allowed.toLayer == null || allowed.toLayer == toLayer || allowed.toLayer == "*"
+            // Check allowed edge exceptions first (supports layer and module matching)
+            val isAllowed = allowedEdges.any { edge ->
+                val fromOk = (edge.fromLayer == null || edge.fromLayer == fromLayer || edge.fromLayer == "*") &&
+                    (edge.fromModule == null || edge.fromModule == fromPath)
+                val toOk = (edge.toLayer == null || edge.toLayer == toLayer || edge.toLayer == "*") &&
+                    (edge.toModule == null || edge.toModule == toPath)
                 fromOk && toOk
             }
 
@@ -145,16 +169,5 @@ class ModuleBoundaries(private val rootDir: File) {
         }
 
         return null
-    }
-
-    companion object {
-        private var parsedForbiddenEdges: List<ForbiddenEdgeRule> = emptyList()
-        private var parsedAllowedEdges: List<AllowedEdgeRule> = emptyList()
-
-        fun loadOnce(boundaries: ModuleBoundaries) {
-            val result = boundaries.parse()
-            parsedForbiddenEdges = result.forbiddenEdges
-            parsedAllowedEdges = result.allowedEdges
-        }
     }
 }

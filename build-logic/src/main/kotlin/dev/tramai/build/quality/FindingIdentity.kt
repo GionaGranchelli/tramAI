@@ -32,9 +32,23 @@ data class FindingIdentity(
     val discriminator: String? = null,
     val occurrence: Int? = null
 ) {
-    /** Compact string key for identity comparison (line-number independent). */
-    fun toIdentityKey(): String =
-        "${category.name}::$modulePath::$repositoryPath::$declaration::$discriminator"
+    /**
+     * Compact string key for identity comparison (line-number independent).
+     * Nullable fields are omitted rather than serialized as "null".
+     * Occurrence is included when present so duplicates in the same
+     * declaration have unique identities.
+     */
+    fun toIdentityKey(): String {
+        val parts = listOfNotNull(
+            category.name,
+            modulePath,
+            repositoryPath,
+            declaration,
+            discriminator,
+            occurrence?.toString()
+        )
+        return parts.joinToString("::")
+    }
 
     companion object {
         fun fromCancellationCatch(f: CancellationCatchFinding, occurrence: Int? = null): FindingIdentity {
@@ -67,8 +81,8 @@ data class FindingIdentity(
                 category = FindingCategory.NONDETERMINISM,
                 modulePath = modulePath,
                 repositoryPath = normalizePath(f.file),
-                declaration = null,
-                discriminator = f.source,
+                declaration = f.source,
+                discriminator = f.category + "::" + f.source,
                 occurrence = occurrence
             )
         }

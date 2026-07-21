@@ -28,7 +28,7 @@ deviations:
 
   - id: MQ-0002
     metric: fileSize
-    scope: "::build.gradle.kts#root build"
+    scope: "::build.gradle.kts"
     baseline: 6287
     allowed: 6500
     reason: "Root build script accumulated publish, signing, and verification logic. Build-logic extraction is underway in Phase 0 and will continue through 0.6.x."

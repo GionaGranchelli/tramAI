@@ -36,6 +36,58 @@ class DeviationParser(private val rootDir: File) {
         val filePath: String?,
         val declaration: String?,
         val isWildcard: Boolean
+    ) {
+        /**
+         * Check whether this deviation scope covers a given finding scope.
+         *
+         * Matching rules:
+         * - *: matches everything.
+         * - :module: exact module equality.
+         * - :prefix-*: explicit module-prefix matching.
+         * - :module:path: exact normalized module and repository-path equality.
+         * - :module:path#Declaration: exact equality on all three fields.
+         */
+        fun covers(finding: FindingScope): Boolean {
+            // Global wildcard: * matches everything
+            if (isWildcard && modulePath == null) return true
+
+            // Prefix wildcard: :tramai-* matches :tramai-engine, :tramai-core, etc.
+            if (isWildcard && modulePath != null) {
+                val fm = finding.modulePath ?: return false
+                val normalizedPrefix = modulePath!!.removeSuffix("-")
+                // Match exact module or prefix
+                return fm == normalizedPrefix || fm.startsWith(normalizedPrefix + ":")
+            }
+
+            // Declaration scope: :module:path#Declaration
+            if (declaration != null) {
+                return modulePath == finding.modulePath &&
+                        filePath == finding.repositoryPath &&
+                        declaration == finding.declaration
+            }
+
+            // File scope: :module:path (exact match)
+            if (filePath != null) {
+                return modulePath == finding.modulePath &&
+                        filePath == finding.repositoryPath
+            }
+
+            // Module scope: :module (exact match only — never prefix)
+            if (modulePath != null) {
+                return modulePath == finding.modulePath
+            }
+
+            return false
+        }
+    }
+
+    /**
+     * Represents the scope of a finding for deviation matching.
+     */
+    data class FindingScope(
+        val modulePath: String?,
+        val repositoryPath: String?,
+        val declaration: String?
     )
 
     data class ParseResult(
@@ -92,7 +144,7 @@ class DeviationParser(private val rootDir: File) {
         val file = File(rootDir, "config/quality/maintainability-deviations.yml")
         if (!file.isFile) {
             return ParseResult(emptyList(), listOf(
-                VerificationDiagnostic.warning(DiagnosticCode.MALFORMED_DEVIATION,
+                VerificationDiagnostic.failure(DiagnosticCode.MALFORMED_DEVIATION,
                     "Deviation file not found: ${file.absolutePath}")
             ))
         }
@@ -155,6 +207,34 @@ class DeviationParser(private val rootDir: File) {
                         "$id: invalid scope '$scope'. Use ':module', ':module:path', ':module:path#Decl', or '*'"))
                 }
 
+                // Validate acceptedAt as ISO date
+                if (acceptedAt.isNotBlank()) {
+                    try {
+                        LocalDate.parse(acceptedAt)
+                    } catch (e: Exception) {
+                        diagnostics.add(VerificationDiagnostic.failure(
+                            DiagnosticCode.MALFORMED_DEVIATION,
+                            "$id: acceptedAt '$acceptedAt' is not a valid ISO-8601 date: ${e.message}"))
+                    }
+                }
+
+                // Validate numeric constraints
+                if (baseline < 0) {
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MALFORMED_DEVIATION,
+                        "$id: baseline ($baseline) must be >= 0"))
+                }
+                if (allowed < 0) {
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MALFORMED_DEVIATION,
+                        "$id: allowed ($allowed) must be >= 0"))
+                }
+                if (allowed < baseline && baseline > 0) {
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MALFORMED_DEVIATION,
+                        "$id: allowed ($allowed) must be >= baseline ($baseline)"))
+                }
+
                 // Check expired target phase
                 val expiredPrefixes = listOf("0.6.0", "0.5", "0.4", "0.3", "0.2", "0.1")
                 if (expiredPrefixes.any { targetPhase.startsWith(it) }) {
@@ -179,6 +259,21 @@ class DeviationParser(private val rootDir: File) {
         return ParseResult(deviations, diagnostics)
     }
 
+    /**
+     * Validate that a deviation's baseline matches the actual computed baseline value.
+     */
+    fun validateBaselineMatch(baseline: Int, actualBaseline: Int): VerificationDiagnostic? {
+        if (baseline != actualBaseline) {
+            return VerificationDiagnostic.failure(
+                DiagnosticCode.DEVIATION_BASELINE_MISMATCH,
+                "Deviation baseline $baseline does not match actual baseline $actualBaseline",
+                baselineValue = baseline.toString(),
+                currentValue = actualBaseline.toString()
+            )
+        }
+        return null
+    }
+
     private fun checkDuplicateIds(deviations: List<DeviationEntry>, diagnostics: MutableList<VerificationDiagnostic>) {
         val duplicates = deviations.groupBy { it.id }.filter { it.value.size > 1 }
         for ((id, entries) in duplicates) {
@@ -190,31 +285,18 @@ class DeviationParser(private val rootDir: File) {
 
     /**
      * Find a deviation that covers a given finding.
-     * Uses exact matching: scope, metric, and allowed value.
+     * Uses FindingScope and covers() for typed matching.
      */
     fun findCoveringDeviation(
         deviations: List<DeviationEntry>,
         metric: String,
-        scope: String,
+        findingScope: FindingScope,
         currentValue: Int
     ): DeviationEntry? {
         return deviations.find { dev ->
             dev.metric == metric &&
-                scopeMatches(dev.scope, scope) &&
-                currentValue <= dev.allowed
+                currentValue <= dev.allowed &&
+                (parseScope(dev.scope)?.covers(findingScope) == true)
         }
-    }
-
-    /** Check whether a deviation scope covers a given finding scope. */
-    private fun scopeMatches(devScope: String, findingScope: String): Boolean {
-        if (devScope == "*") return true
-
-        val parsed = parseScope(devScope) ?: return false
-        if (parsed.isWildcard && parsed.modulePath != null) {
-            return findingScope.startsWith(parsed.modulePath)
-        }
-
-        // Normalize both for comparison
-        return devScope.removePrefix("\"").removeSuffix("\"") == findingScope
     }
 }

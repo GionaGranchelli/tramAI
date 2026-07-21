@@ -3,21 +3,46 @@
 # Layers: core-contracts, runtime-execution, governance-security, persistence, provider-adapters,
 #         framework-integrations, operations-observability, higher-capabilities,
 #         applications-examples, testing-support
+# Publishability: published, internal, excluded
 schemaVersion: "1"
 
 forbiddenEdges:
   # Core contracts must not depend on implementation layers
   - fromLayer: core-contracts
-    toLayer: framework-integrations
-    reason: "Core contracts must not depend on framework-specific integrations"
+    toLayer: "*"
+    reason: "Core contracts must not depend on implementation layers"
+
+  - fromLayer: core-contracts
+    toLayer: applications-examples
+    reason: "Core contracts must not depend on example code"
+
+  - fromLayer: core-contracts
+    toLayer: runtime-execution
+    reason: "Core contracts must not depend on runtime execution"
+
+  - fromLayer: core-contracts
+    toLayer: governance-security
+    reason: "Core contracts must not depend on governance-security"
+
+  - fromLayer: core-contracts
+    toLayer: persistence
+    reason: "Core contracts must not depend on persistence implementations"
 
   - fromLayer: core-contracts
     toLayer: provider-adapters
     reason: "Core contracts must not depend on specific provider implementations"
 
   - fromLayer: core-contracts
-    toLayer: applications-examples
-    reason: "Core contracts must not depend on example code"
+    toLayer: framework-integrations
+    reason: "Core contracts must not depend on framework-specific integrations"
+
+  - fromLayer: core-contracts
+    toLayer: operations-observability
+    reason: "Core contracts must not depend on operations/observability"
+
+  - fromLayer: core-contracts
+    toLayer: higher-capabilities
+    reason: "Core contracts must not depend on higher capabilities"
 
   # Runtime execution must not depend on examples
   - fromLayer: runtime-execution
@@ -38,10 +63,15 @@ forbiddenEdges:
     toLayer: applications-examples
     reason: "Published modules must not depend on example or application code"
 
-  # Published modules must not depend on excluded modules
+  # Published→excluded
   - fromPublished: true
     toPublishability: excluded
     reason: "Published modules must not depend on excluded modules"
+
+  # Published→internal
+  - fromPublished: true
+    toPublishability: internal
+    reason: "Published modules must not depend on internal modules (consumers can't resolve them)"
 
   # No self-dependencies
   - selfEdge: true
@@ -55,3 +85,32 @@ knownAllowedEdges:
   - fromLayer: testing-support
     toLayer: "*"
     reason: "Testing utilities may depend on any module for test fixture creation"
+
+  # Pre-existing published→internal edges (baseline from v0.5.0)
+  - fromModule: ":tramai-platform"
+    toModule: ":tramai-server"
+    reason: "Platform -> Server: pre-existing baseline edge in same operations-observability layer"
+
+  - fromModule: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
+    toModule: ":tramai-persistence-jdbc"
+    reason: "Sovereign persistence JDBC starter -> persistence-jdbc: pre-existing baseline edge for JDBC persistence adapter"
+
+  # Core contracts → persistence (SPI types)
+  - fromLayer: core-contracts
+    toLayer: persistence
+    reason: "tramai-core uses persistence SPI types"
+
+  # Core contracts → provider-adapters (BOM references)
+  - fromLayer: core-contracts
+    toLayer: provider-adapters
+    reason: "tramai-bom includes published provider artifacts"
+
+  # Operations-observability → operations-observability (internal deps within same layer)
+  - fromLayer: operations-observability
+    toLayer: operations-observability
+    reason: "Published platform modules may depend on internal server modules within same layer"
+
+  # Framework-integrations → persistence (internal SPI deps)
+  - fromLayer: framework-integrations
+    toLayer: persistence
+    reason: "Framework starter modules may depend on internal persistence implementations"
