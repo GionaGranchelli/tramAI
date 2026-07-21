@@ -342,30 +342,58 @@ class BaselineVerifier(
             .filter { it.risk == "critical" && FindingIdentity.fromCancellationCatch(it).toIdentityKey() in added }
 
         if (addedCritical.isNotEmpty()) {
-            val currentCriticalCount = current.runtimeSafety.cancellationCatches.count { it.risk == "critical" }
+            // Evaluate per deviation scope: each deviation's budget applies
+            // to ALL findings matching its scope, not per-module.
+            val deviationsByScope = deviations
+                .filter { it.metric == "cancellationCriticalCount" }
+                .sortedByDescending { it.allowed }
 
-            // Group by module and evaluate independently
-            val criticalByModule = addedCritical.groupBy { f ->
-                if (f.module.startsWith(":")) f.module else ":${f.module}"
+            var remainingUncovered = addedCritical.toMutableList()
+
+            for (dev in deviationsByScope) {
+                val parsedScope = deviationParser.parseScope(dev.scope)
+                if (parsedScope == null) continue
+
+                // Count ALL current critical catches matching this deviation's scope
+                val matchingCurrent = current.runtimeSafety.cancellationCatches.count { f ->
+                    val fm = if (f.module.startsWith(":")) f.module else ":${f.module}"
+                    f.risk == "critical" && parsedScope.covers(
+                        DeviationParser.FindingScope(fm, null, null)
+                    )
+                }
+
+                // Count committed critical catches matching this deviation's scope
+                val matchingCommitted = committed.runtimeSafety.cancellationCatches.count { f ->
+                    val fm = if (f.module.startsWith(":")) f.module else ":${f.module}"
+                    f.risk == "critical" && parsedScope.covers(
+                        DeviationParser.FindingScope(fm, null, null)
+                    )
+                }
+
+                if (matchingCurrent <= dev.allowed) {
+                    // This deviation covers all matching findings
+                    val covered = remainingUncovered.filter { f ->
+                        val fm = if (f.module.startsWith(":")) f.module else ":${f.module}"
+                        parsedScope.covers(DeviationParser.FindingScope(fm, null, null))
+                    }
+                    if (covered.isNotEmpty()) {
+                        diagnostics.add(VerificationDiagnostic.accepted(
+                            DiagnosticCode.NEW_CANCELLATION_FINDING,
+                            "${covered.size} new critical catches — accepted by ${dev.id} (${matchingCurrent} total in scope ≤ ${dev.allowed})",
+                            deviationId = dev.id))
+                        remainingUncovered.removeAll(covered.toSet())
+                    }
+                }
             }
 
-            for ((module, findings) in criticalByModule) {
-                val deviation = deviationParser.findCoveringDeviation(
-                    deviations, "cancellationCriticalCount",
-                    DeviationParser.FindingScope(modulePath = module, null, null),
-                    current.runtimeSafety.cancellationCatches.count {
-                        it.risk == "critical" && (if (it.module.startsWith(":")) it.module else ":${it.module}") == module
-                    }
-                )
-                if (deviation != null) {
-                    diagnostics.add(VerificationDiagnostic.accepted(
-                        DiagnosticCode.NEW_CANCELLATION_FINDING,
-                        "${findings.size} new critical catches in $module — accepted by ${deviation.id}",
-                        deviation.id))
-                } else {
+            if (remainingUncovered.isNotEmpty()) {
+                val byModule = remainingUncovered.groupBy { f ->
+                    if (f.module.startsWith(":")) f.module else ":${f.module}"
+                }
+                for ((module, findings) in byModule) {
                     diagnostics.add(VerificationDiagnostic.failure(
                         DiagnosticCode.NEW_CANCELLATION_FINDING,
-                        "${findings.size} new critical cancellation catch(es) detected in $module",
+                        "${findings.size} new critical cancellation catch(es) in $module — no covering deviation",
                         modulePath = module))
                 }
             }
@@ -381,29 +409,43 @@ class BaselineVerifier(
         }
 
         if (worsenedRisks.isNotEmpty()) {
-            // Group by module and evaluate independently
-            val riskByModule = worsenedRisks.groupBy { f ->
-                if (f.module.startsWith(":")) f.module else ":${f.module}"
+            // Evaluate per deviation scope: each deviation's budget applies
+            // to ALL findings matching its scope.
+            val riskDeviations = deviations.filter { it.metric == "cancellationRiskWorsening" }
+                .sortedByDescending { it.allowed }
+
+            var remainingWorsened = worsenedRisks.toMutableList()
+
+            for (dev in riskDeviations) {
+                val parsedScope = deviationParser.parseScope(dev.scope)
+                if (parsedScope == null) continue
+
+                val matchingWorsened = worsenedRisks.count { f ->
+                    val fm = if (f.module.startsWith(":")) f.module else ":${f.module}"
+                    parsedScope.covers(DeviationParser.FindingScope(fm, null, null))
+                }
+
+                if (matchingWorsened <= dev.allowed) {
+                    val covered = remainingWorsened.filter { f ->
+                        val fm = if (f.module.startsWith(":")) f.module else ":${f.module}"
+                        parsedScope.covers(DeviationParser.FindingScope(fm, null, null))
+                    }
+                    if (covered.isNotEmpty()) {
+                        diagnostics.add(VerificationDiagnostic.accepted(
+                            DiagnosticCode.CANCELLATION_RISK_WORSENED,
+                            "${covered.size} risk worsenings — accepted by ${dev.id} (${matchingWorsened} total in scope ≤ ${dev.allowed})",
+                            deviationId = dev.id))
+                        remainingWorsened.removeAll(covered.toSet())
+                    }
+                }
             }
 
-            for ((module, worsenings) in riskByModule) {
-                val deviation = deviationParser.findCoveringDeviation(
-                    deviations, "cancellationRiskWorsening",
-                    DeviationParser.FindingScope(modulePath = module, null, null),
-                    worsenings.size
-                )
-                if (deviation != null) {
-                    diagnostics.add(VerificationDiagnostic.accepted(
+            if (remainingWorsened.isNotEmpty()) {
+                remainingWorsened.forEach { f ->
+                    diagnostics.add(VerificationDiagnostic.failure(
                         DiagnosticCode.CANCELLATION_RISK_WORSENED,
-                        "${worsenings.size} risk worsenings in $module — accepted by ${deviation.id}",
-                        deviation.id))
-                } else {
-                    worsenings.forEach { f ->
-                        diagnostics.add(VerificationDiagnostic.failure(
-                            DiagnosticCode.CANCELLATION_RISK_WORSENED,
-                            "Cancellation catch risk worsened in $module: ${f.module}/${f.file}:${f.function}",
-                            modulePath = f.module))
-                    }
+                        "Cancellation catch risk worsened: ${f.module}/${f.file}:${f.function} — no covering deviation",
+                        modulePath = f.module))
                 }
             }
         }
@@ -593,6 +635,9 @@ class BaselineVerifier(
         deviations: List<DeviationParser.DeviationEntry>,
         diagnostics: MutableList<VerificationDiagnostic>
     ) {
+        // Validate deviation baselines against committed measurements
+        validateDeviationBaselines(committed, deviations, diagnostics)
+
         for (dev in deviations) {
             val parsedScope = deviationParser.parseScope(dev.scope) ?: continue
 
@@ -692,6 +737,67 @@ class BaselineVerifier(
             declaration = hotspot.declaration.ifBlank { null }
         )
         return scope.covers(findingScope)
+    }
+
+    /**
+     * Validate that each deviation's recorded baseline value matches the
+     * committed canonical measurement for that metric.
+     * Emits DEVIATION_BASELINE_MISMATCH when they differ.
+     */
+    private fun validateDeviationBaselines(
+        committed: BaselineDocument,
+        deviations: List<DeviationParser.DeviationEntry>,
+        diagnostics: MutableList<VerificationDiagnostic>
+    ) {
+        for (dev in deviations) {
+            val actualBaseline = computeCommittedBaseline(committed, dev.metric, dev.scope)
+            if (actualBaseline != null && actualBaseline != dev.baseline) {
+                diagnostics.add(VerificationDiagnostic.failure(
+                    DiagnosticCode.DEVIATION_BASELINE_MISMATCH,
+                    "${dev.id}: recorded baseline ${dev.baseline} does not match canonical measurement $actualBaseline for metric '${dev.metric}' at scope '${dev.scope}'",
+                    deviationId = dev.id,
+                    baselineValue = dev.baseline.toString(),
+                    currentValue = actualBaseline.toString()))
+            }
+        }
+    }
+
+    /**
+     * Compute the committed baseline value for a given metric and scope.
+     * Filters findings to those matching the deviation's scope for accuracy.
+     * Returns null when the metric is not directly comparable (e.g. fileSize
+     * varies per file, not globally).
+     */
+    private fun computeCommittedBaseline(
+        committed: BaselineDocument,
+        metric: String,
+        scope: String
+    ): Int? {
+        val parsedScope = deviationParser.parseScope(scope) ?: return null
+
+        fun matchesScope(modulePath: String): Boolean {
+            val norm = if (modulePath.startsWith(":")) modulePath else ":$modulePath"
+            return parsedScope.covers(DeviationParser.FindingScope(norm, null, null))
+        }
+
+        return when (metric) {
+            "cancellationCriticalCount" ->
+                committed.runtimeSafety.cancellationCatches.count {
+                    it.risk == "critical" && matchesScope(it.module)
+                }
+            "cancellationRiskWorsening" -> null
+            "globalMutableState" ->
+                committed.runtimeSafety.globalState.count {
+                    matchesScope(it.module)
+                }
+            "nondeterminismSources" ->
+                committed.runtimeSafety.nondeterminism.count {
+                    matchesScope(it.module)
+                }
+            "constructorParameterCount" -> null // per-hotspot
+            "fileSize" -> null // per-file
+            else -> null
+        }
     }
 
     private fun verifyDocumentDrift(

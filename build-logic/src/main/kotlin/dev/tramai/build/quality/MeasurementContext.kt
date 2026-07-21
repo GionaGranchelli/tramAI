@@ -118,10 +118,18 @@ class MeasurementContext(
          * module catalog from a different root. Used during canonical generation
          * where source files come from the detached v0.5.0 worktree but the
          * authoritative catalog lives in the analyzer/PR checkout.
+         *
+         * @throws IllegalStateException if the catalog has parsing failures
          */
         fun fromDirectory(rootDir: File, catalogRoot: File): MeasurementContext {
             val catalog = ModuleCatalog(catalogRoot)
-            catalog.parse()
+            val result = catalog.parse()
+            val failedDiagnostics = result.errors.filter { it.severity == DiagnosticSeverity.FAILURE }
+            if (failedDiagnostics.isNotEmpty()) {
+                val summary = failedDiagnostics.joinToString("; ") { it.message }
+                throw IllegalStateException(
+                    "Module catalog has ${failedDiagnostics.size} error(s): $summary")
+            }
             return fromDirectory(rootDir, catalog)
         }
 

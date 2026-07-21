@@ -79,12 +79,6 @@ forbiddenEdges:
   # Cycle detection is handled programmatically in the verifier, not via YAML rules.
 
 knownAllowedEdges:
-  # Testing support — only apply to test dependency graphs
-  # (production testing-support dependencies use exact module pairs below)
-  - fromLayer: testing-support
-    toLayer: "*"
-    reason: "Testing utilities may depend on any module for test fixture creation"
-
   # Pre-existing published→internal edges — exact module pairs only
   - fromModule: ":tramai-platform"
     toModule: ":tramai-server"
