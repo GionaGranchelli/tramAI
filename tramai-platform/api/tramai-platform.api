@@ -1,0 +1,519 @@
+public final class dev/tramai/platform/ApiKeyAuthenticator {
+	public fun <init> (Ldev/tramai/platform/ApiKeyRepository;Ljava/time/Clock;Lorg/springframework/security/crypto/password/PasswordEncoder;)V
+	public final fun authenticate (Ljava/lang/String;)Ldev/tramai/platform/AuthenticatedApiKey;
+	public final fun requireScope (Ldev/tramai/platform/AuthenticatedApiKey;Ldev/tramai/platform/ApiKeyScope;)V
+}
+
+public final class dev/tramai/platform/ApiKeyRateLimiter {
+	public fun <init> (Ljava/time/Clock;Lkotlin/jvm/functions/Function0;)V
+	public synthetic fun <init> (Ljava/time/Clock;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun check (Ldev/tramai/platform/ApiKeyRecord;)Ldev/tramai/platform/RateLimitDecision;
+}
+
+public final class dev/tramai/platform/ApiKeyRecord {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;IDLjava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/time/Instant;
+	public final fun component11 ()Ljava/time/Instant;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/util/Set;
+	public final fun component7 ()I
+	public final fun component8 ()D
+	public final fun component9 ()Ljava/time/Instant;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;IDLjava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;)Ldev/tramai/platform/ApiKeyRecord;
+	public static synthetic fun copy$default (Ldev/tramai/platform/ApiKeyRecord;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;IDLjava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;ILjava/lang/Object;)Ldev/tramai/platform/ApiKeyRecord;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBurstCapacity ()I
+	public final fun getCreatedAt ()Ljava/time/Instant;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getLastUsedAt ()Ljava/time/Instant;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getPrefix ()Ljava/lang/String;
+	public final fun getProjectId ()Ljava/lang/String;
+	public final fun getRefillTokensPerSecond ()D
+	public final fun getRevokedAt ()Ljava/time/Instant;
+	public final fun getScopes ()Ljava/util/Set;
+	public final fun getTeamId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/ApiKeyRepository {
+	public fun <init> (Ljavax/sql/DataSource;)V
+	public final fun create (Ldev/tramai/platform/ApiKeyRecord;Ljava/lang/String;)Ldev/tramai/platform/ApiKeyRecord;
+	public final fun findById (Ljava/lang/String;)Ldev/tramai/platform/ApiKeyRecord;
+	public final fun list (Ljava/lang/String;Ljava/lang/String;)Ljava/util/List;
+	public final fun revoke (Ljava/lang/String;Ljava/time/Instant;)Ldev/tramai/platform/ApiKeyRecord;
+	public final fun updateLastUsed (Ljava/lang/String;Ljava/time/Instant;)V
+}
+
+public final class dev/tramai/platform/ApiKeyResponse {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;IDLjava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;IDLjava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/time/Instant;
+	public final fun component11 ()Ljava/time/Instant;
+	public final fun component12 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/util/Set;
+	public final fun component7 ()I
+	public final fun component8 ()D
+	public final fun component9 ()Ljava/time/Instant;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;IDLjava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;)Ldev/tramai/platform/ApiKeyResponse;
+	public static synthetic fun copy$default (Ldev/tramai/platform/ApiKeyResponse;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;IDLjava/time/Instant;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/platform/ApiKeyResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBurstCapacity ()I
+	public final fun getCreatedAt ()Ljava/time/Instant;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getKey ()Ljava/lang/String;
+	public final fun getLastUsedAt ()Ljava/time/Instant;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getPrefix ()Ljava/lang/String;
+	public final fun getProjectId ()Ljava/lang/String;
+	public final fun getRefillTokensPerSecond ()D
+	public final fun getRevokedAt ()Ljava/time/Instant;
+	public final fun getScopes ()Ljava/util/Set;
+	public final fun getTeamId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/ApiKeyScope : java/lang/Enum {
+	public static final field ADMIN Ldev/tramai/platform/ApiKeyScope;
+	public static final field Companion Ldev/tramai/platform/ApiKeyScope$Companion;
+	public static final field READ Ldev/tramai/platform/ApiKeyScope;
+	public static final field RUN Ldev/tramai/platform/ApiKeyScope;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public final fun grants (Ldev/tramai/platform/ApiKeyScope;)Z
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/platform/ApiKeyScope;
+	public static fun values ()[Ldev/tramai/platform/ApiKeyScope;
+}
+
+public final class dev/tramai/platform/ApiKeyScope$Companion {
+	public final fun fromWireName (Ljava/lang/String;)Ldev/tramai/platform/ApiKeyScope;
+}
+
+public final class dev/tramai/platform/ApiKeyService {
+	public static final field Companion Ldev/tramai/platform/ApiKeyService$Companion;
+	public fun <init> (Ldev/tramai/platform/TeamRepository;Ldev/tramai/platform/ProjectRepository;Ldev/tramai/platform/ApiKeyRepository;Ldev/tramai/platform/AuditLogService;Ljava/time/Clock;Lorg/springframework/security/crypto/password/PasswordEncoder;Ljava/security/SecureRandom;)V
+	public synthetic fun <init> (Ldev/tramai/platform/TeamRepository;Ldev/tramai/platform/ProjectRepository;Ldev/tramai/platform/ApiKeyRepository;Ldev/tramai/platform/AuditLogService;Ljava/time/Clock;Lorg/springframework/security/crypto/password/PasswordEncoder;Ljava/security/SecureRandom;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun create (Ldev/tramai/platform/CreateApiKeyRequest;Ljava/lang/String;)Ldev/tramai/platform/CreatedApiKey;
+	public final fun get (Ljava/lang/String;)Ldev/tramai/platform/ApiKeyRecord;
+	public final fun list (Ljava/lang/String;Ljava/lang/String;)Ljava/util/List;
+	public final fun revoke (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/platform/ApiKeyRecord;
+}
+
+public final class dev/tramai/platform/ApiKeyService$Companion {
+}
+
+public final class dev/tramai/platform/AuditLogEntry {
+	public fun <init> (JLjava/time/Instant;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)V
+	public final fun component1 ()J
+	public final fun component2 ()Ljava/time/Instant;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/util/Map;
+	public final fun copy (JLjava/time/Instant;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)Ldev/tramai/platform/AuditLogEntry;
+	public static synthetic fun copy$default (Ldev/tramai/platform/AuditLogEntry;JLjava/time/Instant;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/platform/AuditLogEntry;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAction ()Ljava/lang/String;
+	public final fun getActorId ()Ljava/lang/String;
+	public final fun getId ()J
+	public final fun getMetadata ()Ljava/util/Map;
+	public final fun getResourceId ()Ljava/lang/String;
+	public final fun getResourceType ()Ljava/lang/String;
+	public final fun getTeamId ()Ljava/lang/String;
+	public final fun getTimestamp ()Ljava/time/Instant;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/AuditLogRepository {
+	public fun <init> (Ljavax/sql/DataSource;Lcom/fasterxml/jackson/databind/ObjectMapper;)V
+	public final fun append (Ldev/tramai/platform/AuditLogEntry;)V
+	public final fun list (Ljava/lang/String;Ljava/lang/String;)Ljava/util/List;
+}
+
+public final class dev/tramai/platform/AuditLogService {
+	public fun <init> (Ldev/tramai/platform/AuditLogRepository;Ljava/time/Clock;)V
+	public final fun list (Ljava/lang/String;Ljava/lang/String;)Ljava/util/List;
+	public final fun record (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)V
+	public static synthetic fun record$default (Ldev/tramai/platform/AuditLogService;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)V
+}
+
+public final class dev/tramai/platform/AuthenticatedApiKey {
+	public fun <init> (Ldev/tramai/platform/ApiKeyRecord;)V
+	public final fun component1 ()Ldev/tramai/platform/ApiKeyRecord;
+	public final fun copy (Ldev/tramai/platform/ApiKeyRecord;)Ldev/tramai/platform/AuthenticatedApiKey;
+	public static synthetic fun copy$default (Ldev/tramai/platform/AuthenticatedApiKey;Ldev/tramai/platform/ApiKeyRecord;ILjava/lang/Object;)Ldev/tramai/platform/AuthenticatedApiKey;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActorId ()Ljava/lang/String;
+	public final fun getProjectId ()Ljava/lang/String;
+	public final fun getRecord ()Ldev/tramai/platform/ApiKeyRecord;
+	public final fun getTeamId ()Ljava/lang/String;
+	public final fun hasScope (Ldev/tramai/platform/ApiKeyScope;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/AuthenticationException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/platform/AuthorizationException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/platform/CreateApiKeyRequest {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;ID)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;IDILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/util/Set;
+	public final fun component5 ()I
+	public final fun component6 ()D
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;ID)Ldev/tramai/platform/CreateApiKeyRequest;
+	public static synthetic fun copy$default (Ldev/tramai/platform/CreateApiKeyRequest;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;IDILjava/lang/Object;)Ldev/tramai/platform/CreateApiKeyRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBurstCapacity ()I
+	public final fun getName ()Ljava/lang/String;
+	public final fun getProjectId ()Ljava/lang/String;
+	public final fun getRefillTokensPerSecond ()D
+	public final fun getScopes ()Ljava/util/Set;
+	public final fun getTeamId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/CreatedApiKey {
+	public fun <init> (Ldev/tramai/platform/ApiKeyRecord;Ljava/lang/String;)V
+	public final fun component1 ()Ldev/tramai/platform/ApiKeyRecord;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ldev/tramai/platform/ApiKeyRecord;Ljava/lang/String;)Ldev/tramai/platform/CreatedApiKey;
+	public static synthetic fun copy$default (Ldev/tramai/platform/CreatedApiKey;Ldev/tramai/platform/ApiKeyRecord;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/platform/CreatedApiKey;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKey ()Ljava/lang/String;
+	public final fun getRecord ()Ldev/tramai/platform/ApiKeyRecord;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/DashboardExtension {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/platform/DashboardExtension;
+	public static synthetic fun copy$default (Ldev/tramai/platform/DashboardExtension;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/platform/DashboardExtension;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()Ljava/lang/String;
+	public final fun getTitle ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/PlatformBadRequestException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public final class dev/tramai/platform/PlatformConfiguration {
+	public fun <init> ()V
+	public final fun apiKeyAuthenticator (Ldev/tramai/platform/ApiKeyRepository;Ljava/time/Clock;Lorg/springframework/security/crypto/password/PasswordEncoder;)Ldev/tramai/platform/ApiKeyAuthenticator;
+	public final fun apiKeyRepository (Ljavax/sql/DataSource;)Ldev/tramai/platform/ApiKeyRepository;
+	public final fun apiKeyService (Ldev/tramai/platform/TeamRepository;Ldev/tramai/platform/ProjectRepository;Ldev/tramai/platform/ApiKeyRepository;Ldev/tramai/platform/AuditLogService;Ljava/time/Clock;Lorg/springframework/security/crypto/password/PasswordEncoder;)Ldev/tramai/platform/ApiKeyService;
+	public final fun auditLogRepository (Ljavax/sql/DataSource;Lcom/fasterxml/jackson/databind/ObjectMapper;)Ldev/tramai/platform/AuditLogRepository;
+	public final fun auditLogService (Ldev/tramai/platform/AuditLogRepository;Ljava/time/Clock;)Ldev/tramai/platform/AuditLogService;
+	public final fun clock ()Ljava/time/Clock;
+	public final fun externalStepExecutorRegistry ()Ldev/tramai/orchestration/ExternalStepExecutorRegistry;
+	public final fun passwordEncoder ()Lorg/springframework/security/crypto/password/PasswordEncoder;
+	public final fun pluginDiscoveryRunner (Ldev/tramai/platform/PluginManager;Ldev/tramai/platform/PluginWorkflowStartupValidator;)Lorg/springframework/boot/ApplicationRunner;
+	public final fun pluginManager (Ldev/tramai/platform/PluginStateRepository;Ldev/tramai/orchestration/ExternalStepExecutorRegistry;Ldev/tramai/platform/WebhookAdapterRegistry;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/platform/PluginManager;
+	public final fun pluginStateRepository (Ljavax/sql/DataSource;)Ldev/tramai/platform/PluginStateRepository;
+	public final fun pluginWorkflowStartupValidator (Ldev/tramai/server/WorkflowRegistry;Ldev/tramai/orchestration/ExternalStepExecutorRegistry;)Ldev/tramai/platform/PluginWorkflowStartupValidator;
+	public final fun projectRepository (Ljavax/sql/DataSource;)Ldev/tramai/platform/ProjectRepository;
+	public final fun rateLimiter (Ljava/time/Clock;)Ldev/tramai/platform/ApiKeyRateLimiter;
+	public final fun teamProjectRegistry (Ldev/tramai/platform/TeamRepository;Ldev/tramai/platform/ProjectRepository;)Ldev/tramai/platform/TeamProjectRegistry;
+	public final fun teamRepository (Ljavax/sql/DataSource;)Ldev/tramai/platform/TeamRepository;
+	public final fun tenantWorkflowRunStores ()Ldev/tramai/platform/TenantWorkflowRunStores;
+	public final fun webhookAdapterRegistry ()Ldev/tramai/platform/WebhookAdapterRegistry;
+	public final fun webhookConfigService (Ldev/tramai/platform/TeamProjectRegistry;)Ldev/tramai/platform/WebhookConfigService;
+	public final fun workflowExecutionScope ()Lkotlinx/coroutines/CoroutineScope;
+	public final fun workflowRegistry (Ljava/util/List;Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/server/WorkflowRegistry;
+	public final fun workflowService (Ldev/tramai/server/WorkflowRegistry;Ldev/tramai/platform/TenantWorkflowRunStores;Ldev/tramai/platform/AuditLogService;Lkotlinx/coroutines/CoroutineScope;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/platform/TeamProjectRegistry;Ldev/tramai/platform/WebhookAdapterRegistry;)Ldev/tramai/platform/PlatformWorkflowService;
+}
+
+public final class dev/tramai/platform/PlatformController {
+	public fun <init> (Ldev/tramai/platform/PlatformWorkflowService;Ldev/tramai/platform/ApiKeyService;Ldev/tramai/platform/ApiKeyAuthenticator;Ldev/tramai/platform/ApiKeyRateLimiter;Ldev/tramai/platform/PluginManager;Ldev/tramai/platform/AuditLogService;Ldev/tramai/platform/WebhookConfigService;)V
+	public final fun auditLog (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/util/List;
+	public final fun createApiKey (Ldev/tramai/platform/CreateApiKeyRequest;Ljava/lang/String;)Ldev/tramai/platform/ApiKeyResponse;
+	public final fun disablePlugin (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/platform/PluginView;
+	public final fun enablePlugin (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/platform/PluginView;
+	public final fun getRun (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunDetail;
+	public final fun installPlugin (Ldev/tramai/platform/PluginInstallRequest;Ljava/lang/String;)Ljava/util/List;
+	public final fun listApiKeys (Ljava/lang/String;)Ljava/util/List;
+	public final fun listRuns (Ljava/lang/String;Ljava/lang/String;II)Ldev/tramai/server/WorkflowRunPage;
+	public final fun plugins (Ljava/lang/String;)Ljava/util/List;
+	public final fun receiveWebhook (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)Lorg/springframework/http/ResponseEntity;
+	public final fun registerWebhook (Ldev/tramai/platform/RegisterWebhookConfigRequest;Ljava/lang/String;)Ldev/tramai/platform/WebhookConfig;
+	public final fun revokeApiKey (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/platform/ApiKeyResponse;
+	public final fun runWorkflow (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lorg/springframework/http/ResponseEntity;
+}
+
+public final class dev/tramai/platform/PlatformErrorHandler {
+	public fun <init> ()V
+	public final fun badRequest (Ljava/lang/RuntimeException;)Lorg/springframework/http/ResponseEntity;
+	public final fun forbidden (Ldev/tramai/platform/AuthorizationException;)Lorg/springframework/http/ResponseEntity;
+	public final fun pluginNotFound (Ldev/tramai/platform/PluginNotFoundException;)Lorg/springframework/http/ResponseEntity;
+	public final fun rateLimited (Ldev/tramai/platform/RateLimitExceededException;)Lorg/springframework/http/ResponseEntity;
+	public final fun unauthorized (Ldev/tramai/platform/AuthenticationException;)Lorg/springframework/http/ResponseEntity;
+	public final fun unexpected (Ljava/lang/Throwable;)Lorg/springframework/http/ResponseEntity;
+	public final fun webhookNotFound (Ldev/tramai/platform/WebhookConfigurationNotFoundException;)Lorg/springframework/http/ResponseEntity;
+}
+
+public final class dev/tramai/platform/PlatformWorkflowService {
+	public fun <init> (Ldev/tramai/server/WorkflowRegistry;Ldev/tramai/platform/TenantWorkflowRunStores;Ldev/tramai/platform/AuditLogService;Lkotlinx/coroutines/CoroutineScope;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/platform/TeamProjectRegistry;Ldev/tramai/platform/WebhookAdapterRegistry;)V
+	public final fun getRun (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunDetail;
+	public final fun listRuns (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;II)Ldev/tramai/server/WorkflowRunPage;
+	public final fun runWebhook (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunResponse;
+	public final fun runWorkflow (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunResponse;
+}
+
+public final class dev/tramai/platform/PluginInstallRequest {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/platform/PluginInstallRequest;
+	public static synthetic fun copy$default (Ldev/tramai/platform/PluginInstallRequest;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/platform/PluginInstallRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getJarPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/PluginManager {
+	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/platform/PluginStateRepository;Ldev/tramai/orchestration/ExternalStepExecutorRegistry;Ldev/tramai/platform/WebhookAdapterRegistry;Ljava/nio/file/Path;)V
+	public synthetic fun <init> (Ljava/nio/file/Path;Ldev/tramai/platform/PluginStateRepository;Ldev/tramai/orchestration/ExternalStepExecutorRegistry;Ldev/tramai/platform/WebhookAdapterRegistry;Ljava/nio/file/Path;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun disable (Ljava/lang/String;)Ldev/tramai/platform/PluginView;
+	public final fun enable (Ljava/lang/String;)Ldev/tramai/platform/PluginView;
+	public final fun install (Ljava/lang/String;)Ljava/util/List;
+	public final fun list ()Ljava/util/List;
+	public final fun refresh ()V
+}
+
+public final class dev/tramai/platform/PluginNotFoundException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/platform/PluginStateRepository {
+	public fun <init> (Ljavax/sql/DataSource;)V
+	public final fun setEnabled (Ljava/lang/String;Z)V
+}
+
+public final class dev/tramai/platform/PluginStatus : java/lang/Enum {
+	public static final field DISABLED Ldev/tramai/platform/PluginStatus;
+	public static final field ENABLED Ldev/tramai/platform/PluginStatus;
+	public static final field ERROR Ldev/tramai/platform/PluginStatus;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public final fun toJson ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/platform/PluginStatus;
+	public static fun values ()[Ldev/tramai/platform/PluginStatus;
+}
+
+public final class dev/tramai/platform/PluginView {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/platform/PluginStatus;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/List;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ldev/tramai/platform/PluginStatus;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/util/List;
+	public final fun component7 ()Ljava/util/List;
+	public final fun component8 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/platform/PluginStatus;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/List;)Ldev/tramai/platform/PluginView;
+	public static synthetic fun copy$default (Ldev/tramai/platform/PluginView;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/platform/PluginStatus;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/platform/PluginView;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDashboardExtensions ()Ljava/util/List;
+	public final fun getError ()Ljava/lang/String;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getJarPath ()Ljava/lang/String;
+	public final fun getStatus ()Ldev/tramai/platform/PluginStatus;
+	public final fun getStepTypes ()Ljava/util/List;
+	public final fun getVersion ()Ljava/lang/String;
+	public final fun getWebhookSources ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/PluginWorkflowStartupValidationException : java/lang/IllegalStateException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/platform/PluginWorkflowStartupValidator {
+	public fun <init> (Ldev/tramai/server/WorkflowRegistry;Ldev/tramai/orchestration/ExternalStepExecutorResolver;)V
+	public final fun validate ()V
+}
+
+public final class dev/tramai/platform/Project {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/platform/Project;
+	public static synthetic fun copy$default (Ldev/tramai/platform/Project;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/platform/Project;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getTeamId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/ProjectRepository {
+	public fun <init> (Ljavax/sql/DataSource;)V
+	public final fun create (Ldev/tramai/platform/Project;)Ldev/tramai/platform/Project;
+	public final fun exists (Ljava/lang/String;Ljava/lang/String;)Z
+}
+
+public final class dev/tramai/platform/RateLimitDecision {
+	public fun <init> (ZIIJJ)V
+	public final fun component1 ()Z
+	public final fun component2 ()I
+	public final fun component3 ()I
+	public final fun component4 ()J
+	public final fun component5 ()J
+	public final fun copy (ZIIJJ)Ldev/tramai/platform/RateLimitDecision;
+	public static synthetic fun copy$default (Ldev/tramai/platform/RateLimitDecision;ZIIJJILjava/lang/Object;)Ldev/tramai/platform/RateLimitDecision;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowed ()Z
+	public final fun getLimit ()I
+	public final fun getRemaining ()I
+	public final fun getResetAtEpochSeconds ()J
+	public final fun getRetryAfterSeconds ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/RateLimitExceededException : java/lang/RuntimeException {
+	public fun <init> (Ldev/tramai/platform/RateLimitDecision;)V
+	public final fun getDecision ()Ldev/tramai/platform/RateLimitDecision;
+}
+
+public final class dev/tramai/platform/RegisterWebhookConfigRequest {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/platform/RegisterWebhookConfigRequest;
+	public static synthetic fun copy$default (Ldev/tramai/platform/RegisterWebhookConfigRequest;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/platform/RegisterWebhookConfigRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getName ()Ljava/lang/String;
+	public final fun getProjectId ()Ljava/lang/String;
+	public final fun getSource ()Ljava/lang/String;
+	public final fun getTeamId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/Team {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/platform/Team;
+	public static synthetic fun copy$default (Ldev/tramai/platform/Team;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/platform/Team;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/TeamProjectRegistry {
+	public fun <init> (Ldev/tramai/platform/TeamRepository;Ldev/tramai/platform/ProjectRepository;)V
+	public final fun requireProject (Ljava/lang/String;Ljava/lang/String;)V
+}
+
+public final class dev/tramai/platform/TeamRepository {
+	public fun <init> (Ljavax/sql/DataSource;)V
+	public final fun create (Ldev/tramai/platform/Team;)Ldev/tramai/platform/Team;
+	public final fun exists (Ljava/lang/String;)Z
+}
+
+public final class dev/tramai/platform/TenantWorkflowRunStores {
+	public fun <init> ()V
+	public final fun get (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunStore;
+}
+
+public final class dev/tramai/platform/TramaiPlatformApplication {
+	public fun <init> ()V
+}
+
+public final class dev/tramai/platform/TramaiPlatformApplicationKt {
+	public static final fun main ([Ljava/lang/String;)V
+}
+
+public abstract interface class dev/tramai/platform/TramaiPlugin {
+	public abstract fun dashboardExtensions ()Ljava/util/List;
+	public abstract fun getId ()Ljava/lang/String;
+	public abstract fun getVersion ()Ljava/lang/String;
+	public abstract fun stepExecutors ()Ljava/util/List;
+	public abstract fun webhookAdapters ()Ljava/util/List;
+}
+
+public abstract interface class dev/tramai/platform/WebhookAdapter {
+	public abstract fun adapt (Ljava/lang/String;Ljava/util/Map;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/platform/WebhookAdapterFactory {
+	public abstract fun create ()Ldev/tramai/platform/WebhookAdapter;
+	public abstract fun getSourceId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/WebhookAdapterNotRegisteredException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/platform/WebhookAdapterRegistry {
+	public fun <init> ()V
+	public final fun create (Ljava/lang/String;)Ldev/tramai/platform/WebhookAdapter;
+	public final fun replaceAll (Ljava/util/Collection;)V
+}
+
+public final class dev/tramai/platform/WebhookConfig {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/platform/WebhookConfig;
+	public static synthetic fun copy$default (Ldev/tramai/platform/WebhookConfig;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/platform/WebhookConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getName ()Ljava/lang/String;
+	public final fun getProjectId ()Ljava/lang/String;
+	public final fun getSource ()Ljava/lang/String;
+	public final fun getTeamId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/platform/WebhookConfigService {
+	public fun <init> (Ldev/tramai/platform/TeamProjectRegistry;)V
+	public final fun get (Ljava/lang/String;)Ldev/tramai/platform/WebhookConfig;
+	public final fun register (Ldev/tramai/platform/RegisterWebhookConfigRequest;)Ldev/tramai/platform/WebhookConfig;
+}
+
+public final class dev/tramai/platform/WebhookConfigurationNotFoundException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+

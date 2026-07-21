@@ -1,0 +1,572 @@
+public final class dev/tramai/engine/CacheSecurityPartition {
+	public fun <init> (Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;)V
+	public final fun component1 ()Ldev/tramai/core/policy/DataClassification;
+	public final fun component2 ()Ldev/tramai/core/policy/ClassificationSource;
+	public final fun copy (Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;)Ldev/tramai/engine/CacheSecurityPartition;
+	public static synthetic fun copy$default (Ldev/tramai/engine/CacheSecurityPartition;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;ILjava/lang/Object;)Ldev/tramai/engine/CacheSecurityPartition;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getClassificationSource ()Ldev/tramai/core/policy/ClassificationSource;
+	public final fun getDataClassification ()Ldev/tramai/core/policy/DataClassification;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/CachedOperationResult {
+	public fun <init> (Ljava/lang/Object;Ldev/tramai/engine/CachedResponseProvenance;)V
+	public final fun component1 ()Ljava/lang/Object;
+	public final fun component2 ()Ldev/tramai/engine/CachedResponseProvenance;
+	public final fun copy (Ljava/lang/Object;Ldev/tramai/engine/CachedResponseProvenance;)Ldev/tramai/engine/CachedOperationResult;
+	public static synthetic fun copy$default (Ldev/tramai/engine/CachedOperationResult;Ljava/lang/Object;Ldev/tramai/engine/CachedResponseProvenance;ILjava/lang/Object;)Ldev/tramai/engine/CachedOperationResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getProvenance ()Ldev/tramai/engine/CachedResponseProvenance;
+	public final fun getValue ()Ljava/lang/Object;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/CachedResponseProvenance {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ldev/tramai/core/policy/DataClassification;
+	public final fun component4 ()Ldev/tramai/core/policy/ClassificationSource;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7-LClW5tk ()Ljava/lang/String;
+	public final fun copy-JS1NGDI (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/engine/CachedResponseProvenance;
+	public static synthetic fun copy-JS1NGDI$default (Ldev/tramai/engine/CachedResponseProvenance;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/engine/CachedResponseProvenance;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getClassificationSource ()Ldev/tramai/core/policy/ClassificationSource;
+	public final fun getDataClassification ()Ldev/tramai/core/policy/DataClassification;
+	public final fun getModelArtifactDigest-LClW5tk ()Ljava/lang/String;
+	public final fun getModelName ()Ljava/lang/String;
+	public final fun getModelRegistryEntryId ()Ljava/lang/String;
+	public final fun getModelRevision ()Ljava/lang/String;
+	public final fun getProviderId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/CircuitBreakerSettings {
+	public fun <init> ()V
+	public fun <init> (ZIJ)V
+	public synthetic fun <init> (ZIJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()I
+	public final fun component3 ()J
+	public final fun copy (ZIJ)Ldev/tramai/engine/CircuitBreakerSettings;
+	public static synthetic fun copy$default (Ldev/tramai/engine/CircuitBreakerSettings;ZIJILjava/lang/Object;)Ldev/tramai/engine/CircuitBreakerSettings;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEnabled ()Z
+	public final fun getFailureThreshold ()I
+	public final fun getOpenDurationMillis ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/engine/EngineEventObserver {
+	public abstract fun onEngineEvent (Ljava/lang/String;Ljava/util/Map;)V
+}
+
+public final class dev/tramai/engine/EngineExecutionIdentity {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3-2AhqMsM ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun copy-LJPQ52o (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/engine/EngineExecutionIdentity;
+	public static synthetic fun copy-LJPQ52o$default (Ldev/tramai/engine/EngineExecutionIdentity;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/engine/EngineExecutionIdentity;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActorId ()Ljava/lang/String;
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getWorkflowDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/ExecutionSecurityContext {
+	public static final field Companion Ldev/tramai/engine/ExecutionSecurityContext$Companion;
+	public fun <init> ()V
+	public fun <init> (Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;)V
+	public synthetic fun <init> (Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/core/policy/DataClassification;
+	public final fun component2 ()Ldev/tramai/core/policy/ClassificationSource;
+	public final fun copy (Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;)Ldev/tramai/engine/ExecutionSecurityContext;
+	public static synthetic fun copy$default (Ldev/tramai/engine/ExecutionSecurityContext;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;ILjava/lang/Object;)Ldev/tramai/engine/ExecutionSecurityContext;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getClassificationSource ()Ldev/tramai/core/policy/ClassificationSource;
+	public final fun getDataClassification ()Ldev/tramai/core/policy/DataClassification;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/ExecutionSecurityContext$Companion {
+	public final fun fromArguments ([Ljava/lang/Object;)Ldev/tramai/engine/ExecutionSecurityContext;
+}
+
+public final class dev/tramai/engine/InMemoryOperationResponseCache : dev/tramai/engine/OperationResponseCache {
+	public fun <init> ()V
+	public fun <init> (ILkotlin/jvm/functions/Function0;)V
+	public synthetic fun <init> (ILkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun get (Ldev/tramai/engine/OperationCacheKey;)Ldev/tramai/engine/CachedOperationResult;
+	public fun invalidate (Ldev/tramai/engine/OperationCacheKey;)V
+	public fun put (Ldev/tramai/engine/OperationCacheKey;Ldev/tramai/engine/CachedOperationResult;J)V
+}
+
+public final class dev/tramai/engine/InMemorySuspendedInvocationStoreKt {
+	public static final fun inMemorySuspendedInvocationStore ()Ldev/tramai/engine/SuspendedInvocationStore;
+}
+
+public final class dev/tramai/engine/LegacyPermissivePolicyEngine : dev/tramai/core/policy/PolicyEngine {
+	public static final field INSTANCE Ldev/tramai/engine/LegacyPermissivePolicyEngine;
+	public fun evaluate (Ldev/tramai/core/policy/PolicyContext;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/engine/NoOpEngineEventObserver : dev/tramai/engine/EngineEventObserver {
+	public static final field INSTANCE Ldev/tramai/engine/NoOpEngineEventObserver;
+	public fun onEngineEvent (Ljava/lang/String;Ljava/util/Map;)V
+}
+
+public final class dev/tramai/engine/NoOpOperationResponseCache : dev/tramai/engine/OperationResponseCache {
+	public static final field INSTANCE Ldev/tramai/engine/NoOpOperationResponseCache;
+	public fun get (Ldev/tramai/engine/OperationCacheKey;)Ldev/tramai/engine/CachedOperationResult;
+	public fun invalidate (Ldev/tramai/engine/OperationCacheKey;)V
+	public fun put (Ldev/tramai/engine/OperationCacheKey;Ldev/tramai/engine/CachedOperationResult;J)V
+}
+
+public final class dev/tramai/engine/OperationCacheKey {
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/engine/CacheSecurityPartition;)V
+	public synthetic fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/engine/CacheSecurityPartition;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ldev/tramai/engine/CacheSecurityPartition;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/engine/CacheSecurityPartition;)Ldev/tramai/engine/OperationCacheKey;
+	public static synthetic fun copy$default (Ldev/tramai/engine/OperationCacheKey;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/engine/CacheSecurityPartition;ILjava/lang/Object;)Ldev/tramai/engine/OperationCacheKey;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getExplicitProvider ()Ljava/lang/String;
+	public final fun getMethodName ()Ljava/lang/String;
+	public final fun getOperationFingerprint ()Ljava/lang/String;
+	public final fun getRequestDigest ()Ljava/lang/String;
+	public final fun getRequestedModel ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public final fun getSecurityPartition ()Ldev/tramai/engine/CacheSecurityPartition;
+	public final fun getServiceInterface ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/OperationDefinition {
+	public static final field Companion Ldev/tramai/engine/OperationDefinition$Companion;
+	public fun <init> (Ljava/lang/reflect/Method;Ldev/tramai/core/annotations/Operation;Ljava/lang/String;Ljava/util/List;Ljava/util/List;ZLjava/util/List;Ldev/tramai/engine/ReturnKind;Lkotlin/reflect/KType;Ljava/lang/String;Ljava/util/List;Ldev/tramai/core/security/PromptSanitizer;)V
+	public final fun cacheKey (Ljava/util/List;Ljava/lang/String;)Ldev/tramai/engine/OperationCacheKey;
+	public static synthetic fun cacheKey$default (Ldev/tramai/engine/OperationDefinition;Ljava/util/List;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/engine/OperationCacheKey;
+	public final fun component1 ()Ljava/lang/reflect/Method;
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component11 ()Ljava/util/List;
+	public final fun component12 ()Ldev/tramai/core/security/PromptSanitizer;
+	public final fun component2 ()Ldev/tramai/core/annotations/Operation;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/util/List;
+	public final fun component5 ()Ljava/util/List;
+	public final fun component6 ()Z
+	public final fun component7 ()Ljava/util/List;
+	public final fun component8 ()Ldev/tramai/engine/ReturnKind;
+	public final fun component9 ()Lkotlin/reflect/KType;
+	public final fun copy (Ljava/lang/reflect/Method;Ldev/tramai/core/annotations/Operation;Ljava/lang/String;Ljava/util/List;Ljava/util/List;ZLjava/util/List;Ldev/tramai/engine/ReturnKind;Lkotlin/reflect/KType;Ljava/lang/String;Ljava/util/List;Ldev/tramai/core/security/PromptSanitizer;)Ldev/tramai/engine/OperationDefinition;
+	public static synthetic fun copy$default (Ldev/tramai/engine/OperationDefinition;Ljava/lang/reflect/Method;Ldev/tramai/core/annotations/Operation;Ljava/lang/String;Ljava/util/List;Ljava/util/List;ZLjava/util/List;Ldev/tramai/engine/ReturnKind;Lkotlin/reflect/KType;Ljava/lang/String;Ljava/util/List;Ldev/tramai/core/security/PromptSanitizer;ILjava/lang/Object;)Ldev/tramai/engine/OperationDefinition;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getClassLevelSystemPrompt ()Ljava/lang/String;
+	public final fun getEffectiveSystemMessage ()Ljava/lang/String;
+	public final fun getHasMultiMessageAnnotations ()Z
+	public final fun getMethod ()Ljava/lang/reflect/Method;
+	public final fun getOperation ()Ldev/tramai/core/annotations/Operation;
+	public final fun getParameterNames ()Ljava/util/List;
+	public final fun getPromptSanitizer ()Ldev/tramai/core/security/PromptSanitizer;
+	public final fun getReturnKind ()Ldev/tramai/engine/ReturnKind;
+	public final fun getReturnType ()Lkotlin/reflect/KType;
+	public final fun getReturnTypeDescription ()Ljava/lang/String;
+	public final fun getSystemAnnotations ()Ljava/util/List;
+	public final fun getToolDefinitions ()Ljava/util/List;
+	public final fun getUserAnnotations ()Ljava/util/List;
+	public fun hashCode ()I
+	public final fun initialMessages (Ljava/util/List;Ljava/lang/String;)Ljava/util/List;
+	public static synthetic fun initialMessages$default (Ldev/tramai/engine/OperationDefinition;Ljava/util/List;Ljava/lang/String;ILjava/lang/Object;)Ljava/util/List;
+	public final fun isOperationCacheEligible ()Z
+	public final fun isSuspend ()Z
+	public final fun structuredContract (Ldev/tramai/core/structured/StructuredOutputHandler;)Ldev/tramai/core/structured/StructuredOutputContract;
+	public final fun toRequest (Ljava/util/List;Ljava/lang/String;)Ldev/tramai/core/model/ModelRequest;
+	public static synthetic fun toRequest$default (Ldev/tramai/engine/OperationDefinition;Ljava/util/List;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/model/ModelRequest;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/OperationDefinition$Companion {
+	public final fun create (Ljava/lang/reflect/Method;Ldev/tramai/core/annotations/Operation;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ldev/tramai/core/security/PromptSanitizer;)Ldev/tramai/engine/OperationDefinition;
+	public static synthetic fun create$default (Ldev/tramai/engine/OperationDefinition$Companion;Ljava/lang/reflect/Method;Ldev/tramai/core/annotations/Operation;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/List;Ldev/tramai/core/security/PromptSanitizer;ILjava/lang/Object;)Ldev/tramai/engine/OperationDefinition;
+}
+
+public abstract interface class dev/tramai/engine/OperationResponseCache {
+	public abstract fun get (Ldev/tramai/engine/OperationCacheKey;)Ldev/tramai/engine/CachedOperationResult;
+	public fun invalidate (Ldev/tramai/engine/OperationCacheKey;)V
+	public abstract fun put (Ldev/tramai/engine/OperationCacheKey;Ldev/tramai/engine/CachedOperationResult;J)V
+}
+
+public final class dev/tramai/engine/OperationResponseCache$DefaultImpls {
+	public static fun invalidate (Ldev/tramai/engine/OperationResponseCache;Ldev/tramai/engine/OperationCacheKey;)V
+}
+
+public final class dev/tramai/engine/RehydratedReplayPayload {
+	public fun <init> (Ljava/util/List;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun copy (Ljava/util/List;)Ldev/tramai/engine/RehydratedReplayPayload;
+	public static synthetic fun copy$default (Ldev/tramai/engine/RehydratedReplayPayload;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/engine/RehydratedReplayPayload;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessages ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/ReplayEnvelopeDigestHelper {
+	public static final field INSTANCE Ldev/tramai/engine/ReplayEnvelopeDigestHelper;
+	public final fun compute-UgpqcuM (Ldev/tramai/engine/ResumeOperationReference;Ljava/util/List;)Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/ReplayPayload {
+	public fun <init> (Ljava/util/List;)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun copy (Ljava/util/List;)Ldev/tramai/engine/ReplayPayload;
+	public static synthetic fun copy$default (Ldev/tramai/engine/ReplayPayload;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/engine/ReplayPayload;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessages ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/ResumeApprovalCommand {
+	public synthetic fun <init> (Ljava/lang/String;JJLjava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()J
+	public final fun component3 ()J
+	public final fun component4-1ALkydY ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun copy-HWnbMaQ (Ljava/lang/String;JJLjava/lang/String;Ljava/lang/String;)Ldev/tramai/engine/ResumeApprovalCommand;
+	public static synthetic fun copy-HWnbMaQ$default (Ldev/tramai/engine/ResumeApprovalCommand;Ljava/lang/String;JJLjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/engine/ResumeApprovalCommand;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalExpectedVersion ()J
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getContinuationExpectedVersion ()J
+	public final fun getPresentedToken-1ALkydY ()Ljava/lang/String;
+	public final fun getResumedBy ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/ResumeContext {
+	public fun <init> (Ldev/tramai/engine/OperationDefinition;Ldev/tramai/core/model/ResolvedTool;Ljava/util/List;Ldev/tramai/core/model/ToolCall;)V
+	public final fun component1 ()Ldev/tramai/engine/OperationDefinition;
+	public final fun component2 ()Ldev/tramai/core/model/ResolvedTool;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()Ldev/tramai/core/model/ToolCall;
+	public final fun copy (Ldev/tramai/engine/OperationDefinition;Ldev/tramai/core/model/ResolvedTool;Ljava/util/List;Ldev/tramai/core/model/ToolCall;)Ldev/tramai/engine/ResumeContext;
+	public static synthetic fun copy$default (Ldev/tramai/engine/ResumeContext;Ldev/tramai/engine/OperationDefinition;Ldev/tramai/core/model/ResolvedTool;Ljava/util/List;Ldev/tramai/core/model/ToolCall;ILjava/lang/Object;)Ldev/tramai/engine/ResumeContext;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessages ()Ljava/util/List;
+	public final fun getOperation ()Ldev/tramai/engine/OperationDefinition;
+	public final fun getTool ()Ldev/tramai/core/model/ResolvedTool;
+	public final fun getToolCall ()Ldev/tramai/core/model/ToolCall;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/ResumeOperationReference {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4-2AhqMsM ()Ljava/lang/String;
+	public final fun copy-X36BO5A (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/engine/ResumeOperationReference;
+	public static synthetic fun copy-X36BO5A$default (Ldev/tramai/engine/ResumeOperationReference;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/engine/ResumeOperationReference;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getJvmMethodDescriptor ()Ljava/lang/String;
+	public final fun getMethodName ()Ljava/lang/String;
+	public final fun getResumeDefinitionDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getServiceInterface ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/ResumeToolReference {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2-2AhqMsM ()Ljava/lang/String;
+	public final fun copy-icv7IYE (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/engine/ResumeToolReference;
+	public static synthetic fun copy-icv7IYE$default (Ldev/tramai/engine/ResumeToolReference;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/engine/ResumeToolReference;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDeclarationDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getToolName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/RetryPolicySettings {
+	public fun <init> ()V
+	public fun <init> (JD)V
+	public synthetic fun <init> (JDILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()D
+	public final fun copy (JD)Ldev/tramai/engine/RetryPolicySettings;
+	public static synthetic fun copy$default (Ldev/tramai/engine/RetryPolicySettings;JDILjava/lang/Object;)Ldev/tramai/engine/RetryPolicySettings;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getJitterRatio ()D
+	public final fun getMaxRetryAfterMillis ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/ReturnKind : java/lang/Enum {
+	public static final field STREAMING Ldev/tramai/engine/ReturnKind;
+	public static final field STRING Ldev/tramai/engine/ReturnKind;
+	public static final field STRUCTURED Ldev/tramai/engine/ReturnKind;
+	public static final field UNIT Ldev/tramai/engine/ReturnKind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/engine/ReturnKind;
+	public static fun values ()[Ldev/tramai/engine/ReturnKind;
+}
+
+public final class dev/tramai/engine/SensitiveReplayEnvelope {
+	public static final field Companion Ldev/tramai/engine/SensitiveReplayEnvelope$Companion;
+	public synthetic fun <init> (Ljava/util/List;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public final fun revealForResume ()Ldev/tramai/engine/ReplayPayload;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/SensitiveReplayEnvelope$Companion {
+	public final fun of (Ljava/util/List;)Ldev/tramai/engine/SensitiveReplayEnvelope;
+}
+
+public final class dev/tramai/engine/SensitiveResumeContext {
+	public static final field Companion Ldev/tramai/engine/SensitiveResumeContext$Companion;
+	public synthetic fun <init> (Ldev/tramai/engine/OperationDefinition;Ldev/tramai/core/model/ResolvedTool;Ljava/util/List;Ldev/tramai/core/model/ToolCall;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public final fun revealForResume ()Ldev/tramai/engine/ResumeContext;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/SensitiveResumeContext$Companion {
+	public final fun of (Ldev/tramai/engine/OperationDefinition;Ldev/tramai/core/model/ResolvedTool;Ljava/util/List;Ldev/tramai/core/model/ToolCall;)Ldev/tramai/engine/SensitiveResumeContext;
+}
+
+public final class dev/tramai/engine/SuspendedInvocationMetadata {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ldev/tramai/engine/EngineExecutionIdentity;Ldev/tramai/engine/ExecutionSecurityContext;Ldev/tramai/engine/ResumeOperationReference;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/engine/TokenBudgetSnapshot;Ldev/tramai/engine/ResumeToolReference;Ldev/tramai/core/policy/ToolSecurityMetadata;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ldev/tramai/engine/EngineExecutionIdentity;Ldev/tramai/engine/ExecutionSecurityContext;Ldev/tramai/engine/ResumeOperationReference;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/engine/TokenBudgetSnapshot;Ldev/tramai/engine/ResumeToolReference;Ldev/tramai/core/policy/ToolSecurityMetadata;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component11 ()I
+	public final fun component12 ()Ldev/tramai/engine/TokenBudgetSnapshot;
+	public final fun component13 ()Ldev/tramai/engine/ResumeToolReference;
+	public final fun component14 ()Ldev/tramai/core/policy/ToolSecurityMetadata;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()I
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ldev/tramai/engine/EngineExecutionIdentity;
+	public final fun component7 ()Ldev/tramai/engine/ExecutionSecurityContext;
+	public final fun component8 ()Ldev/tramai/engine/ResumeOperationReference;
+	public final fun component9-2AhqMsM ()Ljava/lang/String;
+	public final fun copy-UEmLfPM (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ldev/tramai/engine/EngineExecutionIdentity;Ldev/tramai/engine/ExecutionSecurityContext;Ldev/tramai/engine/ResumeOperationReference;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/engine/TokenBudgetSnapshot;Ldev/tramai/engine/ResumeToolReference;Ldev/tramai/core/policy/ToolSecurityMetadata;)Ldev/tramai/engine/SuspendedInvocationMetadata;
+	public static synthetic fun copy-UEmLfPM$default (Ldev/tramai/engine/SuspendedInvocationMetadata;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ldev/tramai/engine/EngineExecutionIdentity;Ldev/tramai/engine/ExecutionSecurityContext;Ldev/tramai/engine/ResumeOperationReference;Ljava/lang/String;Ljava/lang/String;ILdev/tramai/engine/TokenBudgetSnapshot;Ldev/tramai/engine/ResumeToolReference;Ldev/tramai/core/policy/ToolSecurityMetadata;ILjava/lang/Object;)Ldev/tramai/engine/SuspendedInvocationMetadata;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getConversationId ()Ljava/lang/String;
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getHistorySize ()I
+	public final fun getIdentity ()Ldev/tramai/engine/EngineExecutionIdentity;
+	public final fun getOperationReference ()Ldev/tramai/engine/ResumeOperationReference;
+	public final fun getReplayEnvelopeDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getSecurityContext ()Ldev/tramai/engine/ExecutionSecurityContext;
+	public final fun getTokenBudgetSnapshot ()Ldev/tramai/engine/TokenBudgetSnapshot;
+	public final fun getToolCallId ()Ljava/lang/String;
+	public final fun getToolCallIndex ()I
+	public final fun getToolName ()Ljava/lang/String;
+	public final fun getToolReference ()Ldev/tramai/engine/ResumeToolReference;
+	public final fun getToolSecurity ()Ldev/tramai/core/policy/ToolSecurityMetadata;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/engine/SuspendedInvocationStore {
+	public abstract fun create (Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/engine/SensitiveReplayEnvelope;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun remove (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun revealReplayEnvelope (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun revealSensitiveContext (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun revealSensitiveContext$suspendImpl (Ldev/tramai/engine/SuspendedInvocationStore;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/engine/SuspendedInvocationStore$DefaultImpls {
+	public static fun revealSensitiveContext (Ldev/tramai/engine/SuspendedInvocationStore;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/engine/TokenBudgetSettings {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)V
+	public synthetic fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Long;
+	public final fun component2 ()Ljava/lang/Long;
+	public final fun component3 ()Ljava/lang/Long;
+	public final fun copy (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)Ldev/tramai/engine/TokenBudgetSettings;
+	public static synthetic fun copy$default (Ldev/tramai/engine/TokenBudgetSettings;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;ILjava/lang/Object;)Ldev/tramai/engine/TokenBudgetSettings;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getHardMaxTokensPerAttempt ()Ljava/lang/Long;
+	public final fun getHardMaxTokensPerOperation ()Ljava/lang/Long;
+	public final fun getSoftMaxTokensPerOperation ()Ljava/lang/Long;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/TokenBudgetSnapshot {
+	public fun <init> (JJDDZ)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun component3 ()D
+	public final fun component4 ()D
+	public final fun component5 ()Z
+	public final fun copy (JJDDZ)Ldev/tramai/engine/TokenBudgetSnapshot;
+	public static synthetic fun copy$default (Ldev/tramai/engine/TokenBudgetSnapshot;JJDDZILjava/lang/Object;)Ldev/tramai/engine/TokenBudgetSnapshot;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getTotalInputCost ()D
+	public final fun getTotalInputTokens ()J
+	public final fun getTotalOutputCost ()D
+	public final fun getTotalOutputTokens ()J
+	public final fun getWarnIfExceeded ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/ToolRegistry {
+	public static final field Companion Ldev/tramai/engine/ToolRegistry$Companion;
+	public static final field MAX_TOOL_NAME_LENGTH I
+	public fun <init> ()V
+	public fun <init> (Ljava/util/Map;)V
+	public synthetic fun <init> (Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun registeredToolNames ()Ljava/util/Set;
+	public final fun resolve (Ljava/lang/String;)Ldev/tramai/core/model/ResolvedTool;
+}
+
+public final class dev/tramai/engine/ToolRegistry$Companion {
+}
+
+public final class dev/tramai/engine/ToolResultFilteringSettings {
+	public fun <init> ()V
+	public fun <init> (JLjava/util/Map;)V
+	public synthetic fun <init> (JLjava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getDefaultMaxAggregateTextLength ()J
+	public final fun getMaxAggregateTextLengthByTool ()Ljava/util/Map;
+	public final fun maxAggregateTextLengthForTool (Ljava/lang/String;)J
+}
+
+public final class dev/tramai/engine/TramaiEngine : java/lang/AutoCloseable {
+	public fun <init> (Ldev/tramai/core/provider/ModelProvider;Ldev/tramai/core/structured/StructuredOutputHandler;Ldev/tramai/engine/ToolRegistry;Ldev/tramai/core/observation/OperationObserver;Ldev/tramai/core/observation/OperationInterceptor;Ldev/tramai/engine/OperationResponseCache;Ldev/tramai/core/model/ModelRegistry;Ldev/tramai/core/model/ModelRegistrySettings;Ldev/tramai/engine/CircuitBreakerSettings;Ldev/tramai/engine/RetryPolicySettings;Ldev/tramai/engine/TokenBudgetSettings;Ldev/tramai/core/security/PromptSanitizer;Ldev/tramai/core/memory/ChatMemory;Ldev/tramai/core/memory/ConversationIdProvider;Lkotlinx/coroutines/Job;Lkotlinx/coroutines/CoroutineScope;Ldev/tramai/core/policy/PolicyEngine;Ldev/tramai/core/security/DlpInterceptor;Ldev/tramai/core/security/DlpRedactionAuditEmitter;Ldev/tramai/engine/ToolResultFilteringSettings;Ldev/tramai/engine/EngineEventObserver;Ldev/tramai/core/policy/PolicyDecisionAuditEmitter;Ldev/tramai/engine/SuspendedInvocationStore;Ldev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/core/approval/ToolArgumentsDigester;Ldev/tramai/core/approval/ApprovalGateCoordinator;Ldev/tramai/core/approval/ApprovalLifecycleAuditEmitter;Ljava/time/Clock;)V
+	public synthetic fun <init> (Ldev/tramai/core/provider/ModelProvider;Ldev/tramai/core/structured/StructuredOutputHandler;Ldev/tramai/engine/ToolRegistry;Ldev/tramai/core/observation/OperationObserver;Ldev/tramai/core/observation/OperationInterceptor;Ldev/tramai/engine/OperationResponseCache;Ldev/tramai/core/model/ModelRegistry;Ldev/tramai/core/model/ModelRegistrySettings;Ldev/tramai/engine/CircuitBreakerSettings;Ldev/tramai/engine/RetryPolicySettings;Ldev/tramai/engine/TokenBudgetSettings;Ldev/tramai/core/security/PromptSanitizer;Ldev/tramai/core/memory/ChatMemory;Ldev/tramai/core/memory/ConversationIdProvider;Lkotlinx/coroutines/Job;Lkotlinx/coroutines/CoroutineScope;Ldev/tramai/core/policy/PolicyEngine;Ldev/tramai/core/security/DlpInterceptor;Ldev/tramai/core/security/DlpRedactionAuditEmitter;Ldev/tramai/engine/ToolResultFilteringSettings;Ldev/tramai/engine/EngineEventObserver;Ldev/tramai/core/policy/PolicyDecisionAuditEmitter;Ldev/tramai/engine/SuspendedInvocationStore;Ldev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/core/approval/ToolArgumentsDigester;Ldev/tramai/core/approval/ApprovalGateCoordinator;Ldev/tramai/core/approval/ApprovalLifecycleAuditEmitter;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ldev/tramai/core/provider/ProviderRegistry;Ldev/tramai/core/structured/StructuredOutputHandler;Ldev/tramai/engine/ToolRegistry;Ldev/tramai/core/observation/OperationObserver;Ldev/tramai/core/observation/OperationInterceptor;Ldev/tramai/engine/OperationResponseCache;Ldev/tramai/core/model/ModelRegistry;Ldev/tramai/core/model/ModelRegistrySettings;Ldev/tramai/engine/CircuitBreakerSettings;Ldev/tramai/engine/RetryPolicySettings;Ldev/tramai/engine/TokenBudgetSettings;Ldev/tramai/core/security/PromptSanitizer;Ldev/tramai/core/memory/ChatMemory;Ldev/tramai/core/memory/ConversationIdProvider;Lkotlinx/coroutines/Job;Lkotlinx/coroutines/CoroutineScope;Ldev/tramai/core/policy/PolicyEngine;Ldev/tramai/core/security/DlpInterceptor;Ldev/tramai/core/security/DlpRedactionAuditEmitter;Ldev/tramai/engine/ToolResultFilteringSettings;Ldev/tramai/engine/EngineEventObserver;Ldev/tramai/core/policy/PolicyDecisionAuditEmitter;Ldev/tramai/engine/SuspendedInvocationStore;Ldev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/core/approval/ToolArgumentsDigester;Ldev/tramai/core/approval/ApprovalGateCoordinator;Ldev/tramai/core/approval/ApprovalLifecycleAuditEmitter;Ljava/time/Clock;)V
+	public synthetic fun <init> (Ldev/tramai/core/provider/ProviderRegistry;Ldev/tramai/core/structured/StructuredOutputHandler;Ldev/tramai/engine/ToolRegistry;Ldev/tramai/core/observation/OperationObserver;Ldev/tramai/core/observation/OperationInterceptor;Ldev/tramai/engine/OperationResponseCache;Ldev/tramai/core/model/ModelRegistry;Ldev/tramai/core/model/ModelRegistrySettings;Ldev/tramai/engine/CircuitBreakerSettings;Ldev/tramai/engine/RetryPolicySettings;Ldev/tramai/engine/TokenBudgetSettings;Ldev/tramai/core/security/PromptSanitizer;Ldev/tramai/core/memory/ChatMemory;Ldev/tramai/core/memory/ConversationIdProvider;Lkotlinx/coroutines/Job;Lkotlinx/coroutines/CoroutineScope;Ldev/tramai/core/policy/PolicyEngine;Ldev/tramai/core/security/DlpInterceptor;Ldev/tramai/core/security/DlpRedactionAuditEmitter;Ldev/tramai/engine/ToolResultFilteringSettings;Ldev/tramai/engine/EngineEventObserver;Ldev/tramai/core/policy/PolicyDecisionAuditEmitter;Ldev/tramai/engine/SuspendedInvocationStore;Ldev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/core/approval/ToolArgumentsDigester;Ldev/tramai/core/approval/ApprovalGateCoordinator;Ldev/tramai/core/approval/ApprovalLifecycleAuditEmitter;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun close ()V
+	public final fun create (Lkotlin/reflect/KClass;)Ljava/lang/Object;
+	public final fun registerService (Lkotlin/reflect/KClass;)V
+	public final fun resumeApproval (Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/engine/approval/ApprovalGatewayPersistenceRequest {
+	public synthetic fun <init> (Ldev/tramai/core/approval/ApprovalRequest;Ldev/tramai/core/approval/ApprovalContinuation;Ldev/tramai/core/approval/SensitiveToolArguments;Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/engine/SensitiveReplayEnvelope;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/core/approval/ApprovalRequest;
+	public final fun component2 ()Ldev/tramai/core/approval/ApprovalContinuation;
+	public final fun component3 ()Ldev/tramai/core/approval/SensitiveToolArguments;
+	public final fun component4 ()Ldev/tramai/engine/SuspendedInvocationMetadata;
+	public final fun component5 ()Ldev/tramai/engine/SensitiveReplayEnvelope;
+	public final fun component6-SDbYCGE ()Ljava/lang/String;
+	public final fun copy-gDxcDI4 (Ldev/tramai/core/approval/ApprovalRequest;Ldev/tramai/core/approval/ApprovalContinuation;Ldev/tramai/core/approval/SensitiveToolArguments;Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/engine/SensitiveReplayEnvelope;Ljava/lang/String;)Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;
+	public static synthetic fun copy-gDxcDI4$default (Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/core/approval/ApprovalRequest;Ldev/tramai/core/approval/ApprovalContinuation;Ldev/tramai/core/approval/SensitiveToolArguments;Ldev/tramai/engine/SuspendedInvocationMetadata;Ldev/tramai/engine/SensitiveReplayEnvelope;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalRequest ()Ldev/tramai/core/approval/ApprovalRequest;
+	public final fun getContinuation ()Ldev/tramai/core/approval/ApprovalContinuation;
+	public final fun getReplayEnvelope ()Ldev/tramai/engine/SensitiveReplayEnvelope;
+	public final fun getResumeToken-SDbYCGE ()Ljava/lang/String;
+	public final fun getSensitiveArguments ()Ldev/tramai/core/approval/SensitiveToolArguments;
+	public final fun getSuspendedInvocationMetadata ()Ldev/tramai/engine/SuspendedInvocationMetadata;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/engine/approval/ApprovalGatewayRequestFactory {
+	public abstract fun createRequest-Atj0Sqo (Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/engine/approval/DefaultApprovalGateway : dev/tramai/core/approval/gateway/ApprovalGateway {
+	public fun <init> (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/engine/SuspendedInvocationStore;Ldev/tramai/engine/approval/ApprovalGatewayRequestFactory;Ljava/time/Clock;)V
+	public synthetic fun <init> (Ldev/tramai/core/approval/ApprovalStore;Ldev/tramai/core/approval/ApprovalContinuationStore;Ldev/tramai/engine/SuspendedInvocationStore;Ldev/tramai/engine/approval/ApprovalGatewayRequestFactory;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun requestApproval-Atj0Sqo (Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/engine/evidence/ProviderRouteDecisionEvidenceSource {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ldev/tramai/engine/evidence/ProviderRouteDecisionKind;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ldev/tramai/engine/evidence/ProviderRouteDecisionKind;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()Ljava/lang/String;
+	public final fun component13 ()Ljava/lang/Integer;
+	public final fun component14 ()Ljava/lang/Integer;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/time/Instant;
+	public final fun component6 ()Ldev/tramai/engine/evidence/ProviderRouteDecisionKind;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ldev/tramai/engine/evidence/ProviderRouteDecisionKind;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;)Ldev/tramai/engine/evidence/ProviderRouteDecisionEvidenceSource;
+	public static synthetic fun copy$default (Ldev/tramai/engine/evidence/ProviderRouteDecisionEvidenceSource;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ldev/tramai/engine/evidence/ProviderRouteDecisionKind;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;ILjava/lang/Object;)Ldev/tramai/engine/evidence/ProviderRouteDecisionEvidenceSource;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActor ()Ljava/lang/String;
+	public final fun getAttempt ()Ljava/lang/Integer;
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getCreatedAt ()Ljava/time/Instant;
+	public final fun getDecisionKind ()Ldev/tramai/engine/evidence/ProviderRouteDecisionKind;
+	public final fun getEventId ()Ljava/lang/String;
+	public final fun getFallbackReason ()Ljava/lang/String;
+	public final fun getPreviousModelName ()Ljava/lang/String;
+	public final fun getPreviousProviderName ()Ljava/lang/String;
+	public final fun getRequestedModelName ()Ljava/lang/String;
+	public final fun getRouteIndex ()Ljava/lang/Integer;
+	public final fun getSelectedModelName ()Ljava/lang/String;
+	public final fun getSelectedProviderName ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/engine/evidence/ProviderRouteDecisionKind : java/lang/Enum {
+	public static final field BLOCKED Ldev/tramai/engine/evidence/ProviderRouteDecisionKind;
+	public static final field FALLBACK Ldev/tramai/engine/evidence/ProviderRouteDecisionKind;
+	public static final field SELECTED Ldev/tramai/engine/evidence/ProviderRouteDecisionKind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/engine/evidence/ProviderRouteDecisionKind;
+	public static fun values ()[Ldev/tramai/engine/evidence/ProviderRouteDecisionKind;
+}
+
+public final class dev/tramai/engine/evidence/ProviderRoutingRuntimeEvidenceExporter {
+	public fun <init> ()V
+	public final fun export (Ljava/util/List;)Ljava/util/List;
+}
+

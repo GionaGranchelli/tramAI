@@ -1,0 +1,131 @@
+public final class dev/tramai/examples/sovereign/DeterministicInvoiceProvider : dev/tramai/core/provider/ModelProvider {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun complete (Ldev/tramai/core/model/ModelRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getCapturedRequests ()Ljava/util/List;
+	public fun providerId ()Ljava/lang/String;
+	public fun supportsCapability (Ldev/tramai/core/provider/ProviderCapability;)Z
+}
+
+public final class dev/tramai/examples/sovereign/DocumentIntelligenceMainKt {
+	public static final fun main ([Ljava/lang/String;)V
+}
+
+public final class dev/tramai/examples/sovereign/InMemoryPaymentLedger {
+	public fun <init> ()V
+	public final fun executionCount ()I
+	public final fun scheduleExactlyOnce (Ljava/lang/String;Ldev/tramai/examples/sovereign/SchedulePaymentInput;)Ldev/tramai/examples/sovereign/SchedulePaymentResult;
+}
+
+public final class dev/tramai/examples/sovereign/InvoiceAction : java/lang/Enum {
+	public static final field REVIEW_ONLY Ldev/tramai/examples/sovereign/InvoiceAction;
+	public static final field SCHEDULE_PAYMENT Ldev/tramai/examples/sovereign/InvoiceAction;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/examples/sovereign/InvoiceAction;
+	public static fun values ()[Ldev/tramai/examples/sovereign/InvoiceAction;
+}
+
+public abstract interface class dev/tramai/examples/sovereign/InvoiceAnalysisService {
+	public abstract fun analyze (Ldev/tramai/core/model/ClassifiedDocument;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/examples/sovereign/InvoiceAssessment {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ldev/tramai/examples/sovereign/InvoiceRisk;Ldev/tramai/examples/sovereign/InvoiceAction;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()J
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ldev/tramai/examples/sovereign/InvoiceRisk;
+	public final fun component6 ()Ldev/tramai/examples/sovereign/InvoiceAction;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ldev/tramai/examples/sovereign/InvoiceRisk;Ldev/tramai/examples/sovereign/InvoiceAction;Ljava/lang/String;)Ldev/tramai/examples/sovereign/InvoiceAssessment;
+	public static synthetic fun copy$default (Ldev/tramai/examples/sovereign/InvoiceAssessment;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ldev/tramai/examples/sovereign/InvoiceRisk;Ldev/tramai/examples/sovereign/InvoiceAction;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/examples/sovereign/InvoiceAssessment;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAmountCents ()J
+	public final fun getCurrency ()Ljava/lang/String;
+	public final fun getInvoiceId ()Ljava/lang/String;
+	public final fun getRationale ()Ljava/lang/String;
+	public final fun getRecommendedAction ()Ldev/tramai/examples/sovereign/InvoiceAction;
+	public final fun getRisk ()Ldev/tramai/examples/sovereign/InvoiceRisk;
+	public final fun getSupplierName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/examples/sovereign/InvoiceDocument {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()J
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)Ldev/tramai/examples/sovereign/InvoiceDocument;
+	public static synthetic fun copy$default (Ldev/tramai/examples/sovereign/InvoiceDocument;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/examples/sovereign/InvoiceDocument;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAmountCents ()J
+	public final fun getCurrency ()Ljava/lang/String;
+	public final fun getDescription ()Ljava/lang/String;
+	public final fun getIban ()Ljava/lang/String;
+	public final fun getInvoiceId ()Ljava/lang/String;
+	public final fun getSupplierName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/examples/sovereign/InvoiceModelsKt {
+	public static final fun classifiedInvoice (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)Ldev/tramai/core/model/ClassifiedDocument;
+	public static synthetic fun classifiedInvoice$default (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/model/ClassifiedDocument;
+}
+
+public final class dev/tramai/examples/sovereign/InvoiceRisk : java/lang/Enum {
+	public static final field HIGH Ldev/tramai/examples/sovereign/InvoiceRisk;
+	public static final field LOW Ldev/tramai/examples/sovereign/InvoiceRisk;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/examples/sovereign/InvoiceRisk;
+	public static fun values ()[Ldev/tramai/examples/sovereign/InvoiceRisk;
+}
+
+public final class dev/tramai/examples/sovereign/SchedulePaymentInput {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()J
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;)Ldev/tramai/examples/sovereign/SchedulePaymentInput;
+	public static synthetic fun copy$default (Ldev/tramai/examples/sovereign/SchedulePaymentInput;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;ILjava/lang/Object;)Ldev/tramai/examples/sovereign/SchedulePaymentInput;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAmountCents ()J
+	public final fun getCurrency ()Ljava/lang/String;
+	public final fun getIban ()Ljava/lang/String;
+	public final fun getInvoiceId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/examples/sovereign/SchedulePaymentResult {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/examples/sovereign/SchedulePaymentResult;
+	public static synthetic fun copy$default (Ldev/tramai/examples/sovereign/SchedulePaymentResult;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/examples/sovereign/SchedulePaymentResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPaymentReference ()Ljava/lang/String;
+	public final fun getStatus ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/examples/sovereign/SchedulePaymentTool : dev/tramai/core/model/TramaiTool {
+	public fun <init> (Ldev/tramai/examples/sovereign/InMemoryPaymentLedger;)V
+	public fun execute (Ldev/tramai/examples/sovereign/SchedulePaymentInput;Ldev/tramai/core/model/ToolExecutionContext;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public synthetic fun execute (Ljava/lang/Object;Ldev/tramai/core/model/ToolExecutionContext;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getDescription ()Ljava/lang/String;
+	public fun getIdempotent ()Z
+	public fun getInputType ()Lkotlin/reflect/KClass;
+	public fun getName ()Ljava/lang/String;
+	public fun getSecurity ()Ldev/tramai/core/policy/ToolSecurityMetadata;
+	public fun getSideEffectLevel ()Ldev/tramai/core/model/SideEffectLevel;
+}
+

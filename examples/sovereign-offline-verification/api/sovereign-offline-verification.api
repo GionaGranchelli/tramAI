@@ -1,0 +1,58 @@
+public final class dev/tramai/examples/offline/LoopbackHttpModelProvider : dev/tramai/core/provider/ModelProvider {
+	public fun <init> (Ljava/lang/String;)V
+	public fun complete (Ldev/tramai/core/model/ModelRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getInvocationCount ()Ljava/util/concurrent/atomic/AtomicInteger;
+	public fun providerId ()Ljava/lang/String;
+	public fun supportsCapability (Ldev/tramai/core/provider/ProviderCapability;)Z
+}
+
+public final class dev/tramai/examples/offline/LoopbackModelServer : java/lang/AutoCloseable {
+	public fun <init> ()V
+	public fun close ()V
+	public final fun getPort ()I
+	public final fun getUrl ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/examples/offline/OfflineEchoService {
+	public abstract fun echo (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/examples/offline/OfflineVerificationMainKt {
+	public static final fun main ([Ljava/lang/String;)V
+}
+
+public final class dev/tramai/examples/offline/ZeroEgressReportWriter {
+	public static final field INSTANCE Ldev/tramai/examples/offline/ZeroEgressReportWriter;
+	public final fun write (Ldev/tramai/examples/offline/ZeroEgressVerificationReportV1;Ljava/nio/file/Path;)V
+}
+
+public final class dev/tramai/examples/offline/ZeroEgressVerificationReportV1 {
+	public fun <init> (ILjava/lang/String;ZZIZZLjava/util/Map;IZ)V
+	public synthetic fun <init> (ILjava/lang/String;ZZIZZLjava/util/Map;IZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component10 ()Z
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Z
+	public final fun component4 ()Z
+	public final fun component5 ()I
+	public final fun component6 ()Z
+	public final fun component7 ()Z
+	public final fun component8 ()Ljava/util/Map;
+	public final fun component9 ()I
+	public final fun copy (ILjava/lang/String;ZZIZZLjava/util/Map;IZ)Ldev/tramai/examples/offline/ZeroEgressVerificationReportV1;
+	public static synthetic fun copy$default (Ldev/tramai/examples/offline/ZeroEgressVerificationReportV1;ILjava/lang/String;ZZIZZLjava/util/Map;IZILjava/lang/Object;)Ldev/tramai/examples/offline/ZeroEgressVerificationReportV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArtifactVerificationReceiptCount ()I
+	public final fun getAuditChainValid ()Z
+	public final fun getConfiguredProviderZones ()Ljava/util/Map;
+	public final fun getDeploymentMode ()Ljava/lang/String;
+	public final fun getExternalDnsProbeBlocked ()Z
+	public final fun getExternalTcpProbeBlocked ()Z
+	public final fun getLoopbackProviderInvocationCount ()I
+	public final fun getLoopbackProviderInvocationSucceeded ()Z
+	public final fun getRuntimeBuildSucceeded ()Z
+	public final fun getSchemaVersion ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+

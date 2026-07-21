@@ -1,0 +1,244 @@
+public final class dev/tramai/spring/sovereign/persistence/jdbc/DefaultJdbcApprovalContinuationPayloadCodec : dev/tramai/persistence/jdbc/JdbcContinuationArgumentsCodec {
+	public fun <init> (Ljavax/crypto/SecretKey;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljavax/crypto/SecretKey;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun decode (Ldev/tramai/persistence/jdbc/JdbcEncryptedContinuationArguments;)[B
+	public fun encode ([B)Ldev/tramai/persistence/jdbc/JdbcEncryptedContinuationArguments;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/DefaultJdbcAuditPayloadCodec : dev/tramai/persistence/jdbc/JdbcAuditPayloadCodec {
+	public fun <init> (Ljavax/crypto/SecretKey;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljavax/crypto/SecretKey;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun decode (Ldev/tramai/persistence/jdbc/JdbcEncryptedAuditPayload;)[B
+	public fun encode ([B)Ldev/tramai/persistence/jdbc/JdbcEncryptedAuditPayload;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/DefaultJdbcOpsAuditOutboxPayloadCodec : dev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec {
+	public fun <init> (Ljavax/crypto/SecretKey;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljavax/crypto/SecretKey;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun decode (Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcEncryptedAuditOutboxPayload;)[B
+	public fun encode ([B)Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcEncryptedAuditOutboxPayload;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/DefaultJdbcPayloadCrypto {
+	public static final field ALGORITHM_WIRE_VALUE Ljava/lang/String;
+	public static final field INSTANCE Ldev/tramai/spring/sovereign/persistence/jdbc/DefaultJdbcPayloadCrypto;
+	public final fun decrypt (Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;Ljavax/crypto/SecretKey;)[B
+	public final fun encrypt ([BLjavax/crypto/SecretKey;Ljava/lang/String;)Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;
+	public static synthetic fun encrypt$default (Ldev/tramai/spring/sovereign/persistence/jdbc/DefaultJdbcPayloadCrypto;[BLjavax/crypto/SecretKey;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;
+	public final fun verifyDigest (Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;)V
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/DefaultJdbcPayloadCryptoKt {
+	public static final fun toAuditPayload (Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;)Ldev/tramai/persistence/jdbc/JdbcEncryptedAuditPayload;
+	public static final fun toContinuationArgs (Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;)Ldev/tramai/persistence/jdbc/JdbcEncryptedContinuationArguments;
+	public static final fun toEncryptedPayload (Ldev/tramai/persistence/jdbc/JdbcEncryptedAuditPayload;)Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;
+	public static final fun toEncryptedPayload (Ldev/tramai/persistence/jdbc/JdbcEncryptedContinuationArguments;)Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;
+	public static final fun toEncryptedPayload (Ldev/tramai/persistence/jdbc/JdbcEncryptedReplayEnvelope;)Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;
+	public static final fun toEncryptedPayload (Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcEncryptedAuditOutboxPayload;)Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;
+	public static final fun toOutboxPayload (Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;)Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcEncryptedAuditOutboxPayload;
+	public static final fun toReplayEnvelope (Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;)Ldev/tramai/persistence/jdbc/JdbcEncryptedReplayEnvelope;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/DefaultJdbcSuspendedInvocationPayloadCodec : dev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec {
+	public fun <init> (Ljavax/crypto/SecretKey;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljavax/crypto/SecretKey;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun decode (Ldev/tramai/persistence/jdbc/JdbcEncryptedReplayEnvelope;)[B
+	public fun encode ([B)Ldev/tramai/persistence/jdbc/JdbcEncryptedReplayEnvelope;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload {
+	public fun <init> ([BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;)V
+	public final fun component1 ()[B
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()[B
+	public final fun component5 ()Ljava/lang/String;
+	public final fun copy ([BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;)Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;[BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/persistence/jdbc/EncryptedPayload;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAlgorithm ()Ljava/lang/String;
+	public final fun getCiphertext ()[B
+	public final fun getKeyId ()Ljava/lang/String;
+	public final fun getNonce ()[B
+	public final fun getPayloadDigest ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcApprovalResumeCredentialStore : dev/tramai/core/approval/gateway/ApprovalResumeCredentialStore {
+	public fun <init> (Lkotlin/jvm/functions/Function0;Ljavax/crypto/SecretKey;Ljava/lang/String;)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function0;Ljavax/crypto/SecretKey;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun create (Ldev/tramai/core/approval/gateway/ApprovalResumeCredentialRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun delete-jFQnKDU (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun get-jFQnKDU (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcApprovedContinuationResumeQueue : dev/tramai/spring/sovereign/ops/ApprovedContinuationResumeQueue {
+	public fun <init> (Ljavax/sql/DataSource;Ljava/time/Clock;)V
+	public synthetic fun <init> (Ljavax/sql/DataSource;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun claimApprovedPending (Ljava/lang/String;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markResumeFailed-DvV-WI4 (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markResumeSucceeded-0RvLICw (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcApprovedContinuationResumeQueueStatusStore : dev/tramai/spring/sovereign/ops/ApprovedContinuationResumeQueueStatusStore {
+	public fun <init> (Ljavax/sql/DataSource;)V
+	public fun snapshot (Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcEncryptedAuditOutboxPayload {
+	public fun <init> ([BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;)V
+	public final fun component1 ()[B
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()[B
+	public final fun component5 ()Ljava/lang/String;
+	public final fun copy ([BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;)Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcEncryptedAuditOutboxPayload;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcEncryptedAuditOutboxPayload;[BLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcEncryptedAuditOutboxPayload;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAlgorithm ()Ljava/lang/String;
+	public final fun getCiphertext ()[B
+	public final fun getKeyId ()Ljava/lang/String;
+	public final fun getNonce ()[B
+	public final fun getPayloadDigest ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec {
+	public abstract fun decode (Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcEncryptedAuditOutboxPayload;)[B
+	public abstract fun encode ([B)Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcEncryptedAuditOutboxPayload;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalMutationStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore {
+	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljava/time/Clock;II)V
+	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljava/time/Clock;IIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun approveApprovalWithAuditIntent (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun denyApprovalWithAuditIntent (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsApprovalRequestMutationStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalRequestMutationStore {
+	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec;Ldev/tramai/persistence/jdbc/JdbcContinuationArgumentsCodec;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljavax/crypto/SecretKey;Ljava/lang/String;Ljava/time/Clock;)V
+	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec;Ldev/tramai/persistence/jdbc/JdbcContinuationArgumentsCodec;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljavax/crypto/SecretKey;Ljava/lang/String;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun createApprovalRequest (Ldev/tramai/engine/approval/ApprovalGatewayPersistenceRequest;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Ldev/tramai/spring/sovereign/ops/inbox/ApprovalInboxMetadata;Ldev/tramai/core/approval/gateway/ApprovalResumeCredentialRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsAuditOutboxStore : dev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore {
+	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljava/time/Duration;I)V
+	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljava/time/Duration;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun append (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun claimPending (Ljava/lang/String;ILjava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun findByEventKey (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun isDurable ()Z
+	public fun listByStatus (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun listExpiredEmitting (Ljava/time/Instant;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun listPending (ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markEmitted (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markFailed (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Ljava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markReadyForDispatch (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStatus;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/JdbcSovereignOpsWorkerLeaseStore : dev/tramai/spring/sovereign/ops/lease/SovereignOpsWorkerLeaseStore {
+	public fun <init> (Ljavax/sql/DataSource;)V
+	public fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun heartbeat (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Duration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun release (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun tryAcquire (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Duration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcKeyLoader {
+	public static final field INSTANCE Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcKeyLoader;
+	public final fun load (Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)[B
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceAutoConfiguration {
+	public fun <init> ()V
+	public final fun approvalContinuationStore (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcContinuationArgumentsCodec;)Ldev/tramai/core/approval/ApprovalContinuationStore;
+	public final fun approvalResumeCredentialStore (Ljavax/sql/DataSource;Ljavax/crypto/SecretKey;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)Ldev/tramai/core/approval/gateway/ApprovalResumeCredentialStore;
+	public final fun approvalStore (Ljavax/sql/DataSource;)Ldev/tramai/core/approval/ApprovalStore;
+	public final fun approvedContinuationResumeQueue (Ljavax/sql/DataSource;)Ldev/tramai/spring/sovereign/ops/ApprovedContinuationResumeQueue;
+	public final fun approvedContinuationResumeQueueStatusStore (Ljavax/sql/DataSource;)Ldev/tramai/spring/sovereign/ops/ApprovedContinuationResumeQueueStatusStore;
+	public final fun auditStore (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcAuditPayloadCodec;)Ldev/tramai/security/audit/AuditStore;
+	public final fun jdbcAuditPayloadCodec (Ljavax/crypto/SecretKey;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)Ldev/tramai/persistence/jdbc/JdbcAuditPayloadCodec;
+	public final fun jdbcContinuationArgumentsCodec (Ljavax/crypto/SecretKey;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)Ldev/tramai/persistence/jdbc/JdbcContinuationArgumentsCodec;
+	public final fun jdbcOpsAuditOutboxPayloadCodec (Ljavax/crypto/SecretKey;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;
+	public final fun jdbcReplayEnvelopeCodec (Ljavax/crypto/SecretKey;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)Ldev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec;
+	public final fun missingJdbcDataSourceFailure ()Ljava/lang/Void;
+	public final fun sovereignJdbcEncryptionKey (Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)Ljavax/crypto/SecretKey;
+	public final fun sovereignOpsApprovalMutationStore (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalMutationStore;
+	public final fun sovereignOpsApprovalRequestMutationStore (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec;Ldev/tramai/persistence/jdbc/JdbcContinuationArgumentsCodec;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ljavax/crypto/SecretKey;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsApprovalRequestMutationStore;
+	public final fun sovereignOpsAuditOutboxStore (Ljavax/sql/DataSource;Ldev/tramai/spring/sovereign/persistence/jdbc/JdbcOpsAuditOutboxPayloadCodec;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;)Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxStore;
+	public final fun sovereignOpsWorkerLeaseStore (Ljavax/sql/DataSource;)Ldev/tramai/spring/sovereign/ops/lease/SovereignOpsWorkerLeaseStore;
+	public final fun suspendedInvocationStore (Ljavax/sql/DataSource;Ldev/tramai/persistence/jdbc/JdbcReplayEnvelopeCodec;)Ldev/tramai/engine/SuspendedInvocationStore;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Jdbc;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Encryption;)V
+	public synthetic fun <init> (Ljava/lang/String;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Jdbc;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Encryption;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Jdbc;
+	public final fun component3 ()Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Encryption;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Jdbc;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Encryption;)Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;Ljava/lang/String;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Jdbc;Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Encryption;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEncryption ()Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Encryption;
+	public final fun getJdbc ()Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Jdbc;
+	public final fun getType ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun setEncryption (Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Encryption;)V
+	public final fun setJdbc (Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Jdbc;)V
+	public final fun setType (Ljava/lang/String;)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Encryption {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/nio/file/Path;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/nio/file/Path;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/nio/file/Path;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/nio/file/Path;Ljava/lang/String;)Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Encryption;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Encryption;Ljava/lang/String;Ljava/nio/file/Path;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Encryption;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKeyEnv ()Ljava/lang/String;
+	public final fun getKeyFile ()Ljava/nio/file/Path;
+	public final fun getKeyId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun setKeyEnv (Ljava/lang/String;)V
+	public final fun setKeyFile (Ljava/nio/file/Path;)V
+	public final fun setKeyId (Ljava/lang/String;)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Jdbc {
+	public fun <init> ()V
+	public fun <init> (Ljava/time/Duration;I)V
+	public synthetic fun <init> (Ljava/time/Duration;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/time/Duration;
+	public final fun component2 ()I
+	public final fun copy (Ljava/time/Duration;I)Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Jdbc;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Jdbc;Ljava/time/Duration;IILjava/lang/Object;)Ldev/tramai/spring/sovereign/persistence/jdbc/SovereignJdbcPersistenceProperties$Jdbc;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getClaimLeaseDuration ()Ljava/time/Duration;
+	public final fun getMaxClaimLimit ()I
+	public fun hashCode ()I
+	public final fun setClaimLeaseDuration (Ljava/time/Duration;)V
+	public final fun setMaxClaimLimit (I)V
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/inbox/ApprovalInboxQueryAutoConfiguration {
+	public fun <init> ()V
+	public final fun jdbcApprovalInboxQueryService (Ljavax/sql/DataSource;Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/spring/sovereign/ops/inbox/ApprovalInboxQueryService;
+}
+
+public final class dev/tramai/spring/sovereign/persistence/jdbc/inbox/JdbcApprovalInboxQueryService : dev/tramai/spring/sovereign/ops/inbox/ApprovalInboxQueryService {
+	public fun <init> (Ljavax/sql/DataSource;Ljava/time/Clock;)V
+	public synthetic fun <init> (Ljavax/sql/DataSource;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun getWorkItem-jFQnKDU (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun search (Ldev/tramai/spring/sovereign/ops/inbox/ApprovalInboxQuery;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+

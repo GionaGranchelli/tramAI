@@ -1,0 +1,17 @@
+public final class dev/tramai/deepseek/DeepSeekProvider : dev/tramai/core/provider/ModelProvider, dev/tramai/core/provider/StreamCapable {
+	public static final field Companion Ldev/tramai/deepseek/DeepSeekProvider$Companion;
+	public static final field DEFAULT_BASE_URL Ljava/lang/String;
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun complete (Ldev/tramai/core/model/ModelRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun providerId ()Ljava/lang/String;
+	public fun stream (Ldev/tramai/core/model/ModelRequest;)Lkotlinx/coroutines/flow/Flow;
+	public fun supportsCapability (Ldev/tramai/core/provider/ProviderCapability;)Z
+}
+
+public final class dev/tramai/deepseek/DeepSeekProvider$Companion {
+}
+

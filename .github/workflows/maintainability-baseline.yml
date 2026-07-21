@@ -1,0 +1,65 @@
+name: Maintainability Baseline
+
+on:
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/publish.yml'
+
+jobs:
+  verify-baseline:
+    name: Verify Maintainability Baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Verify Maintainability Baseline
+        run: ./gradlew verifyMaintainabilityBaseline --no-daemon
+
+      - name: Upload Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maintainability-reports
+          path: build/reports/maintainability/
+          retention-days: 30
+
+      - name: Job Summary
+        if: always()
+        run: |
+          echo "## Maintainability Baseline Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          if [ -f build/reports/maintainability/module-dependencies.json ]; then
+            echo "| Module Dependency Graph | ✅ Generated |" >> $GITHUB_STEP_SUMMARY
+            CYCLES=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/module-dependencies.json')); print(len(d.get('cycles',[])))" 2>/dev/null || echo "?")
+            if [ "$CYCLES" != "0" ] && [ "$CYCLES" != "?" ]; then
+              echo "| Dependency Cycles | ⚠️ $CYCLES cycles detected |" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          if [ -f build/reports/maintainability/cancellation-safety.json ]; then
+            CRITICAL=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/cancellation-safety.json')); print(sum(1 for f in d.get('findings',[]) if f.get('risk')=='critical'))" 2>/dev/null || echo "?")
+            echo "| Cancellation Safety | $CRITICAL critical findings |" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Reports uploaded as artifact: \`maintainability-reports\`" >> $GITHUB_STEP_SUMMARY

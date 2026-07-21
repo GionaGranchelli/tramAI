@@ -1,0 +1,19 @@
+public final class dev/tramai/bedrock/BedrockProvider : dev/tramai/core/provider/ModelProvider, dev/tramai/core/provider/StreamCapable {
+	public static final field Companion Ldev/tramai/bedrock/BedrockProvider$Companion;
+	public static final field DEFAULT_MODEL_ID Ljava/lang/String;
+	public fun <init> (Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lsoftware/amazon/awssdk/auth/credentials/AwsCredentialsProvider;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lsoftware/amazon/awssdk/auth/credentials/AwsCredentialsProvider;Lcom/fasterxml/jackson/databind/ObjectMapper;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lsoftware/amazon/awssdk/auth/credentials/AwsCredentialsProvider;Lcom/fasterxml/jackson/databind/ObjectMapper;Lkotlin/coroutines/CoroutineContext;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lsoftware/amazon/awssdk/auth/credentials/AwsCredentialsProvider;Lcom/fasterxml/jackson/databind/ObjectMapper;Lkotlin/coroutines/CoroutineContext;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun complete (Ldev/tramai/core/model/ModelRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun providerId ()Ljava/lang/String;
+	public fun stream (Ldev/tramai/core/model/ModelRequest;)Lkotlinx/coroutines/flow/Flow;
+	public fun supportsCapability (Ldev/tramai/core/provider/ProviderCapability;)Z
+}
+
+public final class dev/tramai/bedrock/BedrockProvider$Companion {
+	public final fun getSUPPORTED_IMAGE_TYPES ()Ljava/util/Set;
+}
+

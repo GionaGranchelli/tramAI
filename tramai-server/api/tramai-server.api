@@ -1,0 +1,495 @@
+public final class dev/tramai/server/AuditController {
+	public fun <init> (Ldev/tramai/server/InMemoryAuditLogStore;)V
+	public final fun queryAuditLog (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;II)Ldev/tramai/server/AuditPage;
+}
+
+public final class dev/tramai/server/AuditPage {
+	public fun <init> (Ljava/util/List;JII)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()J
+	public final fun component3 ()I
+	public final fun component4 ()I
+	public final fun copy (Ljava/util/List;JII)Ldev/tramai/server/AuditPage;
+	public static synthetic fun copy$default (Ldev/tramai/server/AuditPage;Ljava/util/List;JIIILjava/lang/Object;)Ldev/tramai/server/AuditPage;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEntries ()Ljava/util/List;
+	public final fun getPage ()I
+	public final fun getPageSize ()I
+	public final fun getTotalCount ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/server/AuditRecord {
+	public fun <init> (Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)V
+	public final fun component1 ()Ljava/time/Instant;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/util/Map;
+	public final fun copy (Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)Ldev/tramai/server/AuditRecord;
+	public static synthetic fun copy$default (Ldev/tramai/server/AuditRecord;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/server/AuditRecord;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAction ()Ljava/lang/String;
+	public final fun getActor ()Ljava/lang/String;
+	public final fun getMetadata ()Ljava/util/Map;
+	public final fun getResourceId ()Ljava/lang/String;
+	public final fun getResourceType ()Ljava/lang/String;
+	public final fun getStatus ()Ljava/lang/String;
+	public final fun getTimestamp ()Ljava/time/Instant;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/server/BadWorkflowRequestException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public final class dev/tramai/server/GitHubWebhookSignatureVerifier : dev/tramai/server/WebhookSignatureVerifier {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/server/ReplayCache;)V
+	public synthetic fun <init> (Ljava/lang/String;Ldev/tramai/server/ReplayCache;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun getName ()Ljava/lang/String;
+	public fun verify (Ljava/lang/String;Ljava/util/Map;)Z
+}
+
+public final class dev/tramai/server/InMemoryAuditLogStore {
+	public fun <init> ()V
+	public fun <init> (I)V
+	public synthetic fun <init> (IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun query (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;II)Ldev/tramai/server/InMemoryAuditLogStore$AuditQueryResult;
+	public static synthetic fun query$default (Ldev/tramai/server/InMemoryAuditLogStore;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;IIILjava/lang/Object;)Ldev/tramai/server/InMemoryAuditLogStore$AuditQueryResult;
+	public final fun recordAudit (Ldev/tramai/server/AuditRecord;)V
+}
+
+public final class dev/tramai/server/InMemoryAuditLogStore$AuditQueryResult {
+	public fun <init> (Ljava/util/List;JII)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()J
+	public final fun component3 ()I
+	public final fun component4 ()I
+	public final fun copy (Ljava/util/List;JII)Ldev/tramai/server/InMemoryAuditLogStore$AuditQueryResult;
+	public static synthetic fun copy$default (Ldev/tramai/server/InMemoryAuditLogStore$AuditQueryResult;Ljava/util/List;JIIILjava/lang/Object;)Ldev/tramai/server/InMemoryAuditLogStore$AuditQueryResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEntries ()Ljava/util/List;
+	public final fun getPage ()I
+	public final fun getPageSize ()I
+	public final fun getTotalCount ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/server/InMemoryWorkerRegistry {
+	public fun <init> (Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/time/Clock;)V
+	public synthetic fun <init> (Lcom/fasterxml/jackson/databind/ObjectMapper;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun heartbeat (Ljava/lang/String;)Ldev/tramai/server/WorkerInfo;
+	public final fun listWorkers ()Ljava/util/List;
+	public final fun register (Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkerInfo;
+	public final fun registerSseEmitter (Lorg/springframework/web/servlet/mvc/method/annotation/SseEmitter;)V
+	public final fun unregister (Ljava/lang/String;)Ldev/tramai/server/WorkerInfo;
+}
+
+public final class dev/tramai/server/InvalidWebhookSignatureException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/server/ReplayCache {
+	public fun <init> ()V
+	public fun <init> (Ljava/time/Duration;Ljava/time/Clock;)V
+	public synthetic fun <init> (Ljava/time/Duration;Ljava/time/Clock;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun recordIfNotReplayed (Ljava/lang/String;)Z
+}
+
+public final class dev/tramai/server/RequestBodySizeLimitFilter : org/springframework/web/filter/OncePerRequestFilter {
+	public fun <init> (JJ)V
+}
+
+public final class dev/tramai/server/RequestBodyTooLargeException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/server/ScheduleController {
+	public fun <init> (Ldev/tramai/scheduler/WorkflowSchedulerStore;Lcom/fasterxml/jackson/databind/ObjectMapper;)V
+	public final fun listSchedules ()Ljava/util/List;
+	public final fun onMissedTick (Ljava/lang/String;Ljava/time/Instant;)V
+	public final fun onScheduledTick (Ljava/lang/String;Ljava/time/Instant;)V
+	public final fun pushScheduleTick (Ldev/tramai/server/ScheduleSummary;)V
+	public final fun scheduleEvents ()Lorg/springframework/web/servlet/mvc/method/annotation/SseEmitter;
+}
+
+public final class dev/tramai/server/ScheduleEventObserver : dev/tramai/orchestration/WorkflowObserver {
+	public fun <init> (Lorg/springframework/beans/factory/ObjectProvider;)V
+	public fun onMissedTick (Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onScheduledTick (Ljava/lang/String;Ljava/time/Instant;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onSkippedTick (Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepCompleted (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepFailed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onStepStarted (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowCompleted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowEvent (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowFailed (Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/orchestration/WorkflowContext;)V
+	public fun onWorkflowStarted (Ljava/lang/String;Ldev/tramai/orchestration/WorkflowContext;)V
+}
+
+public final class dev/tramai/server/ScheduleSummary {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Z
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()I
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)Ldev/tramai/server/ScheduleSummary;
+	public static synthetic fun copy$default (Ldev/tramai/server/ScheduleSummary;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IILjava/lang/Object;)Ldev/tramai/server/ScheduleSummary;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCronExpression ()Ljava/lang/String;
+	public final fun getEnabled ()Z
+	public final fun getLastRunId ()Ljava/lang/String;
+	public final fun getLastRunStatus ()Ljava/lang/String;
+	public final fun getLastTick ()Ljava/lang/String;
+	public final fun getMisfireCount ()I
+	public final fun getNextTick ()Ljava/lang/String;
+	public final fun getScheduleId ()Ljava/lang/String;
+	public final fun getWorkflowName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/server/ServerConfiguration {
+	public fun <init> ()V
+	public final fun auditLogStore (I)Ldev/tramai/server/InMemoryAuditLogStore;
+	public final fun requestBodySizeLimitFilter (JLdev/tramai/server/WebhookConfiguration;)Ldev/tramai/server/RequestBodySizeLimitFilter;
+	public final fun scheduleEventObserver (Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/server/ScheduleEventObserver;
+	public final fun webhookConfiguration (Ljava/lang/String;J)Ldev/tramai/server/WebhookConfiguration;
+	public final fun webhookSignatureVerifier (Ldev/tramai/server/WebhookConfiguration;Ljava/time/Duration;)Ldev/tramai/server/WebhookSignatureVerifier;
+	public final fun workerRegistry (Lcom/fasterxml/jackson/databind/ObjectMapper;)Ldev/tramai/server/InMemoryWorkerRegistry;
+	public final fun workflowExecutionScope ()Lkotlinx/coroutines/CoroutineScope;
+	public final fun workflowRegistry (Ljava/util/List;Lorg/springframework/beans/factory/ObjectProvider;Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/server/WorkflowRegistry;
+	public final fun workflowRunStore (II)Ldev/tramai/server/WorkflowRunStore;
+	public final fun workflowSchedulerStore (Ljavax/sql/DataSource;Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/scheduler/WorkflowSchedulerStore;
+}
+
+public final class dev/tramai/server/SseEvent {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/SseEvent;
+	public static synthetic fun copy$default (Ldev/tramai/server/SseEvent;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/server/SseEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getData ()Ljava/lang/String;
+	public final fun getEvent ()Ljava/lang/String;
+	public final fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/server/TramaiServerApplication {
+	public fun <init> ()V
+}
+
+public final class dev/tramai/server/TramaiServerApplicationKt {
+	public static final fun main ([Ljava/lang/String;)V
+}
+
+public final class dev/tramai/server/WebhookConfiguration {
+	public fun <init> (Ljava/lang/String;J)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()J
+	public final fun copy (Ljava/lang/String;J)Ldev/tramai/server/WebhookConfiguration;
+	public static synthetic fun copy$default (Ldev/tramai/server/WebhookConfiguration;Ljava/lang/String;JILjava/lang/Object;)Ldev/tramai/server/WebhookConfiguration;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxRequestBodyBytes ()J
+	public final fun getSecret ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/server/WebhookSignatureVerifier {
+	public abstract fun getName ()Ljava/lang/String;
+	public abstract fun verify (Ljava/lang/String;Ljava/util/Map;)Z
+}
+
+public final class dev/tramai/server/WorkerController {
+	public fun <init> (Ldev/tramai/server/InMemoryWorkerRegistry;)V
+	public final fun listWorkers ()Ljava/util/List;
+	public final fun workerEvents ()Lorg/springframework/web/servlet/mvc/method/annotation/SseEmitter;
+}
+
+public final class dev/tramai/server/WorkerInfo {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IZ)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/util/Set;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()I
+	public final fun component9 ()Z
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IZ)Ldev/tramai/server/WorkerInfo;
+	public static synthetic fun copy$default (Ldev/tramai/server/WorkerInfo;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Set;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IZILjava/lang/Object;)Ldev/tramai/server/WorkerInfo;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActiveRunCount ()I
+	public final fun getCapabilityLabels ()Ljava/util/Set;
+	public final fun getDraining ()Z
+	public final fun getHost ()Ljava/lang/String;
+	public final fun getLastHeartbeat ()Ljava/lang/String;
+	public final fun getPoolName ()Ljava/lang/String;
+	public final fun getStatus ()Ljava/lang/String;
+	public final fun getVersion ()Ljava/lang/String;
+	public final fun getWorkerId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/server/WorkflowConflictException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/server/WorkflowController {
+	public fun <init> (Ldev/tramai/server/WorkflowRegistry;Ldev/tramai/server/WorkflowRunStore;Lkotlinx/coroutines/CoroutineScope;Ldev/tramai/server/WebhookSignatureVerifier;)V
+	public final fun cancelRun (Ljava/lang/String;Ljava/lang/String;)Lorg/springframework/http/ResponseEntity;
+	public final fun getRun (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunDetail;
+	public final fun getRunEvents (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lorg/springframework/web/servlet/mvc/method/annotation/SseEmitter;
+	public final fun listRuns (Ljava/lang/String;II)Ldev/tramai/server/WorkflowRunPage;
+	public final fun listWorkflows ()Ljava/util/List;
+	public final fun openApi ()Ljava/util/Map;
+	public final fun receiveWebhook (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lorg/springframework/http/ResponseEntity;
+	public final fun resumeWorkflow (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunResponse;
+	public final fun runWorkflow (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunResponse;
+}
+
+public final class dev/tramai/server/WorkflowEntry {
+	public fun <init> (Ldev/tramai/orchestration/Workflow;Ldev/tramai/orchestration/WorkflowStateCodec;Lkotlin/reflect/KType;Lkotlin/reflect/KType;Lkotlin/jvm/functions/Function1;)V
+	public final fun component1 ()Ldev/tramai/orchestration/Workflow;
+	public final fun component2 ()Ldev/tramai/orchestration/WorkflowStateCodec;
+	public final fun component3 ()Lkotlin/reflect/KType;
+	public final fun component4 ()Lkotlin/reflect/KType;
+	public final fun component5 ()Lkotlin/jvm/functions/Function1;
+	public final fun copy (Ldev/tramai/orchestration/Workflow;Ldev/tramai/orchestration/WorkflowStateCodec;Lkotlin/reflect/KType;Lkotlin/reflect/KType;Lkotlin/jvm/functions/Function1;)Ldev/tramai/server/WorkflowEntry;
+	public static synthetic fun copy$default (Ldev/tramai/server/WorkflowEntry;Ldev/tramai/orchestration/Workflow;Ldev/tramai/orchestration/WorkflowStateCodec;Lkotlin/reflect/KType;Lkotlin/reflect/KType;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Ldev/tramai/server/WorkflowEntry;
+	public final fun decodeState (Ljava/lang/String;)Ljava/lang/Object;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPersistenceFactory ()Lkotlin/jvm/functions/Function1;
+	public final fun getResultType ()Lkotlin/reflect/KType;
+	public final fun getStateCodec ()Ldev/tramai/orchestration/WorkflowStateCodec;
+	public final fun getStateType ()Lkotlin/reflect/KType;
+	public final fun getWorkflow ()Ldev/tramai/orchestration/Workflow;
+	public fun hashCode ()I
+	public final fun resume (Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun run (Ljava/lang/Object;Ldev/tramai/orchestration/WorkflowContext;Ldev/tramai/orchestration/WorkflowObserver;Ldev/tramai/orchestration/WorkflowPersistence;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/server/WorkflowErrorHandler {
+	public fun <init> ()V
+	public final fun argumentTypeMismatch (Lorg/springframework/web/method/annotation/MethodArgumentTypeMismatchException;)Lorg/springframework/http/ResponseEntity;
+	public final fun badRequest (Ljava/lang/RuntimeException;)Lorg/springframework/http/ResponseEntity;
+	public final fun conflict (Ldev/tramai/server/WorkflowConflictException;)Lorg/springframework/http/ResponseEntity;
+	public final fun notFound (Ljava/lang/RuntimeException;)Lorg/springframework/http/ResponseEntity;
+	public final fun payloadTooLarge (Ldev/tramai/server/RequestBodyTooLargeException;)Lorg/springframework/http/ResponseEntity;
+	public final fun unauthorized (Ldev/tramai/server/InvalidWebhookSignatureException;)Lorg/springframework/http/ResponseEntity;
+	public final fun unexpected (Ljava/lang/Throwable;)Lorg/springframework/http/ResponseEntity;
+	public final fun validation (Lorg/springframework/web/method/annotation/HandlerMethodValidationException;)Lorg/springframework/http/ResponseEntity;
+}
+
+public final class dev/tramai/server/WorkflowNotRegisteredException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public abstract interface class dev/tramai/server/WorkflowRegistration {
+	public abstract fun register (Ldev/tramai/server/WorkflowRegistry;)V
+}
+
+public final class dev/tramai/server/WorkflowRegistry {
+	public fun <init> ()V
+	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/scheduler/WorkflowSchedulerStore;)V
+	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/scheduler/WorkflowSchedulerStore;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun get (Ljava/lang/String;)Ldev/tramai/server/WorkflowEntry;
+	public final fun list ()Ljava/util/List;
+	public final fun register (Ldev/tramai/orchestration/Workflow;Ldev/tramai/orchestration/WorkflowStateCodec;Lkotlin/jvm/functions/Function1;)V
+	public static synthetic fun register$default (Ldev/tramai/server/WorkflowRegistry;Ldev/tramai/orchestration/Workflow;Ldev/tramai/orchestration/WorkflowStateCodec;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
+}
+
+public final class dev/tramai/server/WorkflowRunCreation {
+	public fun <init> (Ldev/tramai/server/WorkflowRunRecord;Z)V
+	public final fun component1 ()Ldev/tramai/server/WorkflowRunRecord;
+	public final fun component2 ()Z
+	public final fun copy (Ldev/tramai/server/WorkflowRunRecord;Z)Ldev/tramai/server/WorkflowRunCreation;
+	public static synthetic fun copy$default (Ldev/tramai/server/WorkflowRunCreation;Ldev/tramai/server/WorkflowRunRecord;ZILjava/lang/Object;)Ldev/tramai/server/WorkflowRunCreation;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCreated ()Z
+	public final fun getRecord ()Ldev/tramai/server/WorkflowRunRecord;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/server/WorkflowRunDetail {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/Object;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/util/List;
+	public final fun component6 ()Ljava/lang/Object;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/Object;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunDetail;
+	public static synthetic fun copy$default (Ldev/tramai/server/WorkflowRunDetail;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/Object;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/server/WorkflowRunDetail;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCurrentStep ()Ljava/lang/String;
+	public final fun getDefinitionVersion ()Ljava/lang/String;
+	public final fun getError ()Ljava/lang/String;
+	public final fun getHistory ()Ljava/util/List;
+	public final fun getResult ()Ljava/lang/Object;
+	public final fun getStatus ()Ljava/lang/String;
+	public final fun getWorkflowId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/server/WorkflowRunEvent {
+	public fun <init> (JLjava/lang/String;Ljava/lang/String;Ljava/time/Instant;)V
+	public final fun component1 ()J
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/time/Instant;
+	public final fun copy (JLjava/lang/String;Ljava/lang/String;Ljava/time/Instant;)Ldev/tramai/server/WorkflowRunEvent;
+	public static synthetic fun copy$default (Ldev/tramai/server/WorkflowRunEvent;JLjava/lang/String;Ljava/lang/String;Ljava/time/Instant;ILjava/lang/Object;)Ldev/tramai/server/WorkflowRunEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getName ()Ljava/lang/String;
+	public final fun getSequence ()J
+	public final fun getStepName ()Ljava/lang/String;
+	public final fun getTimestamp ()Ljava/time/Instant;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/server/WorkflowRunNotFoundException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+}
+
+public final class dev/tramai/server/WorkflowRunPage {
+	public fun <init> (Ljava/lang/String;IILjava/util/List;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun component3 ()I
+	public final fun component4 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;IILjava/util/List;)Ldev/tramai/server/WorkflowRunPage;
+	public static synthetic fun copy$default (Ldev/tramai/server/WorkflowRunPage;Ljava/lang/String;IILjava/util/List;ILjava/lang/Object;)Ldev/tramai/server/WorkflowRunPage;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLimit ()I
+	public final fun getOffset ()I
+	public final fun getRuns ()Ljava/util/List;
+	public final fun getWorkflowName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/server/WorkflowRunRecord {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/server/WorkflowRunStatus;Ljava/lang/String;Ljava/util/List;Ljava/lang/Object;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/time/Instant;
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ldev/tramai/server/WorkflowRunStatus;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/util/List;
+	public final fun component7 ()Ljava/lang/Object;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/time/Instant;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/server/WorkflowRunStatus;Ljava/lang/String;Ljava/util/List;Ljava/lang/Object;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunRecord;
+	public static synthetic fun copy$default (Ldev/tramai/server/WorkflowRunRecord;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/server/WorkflowRunStatus;Ljava/lang/String;Ljava/util/List;Ljava/lang/Object;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/server/WorkflowRunRecord;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCreatedAt ()Ljava/time/Instant;
+	public final fun getCurrentStep ()Ljava/lang/String;
+	public final fun getDefinitionVersion ()Ljava/lang/String;
+	public final fun getError ()Ljava/lang/String;
+	public final fun getHistory ()Ljava/util/List;
+	public final fun getIdempotencyKey ()Ljava/lang/String;
+	public final fun getResult ()Ljava/lang/Object;
+	public final fun getStatus ()Ldev/tramai/server/WorkflowRunStatus;
+	public final fun getUpdatedAt ()Ljava/time/Instant;
+	public final fun getWorkflowId ()Ljava/lang/String;
+	public final fun getWorkflowName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/server/WorkflowRunResponse {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Object;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Object;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/Object;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Object;)Ldev/tramai/server/WorkflowRunResponse;
+	public static synthetic fun copy$default (Ldev/tramai/server/WorkflowRunResponse;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Object;ILjava/lang/Object;)Ldev/tramai/server/WorkflowRunResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDefinitionVersion ()Ljava/lang/String;
+	public final fun getResult ()Ljava/lang/Object;
+	public final fun getStatus ()Ljava/lang/String;
+	public final fun getWorkflowId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/server/WorkflowRunStatus : java/lang/Enum {
+	public static final field CANCELLED Ldev/tramai/server/WorkflowRunStatus;
+	public static final field CANCELLING Ldev/tramai/server/WorkflowRunStatus;
+	public static final field COMPLETED Ldev/tramai/server/WorkflowRunStatus;
+	public static final field DELAYED Ldev/tramai/server/WorkflowRunStatus;
+	public static final field FAILED Ldev/tramai/server/WorkflowRunStatus;
+	public static final field PENDING Ldev/tramai/server/WorkflowRunStatus;
+	public static final field RUNNING Ldev/tramai/server/WorkflowRunStatus;
+	public static final field WAITING_FOR_GATE Ldev/tramai/server/WorkflowRunStatus;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getWireName ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/server/WorkflowRunStatus;
+	public static fun values ()[Ldev/tramai/server/WorkflowRunStatus;
+}
+
+public final class dev/tramai/server/WorkflowRunStore {
+	public fun <init> ()V
+	public fun <init> (IILcom/fasterxml/jackson/databind/ObjectMapper;)V
+	public synthetic fun <init> (IILcom/fasterxml/jackson/databind/ObjectMapper;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun attachExecution (Ljava/lang/String;Ljava/lang/String;Lkotlinx/coroutines/Job;)V
+	public final fun cancel (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunRecord;
+	public final fun complete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Object;)Ldev/tramai/server/WorkflowRunRecord;
+	public final fun create (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunRecord;
+	public final fun event (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/server/WorkflowRunStatus;)V
+	public static synthetic fun event$default (Ldev/tramai/server/WorkflowRunStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/server/WorkflowRunStatus;ILjava/lang/Object;)V
+	public final fun fail (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/server/WorkflowRunStatus;)Ldev/tramai/server/WorkflowRunRecord;
+	public static synthetic fun fail$default (Ldev/tramai/server/WorkflowRunStore;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;Ldev/tramai/server/WorkflowRunStatus;ILjava/lang/Object;)Ldev/tramai/server/WorkflowRunRecord;
+	public final fun findByIdempotencyKey (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunRecord;
+	public final fun get (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunRecord;
+	public final fun getOrCreate (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunCreation;
+	public final fun list (Ljava/lang/String;II)Ljava/util/List;
+	public final fun markResuming (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunRecord;
+	public final fun registerSseEmitter (Ljava/lang/String;Ljava/lang/String;Lorg/springframework/web/servlet/mvc/method/annotation/SseEmitter;Ljava/lang/Long;)V
+	public final fun requireResumable (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunRecord;
+}
+
+public final class dev/tramai/server/WorkflowRunSummary {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/server/WorkflowRunSummary;
+	public static synthetic fun copy$default (Ldev/tramai/server/WorkflowRunSummary;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/server/WorkflowRunSummary;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCurrentStep ()Ljava/lang/String;
+	public final fun getDefinitionVersion ()Ljava/lang/String;
+	public final fun getStatus ()Ljava/lang/String;
+	public final fun getWorkflowId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+

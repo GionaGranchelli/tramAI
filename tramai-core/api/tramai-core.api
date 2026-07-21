@@ -1,0 +1,2274 @@
+public abstract interface annotation class dev/tramai/core/annotations/AiDescription : java/lang/annotation/Annotation {
+	public abstract fun value ()Ljava/lang/String;
+}
+
+public abstract interface annotation class dev/tramai/core/annotations/AiMinItems : java/lang/annotation/Annotation {
+	public abstract fun value ()I
+}
+
+public abstract interface annotation class dev/tramai/core/annotations/AiRange : java/lang/annotation/Annotation {
+	public abstract fun max ()D
+	public abstract fun min ()D
+}
+
+public abstract interface annotation class dev/tramai/core/annotations/AiService : java/lang/annotation/Annotation {
+}
+
+public abstract interface annotation class dev/tramai/core/annotations/AiTool : java/lang/annotation/Annotation {
+	public abstract fun description ()Ljava/lang/String;
+	public abstract fun idempotent ()Z
+	public abstract fun name ()Ljava/lang/String;
+	public abstract fun sideEffectLevel ()Ldev/tramai/core/model/SideEffectLevel;
+}
+
+public abstract interface annotation class dev/tramai/core/annotations/ConversationId : java/lang/annotation/Annotation {
+}
+
+public abstract interface annotation class dev/tramai/core/annotations/Operation : java/lang/annotation/Annotation {
+	public abstract fun cacheTtlMillis ()J
+	public abstract fun cacheable ()Z
+	public abstract fun maxRetries ()I
+	public abstract fun model ()Ljava/lang/String;
+	public abstract fun prompt ()Ljava/lang/String;
+	public abstract fun provider ()Ljava/lang/String;
+	public abstract fun providerRetries ()I
+	public abstract fun timeoutMillis ()J
+	public abstract fun tools ()[Ljava/lang/String;
+}
+
+public abstract interface annotation class dev/tramai/core/annotations/System : java/lang/annotation/Annotation {
+	public abstract fun value ()Ljava/lang/String;
+}
+
+public abstract interface annotation class dev/tramai/core/annotations/SystemPrompt : java/lang/annotation/Annotation {
+	public abstract fun value ()Ljava/lang/String;
+}
+
+public abstract interface annotation class dev/tramai/core/annotations/User : java/lang/annotation/Annotation {
+	public abstract fun value ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ApprovalAuthorization {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;JZ)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;JZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/time/Instant;
+	public final fun component4 ()J
+	public final fun component5 ()Z
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;JZ)Ldev/tramai/core/approval/ApprovalAuthorization;
+	public static synthetic fun copy$default (Ldev/tramai/core/approval/ApprovalAuthorization;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;JZILjava/lang/Object;)Ldev/tramai/core/approval/ApprovalAuthorization;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getConsumedAt ()Ljava/time/Instant;
+	public final fun getConsumedBy ()Ljava/lang/String;
+	public final fun getReplayed ()Z
+	public final fun getVersion ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ApprovalBinding {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3-2AhqMsM ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5-2AhqMsM ()Ljava/lang/String;
+	public final fun component6-2AhqMsM ()Ljava/lang/String;
+	public final fun copy-LdqBCyU (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/approval/ApprovalBinding;
+	public static synthetic fun copy-LdqBCyU$default (Ldev/tramai/core/approval/ApprovalBinding;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/approval/ApprovalBinding;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalTokenDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getArgumentsDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getToolName ()Ljava/lang/String;
+	public final fun getWorkflowDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ApprovalChallenge {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2-1ALkydY ()Ljava/lang/String;
+	public final fun component3 ()Ljava/time/Instant;
+	public final fun copy-rBobsrA (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;)Ldev/tramai/core/approval/ApprovalChallenge;
+	public static synthetic fun copy-rBobsrA$default (Ldev/tramai/core/approval/ApprovalChallenge;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;ILjava/lang/Object;)Ldev/tramai/core/approval/ApprovalChallenge;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getExpiresAt ()Ljava/time/Instant;
+	public final fun getToken-1ALkydY ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ApprovalConsumptionReceipt {
+	public fun <init> (Ldev/tramai/core/approval/ApprovalRequest;Z)V
+	public final fun component1 ()Ldev/tramai/core/approval/ApprovalRequest;
+	public final fun component2 ()Z
+	public final fun copy (Ldev/tramai/core/approval/ApprovalRequest;Z)Ldev/tramai/core/approval/ApprovalConsumptionReceipt;
+	public static synthetic fun copy$default (Ldev/tramai/core/approval/ApprovalConsumptionReceipt;Ldev/tramai/core/approval/ApprovalRequest;ZILjava/lang/Object;)Ldev/tramai/core/approval/ApprovalConsumptionReceipt;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReplayed ()Z
+	public final fun getRequest ()Ldev/tramai/core/approval/ApprovalRequest;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ApprovalContinuation {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/approval/ApprovalContinuationStatus;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/approval/ApprovalContinuationStatus;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;JLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/time/Instant;
+	public final fun component11 ()Ljava/time/Instant;
+	public final fun component12 ()Ljava/lang/String;
+	public final fun component13 ()Ljava/time/Instant;
+	public final fun component14 ()Ljava/time/Instant;
+	public final fun component15 ()Ljava/lang/String;
+	public final fun component16 ()Ljava/time/Instant;
+	public final fun component17 ()Ljava/lang/String;
+	public final fun component18 ()J
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6-2AhqMsM ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8-2AhqMsM ()Ljava/lang/String;
+	public final fun component9 ()Ldev/tramai/core/approval/ApprovalContinuationStatus;
+	public final fun copy-kdJiU7U (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/approval/ApprovalContinuationStatus;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;J)Ldev/tramai/core/approval/ApprovalContinuation;
+	public static synthetic fun copy-kdJiU7U$default (Ldev/tramai/core/approval/ApprovalContinuation;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/approval/ApprovalContinuationStatus;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;JILjava/lang/Object;)Ldev/tramai/core/approval/ApprovalContinuation;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalExpiresAt ()Ljava/time/Instant;
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getArgumentsDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getClaimedAt ()Ljava/time/Instant;
+	public final fun getClaimedBy ()Ljava/lang/String;
+	public final fun getCompletedAt ()Ljava/time/Instant;
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getCreatedAt ()Ljava/time/Instant;
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getRecoveryReasonCode ()Ljava/lang/String;
+	public final fun getRecoveryResolvedAt ()Ljava/time/Instant;
+	public final fun getRecoveryResolvedBy ()Ljava/lang/String;
+	public final fun getStatus ()Ldev/tramai/core/approval/ApprovalContinuationStatus;
+	public final fun getToolCallId ()Ljava/lang/String;
+	public final fun getToolName ()Ljava/lang/String;
+	public final fun getVersion ()J
+	public final fun getWorkflowDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ApprovalContinuationStatus : java/lang/Enum {
+	public static final field CANCELLED Ldev/tramai/core/approval/ApprovalContinuationStatus;
+	public static final field CANCELLED_UNCERTAIN Ldev/tramai/core/approval/ApprovalContinuationStatus;
+	public static final field CLAIMED Ldev/tramai/core/approval/ApprovalContinuationStatus;
+	public static final field COMPLETED Ldev/tramai/core/approval/ApprovalContinuationStatus;
+	public static final field EXPIRED Ldev/tramai/core/approval/ApprovalContinuationStatus;
+	public static final field PENDING Ldev/tramai/core/approval/ApprovalContinuationStatus;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/approval/ApprovalContinuationStatus;
+	public static fun values ()[Ldev/tramai/core/approval/ApprovalContinuationStatus;
+}
+
+public abstract interface class dev/tramai/core/approval/ApprovalContinuationStore {
+	public abstract fun cancel (Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun claimForExecution (Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun complete (Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun create (Ldev/tramai/core/approval/ApprovalContinuation;Ldev/tramai/core/approval/SensitiveToolArguments;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun expire (Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun findStaleClaimed (Ljava/time/Instant;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun forceCancelClaimed (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun sweepExpired (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/core/approval/ApprovalDecisionValidator {
+	public abstract fun validate (Ldev/tramai/core/approval/ApprovalRequest;Ljava/lang/String;)V
+}
+
+public abstract interface class dev/tramai/core/approval/ApprovalGateCoordinator {
+	public abstract fun authorizeResume (Ldev/tramai/core/approval/AuthorizeResumeCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun cancelApproval (Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun createApproval (Ldev/tramai/core/approval/CreateApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun validateResume (Ldev/tramai/core/approval/ValidateResumeCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/core/approval/ApprovalIdGenerator {
+	public abstract fun generate ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/approval/ApprovalLifecycleAuditEmitter {
+	public abstract fun onClaimedContinuationForceCancellationRequested (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun onClaimedContinuationForceCancelled (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun onStaleClaimDetected (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun onSuspensionCancelled (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun onToolExecutionCompleted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun onToolExecutionResumed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun onToolExecutionSuspended-0ERvcow (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun onUncertainOutcome (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/core/approval/ApprovalRecoveryCoordinator {
+	public abstract fun findStaleClaims (Ljava/time/Instant;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun forceCancelClaimed (Ldev/tramai/core/approval/ForceCancelClaimedCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/core/approval/ApprovalRecoveryCoordinatorKt {
+	public static final field SAFE_REASON_CODE_PATTERN Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ApprovalRequest {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/core/approval/ApprovalBinding;Ldev/tramai/core/approval/ApprovalStatus;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;J)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component11 ()Ljava/time/Instant;
+	public final fun component12 ()J
+	public final fun component2 ()Ldev/tramai/core/approval/ApprovalBinding;
+	public final fun component3 ()Ldev/tramai/core/approval/ApprovalStatus;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/time/Instant;
+	public final fun component6 ()Ljava/time/Instant;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/time/Instant;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/core/approval/ApprovalBinding;Ldev/tramai/core/approval/ApprovalStatus;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;J)Ldev/tramai/core/approval/ApprovalRequest;
+	public static synthetic fun copy$default (Ldev/tramai/core/approval/ApprovalRequest;Ljava/lang/String;Ldev/tramai/core/approval/ApprovalBinding;Ldev/tramai/core/approval/ApprovalStatus;Ljava/lang/String;Ljava/time/Instant;Ljava/time/Instant;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;JILjava/lang/Object;)Ldev/tramai/core/approval/ApprovalRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getBinding ()Ldev/tramai/core/approval/ApprovalBinding;
+	public final fun getConsumedAt ()Ljava/time/Instant;
+	public final fun getConsumedBy ()Ljava/lang/String;
+	public final fun getDecidedAt ()Ljava/time/Instant;
+	public final fun getDecidedBy ()Ljava/lang/String;
+	public final fun getDecisionComment ()Ljava/lang/String;
+	public final fun getExpiresAt ()Ljava/time/Instant;
+	public final fun getRequestedAt ()Ljava/time/Instant;
+	public final fun getRequestedBy ()Ljava/lang/String;
+	public final fun getStatus ()Ldev/tramai/core/approval/ApprovalStatus;
+	public final fun getVersion ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ApprovalStatus : java/lang/Enum {
+	public static final field APPROVED Ldev/tramai/core/approval/ApprovalStatus;
+	public static final field DENIED Ldev/tramai/core/approval/ApprovalStatus;
+	public static final field PENDING Ldev/tramai/core/approval/ApprovalStatus;
+	public static final field TIMED_OUT Ldev/tramai/core/approval/ApprovalStatus;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/approval/ApprovalStatus;
+	public static fun values ()[Ldev/tramai/core/approval/ApprovalStatus;
+}
+
+public abstract interface class dev/tramai/core/approval/ApprovalStore {
+	public abstract fun consumeApprovedOrReplay-LJPQ52o (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun create (Ldev/tramai/core/approval/ApprovalRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun transition (Ljava/lang/String;JLdev/tramai/core/approval/ApprovalTransition;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/core/approval/ApprovalToken {
+	public static final field Companion Ldev/tramai/core/approval/ApprovalToken$Companion;
+	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/approval/ApprovalToken;
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
+	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
+	public fun hashCode ()I
+	public static fun hashCode-impl (Ljava/lang/String;)I
+	public static final fun reveal-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ApprovalToken$Companion {
+	public final fun parsePresented-je9Romc (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/approval/ApprovalTokenDigester {
+	public abstract fun digest-1wuzo3Q (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/approval/ApprovalTokenGenerator {
+	public abstract fun generate-1ALkydY ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/approval/ApprovalTransition {
+	public abstract fun targetStatus ()Ldev/tramai/core/approval/ApprovalStatus;
+}
+
+public final class dev/tramai/core/approval/ApprovalTransition$Approve : dev/tramai/core/approval/ApprovalTransition {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/approval/ApprovalTransition$Approve;
+	public static synthetic fun copy$default (Ldev/tramai/core/approval/ApprovalTransition$Approve;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/approval/ApprovalTransition$Approve;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getComment ()Ljava/lang/String;
+	public final fun getDecidedBy ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun targetStatus ()Ldev/tramai/core/approval/ApprovalStatus;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ApprovalTransition$Deny : dev/tramai/core/approval/ApprovalTransition {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/approval/ApprovalTransition$Deny;
+	public static synthetic fun copy$default (Ldev/tramai/core/approval/ApprovalTransition$Deny;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/approval/ApprovalTransition$Deny;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getComment ()Ljava/lang/String;
+	public final fun getDecidedBy ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun targetStatus ()Ldev/tramai/core/approval/ApprovalStatus;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ApprovalTransition$Timeout : dev/tramai/core/approval/ApprovalTransition {
+	public static final field INSTANCE Ldev/tramai/core/approval/ApprovalTransition$Timeout;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun targetStatus ()Ldev/tramai/core/approval/ApprovalStatus;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ApprovalValidation {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;J)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/time/Instant;
+	public final fun component4 ()J
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;J)Ldev/tramai/core/approval/ApprovalValidation;
+	public static synthetic fun copy$default (Ldev/tramai/core/approval/ApprovalValidation;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;JILjava/lang/Object;)Ldev/tramai/core/approval/ApprovalValidation;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getValidatedAt ()Ljava/time/Instant;
+	public final fun getValidatedBy ()Ljava/lang/String;
+	public final fun getVersion ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/AuthorizeResumeCommand {
+	public synthetic fun <init> (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()J
+	public final fun component3-1ALkydY ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7-2AhqMsM ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9-2AhqMsM ()Ljava/lang/String;
+	public final fun copy-RH2KHNY (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/approval/AuthorizeResumeCommand;
+	public static synthetic fun copy-RH2KHNY$default (Ldev/tramai/core/approval/AuthorizeResumeCommand;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/approval/AuthorizeResumeCommand;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getArgumentsDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getConsumedBy ()Ljava/lang/String;
+	public final fun getExpectedVersion ()J
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getPresentedToken-1ALkydY ()Ljava/lang/String;
+	public final fun getToolName ()Ljava/lang/String;
+	public final fun getWorkflowDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ClaimedApprovalContinuation {
+	public fun <init> (Ldev/tramai/core/approval/ApprovalContinuation;Ldev/tramai/core/approval/SensitiveToolArguments;)V
+	public final fun component1 ()Ldev/tramai/core/approval/ApprovalContinuation;
+	public final fun component2 ()Ldev/tramai/core/approval/SensitiveToolArguments;
+	public final fun copy (Ldev/tramai/core/approval/ApprovalContinuation;Ldev/tramai/core/approval/SensitiveToolArguments;)Ldev/tramai/core/approval/ClaimedApprovalContinuation;
+	public static synthetic fun copy$default (Ldev/tramai/core/approval/ClaimedApprovalContinuation;Ldev/tramai/core/approval/ApprovalContinuation;Ldev/tramai/core/approval/SensitiveToolArguments;ILjava/lang/Object;)Ldev/tramai/core/approval/ClaimedApprovalContinuation;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArguments ()Ldev/tramai/core/approval/SensitiveToolArguments;
+	public final fun getContinuation ()Ldev/tramai/core/approval/ApprovalContinuation;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/CreateApprovalCommand {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3-2AhqMsM ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5-2AhqMsM ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/time/Instant;
+	public final fun copy-OFo2wqw (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;)Ldev/tramai/core/approval/CreateApprovalCommand;
+	public static synthetic fun copy-OFo2wqw$default (Ldev/tramai/core/approval/CreateApprovalCommand;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;ILjava/lang/Object;)Ldev/tramai/core/approval/CreateApprovalCommand;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArgumentsDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getExpiresAt ()Ljava/time/Instant;
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getRequestedBy ()Ljava/lang/String;
+	public final fun getToolName ()Ljava/lang/String;
+	public final fun getWorkflowDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ForceCancelClaimedCommand {
+	public fun <init> (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()J
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;)Ldev/tramai/core/approval/ForceCancelClaimedCommand;
+	public static synthetic fun copy$default (Ldev/tramai/core/approval/ForceCancelClaimedCommand;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/approval/ForceCancelClaimedCommand;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getExpectedVersion ()J
+	public final fun getOperatorId ()Ljava/lang/String;
+	public final fun getReasonCode ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/IdempotencyKeyUtil {
+	public static final field INSTANCE Ldev/tramai/core/approval/IdempotencyKeyUtil;
+	public final fun deriveApprovalKey-JBA-nls (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+	public final fun describeKeySource (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/NoOpApprovalLifecycleAuditEmitter : dev/tramai/core/approval/ApprovalLifecycleAuditEmitter {
+	public static final field INSTANCE Ldev/tramai/core/approval/NoOpApprovalLifecycleAuditEmitter;
+	public fun onClaimedContinuationForceCancellationRequested (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun onClaimedContinuationForceCancelled (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun onStaleClaimDetected (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun onSuspensionCancelled (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun onToolExecutionCompleted (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun onToolExecutionResumed (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun onToolExecutionSuspended-0ERvcow (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun onUncertainOutcome (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/core/approval/SafeActorIdPolicy {
+	public static final field INSTANCE Ldev/tramai/core/approval/SafeActorIdPolicy;
+	public final fun getSAFE_ACTOR_ID ()Lkotlin/text/Regex;
+	public final fun safeActorId (Ljava/lang/String;)Ljava/lang/String;
+	public final fun validateActorId (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+	public static synthetic fun validateActorId$default (Ldev/tramai/core/approval/SafeActorIdPolicy;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/SensitiveToolArguments {
+	public static final field Companion Ldev/tramai/core/approval/SensitiveToolArguments$Companion;
+	public synthetic fun <init> (Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public final fun reveal ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/SensitiveToolArguments$Companion {
+	public final fun of (Ljava/lang/String;)Ldev/tramai/core/approval/SensitiveToolArguments;
+}
+
+public final class dev/tramai/core/approval/Sha256Digest {
+	public static final field Companion Ldev/tramai/core/approval/Sha256Digest$Companion;
+	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/approval/Sha256Digest;
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
+	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public static fun hashCode-impl (Ljava/lang/String;)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/Sha256Digest$Companion {
+	public final fun of-dmurZg0 (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/approval/ToolArgumentsDigester {
+	public abstract fun digest-dmurZg0 (Ldev/tramai/core/approval/SensitiveToolArguments;)Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/ValidateResumeCommand {
+	public synthetic fun <init> (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()J
+	public final fun component3-1ALkydY ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7-2AhqMsM ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9-2AhqMsM ()Ljava/lang/String;
+	public final fun copy-RH2KHNY (Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/approval/ValidateResumeCommand;
+	public static synthetic fun copy-RH2KHNY$default (Ldev/tramai/core/approval/ValidateResumeCommand;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/approval/ValidateResumeCommand;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getArgumentsDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getConsumedBy ()Ljava/lang/String;
+	public final fun getExpectedVersion ()J
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getPresentedToken-1ALkydY ()Ljava/lang/String;
+	public final fun getToolName ()Ljava/lang/String;
+	public final fun getWorkflowDigest-2AhqMsM ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/approval/gateway/ApprovalGateway {
+	public abstract fun requestApproval-Atj0Sqo (Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun requestApproval-Atj0Sqo$default (Ldev/tramai/core/approval/gateway/ApprovalGateway;Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/core/approval/gateway/ApprovalGateway$DefaultImpls {
+	public static synthetic fun requestApproval-Atj0Sqo$default (Ldev/tramai/core/approval/gateway/ApprovalGateway;Ljava/lang/String;Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/core/approval/gateway/ApprovalId {
+	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/approval/gateway/ApprovalId;
+	public static fun constructor-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
+	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public static fun hashCode-impl (Ljava/lang/String;)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/gateway/ApprovalRecommendation {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/Map;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)Ldev/tramai/core/approval/gateway/ApprovalRecommendation;
+	public static synthetic fun copy$default (Ldev/tramai/core/approval/gateway/ApprovalRecommendation;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/core/approval/gateway/ApprovalRecommendation;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPayload ()Ljava/util/Map;
+	public final fun getSummary ()Ljava/lang/String;
+	public final fun getType ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/approval/gateway/ApprovalRequestResult {
+}
+
+public final class dev/tramai/core/approval/gateway/ApprovalRequestResult$AlreadyApproved : dev/tramai/core/approval/gateway/ApprovalRequestResult {
+	public fun <init> (Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Approved;)V
+	public final fun component1 ()Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Approved;
+	public final fun copy (Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Approved;)Ldev/tramai/core/approval/gateway/ApprovalRequestResult$AlreadyApproved;
+	public static synthetic fun copy$default (Ldev/tramai/core/approval/gateway/ApprovalRequestResult$AlreadyApproved;Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Approved;ILjava/lang/Object;)Ldev/tramai/core/approval/gateway/ApprovalRequestResult$AlreadyApproved;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDecision ()Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Approved;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/gateway/ApprovalRequestResult$AlreadyDenied : dev/tramai/core/approval/gateway/ApprovalRequestResult {
+	public fun <init> (Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Denied;)V
+	public final fun component1 ()Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Denied;
+	public final fun copy (Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Denied;)Ldev/tramai/core/approval/gateway/ApprovalRequestResult$AlreadyDenied;
+	public static synthetic fun copy$default (Ldev/tramai/core/approval/gateway/ApprovalRequestResult$AlreadyDenied;Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Denied;ILjava/lang/Object;)Ldev/tramai/core/approval/gateway/ApprovalRequestResult$AlreadyDenied;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDecision ()Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Denied;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/gateway/ApprovalRequestResult$Expired : dev/tramai/core/approval/gateway/ApprovalRequestResult {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-3qC8wes ()Ljava/lang/String;
+	public final fun component2 ()Ljava/time/Instant;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy-0RvLICw (Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;)Ldev/tramai/core/approval/gateway/ApprovalRequestResult$Expired;
+	public static synthetic fun copy-0RvLICw$default (Ldev/tramai/core/approval/gateway/ApprovalRequestResult$Expired;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/approval/gateway/ApprovalRequestResult$Expired;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId-3qC8wes ()Ljava/lang/String;
+	public final fun getExpiredAt ()Ljava/time/Instant;
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/gateway/ApprovalRequestResult$Suspended : dev/tramai/core/approval/gateway/ApprovalRequestResult {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-3qC8wes ()Ljava/lang/String;
+	public final fun component2-8HxaQVs ()Ljava/lang/String;
+	public final fun component3-RRfCq5Y ()Ljava/lang/String;
+	public final fun component4-SDbYCGE ()Ljava/lang/String;
+	public final fun copy-m7sqhPc (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/approval/gateway/ApprovalRequestResult$Suspended;
+	public static synthetic fun copy-m7sqhPc$default (Ldev/tramai/core/approval/gateway/ApprovalRequestResult$Suspended;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/approval/gateway/ApprovalRequestResult$Suspended;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId-3qC8wes ()Ljava/lang/String;
+	public final fun getAuditStreamId-RRfCq5Y ()Ljava/lang/String;
+	public final fun getResumeToken-SDbYCGE ()Ljava/lang/String;
+	public final fun getWorkflowRunId-8HxaQVs ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/gateway/ApprovalResumeCredentialRecord {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/approval/gateway/SealedResumeToken;Ljava/time/Instant;Ljava/time/Instant;JLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-3qC8wes ()Ljava/lang/String;
+	public final fun component2-8HxaQVs ()Ljava/lang/String;
+	public final fun component3 ()Ldev/tramai/core/approval/gateway/SealedResumeToken;
+	public final fun component4 ()Ljava/time/Instant;
+	public final fun component5 ()Ljava/time/Instant;
+	public final fun component6 ()J
+	public final fun copy-nEcPldU (Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/approval/gateway/SealedResumeToken;Ljava/time/Instant;Ljava/time/Instant;J)Ldev/tramai/core/approval/gateway/ApprovalResumeCredentialRecord;
+	public static synthetic fun copy-nEcPldU$default (Ldev/tramai/core/approval/gateway/ApprovalResumeCredentialRecord;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/approval/gateway/SealedResumeToken;Ljava/time/Instant;Ljava/time/Instant;JILjava/lang/Object;)Ldev/tramai/core/approval/gateway/ApprovalResumeCredentialRecord;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId-3qC8wes ()Ljava/lang/String;
+	public final fun getCreatedAt ()Ljava/time/Instant;
+	public final fun getExpiresAt ()Ljava/time/Instant;
+	public final fun getResumeToken ()Ldev/tramai/core/approval/gateway/SealedResumeToken;
+	public final fun getVersion ()J
+	public final fun getWorkflowRunId-8HxaQVs ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/approval/gateway/ApprovalResumeCredentialStore {
+	public abstract fun create (Ldev/tramai/core/approval/gateway/ApprovalResumeCredentialRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun delete-jFQnKDU (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun get-jFQnKDU (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/core/approval/gateway/ApprovalSubject {
+	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/approval/gateway/ApprovalSubject;
+	public static fun constructor-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
+	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public static fun hashCode-impl (Ljava/lang/String;)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/gateway/ApproverRole {
+	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/approval/gateway/ApproverRole;
+	public static fun constructor-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
+	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public static fun hashCode-impl (Ljava/lang/String;)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/gateway/AuditStreamId {
+	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/approval/gateway/AuditStreamId;
+	public static fun constructor-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
+	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public static fun hashCode-impl (Ljava/lang/String;)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/approval/gateway/HumanApprovalDecision {
+	public abstract fun getApprovalId-3qC8wes ()Ljava/lang/String;
+	public abstract fun getComment ()Ljava/lang/String;
+	public abstract fun getDecidedAt ()Ljava/time/Instant;
+	public abstract fun getDecidedBy ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/gateway/HumanApprovalDecision$Approved : dev/tramai/core/approval/gateway/HumanApprovalDecision {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-3qC8wes ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/time/Instant;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy-_sU59ic (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;)Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Approved;
+	public static synthetic fun copy-_sU59ic$default (Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Approved;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Approved;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getApprovalId ()Ljava/lang/String;
+	public synthetic fun getApprovalId-3qC8wes ()Ljava/lang/String;
+	public fun getComment ()Ljava/lang/String;
+	public fun getDecidedAt ()Ljava/time/Instant;
+	public fun getDecidedBy ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/gateway/HumanApprovalDecision$Denied : dev/tramai/core/approval/gateway/HumanApprovalDecision {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-3qC8wes ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/time/Instant;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun copy-DvV-WI4 (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Denied;
+	public static synthetic fun copy-DvV-WI4$default (Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Denied;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Denied;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getApprovalId ()Ljava/lang/String;
+	public synthetic fun getApprovalId-3qC8wes ()Ljava/lang/String;
+	public fun getComment ()Ljava/lang/String;
+	public fun getDecidedAt ()Ljava/time/Instant;
+	public fun getDecidedBy ()Ljava/lang/String;
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/gateway/ResumeToken {
+	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/approval/gateway/ResumeToken;
+	public static fun constructor-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
+	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public static fun hashCode-impl (Ljava/lang/String;)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/gateway/SealedResumeToken {
+	public static final field Companion Ldev/tramai/core/approval/gateway/SealedResumeToken$Companion;
+	public synthetic fun <init> (Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public final fun revealForInternalResume-SDbYCGE ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/approval/gateway/SealedResumeToken$Companion {
+	public final fun seal-UqMvU5g (Ljava/lang/String;)Ldev/tramai/core/approval/gateway/SealedResumeToken;
+}
+
+public final class dev/tramai/core/approval/gateway/WorkflowRunId {
+	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/approval/gateway/WorkflowRunId;
+	public static fun constructor-impl (Ljava/lang/String;)Ljava/lang/String;
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
+	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public static fun hashCode-impl (Ljava/lang/String;)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ApprovalAuthorizationException : dev/tramai/core/exception/ApprovalException {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun getApprovalId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ApprovalBindingMismatchException : dev/tramai/core/exception/ApprovalException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getField ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ApprovalContinuationConflictException : dev/tramai/core/exception/ApprovalContinuationStoreException {
+	public fun <init> (Ljava/lang/String;)V
+	public fun getApprovalId ()Ljava/lang/String;
+	public fun getMessage ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ApprovalContinuationNotClaimableException : dev/tramai/core/exception/ApprovalContinuationStoreException {
+	public fun <init> (Ljava/lang/String;)V
+	public fun getApprovalId ()Ljava/lang/String;
+	public fun getMessage ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ApprovalContinuationNotCompletableException : dev/tramai/core/exception/ApprovalContinuationStoreException {
+	public fun <init> (Ljava/lang/String;)V
+	public fun getApprovalId ()Ljava/lang/String;
+	public fun getMessage ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ApprovalContinuationNotFoundException : dev/tramai/core/exception/ApprovalContinuationStoreException {
+	public fun <init> (Ljava/lang/String;)V
+	public fun getApprovalId ()Ljava/lang/String;
+	public fun getMessage ()Ljava/lang/String;
+}
+
+public abstract class dev/tramai/core/exception/ApprovalContinuationStoreException : java/lang/RuntimeException {
+	public synthetic fun <init> (Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun getApprovalId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ApprovalCreationException : dev/tramai/core/exception/ApprovalException {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun getApprovalId ()Ljava/lang/String;
+}
+
+public class dev/tramai/core/exception/ApprovalException : dev/tramai/core/exception/TramaiException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public abstract interface class dev/tramai/core/exception/ApprovalFailureObserver {
+	public abstract fun record (Ljava/lang/String;Ljava/lang/String;Ljava/lang/RuntimeException;)V
+}
+
+public final class dev/tramai/core/exception/ApprovalNotFoundException : dev/tramai/core/exception/ApprovalException {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun getApprovalId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ApprovalRecoveryAuditUnavailableException : dev/tramai/core/exception/ApprovalException {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Throwable;)V
+}
+
+public final class dev/tramai/core/exception/ApprovalRecoveryUnavailableException : dev/tramai/core/exception/ApprovalException {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Throwable;)V
+}
+
+public final class dev/tramai/core/exception/ApprovalRequiredException : dev/tramai/core/exception/TramaiException {
+	public fun <init> (Ldev/tramai/core/policy/ApprovalRequirement;)V
+	public final fun getRequirement ()Ldev/tramai/core/policy/ApprovalRequirement;
+}
+
+public final class dev/tramai/core/exception/ApprovalStoreConflictException : dev/tramai/core/exception/ApprovalStoreException {
+	public fun <init> (Ljava/lang/String;)V
+	public fun getApprovalId ()Ljava/lang/String;
+}
+
+public abstract class dev/tramai/core/exception/ApprovalStoreException : java/lang/RuntimeException {
+	public synthetic fun <init> (Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun getApprovalId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ApprovalStoreNotConsumableException : dev/tramai/core/exception/ApprovalStoreException {
+	public fun <init> (Ljava/lang/String;)V
+	public fun getApprovalId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ApprovalStoreNotFoundException : dev/tramai/core/exception/ApprovalStoreException {
+	public fun <init> (Ljava/lang/String;)V
+	public fun getApprovalId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ApprovalStoreTokenRejectedException : dev/tramai/core/exception/ApprovalStoreException {
+	public fun <init> (Ljava/lang/String;)V
+	public fun getApprovalId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ApprovalSuspendedException : dev/tramai/core/exception/TramaiException {
+	public fun <init> (Ldev/tramai/core/approval/ApprovalChallenge;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getChallenge ()Ldev/tramai/core/approval/ApprovalChallenge;
+	public final fun getContinuationVersion ()J
+	public final fun getToolCallId ()Ljava/lang/String;
+	public final fun getToolName ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ApprovalTokenRejectedException : dev/tramai/core/exception/ApprovalException {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun getApprovalId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/CachedModelProvenanceMismatchException : dev/tramai/core/exception/ModelRegistryException {
+	public fun <init> ()V
+}
+
+public final class dev/tramai/core/exception/CircuitBreakerOpenException : dev/tramai/core/exception/TramaiException {
+	public fun <init> (Ljava/lang/String;J)V
+	public final fun getProviderId ()Ljava/lang/String;
+	public final fun getReopenAtEpochMillis ()J
+}
+
+public final class dev/tramai/core/exception/ConfigurationException : dev/tramai/core/exception/TramaiException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public final class dev/tramai/core/exception/IllegalApprovalTransitionException : dev/tramai/core/exception/ApprovalException {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/core/approval/ApprovalStatus;Ldev/tramai/core/approval/ApprovalStatus;Ljava/lang/String;)V
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getFrom ()Ldev/tramai/core/approval/ApprovalStatus;
+	public final fun getReason ()Ljava/lang/String;
+	public final fun getTo ()Ldev/tramai/core/approval/ApprovalStatus;
+}
+
+public final class dev/tramai/core/exception/ModelDisabledException : dev/tramai/core/exception/ModelRegistryException {
+	public fun <init> ()V
+}
+
+public final class dev/tramai/core/exception/ModelNotRegisteredException : dev/tramai/core/exception/ModelRegistryException {
+	public fun <init> ()V
+}
+
+public final class dev/tramai/core/exception/ModelRegistryContractViolationException : dev/tramai/core/exception/ModelRegistryException {
+	public fun <init> ()V
+}
+
+public class dev/tramai/core/exception/ModelRegistryException : dev/tramai/core/exception/TramaiException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public final class dev/tramai/core/exception/ModelRegistryUnavailableException : dev/tramai/core/exception/ModelRegistryException {
+	public fun <init> ()V
+}
+
+public final class dev/tramai/core/exception/NestedApprovalNotSupportedException : dev/tramai/core/exception/TramaiException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun getApprovalId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/PolicyViolationException : dev/tramai/core/exception/TramaiException {
+	public fun <init> (Ldev/tramai/core/policy/PolicyDecision$Deny;)V
+	public final fun getDecision ()Ldev/tramai/core/policy/PolicyDecision$Deny;
+}
+
+public final class dev/tramai/core/exception/ProviderCapabilityException : dev/tramai/core/exception/TramaiException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun getCapability ()Ljava/lang/String;
+	public final fun getProviderId ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ProviderException : dev/tramai/core/exception/TramaiException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Integer;ZLjava/lang/Long;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;Ljava/lang/Integer;ZLjava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getRetryAfterMillis ()Ljava/lang/Long;
+	public final fun getRetryable ()Z
+	public final fun getStatusCode ()Ljava/lang/Integer;
+}
+
+public final class dev/tramai/core/exception/StructuredOutputException : dev/tramai/core/exception/TramaiException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getAttemptCount ()Ljava/lang/Integer;
+	public final fun getLastRawResponse ()Ljava/lang/String;
+	public final fun getOriginalPrompt ()Ljava/lang/String;
+	public final fun getValidationError ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/TimeoutException : dev/tramai/core/exception/TramaiException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public final class dev/tramai/core/exception/TokenBudgetExceededException : dev/tramai/core/exception/TramaiException {
+	public fun <init> (Ljava/lang/String;JJLjava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;JJLjava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getLimitTokens ()J
+	public final fun getModelName ()Ljava/lang/String;
+	public final fun getObservedTokens ()J
+	public final fun getProviderId ()Ljava/lang/String;
+	public final fun getScope ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/exception/ToolInvalidInputException : dev/tramai/core/exception/TramaiException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public abstract class dev/tramai/core/exception/TramaiException : java/lang/RuntimeException {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public abstract interface class dev/tramai/core/memory/ChatMemory {
+	public abstract fun add (Ljava/lang/String;Ldev/tramai/core/model/Message;)V
+	public abstract fun add (Ljava/lang/String;Ljava/util/List;)V
+	public abstract fun clear (Ljava/lang/String;)V
+	public abstract fun get (Ljava/lang/String;)Ljava/util/List;
+}
+
+public abstract interface class dev/tramai/core/memory/ChatMemoryStore {
+	public abstract fun appendMessages (Ljava/lang/String;Ljava/util/List;)V
+	public abstract fun deleteConversation (Ljava/lang/String;)V
+	public abstract fun getMessages (Ljava/lang/String;)Ljava/util/List;
+	public abstract fun listConversations (II)Ljava/util/List;
+}
+
+public abstract interface class dev/tramai/core/memory/ConversationIdProvider {
+	public abstract fun resolve ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/memory/RoughTokenizerKt {
+	public static final fun roughTokenizer ()Ldev/tramai/core/memory/Tokenizer;
+}
+
+public abstract interface class dev/tramai/core/memory/Tokenizer {
+	public abstract fun countTokens (Ljava/lang/String;)I
+}
+
+public final class dev/tramai/core/memory/UuidConversationIdProvider : dev/tramai/core/memory/ConversationIdProvider {
+	public fun <init> ()V
+	public fun resolve ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/ClassifiedDocument {
+	public fun <init> (Ljava/lang/Object;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;)V
+	public final fun component1 ()Ljava/lang/Object;
+	public final fun component2 ()Ldev/tramai/core/policy/DataClassification;
+	public final fun component3 ()Ldev/tramai/core/policy/ClassificationSource;
+	public final fun copy (Ljava/lang/Object;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;)Ldev/tramai/core/model/ClassifiedDocument;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/ClassifiedDocument;Ljava/lang/Object;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;ILjava/lang/Object;)Ldev/tramai/core/model/ClassifiedDocument;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getClassification ()Ldev/tramai/core/policy/DataClassification;
+	public final fun getPayload ()Ljava/lang/Object;
+	public final fun getSource ()Ldev/tramai/core/policy/ClassificationSource;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/model/ContentPart {
+	public static final field Companion Ldev/tramai/core/model/ContentPart$Companion;
+}
+
+public final class dev/tramai/core/model/ContentPart$Companion {
+	public final fun isImage (Ldev/tramai/core/model/ContentPart;)Z
+}
+
+public final class dev/tramai/core/model/ContentPart$ImagePart : dev/tramai/core/model/ContentPart {
+	public fun <init> (Ljava/lang/String;[B)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getData ()[B
+	public final fun getMimeType ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/ContentPart$ImageUrlContent : dev/tramai/core/model/ContentPart {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/model/ContentPart$ImageUrlContent;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/ContentPart$ImageUrlContent;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/model/ContentPart$ImageUrlContent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMimeType ()Ljava/lang/String;
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/ContentPart$TextPart : dev/tramai/core/model/ContentPart {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/core/model/ContentPart$TextPart;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/ContentPart$TextPart;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/model/ContentPart$TextPart;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getText ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/FinishReason : java/lang/Enum {
+	public static final field CONTENT_FILTER Ldev/tramai/core/model/FinishReason;
+	public static final field LENGTH Ldev/tramai/core/model/FinishReason;
+	public static final field OTHER Ldev/tramai/core/model/FinishReason;
+	public static final field STOP Ldev/tramai/core/model/FinishReason;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/model/FinishReason;
+	public static fun values ()[Ldev/tramai/core/model/FinishReason;
+}
+
+public final class dev/tramai/core/model/ImageDetail : java/lang/Enum {
+	public static final field AUTO Ldev/tramai/core/model/ImageDetail;
+	public static final field HIGH Ldev/tramai/core/model/ImageDetail;
+	public static final field LOW Ldev/tramai/core/model/ImageDetail;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/model/ImageDetail;
+	public static fun values ()[Ldev/tramai/core/model/ImageDetail;
+}
+
+public final class dev/tramai/core/model/LocalModelArtifactFileV1 {
+	public synthetic fun <init> (Ljava/lang/String;JLjava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()J
+	public final fun component3-oCAyOGQ ()Ljava/lang/String;
+	public final fun copy-O1Moq2g (Ljava/lang/String;JLjava/lang/String;)Ldev/tramai/core/model/LocalModelArtifactFileV1;
+	public static synthetic fun copy-O1Moq2g$default (Ldev/tramai/core/model/LocalModelArtifactFileV1;Ljava/lang/String;JLjava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/model/LocalModelArtifactFileV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDigest-oCAyOGQ ()Ljava/lang/String;
+	public final fun getRelativePath ()Ljava/lang/String;
+	public final fun getSizeBytes ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/LocalModelArtifactManifestV1 {
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;)V
+	public final fun canonicalBytes ()[B
+	public final fun getArtifacts ()Ljava/util/List;
+	public final fun getModelName ()Ljava/lang/String;
+	public final fun getProviderId ()Ljava/lang/String;
+	public final fun getRegistryEntryId ()Ljava/lang/String;
+	public final fun getRevision ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+}
+
+public final class dev/tramai/core/model/Message {
+	public static final field Companion Ldev/tramai/core/model/Message$Companion;
+	public fun <init> (Ldev/tramai/core/model/MessageRole;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/util/List;)V
+	public synthetic fun <init> (Ldev/tramai/core/model/MessageRole;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/core/model/MessageRole;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/util/List;
+	public final fun copy (Ldev/tramai/core/model/MessageRole;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/util/List;)Ldev/tramai/core/model/Message;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/Message;Ldev/tramai/core/model/MessageRole;Ljava/lang/String;Ljava/util/List;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/core/model/Message;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun estimateImageTokens (Ldev/tramai/core/model/ImageDetail;)I
+	public static synthetic fun estimateImageTokens$default (Ldev/tramai/core/model/Message;Ldev/tramai/core/model/ImageDetail;ILjava/lang/Object;)I
+	public final fun getContent ()Ljava/lang/String;
+	public final fun getContentParts ()Ljava/util/List;
+	public final fun getRole ()Ldev/tramai/core/model/MessageRole;
+	public final fun getToolCallId ()Ljava/lang/String;
+	public final fun getToolCalls ()Ljava/util/List;
+	public final fun hasImage ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/Message$Companion {
+	public final fun text (Ljava/lang/String;)Ldev/tramai/core/model/Message;
+}
+
+public final class dev/tramai/core/model/MessageRole : java/lang/Enum {
+	public static final field ASSISTANT Ldev/tramai/core/model/MessageRole;
+	public static final field SYSTEM Ldev/tramai/core/model/MessageRole;
+	public static final field TOOL Ldev/tramai/core/model/MessageRole;
+	public static final field USER Ldev/tramai/core/model/MessageRole;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/model/MessageRole;
+	public static fun values ()[Ldev/tramai/core/model/MessageRole;
+}
+
+public final class dev/tramai/core/model/ModelArtifactDigest {
+	public static final field Companion Ldev/tramai/core/model/ModelArtifactDigest$Companion;
+	public static final synthetic fun box-impl (Ljava/lang/String;)Ldev/tramai/core/model/ModelArtifactDigest;
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
+	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public static fun hashCode-impl (Ljava/lang/String;)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/ModelArtifactDigest$Companion {
+	public final fun of-VLd_J5g (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/ModelArtifactVerificationSettings {
+	public fun <init> ()V
+	public fun <init> (ZZ)V
+	public synthetic fun <init> (ZZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Z
+	public final fun copy (ZZ)Ldev/tramai/core/model/ModelArtifactVerificationSettings;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/ModelArtifactVerificationSettings;ZZILjava/lang/Object;)Ldev/tramai/core/model/ModelArtifactVerificationSettings;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEnabled ()Z
+	public final fun getRequireDigestForLocalModels ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/model/ModelArtifactVerifier {
+	public abstract fun verify (Ldev/tramai/core/model/RegisteredModel;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/core/model/ModelRegistry {
+	public abstract fun findApprovedModel (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/core/model/ModelRegistrySettings {
+	public fun <init> ()V
+	public fun <init> (Z)V
+	public synthetic fun <init> (ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun copy (Z)Ldev/tramai/core/model/ModelRegistrySettings;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/ModelRegistrySettings;ZILjava/lang/Object;)Ldev/tramai/core/model/ModelRegistrySettings;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEnabled ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/ModelRequest {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/lang/Integer;Ljava/lang/Double;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/model/ImageDetail;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/lang/Integer;Ljava/lang/Double;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/model/ImageDetail;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()Ljava/lang/Integer;
+	public final fun component5 ()Ljava/lang/Double;
+	public final fun component6 ()Ljava/lang/Long;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ldev/tramai/core/model/ImageDetail;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/lang/Integer;Ljava/lang/Double;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/model/ImageDetail;)Ldev/tramai/core/model/ModelRequest;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/ModelRequest;Ljava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/lang/Integer;Ljava/lang/Double;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/model/ImageDetail;ILjava/lang/Object;)Ldev/tramai/core/model/ModelRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getImageDetail ()Ldev/tramai/core/model/ImageDetail;
+	public final fun getMaxTokens ()Ljava/lang/Integer;
+	public final fun getMessages ()Ljava/util/List;
+	public final fun getModel ()Ljava/lang/String;
+	public final fun getOperationInterface ()Ljava/lang/String;
+	public final fun getOperationMethod ()Ljava/lang/String;
+	public final fun getTemperature ()Ljava/lang/Double;
+	public final fun getTimeoutMillis ()Ljava/lang/Long;
+	public final fun getTools ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/ModelResponse {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/String;Ldev/tramai/core/model/FinishReason;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/List;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/String;Ldev/tramai/core/model/FinishReason;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun component4 ()Ljava/lang/Integer;
+	public final fun component5 ()Ljava/lang/Integer;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ldev/tramai/core/model/FinishReason;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/String;Ldev/tramai/core/model/FinishReason;)Ldev/tramai/core/model/ModelResponse;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/ModelResponse;Ljava/lang/String;Ljava/util/List;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/String;Ldev/tramai/core/model/FinishReason;ILjava/lang/Object;)Ldev/tramai/core/model/ModelResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getContent ()Ljava/lang/String;
+	public final fun getFinishReason ()Ldev/tramai/core/model/FinishReason;
+	public final fun getInputTokens ()Ljava/lang/Integer;
+	public final fun getModelUsed ()Ljava/lang/String;
+	public final fun getOutputTokens ()Ljava/lang/Integer;
+	public final fun getThinkingTokens ()Ljava/lang/Integer;
+	public final fun getToolCalls ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+	public final fun totalTokens ()Ljava/lang/Integer;
+}
+
+public final class dev/tramai/core/model/NoOpModelArtifactVerifier : dev/tramai/core/model/ModelArtifactVerifier {
+	public static final field INSTANCE Ldev/tramai/core/model/NoOpModelArtifactVerifier;
+	public fun verify (Ldev/tramai/core/model/RegisteredModel;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/core/model/NoOpModelRegistry : dev/tramai/core/model/ModelRegistry {
+	public static final field INSTANCE Ldev/tramai/core/model/NoOpModelRegistry;
+	public fun findApprovedModel (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/core/model/RegisteredModel {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5-LClW5tk ()Ljava/lang/String;
+	public final fun component6 ()Z
+	public final fun copy-os3jEAw (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Z)Ldev/tramai/core/model/RegisteredModel;
+	public static synthetic fun copy-os3jEAw$default (Ldev/tramai/core/model/RegisteredModel;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZILjava/lang/Object;)Ldev/tramai/core/model/RegisteredModel;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArtifactDigest-LClW5tk ()Ljava/lang/String;
+	public final fun getEnabled ()Z
+	public final fun getModelName ()Ljava/lang/String;
+	public final fun getProviderId ()Ljava/lang/String;
+	public final fun getRegistryEntryId ()Ljava/lang/String;
+	public final fun getRevision ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/model/ResolvedTool {
+	public abstract fun execute (Ljava/lang/Object;Ldev/tramai/core/model/ToolExecutionContext;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun getDescription ()Ljava/lang/String;
+	public abstract fun getIdempotent ()Z
+	public abstract fun getInputSchemaJson ()Ljava/lang/String;
+	public abstract fun getName ()Ljava/lang/String;
+	public fun getSecurity ()Ldev/tramai/core/policy/ToolSecurityMetadata;
+	public abstract fun getSideEffectLevel ()Ldev/tramai/core/model/SideEffectLevel;
+}
+
+public final class dev/tramai/core/model/ResolvedTool$DefaultImpls {
+	public static fun getSecurity (Ldev/tramai/core/model/ResolvedTool;)Ldev/tramai/core/policy/ToolSecurityMetadata;
+}
+
+public final class dev/tramai/core/model/SideEffectLevel : java/lang/Enum {
+	public static final field NONE Ldev/tramai/core/model/SideEffectLevel;
+	public static final field READ_ONLY Ldev/tramai/core/model/SideEffectLevel;
+	public static final field UNKNOWN Ldev/tramai/core/model/SideEffectLevel;
+	public static final field WRITE Ldev/tramai/core/model/SideEffectLevel;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/model/SideEffectLevel;
+	public static fun values ()[Ldev/tramai/core/model/SideEffectLevel;
+}
+
+public abstract class dev/tramai/core/model/StreamChunk {
+}
+
+public final class dev/tramai/core/model/StreamChunk$Complete : dev/tramai/core/model/StreamChunk {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/core/model/UsageMetrics;)V
+	public synthetic fun <init> (Ljava/lang/String;Ldev/tramai/core/model/UsageMetrics;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/core/model/UsageMetrics;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/core/model/UsageMetrics;)Ldev/tramai/core/model/StreamChunk$Complete;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/StreamChunk$Complete;Ljava/lang/String;Ldev/tramai/core/model/UsageMetrics;ILjava/lang/Object;)Ldev/tramai/core/model/StreamChunk$Complete;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFullText ()Ljava/lang/String;
+	public final fun getUsage ()Ldev/tramai/core/model/UsageMetrics;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/StreamChunk$Error : dev/tramai/core/model/StreamChunk {
+	public fun <init> (Ldev/tramai/core/exception/TramaiException;)V
+	public final fun component1 ()Ldev/tramai/core/exception/TramaiException;
+	public final fun copy (Ldev/tramai/core/exception/TramaiException;)Ldev/tramai/core/model/StreamChunk$Error;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/StreamChunk$Error;Ldev/tramai/core/exception/TramaiException;ILjava/lang/Object;)Ldev/tramai/core/model/StreamChunk$Error;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Ldev/tramai/core/exception/TramaiException;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/StreamChunk$Token : dev/tramai/core/model/StreamChunk {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/core/model/StreamChunk$Token;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/StreamChunk$Token;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/model/StreamChunk$Token;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getText ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/ToolCall {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/model/ToolCall;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/ToolCall;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/model/ToolCall;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArgumentsJson ()Ljava/lang/String;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/ToolDefinition {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/model/ToolDefinition;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/ToolDefinition;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/model/ToolDefinition;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDescription ()Ljava/lang/String;
+	public final fun getInputSchemaJson ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/ToolExecutionContext {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/time/Duration;Ljava/util/Map;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/time/Duration;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()I
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/time/Duration;
+	public final fun component7 ()Ljava/util/Map;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/time/Duration;Ljava/util/Map;)Ldev/tramai/core/model/ToolExecutionContext;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/ToolExecutionContext;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/time/Duration;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/core/model/ToolExecutionContext;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttemptNumber ()I
+	public final fun getAttributes ()Ljava/util/Map;
+	public final fun getConversationId ()Ljava/lang/String;
+	public final fun getIdempotencyKey ()Ljava/lang/String;
+	public final fun getModelName ()Ljava/lang/String;
+	public final fun getOperationName ()Ljava/lang/String;
+	public final fun getTimeout ()Ljava/time/Duration;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract class dev/tramai/core/model/ToolResult {
+}
+
+public final class dev/tramai/core/model/ToolResult$InvalidInput : dev/tramai/core/model/ToolResult {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/core/model/ToolResult$InvalidInput;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/ToolResult$InvalidInput;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/model/ToolResult$InvalidInput;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/ToolResult$PermanentFailure : dev/tramai/core/model/ToolResult {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/core/model/ToolResult$PermanentFailure;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/ToolResult$PermanentFailure;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/model/ToolResult$PermanentFailure;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/ToolResult$Success : dev/tramai/core/model/ToolResult {
+	public fun <init> (Ljava/lang/Object;Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/lang/Object;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Object;
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/Object;Ljava/util/List;)Ldev/tramai/core/model/ToolResult$Success;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/ToolResult$Success;Ljava/lang/Object;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/core/model/ToolResult$Success;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getContentParts ()Ljava/util/List;
+	public final fun getValue ()Ljava/lang/Object;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/ToolResult$TransientFailure : dev/tramai/core/model/ToolResult {
+	public fun <init> (Ljava/lang/Throwable;)V
+	public final fun component1 ()Ljava/lang/Throwable;
+	public final fun copy (Ljava/lang/Throwable;)Ldev/tramai/core/model/ToolResult$TransientFailure;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/ToolResult$TransientFailure;Ljava/lang/Throwable;ILjava/lang/Object;)Ldev/tramai/core/model/ToolResult$TransientFailure;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Ljava/lang/Throwable;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/model/TramaiTool {
+	public abstract fun execute (Ljava/lang/Object;Ldev/tramai/core/model/ToolExecutionContext;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun getDescription ()Ljava/lang/String;
+	public fun getIdempotent ()Z
+	public abstract fun getInputType ()Lkotlin/reflect/KClass;
+	public abstract fun getName ()Ljava/lang/String;
+	public fun getSecurity ()Ldev/tramai/core/policy/ToolSecurityMetadata;
+	public fun getSideEffectLevel ()Ldev/tramai/core/model/SideEffectLevel;
+}
+
+public final class dev/tramai/core/model/TramaiTool$DefaultImpls {
+	public static fun getIdempotent (Ldev/tramai/core/model/TramaiTool;)Z
+	public static fun getSecurity (Ldev/tramai/core/model/TramaiTool;)Ldev/tramai/core/policy/ToolSecurityMetadata;
+	public static fun getSideEffectLevel (Ldev/tramai/core/model/TramaiTool;)Ldev/tramai/core/model/SideEffectLevel;
+}
+
+public final class dev/tramai/core/model/UsageMetrics {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;II)V
+	public synthetic fun <init> (Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;IIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Integer;
+	public final fun component2 ()Ljava/lang/Integer;
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun component4 ()I
+	public final fun component5 ()I
+	public final fun copy (Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;II)Ldev/tramai/core/model/UsageMetrics;
+	public static synthetic fun copy$default (Ldev/tramai/core/model/UsageMetrics;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;IIILjava/lang/Object;)Ldev/tramai/core/model/UsageMetrics;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getImageCount ()I
+	public final fun getImageTokensEstimate ()I
+	public final fun getInputTokens ()Ljava/lang/Integer;
+	public final fun getOutputTokens ()Ljava/lang/Integer;
+	public final fun getThinkingTokens ()Ljava/lang/Integer;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/model/VerifiedLocalModelArtifact {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;IJLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2-oCAyOGQ ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/time/Instant;
+	public final fun component5 ()I
+	public final fun component6 ()J
+	public final fun copy-O7SFtuE (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;IJ)Ldev/tramai/core/model/VerifiedLocalModelArtifact;
+	public static synthetic fun copy-O7SFtuE$default (Ldev/tramai/core/model/VerifiedLocalModelArtifact;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;IJILjava/lang/Object;)Ldev/tramai/core/model/VerifiedLocalModelArtifact;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArtifactCount ()I
+	public final fun getManifestDigest-oCAyOGQ ()Ljava/lang/String;
+	public final fun getModelName ()Ljava/lang/String;
+	public final fun getRegistryEntryId ()Ljava/lang/String;
+	public final fun getTotalSizeBytes ()J
+	public final fun getVerifiedAt ()Ljava/time/Instant;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/nativeimage/NativeImageProxyConfig {
+	public static final field INSTANCE Ldev/tramai/core/nativeimage/NativeImageProxyConfig;
+	public static final fun json ([Lkotlin/reflect/KClass;)Ljava/lang/String;
+	public static final fun write (Ljava/nio/file/Path;[Lkotlin/reflect/KClass;)V
+}
+
+public final class dev/tramai/core/observation/CompositeOperationInterceptor : dev/tramai/core/observation/OperationInterceptor {
+	public fun <init> (Ljava/util/List;)V
+	public fun interceptRequest (Ldev/tramai/core/observation/OperationCallContext;Ljava/util/List;)Ljava/util/List;
+	public fun interceptResponse (Ldev/tramai/core/observation/OperationCallContext;Ldev/tramai/core/model/ModelResponse;)Ldev/tramai/core/model/ModelResponse;
+}
+
+public final class dev/tramai/core/observation/NoOpOperationInterceptor : dev/tramai/core/observation/OperationInterceptor {
+	public static final field INSTANCE Ldev/tramai/core/observation/NoOpOperationInterceptor;
+	public fun interceptRequest (Ldev/tramai/core/observation/OperationCallContext;Ljava/util/List;)Ljava/util/List;
+	public fun interceptResponse (Ldev/tramai/core/observation/OperationCallContext;Ldev/tramai/core/model/ModelResponse;)Ldev/tramai/core/model/ModelResponse;
+}
+
+public final class dev/tramai/core/observation/NoOpOperationObservation : dev/tramai/core/observation/OperationObservation {
+	public static final field INSTANCE Ldev/tramai/core/observation/NoOpOperationObservation;
+	public fun onCallCompleted (Ljava/lang/Boolean;)V
+	public fun onEngineEvent (Ljava/lang/String;Ljava/util/Map;)V
+	public fun onProviderFailure (Ljava/lang/Throwable;)V
+	public fun onProviderResponse (Ldev/tramai/core/model/ModelResponse;)V
+	public fun onStructuredParseFailure (Ljava/lang/String;Ljava/lang/String;)V
+}
+
+public final class dev/tramai/core/observation/NoOpOperationObserver : dev/tramai/core/observation/OperationObserver {
+	public static final field INSTANCE Ldev/tramai/core/observation/NoOpOperationObserver;
+	public fun onCallStarted (Ldev/tramai/core/observation/OperationCallContext;)Ldev/tramai/core/observation/OperationObservation;
+}
+
+public final class dev/tramai/core/observation/OperationCallContext {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()I
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)Ldev/tramai/core/observation/OperationCallContext;
+	public static synthetic fun copy$default (Ldev/tramai/core/observation/OperationCallContext;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IILjava/lang/Object;)Ldev/tramai/core/observation/OperationCallContext;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttempt ()I
+	public final fun getMethodName ()Ljava/lang/String;
+	public final fun getProviderId ()Ljava/lang/String;
+	public final fun getRequestedModel ()Ljava/lang/String;
+	public final fun getServiceInterface ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/observation/OperationInterceptor {
+	public fun interceptRequest (Ldev/tramai/core/observation/OperationCallContext;Ljava/util/List;)Ljava/util/List;
+	public fun interceptResponse (Ldev/tramai/core/observation/OperationCallContext;Ldev/tramai/core/model/ModelResponse;)Ldev/tramai/core/model/ModelResponse;
+}
+
+public final class dev/tramai/core/observation/OperationInterceptor$DefaultImpls {
+	public static fun interceptRequest (Ldev/tramai/core/observation/OperationInterceptor;Ldev/tramai/core/observation/OperationCallContext;Ljava/util/List;)Ljava/util/List;
+	public static fun interceptResponse (Ldev/tramai/core/observation/OperationInterceptor;Ldev/tramai/core/observation/OperationCallContext;Ldev/tramai/core/model/ModelResponse;)Ldev/tramai/core/model/ModelResponse;
+}
+
+public abstract interface class dev/tramai/core/observation/OperationObservation {
+	public abstract fun onCallCompleted (Ljava/lang/Boolean;)V
+	public fun onEngineEvent (Ljava/lang/String;Ljava/util/Map;)V
+	public static synthetic fun onEngineEvent$default (Ldev/tramai/core/observation/OperationObservation;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)V
+	public abstract fun onProviderFailure (Ljava/lang/Throwable;)V
+	public abstract fun onProviderResponse (Ldev/tramai/core/model/ModelResponse;)V
+	public abstract fun onStructuredParseFailure (Ljava/lang/String;Ljava/lang/String;)V
+}
+
+public final class dev/tramai/core/observation/OperationObservation$DefaultImpls {
+	public static fun onEngineEvent (Ldev/tramai/core/observation/OperationObservation;Ljava/lang/String;Ljava/util/Map;)V
+	public static synthetic fun onEngineEvent$default (Ldev/tramai/core/observation/OperationObservation;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)V
+}
+
+public abstract interface class dev/tramai/core/observation/OperationObserver {
+	public abstract fun onCallStarted (Ldev/tramai/core/observation/OperationCallContext;)Ldev/tramai/core/observation/OperationObservation;
+}
+
+public final class dev/tramai/core/policy/ApprovalMode : java/lang/Enum {
+	public static final field AUTO Ldev/tramai/core/policy/ApprovalMode;
+	public static final field HUMAN_REQUIRED Ldev/tramai/core/policy/ApprovalMode;
+	public static final field HUMAN_REQUIRED_WITH_TIMEOUT Ldev/tramai/core/policy/ApprovalMode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/policy/ApprovalMode;
+	public static fun values ()[Ldev/tramai/core/policy/ApprovalMode;
+}
+
+public final class dev/tramai/core/policy/ApprovalRequirement {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()J
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)Ldev/tramai/core/policy/ApprovalRequirement;
+	public static synthetic fun copy$default (Ldev/tramai/core/policy/ApprovalRequirement;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JILjava/lang/Object;)Ldev/tramai/core/policy/ApprovalRequirement;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArgumentsDigest ()Ljava/lang/String;
+	public final fun getReason ()Ljava/lang/String;
+	public final fun getTimeoutMillis ()J
+	public final fun getToolName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/policy/AuditDetail : java/lang/Enum {
+	public static final field DECISION_ONLY Ldev/tramai/core/policy/AuditDetail;
+	public static final field FULL Ldev/tramai/core/policy/AuditDetail;
+	public static final field MINIMAL Ldev/tramai/core/policy/AuditDetail;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/policy/AuditDetail;
+	public static fun values ()[Ldev/tramai/core/policy/AuditDetail;
+}
+
+public final class dev/tramai/core/policy/ClassificationSource : java/lang/Enum {
+	public static final field DECLARED Ldev/tramai/core/policy/ClassificationSource;
+	public static final field LOCAL_MODEL_ASSISTED Ldev/tramai/core/policy/ClassificationSource;
+	public static final field RULE_BASED Ldev/tramai/core/policy/ClassificationSource;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/policy/ClassificationSource;
+	public static fun values ()[Ldev/tramai/core/policy/ClassificationSource;
+}
+
+public final class dev/tramai/core/policy/CompatibilityMode : java/lang/Enum {
+	public static final field LEGACY_PERMISSIVE Ldev/tramai/core/policy/CompatibilityMode;
+	public static final field STRICT Ldev/tramai/core/policy/CompatibilityMode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/policy/CompatibilityMode;
+	public static fun values ()[Ldev/tramai/core/policy/CompatibilityMode;
+}
+
+public final class dev/tramai/core/policy/DataClassification : java/lang/Enum {
+	public static final field CONFIDENTIAL Ldev/tramai/core/policy/DataClassification;
+	public static final field INTERNAL Ldev/tramai/core/policy/DataClassification;
+	public static final field PUBLIC Ldev/tramai/core/policy/DataClassification;
+	public static final field RESTRICTED Ldev/tramai/core/policy/DataClassification;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/policy/DataClassification;
+	public static fun values ()[Ldev/tramai/core/policy/DataClassification;
+}
+
+public final class dev/tramai/core/policy/EnforcementPoint : java/lang/Enum {
+	public static final field BEFORE_FALLBACK Ldev/tramai/core/policy/EnforcementPoint;
+	public static final field BEFORE_PROVIDER_INVOCATION Ldev/tramai/core/policy/EnforcementPoint;
+	public static final field BEFORE_PROVIDER_RESOLUTION Ldev/tramai/core/policy/EnforcementPoint;
+	public static final field BEFORE_RESPONSE_RETURN Ldev/tramai/core/policy/EnforcementPoint;
+	public static final field BEFORE_TOOL_EXECUTION Ldev/tramai/core/policy/EnforcementPoint;
+	public static final field BEFORE_TOOL_EXPOSURE Ldev/tramai/core/policy/EnforcementPoint;
+	public static final field BEFORE_TOOL_RESULT_REINJECTION Ldev/tramai/core/policy/EnforcementPoint;
+	public static final field BEFORE_WORKFLOW_RESUME Ldev/tramai/core/policy/EnforcementPoint;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/policy/EnforcementPoint;
+	public static fun values ()[Ldev/tramai/core/policy/EnforcementPoint;
+}
+
+public final class dev/tramai/core/policy/ManagedNetworkEgress : java/lang/Enum {
+	public static final field ALLOW Ldev/tramai/core/policy/ManagedNetworkEgress;
+	public static final field ALLOWLIST_ONLY Ldev/tramai/core/policy/ManagedNetworkEgress;
+	public static final field DENY Ldev/tramai/core/policy/ManagedNetworkEgress;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/policy/ManagedNetworkEgress;
+	public static fun values ()[Ldev/tramai/core/policy/ManagedNetworkEgress;
+}
+
+public final class dev/tramai/core/policy/NoOpPolicyDecisionAuditEmitter : dev/tramai/core/policy/PolicyDecisionAuditEmitter {
+	public static final field INSTANCE Ldev/tramai/core/policy/NoOpPolicyDecisionAuditEmitter;
+	public fun emit (Ldev/tramai/core/policy/EnforcementPoint;Ldev/tramai/core/policy/PolicyContext;Ldev/tramai/core/policy/PolicyDecision;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/core/policy/PolicyContext {
+	public fun <init> (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ljava/lang/String;Ldev/tramai/core/policy/ToolSecurityMetadata;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ljava/lang/String;Ldev/tramai/core/policy/ToolSecurityMetadata;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ljava/lang/String;Ldev/tramai/core/policy/ToolSecurityMetadata;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ljava/lang/String;Ldev/tramai/core/policy/ToolSecurityMetadata;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)V
+	public synthetic fun <init> (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ljava/lang/String;Ldev/tramai/core/policy/ToolSecurityMetadata;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ljava/lang/String;)V
+	public fun <init> (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ldev/tramai/core/policy/EnforcementPoint;
+	public final fun component10 ()Ldev/tramai/core/policy/ClassificationSource;
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()Ldev/tramai/core/policy/ToolSecurityMetadata;
+	public final fun component13 ()Ljava/lang/String;
+	public final fun component14 ()Ljava/lang/String;
+	public final fun component15 ()Ljava/lang/String;
+	public final fun component16 ()Ljava/util/Map;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ldev/tramai/core/policy/DataClassification;
+	public final fun copy (Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ljava/lang/String;Ldev/tramai/core/policy/ToolSecurityMetadata;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;)Ldev/tramai/core/policy/PolicyContext;
+	public static synthetic fun copy$default (Ldev/tramai/core/policy/PolicyContext;Ldev/tramai/core/policy/EnforcementPoint;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;Ljava/lang/String;Ldev/tramai/core/policy/ToolSecurityMetadata;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Ldev/tramai/core/policy/PolicyContext;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActorId ()Ljava/lang/String;
+	public final fun getAttributes ()Ljava/util/Map;
+	public final fun getClassificationSource ()Ldev/tramai/core/policy/ClassificationSource;
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getDataClassification ()Ldev/tramai/core/policy/DataClassification;
+	public final fun getEnforcementPoint ()Ldev/tramai/core/policy/EnforcementPoint;
+	public final fun getFallbackProviderId ()Ljava/lang/String;
+	public final fun getModelName ()Ljava/lang/String;
+	public final fun getPolicyVersion ()Ljava/lang/String;
+	public final fun getProviderId ()Ljava/lang/String;
+	public final fun getTargetDestination ()Ljava/lang/String;
+	public final fun getToolName ()Ljava/lang/String;
+	public final fun getToolSecurity ()Ldev/tramai/core/policy/ToolSecurityMetadata;
+	public final fun getWorkflowDigest ()Ljava/lang/String;
+	public final fun getWorkflowId ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/policy/PolicyDecision {
+}
+
+public final class dev/tramai/core/policy/PolicyDecision$Allow : dev/tramai/core/policy/PolicyDecision {
+	public static final field INSTANCE Ldev/tramai/core/policy/PolicyDecision$Allow;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/policy/PolicyDecision$Deny : dev/tramai/core/policy/PolicyDecision {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/policy/PolicyDecision$Deny;
+	public static synthetic fun copy$default (Ldev/tramai/core/policy/PolicyDecision$Deny;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/policy/PolicyDecision$Deny;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public final fun getReasonCode ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/policy/PolicyDecision$RequireApproval : dev/tramai/core/policy/PolicyDecision {
+	public fun <init> (Ldev/tramai/core/policy/ApprovalRequirement;)V
+	public final fun component1 ()Ldev/tramai/core/policy/ApprovalRequirement;
+	public final fun copy (Ldev/tramai/core/policy/ApprovalRequirement;)Ldev/tramai/core/policy/PolicyDecision$RequireApproval;
+	public static synthetic fun copy$default (Ldev/tramai/core/policy/PolicyDecision$RequireApproval;Ldev/tramai/core/policy/ApprovalRequirement;ILjava/lang/Object;)Ldev/tramai/core/policy/PolicyDecision$RequireApproval;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRequirement ()Ldev/tramai/core/policy/ApprovalRequirement;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/policy/PolicyDecisionAuditEmitter {
+	public abstract fun emit (Ldev/tramai/core/policy/EnforcementPoint;Ldev/tramai/core/policy/PolicyContext;Ldev/tramai/core/policy/PolicyDecision;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/core/policy/PolicyEngine {
+	public abstract fun evaluate (Ldev/tramai/core/policy/PolicyContext;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/core/policy/PolicyMode : java/lang/Enum {
+	public static final field LEGACY_PERMISSIVE Ldev/tramai/core/policy/PolicyMode;
+	public static final field SECURE Ldev/tramai/core/policy/PolicyMode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/policy/PolicyMode;
+	public static fun values ()[Ldev/tramai/core/policy/PolicyMode;
+}
+
+public final class dev/tramai/core/policy/ProviderPolicy : java/lang/Enum {
+	public static final field ANY_APPROVED Ldev/tramai/core/policy/ProviderPolicy;
+	public static final field APPROVED_CLOUD Ldev/tramai/core/policy/ProviderPolicy;
+	public static final field EU_ONLY Ldev/tramai/core/policy/ProviderPolicy;
+	public static final field LOCAL_ONLY Ldev/tramai/core/policy/ProviderPolicy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/policy/ProviderPolicy;
+	public static fun values ()[Ldev/tramai/core/policy/ProviderPolicy;
+}
+
+public final class dev/tramai/core/policy/RiskLevel : java/lang/Enum {
+	public static final field CRITICAL Ldev/tramai/core/policy/RiskLevel;
+	public static final field HIGH Ldev/tramai/core/policy/RiskLevel;
+	public static final field LOW Ldev/tramai/core/policy/RiskLevel;
+	public static final field MEDIUM Ldev/tramai/core/policy/RiskLevel;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/policy/RiskLevel;
+	public static fun values ()[Ldev/tramai/core/policy/RiskLevel;
+}
+
+public final class dev/tramai/core/policy/ToolSecurityMetadata {
+	public static final field Companion Ldev/tramai/core/policy/ToolSecurityMetadata$Companion;
+	public fun <init> (Ljava/lang/String;Ldev/tramai/core/policy/RiskLevel;Ldev/tramai/core/policy/ApprovalMode;Ldev/tramai/core/policy/ManagedNetworkEgress;Ldev/tramai/core/policy/AuditDetail;Ldev/tramai/core/policy/CompatibilityMode;)V
+	public synthetic fun <init> (Ljava/lang/String;Ldev/tramai/core/policy/RiskLevel;Ldev/tramai/core/policy/ApprovalMode;Ldev/tramai/core/policy/ManagedNetworkEgress;Ldev/tramai/core/policy/AuditDetail;Ldev/tramai/core/policy/CompatibilityMode;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/core/policy/RiskLevel;
+	public final fun component3 ()Ldev/tramai/core/policy/ApprovalMode;
+	public final fun component4 ()Ldev/tramai/core/policy/ManagedNetworkEgress;
+	public final fun component5 ()Ldev/tramai/core/policy/AuditDetail;
+	public final fun component6 ()Ldev/tramai/core/policy/CompatibilityMode;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/core/policy/RiskLevel;Ldev/tramai/core/policy/ApprovalMode;Ldev/tramai/core/policy/ManagedNetworkEgress;Ldev/tramai/core/policy/AuditDetail;Ldev/tramai/core/policy/CompatibilityMode;)Ldev/tramai/core/policy/ToolSecurityMetadata;
+	public static synthetic fun copy$default (Ldev/tramai/core/policy/ToolSecurityMetadata;Ljava/lang/String;Ldev/tramai/core/policy/RiskLevel;Ldev/tramai/core/policy/ApprovalMode;Ldev/tramai/core/policy/ManagedNetworkEgress;Ldev/tramai/core/policy/AuditDetail;Ldev/tramai/core/policy/CompatibilityMode;ILjava/lang/Object;)Ldev/tramai/core/policy/ToolSecurityMetadata;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApproval ()Ldev/tramai/core/policy/ApprovalMode;
+	public final fun getAudit ()Ldev/tramai/core/policy/AuditDetail;
+	public final fun getCompatibilityMode ()Ldev/tramai/core/policy/CompatibilityMode;
+	public final fun getManagedNetworkEgress ()Ldev/tramai/core/policy/ManagedNetworkEgress;
+	public final fun getPermission ()Ljava/lang/String;
+	public final fun getRisk ()Ldev/tramai/core/policy/RiskLevel;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/policy/ToolSecurityMetadata$Companion {
+	public final fun legacyPermissive ()Ldev/tramai/core/policy/ToolSecurityMetadata;
+}
+
+public abstract interface class dev/tramai/core/provider/ModelProvider {
+	public abstract fun complete (Ldev/tramai/core/model/ModelRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun providerId ()Ljava/lang/String;
+	public fun supportsCapability (Ldev/tramai/core/provider/ProviderCapability;)Z
+}
+
+public final class dev/tramai/core/provider/ModelProvider$DefaultImpls {
+	public static fun providerId (Ldev/tramai/core/provider/ModelProvider;)Ljava/lang/String;
+	public static fun supportsCapability (Ldev/tramai/core/provider/ModelProvider;Ldev/tramai/core/provider/ProviderCapability;)Z
+}
+
+public final class dev/tramai/core/provider/ProviderCapability : java/lang/Enum {
+	public static final field STREAMING Ldev/tramai/core/provider/ProviderCapability;
+	public static final field STRUCTURED_OUTPUT Ldev/tramai/core/provider/ProviderCapability;
+	public static final field TOOL_CALLING Ldev/tramai/core/provider/ProviderCapability;
+	public static final field VISION Ldev/tramai/core/provider/ProviderCapability;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/provider/ProviderCapability;
+	public static fun values ()[Ldev/tramai/core/provider/ProviderCapability;
+}
+
+public final class dev/tramai/core/provider/ProviderFailuresKt {
+	public static final fun applyTramaiTimeout (Ljava/net/http/HttpRequest$Builder;Ldev/tramai/core/model/ModelRequest;)Ljava/net/http/HttpRequest$Builder;
+	public static final fun logProviderHttpFailureDebug (Ljava/lang/System$Logger;Ljava/lang/String;ILjava/lang/String;)V
+	public static final fun providerHttpFailure (Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)Ldev/tramai/core/exception/ProviderException;
+	public static synthetic fun providerHttpFailure$default (Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/exception/ProviderException;
+	public static final fun providerTransportFailure (Ljava/lang/String;Ljava/lang/Throwable;)Ldev/tramai/core/exception/ProviderException;
+}
+
+public final class dev/tramai/core/provider/ProviderRegistry {
+	public static final field Companion Ldev/tramai/core/provider/ProviderRegistry$Companion;
+	public synthetic fun <init> (Ljava/util/Map;Ljava/util/Map;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun resolve (Ldev/tramai/core/annotations/Operation;)Ldev/tramai/core/provider/ModelProvider;
+	public final fun resolveCandidates (Ldev/tramai/core/annotations/Operation;)Ljava/util/List;
+}
+
+public final class dev/tramai/core/provider/ProviderRegistry$Builder {
+	public fun <init> ()V
+	public final fun build ()Ldev/tramai/core/provider/ProviderRegistry;
+	public final fun defaultProvider (Ljava/lang/String;)Ldev/tramai/core/provider/ProviderRegistry$Builder;
+	public final fun fallbackModel (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/provider/ProviderRegistry$Builder;
+	public final fun fallbackProvider (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/provider/ProviderRegistry$Builder;
+	public final fun model (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/provider/ProviderRegistry$Builder;
+	public final fun provider (Ljava/lang/String;Ldev/tramai/core/provider/ModelProvider;Z)Ldev/tramai/core/provider/ProviderRegistry$Builder;
+	public static synthetic fun provider$default (Ldev/tramai/core/provider/ProviderRegistry$Builder;Ljava/lang/String;Ldev/tramai/core/provider/ModelProvider;ZILjava/lang/Object;)Ldev/tramai/core/provider/ProviderRegistry$Builder;
+}
+
+public final class dev/tramai/core/provider/ProviderRegistry$Companion {
+	public final fun builder ()Ldev/tramai/core/provider/ProviderRegistry$Builder;
+	public final fun singleProvider (Ldev/tramai/core/provider/ModelProvider;)Ldev/tramai/core/provider/ProviderRegistry;
+}
+
+public final class dev/tramai/core/provider/ProviderRoute {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/provider/ProviderRoute;
+	public static synthetic fun copy$default (Ldev/tramai/core/provider/ProviderRoute;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/provider/ProviderRoute;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEffectiveModelName ()Ljava/lang/String;
+	public final fun getProviderName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/provider/ResolvedProviderRoute {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/core/provider/ModelProvider;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/core/provider/ModelProvider;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/core/provider/ModelProvider;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/provider/ResolvedProviderRoute;
+	public static synthetic fun copy$default (Ldev/tramai/core/provider/ResolvedProviderRoute;Ljava/lang/String;Ldev/tramai/core/provider/ModelProvider;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/provider/ResolvedProviderRoute;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEffectiveModelName ()Ljava/lang/String;
+	public final fun getProvider ()Ldev/tramai/core/provider/ModelProvider;
+	public final fun getProviderName ()Ljava/lang/String;
+	public final fun getRequestedModelName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/provider/StreamCapable {
+	public abstract fun stream (Ldev/tramai/core/model/ModelRequest;)Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class dev/tramai/core/secret/CompositeSecretValueResolver : dev/tramai/core/secret/SecretValueResolver {
+	public fun <init> (Ljava/util/List;)V
+	public fun resolve (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class dev/tramai/core/secret/EnvironmentSecretValueResolver : dev/tramai/core/secret/SecretValueResolver {
+	public static final field INSTANCE Ldev/tramai/core/secret/EnvironmentSecretValueResolver;
+	public fun resolve (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class dev/tramai/core/secret/FileSecretValueResolver : dev/tramai/core/secret/SecretValueResolver {
+	public fun <init> ()V
+	public fun <init> (Ljava/nio/file/Path;)V
+	public synthetic fun <init> (Ljava/nio/file/Path;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun resolve (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/secret/SecretValueResolver {
+	public abstract fun resolve (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class dev/tramai/core/security/DlpContentLocation : java/lang/Enum {
+	public static final field MODEL_RESPONSE_CONTENT Ldev/tramai/core/security/DlpContentLocation;
+	public static final field TOOL_MESSAGE_CONTENT Ldev/tramai/core/security/DlpContentLocation;
+	public static final field TOOL_MESSAGE_TEXT_RUN Ldev/tramai/core/security/DlpContentLocation;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/security/DlpContentLocation;
+	public static fun values ()[Ldev/tramai/core/security/DlpContentLocation;
+}
+
+public final class dev/tramai/core/security/DlpContentType : java/lang/Enum {
+	public static final field MODEL_OUTPUT Ldev/tramai/core/security/DlpContentType;
+	public static final field TOOL_RESULT Ldev/tramai/core/security/DlpContentType;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/security/DlpContentType;
+	public static fun values ()[Ldev/tramai/core/security/DlpContentType;
+}
+
+public final class dev/tramai/core/security/DlpContext {
+	public fun <init> (Ldev/tramai/core/security/DlpContentType;Ldev/tramai/core/security/DlpContentLocation;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;)V
+	public synthetic fun <init> (Ldev/tramai/core/security/DlpContentType;Ldev/tramai/core/security/DlpContentLocation;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/core/security/DlpContentType;
+	public final fun component10 ()Ldev/tramai/core/policy/DataClassification;
+	public final fun component11 ()Ldev/tramai/core/policy/ClassificationSource;
+	public final fun component2 ()Ldev/tramai/core/security/DlpContentLocation;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (Ldev/tramai/core/security/DlpContentType;Ldev/tramai/core/security/DlpContentLocation;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;)Ldev/tramai/core/security/DlpContext;
+	public static synthetic fun copy$default (Ldev/tramai/core/security/DlpContext;Ldev/tramai/core/security/DlpContentType;Ldev/tramai/core/security/DlpContentLocation;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/core/policy/DataClassification;Ldev/tramai/core/policy/ClassificationSource;ILjava/lang/Object;)Ldev/tramai/core/security/DlpContext;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getClassificationSource ()Ldev/tramai/core/policy/ClassificationSource;
+	public final fun getContentLocation ()Ldev/tramai/core/security/DlpContentLocation;
+	public final fun getContentType ()Ldev/tramai/core/security/DlpContentType;
+	public final fun getCorrelationId ()Ljava/lang/String;
+	public final fun getDataClassification ()Ldev/tramai/core/policy/DataClassification;
+	public final fun getModelName ()Ljava/lang/String;
+	public final fun getOperationInterface ()Ljava/lang/String;
+	public final fun getOperationMethod ()Ljava/lang/String;
+	public final fun getProviderId ()Ljava/lang/String;
+	public final fun getToolName ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/security/DlpInspectionException : java/lang/RuntimeException {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public abstract interface class dev/tramai/core/security/DlpInterceptor {
+	public abstract fun inspect (Ldev/tramai/core/security/DlpContext;Ljava/lang/String;)Ldev/tramai/core/security/DlpResult;
+}
+
+public final class dev/tramai/core/security/DlpRedaction {
+	public fun <init> (Ljava/lang/String;I)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun copy (Ljava/lang/String;I)Ldev/tramai/core/security/DlpRedaction;
+	public static synthetic fun copy$default (Ldev/tramai/core/security/DlpRedaction;Ljava/lang/String;IILjava/lang/Object;)Ldev/tramai/core/security/DlpRedaction;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReplacementCount ()I
+	public final fun getRuleId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/security/DlpRedactionAuditEmitter {
+	public abstract fun emit (Ldev/tramai/core/security/DlpContext;Ljava/util/List;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/core/security/DlpResult {
+	public fun <init> (Ljava/lang/String;Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (Ljava/lang/String;Ljava/util/List;)Ldev/tramai/core/security/DlpResult;
+	public static synthetic fun copy$default (Ldev/tramai/core/security/DlpResult;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/core/security/DlpResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getHasRedactions ()Z
+	public final fun getRedactions ()Ljava/util/List;
+	public final fun getSanitizedText ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/security/DlpRuleIdNormalizer {
+	public static final field INSTANCE Ldev/tramai/core/security/DlpRuleIdNormalizer;
+	public final fun normalize (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/security/InstructionDefense {
+	public abstract fun wrap (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class dev/tramai/core/security/NoOpDlpInterceptor : dev/tramai/core/security/DlpInterceptor {
+	public static final field INSTANCE Ldev/tramai/core/security/NoOpDlpInterceptor;
+	public fun inspect (Ldev/tramai/core/security/DlpContext;Ljava/lang/String;)Ldev/tramai/core/security/DlpResult;
+}
+
+public final class dev/tramai/core/security/NoOpDlpRedactionAuditEmitter : dev/tramai/core/security/DlpRedactionAuditEmitter {
+	public static final field INSTANCE Ldev/tramai/core/security/NoOpDlpRedactionAuditEmitter;
+	public fun emit (Ldev/tramai/core/security/DlpContext;Ljava/util/List;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/core/security/OutputValidator {
+	public abstract fun validate (Ljava/lang/String;)Ldev/tramai/core/security/ValidationResult;
+}
+
+public abstract interface class dev/tramai/core/security/PromptSanitizer {
+	public abstract fun sanitize (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public abstract class dev/tramai/core/security/StepSecurityConfig {
+}
+
+public final class dev/tramai/core/security/StepSecurityConfig$Custom : dev/tramai/core/security/StepSecurityConfig {
+	public fun <init> ()V
+	public fun <init> (Ldev/tramai/core/security/PromptSanitizer;Ldev/tramai/core/security/OutputValidator;Ldev/tramai/core/security/InstructionDefense;Ljava/lang/String;Ljava/util/List;)V
+	public synthetic fun <init> (Ldev/tramai/core/security/PromptSanitizer;Ldev/tramai/core/security/OutputValidator;Ldev/tramai/core/security/InstructionDefense;Ljava/lang/String;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/core/security/PromptSanitizer;
+	public final fun component2 ()Ldev/tramai/core/security/OutputValidator;
+	public final fun component3 ()Ldev/tramai/core/security/InstructionDefense;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/util/List;
+	public final fun copy (Ldev/tramai/core/security/PromptSanitizer;Ldev/tramai/core/security/OutputValidator;Ldev/tramai/core/security/InstructionDefense;Ljava/lang/String;Ljava/util/List;)Ldev/tramai/core/security/StepSecurityConfig$Custom;
+	public static synthetic fun copy$default (Ldev/tramai/core/security/StepSecurityConfig$Custom;Ldev/tramai/core/security/PromptSanitizer;Ldev/tramai/core/security/OutputValidator;Ldev/tramai/core/security/InstructionDefense;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/core/security/StepSecurityConfig$Custom;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCustomSystemInstructions ()Ljava/lang/String;
+	public final fun getInstructionDefense ()Ldev/tramai/core/security/InstructionDefense;
+	public final fun getSanitizer ()Ldev/tramai/core/security/PromptSanitizer;
+	public final fun getValidator ()Ldev/tramai/core/security/OutputValidator;
+	public final fun getValidatorPatterns ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/security/StepSecurityConfig$Default : dev/tramai/core/security/StepSecurityConfig {
+	public static final field INSTANCE Ldev/tramai/core/security/StepSecurityConfig$Default;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/security/StepSecurityConfig$Disabled : dev/tramai/core/security/StepSecurityConfig {
+	public static final field INSTANCE Ldev/tramai/core/security/StepSecurityConfig$Disabled;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract class dev/tramai/core/security/ValidationResult {
+}
+
+public final class dev/tramai/core/security/ValidationResult$Rejected : dev/tramai/core/security/ValidationResult {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/security/ValidationResult$Rejected;
+	public static synthetic fun copy$default (Ldev/tramai/core/security/ValidationResult$Rejected;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/security/ValidationResult$Rejected;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public final fun getRuleId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/security/ValidationResult$Valid : dev/tramai/core/security/ValidationResult {
+	public static final field INSTANCE Ldev/tramai/core/security/ValidationResult$Valid;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/structured/StructuredOutputContract {
+	public fun <init> (Lkotlin/reflect/KType;Ljava/lang/String;)V
+	public final fun component1 ()Lkotlin/reflect/KType;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Lkotlin/reflect/KType;Ljava/lang/String;)Ldev/tramai/core/structured/StructuredOutputContract;
+	public static synthetic fun copy$default (Ldev/tramai/core/structured/StructuredOutputContract;Lkotlin/reflect/KType;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/structured/StructuredOutputContract;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getSchemaJson ()Ljava/lang/String;
+	public final fun getTargetType ()Lkotlin/reflect/KType;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/structured/StructuredOutputHandler {
+	public abstract fun analyze (Ljava/lang/String;Lkotlin/reflect/KType;)Ldev/tramai/core/structured/StructuredOutputResult;
+	public abstract fun createContract (Lkotlin/reflect/KType;)Ldev/tramai/core/structured/StructuredOutputContract;
+	public abstract fun deserialize (Ljava/lang/Object;Lkotlin/reflect/KType;)Ljava/lang/Object;
+	public abstract fun generateSchema (Lkotlin/reflect/KType;)Ljava/lang/String;
+	public abstract fun serialize (Ljava/lang/Object;)Ljava/lang/Object;
+}
+
+public abstract interface class dev/tramai/core/structured/StructuredOutputResult {
+}
+
+public final class dev/tramai/core/structured/StructuredOutputResult$Failure : dev/tramai/core/structured/StructuredOutputResult {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/structured/StructuredOutputResult$Failure;
+	public static synthetic fun copy$default (Ldev/tramai/core/structured/StructuredOutputResult$Failure;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/structured/StructuredOutputResult$Failure;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getErrorSummary ()Ljava/lang/String;
+	public final fun getFeedbackMessage ()Ljava/lang/String;
+	public final fun getRawResponse ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/structured/StructuredOutputResult$Success : dev/tramai/core/structured/StructuredOutputResult {
+	public fun <init> (Ljava/lang/Object;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/Object;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/Object;Ljava/lang/String;)Ldev/tramai/core/structured/StructuredOutputResult$Success;
+	public static synthetic fun copy$default (Ldev/tramai/core/structured/StructuredOutputResult$Success;Ljava/lang/Object;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/structured/StructuredOutputResult$Success;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRawResponse ()Ljava/lang/String;
+	public final fun getValue ()Ljava/lang/Object;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/util/ImageDownloader {
+	public static final field INSTANCE Ldev/tramai/core/util/ImageDownloader;
+	public final fun download (Ljava/lang/String;)[B
+	public final fun resolveToImagePart (Ldev/tramai/core/model/ContentPart;)Ldev/tramai/core/model/ContentPart;
+}
+
+public final class dev/tramai/core/workflow/ApprovalRequestResults {
+	public static final field INSTANCE Ldev/tramai/core/workflow/ApprovalRequestResults;
+	public static final fun alreadyApproved (Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Approved;)Ldev/tramai/core/approval/gateway/ApprovalRequestResult$AlreadyApproved;
+	public static final fun alreadyDenied (Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Denied;)Ldev/tramai/core/approval/gateway/ApprovalRequestResult$AlreadyDenied;
+	public static final fun expired (Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;)Ldev/tramai/core/approval/gateway/ApprovalRequestResult$Expired;
+	public static final fun suspended (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/approval/gateway/ApprovalRequestResult$Suspended;
+}
+
+public final class dev/tramai/core/workflow/ApprovalRequestWorkflowResultMappersKt {
+	public static final fun toWorkflowResult (Ldev/tramai/core/approval/gateway/ApprovalRequestResult;Lkotlin/jvm/functions/Function1;)Ldev/tramai/core/workflow/SovereignWorkflowResult;
+}
+
+public final class dev/tramai/core/workflow/ApprovalWorkflowResults {
+	public static final fun fromApprovalRequestResult (Ldev/tramai/core/approval/gateway/ApprovalRequestResult;Lkotlin/jvm/functions/Function1;)Ldev/tramai/core/workflow/SovereignWorkflowResult;
+}
+
+public final class dev/tramai/core/workflow/HumanApprovalDecisions {
+	public static final field INSTANCE Ldev/tramai/core/workflow/HumanApprovalDecisions;
+	public static final fun approved (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;)Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Approved;
+	public static final fun approved (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;)Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Approved;
+	public static synthetic fun approved$default (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Approved;
+	public static final fun denied (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;)Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Denied;
+	public static final fun denied (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Denied;
+	public static synthetic fun denied$default (Ljava/lang/String;Ljava/lang/String;Ljava/time/Instant;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/approval/gateway/HumanApprovalDecision$Denied;
+}
+
+public abstract interface class dev/tramai/core/workflow/SovereignWorkflowResult {
+}
+
+public final class dev/tramai/core/workflow/SovereignWorkflowResult$Completed : dev/tramai/core/workflow/SovereignWorkflowResult {
+	public fun <init> (Ljava/lang/Object;)V
+	public final fun component1 ()Ljava/lang/Object;
+	public final fun copy (Ljava/lang/Object;)Ldev/tramai/core/workflow/SovereignWorkflowResult$Completed;
+	public static synthetic fun copy$default (Ldev/tramai/core/workflow/SovereignWorkflowResult$Completed;Ljava/lang/Object;ILjava/lang/Object;)Ldev/tramai/core/workflow/SovereignWorkflowResult$Completed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getValue ()Ljava/lang/Object;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/workflow/SovereignWorkflowResult$Expired : dev/tramai/core/workflow/SovereignWorkflowResult {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/core/workflow/SovereignWorkflowResult$Expired;
+	public static synthetic fun copy$default (Ldev/tramai/core/workflow/SovereignWorkflowResult$Expired;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/workflow/SovereignWorkflowResult$Expired;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/workflow/SovereignWorkflowResult$Rejected : dev/tramai/core/workflow/SovereignWorkflowResult {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Ldev/tramai/core/workflow/SovereignWorkflowResult$Rejected;
+	public static synthetic fun copy$default (Ldev/tramai/core/workflow/SovereignWorkflowResult$Rejected;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/workflow/SovereignWorkflowResult$Rejected;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/core/workflow/SovereignWorkflowResult$SuspendedForApproval : dev/tramai/core/workflow/SovereignWorkflowResult {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-3qC8wes ()Ljava/lang/String;
+	public final fun component2-8HxaQVs ()Ljava/lang/String;
+	public final fun component3-RRfCq5Y ()Ljava/lang/String;
+	public final fun component4-SDbYCGE ()Ljava/lang/String;
+	public final fun copy-m7sqhPc (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/workflow/SovereignWorkflowResult$SuspendedForApproval;
+	public static synthetic fun copy-m7sqhPc$default (Ldev/tramai/core/workflow/SovereignWorkflowResult$SuspendedForApproval;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/workflow/SovereignWorkflowResult$SuspendedForApproval;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovalId ()Ljava/lang/String;
+	public final fun getAuditStreamId ()Ljava/lang/String;
+	public final fun getResumeToken ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+

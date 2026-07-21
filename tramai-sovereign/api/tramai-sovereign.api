@@ -1,0 +1,363 @@
+public final class dev/tramai/sovereign/SovereignDeploymentMode : java/lang/Enum {
+	public static final field OFFLINE Ldev/tramai/sovereign/SovereignDeploymentMode;
+	public static final field STANDARD Ldev/tramai/sovereign/SovereignDeploymentMode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/sovereign/SovereignDeploymentMode;
+	public static fun values ()[Ldev/tramai/sovereign/SovereignDeploymentMode;
+}
+
+public final class dev/tramai/sovereign/SovereignProfileConfiguration {
+	public static final field Companion Ldev/tramai/sovereign/SovereignProfileConfiguration$Companion;
+	public fun <init> (Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Map;Ldev/tramai/sovereign/SovereignDeploymentMode;)V
+	public synthetic fun <init> (Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Map;Ldev/tramai/sovereign/SovereignDeploymentMode;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/util/Set;
+	public final fun component2 ()Ljava/util/Set;
+	public final fun component3 ()Ljava/util/Set;
+	public final fun component4 ()Ljava/util/Set;
+	public final fun component5 ()Ljava/util/Set;
+	public final fun component6 ()Ljava/util/Map;
+	public final fun component7 ()Ldev/tramai/sovereign/SovereignDeploymentMode;
+	public final fun copy (Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Map;Ldev/tramai/sovereign/SovereignDeploymentMode;)Ldev/tramai/sovereign/SovereignProfileConfiguration;
+	public static synthetic fun copy$default (Ldev/tramai/sovereign/SovereignProfileConfiguration;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Set;Ljava/util/Map;Ldev/tramai/sovereign/SovereignDeploymentMode;ILjava/lang/Object;)Ldev/tramai/sovereign/SovereignProfileConfiguration;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowedFallbackProviders ()Ljava/util/Set;
+	public final fun getAllowedModels ()Ljava/util/Set;
+	public final fun getAllowedPermissions ()Ljava/util/Set;
+	public final fun getAllowedProviders ()Ljava/util/Set;
+	public final fun getAllowedTools ()Ljava/util/Set;
+	public final fun getDeploymentMode ()Ldev/tramai/sovereign/SovereignDeploymentMode;
+	public final fun getProviderZones ()Ljava/util/Map;
+	public fun hashCode ()I
+	public final fun toPolicyConfiguration ()Ldev/tramai/security/PolicyConfiguration;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/sovereign/SovereignProfileConfiguration$Companion {
+}
+
+public final class dev/tramai/sovereign/SovereignTramai {
+	public static final field Companion Ldev/tramai/sovereign/SovereignTramai$Companion;
+	public synthetic fun <init> (Ldev/tramai/standalone/Tramai;Ljava/util/List;Ldev/tramai/sovereign/SovereignProfileConfiguration;Ldev/tramai/core/model/ModelArtifactVerificationSettings;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public static final fun builder ()Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun create (Lkotlin/reflect/KClass;)Ljava/lang/Object;
+	public final fun evidencePack (Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackV1;
+	public static synthetic fun evidencePack$default (Ldev/tramai/sovereign/SovereignTramai;Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;ILjava/lang/Object;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackV1;
+	public final fun runtime ()Ldev/tramai/sovereign/SovereignTramaiRuntime;
+	public final fun verificationReceipts ()Ljava/util/List;
+}
+
+public final class dev/tramai/sovereign/SovereignTramai$Builder {
+	public fun <init> ()V
+	public final fun approvalContinuationStore (Ldev/tramai/core/approval/ApprovalContinuationStore;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun approvalGateCoordinator (Ldev/tramai/core/approval/ApprovalGateCoordinator;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun auditStore (Ldev/tramai/security/audit/AuditStore;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun build ()Ldev/tramai/sovereign/SovereignTramai;
+	public final fun cache (Ldev/tramai/engine/OperationResponseCache;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun circuitBreaker (Ldev/tramai/engine/CircuitBreakerSettings;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun clock (Ljava/time/Clock;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun defaultProvider (Ljava/lang/String;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun dlp (Ldev/tramai/core/security/DlpInterceptor;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun dlpRedactionAudit (Ldev/tramai/core/security/DlpRedactionAuditEmitter;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun engineEventObserver (Ldev/tramai/engine/EngineEventObserver;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun fallbackModel (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun fallbackProvider (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun interceptor (Ldev/tramai/core/observation/OperationInterceptor;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun model (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun modelArtifactVerificationSettings (Ldev/tramai/core/model/ModelArtifactVerificationSettings;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun modelArtifactVerifier (Ldev/tramai/core/model/ModelArtifactVerifier;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun modelRegistry (Ldev/tramai/core/model/ModelRegistry;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun observer (Ldev/tramai/core/observation/OperationObserver;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun profile (Ldev/tramai/sovereign/SovereignProfileConfiguration;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun provider (Ldev/tramai/core/provider/ModelProvider;Ljava/lang/String;Z)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public static synthetic fun provider$default (Ldev/tramai/sovereign/SovereignTramai$Builder;Ldev/tramai/core/provider/ModelProvider;Ljava/lang/String;ZILjava/lang/Object;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun retryPolicy (Ldev/tramai/engine/RetryPolicySettings;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun suspendedInvocationStore (Ldev/tramai/engine/SuspendedInvocationStore;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun tokenBudget (Ldev/tramai/engine/TokenBudgetSettings;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun toolArgumentsDigester (Ldev/tramai/core/approval/ToolArgumentsDigester;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun toolResultFiltering (Ldev/tramai/engine/ToolResultFilteringSettings;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun tools (Ljava/lang/Iterable;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+	public final fun tools ([Ldev/tramai/core/model/TramaiTool;)Ldev/tramai/sovereign/SovereignTramai$Builder;
+}
+
+public final class dev/tramai/sovereign/SovereignTramai$Companion {
+	public final fun builder ()Ldev/tramai/sovereign/SovereignTramai$Builder;
+}
+
+public final class dev/tramai/sovereign/SovereignTramaiRuntime : java/lang/AutoCloseable {
+	public fun close ()V
+	public final fun create (Lkotlin/reflect/KClass;)Ljava/lang/Object;
+	public final fun registerService (Lkotlin/reflect/KClass;)V
+	public final fun resumeApproval (Ldev/tramai/engine/ResumeApprovalCommand;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/sovereign/evidence/ArtifactEvidenceV1 {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IJ)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()I
+	public final fun component6 ()J
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IJ)Ldev/tramai/sovereign/evidence/ArtifactEvidenceV1;
+	public static synthetic fun copy$default (Ldev/tramai/sovereign/evidence/ArtifactEvidenceV1;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IJILjava/lang/Object;)Ldev/tramai/sovereign/evidence/ArtifactEvidenceV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArtifactCount ()I
+	public final fun getManifestDigest ()Ljava/lang/String;
+	public final fun getModelName ()Ljava/lang/String;
+	public final fun getRegistryEntryId ()Ljava/lang/String;
+	public final fun getTotalSizeBytes ()J
+	public final fun getVerifiedAt ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/sovereign/evidence/AttestationEvidenceV1 {
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;)V
+	public synthetic fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/util/List;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;)Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;
+	public static synthetic fun copy$default (Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttestedSubjects ()Ljava/util/List;
+	public final fun getCommitSha ()Ljava/lang/String;
+	public final fun getProvider ()Ljava/lang/String;
+	public final fun getRepository ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public final fun getWorkflowName ()Ljava/lang/String;
+	public final fun getWorkflowRunId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/sovereign/evidence/AttestedSubjectV1 {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/sovereign/evidence/AttestedSubjectV1;
+	public static synthetic fun copy$default (Ldev/tramai/sovereign/evidence/AttestedSubjectV1;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/sovereign/evidence/AttestedSubjectV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttestationType ()Ljava/lang/String;
+	public final fun getFileName ()Ljava/lang/String;
+	public final fun getSha256 ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/sovereign/evidence/AuditChainEvidenceV1 {
+	public fun <init> (ZI)V
+	public final fun component1 ()Z
+	public final fun component2 ()I
+	public final fun copy (ZI)Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;
+	public static synthetic fun copy$default (Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;ZIILjava/lang/Object;)Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getTotalEvents ()I
+	public fun hashCode ()I
+	public final fun isValid ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/sovereign/evidence/ReleaseArtifactEvidenceV1 {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()J
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)Ldev/tramai/sovereign/evidence/ReleaseArtifactEvidenceV1;
+	public static synthetic fun copy$default (Ldev/tramai/sovereign/evidence/ReleaseArtifactEvidenceV1;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JILjava/lang/Object;)Ldev/tramai/sovereign/evidence/ReleaseArtifactEvidenceV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArtifactId ()Ljava/lang/String;
+	public final fun getClassifier ()Ljava/lang/String;
+	public final fun getExtension ()Ljava/lang/String;
+	public final fun getFileName ()Ljava/lang/String;
+	public final fun getGroupId ()Ljava/lang/String;
+	public final fun getSha256 ()Ljava/lang/String;
+	public final fun getSizeBytes ()J
+	public final fun getVersion ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/sovereign/evidence/ReleaseBundleEvidenceLoader {
+	public static final field INSTANCE Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceLoader;
+	public static final fun load (Ljava/nio/file/Path;)Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;
+}
+
+public final class dev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1 {
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;)V
+	public synthetic fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/util/List;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;)Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;
+	public static synthetic fun copy$default (Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getArtifacts ()Ljava/util/List;
+	public final fun getBuildTool ()Ljava/lang/String;
+	public final fun getGradleVersion ()Ljava/lang/String;
+	public final fun getJavaVersion ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/sovereign/evidence/SovereignEvidencePackGenerator {
+	public static final field INSTANCE Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator;
+	public final fun generate (Ldev/tramai/sovereign/SovereignDeploymentMode;Ljava/util/Set;Ljava/util/Set;Ljava/util/Map;Ldev/tramai/core/model/ModelArtifactVerificationSettings;Ljava/util/List;Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackV1;
+	public final fun generate (Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$GenerationParams;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackV1;
+	public static synthetic fun generate$default (Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator;Ldev/tramai/sovereign/SovereignDeploymentMode;Ljava/util/Set;Ljava/util/Set;Ljava/util/Map;Ldev/tramai/core/model/ModelArtifactVerificationSettings;Ljava/util/List;Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;ILjava/lang/Object;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackV1;
+}
+
+public final class dev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$GenerationParams {
+	public fun <init> (Ldev/tramai/sovereign/SovereignDeploymentMode;Ljava/util/Set;Ljava/util/Set;Ljava/util/Map;Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$VerificationEvidence;Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$OptionalEvidence;)V
+	public synthetic fun <init> (Ldev/tramai/sovereign/SovereignDeploymentMode;Ljava/util/Set;Ljava/util/Set;Ljava/util/Map;Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$VerificationEvidence;Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$OptionalEvidence;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/sovereign/SovereignDeploymentMode;
+	public final fun component2 ()Ljava/util/Set;
+	public final fun component3 ()Ljava/util/Set;
+	public final fun component4 ()Ljava/util/Map;
+	public final fun component5 ()Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$VerificationEvidence;
+	public final fun component6 ()Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$OptionalEvidence;
+	public final fun copy (Ldev/tramai/sovereign/SovereignDeploymentMode;Ljava/util/Set;Ljava/util/Set;Ljava/util/Map;Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$VerificationEvidence;Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$OptionalEvidence;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$GenerationParams;
+	public static synthetic fun copy$default (Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$GenerationParams;Ldev/tramai/sovereign/SovereignDeploymentMode;Ljava/util/Set;Ljava/util/Set;Ljava/util/Map;Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$VerificationEvidence;Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$OptionalEvidence;ILjava/lang/Object;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$GenerationParams;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowedModels ()Ljava/util/Set;
+	public final fun getAllowedProviders ()Ljava/util/Set;
+	public final fun getDeploymentMode ()Ldev/tramai/sovereign/SovereignDeploymentMode;
+	public final fun getOptionalEvidence ()Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$OptionalEvidence;
+	public final fun getProviderZones ()Ljava/util/Map;
+	public final fun getVerification ()Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$VerificationEvidence;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$OptionalEvidence {
+	public fun <init> ()V
+	public fun <init> (Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;)V
+	public synthetic fun <init> (Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;
+	public final fun component2 ()Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;
+	public final fun component3 ()Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;
+	public final fun component4 ()Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;
+	public final fun component5 ()Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;
+	public final fun copy (Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$OptionalEvidence;
+	public static synthetic fun copy$default (Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$OptionalEvidence;Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;ILjava/lang/Object;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$OptionalEvidence;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttestation ()Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;
+	public final fun getAuditChain ()Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;
+	public final fun getReleaseBundle ()Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;
+	public final fun getSupplyChain ()Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;
+	public final fun getZeroEgress ()Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$VerificationEvidence {
+	public fun <init> (Ldev/tramai/core/model/ModelArtifactVerificationSettings;Ljava/util/List;)V
+	public final fun component1 ()Ldev/tramai/core/model/ModelArtifactVerificationSettings;
+	public final fun component2 ()Ljava/util/List;
+	public final fun copy (Ldev/tramai/core/model/ModelArtifactVerificationSettings;Ljava/util/List;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$VerificationEvidence;
+	public static synthetic fun copy$default (Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$VerificationEvidence;Ldev/tramai/core/model/ModelArtifactVerificationSettings;Ljava/util/List;ILjava/lang/Object;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackGenerator$VerificationEvidence;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getVerificationReceipts ()Ljava/util/List;
+	public final fun getVerificationSettings ()Ldev/tramai/core/model/ModelArtifactVerificationSettings;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/sovereign/evidence/SovereignEvidencePackV1 {
+	public fun <init> (ILjava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/Map;Ljava/util/Map;Ljava/util/List;Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;Ljava/lang/String;)V
+	public synthetic fun <init> (ILjava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/Map;Ljava/util/Map;Ljava/util/List;Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component10 ()Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;
+	public final fun component11 ()Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;
+	public final fun component12 ()Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;
+	public final fun component13 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/util/List;
+	public final fun component4 ()Ljava/util/List;
+	public final fun component5 ()Ljava/util/Map;
+	public final fun component6 ()Ljava/util/Map;
+	public final fun component7 ()Ljava/util/List;
+	public final fun component8 ()Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;
+	public final fun component9 ()Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;
+	public final fun copy (ILjava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/Map;Ljava/util/Map;Ljava/util/List;Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;Ljava/lang/String;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackV1;
+	public static synthetic fun copy$default (Ldev/tramai/sovereign/evidence/SovereignEvidencePackV1;ILjava/lang/String;Ljava/util/List;Ljava/util/List;Ljava/util/Map;Ljava/util/Map;Ljava/util/List;Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/sovereign/evidence/SovereignEvidencePackV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowedModels ()Ljava/util/List;
+	public final fun getAllowedProviders ()Ljava/util/List;
+	public final fun getArtifactVerificationSettings ()Ljava/util/Map;
+	public final fun getArtifacts ()Ljava/util/List;
+	public final fun getAttestation ()Ldev/tramai/sovereign/evidence/AttestationEvidenceV1;
+	public final fun getAuditChain ()Ldev/tramai/sovereign/evidence/AuditChainEvidenceV1;
+	public final fun getDeploymentMode ()Ljava/lang/String;
+	public final fun getGeneratedAt ()Ljava/lang/String;
+	public final fun getProviderZones ()Ljava/util/Map;
+	public final fun getReleaseBundle ()Ldev/tramai/sovereign/evidence/ReleaseBundleEvidenceV1;
+	public final fun getSchemaVersion ()I
+	public final fun getSupplyChain ()Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;
+	public final fun getZeroEgress ()Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/sovereign/evidence/SovereignEvidencePackWriter {
+	public static final field INSTANCE Ldev/tramai/sovereign/evidence/SovereignEvidencePackWriter;
+	public final fun escapedString (Ljava/lang/String;)Ljava/lang/String;
+	public final fun write (Ldev/tramai/sovereign/evidence/SovereignEvidencePackV1;Ljava/nio/file/Path;)V
+}
+
+public final class dev/tramai/sovereign/evidence/SupplyChainEvidenceV1 {
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()I
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun copy (ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;
+	public static synthetic fun copy$default (Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/sovereign/evidence/SupplyChainEvidenceV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getGeneratedBy ()Ljava/lang/String;
+	public final fun getSbomFileName ()Ljava/lang/String;
+	public final fun getSbomFormat ()Ljava/lang/String;
+	public final fun getSbomSha256 ()Ljava/lang/String;
+	public final fun getSbomSpecVersion ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/sovereign/evidence/ZeroEgressEvidenceV1 {
+	public fun <init> (Ljava/lang/String;ZZIZZ)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Z
+	public final fun component3 ()Z
+	public final fun component4 ()I
+	public final fun component5 ()Z
+	public final fun component6 ()Z
+	public final fun copy (Ljava/lang/String;ZZIZZ)Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;
+	public static synthetic fun copy$default (Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;Ljava/lang/String;ZZIZZILjava/lang/Object;)Ldev/tramai/sovereign/evidence/ZeroEgressEvidenceV1;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDeploymentMode ()Ljava/lang/String;
+	public final fun getExternalDnsProbeBlocked ()Z
+	public final fun getExternalTcpProbeBlocked ()Z
+	public final fun getLoopbackProviderInvocationCount ()I
+	public final fun getLoopbackProviderInvocationSucceeded ()Z
+	public final fun getRuntimeBuildSucceeded ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+

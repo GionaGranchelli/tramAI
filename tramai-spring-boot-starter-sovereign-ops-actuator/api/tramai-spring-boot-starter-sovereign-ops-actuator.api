@@ -1,0 +1,91 @@
+public final class dev/tramai/spring/sovereign/ops/actuator/ApprovedContinuationResumeWorkerHealthIndicator : org/springframework/boot/actuate/health/HealthIndicator {
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/ApprovedContinuationResumeWorkerStatusStore;Ldev/tramai/spring/sovereign/ops/ApprovedContinuationResumeQueueStatusStore;)V
+	public synthetic fun <init> (Ldev/tramai/spring/sovereign/ops/ApprovedContinuationResumeWorkerStatusStore;Ldev/tramai/spring/sovereign/ops/ApprovedContinuationResumeQueueStatusStore;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun health ()Lorg/springframework/boot/actuate/health/Health;
+}
+
+public final class dev/tramai/spring/sovereign/ops/actuator/ApprovedContinuationResumeWorkerMetricsObserver : dev/tramai/spring/sovereign/ops/ApprovedContinuationResumeWorkerObserver {
+	public static final field CYCLES_TOTAL Ljava/lang/String;
+	public static final field CYCLE_DURATION Ljava/lang/String;
+	public static final field Companion Ldev/tramai/spring/sovereign/ops/actuator/ApprovedContinuationResumeWorkerMetricsObserver$Companion;
+	public static final field FAILURES_TOTAL Ljava/lang/String;
+	public static final field ITEMS_FAILED_TOTAL Ljava/lang/String;
+	public static final field ITEMS_RESUMED_TOTAL Ljava/lang/String;
+	public static final field ITEMS_SCANNED_TOTAL Ljava/lang/String;
+	public static final field ITEMS_SKIPPED_TOTAL Ljava/lang/String;
+	public static final field METRICS_PREFIX Ljava/lang/String;
+	public fun <init> (Lio/micrometer/core/instrument/MeterRegistry;Ldev/tramai/spring/sovereign/ops/actuator/ApprovedContinuationResumeWorkerMetricsProperties;)V
+	public fun cycleCompleted (Ljava/lang/String;Ldev/tramai/spring/sovereign/ops/ApprovedContinuationResumeWorkerResult;Ljava/time/Duration;)V
+	public fun cycleFailed (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public fun cycleStarted (Ljava/lang/String;)V
+}
+
+public final class dev/tramai/spring/sovereign/ops/actuator/ApprovedContinuationResumeWorkerMetricsObserver$Companion {
+}
+
+public final class dev/tramai/spring/sovereign/ops/actuator/ApprovedContinuationResumeWorkerMetricsProperties {
+	public fun <init> ()V
+	public fun <init> (ZZLjava/time/Duration;Z)V
+	public synthetic fun <init> (ZZLjava/time/Duration;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Z
+	public final fun component3 ()Ljava/time/Duration;
+	public final fun component4 ()Z
+	public final fun copy (ZZLjava/time/Duration;Z)Ldev/tramai/spring/sovereign/ops/actuator/ApprovedContinuationResumeWorkerMetricsProperties;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/actuator/ApprovedContinuationResumeWorkerMetricsProperties;ZZLjava/time/Duration;ZILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/actuator/ApprovedContinuationResumeWorkerMetricsProperties;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEnabled ()Z
+	public final fun getIncludeWorkerIdTag ()Z
+	public final fun getQueueSnapshotEnabled ()Z
+	public final fun getQueueSnapshotRefreshInterval ()Ljava/time/Duration;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/spring/sovereign/ops/actuator/ApprovedResumeQueueMetricsSnapshotProvider {
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/ApprovedContinuationResumeQueueStatusStore;Ljava/time/Clock;Ljava/time/Duration;)V
+	public synthetic fun <init> (Ldev/tramai/spring/sovereign/ops/ApprovedContinuationResumeQueueStatusStore;Ljava/time/Clock;Ljava/time/Duration;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getActiveLeases ()Ljava/util/concurrent/atomic/AtomicLong;
+	public final fun getDelayedRetry ()Ljava/util/concurrent/atomic/AtomicLong;
+	public final fun getEligibleNow ()Ljava/util/concurrent/atomic/AtomicLong;
+	public final fun getExpiredLeases ()Ljava/util/concurrent/atomic/AtomicLong;
+	public final fun getOldestEligibleAgeSeconds ()Ljava/util/concurrent/atomic/AtomicReference;
+	public final fun getOldestRetryDueInSeconds ()Ljava/util/concurrent/atomic/AtomicReference;
+	public final fun getSnapshotFailureCount ()Ljava/util/concurrent/atomic/AtomicLong;
+	public final fun getTerminalFailures ()Ljava/util/concurrent/atomic/AtomicLong;
+	public final fun refreshIfDue ()V
+	public final fun registerGauges (Lio/micrometer/core/instrument/MeterRegistry;)V
+}
+
+public final class dev/tramai/spring/sovereign/ops/actuator/SovereignOpsActuatorAutoConfiguration {
+	public fun <init> ()V
+	public final fun approvedContinuationResumeWorkerHealthIndicator (Ldev/tramai/spring/sovereign/ops/ApprovedContinuationResumeWorkerStatusStore;Lorg/springframework/beans/factory/ObjectProvider;)Ldev/tramai/spring/sovereign/ops/actuator/ApprovedContinuationResumeWorkerHealthIndicator;
+	public final fun approvedContinuationResumeWorkerMetricsObserverContribution (Lio/micrometer/core/instrument/MeterRegistry;Ldev/tramai/spring/sovereign/ops/actuator/ApprovedContinuationResumeWorkerMetricsProperties;)Ldev/tramai/spring/sovereign/ops/ApprovedContinuationResumeWorkerObserverContribution;
+	public final fun approvedResumeQueueMetricsSnapshotProvider (Ldev/tramai/spring/sovereign/ops/ApprovedContinuationResumeQueueStatusStore;Lio/micrometer/core/instrument/MeterRegistry;Ldev/tramai/spring/sovereign/ops/actuator/ApprovedContinuationResumeWorkerMetricsProperties;)Ldev/tramai/spring/sovereign/ops/actuator/ApprovedResumeQueueMetricsSnapshotProvider;
+	public final fun sovereignOpsWorkerHealthIndicator (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerStatusStore;)Ldev/tramai/spring/sovereign/ops/actuator/SovereignOpsWorkerHealthIndicator;
+	public final fun sovereignOpsWorkerStatusEndpoint (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerStatusStore;)Ldev/tramai/spring/sovereign/ops/actuator/SovereignOpsWorkerStatusEndpoint;
+}
+
+public final class dev/tramai/spring/sovereign/ops/actuator/SovereignOpsWorkerHealthIndicator : org/springframework/boot/actuate/health/HealthIndicator {
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerStatusStore;)V
+	public fun health ()Lorg/springframework/boot/actuate/health/Health;
+}
+
+public final class dev/tramai/spring/sovereign/ops/actuator/SovereignOpsWorkerStatusEndpoint {
+	public fun <init> (Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerStatusStore;)V
+	public final fun status ()Ldev/tramai/spring/sovereign/ops/outbox/SovereignOpsAuditOutboxWorkerStatusSnapshot;
+}
+
+public final class dev/tramai/spring/sovereign/ops/actuator/SovereignOpsWorkerStatusEndpointProperties {
+	public fun <init> ()V
+	public fun <init> (Z)V
+	public synthetic fun <init> (ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun copy (Z)Ldev/tramai/spring/sovereign/ops/actuator/SovereignOpsWorkerStatusEndpointProperties;
+	public static synthetic fun copy$default (Ldev/tramai/spring/sovereign/ops/actuator/SovereignOpsWorkerStatusEndpointProperties;ZILjava/lang/Object;)Ldev/tramai/spring/sovereign/ops/actuator/SovereignOpsWorkerStatusEndpointProperties;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEnabled ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+

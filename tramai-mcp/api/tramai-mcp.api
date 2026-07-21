@@ -1,0 +1,82 @@
+public final class dev/tramai/mcp/McpToolHandlers {
+	public fun <init> (Ldev/tramai/server/WorkflowRegistry;Ldev/tramai/server/WorkflowRunStore;Ldev/tramai/server/WorkflowController;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/structured/JacksonStructuredOutputHandler;)V
+	public final fun getWorkflowStatus (Ljava/lang/String;Ljava/lang/String;)Lkotlinx/serialization/json/JsonObject;
+	public static synthetic fun getWorkflowStatus$default (Ldev/tramai/mcp/McpToolHandlers;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lkotlinx/serialization/json/JsonObject;
+	public final fun listWorkflows ()Lkotlinx/serialization/json/JsonObject;
+	public final fun resumeWorkflow (Ljava/lang/String;Ljava/lang/String;)Lkotlinx/serialization/json/JsonObject;
+	public static synthetic fun resumeWorkflow$default (Ldev/tramai/mcp/McpToolHandlers;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lkotlinx/serialization/json/JsonObject;
+	public final fun runWorkflow (Ljava/lang/String;Lkotlinx/serialization/json/JsonElement;Ljava/lang/String;)Lkotlinx/serialization/json/JsonObject;
+}
+
+public final class dev/tramai/mcp/ToolExecutionException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun asResult ()Lkotlinx/serialization/json/JsonObject;
+	public final fun getErrorType ()Ljava/lang/String;
+	public fun getMessage ()Ljava/lang/String;
+}
+
+public final class dev/tramai/mcp/TramaiMcpAutoConfiguration {
+	public fun <init> ()V
+	public final fun mcpToolHandlers (Ldev/tramai/server/WorkflowRegistry;Ldev/tramai/server/WorkflowRunStore;Ldev/tramai/server/WorkflowController;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/structured/JacksonStructuredOutputHandler;)Ldev/tramai/mcp/McpToolHandlers;
+	public final fun tramaiMcpLifecycle (Ldev/tramai/mcp/TramaiMcpProperties;Ldev/tramai/mcp/TramaiMcpServer;)Lorg/springframework/context/SmartLifecycle;
+	public final fun tramaiMcpServer (Ldev/tramai/mcp/McpToolHandlers;)Ldev/tramai/mcp/TramaiMcpServer;
+	public final fun tramaiMcpStructuredOutputHandler (Lcom/fasterxml/jackson/databind/ObjectMapper;)Ldev/tramai/structured/JacksonStructuredOutputHandler;
+}
+
+public final class dev/tramai/mcp/TramaiMcpProperties {
+	public fun <init> ()V
+	public fun <init> (Ldev/tramai/mcp/TramaiMcpProperties$Stdio;Ldev/tramai/mcp/TramaiMcpProperties$Sse;)V
+	public synthetic fun <init> (Ldev/tramai/mcp/TramaiMcpProperties$Stdio;Ldev/tramai/mcp/TramaiMcpProperties$Sse;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ldev/tramai/mcp/TramaiMcpProperties$Stdio;
+	public final fun component2 ()Ldev/tramai/mcp/TramaiMcpProperties$Sse;
+	public final fun copy (Ldev/tramai/mcp/TramaiMcpProperties$Stdio;Ldev/tramai/mcp/TramaiMcpProperties$Sse;)Ldev/tramai/mcp/TramaiMcpProperties;
+	public static synthetic fun copy$default (Ldev/tramai/mcp/TramaiMcpProperties;Ldev/tramai/mcp/TramaiMcpProperties$Stdio;Ldev/tramai/mcp/TramaiMcpProperties$Sse;ILjava/lang/Object;)Ldev/tramai/mcp/TramaiMcpProperties;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getSse ()Ldev/tramai/mcp/TramaiMcpProperties$Sse;
+	public final fun getStdio ()Ldev/tramai/mcp/TramaiMcpProperties$Stdio;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/mcp/TramaiMcpProperties$Sse {
+	public fun <init> ()V
+	public fun <init> (ZLjava/lang/String;ILjava/lang/String;)V
+	public synthetic fun <init> (ZLjava/lang/String;ILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()I
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (ZLjava/lang/String;ILjava/lang/String;)Ldev/tramai/mcp/TramaiMcpProperties$Sse;
+	public static synthetic fun copy$default (Ldev/tramai/mcp/TramaiMcpProperties$Sse;ZLjava/lang/String;ILjava/lang/String;ILjava/lang/Object;)Ldev/tramai/mcp/TramaiMcpProperties$Sse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEnabled ()Z
+	public final fun getHost ()Ljava/lang/String;
+	public final fun getPath ()Ljava/lang/String;
+	public final fun getPort ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/mcp/TramaiMcpProperties$Stdio {
+	public fun <init> ()V
+	public fun <init> (Z)V
+	public synthetic fun <init> (ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun copy (Z)Ldev/tramai/mcp/TramaiMcpProperties$Stdio;
+	public static synthetic fun copy$default (Ldev/tramai/mcp/TramaiMcpProperties$Stdio;ZILjava/lang/Object;)Ldev/tramai/mcp/TramaiMcpProperties$Stdio;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEnabled ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/mcp/TramaiMcpServer : java/lang/AutoCloseable {
+	public fun <init> (Ldev/tramai/mcp/McpToolHandlers;)V
+	public fun close ()V
+	public final fun sdkServer ()Lio/modelcontextprotocol/kotlin/sdk/server/Server;
+	public final fun startSse (Ljava/lang/String;ILjava/lang/String;)V
+	public final fun startStdio ()V
+	public final fun stopSse ()V
+}
+

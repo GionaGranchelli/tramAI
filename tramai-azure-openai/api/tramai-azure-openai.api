@@ -1,0 +1,31 @@
+public abstract interface class dev/tramai/azureopenai/AzureEntraAccessTokenSource {
+	public abstract fun accessToken ()Ljava/lang/String;
+}
+
+public final class dev/tramai/azureopenai/AzureOpenAiProvider : dev/tramai/core/provider/ModelProvider, dev/tramai/core/provider/StreamCapable {
+	public static final field Companion Ldev/tramai/azureopenai/AzureOpenAiProvider$Companion;
+	public static final field DEFAULT_API_VERSION Ljava/lang/String;
+	public static final field PROVIDER_ID Ljava/lang/String;
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/azureopenai/AzureEntraAccessTokenSource;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/azureopenai/AzureEntraAccessTokenSource;Lkotlin/coroutines/CoroutineContext;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/azureopenai/AzureEntraAccessTokenSource;Lkotlin/coroutines/CoroutineContext;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun complete (Ldev/tramai/core/model/ModelRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun providerId ()Ljava/lang/String;
+	public fun stream (Ldev/tramai/core/model/ModelRequest;)Lkotlinx/coroutines/flow/Flow;
+	public fun supportsCapability (Ldev/tramai/core/provider/ProviderCapability;)Z
+}
+
+public final class dev/tramai/azureopenai/AzureOpenAiProvider$Companion {
+	public final fun getSUPPORTED_IMAGE_TYPES ()Ljava/util/Set;
+}
+
+public final class dev/tramai/azureopenai/StaticAzureEntraAccessTokenSource : dev/tramai/azureopenai/AzureEntraAccessTokenSource {
+	public fun <init> (Ljava/lang/String;)V
+	public fun accessToken ()Ljava/lang/String;
+}
+

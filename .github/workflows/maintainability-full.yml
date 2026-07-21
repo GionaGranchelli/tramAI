@@ -1,0 +1,103 @@
+name: Full Maintainability Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      generate-baseline:
+        description: 'Also regenerate the committed baseline JSON'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '0 8 * * 6'  # Every Saturday at 08:00 UTC
+
+jobs:
+  full-baseline:
+    name: Full Maintainability Verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate Baseline (if requested)
+        if: inputs.generate-baseline
+        run: ./gradlew generateMaintainabilityBaseline --no-daemon
+
+      - name: Full Verification
+        run: ./gradlew verifyFullMaintainabilityBaseline --no-daemon
+
+      - name: Generate Source Metrics
+        run: ./gradlew generateSourceMetrics --no-daemon
+
+      - name: Generate Dependency Graph
+        run: ./gradlew generateResolvedDependencyGraph --no-daemon
+
+      - name: Upload All Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-maintainability-reports
+          path: |
+            build/reports/maintainability/
+            config/quality/0.6.0-baseline.json
+          retention-days: 90
+
+      - name: Job Summary
+        if: always()
+        run: |
+          echo "## Full Maintainability Baseline Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Run:** $(date -u +'%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Module Overview" >> $GITHUB_STEP_SUMMARY
+          if [ -f build/reports/maintainability/module-dependencies.json ]; then
+            MODULES=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/module-dependencies.json')); print(len(d.get('modules',[])))" 2>/dev/null || echo "?")
+            EDGES=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/module-dependencies.json')); print(len(d.get('edges',[])))" 2>/dev/null || echo "?")
+            CYCLES=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/module-dependencies.json')); print(len(d.get('cycles',[])))" 2>/dev/null || echo "?")
+            echo "- **Modules:** $MODULES" >> $GITHUB_STEP_SUMMARY
+            echo "- **Edges:** $EDGES" >> $GITHUB_STEP_SUMMARY
+            echo "- **Cycles:** $CYCLES" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Quality Checks" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f build/reports/maintainability/cancellation-safety.json ]; then
+            TOTAL=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/cancellation-safety.json')); print(len(d.get('findings',[])))" 2>/dev/null || echo "?")
+            CRITICAL=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/cancellation-safety.json')); print(sum(1 for f in d.get('findings',[]) if f.get('risk')=='critical'))" 2>/dev/null || echo "?")
+            echo "- **Cancellation catches:** $TOTAL ($CRITICAL critical)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -f build/reports/maintainability/global-state.json ]; then
+            GLOBALS=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/global-state.json')); print(len(d.get('findings',[])))" 2>/dev/null || echo "?")
+            echo "- **Global mutable state:** $GLOBALS instances" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -f build/reports/maintainability/nondeterminism.json ]; then
+            NON=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/nondeterminism.json')); print(len(d.get('findings',[])))" 2>/dev/null || echo "?")
+            echo "- **Nondeterminism sources:** $NON" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -f build/reports/maintainability/source-metrics.json ]; then
+            PROD=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/source-metrics.json')); print(d.get('totals',{}).get('totalProductionLines',0))" 2>/dev/null || echo "?")
+            TEST=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/source-metrics.json')); print(d.get('totals',{}).get('totalTestLines',0))" 2>/dev/null || echo "?")
+            echo "- **Production LOC:** $PROD" >> $GITHUB_STEP_SUMMARY
+            echo "- **Test LOC:** $TEST" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📦 Reports: \`full-maintainability-reports\` artifact" >> $GITHUB_STEP_SUMMARY
