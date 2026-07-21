@@ -7,6 +7,15 @@ import java.time.LocalDate
 
 /**
  * Parses and validates maintainability deviations from config/quality/maintainability-deviations.yml.
+ *
+ * Deviation scopes follow an explicit validated grammar:
+ *   - "*"                              (global)
+ *   - ":tramai-engine"                 (module)
+ *   - ":tramai-engine:path/to/File.kt" (file)
+ *   - ":tramai-engine:path/to/File.kt#Declaration" (declaration)
+ *   - ":tramai-provider-*"             (wildcard module prefix — only at end)
+ *
+ * Any other scope format is rejected as malformed.
  */
 class DeviationParser(private val rootDir: File) {
 
@@ -22,18 +31,73 @@ class DeviationParser(private val rootDir: File) {
         val owner: String
     )
 
+    data class DeviationScope(
+        val modulePath: String?,
+        val filePath: String?,
+        val declaration: String?,
+        val isWildcard: Boolean
+    )
+
     data class ParseResult(
         val deviations: List<DeviationEntry>,
-        val errors: List<String>
-    )
+        val diagnostics: List<VerificationDiagnostic>
+    ) {
+        val errors: List<String> get() = diagnostics
+            .filter { it.severity == DiagnosticSeverity.FAILURE || it.severity == DiagnosticSeverity.WARNING }
+            .map { "${it.code}: ${it.message}" }
+    }
+
+    /**
+     * Parse the deviation scope string into a structured object.
+     * Validated grammar: *, :module, :module:path, :module:path#Declaration, :module-prefix-*
+     */
+    fun parseScope(scope: String): DeviationScope? {
+        val trimmed = scope.trim().removePrefix("\"").removeSuffix("\"")
+
+        if (trimmed == "*") {
+            return DeviationScope(null, null, null, isWildcard = true)
+        }
+
+        if (trimmed.startsWith(":")) {
+            // Check for wildcard at end: `:tramai-*` or `:tramai-provider-*`
+            if (trimmed.endsWith("-*")) {
+                val prefix = trimmed.removeSuffix("*") // keep the trailing `-`
+                if (prefix.startsWith(":") && prefix.length > 1) {
+                    return DeviationScope(prefix, null, null, isWildcard = true)
+                }
+            }
+
+            // Check for declaration: `:module:path/to/File.kt#Declaration`
+            val hashIdx = trimmed.indexOf('#')
+            val declarationName = if (hashIdx >= 0) trimmed.substring(hashIdx + 1) else null
+            val pathPart = if (hashIdx >= 0) trimmed.substring(0, hashIdx) else trimmed
+
+            // Split into module and file path
+            val colonIdx = pathPart.indexOf(':', 1) // second colon
+            if (colonIdx >= 0) {
+                val modulePath = pathPart.substring(0, colonIdx)
+                val filePath = pathPart.substring(colonIdx + 1)
+                return DeviationScope(modulePath, filePath, declarationName, isWildcard = false)
+            } else {
+                // Module only (e.g. `:tramai-engine`)
+                return DeviationScope(pathPart, null, declarationName, isWildcard = false)
+            }
+        }
+
+        // Not a valid scope — legacy substring-based scopes are also rejected
+        return null
+    }
 
     fun parse(): ParseResult {
         val file = File(rootDir, "config/quality/maintainability-deviations.yml")
         if (!file.isFile) {
-            return ParseResult(emptyList(), listOf("Deviation file not found: ${file.absolutePath}"))
+            return ParseResult(emptyList(), listOf(
+                VerificationDiagnostic.warning(DiagnosticCode.MALFORMED_DEVIATION,
+                    "Deviation file not found: ${file.absolutePath}")
+            ))
         }
 
-        val errors = mutableListOf<String>()
+        val diagnostics = mutableListOf<VerificationDiagnostic>()
         val deviations = mutableListOf<DeviationEntry>()
 
         try {
@@ -52,31 +116,51 @@ class DeviationParser(private val rootDir: File) {
                 val targetPhase = entry["targetPhase"]?.toString() ?: ""
                 val owner = entry["owner"]?.toString() ?: ""
 
-                // Validate
+                // Validate basic fields
                 if (id.isBlank() || id == "MQ-${index}") {
-                    errors.add("Deviation at index $index: id is blank or auto-generated")
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MALFORMED_DEVIATION,
+                        "Deviation at index $index: id is blank or auto-generated"))
                 }
                 if (metric.isBlank()) {
-                    errors.add("$id: metric is blank")
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MALFORMED_DEVIATION, "$id: metric is blank"))
                 }
                 if (scope.isBlank()) {
-                    errors.add("$id: scope is blank")
-                }
-                if (baseline == 0 && allowed == 0 && !reason.contains("placeholder", ignoreCase = true)) {
-                    // Both zero without explanation — suspicious
-                    errors.add("$id: baseline and allowed are both 0 without placeholder justification")
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MALFORMED_DEVIATION, "$id: scope is blank"))
                 }
                 if (reason.isBlank()) {
-                    errors.add("$id: reason is blank")
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MALFORMED_DEVIATION, "$id: reason is blank"))
                 }
                 if (acceptedAt.isBlank()) {
-                    errors.add("$id: acceptedAt is blank")
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MALFORMED_DEVIATION, "$id: acceptedAt is blank"))
                 }
                 if (targetPhase.isBlank()) {
-                    errors.add("$id: targetPhase is blank")
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MALFORMED_DEVIATION, "$id: targetPhase is blank"))
                 }
                 if (owner.isBlank()) {
-                    errors.add("$id: owner is blank")
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.MALFORMED_DEVIATION, "$id: owner is blank"))
+                }
+
+                // Validate scope format
+                val parsedScope = parseScope(scope)
+                if (parsedScope == null) {
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.INVALID_DEVIATION_SCOPE,
+                        "$id: invalid scope '$scope'. Use ':module', ':module:path', ':module:path#Decl', or '*'"))
+                }
+
+                // Check expired target phase
+                val expiredPrefixes = listOf("0.6.0", "0.5", "0.4", "0.3", "0.2", "0.1")
+                if (expiredPrefixes.any { targetPhase.startsWith(it) }) {
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.EXPIRED_DEVIATION,
+                        "$id: targetPhase $targetPhase has expired"))
                 }
 
                 deviations.add(
@@ -84,41 +168,53 @@ class DeviationParser(private val rootDir: File) {
                 )
             }
 
-            checkDuplicateIds(deviations, errors)
-            checkExpiredDeviations(deviations, errors)
+            checkDuplicateIds(deviations, diagnostics)
 
         } catch (e: Exception) {
-            errors.add("Failed to parse deviation file: ${e.message}")
+            diagnostics.add(VerificationDiagnostic.failure(
+                DiagnosticCode.MALFORMED_DEVIATION,
+                "Failed to parse deviation file: ${e.message}"))
         }
 
-        return ParseResult(deviations, errors)
+        return ParseResult(deviations, diagnostics)
     }
 
-    private fun checkDuplicateIds(deviations: List<DeviationEntry>, errors: MutableList<String>) {
+    private fun checkDuplicateIds(deviations: List<DeviationEntry>, diagnostics: MutableList<VerificationDiagnostic>) {
         val duplicates = deviations.groupBy { it.id }.filter { it.value.size > 1 }
         for ((id, entries) in duplicates) {
-            errors.add("Duplicate deviation ID: $id (${entries.size} entries)")
-        }
-    }
-
-    private fun checkExpiredDeviations(deviations: List<DeviationEntry>, errors: MutableList<String>) {
-        // Deviations with target phase ≤ 0.6.0 (the current release) are expired
-        val expiredPrefixes = listOf("0.6.0", "0.5", "0.4", "0.3", "0.2", "0.1")
-        for (dev in deviations) {
-            if (expiredPrefixes.any { dev.targetPhase.startsWith(it) }) {
-                errors.add("${dev.id}: targetPhase ${dev.targetPhase} has expired — deviation should be resolved or its phase updated")
-            }
+            diagnostics.add(VerificationDiagnostic.failure(
+                DiagnosticCode.DUPLICATE_DEVIATION,
+                "Duplicate deviation ID: $id (${entries.size} entries)"))
         }
     }
 
     /**
-     * Find a deviation that covers a given finding. Returns the deviation if one matches.
+     * Find a deviation that covers a given finding.
+     * Uses exact matching: scope, metric, and allowed value.
      */
-    fun findCoveringDeviation(deviations: List<DeviationEntry>, metric: String, scope: String, currentValue: Int): DeviationEntry? {
+    fun findCoveringDeviation(
+        deviations: List<DeviationEntry>,
+        metric: String,
+        scope: String,
+        currentValue: Int
+    ): DeviationEntry? {
         return deviations.find { dev ->
             dev.metric == metric &&
-                (dev.scope == scope || scope.startsWith(dev.scope) || dev.scope == "*") &&
+                scopeMatches(dev.scope, scope) &&
                 currentValue <= dev.allowed
         }
+    }
+
+    /** Check whether a deviation scope covers a given finding scope. */
+    private fun scopeMatches(devScope: String, findingScope: String): Boolean {
+        if (devScope == "*") return true
+
+        val parsed = parseScope(devScope) ?: return false
+        if (parsed.isWildcard && parsed.modulePath != null) {
+            return findingScope.startsWith(parsed.modulePath)
+        }
+
+        // Normalize both for comparison
+        return devScope.removePrefix("\"").removeSuffix("\"") == findingScope
     }
 }
