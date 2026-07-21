@@ -192,7 +192,8 @@ object KotlinCancellationCatchScanner {
     }
 
     /** Check if the catch block rethrows CancellationException (within catch body, including nested blocks).
-     *  Requires that the caught exception variable itself is rethrown (not just any nearby throw). */
+     *  Requires that the caught exception variable itself is rethrown AND the throw is inside the
+     *  same branch as the CancellationException check, not merely nearby. */
     private fun checkRethrowsCancellation(lines: List<String>, catchIdx: Int): Boolean {
         val catchVar = extractCatchVariable(lines[catchIdx]) ?: return false
         val catchBodyEnd = findCatchBodyEnd(lines, catchIdx)
@@ -200,27 +201,57 @@ object KotlinCancellationCatchScanner {
 
         // Pattern: throw <catchVar> (exact variable rethrow)
         val throwVarPattern = Regex("""\bthrow\s+${Regex.escape(catchVar)}\b""")
+        // Pattern: if (variable is [...][.]CancellationException[...])
+        val cancellationIfPattern = Regex(
+            """\bif\s*\(\s*${Regex.escape(catchVar)}\s+is\s+[A-Za-z_.]*CancellationException"""
+        )
 
         for (i in catchIdx + 1 until end) {
             val stripped = stripComment(lines[i])
-            // Skip comment-only lines and string-content-only lines
             if (stripped.isBlank()) continue
 
-            // Check if this line mentions CancellationException (not in a string or comment — already stripped)
-            val mentionsCancellation = "CancellationException" in stripped &&
-                !isInsideStringLiteral(lines[i], lines[i].indexOf("CancellationException").coerceAtLeast(0))
+            // Only consider lines that are checking for CancellationException on our caught variable
+            val cancellationCheck = cancellationIfPattern.find(stripped)
+            if (cancellationCheck == null) continue
 
-            if (!mentionsCancellation) continue
+            // Found an if (var is CancellationException) — now check if the matching block
+            // (the brace-balanced range) or the same line contains `throw var`
+            // Handle inline: `if (e is CancellationException) throw e` — check same line
+            val restOfLine = stripped.substring(cancellationCheck.range.last + 1)
+            if (throwVarPattern.containsMatchIn(restOfLine)) return true
 
-            // Check nearby lines (same line ±2) for `throw <catchVar>`
-            val checkRange = maxOf(catchIdx + 1, i - 2)..minOf(end - 1, i + 2)
-            for (j in checkRange) {
-                val checkLine = stripComment(lines[j])
-                if (throwVarPattern.containsMatchIn(checkLine)) return true
+            // Handle block: `if (e is CancellationException) { throw e }`
+            val ifBlockEnd = findBlockAfterIf(lines, i, end)
+            if (ifBlockEnd < 0) continue
+
+            // Search inside the if-block for `throw var`
+            for (j in i + 1 until minOf(ifBlockEnd, end)) {
+                if (throwVarPattern.containsMatchIn(stripComment(lines[j]))) return true
             }
         }
 
         return false
+    }
+
+    /**
+     * Find the end of the block that follows an `if (...)` statement.
+     * Returns the index of the closing `}` (exclusive), or -1 if not found.
+     * Handles: `if (cond) statement` (single-line, no brace) and `if (cond) { ... }`.
+     */
+    private fun findBlockAfterIf(lines: List<String>, ifIdx: Int, limit: Int): Int {
+        val ifLine = lines[ifIdx]
+        val braceIdx = ifLine.indexOf('{')
+        if (braceIdx >= 0) {
+            // Block form: `if (cond) {` or `if (cond) { ... }`
+            // Count opening braces on the if line, then balance forward
+            var braceCount = 1
+            for (i in ifIdx + 1 until limit) {
+                braceCount += lines[i].count { it == '{' }
+                braceCount -= lines[i].count { it == '}' }
+                if (braceCount <= 0) return i
+            }
+        }
+        return -1
     }
 
     /** Find the end of the catch body (closing brace of the catch block).

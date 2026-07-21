@@ -287,6 +287,26 @@ class KotlinCancellationCatchScannerTest {
             "CancellationException in string should not elevate to accepted")
     }
 
+    @Test
+    fun `throwing caught variable in unrelated condition is not accepted`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun run() {
+                try {
+                    work()
+                } catch (e: Exception) {
+                    if (e is CancellationException) audit(e)
+                    if (shouldRethrow()) throw e
+                    handle(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertNotEquals("accepted", findings.first().risk,
+            "throw e outside cancellation branch should not be accepted")
+    }
+
     // ── Regression tests requested in PR #203 review ──
 
     @Test
