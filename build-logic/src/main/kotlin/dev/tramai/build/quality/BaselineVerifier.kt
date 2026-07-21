@@ -312,6 +312,210 @@ class BaselineVerifier(
     private fun countById(findings: List<FindingIdentity>): Map<String, Int> =
         findings.groupBy { it.toIdentityKey() }.mapValues { it.value.size }
 
+    // ─── Shared aggregate deviation budget evaluator ───
+    //
+    // Every safety-finding metric uses the same budgeting rule:
+    //   each deviation's `allowed` ceiling covers ALL current findings
+    //   matching its scope, not findings per module.
+
+    /**
+     * Result of evaluating one deviation against the current findings.
+     */
+    private data class DeviationMatch(
+        val deviation: DeviationParser.DeviationEntry,
+        val matchingAll: List<Any?>,
+        val matchingAdded: List<Any?>
+    )
+
+    /**
+     * Evaluate the aggregate deviation budget for a safety metric.
+     * Finds the best deviations that cover added findings and checks
+     * the allowed ceiling against ALL matching current findings (scope-wide).
+     *
+     * @param metricName  the metric name to filter deviations by
+     * @param deviations  all parsed deviations
+     * @param committedIds  identity keys from committed baseline (for delta)
+     * @param currentIds    identity keys from current baseline
+     * @param allCurrent    all current findings of this type
+     * @param riskFilter    optional filter for risk level (e.g. "critical")
+     * @param toModuleScope  extracts a FindingScope(modulePath=...) from a finding
+     * @param diagnosticCode  code for NEW/added findings
+     * @param riskWorseCode   code for risk worsening (or null)
+     * @param diagnostics  accumulator
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun evaluateDeviationBudget(
+        metricName: String,
+        deviations: List<DeviationParser.DeviationEntry>,
+        committedIds: List<String>,
+        currentIds: List<String>,
+        allCurrent: List<Any?>,
+        riskFilter: ((Any?) -> Boolean)? = null,
+        toModuleScope: (Any?) -> DeviationParser.FindingScope,
+        diagnosticCode: DiagnosticCode,
+        riskWorseCode: DiagnosticCode? = null,
+        diagnostics: MutableList<VerificationDiagnostic>
+    ) {
+        // Multiset: count deltas
+        val committedCounts = committedIds.groupBy { it }.mapValues { it.value.size }
+        val currentCounts = currentIds.groupBy { it }.mapValues { it.value.size }
+
+        val addedIdentities = mutableSetOf<String>()
+        for ((key, count) in currentCounts) {
+            val oldCount = committedCounts[key] ?: 0
+            if (count > oldCount) addedIdentities.add(key)
+        }
+
+        val addedFindings = allCurrent.filter { f ->
+            val id = findingIdentityKey(f)
+            id in addedIdentities && (riskFilter == null || riskFilter(f))
+        } as MutableList<Any?>
+
+        if (addedFindings.isNotEmpty()) {
+            val relevant = deviations.filter { it.metric == metricName }
+                .sortedByDescending { it.allowed }
+
+            var remaining = addedFindings.toMutableList()
+
+            for (dev in relevant) {
+                val parsedScope = deviationParser.parseScope(dev.scope) ?: continue
+
+                // ALL current findings matching this deviation's scope
+                val matchingAll = allCurrent.filter { f ->
+                    val scope = toModuleScope(f)
+                    parsedScope.covers(scope)
+                }
+
+                if (matchingAll.size <= dev.allowed) {
+                    val covered = remaining.filter { f ->
+                        val scope = toModuleScope(f)
+                        parsedScope.covers(scope)
+                    }
+                    if (covered.isNotEmpty()) {
+                        diagnostics.add(VerificationDiagnostic.accepted(
+                            diagnosticCode,
+                            "${covered.size} new finding(s) — accepted by ${dev.id} (${matchingAll.size} total in scope ≤ ${dev.allowed})",
+                            deviationId = dev.id))
+                        remaining.removeAll(covered.toSet())
+                    }
+                }
+            }
+
+            if (remaining.isNotEmpty()) {
+                val byModule = remaining.groupBy { f ->
+                    val m = modulePathOf(f)
+                    if (m.startsWith(":")) m else ":$m"
+                }
+                for ((module, findings) in byModule) {
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        diagnosticCode,
+                        "${findings.size} new finding(s) in $module — no covering deviation",
+                        modulePath = module))
+                }
+            }
+        }
+
+        // Risk worsening (cancellation-specific)
+        if (riskWorseCode != null) {
+            evaluateRiskWorsening(metricName, deviations, allCurrent, committedIds, currentIds, toModuleScope, riskWorseCode, diagnostics)
+        }
+    }
+
+    /** Compute the FindingScope for module-based matching from a finding. */
+    private fun moduleScope(finding: Any?): DeviationParser.FindingScope {
+        val m = modulePathOf(finding)
+        val norm = if (m.startsWith(":")) m else ":$m"
+        return DeviationParser.FindingScope(norm, null, null)
+    }
+
+    /** Extract the module path string from an arbitrary finding. */
+    private fun modulePathOf(finding: Any?): String {
+        return when (finding) {
+            is CancellationCatchFinding -> finding.module
+            is GlobalStateFinding -> finding.module
+            is NondeterminismFinding -> finding.module
+            else -> ""
+        }
+    }
+
+    /** Extract a stable identity key from an arbitrary finding. */
+    private fun findingIdentityKey(finding: Any?): String {
+        return when (finding) {
+            is CancellationCatchFinding -> FindingIdentity.fromCancellationCatch(finding).toIdentityKey()
+            is GlobalStateFinding -> FindingIdentity.fromGlobalState(finding).toIdentityKey()
+            is NondeterminismFinding -> FindingIdentity.fromNondeterminism(finding).toIdentityKey()
+            else -> ""
+        }
+    }
+
+    /** Evaluate risk worsening deviations per scope. */
+    private fun evaluateRiskWorsening(
+        metricName: String,
+        deviations: List<DeviationParser.DeviationEntry>,
+        allCurrent: List<Any?>,
+        committedIds: List<String>,
+        currentIds: List<String>,
+        toModuleScope: (Any?) -> DeviationParser.FindingScope,
+        riskWorseCode: DiagnosticCode,
+        diagnostics: MutableList<VerificationDiagnostic>
+    ) {
+        // Find worsened risks by comparing committed vs current risk
+        if (allCurrent.isEmpty() || allCurrent.first() !is CancellationCatchFinding) return
+
+        val currentCatches = allCurrent as List<CancellationCatchFinding>
+        val committedCatches = committedIds.mapNotNull { id ->
+            currentCatches.find { FindingIdentity.fromCancellationCatch(it).toIdentityKey() == id }
+        }
+
+        val committedByRisk = committedCatches.associate {
+            FindingIdentity.fromCancellationCatch(it).toIdentityKey() to it.risk
+        }
+
+        val worsened = currentCatches.filter { f ->
+            val id = FindingIdentity.fromCancellationCatch(f).toIdentityKey()
+            val committedRisk = committedByRisk[id]
+            committedRisk != null && riskOrder(committedRisk) < riskOrder(f.risk)
+        }
+
+        if (worsened.isEmpty()) return
+
+        val riskDeviations = deviations.filter { it.metric == metricName }
+            .sortedByDescending { it.allowed }
+
+        var remaining = worsened.toMutableList()
+
+        for (dev in riskDeviations) {
+            val parsedScope = deviationParser.parseScope(dev.scope) ?: continue
+
+            val matching = worsened.count { f ->
+                parsedScope.covers(toModuleScope(f))
+            }
+
+            if (matching <= dev.allowed) {
+                val covered = remaining.filter { f ->
+                    parsedScope.covers(toModuleScope(f))
+                }
+                if (covered.isNotEmpty()) {
+                    diagnostics.add(VerificationDiagnostic.accepted(
+                        riskWorseCode,
+                        "${covered.size} risk worsenings — accepted by ${dev.id} (${matching} total in scope ≤ ${dev.allowed})",
+                        deviationId = dev.id))
+                    remaining.removeAll(covered.toSet())
+                }
+            }
+        }
+
+        if (remaining.isNotEmpty()) {
+            remaining.forEach { f ->
+                val ccf = f as CancellationCatchFinding
+                diagnostics.add(VerificationDiagnostic.failure(
+                    riskWorseCode,
+                    "Cancellation catch risk worsened: ${ccf.module}/${ccf.file}:${ccf.function} — no covering deviation",
+                    modulePath = ccf.module))
+            }
+        }
+    }
+
     // ─── Finding-level comparison with FindingIdentity ───
 
     private fun verifyCancellationCatches(
@@ -320,137 +524,29 @@ class BaselineVerifier(
         deviations: List<DeviationParser.DeviationEntry>,
         diagnostics: MutableList<VerificationDiagnostic>
     ) {
-        val committedIds = committed.runtimeSafety.cancellationCatches.map {
+        val allCurrent = current.runtimeSafety.cancellationCatches.toList<Any?>()
+        evaluateDeviationBudget(
+            metricName = "cancellationCriticalCount",
+            deviations = deviations,
+            committedIds = committed.runtimeSafety.cancellationCatches.map {
+                FindingIdentity.fromCancellationCatch(it).toIdentityKey()
+            },
+            currentIds = current.runtimeSafety.cancellationCatches.map {
+                FindingIdentity.fromCancellationCatch(it).toIdentityKey()
+            },
+            allCurrent = allCurrent,
+            riskFilter = { f -> (f as CancellationCatchFinding).risk == "critical" },
+            toModuleScope = { f -> moduleScope(f) },
+            diagnosticCode = DiagnosticCode.NEW_CANCELLATION_FINDING,
+            riskWorseCode = DiagnosticCode.CANCELLATION_RISK_WORSENED,
+            diagnostics = diagnostics
+        )
+
+        val removed = committed.runtimeSafety.cancellationCatches.map {
             FindingIdentity.fromCancellationCatch(it).toIdentityKey()
-        }
-        val currentIds = current.runtimeSafety.cancellationCatches.map {
+        }.toSet() - current.runtimeSafety.cancellationCatches.map {
             FindingIdentity.fromCancellationCatch(it).toIdentityKey()
-        }
-
-        // Multiset comparison: compare counts, not just set membership
-        val committedCounts = committedIds.groupBy { it }.mapValues { it.value.size }
-        val currentCounts = currentIds.groupBy { it }.mapValues { it.value.size }
-
-        val added = mutableSetOf<String>()
-        for ((key, count) in currentCounts) {
-            val oldCount = committedCounts[key] ?: 0
-            if (count > oldCount) {
-                added.add(key)
-            }
-        }
-        val addedCritical = current.runtimeSafety.cancellationCatches
-            .filter { it.risk == "critical" && FindingIdentity.fromCancellationCatch(it).toIdentityKey() in added }
-
-        if (addedCritical.isNotEmpty()) {
-            // Evaluate per deviation scope: each deviation's budget applies
-            // to ALL findings matching its scope, not per-module.
-            val deviationsByScope = deviations
-                .filter { it.metric == "cancellationCriticalCount" }
-                .sortedByDescending { it.allowed }
-
-            var remainingUncovered = addedCritical.toMutableList()
-
-            for (dev in deviationsByScope) {
-                val parsedScope = deviationParser.parseScope(dev.scope)
-                if (parsedScope == null) continue
-
-                // Count ALL current critical catches matching this deviation's scope
-                val matchingCurrent = current.runtimeSafety.cancellationCatches.count { f ->
-                    val fm = if (f.module.startsWith(":")) f.module else ":${f.module}"
-                    f.risk == "critical" && parsedScope.covers(
-                        DeviationParser.FindingScope(fm, null, null)
-                    )
-                }
-
-                // Count committed critical catches matching this deviation's scope
-                val matchingCommitted = committed.runtimeSafety.cancellationCatches.count { f ->
-                    val fm = if (f.module.startsWith(":")) f.module else ":${f.module}"
-                    f.risk == "critical" && parsedScope.covers(
-                        DeviationParser.FindingScope(fm, null, null)
-                    )
-                }
-
-                if (matchingCurrent <= dev.allowed) {
-                    // This deviation covers all matching findings
-                    val covered = remainingUncovered.filter { f ->
-                        val fm = if (f.module.startsWith(":")) f.module else ":${f.module}"
-                        parsedScope.covers(DeviationParser.FindingScope(fm, null, null))
-                    }
-                    if (covered.isNotEmpty()) {
-                        diagnostics.add(VerificationDiagnostic.accepted(
-                            DiagnosticCode.NEW_CANCELLATION_FINDING,
-                            "${covered.size} new critical catches — accepted by ${dev.id} (${matchingCurrent} total in scope ≤ ${dev.allowed})",
-                            deviationId = dev.id))
-                        remainingUncovered.removeAll(covered.toSet())
-                    }
-                }
-            }
-
-            if (remainingUncovered.isNotEmpty()) {
-                val byModule = remainingUncovered.groupBy { f ->
-                    if (f.module.startsWith(":")) f.module else ":${f.module}"
-                }
-                for ((module, findings) in byModule) {
-                    diagnostics.add(VerificationDiagnostic.failure(
-                        DiagnosticCode.NEW_CANCELLATION_FINDING,
-                        "${findings.size} new critical cancellation catch(es) in $module — no covering deviation",
-                        modulePath = module))
-                }
-            }
-        }
-
-        // Risk worsening with typed diagnostic
-        val committedByRisk = committed.runtimeSafety.cancellationCatches
-            .associate { FindingIdentity.fromCancellationCatch(it).toIdentityKey() to it.risk }
-        val worsenedRisks = current.runtimeSafety.cancellationCatches.filter { f ->
-            val id = FindingIdentity.fromCancellationCatch(f).toIdentityKey()
-            val committedRisk = committedByRisk[id]
-            committedRisk != null && riskOrder(committedRisk) < riskOrder(f.risk)
-        }
-
-        if (worsenedRisks.isNotEmpty()) {
-            // Evaluate per deviation scope: each deviation's budget applies
-            // to ALL findings matching its scope.
-            val riskDeviations = deviations.filter { it.metric == "cancellationRiskWorsening" }
-                .sortedByDescending { it.allowed }
-
-            var remainingWorsened = worsenedRisks.toMutableList()
-
-            for (dev in riskDeviations) {
-                val parsedScope = deviationParser.parseScope(dev.scope)
-                if (parsedScope == null) continue
-
-                val matchingWorsened = worsenedRisks.count { f ->
-                    val fm = if (f.module.startsWith(":")) f.module else ":${f.module}"
-                    parsedScope.covers(DeviationParser.FindingScope(fm, null, null))
-                }
-
-                if (matchingWorsened <= dev.allowed) {
-                    val covered = remainingWorsened.filter { f ->
-                        val fm = if (f.module.startsWith(":")) f.module else ":${f.module}"
-                        parsedScope.covers(DeviationParser.FindingScope(fm, null, null))
-                    }
-                    if (covered.isNotEmpty()) {
-                        diagnostics.add(VerificationDiagnostic.accepted(
-                            DiagnosticCode.CANCELLATION_RISK_WORSENED,
-                            "${covered.size} risk worsenings — accepted by ${dev.id} (${matchingWorsened} total in scope ≤ ${dev.allowed})",
-                            deviationId = dev.id))
-                        remainingWorsened.removeAll(covered.toSet())
-                    }
-                }
-            }
-
-            if (remainingWorsened.isNotEmpty()) {
-                remainingWorsened.forEach { f ->
-                    diagnostics.add(VerificationDiagnostic.failure(
-                        DiagnosticCode.CANCELLATION_RISK_WORSENED,
-                        "Cancellation catch risk worsened: ${f.module}/${f.file}:${f.function} — no covering deviation",
-                        modulePath = f.module))
-                }
-            }
-        }
-
-        val removed = committedIds.toSet() - currentIds.toSet()
+        }.toSet()
         if (removed.isNotEmpty()) {
             diagnostics.add(VerificationDiagnostic.improvement(
                 DiagnosticCode.NEW_CANCELLATION_FINDING,
@@ -464,60 +560,21 @@ class BaselineVerifier(
         deviations: List<DeviationParser.DeviationEntry>,
         diagnostics: MutableList<VerificationDiagnostic>
     ) {
-        val committedIds = committed.runtimeSafety.globalState.map {
-            FindingIdentity.fromGlobalState(it).toIdentityKey()
-        }
-        val currentIds = current.runtimeSafety.globalState.map {
-            FindingIdentity.fromGlobalState(it).toIdentityKey()
-        }
-
-        // Multiset comparison
-        val committedCounts = committedIds.groupBy { it }.mapValues { it.value.size }
-        val currentCounts = currentIds.groupBy { it }.mapValues { it.value.size }
-
-        val added = mutableSetOf<String>()
-        for ((key, count) in currentCounts) {
-            val oldCount = committedCounts[key] ?: 0
-            if (count > oldCount) {
-                added.add(key)
-            }
-        }
-        if (added.isNotEmpty()) {
-            // Check per-module against deviations
-            val remainingAdded = mutableSetOf<String>()
-            for (id in added) {
-                val finding = current.runtimeSafety.globalState.find {
-                    FindingIdentity.fromGlobalState(it).toIdentityKey() == id
-                } ?: continue
-                val module = if (finding.module.startsWith(":")) finding.module else ":${finding.module}"
-
-                // Count occurrences of this finding type in this module
-                val moduleCount = current.runtimeSafety.globalState.count {
-                    val m = if (it.module.startsWith(":")) it.module else ":${it.module}"
-                    m == module
-                }
-
-                val deviation = deviationParser.findCoveringDeviation(
-                    deviations, "globalMutableState",
-                    DeviationParser.FindingScope(modulePath = module, null, null),
-                    moduleCount
-                )
-                if (deviation == null) {
-                    remainingAdded.add(id)
-                } else {
-                    diagnostics.add(VerificationDiagnostic.accepted(
-                        DiagnosticCode.NEW_GLOBAL_STATE_FINDING,
-                        "New global state '${id}' in $module — accepted by ${deviation.id}",
-                        deviation.id))
-                }
-            }
-
-            if (remainingAdded.isNotEmpty()) {
-                diagnostics.add(VerificationDiagnostic.failure(
-                    DiagnosticCode.NEW_GLOBAL_STATE_FINDING,
-                    "${remainingAdded.size} new global mutable state instance(s) detected without covering deviation"))
-            }
-        }
+        val allCurrent = current.runtimeSafety.globalState.toList<Any?>()
+        evaluateDeviationBudget(
+            metricName = "globalMutableState",
+            deviations = deviations,
+            committedIds = committed.runtimeSafety.globalState.map {
+                FindingIdentity.fromGlobalState(it).toIdentityKey()
+            },
+            currentIds = current.runtimeSafety.globalState.map {
+                FindingIdentity.fromGlobalState(it).toIdentityKey()
+            },
+            allCurrent = allCurrent,
+            toModuleScope = { f -> moduleScope(f) },
+            diagnosticCode = DiagnosticCode.NEW_GLOBAL_STATE_FINDING,
+            diagnostics = diagnostics
+        )
     }
 
     private fun verifyNondeterminism(
@@ -526,40 +583,21 @@ class BaselineVerifier(
         deviations: List<DeviationParser.DeviationEntry>,
         diagnostics: MutableList<VerificationDiagnostic>
     ) {
-        val committedIds = committed.runtimeSafety.nondeterminism.map {
-            FindingIdentity.fromNondeterminism(it).toIdentityKey()
-        }
-        val currentIds = current.runtimeSafety.nondeterminism.map {
-            FindingIdentity.fromNondeterminism(it).toIdentityKey()
-        }
-
-        // Multiset comparison using count deltas
-        val committedCounts = committedIds.groupBy { it }.mapValues { it.value.size }
-        val currentCounts = currentIds.groupBy { it }.mapValues { it.value.size }
-
-        val addedCounts = currentCounts.mapNotNull { (key, currentCount) ->
-            val delta = currentCount - (committedCounts[key] ?: 0)
-            if (delta > 0) key to delta else null
-        }
-        if (addedCounts.isNotEmpty()) {
-            val totalAdded = addedCounts.sumOf { it.second }
-            val currentCount = current.runtimeSafety.nondeterminism.size
-            val deviation = deviationParser.findCoveringDeviation(
-                deviations, "nondeterminismSources",
-                DeviationParser.FindingScope(modulePath = null, null, null),
-                currentCount
-            )
-            if (deviation != null) {
-                diagnostics.add(VerificationDiagnostic.accepted(
-                    DiagnosticCode.NEW_NONDETERMINISM_FINDING,
-                    "$totalAdded new nondeterminism occurrence(s) — accepted by ${deviation.id}",
-                    deviation.id))
-            } else {
-                diagnostics.add(VerificationDiagnostic.failure(
-                    DiagnosticCode.NEW_NONDETERMINISM_FINDING,
-                    "$totalAdded new nondeterminism occurrence(s) detected"))
-            }
-        }
+        val allCurrent = current.runtimeSafety.nondeterminism.toList<Any?>()
+        evaluateDeviationBudget(
+            metricName = "nondeterminismSources",
+            deviations = deviations,
+            committedIds = committed.runtimeSafety.nondeterminism.map {
+                FindingIdentity.fromNondeterminism(it).toIdentityKey()
+            },
+            currentIds = current.runtimeSafety.nondeterminism.map {
+                FindingIdentity.fromNondeterminism(it).toIdentityKey()
+            },
+            allCurrent = allCurrent,
+            toModuleScope = { f -> moduleScope(f) },
+            diagnosticCode = DiagnosticCode.NEW_NONDETERMINISM_FINDING,
+            diagnostics = diagnostics
+        )
     }
 
     private fun verifyDependencyCycles(
@@ -794,8 +832,32 @@ class BaselineVerifier(
                 committed.runtimeSafety.nondeterminism.count {
                     matchesScope(it.module)
                 }
-            "constructorParameterCount" -> null // per-hotspot
-            "fileSize" -> null // per-file
+            "constructorParameterCount" -> {
+                // Filter committed constructor hotspots by scope, get max value
+                val matched = committed.structural.structuralHotspots.mostConstructorParameters.filter { h ->
+                    val fs = DeviationParser.FindingScope(
+                        modulePath = if (h.module.startsWith(":")) h.module else ":$h.module",
+                        repositoryPath = h.path,
+                        declaration = h.declaration.ifBlank { null }
+                    )
+                    parsedScope.covers(fs)
+                }
+                if (matched.isEmpty()) null else matched.maxOf { it.value }
+            }
+            "fileSize" -> {
+                // Filter committed file hotspots by scope, get max value
+                val allCommittedFiles = committed.structural.structuralHotspots.largestProductionFiles +
+                    committed.structural.structuralHotspots.largestBuildFiles
+                val matched = allCommittedFiles.filter { h ->
+                    val fs = DeviationParser.FindingScope(
+                        modulePath = if (h.module.startsWith(":")) h.module else ":$h.module",
+                        repositoryPath = h.path,
+                        declaration = null
+                    )
+                    parsedScope.covers(fs)
+                }
+                if (matched.isEmpty()) null else matched.maxOf { it.value }
+            }
             else -> null
         }
     }

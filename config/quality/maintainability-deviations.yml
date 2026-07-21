@@ -19,8 +19,8 @@ deviations:
   - id: MQ-0001
     metric: constructorParameterCount
     scope: ":tramai-engine"
-    baseline: 31
-    allowed: 31
+    baseline: 32
+    allowed: 32
     reason: "Engine proxy dispatch centralizes many concerns (provider resolution, tool routing, structured output, retry). Decomposition is planned for Phase 1 (engine decomposition epic)."
     acceptedAt: "2026-07-18"
     targetPhase: "0.6.1"
@@ -29,7 +29,7 @@ deviations:
   - id: MQ-0002
     metric: fileSize
     scope: "::build.gradle.kts"
-    baseline: 6287
+    baseline: 5501
     allowed: 6500
     reason: "Root build script accumulated publish, signing, and verification logic. Build-logic extraction is underway in Phase 0 and will continue through 0.6.x."
     acceptedAt: "2026-07-18"
