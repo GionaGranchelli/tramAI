@@ -1,0 +1,57 @@
+# TramAI 0.6.0 — Module Boundary Rules
+# Forbidden architectural edges. The verifier rejects any dependency matching these patterns.
+# Layers: core-contracts, runtime-execution, governance-security, persistence, provider-adapters,
+#         framework-integrations, operations-observability, higher-capabilities,
+#         applications-examples, testing-support
+schemaVersion: "1"
+
+forbiddenEdges:
+  # Core contracts must not depend on implementation layers
+  - fromLayer: core-contracts
+    toLayer: framework-integrations
+    reason: "Core contracts must not depend on framework-specific integrations"
+
+  - fromLayer: core-contracts
+    toLayer: provider-adapters
+    reason: "Core contracts must not depend on specific provider implementations"
+
+  - fromLayer: core-contracts
+    toLayer: applications-examples
+    reason: "Core contracts must not depend on example code"
+
+  # Runtime execution must not depend on examples
+  - fromLayer: runtime-execution
+    toLayer: applications-examples
+    reason: "Runtime execution must not depend on example code"
+
+  # Provider adapters must not depend on application layers
+  - fromLayer: provider-adapters
+    toLayer: applications-examples
+    reason: "Provider adapters must not depend on example code"
+
+  - fromLayer: provider-adapters
+    toLayer: operations-observability
+    reason: "Provider adapters must not depend on platform/server/observability code"
+
+  # Published modules must not depend on example/application modules
+  - fromPublished: true
+    toLayer: applications-examples
+    reason: "Published modules must not depend on example or application code"
+
+  # Published modules must not depend on excluded modules
+  - fromPublished: true
+    toPublishability: excluded
+    reason: "Published modules must not depend on excluded modules"
+
+  # No self-dependencies
+  - selfEdge: true
+    reason: "Modules must not depend on themselves"
+
+  # No cycles (checked separately with full cycle detection)
+  # Cycle detection is handled programmatically in the verifier, not via YAML rules.
+
+knownAllowedEdges:
+  # Testing support modules may depend on anything for test fixtures
+  - fromLayer: testing-support
+    toLayer: "*"
+    reason: "Testing utilities may depend on any module for test fixture creation"
