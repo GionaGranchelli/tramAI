@@ -30,7 +30,7 @@ class ModuleBoundaries(private val rootDir: File) {
     data class BoundaryResult(
         val forbiddenEdges: List<ForbiddenEdgeRule>,
         val allowedEdges: List<AllowedEdgeRule>,
-        val errors: List<String>
+        val errors: List<VerificationDiagnostic>
     )
 
     /** Parsed rules, stored as instance fields populated during parse(). */
@@ -50,10 +50,13 @@ class ModuleBoundaries(private val rootDir: File) {
     fun parse(): BoundaryResult {
         val file = File(rootDir, "config/quality/module-boundaries.yml")
         if (!file.isFile) {
-            return BoundaryResult(emptyList(), emptyList(), listOf("Boundary rules not found: ${file.absolutePath}"))
+            return BoundaryResult(emptyList(), emptyList(), listOf(
+                VerificationDiagnostic.failure(DiagnosticCode.FORBIDDEN_LAYER_EDGE,
+                    "Boundary rules not found: ${file.absolutePath}")
+            ))
         }
 
-        val errors = mutableListOf<String>()
+        val errors = mutableListOf<VerificationDiagnostic>()
         val parsedForbidden = mutableListOf<ForbiddenEdgeRule>()
         val parsedAllowed = mutableListOf<AllowedEdgeRule>()
 
@@ -66,7 +69,9 @@ class ModuleBoundaries(private val rootDir: File) {
                 val reason = entry["reason"]?.toString() ?: ""
 
                 if (reason.isBlank()) {
-                    errors.add("Forbidden edge rule $index: reason is blank")
+                    errors.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.FORBIDDEN_LAYER_EDGE,
+                        "Forbidden edge rule $index: reason is blank"))
                     continue
                 }
 
@@ -91,7 +96,9 @@ class ModuleBoundaries(private val rootDir: File) {
             for ((index, entry) in allowedRaw.withIndex()) {
                 val reason = entry["reason"]?.toString() ?: ""
                 if (reason.isBlank()) {
-                    errors.add("Allowed edge rule $index: reason is blank")
+                    errors.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.FORBIDDEN_LAYER_EDGE,
+                        "Allowed edge rule $index: reason is blank"))
                     continue
                 }
                 parsedAllowed.add(
@@ -106,7 +113,9 @@ class ModuleBoundaries(private val rootDir: File) {
             }
 
         } catch (e: Exception) {
-            errors.add("Failed to parse boundary rules: ${e.message}")
+            errors.add(VerificationDiagnostic.failure(
+                DiagnosticCode.FORBIDDEN_LAYER_EDGE,
+                "Failed to parse boundary rules: ${e.message}"))
         }
 
         // Store parsed rules as instance fields

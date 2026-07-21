@@ -54,9 +54,11 @@ class DeviationParser(private val rootDir: File) {
             // Prefix wildcard: :tramai-* matches :tramai-engine, :tramai-core, etc.
             if (isWildcard && modulePath != null) {
                 val fm = finding.modulePath ?: return false
-                val normalizedPrefix = modulePath!!.removeSuffix("-")
-                // Match exact module or prefix
-                return fm == normalizedPrefix || fm.startsWith(normalizedPrefix + ":")
+                // The prefix already includes the separator (":tramai-"),
+                // so just check startsWith for exact prefix matching.
+                // :tramai- matches :tramai-engine, :tramai-core, :tramai-bom, etc.
+                // :tramai- does NOT match :examples:tool-governance
+                return fm.startsWith(modulePath!!)
             }
 
             // Declaration scope: :module:path#Declaration
@@ -286,6 +288,8 @@ class DeviationParser(private val rootDir: File) {
     /**
      * Find a deviation that covers a given finding.
      * Uses FindingScope and covers() for typed matching.
+     * Validates that currentValue does not exceed dev.allowed
+     * AND that the deviation's recorded baseline matches.
      */
     fun findCoveringDeviation(
         deviations: List<DeviationEntry>,
@@ -296,7 +300,8 @@ class DeviationParser(private val rootDir: File) {
         return deviations.find { dev ->
             dev.metric == metric &&
                 currentValue <= dev.allowed &&
-                (parseScope(dev.scope)?.covers(findingScope) == true)
+                (parseScope(dev.scope)?.covers(findingScope) == true) &&
+                dev.baseline <= dev.allowed
         }
     }
 }

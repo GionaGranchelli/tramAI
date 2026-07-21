@@ -113,6 +113,18 @@ class MeasurementContext(
             return fromDirectory(rootDir, catalog)
         }
 
+        /**
+         * Create a MeasurementContext from a source directory but load the
+         * module catalog from a different root. Used during canonical generation
+         * where source files come from the detached v0.5.0 worktree but the
+         * authoritative catalog lives in the analyzer/PR checkout.
+         */
+        fun fromDirectory(rootDir: File, catalogRoot: File): MeasurementContext {
+            val catalog = ModuleCatalog(catalogRoot)
+            catalog.parse()
+            return fromDirectory(rootDir, catalog)
+        }
+
         fun fromDirectory(rootDir: File, catalog: ModuleCatalog): MeasurementContext {
             val modules = discoverModulesFromSettings(rootDir, catalog)
             return MeasurementContext(

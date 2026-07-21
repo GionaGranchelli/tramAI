@@ -51,19 +51,14 @@ class BaselineVerifier(
             val catalogResult = moduleCatalog.parse()
             diagnostics.addAll(catalogResult.errors)
 
-            // 4. Load boundary rules
+            // 4. Parse boundary rules
             val boundaryResult = moduleBoundaries.parse()
-            diagnostics.addAll(boundaryResult.errors.map {
-                VerificationDiagnostic.failure(DiagnosticCode.FORBIDDEN_LAYER_EDGE, it)
-            })
+            diagnostics.addAll(boundaryResult.errors)
 
             // 5. Verify baseline identity
             verifyBaselineIdentity(committed, diagnostics)
 
-            // 6. Verify module catalogue covers all projects
-            verifyModuleCatalog(committed, catalogResult, diagnostics)
-
-            // 7. Generate current measurements
+            // 6. Generate current measurements (needed before catalogue validation)
             val currentGradle = ctx.gradleProject
             if (currentGradle == null) {
                 diagnostics.add(VerificationDiagnostic.failure(
@@ -87,6 +82,9 @@ class BaselineVerifier(
                     "Failed to generate current baseline: ${e.message}"))
                 return diagnosticsToReport(diagnostics)
             }
+
+            // 7. Verify module catalogue against CURRENT projects (not committed)
+            verifyModuleCatalog(current, catalogResult, diagnostics)
 
             // 8. Verify mandatory sections
             verifyMandatorySections(current, diagnostics)
@@ -231,11 +229,11 @@ class BaselineVerifier(
     // ─── Module catalogue verification ───
 
     private fun verifyModuleCatalog(
-        committed: BaselineDocument,
+        current: BaselineDocument,
         catalogResult: ModuleCatalog.CatalogResult,
         diagnostics: MutableList<VerificationDiagnostic>
     ) {
-        val projectPaths = committed.structural.moduleDependencies.modules.toList()
+        val projectPaths = current.structural.moduleDependencies.modules.toList()
         val catalogModules = catalogResult.modules
 
         // Missing modules in catalogue
@@ -256,14 +254,14 @@ class BaselineVerifier(
             }
         }
 
-        // Verify catalogue classifications match baseline
-        for (mod in committed.structural.modules) {
+        // Verify catalogue classifications match current baseline
+        for (mod in current.structural.modules) {
             val catalogEntry = catalogModules[mod.path] ?: continue
             if (catalogEntry.layer != mod.layer) {
                 diagnostics.add(VerificationDiagnostic.failure(
                     DiagnosticCode.MODULE_CATALOG_DISAGREEMENT,
                     "Module '${mod.path}': catalogue declares layer '${catalogEntry.layer}' but " +
-                        "baseline has '${mod.layer}'"))
+                        "current baseline has '${mod.layer}'"))
             }
 
             val expectedPublished = catalogEntry.publishability == "published"
@@ -271,7 +269,7 @@ class BaselineVerifier(
                 diagnostics.add(VerificationDiagnostic.failure(
                     DiagnosticCode.MODULE_CATALOG_DISAGREEMENT,
                     "Module '${mod.path}': catalogue declares publishability '${catalogEntry.publishability}' " +
-                        "but baseline has '${if (mod.publishable) "published" else "not published"}'"))
+                        "but current baseline has '${if (mod.publishable) "published" else "not published"}'"))
             }
         }
     }
@@ -345,24 +343,31 @@ class BaselineVerifier(
 
         if (addedCritical.isNotEmpty()) {
             val currentCriticalCount = current.runtimeSafety.cancellationCatches.count { it.risk == "critical" }
-            // Build FindingScope per-module for matching
-            val firstFinding = addedCritical.first()
-            val module = if (firstFinding.module.startsWith(":")) firstFinding.module else ":${firstFinding.module}"
-            val deviation = deviationParser.findCoveringDeviation(
-                deviations, "cancellationCriticalCount",
-                DeviationParser.FindingScope(modulePath = module, null, null),
-                currentCriticalCount
-            )
-            if (deviation != null) {
-                diagnostics.add(VerificationDiagnostic.accepted(
-                    DiagnosticCode.NEW_CANCELLATION_FINDING,
-                    "${addedCritical.size} new critical catches — accepted by ${deviation.id}",
-                    deviation.id))
-            } else {
-                diagnostics.add(VerificationDiagnostic.failure(
-                    DiagnosticCode.NEW_CANCELLATION_FINDING,
-                    "${addedCritical.size} new critical cancellation catch(es) detected",
-                    modulePath = addedCritical.firstOrNull()?.module))
+
+            // Group by module and evaluate independently
+            val criticalByModule = addedCritical.groupBy { f ->
+                if (f.module.startsWith(":")) f.module else ":${f.module}"
+            }
+
+            for ((module, findings) in criticalByModule) {
+                val deviation = deviationParser.findCoveringDeviation(
+                    deviations, "cancellationCriticalCount",
+                    DeviationParser.FindingScope(modulePath = module, null, null),
+                    current.runtimeSafety.cancellationCatches.count {
+                        it.risk == "critical" && (if (it.module.startsWith(":")) it.module else ":${it.module}") == module
+                    }
+                )
+                if (deviation != null) {
+                    diagnostics.add(VerificationDiagnostic.accepted(
+                        DiagnosticCode.NEW_CANCELLATION_FINDING,
+                        "${findings.size} new critical catches in $module — accepted by ${deviation.id}",
+                        deviation.id))
+                } else {
+                    diagnostics.add(VerificationDiagnostic.failure(
+                        DiagnosticCode.NEW_CANCELLATION_FINDING,
+                        "${findings.size} new critical cancellation catch(es) detected in $module",
+                        modulePath = module))
+                }
             }
         }
 
@@ -376,24 +381,29 @@ class BaselineVerifier(
         }
 
         if (worsenedRisks.isNotEmpty()) {
-            val firstFinding = worsenedRisks.first()
-            val module = if (firstFinding.module.startsWith(":")) firstFinding.module else ":${firstFinding.module}"
-            val deviation = deviationParser.findCoveringDeviation(
-                deviations, "cancellationRiskWorsening",
-                DeviationParser.FindingScope(modulePath = module, null, null),
-                worsenedRisks.size
-            )
-            if (deviation != null) {
-                diagnostics.add(VerificationDiagnostic.accepted(
-                    DiagnosticCode.CANCELLATION_RISK_WORSENED,
-                    "${worsenedRisks.size} risk worsenings — accepted by ${deviation.id}",
-                    deviation.id))
-            } else {
-                worsenedRisks.forEach { f ->
-                    diagnostics.add(VerificationDiagnostic.failure(
+            // Group by module and evaluate independently
+            val riskByModule = worsenedRisks.groupBy { f ->
+                if (f.module.startsWith(":")) f.module else ":${f.module}"
+            }
+
+            for ((module, worsenings) in riskByModule) {
+                val deviation = deviationParser.findCoveringDeviation(
+                    deviations, "cancellationRiskWorsening",
+                    DeviationParser.FindingScope(modulePath = module, null, null),
+                    worsenings.size
+                )
+                if (deviation != null) {
+                    diagnostics.add(VerificationDiagnostic.accepted(
                         DiagnosticCode.CANCELLATION_RISK_WORSENED,
-                        "Cancellation catch risk worsened: ${f.module}/${f.file}:${f.function}",
-                        modulePath = f.module))
+                        "${worsenings.size} risk worsenings in $module — accepted by ${deviation.id}",
+                        deviation.id))
+                } else {
+                    worsenings.forEach { f ->
+                        diagnostics.add(VerificationDiagnostic.failure(
+                            DiagnosticCode.CANCELLATION_RISK_WORSENED,
+                            "Cancellation catch risk worsened in $module: ${f.module}/${f.file}:${f.function}",
+                            modulePath = f.module))
+                    }
                 }
             }
         }
@@ -481,12 +491,16 @@ class BaselineVerifier(
             FindingIdentity.fromNondeterminism(it).toIdentityKey()
         }
 
-        // Multiset comparison
+        // Multiset comparison using count deltas
         val committedCounts = committedIds.groupBy { it }.mapValues { it.value.size }
         val currentCounts = currentIds.groupBy { it }.mapValues { it.value.size }
 
-        val added = currentIds.toSet() - committedIds.toSet()
-        if (added.isNotEmpty()) {
+        val addedCounts = currentCounts.mapNotNull { (key, currentCount) ->
+            val delta = currentCount - (committedCounts[key] ?: 0)
+            if (delta > 0) key to delta else null
+        }
+        if (addedCounts.isNotEmpty()) {
+            val totalAdded = addedCounts.sumOf { it.second }
             val currentCount = current.runtimeSafety.nondeterminism.size
             val deviation = deviationParser.findCoveringDeviation(
                 deviations, "nondeterminismSources",
@@ -496,12 +510,12 @@ class BaselineVerifier(
             if (deviation != null) {
                 diagnostics.add(VerificationDiagnostic.accepted(
                     DiagnosticCode.NEW_NONDETERMINISM_FINDING,
-                    "${added.size} new nondeterminism source(s) — accepted by ${deviation.id}",
+                    "$totalAdded new nondeterminism occurrence(s) — accepted by ${deviation.id}",
                     deviation.id))
             } else {
                 diagnostics.add(VerificationDiagnostic.failure(
                     DiagnosticCode.NEW_NONDETERMINISM_FINDING,
-                    "${added.size} new nondeterminism source(s) detected"))
+                    "$totalAdded new nondeterminism occurrence(s) detected"))
             }
         }
     }
