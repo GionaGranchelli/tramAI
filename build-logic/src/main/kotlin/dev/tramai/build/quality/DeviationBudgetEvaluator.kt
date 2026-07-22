@@ -54,20 +54,37 @@ class DeviationBudgetEvaluator(
         committedFindings: List<Any?>? = null,
         diagnostics: MutableList<VerificationDiagnostic>
     ) {
-        // Multiset: count deltas
+        // Multiset: compute exact deltas per identity
         val committedCounts = committedIds.groupBy { it }.mapValues { it.value.size }
         val currentCounts = currentIds.groupBy { it }.mapValues { it.value.size }
 
-        val addedIdentities = mutableSetOf<String>()
+        // For each identity, determine how many NEW occurrences were added
+        val deltaMap = mutableMapOf<String, Int>()
         for ((key, count) in currentCounts) {
             val oldCount = committedCounts[key] ?: 0
-            if (count > oldCount) addedIdentities.add(key)
+            if (count > oldCount) deltaMap[key] = count - oldCount
         }
 
-        val addedFindings = allCurrent.filter { f ->
-            val id = findingIdentityKey(f)
-            id in addedIdentities && (riskFilter == null || riskFilter(f))
-        } as MutableList<Any?>
+        // Select only the exact number of new occurrences per identity
+        val addedFindings = mutableListOf<Any?>()
+        if (deltaMap.isNotEmpty()) {
+            // Track how many we've picked per identity
+            val picked = mutableMapOf<String, Int>()
+            val riskFiltered = if (riskFilter != null) {
+                allCurrent.filter { riskFilter(it) }
+            } else {
+                allCurrent
+            }
+            for (f in riskFiltered) {
+                val id = findingIdentityKey(f)
+                val needed = deltaMap[id] ?: 0
+                val have = picked[id] ?: 0
+                if (have < needed) {
+                    addedFindings.add(f)
+                    picked[id] = have + 1
+                }
+            }
+        }
 
         if (addedFindings.isNotEmpty()) {
             val relevant = deviations.filter { it.metric == metricName }

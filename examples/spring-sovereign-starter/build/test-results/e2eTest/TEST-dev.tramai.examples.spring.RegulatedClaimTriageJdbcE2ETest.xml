@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="dev.tramai.examples.spring.RegulatedClaimTriageJdbcE2ETest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-07-16T11:02:20.019Z" hostname="gionag-ThinkStation-P620" time="0.708">
+  <properties/>
+  <testcase name="high risk claim suspends through approval gateway and survives restart()" classname="dev.tramai.examples.spring.RegulatedClaimTriageJdbcE2ETest" time="0.202"/>
+  <testcase name="low risk missing document recommendation completes without approval suspension()" classname="dev.tramai.examples.spring.RegulatedClaimTriageJdbcE2ETest" time="0.065"/>
+  <testcase name="regulated claim triage denial through control plane persists decision and outbox intent()" classname="dev.tramai.examples.spring.RegulatedClaimTriageJdbcE2ETest" time="0.086"/>
+  <testcase name="regulated claim triage approval through control plane resumes workflow()" classname="dev.tramai.examples.spring.RegulatedClaimTriageJdbcE2ETest" time="0.225"/>
+  <testcase name="restricted medical claim is denied before cloud model invocation()" classname="dev.tramai.examples.spring.RegulatedClaimTriageJdbcE2ETest" time="0.039"/>
+  <testcase name="regulated claim approval appears in inbox with safe metadata()" classname="dev.tramai.examples.spring.RegulatedClaimTriageJdbcE2ETest" time="0.062"/>
+  <testcase name="spring auto-configures ApprovalGateway when factory is present()" classname="dev.tramai.examples.spring.RegulatedClaimTriageJdbcE2ETest" time="0.029"/>
+  <system-out><![CDATA[13:02:19.171 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- The files belonging to this database system will be owned by user "gionag".
+13:02:19.171 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- This user must also own the server process.
+13:02:19.171 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 
+13:02:19.171 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- The database cluster will be initialized with locale "en_US.UTF-8".
+13:02:19.171 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- The default text search configuration will be set to "english".
+13:02:19.171 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 
+13:02:19.172 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- Data page checksums are disabled.
+13:02:19.172 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 
+13:02:19.172 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- fixing permissions on existing directory /tmp/epg17147545602012145978 ... ok
+13:02:19.172 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- creating subdirectories ... ok
+13:02:19.172 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- selecting dynamic shared memory implementation ... posix
+13:02:19.181 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- selecting default max_connections ... 100
+13:02:19.196 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- selecting default shared_buffers ... 128MB
+13:02:19.414 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- selecting default time zone ... CET
+13:02:19.414 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- creating configuration files ... ok
+13:02:19.515 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- running bootstrap script ... ok
+13:02:19.869 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- performing post-bootstrap initialization ... ok
+13:02:19.875 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- syncing data to disk ... ok
+13:02:19.875 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 
+13:02:19.875 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- Success. You can now start the database server using:
+13:02:19.875 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 
+13:02:19.875 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres --     /tmp/embedded-pg/PG-1a75b2fdb57c5cfc8674f29ebb0d831b/bin/pg_ctl -D /tmp/epg17147545602012145978 -l logfile start
+13:02:19.875 [initdb:pid(374073)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 
+13:02:19.876 [Test worker] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 8c4f33d7-0cba-40cd-933b-990f5dff2ad7 initdb completed in 00:00:00.712
+13:02:19.878 [Test worker] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 8c4f33d7-0cba-40cd-933b-990f5dff2ad7 postmaster started as Process[pid=374243, exitValue="not exited"] on port 38561.  Waiting up to PT10S for server startup to finish.
+13:02:19.901 [postgres:pid(374243)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- waiting for server to start....2026-07-16 13:02:19.900 CEST [374248] LOG:  starting PostgreSQL 14.10 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0, 64-bit
+13:02:19.901 [postgres:pid(374243)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 2026-07-16 13:02:19.901 CEST [374248] LOG:  listening on IPv4 address "127.0.0.1", port 38561
+13:02:19.901 [postgres:pid(374243)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 2026-07-16 13:02:19.901 CEST [374248] LOG:  listening on Unix socket "/tmp/.s.PGSQL.38561"
+13:02:19.902 [postgres:pid(374243)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 2026-07-16 13:02:19.902 CEST [374249] LOG:  database system was shut down at 2026-07-16 13:02:19 CEST
+13:02:19.904 [postgres:pid(374243)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 2026-07-16 13:02:19.904 CEST [374248] LOG:  database system is ready to accept connections
+13:02:19.984 [postgres:pid(374243)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres --  done
+13:02:19.984 [postgres:pid(374243)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- server started
+13:02:19.985 [Test worker] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 8c4f33d7-0cba-40cd-933b-990f5dff2ad7 postmaster startup finished in 00:00:00.108
+13:02:19.986 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-13 - Starting...
+13:02:19.990 [Test worker] INFO com.zaxxer.hikari.pool.HikariPool -- HikariPool-13 - Added connection org.postgresql.jdbc.PgConnection@702b656a
+13:02:19.990 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-13 - Start completed.
+13:02:20.081 [Test worker @coroutine#15] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-14 - Starting...
+13:02:20.084 [Test worker @coroutine#15] INFO com.zaxxer.hikari.pool.HikariPool -- HikariPool-14 - Added connection org.postgresql.jdbc.PgConnection@4c13ca07
+13:02:20.085 [Test worker @coroutine#15] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-14 - Start completed.
+13:02:20.164 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-14 - Shutdown initiated...
+13:02:20.165 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-14 - Shutdown completed.
+13:02:20.192 [Test worker @coroutine#16] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-15 - Starting...
+13:02:20.196 [Test worker @coroutine#16] INFO com.zaxxer.hikari.pool.HikariPool -- HikariPool-15 - Added connection org.postgresql.jdbc.PgConnection@8ee03f5
+13:02:20.196 [Test worker @coroutine#16] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-15 - Start completed.
+13:02:20.220 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-15 - Shutdown initiated...
+13:02:20.221 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-15 - Shutdown completed.
+13:02:20.248 [Test worker @coroutine#17] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-16 - Starting...
+13:02:20.253 [Test worker @coroutine#17] INFO com.zaxxer.hikari.pool.HikariPool -- HikariPool-16 - Added connection org.postgresql.jdbc.PgConnection@160546b1
+13:02:20.254 [Test worker @coroutine#17] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-16 - Start completed.
+13:02:20.285 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-16 - Shutdown initiated...
+13:02:20.286 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-16 - Shutdown completed.
+13:02:20.325 [Test worker @coroutine#18] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-17 - Starting...
+13:02:20.329 [Test worker @coroutine#18] INFO com.zaxxer.hikari.pool.HikariPool -- HikariPool-17 - Added connection org.postgresql.jdbc.PgConnection@1feb586d
+13:02:20.329 [Test worker @coroutine#18] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-17 - Start completed.
+13:02:20.371 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-17 - Shutdown initiated...
+13:02:20.372 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-17 - Shutdown completed.
+13:02:20.420 [Test worker @coroutine#20] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-18 - Starting...
+13:02:20.424 [Test worker @coroutine#20] INFO com.zaxxer.hikari.pool.HikariPool -- HikariPool-18 - Added connection org.postgresql.jdbc.PgConnection@608b906d
+13:02:20.424 [Test worker @coroutine#20] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-18 - Start completed.
+13:02:20.596 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-18 - Shutdown initiated...
+13:02:20.597 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-18 - Shutdown completed.
+13:02:20.623 [Test worker @coroutine#21] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-19 - Starting...
+13:02:20.628 [Test worker @coroutine#21] INFO com.zaxxer.hikari.pool.HikariPool -- HikariPool-19 - Added connection org.postgresql.jdbc.PgConnection@5f803481
+13:02:20.628 [Test worker @coroutine#21] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-19 - Start completed.
+13:02:20.636 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-19 - Shutdown initiated...
+13:02:20.636 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-19 - Shutdown completed.
+13:02:20.658 [Test worker @coroutine#22] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-20 - Starting...
+13:02:20.662 [Test worker @coroutine#22] INFO com.zaxxer.hikari.pool.HikariPool -- HikariPool-20 - Added connection org.postgresql.jdbc.PgConnection@47ae6c18
+13:02:20.663 [Test worker @coroutine#22] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-20 - Start completed.
+13:02:20.697 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-20 - Shutdown initiated...
+13:02:20.698 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-20 - Shutdown completed.
+13:02:20.728 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-13 - Shutdown initiated...
+13:02:20.729 [Test worker] INFO com.zaxxer.hikari.HikariDataSource -- HikariPool-13 - Shutdown completed.
+13:02:20.735 [postgres:pid(374243)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 2026-07-16 13:02:20.733 CEST [374248] LOG:  received fast shutdown request
+13:02:20.735 [postgres:pid(374243)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 2026-07-16 13:02:20.733 CEST [374248] LOG:  aborting any active transactions
+13:02:20.735 [postgres:pid(374243)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 2026-07-16 13:02:20.734 CEST [374248] LOG:  background worker "logical replication launcher" (PID 374255) exited with exit code 1
+13:02:20.833 [pg_ctl:pid(374306)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- waiting for server to shut down.... done
+13:02:20.834 [pg_ctl:pid(374306)] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- server stopped
+13:02:20.834 [Test worker] INFO io.zonky.test.db.postgres.embedded.EmbeddedPostgres -- 8c4f33d7-0cba-40cd-933b-990f5dff2ad7 shut down postmaster in 00:00:00.104
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

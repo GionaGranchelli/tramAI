@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="dev.tramai.examples.toolgovernance.ToolGovernanceExampleTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-07-14T14:08:01.117Z" hostname="gionag-ThinkStation-P620" time="0.388">
+  <properties/>
+  <testcase name="payment tool requires approval at execution()" classname="dev.tramai.examples.toolgovernance.ToolGovernanceExampleTest" time="0.338"/>
+  <testcase name="sensitive tool arguments never appear in serialized evidence()" classname="dev.tramai.examples.toolgovernance.ToolGovernanceExampleTest" time="0.008"/>
+  <testcase name="customer lookup tool is allowed at all enforcement points()" classname="dev.tramai.examples.toolgovernance.ToolGovernanceExampleTest" time="0.01"/>
+  <testcase name="customer lookup tool has correct security metadata()" classname="dev.tramai.examples.toolgovernance.ToolGovernanceExampleTest" time="0.001"/>
+  <testcase name="three tools produce distinct audit streams with correct evidence()" classname="dev.tramai.examples.toolgovernance.ToolGovernanceExampleTest" time="0.015"/>
+  <testcase name="account delete tool is denied at execution()" classname="dev.tramai.examples.toolgovernance.ToolGovernanceExampleTest" time="0.004"/>
+  <testcase name="account delete tool has correct security metadata()" classname="dev.tramai.examples.toolgovernance.ToolGovernanceExampleTest" time="0.001"/>
+  <testcase name="tool enforcement events are excluded from policy decision evidence()" classname="dev.tramai.examples.toolgovernance.ToolGovernanceExampleTest" time="0.006"/>
+  <testcase name="provider is not called again after execution denial()" classname="dev.tramai.examples.toolgovernance.ToolGovernanceExampleTest" time="0.004"/>
+  <testcase name="payment tool has correct security metadata()" classname="dev.tramai.examples.toolgovernance.ToolGovernanceExampleTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
