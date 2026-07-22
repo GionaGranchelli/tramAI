@@ -3,7 +3,6 @@
 .gradle
 /build/
 **/build/
-!/build-logic/src/**
 gradle-app.setting
 *.iml
 *.log
