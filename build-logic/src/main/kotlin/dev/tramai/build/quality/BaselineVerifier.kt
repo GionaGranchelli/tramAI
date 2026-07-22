@@ -341,6 +341,8 @@ class BaselineVerifier(
      * @param toModuleScope  extracts a FindingScope(modulePath=...) from a finding
      * @param diagnosticCode  code for NEW/added findings
      * @param riskWorseCode   code for risk worsening (or null)
+     * @param riskWorseningMetricName  separate metric name for risk-worsening deviations
+     * @param committedFindings  committed findings with historical risk (for risk-worsening comparison)
      * @param diagnostics  accumulator
      */
     @Suppress("UNCHECKED_CAST")
@@ -354,6 +356,8 @@ class BaselineVerifier(
         toModuleScope: (Any?) -> DeviationParser.FindingScope,
         diagnosticCode: DiagnosticCode,
         riskWorseCode: DiagnosticCode? = null,
+        riskWorseningMetricName: String? = null,
+        committedFindings: List<Any?>? = null,
         diagnostics: MutableList<VerificationDiagnostic>
     ) {
         // Multiset: count deltas
@@ -380,10 +384,10 @@ class BaselineVerifier(
             for (dev in relevant) {
                 val parsedScope = deviationParser.parseScope(dev.scope) ?: continue
 
-                // ALL current findings matching this deviation's scope
+                // ALL current findings matching this deviation's scope (with risk filter)
                 val matchingAll = allCurrent.filter { f ->
                     val scope = toModuleScope(f)
-                    parsedScope.covers(scope)
+                    (riskFilter == null || riskFilter(f)) && parsedScope.covers(scope)
                 }
 
                 if (matchingAll.size <= dev.allowed) {
@@ -417,7 +421,16 @@ class BaselineVerifier(
 
         // Risk worsening (cancellation-specific)
         if (riskWorseCode != null) {
-            evaluateRiskWorsening(metricName, deviations, allCurrent, committedIds, currentIds, toModuleScope, riskWorseCode, diagnostics)
+            evaluateRiskWorsening(
+                metricName = riskWorseningMetricName ?: metricName,
+                deviations = deviations,
+                allCurrent = allCurrent,
+                committedIds = committedIds,
+                committedFindings = committedFindings,
+                toModuleScope = toModuleScope,
+                riskWorseCode = riskWorseCode,
+                diagnostics = diagnostics
+            )
         }
     }
 
@@ -454,7 +467,7 @@ class BaselineVerifier(
         deviations: List<DeviationParser.DeviationEntry>,
         allCurrent: List<Any?>,
         committedIds: List<String>,
-        currentIds: List<String>,
+        committedFindings: List<Any?>?,
         toModuleScope: (Any?) -> DeviationParser.FindingScope,
         riskWorseCode: DiagnosticCode,
         diagnostics: MutableList<VerificationDiagnostic>
@@ -463,12 +476,25 @@ class BaselineVerifier(
         if (allCurrent.isEmpty() || allCurrent.first() !is CancellationCatchFinding) return
 
         val currentCatches = allCurrent as List<CancellationCatchFinding>
-        val committedCatches = committedIds.mapNotNull { id ->
-            currentCatches.find { FindingIdentity.fromCancellationCatch(it).toIdentityKey() == id }
-        }
 
-        val committedByRisk = committedCatches.associate {
-            FindingIdentity.fromCancellationCatch(it).toIdentityKey() to it.risk
+        // Build historical risk map from actual committed findings (not current ones)
+        val committedByRisk: Map<String, String>
+        if (committedFindings != null && committedFindings.isNotEmpty() && committedFindings.first() is CancellationCatchFinding) {
+            val committedCatches = committedFindings as List<CancellationCatchFinding>
+            committedByRisk = committedCatches.associate {
+                FindingIdentity.fromCancellationCatch(it).toIdentityKey() to it.risk
+            }
+        } else {
+            // Fallback: commit IDs that are not in current (resolved findings)
+            val currentKeys = currentCatches.map { FindingIdentity.fromCancellationCatch(it).toIdentityKey() }.toSet()
+            val resolvedIds = committedIds.filter { it !in currentKeys }.toSet()
+            if (resolvedIds.isNotEmpty()) {
+                diagnostics.add(VerificationDiagnostic.improvement(
+                    riskWorseCode,
+                    "${resolvedIds.size} cancellation catch(es) resolved — risk worsening check skipped for resolved findings"))
+            }
+            // Without committed findings, we can't detect worsening
+            return
         }
 
         val worsened = currentCatches.filter { f ->
@@ -539,6 +565,8 @@ class BaselineVerifier(
             toModuleScope = { f -> moduleScope(f) },
             diagnosticCode = DiagnosticCode.NEW_CANCELLATION_FINDING,
             riskWorseCode = DiagnosticCode.CANCELLATION_RISK_WORSENED,
+            riskWorseningMetricName = "cancellationRiskWorsening",
+            committedFindings = committed.runtimeSafety.cancellationCatches.toList<Any?>(),
             diagnostics = diagnostics
         )
 
