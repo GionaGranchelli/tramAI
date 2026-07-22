@@ -152,7 +152,11 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             group = "maintainability"
             description = "Compares current measurements against committed baseline and rejects regressions"
             doLast {
-                val report = BaselineVerifier.verify(project)
+                val ctx = MeasurementContext.fromProject(project)
+                val generator = BaselineGenerator(ctx)
+                val reportDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability")
+                val verifier = BaselineVerifier(generator, ctx, reportDir)
+                val report = verifier.verify()
 
                 report.failures.forEach { project.logger.error("FAIL: $it") }
                 report.warnings.forEach { project.logger.warn("WARN: $it") }

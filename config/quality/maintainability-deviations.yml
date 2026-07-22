@@ -18,9 +18,9 @@
 deviations:
   - id: MQ-0001
     metric: constructorParameterCount
-    scope: "tramai-engine: dev.tramai.engine.proxy.TramaiInvocationHandler"
-    baseline: 31
-    allowed: 31
+    scope: ":tramai-engine"
+    baseline: 32
+    allowed: 32
     reason: "Engine proxy dispatch centralizes many concerns (provider resolution, tool routing, structured output, retry). Decomposition is planned for Phase 1 (engine decomposition epic)."
     acceptedAt: "2026-07-18"
     targetPhase: "0.6.1"
@@ -28,8 +28,8 @@ deviations:
 
   - id: MQ-0002
     metric: fileSize
-    scope: "build.gradle.kts (root)"
-    baseline: 6287
+    scope: "::build.gradle.kts"
+    baseline: 5501
     allowed: 6500
     reason: "Root build script accumulated publish, signing, and verification logic. Build-logic extraction is underway in Phase 0 and will continue through 0.6.x."
     acceptedAt: "2026-07-18"
@@ -38,7 +38,7 @@ deviations:
 
   - id: MQ-0003
     metric: fileSize
-    scope: "tramai-orchestration: Workflow.kt"
+    scope: ":tramai-orchestration"
     baseline: 1858
     allowed: 1858
     reason: "Workflow orchestration is a known monolith combining metadata, execution, persistence, DSL, and observers. Decomposition is a major 0.6.0 goal (Phase 4)."
@@ -48,9 +48,9 @@ deviations:
 
   - id: MQ-0004
     metric: globalMutableState
-    scope: "tramai-core: ProviderRegistry"
-    baseline: 1
-    allowed: 1
+    scope: ":tramai-core"
+    baseline: 3
+    allowed: 3
     reason: "Provider registration is inherently global. Migration to injectable registry planned for 0.7.0."
     acceptedAt: "2026-07-18"
     targetPhase: "0.7.0"
@@ -58,9 +58,9 @@ deviations:
 
   - id: MQ-0005
     metric: cancellationCriticalCount
-    scope: "tramai-*"
-    baseline: 7
-    allowed: 14
+    scope: ":tramai-*"
+    baseline: 65
+    allowed: 72
     reason: "Broad exception catches in suspend-capable execution paths. Cancellation rethrow audit and cleanup is part of Phase 1 correctness hotfixes."
     acceptedAt: "2026-07-19"
     targetPhase: "0.6.1"

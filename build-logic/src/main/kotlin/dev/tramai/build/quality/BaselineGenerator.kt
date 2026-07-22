@@ -827,7 +827,8 @@ class BaselineGenerator(
 
         /** Create from a detached worktree directory (canonical mode). */
         fun fromDirectory(rootDir: File, outputDir: File? = null, analyzerRoot: File? = null): BaselineGenerator {
-            val ctx = MeasurementContext.fromDirectory(rootDir)
+            val catalogRoot = analyzerRoot ?: rootDir
+            val ctx = MeasurementContext.fromDirectory(rootDir, catalogRoot)
             val gen = BaselineGenerator(
                 ctx = ctx,
                 outputDir = outputDir ?: File(rootDir, "build/reports/maintainability"),

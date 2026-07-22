@@ -1,0 +1,247 @@
+# TramAI 0.6.0 — Module Boundary Rules
+# Forbidden architectural edges. The verifier rejects any dependency matching these patterns.
+# Layers: core-contracts, runtime-execution, governance-security, persistence, provider-adapters,
+#         framework-integrations, operations-observability, higher-capabilities,
+#         applications-examples, testing-support
+# Publishability: published, internal, excluded
+schemaVersion: "1"
+
+forbiddenEdges:
+  # Core contracts must not depend on implementation layers
+  # No toLayer: "*" — that would block core→core. Individual destinations below.
+
+  - fromLayer: core-contracts
+    toLayer: applications-examples
+    reason: "Core contracts must not depend on example code"
+
+  - fromLayer: core-contracts
+    toLayer: runtime-execution
+    reason: "Core contracts must not depend on runtime execution"
+
+  - fromLayer: core-contracts
+    toLayer: governance-security
+    reason: "Core contracts must not depend on governance-security"
+
+  - fromLayer: core-contracts
+    toLayer: persistence
+    reason: "Core contracts must not depend on persistence implementations"
+
+  - fromLayer: core-contracts
+    toLayer: provider-adapters
+    reason: "Core contracts must not depend on specific provider implementations"
+
+  - fromLayer: core-contracts
+    toLayer: framework-integrations
+    reason: "Core contracts must not depend on framework-specific integrations"
+
+  - fromLayer: core-contracts
+    toLayer: operations-observability
+    reason: "Core contracts must not depend on operations/observability"
+
+  - fromLayer: core-contracts
+    toLayer: higher-capabilities
+    reason: "Core contracts must not depend on higher capabilities"
+
+  # Runtime execution must not depend on examples
+  - fromLayer: runtime-execution
+    toLayer: applications-examples
+    reason: "Runtime execution must not depend on example code"
+
+  # Provider adapters must not depend on application layers
+  - fromLayer: provider-adapters
+    toLayer: applications-examples
+    reason: "Provider adapters must not depend on example code"
+
+  - fromLayer: provider-adapters
+    toLayer: operations-observability
+    reason: "Provider adapters must not depend on platform/server/observability code"
+
+  # Published modules must not depend on example/application modules
+  - fromPublished: true
+    toLayer: applications-examples
+    reason: "Published modules must not depend on example or application code"
+
+  # Published→excluded
+  - fromPublished: true
+    toPublishability: excluded
+    reason: "Published modules must not depend on excluded modules"
+
+  # Published→internal
+  - fromPublished: true
+    toPublishability: internal
+    reason: "Published modules must not depend on internal modules (consumers can't resolve them)"
+
+  # No self-dependencies
+  - selfEdge: true
+    reason: "Modules must not depend on themselves"
+
+  # No cycles (checked separately with full cycle detection)
+  # Cycle detection is handled programmatically in the verifier, not via YAML rules.
+
+knownAllowedEdges:
+  # Pre-existing published→internal edges — exact module pairs only
+  - fromModule: ":tramai-platform"
+    toModule: ":tramai-server"
+    reason: "Platform -> Server: pre-existing baseline edge in same operations-observability layer"
+
+  - fromModule: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
+    toModule: ":tramai-persistence-jdbc"
+    reason: "Sovereign persistence JDBC starter -> persistence-jdbc: pre-existing baseline edge for JDBC persistence adapter"
+
+  # BOM inclusion references — exact module pairs only
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-persistence-file"
+    reason: "tramai-bom includes tramai-persistence-file"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-openai"
+    reason: "tramai-bom includes tramai-openai"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-anthropic"
+    reason: "tramai-bom includes tramai-anthropic"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-engine"
+    reason: "tramai-bom includes tramai-engine"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-structured"
+    reason: "tramai-bom includes tramai-structured"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-spring"
+    reason: "tramai-bom includes tramai-spring"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-observability"
+    reason: "tramai-bom includes tramai-observability"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-security"
+    reason: "tramai-bom includes tramai-security"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-sovereign"
+    reason: "tramai-bom includes tramai-sovereign"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-orchestration"
+    reason: "tramai-bom includes tramai-orchestration"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-standalone"
+    reason: "tramai-bom includes tramai-standalone"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-memory"
+    reason: "tramai-bom includes tramai-memory"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-embedding"
+    reason: "tramai-bom includes tramai-embedding"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-rag"
+    reason: "tramai-bom includes tramai-rag"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-platform"
+    reason: "tramai-bom includes tramai-platform"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-scheduler"
+    reason: "tramai-bom includes tramai-scheduler"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-testing"
+    reason: "tramai-bom includes tramai-testing"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-vectorstore-spi"
+    reason: "tramai-bom includes tramai-vectorstore-spi"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-vectorstore-chroma"
+    reason: "tramai-bom includes tramai-vectorstore-chroma"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-vectorstore-pgvector"
+    reason: "tramai-bom includes tramai-vectorstore-pgvector"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-persistence-jdbc"
+    reason: "tramai-bom includes tramai-persistence-jdbc"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-deepseek"
+    reason: "tramai-bom includes tramai-deepseek"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-gemini"
+    reason: "tramai-bom includes tramai-gemini"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-bedrock"
+    reason: "tramai-bom includes tramai-bedrock"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-azure-openai"
+    reason: "tramai-bom includes tramai-azure-openai"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-ollama"
+    reason: "tramai-bom includes tramai-ollama"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-mcp"
+    reason: "tramai-bom includes tramai-mcp"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-dashboard"
+    reason: "tramai-bom includes tramai-dashboard"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-server"
+    reason: "tramai-bom includes tramai-server"
+
+  - fromModule: ":tramai-bom"
+    toModule: ":tramai-memory-store"
+    reason: "tramai-bom includes tramai-memory-store"
+
+  # Starter BOM relations — exact module pairs
+  - fromModule: ":tramai-spring-boot-starter-sovereign"
+    toModule: ":tramai-core"
+    reason: "Sovereign starter depends on core"
+
+  - fromModule: ":tramai-spring-boot-starter-sovereign"
+    toModule: ":tramai-security"
+    reason: "Sovereign starter depends on security"
+
+  - fromModule: ":tramai-spring-boot-starter-sovereign"
+    toModule: ":tramai-sovereign"
+    reason: "Sovereign starter depends on sovereign"
+
+  - fromModule: ":tramai-spring-boot-starter-sovereign"
+    toModule: ":tramai-spring"
+    reason: "Sovereign starter depends on spring"
+
+  - fromModule: ":tramai-spring-boot-starter-sovereign"
+    toModule: ":tramai-engine"
+    reason: "Sovereign starter depends on engine"
+
+  - fromModule: ":tramai-spring-boot-starter-sovereign"
+    toModule: ":tramai-observability"
+    reason: "Sovereign starter depends on observability"
+
+  - fromModule: ":tramai-spring-boot-starter-sovereign"
+    toModule: ":tramai-orchestration"
+    reason: "Sovereign starter depends on orchestration"
+
+  - fromModule: ":tramai-spring-boot-starter-sovereign"
+    toModule: ":tramai-structured"
+    reason: "Sovereign starter depends on structured"
+
+  - fromModule: ":tramai-spring-boot-starter-sovereign"
+    toModule: ":tramai-standalone"
+    reason: "Sovereign starter depends on standalone"

@@ -60,58 +60,23 @@ class MeasurementContext(
     }
 
     companion object {
-        // ── Module metadata (provisional — will move to a machine-readable manifest) ──
-        // NOTE: This hardcoded set is acknowledged as temporary. PR #204 will introduce
-        // a shared module-metadata file consumed by both Gradle publication and analysis.
-
-        private val publishableNames = setOf(
-            "tramai-anthropic", "tramai-azure-openai", "tramai-bedrock", "tramai-bom",
-            "tramai-core", "tramai-deepseek", "tramai-embedding", "tramai-engine",
-            "tramai-gemini", "tramai-memory", "tramai-observability", "tramai-ollama",
-            "tramai-openai", "tramai-orchestration", "tramai-platform", "tramai-spring",
-            "tramai-standalone", "tramai-sovereign", "tramai-persistence-file",
-            "tramai-structured", "tramai-testing", "tramai-vectorstore-spi",
-            "tramai-vectorstore-chroma", "tramai-vectorstore-pgvector", "tramai-rag",
-            "tramai-security", "tramai-spring-boot-starter-sovereign",
-            "tramai-spring-boot-starter-sovereign-persistence-file",
-            "tramai-spring-boot-starter-sovereign-persistence-jdbc",
-            "tramai-spring-boot-starter-sovereign-ops",
-            "tramai-spring-boot-starter-sovereign-ops-rest",
-            "tramai-spring-boot-starter-sovereign-ops-actuator",
-            "tramai-spring-boot-starter-sovereign-ops-micrometer",
-            "tramai-spring-boot-starter-sovereign-ops-observability",
-            "tramai-spring-boot-starter-local-provider-openai",
-            "tramai-scheduler"
-        )
-
-        private fun classifyLayerByName(name: String, path: String): String {
-            val normalizedPath = if (path.startsWith(":")) path else ":$path"
-            return when {
-            name == "tramai-core" -> "core-contracts"
-            name == "tramai-bom" -> "core-contracts"
-            name in listOf("tramai-engine", "tramai-structured", "tramai-orchestration", "tramai-standalone") -> "runtime-execution"
-            name in listOf("tramai-security", "tramai-sovereign") -> "governance-security"
-            name.startsWith("tramai-persistence") -> "persistence"
-            name in listOf("tramai-anthropic", "tramai-azure-openai", "tramai-bedrock", "tramai-deepseek",
-                "tramai-gemini", "tramai-ollama", "tramai-openai") -> "provider-adapters"
-            name == "tramai-spring" || name.startsWith("tramai-spring-boot-starter") -> "framework-integrations"
-            name in listOf("tramai-observability", "tramai-platform", "tramai-server", "tramai-dashboard",
-                "tramai-mcp") -> "operations-observability"
-            name in listOf("tramai-rag", "tramai-memory", "tramai-memory-store", "tramai-scheduler",
-                "tramai-embedding") -> "higher-capabilities"
-            name.startsWith("tramai-vectorstore") -> "higher-capabilities"
-            normalizedPath.startsWith(":examples:") -> "applications-examples"
-            name == "tramai-testing" -> "testing-support"
-            else -> "unknown"
-        }
-    }
-
         // ── Factory methods ──
 
+        /**
+         * Create a MeasurementContext from a Gradle project, loading the catalog internally.
+         * Falls back to "unknown"/false for uncatalogued modules.
+         */
         fun fromProject(project: Project): MeasurementContext {
+            val catalog = ModuleCatalog(project.rootDir)
+            catalog.parse()
+            return fromProject(project, catalog)
+        }
+
+        fun fromProject(project: Project, catalog: ModuleCatalog): MeasurementContext {
             val gradleModules = project.allprojects
                 .filter { it != project && it.buildFile.exists() }
                 .map { proj ->
+                    val entry = catalog.entryFor(proj.path)
                     DiscoveredModule(
                         name = proj.name,
                         path = proj.path,
@@ -127,8 +92,8 @@ class MeasurementContext(
                         testFixtureDirs = listOf(
                             File(proj.projectDir, "src/testFixtures/kotlin"),
                         ),
-                        publishable = proj.name in publishableNames,
-                        layer = classifyLayerByName(proj.name, proj.path),
+                        publishable = entry?.publishability == "published",
+                        layer = entry?.layer ?: "unknown",
                     )
                 }
 
@@ -139,8 +104,37 @@ class MeasurementContext(
             )
         }
 
+        /**
+         * Create a MeasurementContext from a directory, loading the catalog internally.
+         */
         fun fromDirectory(rootDir: File): MeasurementContext {
-            val modules = discoverModulesFromSettings(rootDir)
+            val catalog = ModuleCatalog(rootDir)
+            catalog.parse()
+            return fromDirectory(rootDir, catalog)
+        }
+
+        /**
+         * Create a MeasurementContext from a source directory but load the
+         * module catalog from a different root. Used during canonical generation
+         * where source files come from the detached v0.5.0 worktree but the
+         * authoritative catalog lives in the analyzer/PR checkout.
+         *
+         * @throws IllegalStateException if the catalog has parsing failures
+         */
+        fun fromDirectory(rootDir: File, catalogRoot: File): MeasurementContext {
+            val catalog = ModuleCatalog(catalogRoot)
+            val result = catalog.parse()
+            val failedDiagnostics = result.errors.filter { it.severity == DiagnosticSeverity.FAILURE }
+            if (failedDiagnostics.isNotEmpty()) {
+                val summary = failedDiagnostics.joinToString("; ") { it.message }
+                throw IllegalStateException(
+                    "Module catalog has ${failedDiagnostics.size} error(s): $summary")
+            }
+            return fromDirectory(rootDir, catalog)
+        }
+
+        fun fromDirectory(rootDir: File, catalog: ModuleCatalog): MeasurementContext {
+            val modules = discoverModulesFromSettings(rootDir, catalog)
             return MeasurementContext(
                 rootDir = rootDir,
                 modules = modules,
@@ -148,11 +142,26 @@ class MeasurementContext(
             )
         }
 
+        /**
+         * Build a MeasurementContext by loading the ModuleCatalog first.
+         */
+        fun loadFromCatalog(rootDir: File): Pair<MeasurementContext, ModuleCatalog.CatalogResult> {
+            val catalog = ModuleCatalog(rootDir)
+            val catalogResult = catalog.parse()
+            val modules = discoverModulesFromSettings(rootDir, catalog)
+            val ctx = MeasurementContext(
+                rootDir = rootDir,
+                modules = modules,
+                gradleProject = null,
+            )
+            return ctx to catalogResult
+        }
+
         // ── Settings parser (handles multi-line include(...) blocks) ──
         // All paths are normalized to Gradle format (leading ":") so that
         // canonical and project modes produce identical module identities.
 
-        private fun discoverModulesFromSettings(rootDir: File): List<DiscoveredModule> {
+        private fun discoverModulesFromSettings(rootDir: File, catalog: ModuleCatalog): List<DiscoveredModule> {
             val settingsFile = File(rootDir, "settings.gradle.kts")
             val includedPaths = if (settingsFile.isFile) {
                 parseSettingsIncludes(settingsFile)
@@ -165,6 +174,7 @@ class MeasurementContext(
                 val buildFile = File(moduleDir, "build.gradle.kts")
                 if (!buildFile.isFile) return@mapNotNull null
                 val name = includePath.substringAfterLast(":")
+                val entry = catalog.entryFor(includePath)
 
                 DiscoveredModule(
                     name = name,
@@ -181,8 +191,8 @@ class MeasurementContext(
                     testFixtureDirs = listOf(
                         File(moduleDir, "src/testFixtures/kotlin"),
                     ),
-                    publishable = name in publishableNames,
-                    layer = classifyLayerByName(name, includePath),
+                    publishable = entry?.publishability == "published",
+                    layer = entry?.layer ?: "unknown",
                 )
             }
         }

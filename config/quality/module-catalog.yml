@@ -1,0 +1,243 @@
+schemaVersion: "1"
+description: "TramAI 0.6.0 authoritative module catalogue. Every Gradle project appears exactly once."
+
+modules:
+  - path: ":examples:approval-resume"
+    layer: applications-examples
+    publishability: excluded
+    apiStability: excluded
+
+  - path: ":examples:governed-workflow"
+    layer: applications-examples
+    publishability: excluded
+    apiStability: excluded
+
+  - path: ":examples:sovereign-document-intelligence"
+    layer: applications-examples
+    publishability: excluded
+    apiStability: excluded
+
+  - path: ":examples:sovereign-offline-verification"
+    layer: applications-examples
+    publishability: excluded
+    apiStability: excluded
+
+  - path: ":examples:spring-sovereign-starter"
+    layer: applications-examples
+    publishability: excluded
+    apiStability: excluded
+
+  - path: ":examples:support-agent"
+    layer: applications-examples
+    publishability: excluded
+    apiStability: excluded
+
+  - path: ":examples:tool-governance"
+    layer: applications-examples
+    publishability: excluded
+    apiStability: excluded
+
+  - path: ":tramai-anthropic"
+    layer: provider-adapters
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-azure-openai"
+    layer: provider-adapters
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-bedrock"
+    layer: provider-adapters
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-bom"
+    layer: core-contracts
+    publishability: published
+    apiStability: stable
+
+  - path: ":tramai-core"
+    layer: core-contracts
+    publishability: published
+    apiStability: stable
+
+  - path: ":tramai-dashboard"
+    layer: operations-observability
+    publishability: internal
+    apiStability: internal
+
+  - path: ":tramai-deepseek"
+    layer: provider-adapters
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-embedding"
+    layer: higher-capabilities
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-engine"
+    layer: runtime-execution
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-gemini"
+    layer: provider-adapters
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-mcp"
+    layer: operations-observability
+    publishability: internal
+    apiStability: internal
+
+  - path: ":tramai-memory"
+    layer: higher-capabilities
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-memory-store"
+    layer: higher-capabilities
+    publishability: internal
+    apiStability: internal
+
+  - path: ":tramai-observability"
+    layer: operations-observability
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-ollama"
+    layer: provider-adapters
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-openai"
+    layer: provider-adapters
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-orchestration"
+    layer: runtime-execution
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-persistence-file"
+    layer: persistence
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-persistence-jdbc"
+    layer: persistence
+    publishability: internal
+    apiStability: internal
+
+  - path: ":tramai-platform"
+    layer: operations-observability
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-rag"
+    layer: higher-capabilities
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-scheduler"
+    layer: higher-capabilities
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-security"
+    layer: governance-security
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-server"
+    layer: operations-observability
+    publishability: internal
+    apiStability: internal
+
+  - path: ":tramai-sovereign"
+    layer: governance-security
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-boot-starter-local-provider-openai"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-boot-starter-sovereign"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-boot-starter-sovereign-ops"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-boot-starter-sovereign-ops-actuator"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-boot-starter-sovereign-ops-micrometer"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-boot-starter-sovereign-ops-observability"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-boot-starter-sovereign-ops-rest"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-boot-starter-sovereign-persistence-file"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-spring-boot-starter-sovereign-persistence-jdbc"
+    layer: framework-integrations
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-standalone"
+    layer: runtime-execution
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-structured"
+    layer: runtime-execution
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-testing"
+    layer: testing-support
+    publishability: published
+    apiStability: internal
+
+  - path: ":tramai-vectorstore-chroma"
+    layer: higher-capabilities
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-vectorstore-pgvector"
+    layer: higher-capabilities
+    publishability: published
+    apiStability: preview
+
+  - path: ":tramai-vectorstore-spi"
+    layer: higher-capabilities
+    publishability: published
+    apiStability: preview

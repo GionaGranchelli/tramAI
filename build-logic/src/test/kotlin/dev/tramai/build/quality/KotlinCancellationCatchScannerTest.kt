@@ -6,6 +6,8 @@ import java.io.File
 import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class KotlinCancellationCatchScannerTest {
@@ -376,5 +378,164 @@ class KotlinCancellationCatchScannerTest {
             assertEquals(directFindings[i].risk, dirFindings[i].risk,
                 "Risk mismatch for ${directFindings[i].function}::${directFindings[i].catchType}")
         }
+    }
+
+    // ─── Deviation scope matching tests ───
+
+    @Test
+    fun `global wildcard covers any scope`() {
+        val scope = DeviationParser.DeviationScope(null, null, null, isWildcard = true)
+        assertTrue(scope.covers(DeviationParser.FindingScope(null, null, null)))
+        assertTrue(scope.covers(DeviationParser.FindingScope(":tramai-engine", null, null)))
+        assertTrue(scope.covers(DeviationParser.FindingScope(":examples:tool-governance", null, null)))
+    }
+
+    @Test
+    fun `prefix wildcard matches tramai modules`() {
+        val scope = DeviationParser.DeviationScope(":tramai-", null, null, isWildcard = true)
+        assertTrue(scope.covers(DeviationParser.FindingScope(":tramai-engine", null, null)))
+        assertTrue(scope.covers(DeviationParser.FindingScope(":tramai-core", null, null)))
+        assertTrue(scope.covers(DeviationParser.FindingScope(":tramai-bom", null, null)))
+        assertTrue(scope.covers(DeviationParser.FindingScope(":tramai-provider-openai", null, null)))
+        // Should NOT match non-tramai modules
+        assertTrue(!scope.covers(DeviationParser.FindingScope(":examples:tool-governance", null, null)))
+        assertTrue(!scope.covers(DeviationParser.FindingScope(":spring-boot-starter", null, null)))
+    }
+
+    @Test
+    fun `prefix wildcard matches provider modules`() {
+        val scope = DeviationParser.DeviationScope(":tramai-provider-", null, null, isWildcard = true)
+        assertTrue(scope.covers(DeviationParser.FindingScope(":tramai-provider-openai", null, null)))
+        assertTrue(scope.covers(DeviationParser.FindingScope(":tramai-provider-anthropic", null, null)))
+        // Should NOT match non-provider tramai modules
+        assertTrue(!scope.covers(DeviationParser.FindingScope(":tramai-engine", null, null)))
+        assertTrue(!scope.covers(DeviationParser.FindingScope(":tramai-core", null, null)))
+    }
+
+    @Test
+    fun `exact module scope does not match prefix`() {
+        val scope = DeviationParser.DeviationScope(":tramai-engine", null, null, isWildcard = false)
+        assertTrue(scope.covers(DeviationParser.FindingScope(":tramai-engine", null, null)))
+        // Non-wildcard module scopes must be exact — no prefix matching
+        assertTrue(!scope.covers(DeviationParser.FindingScope(":tramai-engine-core", null, null)))
+        assertTrue(!scope.covers(DeviationParser.FindingScope(":tramai", null, null)))
+    }
+
+    @Test
+    fun `file scope requires module AND path match`() {
+        val scope = DeviationParser.DeviationScope(":tramai-engine", "src/main/Foo.kt", null, isWildcard = false)
+        assertTrue(scope.covers(DeviationParser.FindingScope(
+            ":tramai-engine", "src/main/Foo.kt", null)))
+        // Wrong module
+        assertTrue(!scope.covers(DeviationParser.FindingScope(
+            ":tramai-core", "src/main/Foo.kt", null)))
+        // Wrong path
+        assertTrue(!scope.covers(DeviationParser.FindingScope(
+            ":tramai-engine", "src/main/Bar.kt", null)))
+    }
+
+    @Test
+    fun `declaration scope requires module path and declaration`() {
+        val scope = DeviationParser.DeviationScope(
+            ":tramai-engine", "src/main/Foo.kt", "TramaiInvocationHandler", isWildcard = false)
+        assertTrue(scope.covers(DeviationParser.FindingScope(
+            ":tramai-engine", "src/main/Foo.kt", "TramaiInvocationHandler")))
+        // Wrong declaration
+        assertTrue(!scope.covers(DeviationParser.FindingScope(
+            ":tramai-engine", "src/main/Foo.kt", "OtherHandler")))
+    }
+
+    // ─── Deviation parser scope grammar tests ───
+
+    @Test
+    fun `parseScope handles all valid forms`() {
+        val parser = DeviationParser(File("/nonexistent"))
+        assertNotNull(parser.parseScope("*"))
+        assertNotNull(parser.parseScope(":tramai-engine"))
+        assertNotNull(parser.parseScope(":tramai-engine:src/main/Foo.kt"))
+        assertNotNull(parser.parseScope(":tramai-engine:src/main/Foo.kt#Declaration"))
+        assertNotNull(parser.parseScope(":tramai-*"))
+        assertNotNull(parser.parseScope(":tramai-provider-*"))
+        // Invalid scopes
+        assertEquals(null, parser.parseScope(""))
+        assertEquals(null, parser.parseScope("tramai-engine")) // no leading colon
+    }
+
+    @Test
+    fun `parseScope wildcard stores correct prefix`() {
+        val parser = DeviationParser(File("/nonexistent"))
+        val scope = parser.parseScope(":tramai-provider-*")!!
+        assertEquals(true, scope.isWildcard)
+        assertEquals(":tramai-provider-", scope.modulePath)
+    }
+
+    // ─── Deviation baseline validation tests ───
+
+    @Test
+    fun `deviation baseline mismatch is detected`() {
+        val parser = DeviationParser(File("/nonexistent"))
+
+        // baseline != allowed deviation should work if baseline <= allowed
+        assertNull(parser.validateBaselineMatch(1, 1))
+        assertNull(parser.validateBaselineMatch(5, 5))
+        // baseline mismatch should produce diagnostic
+        val result = parser.validateBaselineMatch(1, 5)
+        assertNotNull(result)
+        assertEquals(DiagnosticCode.DEVIATION_BASELINE_MISMATCH, result?.code)
+    }
+
+    // ─── Count-delta multiset tests ───
+
+    @Test
+    fun `count delta detects added duplicates`() {
+        val committed = listOf("id1", "id2", "id2")
+        val current = listOf("id1", "id2", "id2", "id2")
+
+        val committedCounts = committed.groupBy { it }.mapValues { it.value.size }
+        val currentCounts = current.groupBy { it }.mapValues { it.value.size }
+
+        val addedCounts = currentCounts.mapNotNull { (key, currentCount) ->
+            val delta = currentCount - (committedCounts[key] ?: 0)
+            if (delta > 0) key to delta else null
+        }
+
+        // id2 went from 2 to 3 occurrences
+        assertEquals(1, addedCounts.size)
+        assertEquals("id2", addedCounts[0].first)
+        assertEquals(1, addedCounts[0].second)
+    }
+
+    @Test
+    fun `count delta ignores unchanged identities`() {
+        val committed = listOf("id1", "id1", "id2")
+        val current = listOf("id1", "id1", "id2")
+
+        val committedCounts = committed.groupBy { it }.mapValues { it.value.size }
+        val currentCounts = current.groupBy { it }.mapValues { it.value.size }
+
+        val addedCounts = currentCounts.mapNotNull { (key, currentCount) ->
+            val delta = currentCount - (committedCounts[key] ?: 0)
+            if (delta > 0) key to delta else null
+        }
+
+        assertEquals(0, addedCounts.size)
+    }
+
+    @Test
+    fun `count delta detects new identities`() {
+        val committed = listOf("id1")
+        val current = listOf("id1", "id2", "id3")
+
+        val committedCounts = committed.groupBy { it }.mapValues { it.value.size }
+        val currentCounts = current.groupBy { it }.mapValues { it.value.size }
+
+        val addedCounts = currentCounts.mapNotNull { (key, currentCount) ->
+            val delta = currentCount - (committedCounts[key] ?: 0)
+            if (delta > 0) key to delta else null
+        }
+
+        assertEquals(2, addedCounts.size) // id2 and id3 are new
+        assertEquals(1, addedCounts.find { it.first == "id2" }?.second)
+        assertEquals(1, addedCounts.find { it.first == "id3" }?.second)
     }
 }

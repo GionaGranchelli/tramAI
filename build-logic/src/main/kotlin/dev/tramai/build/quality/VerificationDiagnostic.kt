@@ -1,0 +1,103 @@
+package dev.tramai.build.quality
+
+/**
+ * Typed severity for verification diagnostics.
+ * Severity is derived from the diagnostic code and finding data,
+ * not from parsing human-readable message text.
+ */
+enum class DiagnosticSeverity {
+    FAILURE,
+    WARNING,
+    ACCEPTED,
+    IMPROVEMENT
+}
+
+/**
+ * Typed diagnostic codes for every verifier gate.
+ * Each represents one specific class of finding that the verifier can emit.
+ */
+enum class DiagnosticCode {
+    // Identity & provenance
+    BASELINE_IDENTITY_MISMATCH,
+    ANALYZER_COMMIT_NOT_ANCESTOR,
+    MEASURED_TREE_MISMATCH,
+    TAG_COMMIT_MISMATCH,
+    TAG_TREE_MISMATCH,
+    DIRTY_WORKTREE,
+
+    // Module catalogue
+    MODULE_CATALOG_MISSING_ENTRY,
+    MODULE_CATALOG_UNKNOWN_ENTRY,
+    MODULE_CATALOG_DUPLICATE_PATH,
+    MODULE_CATALOG_INVALID_LAYER,
+    MODULE_CATALOG_MISSING_API_STABILITY,
+    MODULE_CATALOG_EXAMPLE_PUBLISHABLE,
+    MODULE_CATALOG_DISAGREEMENT,
+
+    // Dependency & architecture
+    NEW_DEPENDENCY_CYCLE,
+    FORBIDDEN_LAYER_EDGE,
+    SELF_DEPENDENCY,
+
+    // Safety findings
+    NEW_CANCELLATION_FINDING,
+    NEW_GLOBAL_STATE_FINDING,
+    NEW_NONDETERMINISM_FINDING,
+    CANCELLATION_RISK_WORSENED,
+
+    // Protocol
+    STABLE_PROTOCOL_CONTRACT_REMOVED,
+
+    // Hotspots
+    HOTSPOT_REGRESSION,
+    NEW_TOP_FIVE_HOTSPOT,
+    FILE_GROWTH_EXCEEDED,
+
+    // Deviations
+    INVALID_DEVIATION_SCOPE,
+    ORPHANED_DEVIATION,
+    EXPIRED_DEVIATION,
+    DUPLICATE_DEVIATION,
+    MALFORMED_DEVIATION,
+    DEVIATION_BASELINE_MISMATCH,
+    DEVIATION_COVERAGE_EXCEEDED,
+
+    // Generated artifact drift
+    GENERATED_DOCUMENT_DRIFT,
+
+    // Mandatory section
+    EMPTY_SECTION
+}
+
+/**
+ * A single typed verification diagnostic.
+ * Severity is determined by code and context, not by parsing message text.
+ */
+data class VerificationDiagnostic(
+    val code: DiagnosticCode,
+    val severity: DiagnosticSeverity,
+    val message: String,
+    val modulePath: String? = null,
+    val findingId: String? = null,
+    val deviationId: String? = null,
+    val baselineValue: String? = null,
+    val currentValue: String? = null
+) {
+    companion object {
+        fun failure(code: DiagnosticCode, message: String, modulePath: String? = null,
+                    findingId: String? = null, deviationId: String? = null,
+                    baselineValue: String? = null, currentValue: String? = null): VerificationDiagnostic =
+            VerificationDiagnostic(code, DiagnosticSeverity.FAILURE, message,
+                modulePath = modulePath, findingId = findingId, deviationId = deviationId,
+                baselineValue = baselineValue, currentValue = currentValue)
+
+        fun warning(code: DiagnosticCode, message: String): VerificationDiagnostic =
+            VerificationDiagnostic(code, DiagnosticSeverity.WARNING, message)
+
+        fun accepted(code: DiagnosticCode, message: String, deviationId: String? = null): VerificationDiagnostic =
+            VerificationDiagnostic(code, DiagnosticSeverity.ACCEPTED, message, deviationId = deviationId)
+
+        fun improvement(code: DiagnosticCode, message: String): VerificationDiagnostic =
+            VerificationDiagnostic(code, DiagnosticSeverity.IMPROVEMENT, message)
+    }
+}

@@ -1,8 +1,8 @@
 .codex
 .idea
 .gradle
-build
-*/build
+/build/
+**/build/
 gradle-app.setting
 *.iml
 *.log
