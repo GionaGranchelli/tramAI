@@ -54,28 +54,45 @@ class DeviationBudgetEvaluator(
         committedFindings: List<Any?>? = null,
         diagnostics: MutableList<VerificationDiagnostic>
     ) {
-        // Multiset: compute exact deltas per identity
-        val committedCounts = committedIds.groupBy { it }.mapValues { it.value.size }
-        val currentCounts = currentIds.groupBy { it }.mapValues { it.value.size }
+        // Compute committed metric-population IDs (apply riskFilter before delta)
+        val hasCommittedFindings = committedFindings != null
+        val committedMetricFindings = if (hasCommittedFindings) {
+            committedFindings!!
+                .filter { riskFilter == null || riskFilter(it) }
+        } else {
+            // Fallback: convert committedIds to findings-like objects (no risk info available)
+            // When committedFindings is null, compute delta from committedIds directly
+            emptyList()
+        }
+        val committedMetricIds = if (hasCommittedFindings) {
+            committedMetricFindings.map { findingIdentityKey(it) }
+        } else {
+            // With no committedFindings, use raw committedIds (identity-only comparison)
+            // Risk filter cannot be applied to identity strings — all committed IDs are
+            // counted uniformly for delta purposes
+            committedIds
+        }
 
-        // For each identity, determine how many NEW occurrences were added
+        // Compute current metric-population IDs
+        val currentMetricFindings = allCurrent
+            .filter { riskFilter == null || riskFilter(it) }
+        val currentMetricIds = currentMetricFindings.map { findingIdentityKey(it) }
+
+        // Compute deltas within the metric population only
+        val committedCounts = committedMetricIds.groupBy { it }.mapValues { it.value.size }
+        val currentCounts = currentMetricIds.groupBy { it }.mapValues { it.value.size }
+
         val deltaMap = mutableMapOf<String, Int>()
         for ((key, count) in currentCounts) {
             val oldCount = committedCounts[key] ?: 0
             if (count > oldCount) deltaMap[key] = count - oldCount
         }
 
-        // Select only the exact number of new occurrences per identity
+        // Select only the exact number of new metric-population occurrences per identity
         val addedFindings = mutableListOf<Any?>()
         if (deltaMap.isNotEmpty()) {
-            // Track how many we've picked per identity
             val picked = mutableMapOf<String, Int>()
-            val riskFiltered = if (riskFilter != null) {
-                allCurrent.filter { riskFilter(it) }
-            } else {
-                allCurrent
-            }
-            for (f in riskFiltered) {
+            for (f in currentMetricFindings) {
                 val id = findingIdentityKey(f)
                 val needed = deltaMap[id] ?: 0
                 val have = picked[id] ?: 0

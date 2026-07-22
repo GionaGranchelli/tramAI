@@ -1,9 +1,0 @@
-{
-  "invoiceId": "INV-001",
-  "supplierName": "Acme Corp",
-  "amountCents": 15000000,
-  "currency": "EUR",
-  "risk": "HIGH",
-  "recommendedAction": "SCHEDULE_PAYMENT",
-  "rationale": "Enterprise license renewal Q3 exceeds threshold and requires payment scheduling"
-}

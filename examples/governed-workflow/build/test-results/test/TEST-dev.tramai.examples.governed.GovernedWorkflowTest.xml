@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="dev.tramai.examples.governed.GovernedWorkflowTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-07-13T07:54:33.427Z" hostname="gionag-ThinkStation-P620" time="0.016">
-  <properties/>
-  <testcase name="high-risk claim without approval is rejected()" classname="dev.tramai.examples.governed.GovernedWorkflowTest" time="0.013"/>
-  <testcase name="restricted claim is rejected by policy gate()" classname="dev.tramai.examples.governed.GovernedWorkflowTest" time="0.002"/>
-  <system-out><![CDATA[]]></system-out>
-  <system-err><![CDATA[]]></system-err>
-</testsuite>

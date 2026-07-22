@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="dev.tramai.examples.governed.GovernedWorkflowFailureDiagnosticsTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-07-13T07:54:33.300Z" hostname="gionag-ThinkStation-P620" time="0.123">
-  <properties/>
-  <testcase name="restricted claim failure explains policy gate and step trail()" classname="dev.tramai.examples.governed.GovernedWorkflowFailureDiagnosticsTest" time="0.114"/>
-  <testcase name="approved high-risk claim has clean diagnostic trail()" classname="dev.tramai.examples.governed.GovernedWorkflowFailureDiagnosticsTest" time="0.005"/>
-  <testcase name="high-risk unapproved claim failure explains approval gate and step trail()" classname="dev.tramai.examples.governed.GovernedWorkflowFailureDiagnosticsTest" time="0.002"/>
-  <system-out><![CDATA[]]></system-out>
-  <system-err><![CDATA[]]></system-err>
-</testsuite>

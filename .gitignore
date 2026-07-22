@@ -2,7 +2,7 @@
 .idea
 .gradle
 /build/
-*/build
+**/build/
 gradle-app.setting
 *.iml
 *.log

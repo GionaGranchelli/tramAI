@@ -146,6 +146,7 @@ class DeviationBudgetEvaluatorTest {
             currentCatches = current,
             committedCatches = committed,
             deviations = deviations,
+            riskFilter = null,  // risk worsening crosses risk levels — don't filter
             riskWorseCode = DiagnosticCode.CANCELLATION_RISK_WORSENED,
             riskWorseningMetricName = "cancellationRiskWorsening"
         )
@@ -184,6 +185,7 @@ class DeviationBudgetEvaluatorTest {
             currentCatches = current,
             committedCatches = committed,
             deviations = deviations,
+            riskFilter = null,  // risk worsening crosses risk levels — don't filter
             riskWorseCode = DiagnosticCode.CANCELLATION_RISK_WORSENED,
             riskWorseningMetricName = "cancellationRiskWorsening"
         )
@@ -259,17 +261,20 @@ class DeviationBudgetEvaluatorTest {
 
     @Test
     fun `duplicate identity growth reports only the count delta not all occurrences`() {
-        // Identity X appears once in committed, twice in current (critical+medium share same identity).
-        // The medium occurrence creates delta=1 for that identity. After riskFilter only the critical
-        // occurrence is counted as "added". Brand-new identities (bar, baz, qux) each add 1.
-        // Total added = 1 (from duplicated identity under filter) + 3 (new identities) = 4.
-        // Without the multiset fix the reported count would be 5 (all current filtered findings).
+        // Identity foo appears once (critical) in committed.
+        // Current has: same critical foo + a medium-risk foo (same identity, different risk).
+        // Since delta is computed WITHIN the critical population (riskFilter=critical):
+        //   committed critical foo: 1
+        //   current critical foo:   1  ← the medium-risk foo is excluded by riskFilter
+        //   delta: 0 for identity foo
+        //   bar, baz, qux: each delta=1 (new critical identities)
+        // Total added: 3
         val committed = listOf(
             catchFinding(risk = "critical")                             // identity: foo/Exception
         )
         val current = listOf(
             catchFinding(risk = "critical"),                            // same identity — critical
-            catchFinding(function = "foo", risk = "medium"),            // SAME identity, delta=1 — filtered out by riskFilter
+            catchFinding(function = "foo", risk = "medium"),            // SAME identity — filtered out by riskFilter
             catchFinding(function = "bar", risk = "critical"),          // NEW identity
             catchFinding(function = "baz", risk = "critical"),          // NEW identity
             catchFinding(function = "qux", risk = "critical")           // NEW identity
@@ -292,10 +297,10 @@ class DeviationBudgetEvaluatorTest {
         }
         assertTrue(accepted.isNotEmpty(), "Deviation should accept the new findings")
         val message = accepted.first().message
-        // 4 new findings: 1 from duplicated identity under critical filter + bar + baz + qux
+        // 3 new findings: bar + baz + qux (foo medium excluded by riskFilter)
         assertTrue(
-            message.contains("4 new finding"),
-            "Must report exactly 4 new findings (delta-driven, not all occurrences), got: $message"
+            message.contains("3 new finding"),
+            "Must report exactly 3 new findings (delta computed within critical population), got: $message"
         )
     }
 }
