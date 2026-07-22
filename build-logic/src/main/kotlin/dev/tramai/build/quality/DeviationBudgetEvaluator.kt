@@ -177,14 +177,7 @@ class DeviationBudgetEvaluator(
 
         val currentCatches = allCurrent as List<CancellationCatchFinding>
 
-        // Build historical risk map from actual committed findings (not current ones)
-        val committedByRisk: Map<String, String>
-        if (committedFindings != null && committedFindings.isNotEmpty() && committedFindings.first() is CancellationCatchFinding) {
-            val committedCatches = committedFindings as List<CancellationCatchFinding>
-            committedByRisk = committedCatches.associate {
-                FindingIdentity.fromCancellationCatch(it).toIdentityKey() to it.risk
-            }
-        } else {
+        if (committedFindings == null || committedFindings.isEmpty() || committedFindings.first() !is CancellationCatchFinding) {
             // Fallback: report resolved findings as improvement
             val currentKeys = currentCatches.map { FindingIdentity.fromCancellationCatch(it).toIdentityKey() }.toSet()
             val resolvedIds = committedIds.filter { it !in currentKeys }.toSet()
@@ -196,10 +189,34 @@ class DeviationBudgetEvaluator(
             return
         }
 
-        val worsened = currentCatches.filter { f ->
-            val id = FindingIdentity.fromCancellationCatch(f).toIdentityKey()
-            val committedRisk = committedByRisk[id]
-            committedRisk != null && riskOrder(committedRisk) < riskOrder(f.risk)
+        val committedCatches = committedFindings as List<CancellationCatchFinding>
+
+        // Build multiset: for each identity, collect ALL historical risks sorted ascending
+        val committedByIdentity = committedCatches.groupBy {
+            FindingIdentity.fromCancellationCatch(it).toIdentityKey()
+        }.mapValues { (_, catches) ->
+            catches.map { it.risk }.sortedBy(::riskOrder)
+        }
+
+        // Group current findings by identity with their risks
+        val currentByIdentity = currentCatches.groupBy {
+            FindingIdentity.fromCancellationCatch(it).toIdentityKey()
+        }
+
+        // Pair committed and current occurrences 1:1 by sorted risk and detect worsenings
+        val worsened = mutableListOf<CancellationCatchFinding>()
+        for ((id, currentForId) in currentByIdentity) {
+            val committedRisks = committedByIdentity[id] ?: continue // only findings that existed before
+            val currentRiskLevels = currentForId.map { it.risk }.sortedBy(::riskOrder)
+
+            // Pair occurrences by ascending sorted position
+            // committedRisks[i] vs currentRiskLevels[i] determines if that slot worsened
+            for (i in 0 until minOf(committedRisks.size, currentRiskLevels.size)) {
+                if (riskOrder(committedRisks[i]) < riskOrder(currentRiskLevels[i])) {
+                    val worsenedFinding = currentForId.first { it.risk == currentRiskLevels[i] }
+                    worsened.add(worsenedFinding)
+                }
+            }
         }
 
         if (worsened.isEmpty()) return

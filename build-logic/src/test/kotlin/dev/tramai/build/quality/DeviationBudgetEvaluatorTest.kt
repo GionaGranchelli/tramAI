@@ -303,4 +303,85 @@ class DeviationBudgetEvaluatorTest {
             "Must report exactly 3 new findings (delta computed within critical population), got: $message"
         )
     }
+
+    // ─── Test 6: duplicate risk identities — multiset comparison ───
+
+    @Test
+    fun `low critical duplicates becoming both critical reports exactly one worsening`() {
+        // committed: [low, critical] for the same identity
+        // current:   [critical, critical] — one slot worsened, one unchanged
+        val committed = listOf(
+            catchFinding(risk = "low"),
+            catchFinding(risk = "critical")
+        )
+        val current = listOf(
+            catchFinding(risk = "critical"),
+            catchFinding(risk = "critical")
+        )
+
+        val diagnostics = evaluateRiskWorsening(
+            currentCatches = current,
+            committedCatches = committed
+        )
+
+        val worsened = diagnostics.filter {
+            it.code == DiagnosticCode.CANCELLATION_RISK_WORSENED &&
+                it.severity == DiagnosticSeverity.FAILURE
+        }
+        assertEquals(1, worsened.size,
+            "[low, critical] → [critical, critical] must produce exactly 1 worsening")
+    }
+
+    @Test
+    fun `critical low duplicates becoming both critical reports exactly one worsening`() {
+        // committed: [critical, low] for the same identity
+        // current:   [critical, critical] — one slot worsened, one unchanged
+        val committed = listOf(
+            catchFinding(risk = "critical"),
+            catchFinding(risk = "low")
+        )
+        val current = listOf(
+            catchFinding(risk = "critical"),
+            catchFinding(risk = "critical")
+        )
+
+        val diagnostics = evaluateRiskWorsening(
+            currentCatches = current,
+            committedCatches = committed
+        )
+
+        val worsened = diagnostics.filter {
+            it.code == DiagnosticCode.CANCELLATION_RISK_WORSENED &&
+                it.severity == DiagnosticSeverity.FAILURE
+        }
+        assertEquals(1, worsened.size,
+            "[critical, low] → [critical, critical] must produce exactly 1 worsening " +
+            "(ordering-agnostic multiset comparison)")
+    }
+
+    @Test
+    fun `unchanged duplicate risks report zero worsenings`() {
+        // committed: [critical, critical] for the same identity
+        // current:   [critical, critical] — no change
+        val committed = listOf(
+            catchFinding(risk = "critical"),
+            catchFinding(risk = "critical")
+        )
+        val current = listOf(
+            catchFinding(risk = "critical"),
+            catchFinding(risk = "critical")
+        )
+
+        val diagnostics = evaluateRiskWorsening(
+            currentCatches = current,
+            committedCatches = committed
+        )
+
+        val worsened = diagnostics.filter {
+            it.code == DiagnosticCode.CANCELLATION_RISK_WORSENED &&
+                it.severity == DiagnosticSeverity.FAILURE
+        }
+        assertEquals(0, worsened.size,
+            "Unchanged duplicate risks must report zero worsenings")
+    }
 }
