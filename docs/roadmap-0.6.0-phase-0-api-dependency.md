@@ -201,24 +201,20 @@ verifyFullMaintainabilityBaseline
 13. Absolute paths are rejected
 14. Two equivalent inputs produce byte-identical JSON
 
-### Gradle TestKit functional tests
+### ~~Gradle TestKit functional tests~~ Deferred to PR #206
 
-Use a small multi-project fixture with a local Maven repository (no external network required).
-
-Prove that:
-- API and dependency reports are populated
-- A missing API dump fails verification
-- A direct + transitive dependency produces expected paths
-- A two-version convergence conflict fails
-- Canonical probing works when measured source tree differs from analyzer checkout
-- Probe output does not dirty the measured checkout
+The TestKit functional tests that prove CanonicalGradleProbe works end-to-end,
+that probe output doesn't dirty the measured checkout, and that API/dependency
+reports are populated are deferred to **PR #206** (coverage, mutation testing,
+and controlled timing). They require a multi-project Gradle test fixture with
+a local Maven repository that is better built alongside the PR #206 workstream.
 
 ---
 
 ## Explicitly Out of Scope
 
 - JaCoCo configuration, coverage thresholds, PITest, mutation classification
-- Three-run test timing
+- Three-run test timing, TestKit functional tests
 - Runtime refactoring
 - Dependency upgrades
 - Module restructuring
@@ -239,7 +235,7 @@ Those remain for PR #206.
 6. Dependency resolution failures cannot be swallowed
 7. apiCheck remains the semantic API compatibility gate
 8. API/dependency completeness enforced by typed diagnostics
-9. TestKit proves the canonical Gradle probe works
+9. TestKit functional tests deferred to PR #206 (coverage, mutation, controlled timing workstream)
 10. Documentation contains actual counts and no stale deferrals
 
 ### Required verification

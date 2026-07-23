@@ -340,7 +340,7 @@
     "aggregateHash" : "9f388fd49cc4a42576f8cf8a679f344a92a319c44cdbbe5a10fc6c73e9136fee"
   },
   "baselineIdentity" : {
-    "analyzerCommitSha" : "b6459069e9e32aba677ffd72f8a1506786fdc1a2",
+    "analyzerCommitSha" : "76193a2e30d06e3745a51e8fd016612fef7024bf",
     "analyzerSchemaVersion" : "1",
     "baselineCommitSha" : "5d0ad69bb547223f8a5c8639b8398276d35eea50",
     "commitSha" : "5d0ad69bb547223f8a5c8639b8398276d35eea50",
