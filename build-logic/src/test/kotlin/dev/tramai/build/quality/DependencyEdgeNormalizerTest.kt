@@ -5,10 +5,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Verifies that canonical and normal-mode dependency collectors produce
- * identical normalized records for the same dependency graph.
+ * Verifies deterministic dependency-edge normalization, including preservation
+ * of distinct parent edges in diamond-shaped dependency graphs.
  */
-class DependencyCollectorParityTest {
+class DependencyEdgeNormalizerTest {
 
     @Test
     fun `diamond graph produces identical normalized records`() {
@@ -61,7 +61,7 @@ class DependencyCollectorParityTest {
             )
         )
 
-        // Apply edge deduplication (as both collectors should)
+        // Apply edge deduplication via the shared normalizer
         val deduped = DependencyEdgeNormalizer.normalize(testRecords)
 
         // Should preserve A->C and B->C, and C->D once
