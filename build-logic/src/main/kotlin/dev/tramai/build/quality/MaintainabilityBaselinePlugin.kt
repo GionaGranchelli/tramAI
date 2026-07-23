@@ -3,6 +3,7 @@ package dev.tramai.build.quality
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.GradleException
+import org.gradle.api.Action
 import java.io.File
 
 /**
@@ -25,6 +26,73 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         val nondeterminismInventory = NondeterminismInventory(ctx)
 
         // ---- Generation Tasks ----
+
+        project.tasks.register("generatePublicApiBaseline") {
+            group = "maintainability"
+            description = "Generates per-module public API dump records"
+            doLast {
+                val apiBaseline = generator.generateApiBaseline()
+                println("Public API baseline: ${apiBaseline.modules.size} modules, " +
+                    "${apiBaseline.modules.count { it.applicable }} applicable, " +
+                    "${apiBaseline.modules.count { it.sha256.isNotBlank() }} with dumps")
+            }
+        }
+
+        // Register per-project dependency probe tasks (Gradle 9: each task owns its config)
+        val perProjectProbeTasks = mutableListOf<String>()
+        project.allprojects.filter { it != project && it.buildFile.exists() }.forEach { sub ->
+            val taskName = "generateResolvedDependencyBaseline"
+            val probe = sub.tasks.register(taskName, GenerateResolvedDependencyBaselineTask::class.java)
+            probe.configure {
+                group = "maintainability"
+                description = "Resolves external dependencies for ${sub.path}"
+                outputFile.set(
+                    sub.layout.buildDirectory.file("reports/maintainability/resolved-dependencies.json")
+                )
+            }
+            perProjectProbeTasks.add("${sub.path}:$taskName")
+        }
+
+        // Root aggregation task depends on all per-project probes and merges their outputs
+        project.tasks.register("generateResolvedDependencyBaseline") {
+            group = "maintainability"
+            description = "Aggregates per-project resolved dependency baselines"
+            dependsOn(*perProjectProbeTasks.toTypedArray())
+            doLast {
+                val reportDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability")
+                reportDir.mkdirs()
+                val aggregateFile = File(reportDir, "resolved-dependencies.json")
+                val allRecords = mutableListOf<ResolvedDependency>()
+                val expectedProjects = project.allprojects
+                    .filter { it != project && it.buildFile.exists() }
+                    .sortedBy { it.path }
+
+                expectedProjects.forEach { sub ->
+                    val probeFile = File(
+                        sub.layout.buildDirectory.get().asFile,
+                        "reports/maintainability/resolved-dependencies.json"
+                    )
+                    if (!probeFile.isFile) {
+                        throw GradleException(
+                            "Missing dependency probe output for ${sub.path}: ${probeFile.absolutePath}"
+                        )
+                    }
+                    val records = try {
+                        ReportNormalizer.readJson(probeFile, Array<ResolvedDependency>::class.java).toList()
+                    } catch (e: Exception) {
+                        throw GradleException(
+                            "Invalid dependency probe output for ${sub.path}: ${e.message}", e
+                        )
+                    }
+                    allRecords.addAll(records)
+                }
+                val sorted = BaselineGenerator.sortResolvedDependencies(allRecords)
+                ReportNormalizer.writeJson(sorted, aggregateFile)
+                val direct = sorted.count { it.direct }
+                val transitive = sorted.size - direct
+                println("Resolved dependency baseline: ${sorted.size} records ($direct direct, $transitive transitive)")
+            }
+        }
 
         project.tasks.register("generateModuleDependencyGraph") {
             group = "maintainability"
@@ -108,10 +176,14 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
         project.tasks.register("generateResolvedDependencyGraph") {
             group = "maintainability"
-            description = "Captures the full resolved dependency tree"
+            description = "Reads the resolved dependency baseline and prints summary"
+            dependsOn("generateResolvedDependencyBaseline")
             doLast {
-                val deps = generator.generateResolvedDependencyGraph()
-                println("Resolved dependency graph: ${deps.size} dependencies")
+                val file = project.layout.buildDirectory.file("reports/maintainability/resolved-dependencies.json").get().asFile
+                if (file.isFile) {
+                    val deps = ReportNormalizer.readJson(file, Array<ResolvedDependency>::class.java).toList()
+                    println("Resolved dependency graph: ${deps.size} dependencies")
+                }
             }
         }
 
@@ -136,7 +208,8 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 "generateCancellationCatchInventory",
                 "generateGlobalStateInventory",
                 "generateNondeterminismInventory",
-                "generateResolvedDependencyGraph",
+                "generatePublicApiBaseline",
+                "generateResolvedDependencyBaseline",
                 "generateRuntimeProtocolCatalog"
             )
             doLast {
@@ -148,9 +221,26 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
         // ---- Verification ----
 
+        project.tasks.register("verifyPublicApiBaseline") {
+            group = "maintainability"
+            description = "Verifies public API baseline — runs inline in verifyMaintainabilityBaseline"
+            doLast {
+                println("Public API baseline verification is integrated into verifyMaintainabilityBaseline")
+            }
+        }
+
+        project.tasks.register("verifyResolvedDependencyBaseline") {
+            group = "maintainability"
+            description = "Verifies resolved dependency baseline — runs inline in verifyMaintainabilityBaseline"
+            doLast {
+                println("Resolved dependency baseline verification is integrated into verifyMaintainabilityBaseline")
+            }
+        }
+
         project.tasks.register("verifyMaintainabilityBaseline") {
             group = "maintainability"
             description = "Compares current measurements against committed baseline and rejects regressions"
+            dependsOn("generateResolvedDependencyBaseline")
             doLast {
                 val ctx = MeasurementContext.fromProject(project)
                 val generator = BaselineGenerator(ctx)
@@ -159,7 +249,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 val report = verifier.verify()
 
                 report.failures.forEach { project.logger.error("FAIL: $it") }
-                report.warnings.forEach { project.logger.warn("WARN: $it") }
+                report.warnings.take(100).forEach { project.logger.warn("WARN: $it") }
+                if (report.warnings.size > 100) {
+                    project.logger.warn("WARN: ${report.warnings.size - 100} additional warnings; see dependency-changes.json")
+                }
                 report.acceptedDeviations.forEach { project.logger.info("ACCEPTED: $it") }
 
                 if (!report.passed) {
@@ -197,7 +290,9 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     .redirectErrorStream(true)
                     .start()
                 val analyzerOutput = analyzerStatus.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-                if (analyzerStatus.waitFor() != 0 || analyzerOutput.isNotBlank()) {
+                val analyzerExitCode = analyzerStatus.waitFor()
+                project.logger.lifecycle("DEBUG analyzer checkout: exit=$analyzerExitCode output='${analyzerOutput.trim()}'")
+                if (analyzerExitCode != 0 || analyzerOutput.isNotBlank()) {
                     throw GradleException(
                         "Analyzer checkout must be clean before canonical generation.\n" +
                             "Commit or stash changes in ${project.rootDir} first."
@@ -206,16 +301,51 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
                 val sourceRootProp = project.findProperty("maintainability.sourceRoot")?.toString()
                 val canonicalGenerator = if (sourceRootProp != null) {
-                    val sourceRoot = File(sourceRootProp)
+                    val sourceRoot = project.rootDir.resolve(sourceRootProp).normalize()
                     if (!sourceRoot.isDirectory) {
-                        throw GradleException("maintainability.sourceRoot='$sourceRootProp' is not a directory")
+                        throw GradleException("maintainability.sourceRoot='$sourceRootProp' resolved to '${sourceRoot.absolutePath}' but is not a directory")
                     }
                     BaselineGenerator.fromDirectory(sourceRoot, analyzerRoot = project.rootDir)
                 } else {
                     BaselineGenerator.fromProject(project)
                 }
 
-                val baseline = canonicalGenerator.generateCompleteBaseline()
+                // When probing a detached worktree, use CanonicalGradleProbe for API/dependency
+                // measurements. The generator handles structural/scanner data from directory mode.
+                val sourceRootFile = if (sourceRootProp != null) project.rootDir.resolve(sourceRootProp).normalize() else null
+                val apiOverride: ApiBaseline? = if (sourceRootFile != null) {
+                    val probe = CanonicalGradleProbe(sourceRootFile, analyzerRoot = project.rootDir)
+                    val result = probe.probeApiBaseline()
+                    project.logger.lifecycle("Canonical API probe: ${result.records.size} records")
+                    val stabilities = result.records.groupBy { it.stability }.mapValues { it.value.size }
+                    project.logger.lifecycle("  Stability breakdown: $stabilities")
+                    if (result.records.none { it.applicable && it.sha256.isNotBlank() }) {
+                        throw GradleException("Canonical API probe produced no valid API hashes. " +
+                            "At least one applicable module must have a captured API dump.")
+                    }
+                    ApiBaseline(
+                        modules = result.records,
+                        aggregateHash = java.security.MessageDigest.getInstance("SHA-256")
+                            .digest(ReportNormalizer.toJson(result.records).toByteArray(Charsets.UTF_8))
+                            .joinToString("") { "%02x".format(it) }
+                    )
+                } else null
+
+                val dependencyOverride: List<ResolvedDependency>? = if (sourceRootFile != null) {
+                    val probe = CanonicalGradleProbe(sourceRootFile, analyzerRoot = project.rootDir)
+                    val result = probe.probeDependencyBaseline()
+                    project.logger.lifecycle("Canonical dependency probe: ${result.records.size} records")
+                    if (result.records.isEmpty()) {
+                        throw GradleException("Canonical dependency probe produced no dependency records. " +
+                            "Non-empty dependency baseline is required.")
+                    }
+                    result.records
+                } else null
+
+                val baseline = canonicalGenerator.generateCompleteBaseline(
+                    apiOverride = apiOverride,
+                    dependencyOverride = dependencyOverride
+                )
                 val identity = baseline.baselineIdentity
 
                 // Provenance gates
@@ -265,8 +395,8 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         // Full verification adds mutation/coverage checks (currently stubs)
         project.tasks.register("verifyFullMaintainabilityBaseline") {
             group = "maintainability"
-            description = "Full verification including dependency resolution and coverage"
-            dependsOn("verifyMaintainabilityBaseline")
+            description = "Full verification including API, dependency, coverage, and mutation"
+            dependsOn("verifyMaintainabilityBaseline", "verifyPublicApiBaseline", "verifyResolvedDependencyBaseline")
             doLast {
                 println("Full maintainability baseline verification complete.")
             }

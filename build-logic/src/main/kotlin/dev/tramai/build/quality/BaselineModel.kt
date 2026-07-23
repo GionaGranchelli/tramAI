@@ -131,8 +131,17 @@ data class StructuralHotspot(
 )
 
 data class ApiBaseline(
-    val publicApiDumps: Map<String, String> = emptyMap(),
-    val apiCheckHash: String = ""
+    val modules: List<ApiDumpRecord> = emptyList(),
+    val aggregateHash: String = ""
+)
+
+data class ApiDumpRecord(
+    val module: String,
+    val stability: String,
+    val applicable: Boolean,
+    val dumpPath: String,
+    val sha256: String,
+    val exclusionReason: String? = null
 )
 
 data class DependencyBaseline(

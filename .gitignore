@@ -14,3 +14,5 @@ graphify-out/
 .hermes-*
 # Hermes agent local state
 .memory/
+__pycache__/
+.kotlin/

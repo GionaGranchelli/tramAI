@@ -2,6 +2,12 @@ package dev.tramai.build.quality
 
 import org.gradle.api.GradleException
 import org.gradle.api.Project
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+import org.gradle.api.artifacts.component.ModuleComponentSelector
+import org.gradle.api.artifacts.result.ResolvedComponentResult
+import org.gradle.api.artifacts.result.ResolvedDependencyResult
+import org.gradle.api.artifacts.result.UnresolvedDependencyResult
 import org.w3c.dom.Element
 import java.io.File
 import java.security.MessageDigest
@@ -57,7 +63,10 @@ class BaselineGenerator(
         )
     }
 
-    fun generateCompleteBaseline(): BaselineDocument {
+    fun generateCompleteBaseline(
+        apiOverride: ApiBaseline? = null,
+        dependencyOverride: List<ResolvedDependency>? = null
+    ): BaselineDocument {
         val baseline = generateFullBaseline()
         val graphAnalyzer = ModuleGraphAnalyzer(ctx)
         val sourceMetricsAnalyzer = SourceMetricsAnalyzer(ctx)
@@ -81,10 +90,10 @@ class BaselineGenerator(
                 nondeterminism = nondeterminismInventory.inventory()
             ),
             dependencies = baseline.dependencies.copy(
-                resolvedDependencies = generateResolvedDependencyGraph()
+                resolvedDependencies = dependencyOverride ?: generateResolvedDependencyGraph()
             ),
             protocolCatalog = generateRuntimeProtocolCatalog(),
-            api = generateApiBaseline(),
+            api = apiOverride ?: generateApiBaseline(),
             testQuality = baseline.testQuality.copy(
                 testPerformance = generateTestPerformance()
             )
@@ -96,8 +105,7 @@ class BaselineGenerator(
         val sourceTreeHash = if (workingTreeClean) computeSourceTreeHash() else ""
         val gitTreeSha = if (workingTreeClean) computeGitTreeSha() else ""
         val analyzerSha = computeAnalyzerCommitSha()
-        val version = ctx.gradleProject?.findProperty("tramaiVersion")?.toString()
-            ?: readVersionFromProps() ?: "0.5.0"
+        val version = readVersionFromProps() ?: "0.5.0"
         return BaselineIdentity(
             repository = "GionaGranchelli/tramAI",
             releaseTag = "v0.5.0",
@@ -410,23 +418,46 @@ class BaselineGenerator(
         return catalog
     }
 
-    fun generateApiBaseline(): ApiBaseline {
-        val dumps = ctx.rootDir.walkTopDown()
-            .filter { file ->
-                file.isFile &&
-                    file.extension == "api" &&
-                    file.parentFile?.name == "api" &&
-                    !file.toPath().any { it.toString() == "build" }
+    fun generateApiBaseline(probedRecords: List<ApiDumpRecord>? = null): ApiBaseline {
+        val probedByModule = probedRecords.orEmpty().associateBy { it.module }
+        val records = ctx.modules
+            .sortedBy { it.path }
+            .map { module ->
+                val stability = module.apiStability
+                val relativeModuleDir = ReportNormalizer.repoRelativePath(module.projectDir, ctx.rootDir)
+                val dumpPath = "$relativeModuleDir/api/${module.name}.api"
+                val hasProductionSources = module.sourceDirs.any { sourceDir ->
+                    sourceDir.isDirectory && sourceDir.walkTopDown().any {
+                        it.isFile && (it.extension == "kt" || it.extension == "java")
+                    }
+                }
+                val exclusionReason = when {
+                    stability == "excluded" -> "module has apiStability 'excluded'"
+                    !hasProductionSources -> "module has no Kotlin or Java production sources"
+                    else -> null
+                }
+                val applicable = exclusionReason == null
+                val probed = probedByModule[module.path]
+                val dumpFile = File(ctx.rootDir, dumpPath)
+                val hash = when {
+                    !applicable -> ""
+                    probed != null -> probed.sha256
+                    dumpFile.isFile -> sha256(dumpFile.readBytes())
+                    else -> ""
+                }
+
+                ApiDumpRecord(
+                    module = module.path,
+                    stability = stability,
+                    applicable = applicable,
+                    dumpPath = dumpPath,
+                    sha256 = hash,
+                    exclusionReason = exclusionReason
+                )
             }
-            .associate { file ->
-                ReportNormalizer.repoRelativePath(file, ctx.rootDir) to sha256(file.readBytes())
-            }
-            .toSortedMap()
-        val aggregateHash = sha256(
-            dumps.entries.joinToString("\n") { (path, hash) -> "$path=$hash" }.toByteArray(Charsets.UTF_8)
-        )
-        val result = ApiBaseline(publicApiDumps = dumps, apiCheckHash = aggregateHash)
-        ReportNormalizer.writeJson(result, File(reportOutputDir, "public-api-dumps.json"))
+        val aggregateHash = sha256(ReportNormalizer.toJson(records).toByteArray(Charsets.UTF_8))
+        val result = ApiBaseline(modules = records, aggregateHash = aggregateHash)
+        ReportNormalizer.writeJson(records, File(reportOutputDir, "public-api-dumps.json"))
         return result
     }
 
@@ -527,51 +558,29 @@ class BaselineGenerator(
     }
 
     fun generateResolvedDependencyGraph(): List<ResolvedDependency> {
-        val gradleProject = ctx.gradleProject ?: return emptyList()
-        val resolved = mutableListOf<ResolvedDependency>()
-        val projects = gradleProject.allprojects.filter { it != gradleProject && it.buildFile.exists() }
-
-        for (proj in projects) {
-            val configs = listOf("runtimeClasspath", "compileClasspath")
-            for (configName in configs) {
+        // First try to read from the file generated by GenerateResolvedDependencyBaselineTask
+        if (ctx.gradleProject != null) {
+            val generatedFile = File(
+                ctx.gradleProject.layout.buildDirectory.get().asFile,
+                "reports/maintainability/resolved-dependencies.json"
+            )
+            if (generatedFile.isFile) {
                 try {
-                    val config = proj.configurations.findByName(configName) ?: continue
-                    if (!config.isCanBeResolved) continue
-                    config.resolve()
-
-                    for (file in config.resolve()) {
-                        val parts = file.absolutePath.split("/")
-                        val groupIdx = parts.indexOfLast { it.contains(".") && !it.startsWith(".") && it.count { c -> c == '.' } >= 2 }
-                        if (groupIdx >= 0 && groupIdx + 2 < parts.size) {
-                            val group = parts[groupIdx]
-                            val artifact = parts[groupIdx + 1]
-                            val version = parts[groupIdx + 2]
-                            resolved.add(
-                                ResolvedDependency(
-                                    group = group,
-                                    artifact = artifact,
-                                    selectedVersion = version,
-                                    requestedVersion = null,
-                                    direct = true,
-                                    configuration = configName,
-                                    selectionReason = "resolved",
-                                    dependencyPath = emptyList(),
-                                    consumers = listOf(proj.name)
-                                )
-                            )
-                        }
-                    }
-                } catch (_: Exception) {
+                    val records = ReportNormalizer.readJson(generatedFile, Array<ResolvedDependency>::class.java).toList()
+                    return sortResolvedDependencies(records)
+                } catch (e: Exception) {
+                    throw GradleException("Failed to read pre-generated dependency file: ${e.message}", e)
                 }
+            } else {
+                throw GradleException(
+                    "Dependency baseline file not found at ${generatedFile.absolutePath}. " +
+                    "Run generateResolvedDependencyBaseline first."
+                )
             }
         }
-
-        val deduped = resolved.distinctBy { "${it.group}:${it.artifact}:${it.selectedVersion}" }
-        ReportNormalizer.writeJson(
-            mapOf("dependencies" to deduped),
-            File(reportOutputDir, "resolved-dependencies.json")
-        )
-        return deduped
+        // Directory mode fallback
+        System.err.println("[WARN] Resolved dependency graph unavailable in directory mode")
+        return emptyList()
     }
 
     // ─── Private helpers ───
@@ -818,6 +827,16 @@ class BaselineGenerator(
 
     companion object {
         const val BASELINE_TAG = "v0.5.0"
+
+        fun sortResolvedDependencies(records: List<ResolvedDependency>): List<ResolvedDependency> =
+            records.sortedWith(
+                compareBy<ResolvedDependency> { it.consumers.joinToString(",") }
+                    .thenBy { it.configuration }
+                    .thenBy { it.group }
+                    .thenBy { it.artifact }
+                    .thenBy { it.selectedVersion }
+                    .thenBy { it.dependencyPath.joinToString(" -> ") }
+            )
 
         /** Create from a Gradle project (normal/CI mode). */
         fun fromProject(project: Project): BaselineGenerator {

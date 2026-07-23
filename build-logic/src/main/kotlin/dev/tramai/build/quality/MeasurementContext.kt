@@ -94,6 +94,7 @@ class MeasurementContext(
                         ),
                         publishable = entry?.publishability == "published",
                         layer = entry?.layer ?: "unknown",
+                        apiStability = entry?.apiStability ?: "unclassified",
                     )
                 }
 
@@ -193,6 +194,7 @@ class MeasurementContext(
                     ),
                     publishable = entry?.publishability == "published",
                     layer = entry?.layer ?: "unknown",
+                    apiStability = entry?.apiStability ?: "unclassified",
                 )
             }
         }
@@ -242,4 +244,5 @@ data class DiscoveredModule(
     val testFixtureDirs: List<File>,
     val publishable: Boolean,
     val layer: String,
+    val apiStability: String,
 )
