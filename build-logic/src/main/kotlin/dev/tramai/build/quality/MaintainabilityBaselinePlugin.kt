@@ -4,7 +4,6 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.GradleException
 import org.gradle.api.Action
-import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.tasks.testing.Test
 import org.gradle.testing.jacoco.tasks.JacocoReport
 import java.io.File
@@ -31,37 +30,25 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         val criticalModules = testQualityConfiguration.criticalModules.toSet()
         val reportDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability")
 
-        val criticalTestTasks = project.allprojects
-            .filter { it.path in criticalModules }
-            .map { criticalProject ->
-                criticalProject.tasks.matching {
-                    it.name == "test" && it.project.path in criticalModules
-                }
-            }
+        // Register JaCoCo on critical modules using provider-safe API (no tasks.matching / executionData(TaskCollection))
+        val criticalTestTaskPaths = criticalModules.sorted().map { "$it:test" }
+        val criticalCoverageReportTaskPaths = criticalModules.sorted().map { "$it:jacocoTestReport" }
 
-        val criticalCoverageReportTasks = project.allprojects
+        project.allprojects
             .filter { it.path in criticalModules }
-            .map { criticalProject ->
-                criticalProject.pluginManager.apply("jacoco")
-                criticalProject.tasks.withType(JacocoReport::class.java).configureEach {
-                    if (name == "jacocoTestReport") {
-                        dependsOn(
-                            criticalProject.tasks.matching {
-                                it.name == "test" && it.project.path in criticalModules
-                            }
-                        )
-                        val sourceSets = criticalProject.extensions.getByType(JavaPluginExtension::class.java).sourceSets
-                        sourceDirectories.from(sourceSets.getByName("main").allSource.srcDirs)
-                        classDirectories.from(sourceSets.getByName("main").output)
-                        executionData(criticalProject.tasks.withType(Test::class.java))
+            .forEach { criticalProject ->
+                criticalProject.pluginManager.withPlugin("java") {
+                    criticalProject.pluginManager.apply("jacoco")
+
+                    val testTask = criticalProject.tasks.named("test", Test::class.java)
+
+                    criticalProject.tasks.named("jacocoTestReport", JacocoReport::class.java) {
+                        dependsOn(testTask)
                         reports {
                             xml.required.set(true)
                             html.required.set(true)
                         }
                     }
-                }
-                criticalProject.tasks.matching {
-                    it.name == "jacocoTestReport" && it.project.path in criticalModules
                 }
             }
 
@@ -239,8 +226,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         project.tasks.register("generateCoverageBaseline") {
             group = "maintainability"
             description = "Generates JaCoCo coverage measurements for critical modules"
-            dependsOn(criticalTestTasks)
-            dependsOn(criticalCoverageReportTasks)
+            dependsOn(criticalCoverageReportTaskPaths)
             doLast {
                 val coverage = CoverageCollector(
                     project.rootDir,
@@ -293,7 +279,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         project.tasks.register("generateTestPerformanceBaseline") {
             group = "maintainability"
             description = "Runs one warm-up and three measured critical-module test executions"
-            dependsOn(criticalTestTasks)
+            dependsOn(criticalTestTaskPaths)
             doLast {
                 val outputRoot = File(reportDir, "test-performance")
                 val runsRoot = File(outputRoot, "runs")
