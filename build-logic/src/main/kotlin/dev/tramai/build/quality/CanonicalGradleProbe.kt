@@ -17,6 +17,13 @@ data class DependencyProbeResult(
     val diagnostic: String
 )
 
+data class TestQualityProbeResult(
+    val coverage: CoverageData,
+    val mutation: MutationData,
+    val testPerformance: TestPerformanceData,
+    val diagnostic: String
+)
+
 /**
  * Runs Gradle-backed measurements in an isolated source checkout.
  *
@@ -30,6 +37,7 @@ class CanonicalGradleProbe(
     private val analyzerRoot: File? = null
 ) {
     private val outputDir = outputDir ?: Files.createTempDirectory("tramai-canonical-probe-").toFile()
+    private val gradleUserHome = File(this.outputDir, "gradle-user-home")
 
     init {
         require(sourceRoot.isDirectory) { "Canonical probe source root is not a directory: $sourceRoot" }
@@ -103,6 +111,11 @@ class CanonicalGradleProbe(
                 }
             )
         }
+        if (records.none { it.applicable && it.sha256.isNotBlank() }) {
+            throw GradleException(
+                "Canonical API probe produced no applicable API dumps. Nested Gradle output was sanitized."
+            )
+        }
 
         requireCleanWorktree("after API probing")
 
@@ -116,10 +129,10 @@ class CanonicalGradleProbe(
     fun probeDependencyBaseline(): DependencyProbeResult {
         requireCleanWorktree("before dependency probing")
         val report = File(outputDir, "resolved-dependencies.json")
-        val probeOutputRoot = report.parentFile
+        val probeOutputRoot = File(outputDir, "dependency-records")
         probeOutputRoot.mkdirs()
-        val initScript = File(probeOutputRoot, "canonical-dependency-probe.init.gradle")
-        initScript.writeText(dependencyInitScript(report), Charsets.UTF_8)
+        val initScript = File(outputDir, "canonical-dependency-probe.init.gradle")
+        initScript.writeText(dependencyInitScript(probeOutputRoot), Charsets.UTF_8)
 
         val diagnostic = runGradle(
             listOf("--init-script", initScript.absolutePath, "canonicalDependencyProbe")
@@ -161,6 +174,109 @@ class CanonicalGradleProbe(
         return DependencyProbeResult(normalized, report, diagnostic)
     }
 
+    fun probeTestQualityBaseline(
+        configuration: TestQualityConfiguration
+    ): TestQualityProbeResult {
+        requireCleanWorktree("before test-quality probing")
+        val coverageRoot = File(outputDir, "coverage")
+        val mutationRoot = File(outputDir, "mutation")
+        val testResultsRoot = File(outputDir, "test-results")
+        val binaryResultsRoot = File(outputDir, "test-binary-results")
+        listOf(coverageRoot, mutationRoot, testResultsRoot, binaryResultsRoot)
+            .forEach { it.mkdirs() }
+
+        val testInitScript = File(outputDir, "test-quality-probe.init.gradle")
+        testInitScript.writeText(
+            testQualityInitScript(
+                configuration = configuration,
+                coverageRoot = coverageRoot,
+                testResultsRoot = testResultsRoot,
+                binaryResultsRoot = binaryResultsRoot
+            ),
+            Charsets.UTF_8
+        )
+
+        val diagnostics = mutableListOf<String>()
+        diagnostics += runGradle(
+            listOf(
+                "--init-script",
+                testInitScript.absolutePath,
+                "-PtramaiTestQualityRun=warmup",
+                "--rerun-tasks",
+                "canonicalTestQualityTests"
+            )
+        )
+        (1..3).forEach { run ->
+            diagnostics += runGradle(
+                listOf(
+                    "--init-script",
+                    testInitScript.absolutePath,
+                    "-PtramaiTestQualityRun=$run",
+                    "--rerun-tasks",
+                    "canonicalTestQualityTests"
+                )
+            )
+        }
+
+        val mutationInitScript = File(outputDir, "test-quality-mutation-probe.init.gradle")
+        mutationInitScript.writeText(
+            mutationInitScript(configuration, mutationRoot),
+            Charsets.UTF_8
+        )
+        configuration.mutation.targetFamilies.keys.sorted().forEach { family ->
+            diagnostics += runGradle(
+                listOf(
+                    "--init-script",
+                    mutationInitScript.absolutePath,
+                    "-PtramaiMutationFamily=$family",
+                    "canonicalMutationProbe"
+                )
+            )
+        }
+
+        val coverage = CoverageCollector(sourceRoot, configuration).collect(coverageRoot)
+        val mutationReports = configuration.mutation.targetFamilies.entries
+            .sortedBy { it.key }
+            .flatMap { (family, target) ->
+                target.modules.sorted().map { module ->
+                    val moduleSlug = module.removePrefix(":").replace(":", "_")
+                    val report = File(mutationRoot, "$family/$moduleSlug/mutations.xml")
+                    MutationReportParser().parse(module, family, report)
+                }
+            }
+        val mutation = MutationBaselineVerifier.aggregate(
+            reports = mutationReports,
+            analyzerVersion = "pitest-1.19.0",
+            measuredCommit = MeasurementContext.fromDirectory(
+                sourceRoot,
+                analyzerRoot ?: sourceRoot
+            ).runGit("rev-parse", "HEAD")
+        )
+        val collector = TestPerformanceCollector(sourceRoot, configuration)
+        val observations = (1..3).flatMap { run ->
+            collector.collectMeasuredRun(
+                run = run,
+                gradleVersion = gradleVersion(),
+                reportRoot = testResultsRoot
+            )
+        }
+        val testPerformance = TestPerformanceAggregator().aggregate(observations)
+
+        ReportNormalizer.writeJson(coverage, File(outputDir, "coverage-summary.json"))
+        ReportNormalizer.writeJson(mutation, File(outputDir, "mutation-summary.json"))
+        ReportNormalizer.writeJson(
+            testPerformance,
+            File(outputDir, "test-performance-median.json")
+        )
+        requireCleanWorktree("after test-quality probing")
+        return TestQualityProbeResult(
+            coverage = coverage,
+            mutation = mutation,
+            testPerformance = testPerformance,
+            diagnostic = diagnostics.filter { it.isNotBlank() }.joinToString("\n")
+        )
+    }
+
     private fun runGradle(arguments: List<String>): String {
         val wrapper = File(sourceRoot, if (System.getProperty("os.name").startsWith("Windows")) "gradlew.bat" else "gradlew")
         if (!wrapper.isFile) {
@@ -185,7 +301,10 @@ class CanonicalGradleProbe(
             ProcessBuilder(command)
                 .directory(sourceRoot)
                 .redirectErrorStream(true)
-                .apply { environment()["GRADLE_OPTS"] = "-Dorg.gradle.jvmargs=-Xmx16g" }
+                .apply {
+                    environment()["GRADLE_OPTS"] = "-Dorg.gradle.jvmargs=-Xmx16g"
+                    environment()["GRADLE_USER_HOME"] = gradleUserHome.absolutePath
+                }
                 .start()
         } catch (e: Exception) {
             throw GradleException("Unable to start measured Gradle wrapper: ${e.message}", e)
@@ -228,6 +347,7 @@ class CanonicalGradleProbe(
         val replacements = linkedMapOf(
             sourceRoot.absolutePath to "<SOURCE_ROOT>",
             outputDir.absolutePath to "<OUTPUT_DIR>",
+            gradleUserHome.absolutePath to "<GRADLE_USER_HOME>",
             System.getProperty("user.home").orEmpty() to "<USER_HOME>",
             System.getenv("GRADLE_USER_HOME").orEmpty() to "<GRADLE_USER_HOME>"
         )
@@ -262,7 +382,7 @@ class CanonicalGradleProbe(
         }
         """.trimIndent() + "\n"
 
-    private fun dependencyInitScript(report: File): String =
+    private fun dependencyInitScript(probeOutputRoot: File): String =
         """
         import groovy.json.JsonOutput
         import org.gradle.api.GradleException
@@ -274,7 +394,7 @@ class CanonicalGradleProbe(
 
         // Track all probe tasks for root task coordination
         def probeTasks = []
-        def probeOutputRoot = new File('${groovyString(probeOutputRoot().absolutePath)}')
+        def probeOutputRoot = new File('${groovyString(probeOutputRoot.absolutePath)}')
 
         gradle.beforeProject { project ->
             project.afterEvaluate {
@@ -369,9 +489,146 @@ class CanonicalGradleProbe(
         }
         """.trimIndent() + "\n"
 
-    private fun probeOutputRoot(): File = outputDir
+    private fun testQualityInitScript(
+        configuration: TestQualityConfiguration,
+        coverageRoot: File,
+        testResultsRoot: File,
+        binaryResultsRoot: File
+    ): String {
+        val criticalModules = configuration.criticalModules.sorted()
+            .joinToString(", ") { "'${groovyString(it)}'" }
+        return """
+            import org.gradle.api.plugins.JavaPluginExtension
+            import org.gradle.api.tasks.testing.Test
+            import org.gradle.testing.jacoco.tasks.JacocoReport
+
+            def criticalModules = [$criticalModules] as Set
+            def measuredRun = gradle.startParameter.projectProperties['tramaiTestQualityRun']
+            if (!(measuredRun in ['warmup', '1', '2', '3'])) {
+                throw new GradleException("Unknown or missing tramaiTestQualityRun: " + measuredRun)
+            }
+            def coverageRoot = new File('${groovyString(coverageRoot.absolutePath)}')
+            def testResultsRoot = new File('${groovyString(testResultsRoot.absolutePath)}')
+            def binaryResultsRoot = new File('${groovyString(binaryResultsRoot.absolutePath)}')
+            def reportTasks = []
+
+            gradle.beforeProject { measuredProject ->
+                if (!(measuredProject.path in criticalModules)) return
+                measuredProject.pluginManager.apply('jacoco')
+                measuredProject.plugins.withId('java') {
+                    def modulePath = measuredProject.path.substring(1).replace(':', '/')
+                    def moduleSlug = measuredProject.path.substring(1).replace(':', '_')
+                    def testTask = measuredProject.tasks.named('test', Test)
+                    testTask.configure {
+                        reports.junitXml.required.set(true)
+                        reports.junitXml.outputLocation.set(
+                            new File(testResultsRoot, measuredRun + '/' + modulePath)
+                        )
+                        binaryResultsDirectory.set(
+                            new File(binaryResultsRoot, measuredRun + '/' + modulePath)
+                        )
+                    }
+                    def sourceSets = measuredProject.extensions
+                        .getByType(JavaPluginExtension).sourceSets
+                    def reportTask = measuredProject.tasks.register(
+                        'canonicalJacocoReport',
+                        JacocoReport
+                    ) {
+                        dependsOn(testTask)
+                        executionData(testTask)
+                        sourceDirectories.from(sourceSets.getByName('main').allSource.srcDirs)
+                        classDirectories.from(sourceSets.getByName('main').output)
+                        reports {
+                            xml.required.set(true)
+                            html.required.set(false)
+                            xml.outputLocation.set(new File(coverageRoot, moduleSlug + '.xml'))
+                        }
+                    }
+                    reportTasks << reportTask
+                }
+            }
+
+            gradle.projectsEvaluated {
+                rootProject.tasks.register('canonicalTestQualityTests') {
+                    dependsOn reportTasks.collect { it.get() }
+                }
+            }
+        """.trimIndent() + "\n"
+    }
+
+    private fun mutationInitScript(
+        configuration: TestQualityConfiguration,
+        reportRoot: File
+    ): String {
+        val familyModules = configuration.mutation.targetFamilies.entries
+            .sortedBy { it.key }
+            .joinToString(",\n") { (family, target) ->
+                val modules = target.modules.sorted().joinToString(", ") {
+                    "'${groovyString(it)}'"
+                }
+                "    '${groovyString(family)}': [$modules]"
+            }
+        return """
+            initscript {
+                repositories {
+                    gradlePluginPortal()
+                    mavenCentral()
+                }
+                dependencies {
+                    classpath 'info.solidsoft.gradle.pitest:gradle-pitest-plugin:1.19.0'
+                }
+            }
+
+            def targetFamilies = [
+            $familyModules
+            ]
+            def selectedFamily = gradle.startParameter.projectProperties['tramaiMutationFamily']
+            if (selectedFamily == null || !targetFamilies.containsKey(selectedFamily)) {
+                throw new GradleException("Unknown or missing tramaiMutationFamily: " + selectedFamily)
+            }
+            def selectedModules = targetFamilies[selectedFamily] as Set
+            def mutationTasks = []
+            def outputRoot = new File('${groovyString(reportRoot.absolutePath)}')
+
+            gradle.beforeProject { measuredProject ->
+                if (!(measuredProject.path in selectedModules)) return
+                def pluginClass = initscript.classLoader.loadClass(
+                    'info.solidsoft.gradle.pitest.PitestPlugin'
+                )
+                measuredProject.pluginManager.apply(pluginClass)
+                measuredProject.extensions.configure('pitest') {
+                    targetClasses.set(['dev.tramai.*'] as Set)
+                    targetTests.set(['dev.tramai.*'] as Set)
+                    outputFormats.set(['XML', 'HTML'] as Set)
+                    timestampedReports.set(false)
+                    failWhenNoMutations.set(true)
+                    threads.set(2)
+                    def moduleSlug = measuredProject.path.substring(1).replace(':', '_')
+                    reportDir.set(new File(outputRoot, selectedFamily + '/' + moduleSlug))
+                }
+                mutationTasks << measuredProject.tasks.named('pitest')
+            }
+
+            gradle.projectsEvaluated {
+                rootProject.tasks.register('canonicalMutationProbe') {
+                    dependsOn mutationTasks.collect { it.get() }
+                }
+            }
+        """.trimIndent() + "\n"
+    }
 
     private fun groovyString(value: String): String = value.replace("\\", "\\\\").replace("'", "\\'")
+
+    private fun gradleVersion(): String {
+        val wrapperProperties = File(sourceRoot, "gradle/wrapper/gradle-wrapper.properties")
+        val distributionUrl = wrapperProperties.takeIf { it.isFile }
+            ?.readLines(Charsets.UTF_8)
+            ?.firstOrNull { it.startsWith("distributionUrl=") }
+            ?.substringAfterLast("/")
+            ?.substringBefore("-bin.zip")
+            ?.substringBefore("-all.zip")
+        return distributionUrl?.removePrefix("gradle-").orEmpty()
+    }
 
     private fun sha256(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
