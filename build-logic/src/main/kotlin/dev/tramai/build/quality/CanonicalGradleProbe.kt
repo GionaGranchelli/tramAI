@@ -537,20 +537,21 @@ class CanonicalGradleProbe(
                     }
                     def sourceSets = measuredProject.extensions
                         .getByType(JavaPluginExtension).sourceSets
+                    def mainSourceSet = sourceSets.findByName('main')
+                    def classDirs = (mainSourceSet?.output?.classesDirs?.files ?: []) as Collection<File>
+                    def filteredDirs = classDirs.findAll { file ->
+                        exclusionPatterns.every { pattern ->
+                            def normalized = pattern.replace('**/', '').replace('/**', '')
+                            !file.absolutePath.contains(normalized)
+                        }
+                    }
                     def reportTask = measuredProject.tasks.register(
                         'canonicalJacocoReport',
                         JacocoReport
                     ) {
                         dependsOn(testTask)
                         executionData(execFile)
-                        sourceDirectories.from(sourceSets.getByName('main').allSource.srcDirs)
-                        // Filter class directories to exclude patterns
-                        def filteredDirs = sourceSets.getByName('main').output.classesDirs.files.findAll { file ->
-                            exclusionPatterns.every { pattern ->
-                                def normalized = pattern.replace('**/', '').replace('/**', '')
-                                !file.absolutePath.contains(normalized)
-                            }
-                        }
+                        sourceDirectories.from(mainSourceSet?.allSource?.srcDirs ?: [])
                         classDirectories.from(filteredDirs)
                         reports {
                             xml.required.set(true)
