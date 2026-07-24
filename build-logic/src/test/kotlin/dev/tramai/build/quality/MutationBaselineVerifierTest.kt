@@ -210,6 +210,63 @@ class MutationBaselineVerifierTest {
         }
     }
 
+    @Test
+    fun `cross-family deduplication preserves per-family metrics while overall counts each mutant once`() {
+        // Two families with overlapping mutants (same identity "overlap-id" appears in both)
+        val mutant1 = MutationRecord(
+            module = ":engine", family = "routing", status = "KILLED",
+            sourceFile = "Router.kt", className = "Router", method = "route",
+            line = 1, mutator = "BooleanMutator", description = "",
+            identity = "overlap-id"
+        )
+        val mutant2 = MutationRecord(
+            module = ":engine", family = "routing", status = "SURVIVED",
+            sourceFile = "Router.kt", className = "Router", method = "route",
+            line = 2, mutator = "NegateConditionalsMutator", description = "",
+            identity = "unique-routing-id"
+        )
+        val mutant3 = MutationRecord(
+            module = ":engine", family = "approval", status = "KILLED",
+            sourceFile = "Router.kt", className = "Router", method = "route",
+            line = 1, mutator = "BooleanMutator", description = "",
+            identity = "overlap-id"  // Same identity as mutant1 — cross-family overlap
+        )
+        val mutant4 = MutationRecord(
+            module = ":engine", family = "approval", status = "KILLED",
+            sourceFile = "Approver.kt", className = "Approver", method = "approve",
+            line = 5, mutator = "BooleanMutator", description = "",
+            identity = "unique-approval-id"
+        )
+
+        val routingReport = ParsedMutationReport(module = ":engine", family = "routing", mutants = listOf(mutant1, mutant2))
+        val approvalReport = ParsedMutationReport(module = ":engine", family = "approval", mutants = listOf(mutant3, mutant4))
+
+        val result = MutationBaselineVerifier.aggregate(reports = listOf(routingReport, approvalReport))
+
+        // Assert both families have their metrics preserved (raw data per family)
+        val routingFamily = result.byFamily["routing"]
+        kotlin.test.assertNotNull(routingFamily)
+        kotlin.test.assertEquals(2, routingFamily.totalMutants, "routing family should have 2 mutants (raw)")
+        kotlin.test.assertEquals(1, routingFamily.killedMutants)
+        kotlin.test.assertEquals(1, routingFamily.survivedMutants)
+
+        val approvalFamily = result.byFamily["approval"]
+        kotlin.test.assertNotNull(approvalFamily)
+        kotlin.test.assertEquals(2, approvalFamily.totalMutants, "approval family should have 2 mutants (raw)")
+        kotlin.test.assertEquals(2, approvalFamily.killedMutants)
+        kotlin.test.assertEquals(0, approvalFamily.survivedMutants)
+
+        // Assert overall totals count overlapping mutant only once (deduplicated)
+        kotlin.test.assertEquals(3, result.totalMutants, "overall total should count 3 unique mutants, not 4")
+        kotlin.test.assertEquals(2, result.killedMutants, "overall killed should count overlap-id killed only once")
+        kotlin.test.assertEquals(1, result.survivedMutants, "overall survived should be 1")
+
+        // Assert byModule counts the deduplicated total
+        val engineMetrics = result.byModule[":engine"]
+        kotlin.test.assertNotNull(engineMetrics)
+        kotlin.test.assertEquals(3, engineMetrics.generated, "byModule should count 3 unique mutants, not 4")
+    }
+
     private fun data(score: Double) = MutationData(
         status = "measured",
         totalMutants = 10,

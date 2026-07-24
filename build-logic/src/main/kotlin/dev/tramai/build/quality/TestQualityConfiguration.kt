@@ -110,6 +110,10 @@ data class TestQualityConfiguration(
                 }
                 CoverageExclusion(pattern, reason)
             }
+            val exclusionPatterns = exclusions.map { it.pattern }
+            if (exclusionPatterns.size != exclusionPatterns.distinct().size) {
+                throw GradleException("coverage.exclusions must not contain duplicate patterns")
+            }
 
             val mutationRaw = map(raw["mutation"], "mutation")
             val familiesRaw = map(mutationRaw["targetFamilies"], "mutation.targetFamilies")
@@ -125,20 +129,26 @@ data class TestQualityConfiguration(
                 if (modules.isEmpty()) {
                     throw GradleException("mutation.targetFamilies.$family.modules must not be empty")
                 }
-                val targetClasses = try {
-                    val raw = familyMap["targetClasses"]
-                    if (raw != null) strings(raw, "mutation.targetFamilies.$family.targetClasses")
-                    else emptyList()
-                } catch (_: Exception) { emptyList() }
-                val targetTests = try {
-                    val raw = familyMap["targetTests"]
-                    if (raw != null) strings(raw, "mutation.targetFamilies.$family.targetTests")
-                    else emptyList()
-                } catch (_: Exception) { emptyList() }
+                val targetClasses = if ("targetClasses" in familyMap) {
+                    strings(familyMap["targetClasses"], "mutation.targetFamilies.$family.targetClasses")
+                } else {
+                    listOf("dev.tramai.*")
+                }
+                val targetTests = if ("targetTests" in familyMap) {
+                    strings(familyMap["targetTests"], "mutation.targetFamilies.$family.targetTests")
+                } else {
+                    listOf("dev.tramai.*")
+                }
+                if (targetClasses.size != targetClasses.distinct().size) {
+                    throw GradleException("mutation.targetFamilies.$family.targetClasses must not contain duplicate patterns")
+                }
+                if (targetTests.size != targetTests.distinct().size) {
+                    throw GradleException("mutation.targetFamilies.$family.targetTests must not contain duplicate patterns")
+                }
                 families[family] = MutationTargetFamily(
                     modules = modules,
-                    targetClasses = targetClasses.ifEmpty { listOf("dev.tramai.*") },
-                    targetTests = targetTests.ifEmpty { listOf("dev.tramai.*") }
+                    targetClasses = targetClasses,
+                    targetTests = targetTests
                 )
             }
 

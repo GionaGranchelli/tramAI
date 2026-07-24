@@ -518,7 +518,7 @@ class BaselineGenerator(
             }
         }
         return MutationBaselineVerifier.aggregate(
-            reports = deduplicateReports(reports),
+            reports = reports,
             analyzerVersion = "pitest",
             measuredCommit = try {
                 ctx.runGit("rev-parse", "HEAD")
@@ -528,21 +528,6 @@ class BaselineGenerator(
         ).also {
             ReportNormalizer.writeJson(it, File(reportOutputDir, "mutation.json"))
         }
-    }
-
-    /**
-     * Deduplicate [ParsedMutationReport]s by stable mutant identity across families,
-     * keeping the first occurrence of each identity.
-     */
-    private fun deduplicateReports(reports: List<ParsedMutationReport>): List<ParsedMutationReport> {
-        val seenIdentities = mutableSetOf<String>()
-        return reports.map { report ->
-            report.copy(
-                mutants = report.mutants.filter { mutant ->
-                    mutant.identity.isNotBlank() && seenIdentities.add(mutant.identity)
-                }
-            )
-        }.filter { it.mutants.isNotEmpty() }
     }
 
     fun updateBaselineJson(baseline: BaselineDocument) {

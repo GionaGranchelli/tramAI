@@ -31,9 +31,9 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Generate Baseline (if requested)
+      - name: Generate Full Baseline (if requested)
         if: inputs.generate-baseline
-        run: ./gradlew generateMaintainabilityBaseline --no-daemon
+        run: ./gradlew generateFullMaintainabilityBaseline --no-daemon
 
       - name: Full Verification
         run: ./gradlew verifyFullMaintainabilityBaseline --no-daemon
@@ -52,6 +52,8 @@ jobs:
           path: |
             build/reports/maintainability/
             config/quality/0.6.0-baseline.json
+            **/build/reports/jacoco/**/*.xml
+            **/build/reports/pitest/**
           retention-days: 90
 
       - name: Job Summary
@@ -71,6 +73,37 @@ jobs:
             echo "- **Modules:** $MODULES" >> $GITHUB_STEP_SUMMARY
             echo "- **Edges:** $EDGES" >> $GITHUB_STEP_SUMMARY
             echo "- **Cycles:** $CYCLES" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Coverage" >> $GITHUB_STEP_SUMMARY
+          if [ -f build/reports/maintainability/coverage-summary.json ]; then
+            LINE_COV=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/coverage-summary.json')); print(f'{d.get(\"overallLineCoverage\",0):.1f}%')" 2>/dev/null || echo "?")
+            BRANCH_COV=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/coverage-summary.json')); print(f'{d.get(\"overallBranchCoverage\",0):.1f}%')" 2>/dev/null || echo "?")
+            MODULES=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/coverage-summary.json')); print(len(d.get('criticalModules',{})))" 2>/dev/null || echo "?")
+            echo "- **Line coverage:** $LINE_COV" >> $GITHUB_STEP_SUMMARY
+            echo "- **Branch coverage:** $BRANCH_COV" >> $GITHUB_STEP_SUMMARY
+            echo "- **Critical modules:** $MODULES" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Mutation Analysis" >> $GITHUB_STEP_SUMMARY
+          if [ -f build/reports/maintainability/mutation-summary.json ]; then
+            TOTAL=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/mutation-summary.json')); print(d.get('totalMutants','?'))" 2>/dev/null || echo "?")
+            SCORE=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/mutation-summary.json')); print(f'{d.get(\"mutationScore\",0):.1f}%')" 2>/dev/null || echo "?")
+            FAMILIES=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/mutation-summary.json')); print(list(d.get('byFamily',{}).keys()))" 2>/dev/null || echo "?")
+            echo "- **Total mutants:** $TOTAL" >> $GITHUB_STEP_SUMMARY
+            echo "- **Mutation score:** $SCORE" >> $GITHUB_STEP_SUMMARY
+            echo "- **Families:** $FAMILIES" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Performance" >> $GITHUB_STEP_SUMMARY
+          if [ -f build/reports/maintainability/test-performance/median.json ]; then
+            TESTS=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/test-performance/median.json')); print(d.get('totalTestCount','?'))" 2>/dev/null || echo "?")
+            DURATION=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/test-performance/median.json')); print(f'{d.get(\"totalDurationMs\",0)/1000:.1f}s')" 2>/dev/null || echo "?")
+            echo "- **Total tests:** $TESTS" >> $GITHUB_STEP_SUMMARY
+            echo "- **Aggregate median:** $DURATION" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY

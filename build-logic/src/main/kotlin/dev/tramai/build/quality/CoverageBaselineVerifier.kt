@@ -53,19 +53,6 @@ class CoverageBaselineVerifier(private val configuration: TestQualityConfigurati
             }
         }
 
-        // Verify exclusion patterns took effect: check current coverage for excluded patterns
-        configuration.coverage.exclusions.forEach { exclusion ->
-            val pattern = exclusion.pattern
-            val normalized = pattern.removePrefix("**/").removeSuffix("/**")
-            current.criticalModules.forEach { (module, coverage) ->
-                if (coverage.linesTotal > 0) {
-                    val modulePath = module.removePrefix(":").replace(":", "/")
-                    // If a module's module path contains the exclusion pattern, it should have zero lines
-                    // This is a basic heuristic - the JaCoCo report filtering should handle this
-                }
-            }
-        }
-
         return diagnostics
     }
 

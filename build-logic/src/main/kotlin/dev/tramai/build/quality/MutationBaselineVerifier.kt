@@ -104,8 +104,16 @@ class MutationBaselineVerifier(
         return diagnostics
     }
 
-    private fun moduleHasProductionSources(module: String): Boolean =
-        configuration.criticalModules.contains(module)
+    private fun moduleHasProductionSources(module: String): Boolean {
+        // Check the actual module source tree rather than critical-module membership,
+        // because mutation target families can reference modules outside criticalModules.
+        val repositoryRoot = repositoryRoot ?: return configuration.criticalModules.contains(module)
+        val modulePath = module.removePrefix(":").replace(":", "/")
+        val srcDir = File(repositoryRoot, "$modulePath/src/main")
+        return srcDir.isDirectory && srcDir.walkTopDown().any {
+            it.isFile && (it.extension == "kt" || it.extension == "java")
+        }
+    }
 
     companion object {
         fun aggregate(
@@ -113,10 +121,10 @@ class MutationBaselineVerifier(
             analyzerVersion: String = "",
             measuredCommit: String = ""
         ): MutationData {
-            val all = reports.flatMap { it.mutants }
-            val byModule = all.groupBy { it.module }.toSortedMap().mapValues { (module, records) ->
-                metrics(module, records)
-            }
+            // Step 1: Build byFamily from raw (undeduplicated) data so each family
+            // retains its actual mutants even when the same identity appears in
+            // multiple families (e.g. policy + approval + evidence all target
+            // dev.tramai.sovereign.* and produce overlapping mutants).
             val byFamily = reports.groupBy { it.family }.toSortedMap().mapValues { (family, familyReports) ->
                 val records = familyReports.flatMap { it.mutants }
                 val killed = records.count { it.status == "KILLED" }
@@ -132,6 +140,20 @@ class MutationBaselineVerifier(
                     mutationScore = score(killed, records.size)
                 )
             }
+
+            // Step 2: Deduplicate mutants by stable identity across all reports.
+            // This prevents double-counting in overall/byModule totals when the
+            // same mutant appears in multiple overlapping target families.
+            val seenIdentities = mutableSetOf<String>()
+            val all = reports.flatMap { it.mutants }.filter { mutant ->
+                mutant.identity.isNotBlank() && seenIdentities.add(mutant.identity)
+            }
+
+            // Step 3: Build byModule from the deduplicated list.
+            val byModule = all.groupBy { it.module }.toSortedMap().mapValues { (module, records) ->
+                metrics(module, records)
+            }
+
             val survivors = all.filter { it.status in setOf("SURVIVED", "NO_COVERAGE") }.map {
                 SurvivingMutant(
                     module = it.module,

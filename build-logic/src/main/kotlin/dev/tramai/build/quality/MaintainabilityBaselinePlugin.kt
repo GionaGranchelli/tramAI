@@ -49,15 +49,14 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                             xml.required.set(true)
                             html.required.set(true)
                         }
-                        // Filter class directories to exclude patterns
+                        // Filter class directories to exclude patterns using Gradle fileTree
                         val mainSourceSet = criticalProject.extensions.getByType(
                             org.gradle.api.plugins.JavaPluginExtension::class.java
                         ).sourceSets.getByName("main")
                         classDirectories.from(
-                            mainSourceSet.output.classesDirs.files.filter { file ->
-                                excludedPatterns.none { pattern ->
-                                    val normalized = pattern.removePrefix("**/").removeSuffix("/**")
-                                    file.absolutePath.contains(normalized)
+                            mainSourceSet.output.classesDirs.files.map { root ->
+                                criticalProject.fileTree(root) {
+                                    exclude(excludedPatterns)
                                 }
                             }
                         )
