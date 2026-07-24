@@ -622,7 +622,10 @@ class CanonicalGradleProbe(
                         'info.solidsoft.gradle.pitest.PitestPlugin'
                     )
                     measuredProject.pluginManager.apply(pluginClass)
+                    // Add pitest-junit5-plugin to the pitest configuration so PIT can run JUnit 5 tests
+                    measuredProject.dependencies.add('pitest', 'org.pitest:pitest-junit5-plugin:1.2.1')
                     measuredProject.extensions.configure('pitest') { pitestExt ->
+                        pitestExt.testPlugin.set('junit5')
                         pitestExt.targetClasses.set(familyTargetClasses)
                         pitestExt.targetTests.set(familyTargetTests)
                         pitestExt.outputFormats.set(['XML', 'HTML'] as Set)
