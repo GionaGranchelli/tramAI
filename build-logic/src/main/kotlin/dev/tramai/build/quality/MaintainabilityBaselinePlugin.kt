@@ -41,6 +41,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     criticalProject.pluginManager.apply("jacoco")
 
                     val testTask = criticalProject.tasks.named("test", Test::class.java)
+                    val excludedPatterns = testQualityConfiguration.coverage.exclusions.map { it.pattern }
 
                     criticalProject.tasks.named("jacocoTestReport", JacocoReport::class.java) {
                         dependsOn(testTask)
@@ -48,6 +49,18 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                             xml.required.set(true)
                             html.required.set(true)
                         }
+                        // Filter class directories to exclude patterns
+                        val mainSourceSet = criticalProject.extensions.getByType(
+                            org.gradle.api.plugins.JavaPluginExtension::class.java
+                        ).sourceSets.getByName("main")
+                        classDirectories.from(
+                            mainSourceSet.output.classesDirs.files.filter { file ->
+                                excludedPatterns.none { pattern ->
+                                    val normalized = pattern.removePrefix("**/").removeSuffix("/**")
+                                    file.absolutePath.contains(normalized)
+                                }
+                            }
+                        )
                     }
                 }
             }
@@ -279,7 +292,6 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         project.tasks.register("generateTestPerformanceBaseline") {
             group = "maintainability"
             description = "Runs one warm-up and three measured critical-module test executions"
-            dependsOn(criticalTestTaskPaths)
             doLast {
                 val outputRoot = File(reportDir, "test-performance")
                 val runsRoot = File(outputRoot, "runs")
@@ -462,7 +474,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 verifyTestQualityDiagnostics(
                     project,
                     "Critical mutation",
-                    MutationBaselineVerifier(testQualityConfiguration)
+                    MutationBaselineVerifier(testQualityConfiguration, project.rootDir)
                         .verify(committed.testQuality.mutation, current)
                 )
             }
@@ -726,7 +738,13 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 val modules = target.modules.sorted().joinToString(", ") {
                     "'${groovyString(it)}'"
                 }
-                "    '${groovyString(family)}': [$modules]"
+                val classes = target.targetClasses.sorted().joinToString(", ") {
+                    "'${groovyString(it)}'"
+                }
+                val tests = target.targetTests.sorted().joinToString(", ") {
+                    "'${groovyString(it)}'"
+                }
+                "    '${groovyString(family)}': [modules: [$modules], targetClasses: [$classes], targetTests: [$tests]]"
             }
         return """
             initscript {
@@ -739,24 +757,29 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 }
             }
 
-            def targetFamilies = [
+            def targetFamilities = [
             $familyModules
             ]
             def selectedFamily = gradle.startParameter.projectProperties['tramaiMutationFamily']
-            if (selectedFamily == null || !targetFamilies.containsKey(selectedFamily)) {
+            if (selectedFamily == null || !targetFamilities.containsKey(selectedFamily)) {
                 throw new GradleException("Unknown or missing tramaiMutationFamily: " + selectedFamily)
             }
-            def selectedModules = targetFamilies[selectedFamily] as Set
+            def familyConfig = targetFamilities[selectedFamily]
+            def selectedModules = familyConfig.modules as Set
+            def familyTargetClasses = familyConfig.targetClasses as Set
+            def familyTargetTests = familyConfig.targetTests as Set
             def mutationTasks = []
             def outputRoot = new File('${groovyString(reportRoot.absolutePath)}')
 
             gradle.beforeProject { measuredProject ->
                 if (!(measuredProject.path in selectedModules)) return
-                def pluginClass = initscript.classLoader.loadClass('info.solidsoft.gradle.pitest.PitestPlugin')
+                def pluginClass = initscript.classLoader.loadClass(
+                    'info.solidsoft.gradle.pitest.PitestPlugin'
+                )
                 measuredProject.pluginManager.apply(pluginClass)
                 measuredProject.extensions.configure('pitest') {
-                    targetClasses.set(['dev.tramai.*'] as Set)
-                    targetTests.set(['dev.tramai.*'] as Set)
+                    targetClasses.set(familyTargetClasses)
+                    targetTests.set(familyTargetTests)
                     outputFormats.set(['XML', 'HTML'] as Set)
                     timestampedReports.set(false)
                     failWhenNoMutations.set(true)

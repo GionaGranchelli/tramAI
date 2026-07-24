@@ -53,6 +53,13 @@ class TestPerformanceVerifierTest {
             ),
             slowestTests = listOf(
                 TestTiming(":core", "CoreTest", "works", testDuration, skipped = skipped)
+            ),
+            allTests = listOf(
+                TestTiming(":core", "CoreTest", "works", testDuration, skipped = skipped)
+            ),
+            byIdentity = mapOf(
+                "85ca6e7f35613de78bab37e3a6fc735ca372a508cb41ec9f0a31d0deffd886e4" to
+                    TestTiming(":core", "CoreTest", "works", testDuration, skipped = skipped)
             )
         )
 }

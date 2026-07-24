@@ -15,7 +15,8 @@ data class MutationRecord(
     val line: Int,
     val mutator: String,
     val description: String,
-    val identity: String
+    val identity: String,
+    val block: Int = 0
 )
 
 data class ParsedMutationReport(
@@ -53,11 +54,12 @@ class MutationReportParser {
             val mutator = childText(element, "mutator")
             val description = childText(element, "description")
             val line = childText(element, "lineNumber").toIntOrNull() ?: 0
+            val block = childText(element, "block").toIntOrNull() ?: 0
             if (status.isBlank() || className.isBlank() || method.isBlank() || mutator.isBlank()) {
                 throw GradleException("Malformed PITest XML for $family/$module: mutation lacks required identity fields")
             }
             rejectPath(sourceFile)
-            val identity = MutationIdentity(module, className, method, mutator, description).stableKey()
+            val identity = MutationIdentity(module, className, method, mutator, description, block).stableKey()
             MutationRecord(
                 module, family, status, sourceFile, className, method, line, mutator, description, identity
             )

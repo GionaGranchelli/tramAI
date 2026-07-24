@@ -1,6 +1,19 @@
 package dev.tramai.build.quality
 
-class MutationBaselineVerifier(private val configuration: TestQualityConfiguration) {
+import java.io.File
+
+class MutationBaselineVerifier(
+    private val configuration: TestQualityConfiguration,
+    private val repositoryRoot: File? = null
+) {
+    private val mutationClassifications: MutationClassifications by lazy {
+        if (repositoryRoot != null) {
+            MutationClassificationLoader.load(repositoryRoot)
+        } else {
+            MutationClassifications(schemaVersion = "1", classifications = emptyList())
+        }
+    }
+
     fun verify(committed: MutationData, current: MutationData): List<VerificationDiagnostic> {
         val diagnostics = mutableListOf<VerificationDiagnostic>()
         if (committed.status == "pending" || current.status == "pending") {
@@ -35,16 +48,38 @@ class MutationBaselineVerifier(private val configuration: TestQualityConfigurati
                 )
             }
             if (measured.mutationScore + tolerance < baseline.mutationScore) {
+                val bscore = "%.2f".format(baseline.mutationScore)
+                val mscore = "%.2f".format(measured.mutationScore)
                 diagnostics += VerificationDiagnostic.failure(
                     DiagnosticCode.MUTATION_REGRESSION,
-                    "Mutation score for '$family' regressed from ${"%.2f".format(baseline.mutationScore)}% " +
-                        "to ${"%.2f".format(measured.mutationScore)}%"
+                    "Mutation score for '$family' regressed from ${bscore}% to ${mscore}%"
                 )
             }
         }
 
+        val classificationsById = mutationClassifications.byIdentity()
+
         current.survivingMutants.forEach { survivor ->
-            if (survivor.behaviourFamily.isBlank() || survivor.classification == "unclassified") {
+            val classificationEntry = if (survivor.identity.isNotBlank()) {
+                classificationsById[survivor.identity]
+            } else null
+
+            if (classificationEntry != null) {
+                // Classified survivor from YAML — validate classification
+                val classification = classificationEntry.classification
+                if (classification == "missing-test" || classification == "known-design-ambiguity") {
+                    if (classificationEntry.issue.isNullOrBlank() && classificationEntry.targetPhase.isNullOrBlank()) {
+                        diagnostics += VerificationDiagnostic.failure(
+                            DiagnosticCode.MUTATION_MISSING_TEST_UNTRACKED,
+                            "Classified survivor ${survivor.identity.ifBlank { survivor.mutator }} " +
+                                "is '$classification' but has no issue or targetPhase",
+                            modulePath = survivor.module,
+                            findingId = survivor.identity
+                        )
+                    }
+                }
+            } else if (survivor.behaviourFamily.isNotBlank()) {
+                // Has a behaviour family but no classification → unclassified → failure
                 diagnostics += VerificationDiagnostic.failure(
                     DiagnosticCode.MUTATION_SURVIVOR_UNCLASSIFIED,
                     "Surviving mutant ${survivor.identity.ifBlank { survivor.mutator }} is unclassified",
@@ -52,7 +87,12 @@ class MutationBaselineVerifier(private val configuration: TestQualityConfigurati
                     findingId = survivor.identity
                 )
             }
-            if (survivor.status == "NO_COVERAGE" && survivor.issue.isNullOrBlank() && survivor.targetPhase.isNullOrBlank()) {
+            // Old survivors (no behaviourFamily, no classification) are kept as-is
+
+            // Legacy check: if still NO_COVERAGE and no issue/targetPhase, flag it
+            if (classificationEntry == null && survivor.status == "NO_COVERAGE" &&
+                survivor.issue.isNullOrBlank() && survivor.targetPhase.isNullOrBlank()
+            ) {
                 diagnostics += VerificationDiagnostic.failure(
                     DiagnosticCode.MUTATION_MISSING_TEST_UNTRACKED,
                     "Missing-test survivor ${survivor.identity.ifBlank { survivor.mutator }} has no issue or target phase",

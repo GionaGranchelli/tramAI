@@ -497,12 +497,15 @@ class CanonicalGradleProbe(
     ): String {
         val criticalModules = configuration.criticalModules.sorted()
             .joinToString(", ") { "'${groovyString(it)}'" }
+        val exclusionPatterns = configuration.coverage.exclusions.map { it.pattern }
+            .joinToString(", ") { "'${groovyString(it)}'" }
         return """
             import org.gradle.api.plugins.JavaPluginExtension
             import org.gradle.api.tasks.testing.Test
             import org.gradle.testing.jacoco.tasks.JacocoReport
 
             def criticalModules = [$criticalModules] as Set
+            def exclusionPatterns = [$exclusionPatterns]
             def measuredRun = gradle.startParameter.projectProperties['tramaiTestQualityRun']
             if (!(measuredRun in ['warmup', '1', '2', '3'])) {
                 throw new GradleException("Unknown or missing tramaiTestQualityRun: " + measuredRun)
@@ -537,7 +540,14 @@ class CanonicalGradleProbe(
                         dependsOn(testTask)
                         executionData(testTask)
                         sourceDirectories.from(sourceSets.getByName('main').allSource.srcDirs)
-                        classDirectories.from(sourceSets.getByName('main').output)
+                        // Filter class directories to exclude patterns
+                        def filteredDirs = sourceSets.getByName('main').output.classesDirs.files.findAll { file ->
+                            exclusionPatterns.every { pattern ->
+                                def normalized = pattern.replace('**/', '').replace('/**', '')
+                                !file.absolutePath.contains(normalized)
+                            }
+                        }
+                        classDirectories.from(filteredDirs)
                         reports {
                             xml.required.set(true)
                             html.required.set(false)
@@ -566,7 +576,13 @@ class CanonicalGradleProbe(
                 val modules = target.modules.sorted().joinToString(", ") {
                     "'${groovyString(it)}'"
                 }
-                "    '${groovyString(family)}': [$modules]"
+                val classes = target.targetClasses.sorted().joinToString(", ") {
+                    "'${groovyString(it)}'"
+                }
+                val tests = target.targetTests.sorted().joinToString(", ") {
+                    "'${groovyString(it)}'"
+                }
+                "    '${groovyString(family)}': [modules: [$modules], targetClasses: [$classes], targetTests: [$tests]]"
             }
         return """
             initscript {
@@ -586,7 +602,10 @@ class CanonicalGradleProbe(
             if (selectedFamily == null || !targetFamilies.containsKey(selectedFamily)) {
                 throw new GradleException("Unknown or missing tramaiMutationFamily: " + selectedFamily)
             }
-            def selectedModules = targetFamilies[selectedFamily] as Set
+            def familyConfig = targetFamilies[selectedFamily]
+            def selectedModules = familyConfig.modules as Set
+            def familyTargetClasses = familyConfig.targetClasses as Set
+            def familyTargetTests = familyConfig.targetTests as Set
             def mutationTasks = []
             def outputRoot = new File('${groovyString(reportRoot.absolutePath)}')
 
@@ -597,8 +616,8 @@ class CanonicalGradleProbe(
                 )
                 measuredProject.pluginManager.apply(pluginClass)
                 measuredProject.extensions.configure('pitest') {
-                    targetClasses.set(['dev.tramai.*'] as Set)
-                    targetTests.set(['dev.tramai.*'] as Set)
+                    targetClasses.set(familyTargetClasses)
+                    targetTests.set(familyTargetTests)
                     outputFormats.set(['XML', 'HTML'] as Set)
                     timestampedReports.set(false)
                     failWhenNoMutations.set(true)

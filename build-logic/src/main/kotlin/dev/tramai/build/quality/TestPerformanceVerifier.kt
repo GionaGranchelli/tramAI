@@ -30,9 +30,13 @@ class TestPerformanceVerifier(private val configuration: TestQualityConfiguratio
             }
         }
 
-        val baselineTests = committed.slowestTests.associateBy(::testIdentity)
-        current.slowestTests.forEach { measured ->
-            val baseline = baselineTests[testIdentity(measured)] ?: return@forEach
+        // Use byIdentity from allTests for full test comparison
+        val baselineByIdentity = committed.byIdentity
+        val currentByIdentity = current.byIdentity
+
+        // Check for newly skipped tests across all tests
+        currentByIdentity.forEach { (identity, measured) ->
+            val baseline = baselineByIdentity[identity] ?: return@forEach
             if (regression(baseline.durationMs, measured.durationMs) > 50.0) {
                 diagnostics += VerificationDiagnostic.warning(
                     DiagnosticCode.CRITICAL_TEST_REGRESSION,
@@ -48,11 +52,27 @@ class TestPerformanceVerifier(private val configuration: TestQualityConfiguratio
                 )
             }
         }
+
+        // Verify same test identities exist across committed and current
+        val baselineIds = baselineByIdentity.keys
+        val currentIds = currentByIdentity.keys
+        val missingTests = baselineIds - currentIds
+        val newTests = currentIds - baselineIds
+        if (missingTests.isNotEmpty()) {
+            diagnostics += VerificationDiagnostic.warning(
+                DiagnosticCode.CRITICAL_TEST_NEWLY_SKIPPED,
+                "${missingTests.size} test(s) from the baseline are missing in current measurements"
+            )
+        }
+        if (newTests.isNotEmpty()) {
+            diagnostics += VerificationDiagnostic.warning(
+                DiagnosticCode.CRITICAL_TEST_NEWLY_SKIPPED,
+                "${newTests.size} new test(s) appeared in current measurements"
+            )
+        }
+
         return diagnostics
     }
-
-    private fun testIdentity(timing: TestTiming): List<String> =
-        listOf(timing.module, timing.className, timing.testName, timing.sourceSet, timing.testTaskName)
 
     private fun regression(baseline: Long, current: Long): Double =
         if (baseline <= 0) {

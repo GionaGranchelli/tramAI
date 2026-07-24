@@ -174,6 +174,8 @@ data class TestPerformanceData(
     val byModule: Map<String, ModuleTestPerformance> = emptyMap(),
     val slowestClasses: List<TestTiming> = emptyList(),
     val slowestTests: List<TestTiming> = emptyList(),
+    val allTests: List<TestTiming> = emptyList(),
+    val byIdentity: Map<String, TestTiming> = emptyMap(),
     val totalDurationMs: Long = 0,
     val totalTestCount: Int = 0
 )
@@ -212,7 +214,8 @@ data class TestPerformanceObservation(
     val jdkVersion: String = "",
     val gradleVersion: String = "",
     val classTimings: List<TestTiming> = emptyList(),
-    val testTimings: List<TestTiming> = emptyList()
+    val testTimings: List<TestTiming> = emptyList(),
+    val byIdentity: Map<String, TestTiming> = emptyMap()
 )
 
 data class CoverageData(

@@ -21,7 +21,11 @@ data class TestQualityConfiguration(
         val targetFamilies: Map<String, MutationTargetFamily>
     )
 
-    data class MutationTargetFamily(val modules: List<String>)
+    data class MutationTargetFamily(
+        val modules: List<String>,
+        val targetClasses: List<String> = listOf("dev.tramai.*"),
+        val targetTests: List<String> = listOf("dev.tramai.*")
+    )
 
     companion object {
         fun load(repositoryRoot: File): TestQualityConfiguration {
@@ -113,14 +117,29 @@ data class TestQualityConfiguration(
             val families = linkedMapOf<String, MutationTargetFamily>()
             familiesRaw.forEach { (family, value) ->
                 if (family.isBlank()) throw GradleException("Mutation family name must not be empty")
+                val familyMap = map(value, "mutation.targetFamilies.$family")
                 val modules = strings(
-                    map(value, "mutation.targetFamilies.$family")["modules"],
+                    familyMap["modules"],
                     "mutation.targetFamilies.$family.modules"
                 )
                 if (modules.isEmpty()) {
                     throw GradleException("mutation.targetFamilies.$family.modules must not be empty")
                 }
-                families[family] = MutationTargetFamily(modules)
+                val targetClasses = try {
+                    val raw = familyMap["targetClasses"]
+                    if (raw != null) strings(raw, "mutation.targetFamilies.$family.targetClasses")
+                    else emptyList()
+                } catch (_: Exception) { emptyList() }
+                val targetTests = try {
+                    val raw = familyMap["targetTests"]
+                    if (raw != null) strings(raw, "mutation.targetFamilies.$family.targetTests")
+                    else emptyList()
+                } catch (_: Exception) { emptyList() }
+                families[family] = MutationTargetFamily(
+                    modules = modules,
+                    targetClasses = targetClasses.ifEmpty { listOf("dev.tramai.*") },
+                    targetTests = targetTests.ifEmpty { listOf("dev.tramai.*") }
+                )
             }
 
             val referencedModules = criticalModules + families.values.flatMap { it.modules }
