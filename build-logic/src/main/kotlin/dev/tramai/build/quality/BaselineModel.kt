@@ -169,6 +169,8 @@ data class TestQualityBaseline(
 )
 
 data class TestPerformanceData(
+    val status: String = "not_configured",
+    val observations: List<TestPerformanceObservation> = emptyList(),
     val byModule: Map<String, ModuleTestPerformance> = emptyMap(),
     val slowestClasses: List<TestTiming> = emptyList(),
     val slowestTests: List<TestTiming> = emptyList(),
@@ -179,23 +181,46 @@ data class TestPerformanceData(
 data class ModuleTestPerformance(
     val module: String,
     val totalDurationMs: Long = 0,
+    val medianDurationMs: Long = totalDurationMs,
     val testCount: Int = 0,
     val skippedCount: Int = 0,
-    val failureCount: Int = 0
+    val failureCount: Int = 0,
+    val sourceSet: String = "test",
+    val testTaskName: String = "test"
 )
 
 data class TestTiming(
     val module: String,
     val className: String,
     val testName: String,
-    val durationMs: Long
+    val durationMs: Long,
+    val sourceSet: String = "test",
+    val testTaskName: String = "test",
+    val skipped: Boolean = false,
+    val failed: Boolean = false
+)
+
+data class TestPerformanceObservation(
+    val run: Int,
+    val module: String,
+    val durationMs: Long,
+    val testCount: Int,
+    val skippedCount: Int,
+    val failureCount: Int,
+    val sourceSet: String = "test",
+    val testTaskName: String = "test",
+    val jdkVersion: String = "",
+    val gradleVersion: String = "",
+    val classTimings: List<TestTiming> = emptyList(),
+    val testTimings: List<TestTiming> = emptyList()
 )
 
 data class CoverageData(
-    val status: String = "pending",
-    val note: String = "Requires JaCoCo plugin configuration",
+    val status: String = "not_configured",
+    val note: String = "",
     val byModule: Map<String, ModuleCoverage> = emptyMap(),
     val criticalModules: Map<String, ModuleCoverage> = emptyMap(),
+    val exclusions: List<CoverageExclusion> = emptyList(),
     val overallLineCoverage: Double = 0.0,
     val overallBranchCoverage: Double = 0.0
 )
@@ -205,13 +230,29 @@ data class ModuleCoverage(
     val lineCoverage: Double = 0.0,
     val branchCoverage: Double = 0.0,
     val linesCovered: Int = 0,
-    val linesTotal: Int = 0
+    val linesMissed: Int = 0,
+    val linesTotal: Int = 0,
+    val branchesCovered: Int = 0,
+    val branchesMissed: Int = 0,
+    val branchesTotal: Int = 0
+)
+
+data class CoverageExclusion(
+    val pattern: String,
+    val reason: String
 )
 
 data class MutationData(
-    val status: String = "pending",
-    val note: String = "Requires PITest plugin configuration",
+    val status: String = "not_configured",
+    val note: String = "",
+    val analyzerVersion: String = "",
+    val measuredCommit: String = "",
+    val totalMutants: Int = 0,
+    val killedMutants: Int = 0,
+    val survivedMutants: Int = 0,
+    val mutationScore: Double = 0.0,
     val byModule: Map<String, ModuleMutationMetrics> = emptyMap(),
+    val byFamily: Map<String, MutationFamilyMetrics> = emptyMap(),
     val survivingMutants: List<SurvivingMutant> = emptyList(),
     val equivalentMutants: List<SurvivingMutant> = emptyList(),
     val unclassifiedMutants: List<SurvivingMutant> = emptyList()
@@ -227,13 +268,30 @@ data class ModuleMutationMetrics(
     val mutationScore: Double = 0.0
 )
 
+data class MutationFamilyMetrics(
+    val family: String,
+    val modules: List<String> = emptyList(),
+    val totalMutants: Int = 0,
+    val killedMutants: Int = 0,
+    val survivedMutants: Int = 0,
+    val noCoverageMutants: Int = 0,
+    val mutationScore: Double = 0.0
+)
+
 data class SurvivingMutant(
     val module: String,
     val file: String,
     val line: Int,
     val mutator: String,
     val classification: String = "unclassified",
-    val description: String = ""
+    val description: String = "",
+    val className: String = "",
+    val method: String = "",
+    val status: String = "SURVIVED",
+    val identity: String = "",
+    val behaviourFamily: String = "",
+    val issue: String? = null,
+    val targetPhase: String? = null
 )
 
 data class RuntimeSafetyBaseline(

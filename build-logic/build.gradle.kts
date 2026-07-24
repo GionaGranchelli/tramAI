@@ -1,6 +1,8 @@
 plugins {
     `kotlin-dsl`
     kotlin("jvm") version "2.3.0"
+    jacoco
+    id("info.solidsoft.pitest") version "1.19.0"
 }
 
 repositories {
@@ -25,6 +27,22 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    finalizedBy(tasks.jacocoTestReport)
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+}
+
+pitest {
+    targetClasses.set(setOf("dev.tramai.build.quality.*"))
+    targetTests.set(setOf("dev.tramai.build.quality.*Test"))
+    outputFormats.set(setOf("XML", "HTML"))
+    timestampedReports.set(false)
 }
 
 gradlePlugin {

@@ -1,0 +1,33 @@
+schemaVersion: "1"
+criticalModules:
+  - ":tramai-core"
+  - ":tramai-engine"
+  - ":tramai-security"
+  - ":tramai-sovereign"
+  - ":tramai-standalone"
+  - ":tramai-structured"
+  - ":tramai-orchestration"
+  - ":tramai-persistence-file"
+  - ":tramai-persistence-jdbc"
+coverage:
+  regressionTolerancePercentagePoints: 1.0
+  exclusions:
+    - pattern: "**/model/**"
+      reason: "Generated model classes"
+mutation:
+  regressionTolerancePercentagePoints: 1.0
+  targetFamilies:
+    policy:
+      modules: [":tramai-security", ":tramai-sovereign"]
+    approval:
+      modules: [":tramai-sovereign"]
+    routing:
+      modules: [":tramai-engine"]
+    retry:
+      modules: [":tramai-engine"]
+    tools:
+      modules: [":tramai-engine", ":tramai-security"]
+    evidence:
+      modules: [":tramai-sovereign"]
+    structuredOutput:
+      modules: [":tramai-structured"]
