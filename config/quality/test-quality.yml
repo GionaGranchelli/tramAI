@@ -25,13 +25,13 @@ mutation:
       targetClasses: ["dev.tramai.sovereign.*"]
     routing:
       modules: [":tramai-engine"]
-      targetClasses: ["dev.tramai.engine.routing.*"]
+      targetClasses: ["dev.tramai.engine.*"]
     retry:
       modules: [":tramai-engine"]
       targetClasses: ["dev.tramai.engine.*"]
     tools:
       modules: [":tramai-engine", ":tramai-security"]
-      targetClasses: ["dev.tramai.engine.tools.*", "dev.tramai.security.tools.*"]
+      targetClasses: ["dev.tramai.engine.tools.*", "dev.tramai.security.tools.*", "dev.tramai.engine.*"]
     evidence:
       modules: [":tramai-sovereign"]
       targetClasses: ["dev.tramai.sovereign.*"]

@@ -15,6 +15,8 @@ jobs:
     name: Full Maintainability Verification
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -42,11 +44,23 @@ jobs:
             -Pmaintainability.sourceRoot="$RUNNER_TEMP/tramai-v050" \
             --no-daemon
 
-      - name: Commit generated baseline
+      - name: Commit and push generated baseline
         if: inputs.generate-baseline
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add config/quality/0.6.0-baseline.json
-          git diff --staged --quiet || git commit -m "build(0.6.0): capture canonical v0.5.0 baseline with test-quality measurements"
+          if ! git diff --staged --quiet; then
+            git commit -m "build(0.6.0): capture canonical v0.5.0 test-quality baseline"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: Copy canonical probe evidence
+        if: inputs.generate-baseline
+        run: |
+          mkdir -p build/reports/maintainability/canonical
+          cp -r "$RUNNER_TEMP"/tramai-v050-*/coverage/ "$RUNNER_TEMP"/tramai-v050-*/mutation/ \
+            "$RUNNER_TEMP"/tramai-v050-*/test-results/ build/reports/maintainability/canonical/ 2>/dev/null || true
 
       - name: Full Verification
         run: ./gradlew verifyFullMaintainabilityBaseline --no-daemon

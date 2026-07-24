@@ -12,5 +12,5 @@ mutation:
   targetFamilies:
     core:
       modules: [":lib-core"]
-      targetClasses: ["com.example.core.*"]
-      targetTests: ["com.example.core.*"]
+      targetClasses: ["com.example.*"]
+      targetTests: ["com.example.*"]
