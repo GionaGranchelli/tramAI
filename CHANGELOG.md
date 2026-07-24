@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Canonical public API and resolved dependency baseline (PR #205). Replaced filesystem-only API dump discovery with module-catalog-aware probe. Replaced cache-path dependency parsing with Gradle's `Configuration.incoming.resolutionResult` traversal. New `ApiBaselineVerifier` and `DependencyBaselineVerifier` with 12 typed diagnostic codes. New `CanonicalGradleProbe` for isolated worktree measurement. Zero runtime changes.
+
 ## 0.5.0 - 2026-07-16
 
 ### Added

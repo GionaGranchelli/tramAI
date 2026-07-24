@@ -75,8 +75,17 @@ class BaselineVerifier(
                 writeRepositoryArtifacts = false
             )
 
+            val currentDependencies = try {
+                tempGenerator.generateResolvedDependencyGraph()
+            } catch (e: Exception) {
+                diagnostics.add(VerificationDiagnostic.failure(
+                    DiagnosticCode.DEPENDENCY_RESOLUTION_FAILED,
+                    "Failed to resolve current production dependencies: ${e.message}"))
+                return diagnosticsToReport(diagnostics)
+            }
+
             val current: BaselineDocument = try {
-                tempGenerator.generateCompleteBaseline()
+                tempGenerator.generateCompleteBaseline(dependencyOverride = currentDependencies)
             } catch (e: Exception) {
                 diagnostics.add(VerificationDiagnostic.failure(
                     DiagnosticCode.EMPTY_SECTION,
@@ -90,12 +99,33 @@ class BaselineVerifier(
             // 8. Verify mandatory sections
             verifyMandatorySections(current, diagnostics)
 
-            // 9. Restore API dump gate
-            if (current.api.publicApiDumps.isEmpty()) {
-                diagnostics.add(VerificationDiagnostic.failure(
-                    DiagnosticCode.EMPTY_SECTION,
-                    "Current baseline has empty API dumps — API collection may be broken"))
-            }
+            // 9. Verify API and resolved dependency baselines with typed diagnostics
+            val apiValidationModules = currentGradle.allprojects
+                .filter { it.tasks.findByName("apiCheck") != null }
+                .map { it.path }
+                .toSet()
+            diagnostics.addAll(
+                ApiBaselineVerifier(
+                    repositoryRoot = ctx.rootDir,
+                    catalogModules = catalogResult.modules,
+                    apiValidationModules = apiValidationModules
+                ).verify(committed.api, current.api)
+            )
+            val dependencyDiagnostics = DependencyBaselineVerifier().verify(
+                committed.dependencies.resolvedDependencies,
+                current.dependencies.resolvedDependencies
+            )
+            diagnostics.addAll(dependencyDiagnostics)
+            ReportNormalizer.writeJson(
+                dependencyDiagnostics.filter {
+                    it.code in setOf(
+                        DiagnosticCode.DEPENDENCY_ADDED,
+                        DiagnosticCode.DEPENDENCY_REMOVED,
+                        DiagnosticCode.DEPENDENCY_VERSION_CHANGED
+                    )
+                },
+                File(reportDir, "dependency-changes.json")
+            )
 
             // 10. Compare dimensions with FindingIdentity
             verifyCancellationCatches(committed, current, deviationResult.deviations, diagnostics)
@@ -301,7 +331,8 @@ class BaselineVerifier(
         }
         if (current.dependencies.resolvedDependencies.isEmpty()) {
             diagnostics.add(VerificationDiagnostic.warning(
-                DiagnosticCode.EMPTY_SECTION, "Current baseline has empty resolved dependencies"))
+                DiagnosticCode.DEPENDENCY_BASELINE_EMPTY,
+                "Current baseline has empty resolved dependencies"))
         }
     }
 
