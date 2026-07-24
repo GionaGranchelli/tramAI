@@ -597,6 +597,7 @@ class CanonicalGradleProbe(
                 }
                 dependencies {
                     classpath 'info.solidsoft.gradle.pitest:gradle-pitest-plugin:1.19.0'
+                    classpath 'org.pitest:pitest-junit5-plugin:1.2.1'
                 }
             }
 
