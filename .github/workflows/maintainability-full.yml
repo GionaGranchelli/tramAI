@@ -90,20 +90,19 @@ jobs:
           echo "### Mutation Analysis" >> $GITHUB_STEP_SUMMARY
           if [ -f build/reports/maintainability/mutation-summary.json ]; then
             TOTAL=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/mutation-summary.json')); print(d.get('totalMutants','?'))" 2>/dev/null || echo "?")
-            SCORE=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/mutation-summary.json')); print(f'{d.get(\"mutationScore\",0):.1f}%')" 2>/dev/null || echo "?")
-            FAMILIES=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/mutation-summary.json')); print(list(d.get('byFamily',{}).keys()))" 2>/dev/null || echo "?")
+            SCORE=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/mutation-summary.json')); print(f'{d.get(\"mutationScore\",0):.2f}%')" 2>/dev/null || echo "?")
             echo "- **Total mutants:** $TOTAL" >> $GITHUB_STEP_SUMMARY
-            echo "- **Mutation score:** $SCORE" >> $GITHUB_STEP_SUMMARY
-            echo "- **Families:** $FAMILIES" >> $GITHUB_STEP_SUMMARY
+            echo "- **Overall score:** $SCORE" >> $GITHUB_STEP_SUMMARY
+            python3 -c "import json,os; d=json.load(open('build/reports/maintainability/mutation-summary.json')); f=os.environ['GITHUB_STEP_SUMMARY']; [open(f,'a').write(f'  - **{family}:** {m[\"mutationScore\"]:.2f}% ({m[\"killedMutants\"]}/{m[\"totalMutants\"]})\n') for family,m in sorted(d.get('byFamily',{}).items())]" 2>/dev/null || true
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Test Performance" >> $GITHUB_STEP_SUMMARY
           if [ -f build/reports/maintainability/test-performance/median.json ]; then
-            TESTS=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/test-performance/median.json')); print(d.get('totalTestCount','?'))" 2>/dev/null || echo "?")
-            DURATION=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/test-performance/median.json')); print(f'{d.get(\"totalDurationMs\",0)/1000:.1f}s')" 2>/dev/null || echo "?")
-            echo "- **Total tests:** $TESTS" >> $GITHUB_STEP_SUMMARY
-            echo "- **Aggregate median:** $DURATION" >> $GITHUB_STEP_SUMMARY
+            COUNT=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/test-performance/median.json')); print(d.get('totalTestCount','?'))" 2>/dev/null || echo "?")
+            DURATION=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/test-performance/median.json')); print(f'{d.get(\"totalDurationMs\",0)}ms')" 2>/dev/null || echo "?")
+            echo "- **Total tests:** $COUNT" >> $GITHUB_STEP_SUMMARY
+            echo "- **Median duration:** $DURATION" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
