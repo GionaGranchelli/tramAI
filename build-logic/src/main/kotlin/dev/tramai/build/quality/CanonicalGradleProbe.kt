@@ -621,15 +621,15 @@ class CanonicalGradleProbe(
                         'info.solidsoft.gradle.pitest.PitestPlugin'
                     )
                     measuredProject.pluginManager.apply(pluginClass)
-                    measuredProject.extensions.configure('pitest') {
-                        targetClasses.set(familyTargetClasses)
-                        targetTests.set(familyTargetTests)
-                        outputFormats.set(['XML', 'HTML'] as Set)
-                        timestampedReports.set(false)
-                        failWhenNoMutations.set(true)
-                        threads.set(2)
+                    measuredProject.extensions.configure('pitest') { pitestExt ->
+                        pitestExt.targetClasses.set(familyTargetClasses)
+                        pitestExt.targetTests.set(familyTargetTests)
+                        pitestExt.outputFormats.set(['XML', 'HTML'] as Set)
+                        pitestExt.timestampedReports.set(false)
+                        pitestExt.failWhenNoMutations.set(true)
+                        pitestExt.threads.set(2)
                         def moduleSlug = measuredProject.path.substring(1).replace(':', '_')
-                        reportDir.set(new File(outputRoot, selectedFamily + '/' + moduleSlug))
+                        pitestExt.reportDir.set(new File(outputRoot, selectedFamily + '/' + moduleSlug))
                     }
                     mutationTasks << measuredProject.tasks.named('pitest')
                 }
