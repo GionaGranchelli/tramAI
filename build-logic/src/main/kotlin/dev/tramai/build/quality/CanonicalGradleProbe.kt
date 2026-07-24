@@ -616,21 +616,23 @@ class CanonicalGradleProbe(
 
             gradle.beforeProject { measuredProject ->
                 if (!(measuredProject.path in selectedModules)) return
-                def pluginClass = initscript.classLoader.loadClass(
-                    'info.solidsoft.gradle.pitest.PitestPlugin'
-                )
-                measuredProject.pluginManager.apply(pluginClass)
-                measuredProject.extensions.configure('pitest') {
-                    targetClasses.set(familyTargetClasses)
-                    targetTests.set(familyTargetTests)
-                    outputFormats.set(['XML', 'HTML'] as Set)
-                    timestampedReports.set(false)
-                    failWhenNoMutations.set(true)
-                    threads.set(2)
-                    def moduleSlug = measuredProject.path.substring(1).replace(':', '_')
-                    reportDir.set(new File(outputRoot, selectedFamily + '/' + moduleSlug))
+                measuredProject.plugins.withId('java') {
+                    def pluginClass = initscript.classLoader.loadClass(
+                        'info.solidsoft.gradle.pitest.PitestPlugin'
+                    )
+                    measuredProject.pluginManager.apply(pluginClass)
+                    measuredProject.extensions.configure('pitest') {
+                        targetClasses.set(familyTargetClasses)
+                        targetTests.set(familyTargetTests)
+                        outputFormats.set(['XML', 'HTML'] as Set)
+                        timestampedReports.set(false)
+                        failWhenNoMutations.set(true)
+                        threads.set(2)
+                        def moduleSlug = measuredProject.path.substring(1).replace(':', '_')
+                        reportDir.set(new File(outputRoot, selectedFamily + '/' + moduleSlug))
+                    }
+                    mutationTasks << measuredProject.tasks.named('pitest')
                 }
-                mutationTasks << measuredProject.tasks.named('pitest')
             }
 
             gradle.projectsEvaluated {
