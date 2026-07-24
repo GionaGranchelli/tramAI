@@ -144,10 +144,19 @@ class MutationBaselineVerifier(
             // Step 2: Deduplicate mutants by stable identity across all reports.
             // This prevents double-counting in overall/byModule totals when the
             // same mutant appears in multiple overlapping target families.
-            val seenIdentities = mutableSetOf<String>()
-            val all = reports.flatMap { it.mutants }.filter { mutant ->
-                mutant.identity.isNotBlank() && seenIdentities.add(mutant.identity)
-            }
+            val all = reports.flatMap { it.mutants }
+                .filter { it.identity.isNotBlank() }
+                .groupBy { it.identity }
+                .map { (_, records) ->
+                    // Conservative precedence: NO_COVERAGE > SURVIVED > TIMED_OUT > KILLED
+                    val precedence = mapOf(
+                        "NO_COVERAGE" to 4,
+                        "SURVIVED" to 3,
+                        "TIMED_OUT" to 2,
+                        "KILLED" to 1
+                    )
+                    records.maxByOrNull { precedence[it.status] ?: 0 } ?: records.first()
+                }
 
             // Step 3: Build byModule from the deduplicated list.
             val byModule = all.groupBy { it.module }.toSortedMap().mapValues { (module, records) ->

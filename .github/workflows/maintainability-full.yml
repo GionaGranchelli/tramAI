@@ -31,18 +31,25 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Generate Full Baseline (if requested)
+      - name: Create v0.5.0 worktree
         if: inputs.generate-baseline
-        run: ./gradlew generateFullMaintainabilityBaseline --no-daemon
+        run: git worktree add "$RUNNER_TEMP/tramai-v050" v0.5.0
+
+      - name: Generate canonical v0.5.0 baseline
+        if: inputs.generate-baseline
+        run: |
+          ./gradlew generateCanonicalMaintainabilityBaseline \
+            -Pmaintainability.sourceRoot="$RUNNER_TEMP/tramai-v050" \
+            --no-daemon
+
+      - name: Commit generated baseline
+        if: inputs.generate-baseline
+        run: |
+          git add config/quality/0.6.0-baseline.json
+          git diff --staged --quiet || git commit -m "build(0.6.0): capture canonical v0.5.0 baseline with test-quality measurements"
 
       - name: Full Verification
         run: ./gradlew verifyFullMaintainabilityBaseline --no-daemon
-
-      - name: Generate Source Metrics
-        run: ./gradlew generateSourceMetrics --no-daemon
-
-      - name: Generate Dependency Graph
-        run: ./gradlew generateResolvedDependencyGraph --no-daemon
 
       - name: Upload All Reports
         if: always()

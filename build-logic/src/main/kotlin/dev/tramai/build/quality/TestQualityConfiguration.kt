@@ -129,6 +129,9 @@ data class TestQualityConfiguration(
                 if (modules.isEmpty()) {
                     throw GradleException("mutation.targetFamilies.$family.modules must not be empty")
                 }
+                if (modules.size != modules.distinct().size) {
+                    throw GradleException("mutation.targetFamilies.$family.modules must not contain duplicates")
+                }
                 val targetClasses = if ("targetClasses" in familyMap) {
                     strings(familyMap["targetClasses"], "mutation.targetFamilies.$family.targetClasses")
                 } else {
@@ -138,6 +141,12 @@ data class TestQualityConfiguration(
                     strings(familyMap["targetTests"], "mutation.targetFamilies.$family.targetTests")
                 } else {
                     listOf("dev.tramai.*")
+                }
+                if (targetClasses.isEmpty()) {
+                    throw GradleException("mutation.targetFamilies.$family.targetClasses must not be empty when specified")
+                }
+                if (targetTests.isEmpty()) {
+                    throw GradleException("mutation.targetFamilies.$family.targetTests must not be empty when specified")
                 }
                 if (targetClasses.size != targetClasses.distinct().size) {
                     throw GradleException("mutation.targetFamilies.$family.targetClasses must not contain duplicate patterns")

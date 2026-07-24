@@ -197,4 +197,73 @@ class CanonicalProbeFunctionalTest {
         ),
         survivingMutants = emptyList()
     )
+
+    // ── Multi-project Gradle Fixture Tests ──
+
+    private val fixtureResourceDir = "canonical-probe-fixture"
+
+    /**
+     * Copies a test resource directory recursively to a temp location.
+     */
+    private fun copyFixtureToDir(targetDir: File) {
+        val resourceDir = File(
+            javaClass.classLoader.getResource(fixtureResourceDir)!!.toURI()
+        )
+        resourceDir.copyRecursively(targetDir, overwrite = true)
+    }
+
+    @Test
+    fun `canonical probe fixture exists and has expected structure`(@TempDir tempDir: File) {
+        copyFixtureToDir(tempDir)
+
+        // Verify the top-level build files
+        assertTrue(File(tempDir, "settings.gradle.kts").isFile, "settings.gradle.kts should exist")
+        assertTrue(File(tempDir, "build.gradle.kts").isFile, "build.gradle.kts should exist")
+
+        // Verify lib-core structure
+        assertTrue(File(tempDir, "lib-core/build.gradle.kts").isFile, "lib-core/build.gradle.kts should exist")
+        assertTrue(File(tempDir, "lib-core/src/main/java/com/example/Core.java").isFile, "Core.java should exist")
+        assertTrue(File(tempDir, "lib-core/src/test/java/com/example/CoreTest.java").isFile, "CoreTest.java should exist")
+
+        // Verify lib-extra structure
+        assertTrue(File(tempDir, "lib-extra/build.gradle.kts").isFile, "lib-extra/build.gradle.kts should exist")
+        assertTrue(File(tempDir, "lib-extra/src/main/java/com/example/Extra.java").isFile, "Extra.java should exist")
+        assertTrue(File(tempDir, "lib-extra/src/test/java/com/example/ExtraTest.java").isFile, "ExtraTest.java should exist")
+
+        // Verify Gradle wrapper properties
+        assertTrue(File(tempDir, "gradle/wrapper/gradle-wrapper.properties").isFile, "gradle-wrapper.properties should exist")
+
+        // Verify test-quality config
+        assertTrue(File(tempDir, "config/quality/test-quality.yml").isFile, "test-quality.yml should exist")
+    }
+
+    @Test
+    fun `canonical probe fixture can be compiled`(@TempDir tempDir: File) {
+        copyFixtureToDir(tempDir)
+
+        // Run gradle compile tasks for lib-core using the system gradle
+        val process = ProcessBuilder(
+            listOf("gradle", ":lib-core:compileJava", ":lib-core:compileTestJava", "--no-daemon", "--console=plain")
+        )
+            .directory(tempDir)
+            .redirectErrorStream(true)
+            .start()
+
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        val exitCode = process.waitFor()
+
+        assertTrue(exitCode == 0, "Gradle build failed with exit code $exitCode\n$output")
+    }
+
+    @Test
+    fun `canonical probe fixture modules are discoverable`(@TempDir tempDir: File) {
+        copyFixtureToDir(tempDir)
+
+        val context = MeasurementContext.fromDirectory(tempDir)
+        val modulePaths = context.modules.map { it.path }.toSet()
+
+        assertEquals(2, context.modules.size, "Should discover exactly 2 modules")
+        assertTrue(modulePaths.contains(":lib-core"), "Should contain :lib-core module")
+        assertTrue(modulePaths.contains(":lib-extra"), "Should contain :lib-extra module")
+    }
 }

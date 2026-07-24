@@ -267,6 +267,77 @@ class MutationBaselineVerifierTest {
         kotlin.test.assertEquals(3, engineMetrics.generated, "byModule should count 3 unique mutants, not 4")
     }
 
+    @Test
+    fun `order-independent dedup picks highest precedence status regardless of report order`() {
+        // Same identity appears in two reports with conflicting statuses.
+        // Precedence: NO_COVERAGE > SURVIVED > TIMED_OUT > KILLED
+
+        val identity = "shared-mutant-id"
+        val sharedSource = "Shared.kt"
+
+        fun record(status: String, family: String) = MutationRecord(
+            module = ":core", family = family, status = status,
+            sourceFile = sharedSource, className = "Shared", method = "calc",
+            line = 10, mutator = "VoidMethodCallMutator", description = "",
+            identity = identity
+        )
+
+        // Test KILLED vs SURVIVED → SURVIVED wins
+        val killed = record("KILLED", "policy")
+        val survived = record("SURVIVED", "approval")
+        val reportsOrderA = listOf(
+            ParsedMutationReport(":core", "policy", listOf(killed)),
+            ParsedMutationReport(":core", "approval", listOf(survived))
+        )
+        val reportsOrderB = listOf(
+            ParsedMutationReport(":core", "approval", listOf(survived)),
+            ParsedMutationReport(":core", "policy", listOf(killed))
+        )
+
+        val resultA = MutationBaselineVerifier.aggregate(reportsOrderA)
+        val resultB = MutationBaselineVerifier.aggregate(reportsOrderB)
+
+        kotlin.test.assertEquals(1, resultA.totalMutants, "should still deduplicate to 1 mutant")
+        kotlin.test.assertEquals(1, resultB.totalMutants, "should still deduplicate to 1 mutant")
+        kotlin.test.assertEquals(0, resultA.killedMutants, "SURVIVED wins over KILLED")
+        kotlin.test.assertEquals(0, resultB.killedMutants, "SURVIVED wins over KILLED — order-independent")
+        kotlin.test.assertEquals(1, resultA.survivedMutants, "SURVIVED should be counted")
+        kotlin.test.assertEquals(1, resultB.survivedMutants, "SURVIVED should be counted — order-independent")
+
+        // Test NO_COVERAGE vs SURVIVED → NO_COVERAGE wins
+        val noCoverage = record("NO_COVERAGE", "evidence")
+        val reportsNoCov = listOf(
+            ParsedMutationReport(":core", "approval", listOf(survived)),
+            ParsedMutationReport(":core", "evidence", listOf(noCoverage))
+        )
+        val resultNoCov = MutationBaselineVerifier.aggregate(reportsNoCov)
+        kotlin.test.assertEquals(1, resultNoCov.totalMutants, "should still deduplicate to 1 mutant")
+        kotlin.test.assertEquals(0, resultNoCov.killedMutants, "NO_COVERAGE wins over SURVIVED")
+        kotlin.test.assertEquals(0, resultNoCov.survivedMutants, "mutant with NO_COVERAGE is not in survivors list")
+
+        // Test TIMED_OUT vs KILLED → TIMED_OUT wins
+        val timedOut = record("TIMED_OUT", "routing")
+        val reportsTimedOut = listOf(
+            ParsedMutationReport(":core", "routing", listOf(timedOut)),
+            ParsedMutationReport(":core", "policy", listOf(killed))
+        )
+        val resultTimedOut = MutationBaselineVerifier.aggregate(reportsTimedOut)
+        kotlin.test.assertEquals(1, resultTimedOut.totalMutants, "should still deduplicate to 1 mutant")
+        kotlin.test.assertEquals(0, resultTimedOut.killedMutants, "TIMED_OUT wins over KILLED")
+
+        // Test all four statuses together → NO_COVERAGE wins
+        val allStatuses = listOf(
+            ParsedMutationReport(":core", "policy", listOf(record("KILLED", "policy"))),
+            ParsedMutationReport(":core", "approval", listOf(record("SURVIVED", "approval"))),
+            ParsedMutationReport(":core", "routing", listOf(record("TIMED_OUT", "routing"))),
+            ParsedMutationReport(":core", "evidence", listOf(record("NO_COVERAGE", "evidence")))
+        )
+        val resultAll = MutationBaselineVerifier.aggregate(allStatuses)
+        kotlin.test.assertEquals(1, resultAll.totalMutants, "all statuses should deduplicate to 1 mutant")
+        kotlin.test.assertEquals(0, resultAll.killedMutants, "NO_COVERAGE wins over all")
+        kotlin.test.assertEquals(0, resultAll.survivedMutants, "NO_COVERAGE mutant is not in survivors")
+    }
+
     private fun data(score: Double) = MutationData(
         status = "measured",
         totalMutants = 10,

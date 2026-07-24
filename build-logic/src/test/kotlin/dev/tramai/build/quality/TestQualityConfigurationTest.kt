@@ -40,6 +40,21 @@ class TestQualityConfigurationTest {
     }
 
     @Test
+    fun `duplicate modules in mutation target family are rejected`() {
+        assertInvalid(validYaml().replace("modules: [\":engine\"]", "modules: [\":engine\", \":engine\"]"))
+    }
+
+    @Test
+    fun `empty targetClasses list is rejected`() {
+        assertInvalid(validYaml().replace("modules: [\":engine\"]", "modules: [\":engine\"]\n              targetClasses: []"))
+    }
+
+    @Test
+    fun `empty targetTests list is rejected`() {
+        assertInvalid(validYaml().replace("modules: [\":engine\"]", "modules: [\":engine\"]\n              targetTests: []"))
+    }
+
+    @Test
     fun `absolute exclusions are rejected`() {
         assertInvalid(validYaml().replace("**/model/**", "/home/user/model"))
     }
