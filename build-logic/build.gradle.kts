@@ -29,6 +29,17 @@ tasks.test {
     }
 }
 
+val canonicalProbeIntegrationTest by tasks.registering(Test::class) {
+    useJUnitPlatform {
+        includeTags("integration")
+    }
+    shouldRunAfter(tasks.test)
+}
+
+tasks.withType<Test>().configureEach {
+    systemProperty("tramai.repositoryRoot", rootProject.projectDir.absolutePath)
+}
+
 gradlePlugin {
     plugins {
         create("maintainabilityBaseline") {

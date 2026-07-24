@@ -19,22 +19,62 @@ mutation:
   targetFamilies:
     policy:
       modules: [":tramai-security", ":tramai-sovereign"]
-      targetClasses: ["dev.tramai.security.*", "dev.tramai.sovereign.*"]
+      targetClasses:
+        - "dev.tramai.security.DefaultPolicyEngine"
+        - "dev.tramai.security.PolicyConfiguration"
+        - "dev.tramai.security.ProviderRoutingConfiguration"
+        - "dev.tramai.security.RuleBasedDlpInterceptor"
+        - "dev.tramai.security.audit.*"
+        - "dev.tramai.security.classification.*"
+        - "dev.tramai.security.model.*"
+        - "dev.tramai.security.verification.*"
+        - "dev.tramai.sovereign.SovereignDeploymentMode"
+        - "dev.tramai.sovereign.SovereignProfileConfiguration"
+        - "dev.tramai.sovereign.SovereignTramai"
     approval:
-      modules: [":tramai-sovereign"]
-      targetClasses: ["dev.tramai.sovereign.*"]
+      modules: [":tramai-security", ":tramai-engine"]
+      targetClasses:
+        - "dev.tramai.security.approval.*"
+        - "dev.tramai.engine.approval.*"
     routing:
       modules: [":tramai-engine"]
-      targetClasses: ["dev.tramai.engine.*"]
+      targetClasses:
+        - "dev.tramai.engine.TramaiEngine"
+        - "dev.tramai.engine.ModelRegistryEnforcer"
+        - "dev.tramai.engine.TokenBudgetSettings"
+        - "dev.tramai.engine.EngineExecutionIdentity"
+        - "dev.tramai.engine.ExecutionSecurityContext"
+        - "dev.tramai.engine.SensitiveReplayEnvelope"
+        - "dev.tramai.engine.ReplayEnvelopeFactory"
+        - "dev.tramai.engine.ReplayEnvelopeDigestHelper"
+        - "dev.tramai.engine.WorkflowDigestHelper"
+        - "dev.tramai.engine.ResumeOperationRegistry"
+        - "dev.tramai.engine.ResumeOperationReference"
+        - "dev.tramai.engine.ResumeDefinitionDigestHelper"
+        - "dev.tramai.engine.SuspendedInvocationStore"
+        - "dev.tramai.engine.InMemorySuspendedInvocationStore"
+        - "dev.tramai.engine.OperationResponseCache"
+        - "dev.tramai.engine.InMemoryOperationResponseCache"
+        - "dev.tramai.engine.EngineEventObserver"
     retry:
       modules: [":tramai-engine"]
-      targetClasses: ["dev.tramai.engine.*"]
+      targetClasses:
+        - "dev.tramai.engine.RetryPolicySettings"
+        - "dev.tramai.engine.CircuitBreakerSettings"
+        - "dev.tramai.engine.LegacyPermissivePolicyEngine"
+        - "dev.tramai.engine.PolicyEnforcementHelper"
     tools:
-      modules: [":tramai-engine", ":tramai-security"]
-      targetClasses: ["dev.tramai.engine.tools.*", "dev.tramai.security.tools.*", "dev.tramai.engine.*"]
+      modules: [":tramai-engine"]
+      targetClasses:
+        - "dev.tramai.engine.ToolRegistry"
+        - "dev.tramai.engine.ToolResultFilteringSettings"
+        - "dev.tramai.engine.CanonicalMessageEncoder"
     evidence:
-      modules: [":tramai-sovereign"]
-      targetClasses: ["dev.tramai.sovereign.*"]
+      modules: [":tramai-sovereign", ":tramai-engine", ":tramai-security"]
+      targetClasses:
+        - "dev.tramai.sovereign.evidence.*"
+        - "dev.tramai.engine.evidence.*"
+        - "dev.tramai.security.evidence.*"
     structuredOutput:
       modules: [":tramai-structured"]
       targetClasses: ["dev.tramai.structured.*"]
