@@ -522,6 +522,7 @@ class CanonicalGradleProbe(
                     def modulePath = measuredProject.path.substring(1).replace(':', '/')
                     def moduleSlug = measuredProject.path.substring(1).replace(':', '_')
                     def testTask = measuredProject.tasks.named('test', Test)
+                    def execFile = new File(binaryResultsRoot, measuredRun + '/' + moduleSlug + '.exec')
                     testTask.configure {
                         reports.junitXml.required.set(true)
                         reports.junitXml.outputLocation.set(
@@ -530,6 +531,9 @@ class CanonicalGradleProbe(
                         binaryResultsDirectory.set(
                             new File(binaryResultsRoot, measuredRun + '/' + modulePath)
                         )
+                        jacoco {
+                            destinationFile = execFile
+                        }
                     }
                     def sourceSets = measuredProject.extensions
                         .getByType(JavaPluginExtension).sourceSets
@@ -538,7 +542,7 @@ class CanonicalGradleProbe(
                         JacocoReport
                     ) {
                         dependsOn(testTask)
-                        executionData(testTask)
+                        executionData(execFile)
                         sourceDirectories.from(sourceSets.getByName('main').allSource.srcDirs)
                         // Filter class directories to exclude patterns
                         def filteredDirs = sourceSets.getByName('main').output.classesDirs.files.findAll { file ->
