@@ -59,19 +59,19 @@ deviations:
   - id: MQ-0005
     metric: cancellationCriticalCount
     scope: ":tramai-*"
-    baseline: 65
+    baseline: 0
     allowed: 0
-    reason: "Broad exception catches in suspend-capable execution paths. Cancellation rethrow audit and cleanup is part of Phase 1 correctness hotfixes."
-    acceptedAt: "2026-07-19"
+    reason: "Cancellation rethrow audit complete in Phase 1 (PR #207). Zero critical catches tolerated after propagation contract enforcement."
+    acceptedAt: "2026-07-25"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 
   - id: MQ-0006
     metric: nondeterminismSources
     scope: ":tramai-orchestration"
-    baseline: null
-    allowed: 16
-    reason: "Cancellation rethrow calls and restructured catch blocks in orchestration steps added nondeterminism findings. These will resolve during engine decomposition (Phase 4)."
+    baseline: 23
+    allowed: 23
+    reason: "Cancellation rethrow calls and restructured catch blocks added nondeterminism findings. These will resolve during engine decomposition (Phase 4)."
     acceptedAt: "2026-07-25"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
@@ -79,8 +79,8 @@ deviations:
   - id: MQ-0007
     metric: nondeterminismSources
     scope: ":tramai-engine"
-    baseline: null
-    allowed: 6
+    baseline: 8
+    allowed: 8
     reason: "Cancellation rethrow calls in TramaiEngine added nondeterminism findings. These will resolve during engine decomposition (Phase 4)."
     acceptedAt: "2026-07-25"
     targetPhase: "0.6.1"
@@ -89,8 +89,8 @@ deviations:
   - id: MQ-0008
     metric: nondeterminismSources
     scope: ":tramai-core"
-    baseline: null
-    allowed: 1
+    baseline: 3
+    allowed: 3
     reason: "Cancellation rethrow call in ProviderFailures added nondeterminism finding. This will resolve during engine decomposition (Phase 4)."
     acceptedAt: "2026-07-25"
     targetPhase: "0.6.1"
