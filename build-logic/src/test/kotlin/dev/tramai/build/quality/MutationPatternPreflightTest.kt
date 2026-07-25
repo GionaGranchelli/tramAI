@@ -73,7 +73,7 @@ class MutationPatternPreflightTest {
         "tramai-core" to setOf(
             "dev.tramai.core.provider.ProviderRegistry",
             "dev.tramai.core.provider.ModelProvider",
-            "dev.tramai.core.provider.ProviderFailures"
+            "dev.tramai.core.provider.ProviderFailuresKt"
         ),
         "tramai-engine" to setOf(
             "dev.tramai.engine.TramaiEngine",
@@ -81,6 +81,8 @@ class MutationPatternPreflightTest {
             "dev.tramai.engine.ToolRegistry",
             "dev.tramai.engine.RetryPolicySettings",
             "dev.tramai.engine.CircuitBreakerSettings",
+            "dev.tramai.engine.ProviderCircuitBreaker",
+            "dev.tramai.engine.ProviderRetryDelayPolicy",
             "dev.tramai.engine.LegacyPermissivePolicyEngine",
             "dev.tramai.engine.PolicyEnforcementHelper",
             "dev.tramai.engine.ToolResultFilteringSettings",
