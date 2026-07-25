@@ -23,12 +23,13 @@ class CoverageReportParserTest {
     }
 
     @Test
-    fun `missing branch counter fails`() {
-        assertFailsWith<GradleException> {
-            CoverageReportParser().parse(":core", xml(
-                """<report name="core"><counter type="LINE" missed="2" covered="8"/></report>"""
-            ))
-        }
+    fun `missing branch counter produces zero branch coverage`() {
+        val result = CoverageReportParser().parse(":core", xml(
+            """<report name="core"><counter type="LINE" missed="2" covered="8"/></report>"""
+        ))
+        assertEquals(0, result.branchesCovered)
+        assertEquals(0, result.branchesMissed)
+        assertEquals(0.0, result.branchCoverage)
     }
 
     @Test

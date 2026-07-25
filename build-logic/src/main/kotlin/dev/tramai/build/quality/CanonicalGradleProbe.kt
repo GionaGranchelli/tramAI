@@ -331,7 +331,7 @@ class CanonicalGradleProbe(
 
     private fun gitStatus(): String {
         val process = try {
-            ProcessBuilder("git", "status", "--porcelain")
+            ProcessBuilder("git", "status", "--porcelain", "--untracked-files=no")
                 .directory(sourceRoot)
                 .redirectErrorStream(true)
                 .start()

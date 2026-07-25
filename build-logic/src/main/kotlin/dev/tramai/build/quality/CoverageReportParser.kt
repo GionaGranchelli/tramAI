@@ -21,13 +21,17 @@ class CoverageReportParser {
             .mapNotNull { root.childNodes.item(it) as? Element }
             .filter { it.tagName == "counter" }
             .associateBy { it.getAttribute("type") }
-        val line = counters["LINE"] ?: throw GradleException("JaCoCo report for $module has no LINE counter")
-        val branch = counters["BRANCH"] ?: throw GradleException("JaCoCo report for $module has no BRANCH counter")
+        // LINE and BRANCH counters may be absent when JaCoCo excludes all
+        // classes or a module has no branches. The caller (CoverageCollector)
+        // handles the zero-coverage case with a clear "zero executable lines"
+        // message.
+        val line = counters["LINE"]
+        val branch = counters["BRANCH"]
 
-        val lineCovered = counter(line, "covered", module)
-        val lineMissed = counter(line, "missed", module)
-        val branchCovered = counter(branch, "covered", module)
-        val branchMissed = counter(branch, "missed", module)
+        val lineCovered = line?.let { counter(it, "covered", module) } ?: 0
+        val lineMissed = line?.let { counter(it, "missed", module) } ?: 0
+        val branchCovered = branch?.let { counter(it, "covered", module) } ?: 0
+        val branchMissed = branch?.let { counter(it, "missed", module) } ?: 0
         val lineTotal = lineCovered + lineMissed
         val branchTotal = branchCovered + branchMissed
         return ModuleCoverage(
