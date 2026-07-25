@@ -1,5 +1,6 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -7,6 +8,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -88,6 +91,7 @@ internal suspend fun executeAgentCli(
                     }
                 }
             } catch (_: TimeoutCancellationException) {
+                currentCoroutineContext().ensureActive()
                 terminateAgentProcessTree(process, ioDispatcher)
                 throw AgentCliTimeoutException(timeoutSeconds)
             }
@@ -217,9 +221,7 @@ internal fun AgentCliExecution.describeNonZeroExit(): String {
 }
 
 internal fun Throwable.rethrowAgentCancellation() {
-    if (this is CancellationException) {
-        throw this
-    }
+    rethrowIfCancellation()
 }
 
 private const val agentCliStreamChunkSize = 8_192

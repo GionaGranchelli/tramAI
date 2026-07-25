@@ -193,11 +193,22 @@ object KotlinCancellationCatchScanner {
 
     /** Check if the catch block rethrows CancellationException (within catch body, including nested blocks).
      *  Requires that the caught exception variable itself is rethrown AND the throw is inside the
-     *  same branch as the CancellationException check, not merely nearby. */
+     *  same branch as the CancellationException check, not merely nearby.
+     *  Also recognizes `catchVar.rethrowIfCancellation()` as a safe pattern. */
     private fun checkRethrowsCancellation(lines: List<String>, catchIdx: Int): Boolean {
         val catchVar = extractCatchVariable(lines[catchIdx]) ?: return false
         val catchBodyEnd = findCatchBodyEnd(lines, catchIdx)
         val end = minOf(catchBodyEnd, lines.size)
+
+        // Pattern: <catchVar>.rethrowIfCancellation() — extension-based cancellation rethrow
+        val rethrowIfCancellationPattern = Regex(
+            """\b${Regex.escape(catchVar)}\.rethrowIfCancellation\s*\(\s*\)"""
+        )
+
+        for (i in catchIdx + 1 until end) {
+            val stripped = stripComment(lines[i])
+            if (rethrowIfCancellationPattern.containsMatchIn(stripped)) return true
+        }
 
         // Pattern: throw <catchVar> (exact variable rethrow)
         val throwVarPattern = Regex("""\bthrow\s+${Regex.escape(catchVar)}\b""")

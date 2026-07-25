@@ -285,6 +285,8 @@ This phase is intentionally completed before large decomposition work.
 
 **Goal:** Make coroutine cancellation propagate consistently through every suspend boundary.
 
+**Status: ✅ Complete (PR #207)**
+
 ### Tasks
 
 1. Introduce one shared cancellation rethrow helper in the lowest appropriate module.

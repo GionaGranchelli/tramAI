@@ -60,7 +60,7 @@ deviations:
     metric: cancellationCriticalCount
     scope: ":tramai-*"
     baseline: 65
-    allowed: 72
+    allowed: 0
     reason: "Broad exception catches in suspend-capable execution paths. Cancellation rethrow audit and cleanup is part of Phase 1 correctness hotfixes."
     acceptedAt: "2026-07-19"
     targetPhase: "0.6.1"

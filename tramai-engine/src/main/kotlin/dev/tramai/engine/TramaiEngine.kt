@@ -73,6 +73,7 @@ import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.exception.ApprovalNotFoundException
 import dev.tramai.core.exception.ToolInvalidInputException
@@ -83,7 +84,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
@@ -799,6 +802,7 @@ internal class TramaiInvocationHandler(
         } catch (finished: StreamingRouteFinished) {
             finished.result
         } catch (error: TimeoutCancellationException) {
+            currentCoroutineContext().ensureActive()
             val timeout = TimeoutException(
                 message = buildTimeoutMessage(
                     providerId = route.providerName,
@@ -816,6 +820,7 @@ internal class TramaiInvocationHandler(
             observation.onCallCompleted(parseSuccess = null)
             throw error
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             val normalized = normalizeStreamingError(error, route.providerName, operation)
             observation.onProviderFailure(normalized)
             handleFallbackResult(normalized, emittedAnyTokens, route.providerName, observation)
@@ -1996,6 +2001,7 @@ internal class TramaiInvocationHandler(
                 enforceToolExposure(operation, correlationId, securityContext)
                 return callProviderWithRetries(providerRetryRequest(route, routeIndex, operation, messages, attemptCounter, correlationId, securityContext))
             } catch (error: Throwable) {
+                error.rethrowIfCancellation()
                 if (!shouldFallbackFrom(error)) {
                     throw error
                 }
@@ -2084,6 +2090,7 @@ internal class TramaiInvocationHandler(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
+                error.rethrowIfCancellation()
                 handleProviderRetryFailure(error, retry, attempt.observation, retryIndex, maxAttempts)
             }
         }
@@ -2690,8 +2697,9 @@ internal class TramaiInvocationHandler(
             provider.complete(request)
         }
     } catch (error: Throwable) {
-        throw when (error) {
-            is TimeoutCancellationException -> TimeoutException(
+        if (error is TimeoutCancellationException) {
+            currentCoroutineContext().ensureActive()
+            throw TimeoutException(
                 message = buildTimeoutMessage(
                     providerId = providerId,
                     operation = operation,
@@ -2699,7 +2707,9 @@ internal class TramaiInvocationHandler(
                 ),
                 cause = error,
             )
-
+        }
+        error.rethrowIfCancellation()
+        throw when (error) {
             is ProviderException -> error
 
             else -> ProviderException(

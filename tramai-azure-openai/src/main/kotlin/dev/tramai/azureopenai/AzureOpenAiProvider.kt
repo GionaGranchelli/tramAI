@@ -18,6 +18,7 @@ import dev.tramai.core.provider.applyTramaiTimeout
 import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
 import dev.tramai.core.provider.providerTransportFailure
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
@@ -149,6 +150,7 @@ class AzureOpenAiProvider @JvmOverloads constructor(
 
             mapResponse(objectMapper.readTree(response.body()))
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             throw providerTransportFailure(PROVIDER_ID, error)
         }
     }
@@ -240,6 +242,7 @@ class AzureOpenAiProvider @JvmOverloads constructor(
             }
             emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             emit(StreamChunk.Error(providerTransportFailure(PROVIDER_ID, e)))
         }
     }

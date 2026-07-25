@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Coroutine cancellation correctness (PR #207). Introduced shared `rethrowIfCancellation()` extension in `tramai-core`. Added rethrow calls across all 7 provider adapters (OpenAI, Anthropic, Bedrock, Gemini, Ollama, DeepSeek, AzureOpenAI), engine execution (TramaiEngine, TramaiWorker), workflow steps (ShellStep, McpStep, HttpStep, Workflow), AgentCliSupport, JdbcWorkflowLeaseStore, and ProviderFailures. Extended `KotlinCancellationCatchScanner` to recognize `rethrowIfCancellation()` as a safe pattern. Added `ensureActive()` calls before `TimeoutCancellationException` to domain-exception mapping in TramaiEngine, ShellStep, McpStep, and AgentCliSupport. Created `CancellationContractTest` and `KotlinCancellationCatchScannerTest` additions. Updated MQ-0005 deviation from 72 to 0. Marked Epic 1.1 complete in ROADMAP-0.6.0.md.
+
 - Canonical public API and resolved dependency baseline (PR #205). Replaced filesystem-only API dump discovery with module-catalog-aware probe. Replaced cache-path dependency parsing with Gradle's `Configuration.incoming.resolutionResult` traversal. New `ApiBaselineVerifier` and `DependencyBaselineVerifier` with 12 typed diagnostic codes. New `CanonicalGradleProbe` for isolated worktree measurement. Zero runtime changes.
 
 ## 0.5.0 - 2026-07-16

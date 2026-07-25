@@ -1,16 +1,18 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StdioClientTransport
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -134,6 +136,7 @@ internal class SubprocessMcpTransportProvider : McpTransportProvider {
                 }
                 .start()
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             throw WorkflowMcpException(
                 stepName = "<transport>",
                 message = "failed to start MCP server: ${error.message ?: error::class.java.simpleName}",
@@ -340,6 +343,7 @@ internal data class McpWorkflowStep<S>(
                 }
             }
         } catch (error: TimeoutCancellationException) {
+            currentCoroutineContext().ensureActive()
             throw WorkflowMcpException(
                 stepName = name,
                 message = "timed out after ${config.timeoutSeconds}s",
@@ -504,12 +508,6 @@ private fun List<String>.commandIdentifiers(): Set<String> {
     return buildSet {
         add(executable)
         add(fileName)
-    }
-}
-
-private fun Throwable.rethrowIfCancellation() {
-    if (this is CancellationException) {
-        throw this
     }
 }
 

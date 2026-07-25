@@ -15,6 +15,7 @@ import dev.tramai.core.provider.applyTramaiTimeout
 import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
 import dev.tramai.core.provider.providerTransportFailure
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
@@ -88,6 +89,7 @@ class OllamaProvider(
                 },
             )
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             throw providerTransportFailure("Ollama", error)
         }
     }
@@ -185,6 +187,7 @@ class OllamaProvider(
             }
             emit(dev.tramai.core.model.StreamChunk.Complete(fullText.toString(), lastUsage ?: dev.tramai.core.model.UsageMetrics()))
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             emit(dev.tramai.core.model.StreamChunk.Error(providerTransportFailure("Ollama", e)))
         }
     }

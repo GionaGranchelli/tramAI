@@ -1,5 +1,6 @@
 package dev.tramai.core.provider
 
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.model.ModelRequest
 import java.io.IOException
@@ -51,7 +52,9 @@ fun logProviderHttpFailureDebug(
 fun providerTransportFailure(
     providerName: String,
     error: Throwable,
-): ProviderException = when (error) {
+): ProviderException {
+    error.rethrowIfCancellation()
+    return when (error) {
     is ProviderException -> error
     is HttpTimeoutException -> ProviderException(
         message = "$providerName request timed out: ${error.message ?: error::class.simpleName}",

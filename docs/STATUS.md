@@ -95,6 +95,8 @@ Summary:
 | Sovereign document intelligence example | Implemented |
 | OpenTelemetry observability (spans, metrics, opt-in) | Implemented |
 | Orchestration (typed workflows, checkpoints, worker pools) | Implemented / evolving |
+| Coroutine cancellation correctness (all providers, engine, workflow steps, tools) | ✅ Complete (PR #207) |
+| Cancellation rethrow static analysis (KotlinCancellationCatchScanner) | ✅ Complete (PR #207) |
 | RAG (ingestion, chunking, embeddings, vector stores) | Implemented / evolving |
 | Chat memory (token-aware, persistent) | Implemented / evolving |
 | MCP adapter | Implemented / evolving |

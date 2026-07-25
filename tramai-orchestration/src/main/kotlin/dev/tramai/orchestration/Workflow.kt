@@ -1,4 +1,5 @@
 package dev.tramai.orchestration
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -280,6 +281,7 @@ class Workflow<S, R> internal constructor(
             )
             throw suspended
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             persistenceSession?.runCatchingAbort(error)
             observer.onWorkflowFailed(name, error, context)
             throw error
@@ -359,6 +361,7 @@ class Workflow<S, R> internal constructor(
             )
             throw suspended
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             persistenceSession.runCatchingAbort(error)
             observer.onWorkflowFailed(name, error, context)
             throw error
@@ -540,6 +543,7 @@ class Workflow<S, R> internal constructor(
                 )
             }
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             observer.onStepFailed(name, step.name, error, context)
             throw error
         }

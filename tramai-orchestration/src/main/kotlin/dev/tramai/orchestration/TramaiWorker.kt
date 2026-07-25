@@ -1,5 +1,6 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -343,6 +344,7 @@ class TramaiWorker(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
+                error.rethrowIfCancellation()
                 observability.onPollFailed(config.workerId, error)
                 delay(maxOf(100L, config.pollIntervalMillis))
             }
@@ -514,6 +516,7 @@ class TramaiWorker(
             }
             throw error
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             executionFailures[checkpoint.workflowId] = error
             tracker.failActiveAttempt(error)
             releaseLease(handle)
@@ -541,6 +544,7 @@ class TramaiWorker(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
+                error.rethrowIfCancellation()
                 observability.onLeaseRenewalFailed(handle.workflowId, config.workerId, error)
                 nextDelayMillis = maxOf(50L, interval / 2)
                 continue
@@ -557,6 +561,7 @@ class TramaiWorker(
             leaseStore.release(lease)
             observability.onLeaseReleased(handle.workflowId, config.workerId)
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             observability.onLeaseReleaseFailed(handle.workflowId, config.workerId, error)
         }
     }
@@ -794,6 +799,7 @@ private class ExecutionTracker(
                     this@ExecutionTracker.block()
                     Result.success(Unit)
                 } catch (error: Throwable) {
+                    error.rethrowIfCancellation()
                     Result.failure(error)
                 }
             }

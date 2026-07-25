@@ -290,6 +290,83 @@ class KotlinCancellationCatchScannerTest {
     }
 
     @Test
+    fun `rethrowIfCancellation extension is recognized as accepted`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation()
+                    handleError(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() should be recognized as accepted risk")
+    }
+
+    @Test
+    fun `rethrowIfCancellation with different variable name is recognized`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (error: Throwable) {
+                    error.rethrowIfCancellation()
+                    throw ProviderException(error)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() with different variable name should be accepted")
+    }
+
+    @Test
+    fun `rethrowIfCancellation with trailing whitespace in parens is recognized`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation( )
+                    handleError(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() with whitespace should be accepted")
+    }
+
+    @Test
+    fun `different variable rethrowIfCancellation is not accepted`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    val other = RuntimeException()
+                    other.rethrowIfCancellation()
+                    handleError(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertNotEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() on different variable should NOT be accepted")
+    }
+
+    @Test
     fun `throwing caught variable in unrelated condition is not accepted`() {
         val findings = KotlinCancellationCatchScanner.scan(
             """
