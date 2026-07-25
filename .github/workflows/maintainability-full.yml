@@ -35,7 +35,7 @@ jobs:
 
       - name: Run canonical probe integration tests
         if: inputs.generate-baseline
-        run: ./gradlew canonicalProbeIntegrationTest --no-daemon
+        run: ./gradlew :build-logic:canonicalProbeIntegrationTest --no-daemon
 
       - name: Create v0.5.0 worktree
         if: inputs.generate-baseline

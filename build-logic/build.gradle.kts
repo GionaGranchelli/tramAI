@@ -29,7 +29,11 @@ tasks.test {
     }
 }
 
+val testSourceSet = sourceSets.named("test")
 val canonicalProbeIntegrationTest by tasks.registering(Test::class) {
+    description = "Runs @Tag(integration) canonical probe end-to-end tests"
+    testClassesDirs = testSourceSet.get().output.classesDirs
+    classpath = testSourceSet.get().runtimeClasspath
     useJUnitPlatform {
         includeTags("integration")
     }
@@ -37,7 +41,8 @@ val canonicalProbeIntegrationTest by tasks.registering(Test::class) {
 }
 
 tasks.withType<Test>().configureEach {
-    systemProperty("tramai.repositoryRoot", rootProject.projectDir.absolutePath)
+    systemProperty("tramai.repositoryRoot", rootProject.projectDir.parentFile.absolutePath)
+    systemProperty("tramai.buildLogicRoot", rootProject.projectDir.absolutePath)
 }
 
 gradlePlugin {

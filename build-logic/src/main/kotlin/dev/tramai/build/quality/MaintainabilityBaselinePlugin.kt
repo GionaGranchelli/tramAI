@@ -537,8 +537,16 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 // When probing a detached worktree, use CanonicalGradleProbe for API/dependency
                 // measurements. The generator handles structural/scanner data from directory mode.
                 val sourceRootFile = if (sourceRootProp != null) project.rootDir.resolve(sourceRootProp).normalize() else null
+                val outputDirProp = project.findProperty("maintainability.outputDir")?.toString()
+                val probeOutputDir = if (outputDirProp != null) {
+                    project.rootDir.resolve(outputDirProp).also { it.mkdirs() }
+                } else null
                 val canonicalProbe = sourceRootFile?.let {
-                    CanonicalGradleProbe(it, analyzerRoot = project.rootDir)
+                    CanonicalGradleProbe(
+                        sourceRoot = it,
+                        outputDir = probeOutputDir,
+                        analyzerRoot = project.rootDir
+                    )
                 }
                 val apiOverride: ApiBaseline? = if (sourceRootFile != null) {
                     val result = canonicalProbe!!.probeApiBaseline()
