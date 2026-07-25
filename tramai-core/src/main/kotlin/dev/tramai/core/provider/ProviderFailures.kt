@@ -75,6 +75,7 @@ fun providerTransportFailure(
         message = "$providerName failed: ${error.message ?: error::class.simpleName}",
         cause = error,
     )
+    }
 }
 
 private fun isRetryableStatus(statusCode: Int): Boolean = statusCode in setOf(408, 425, 429, 500, 502, 503, 504)

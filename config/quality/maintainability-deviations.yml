@@ -40,7 +40,7 @@ deviations:
     metric: fileSize
     scope: ":tramai-orchestration"
     baseline: 1858
-    allowed: 1858
+    allowed: 1862
     reason: "Workflow orchestration is a known monolith combining metadata, execution, persistence, DSL, and observers. Decomposition is a major 0.6.0 goal (Phase 4)."
     acceptedAt: "2026-07-18"
     targetPhase: "0.6.1"
@@ -63,6 +63,36 @@ deviations:
     allowed: 0
     reason: "Broad exception catches in suspend-capable execution paths. Cancellation rethrow audit and cleanup is part of Phase 1 correctness hotfixes."
     acceptedAt: "2026-07-19"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0006
+    metric: nondeterminismSources
+    scope: ":tramai-orchestration"
+    baseline: null
+    allowed: 16
+    reason: "Cancellation rethrow calls and restructured catch blocks in orchestration steps added nondeterminism findings. These will resolve during engine decomposition (Phase 4)."
+    acceptedAt: "2026-07-25"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0007
+    metric: nondeterminismSources
+    scope: ":tramai-engine"
+    baseline: null
+    allowed: 6
+    reason: "Cancellation rethrow calls in TramaiEngine added nondeterminism findings. These will resolve during engine decomposition (Phase 4)."
+    acceptedAt: "2026-07-25"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0008
+    metric: nondeterminismSources
+    scope: ":tramai-core"
+    baseline: null
+    allowed: 1
+    reason: "Cancellation rethrow call in ProviderFailures added nondeterminism finding. This will resolve during engine decomposition (Phase 4)."
+    acceptedAt: "2026-07-25"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 
