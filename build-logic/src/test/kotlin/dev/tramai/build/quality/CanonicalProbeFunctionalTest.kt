@@ -342,6 +342,13 @@ class CanonicalProbeFunctionalTest {
     private fun prepareFixtureForProbe(fixtureDir: File) {
         copyFixtureToDir(fixtureDir)
         installGradleWrapper(fixtureDir)
+        // .gitignore: written programmatically because Gradle's processTestResources
+        // excludes hidden files (dot-files) by default, so a .gitignore in the
+        // resource directory never makes it to the test classpath.
+        File(fixtureDir, ".gitignore").writeText("""
+            build/
+            .gradle/
+        """.trimIndent())
         gitInitAndCommit(fixtureDir)
     }
 

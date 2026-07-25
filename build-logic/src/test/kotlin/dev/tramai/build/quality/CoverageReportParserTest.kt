@@ -33,6 +33,18 @@ class CoverageReportParserTest {
     }
 
     @Test
+    fun `missing line counter produces zero line coverage`() {
+        val result = CoverageReportParser().parse(":core", xml(
+            """<report name="core"><counter type="BRANCH" missed="3" covered="7"/></report>"""
+        ))
+        assertEquals(0, result.linesCovered)
+        assertEquals(0, result.linesMissed)
+        assertEquals(0.0, result.lineCoverage)
+        // Branch coverage is still parsed when present
+        assertEquals(7, result.branchesCovered)
+    }
+
+    @Test
     fun `malformed XML fails`() {
         assertFailsWith<GradleException> {
             CoverageReportParser().parse(":core", xml("<report>"))
