@@ -18,29 +18,30 @@ mutation:
   regressionTolerancePercentagePoints: 1.0
   targetFamilies:
     policy:
-      modules: [":tramai-security", ":tramai-sovereign"]
+      modules: [":tramai-engine", ":tramai-security", ":tramai-sovereign"]
       targetClasses: ["dev.tramai.engine.LegacyPermissivePolicyEngine",
                       "dev.tramai.engine.PolicyEnforcementHelper",
                       "dev.tramai.security.DefaultPolicyEngine",
                       "dev.tramai.security.PolicyConfiguration",
-                      "dev.tramai.security.evidence.PolicyDecisionRuntimeEvidenceExporter",
                       "dev.tramai.security.audit.AuditEnginePolicyDecisionAuditEmitter",
-                      "dev.tramai.sovereign.*"]
+                      "dev.tramai.sovereign.SovereignDeploymentMode",
+                      "dev.tramai.sovereign.SovereignProfileConfiguration",
+                      "dev.tramai.sovereign.SovereignTramai"]
     approval:
       modules: [":tramai-security", ":tramai-engine"]
       targetClasses:
         - "dev.tramai.security.approval.*"
         - "dev.tramai.engine.approval.*"
     routing:
-      modules: [":tramai-engine"]
-      targetClasses: ["dev.tramai.engine.ModelRegistryEnforcer",
-                      "dev.tramai.engine.TokenBudgetSettings",
-                      "dev.tramai.engine.EngineExecutionIdentity",
-                      "dev.tramai.engine.ExecutionSecurityContext"]
+      modules: [":tramai-core", ":tramai-engine"]
+      targetClasses: ["dev.tramai.core.provider.ProviderRegistry",
+                      "dev.tramai.core.provider.ModelProvider",
+                      "dev.tramai.core.provider.ProviderFailures",
+                      "dev.tramai.engine.ModelRegistryEnforcer"]
     retry:
       modules: [":tramai-engine"]
-      targetClasses: ["dev.tramai.engine.RetryPolicySettings",
-                      "dev.tramai.engine.CircuitBreakerSettings"]
+      targetClasses: ["dev.tramai.engine.RetryPolicySettings*",
+                      "dev.tramai.engine.CircuitBreakerSettings*"]
     tools:
       modules: [":tramai-engine"]
       targetClasses:

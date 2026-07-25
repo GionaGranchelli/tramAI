@@ -37,7 +37,7 @@ class CanonicalGradleProbe(
     private val analyzerRoot: File? = null
 ) {
     private val outputDir = outputDir ?: Files.createTempDirectory("tramai-canonical-probe-").toFile()
-    private val gradleUserHome = File(this.outputDir, "gradle-user-home")
+    private val gradleUserHome = Files.createTempDirectory("tramai-canonical-gradle-").toFile()
 
     init {
         require(sourceRoot.isDirectory) { "Canonical probe source root is not a directory: $sourceRoot" }

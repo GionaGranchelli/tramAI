@@ -70,6 +70,11 @@ class MutationPatternPreflightTest {
      * is meaningful.
      */
     private val knownClasses: Map<String, Set<String>> = mapOf(
+        "tramai-core" to setOf(
+            "dev.tramai.core.provider.ProviderRegistry",
+            "dev.tramai.core.provider.ModelProvider",
+            "dev.tramai.core.provider.ProviderFailures"
+        ),
         "tramai-engine" to setOf(
             "dev.tramai.engine.TramaiEngine",
             "dev.tramai.engine.ModelRegistryEnforcer",
@@ -187,9 +192,13 @@ class MutationPatternPreflightTest {
 
     /** Check if a PIT class pattern matches any known class. */
     private fun patternMatchesKnownClass(pattern: String): Boolean {
-        val prefix = pattern.removeSuffix(".*")
+        val stripped = pattern.removeSuffix("*")
+        val prefix = stripped.removeSuffix(".*")
         return if (pattern.endsWith(".*")) {
             allKnownClasses.any { it.startsWith(prefix) }
+        } else if (pattern.endsWith("*")) {
+            // * suffix matches class + inner classes per PIT docs
+            allKnownClasses.any { it == prefix || it.startsWith("$prefix$") }
         } else {
             pattern in allKnownClasses
         }
@@ -199,14 +208,33 @@ class MutationPatternPreflightTest {
     private fun matchingKnownClasses(family: TestQualityConfiguration.MutationTargetFamily): Set<String> {
         val entries = mutableSetOf<String>()
         for (pattern in family.targetClasses) {
-            val prefix = pattern.removeSuffix(".*")
+            val stripped = pattern.removeSuffix("*")
+            val prefix = stripped.removeSuffix(".*")
             if (pattern.endsWith(".*")) {
                 entries.addAll(allKnownClasses.filter { it.startsWith(prefix) })
+            } else if (pattern.endsWith("*")) {
+                // * suffix matches class + inner classes per PIT docs
+                entries.addAll(allKnownClasses.filter { it == prefix || it.startsWith("$prefix$") })
             } else {
                 if (pattern in allKnownClasses) entries.add(pattern)
             }
         }
         return entries
+    }
+
+    /** Return the module keys (e.g. "tramai-engine") whose known classes match the given pattern. */
+    private fun modulesContainingPattern(pattern: String): Set<String> {
+        val stripped = pattern.removeSuffix("*")
+        val pkgPrefix = stripped.removeSuffix(".*")
+        return knownClasses.filter { (_, classes) ->
+            if (pattern.endsWith(".*")) {
+                classes.any { it.startsWith(pkgPrefix) }
+            } else if (pattern.endsWith("*")) {
+                classes.any { it == pkgPrefix || it.startsWith("$pkgPrefix$") }
+            } else {
+                pattern in classes
+            }
+        }.keys
     }
 
     // ── Core validation tests ──────────────────────────────────────────
@@ -236,9 +264,21 @@ class MutationPatternPreflightTest {
     fun `every target class pattern matches at least one known class`() {
         val failures = mutableListOf<String>()
         for ((name, family) in configuration.mutation.targetFamilies) {
+            val familyModuleKeys = family.modules.map { it.removePrefix(":") }.toSet()
             for (pattern in family.targetClasses) {
                 if (!patternMatchesKnownClass(pattern)) {
                     failures += "Family '$name': pattern '$pattern' matches zero known classes"
+                } else {
+                    // Pattern must be consistent with the family's declared modules.
+                    // A pattern like "dev.tramai.engine.*" should fail if the family
+                    // doesn't include ":tramai-engine".
+                    val matchingModules = modulesContainingPattern(pattern)
+                    if (matchingModules.none { it in familyModuleKeys }) {
+                        failures += "Family '$name': pattern '$pattern' matches classes only " +
+                            "in modules $matchingModules, but family declares modules " +
+                            "${family.modules}. Either add the missing module(s) or move " +
+                            "the pattern to the correct family."
+                    }
                 }
             }
         }
@@ -313,6 +353,18 @@ class MutationPatternPreflightTest {
         assertTrue(
             overlap.isEmpty(),
             "Approval and policy must not overlap, but share these classes: ${overlap.sorted()}"
+        )
+    }
+
+    @Test
+    fun `policy and evidence targets are disjoint`() {
+        val families = configuration.mutation.targetFamilies
+        val policyMatches = matchingKnownClasses(families.getValue("policy"))
+        val evidenceMatches = matchingKnownClasses(families.getValue("evidence"))
+        val overlap = policyMatches.intersect(evidenceMatches)
+        assertTrue(
+            overlap.isEmpty(),
+            "Policy and evidence must not overlap, but share these classes: ${overlap.sorted()}"
         )
     }
 }
