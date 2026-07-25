@@ -1,0 +1,16 @@
+schemaVersion: "1"
+criticalModules:
+  - ":lib-core"
+  - ":lib-extra"
+coverage:
+  regressionTolerancePercentagePoints: 1.0
+  exclusions:
+    - pattern: "**/model/**"
+      reason: "No model classes in fixture"
+mutation:
+  regressionTolerancePercentagePoints: 1.0
+  targetFamilies:
+    core:
+      modules: [":lib-core"]
+      targetClasses: ["com.example.*"]
+      targetTests: ["com.example.*"]

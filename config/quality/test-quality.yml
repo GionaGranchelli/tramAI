@@ -1,0 +1,61 @@
+schemaVersion: "1"
+criticalModules:
+  - ":tramai-core"
+  - ":tramai-engine"
+  - ":tramai-security"
+  - ":tramai-sovereign"
+  - ":tramai-standalone"
+  - ":tramai-structured"
+  - ":tramai-orchestration"
+  - ":tramai-persistence-file"
+  - ":tramai-persistence-jdbc"
+coverage:
+  regressionTolerancePercentagePoints: 1.0
+  exclusions:
+    - pattern: "**/model/**"
+      reason: "Generated model classes"
+mutation:
+  regressionTolerancePercentagePoints: 1.0
+  targetFamilies:
+    policy:
+      modules: [":tramai-engine", ":tramai-security", ":tramai-sovereign"]
+      targetClasses: ["dev.tramai.engine.LegacyPermissivePolicyEngine",
+                      "dev.tramai.engine.PolicyEnforcementHelper",
+                      "dev.tramai.security.DefaultPolicyEngine",
+                      "dev.tramai.security.PolicyConfiguration",
+                      "dev.tramai.security.audit.AuditEnginePolicyDecisionAuditEmitter",
+                      "dev.tramai.sovereign.SovereignDeploymentMode",
+                      "dev.tramai.sovereign.SovereignProfileConfiguration",
+                      "dev.tramai.sovereign.SovereignTramai"]
+    approval:
+      modules: [":tramai-security", ":tramai-engine"]
+      targetClasses:
+        - "dev.tramai.security.approval.*"
+        - "dev.tramai.engine.approval.*"
+    routing:
+      modules: [":tramai-core", ":tramai-engine"]
+      targetClasses: ["dev.tramai.core.provider.ProviderRegistry",
+                      "dev.tramai.core.provider.ModelProvider",
+                      "dev.tramai.engine.ModelRegistryEnforcer"]
+    retry:
+      modules: [":tramai-core", ":tramai-engine"]
+      targetClasses: ["dev.tramai.engine.RetryPolicySettings*",
+                      "dev.tramai.engine.CircuitBreakerSettings*",
+                      "dev.tramai.engine.ProviderCircuitBreaker*",
+                      "dev.tramai.engine.ProviderRetryDelayPolicy*",
+                      "dev.tramai.core.provider.ProviderFailuresKt*"]
+    tools:
+      modules: [":tramai-engine"]
+      targetClasses:
+        - "dev.tramai.engine.ToolRegistry"
+        - "dev.tramai.engine.ToolResultFilteringSettings"
+        - "dev.tramai.engine.CanonicalMessageEncoder"
+    evidence:
+      modules: [":tramai-sovereign", ":tramai-engine", ":tramai-security"]
+      targetClasses:
+        - "dev.tramai.sovereign.evidence.*"
+        - "dev.tramai.engine.evidence.*"
+        - "dev.tramai.security.evidence.*"
+    structuredOutput:
+      modules: [":tramai-structured"]
+      targetClasses: ["dev.tramai.structured.*"]

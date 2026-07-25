@@ -1,0 +1,9 @@
+modules:
+  - path: ":lib-core"
+    layer: "testing-support"
+    publishability: "internal"
+    apiStability: "internal"
+  - path: ":lib-extra"
+    layer: "testing-support"
+    publishability: "internal"
+    apiStability: "internal"

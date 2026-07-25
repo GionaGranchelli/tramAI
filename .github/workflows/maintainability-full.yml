@@ -15,6 +15,8 @@ jobs:
     name: Full Maintainability Verification
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -31,18 +33,45 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Generate Baseline (if requested)
+      - name: Run canonical probe integration tests
         if: inputs.generate-baseline
-        run: ./gradlew generateMaintainabilityBaseline --no-daemon
+        run: ./gradlew :build-logic:canonicalProbeIntegrationTest --no-daemon
+
+      - name: Create v0.5.0 worktree
+        if: inputs.generate-baseline
+        run: git worktree add "$RUNNER_TEMP/tramai-v050" v0.5.0
+
+      - name: Generate canonical v0.5.0 baseline
+        if: inputs.generate-baseline
+        run: |
+          ./gradlew generateCanonicalMaintainabilityBaseline \
+            -Pmaintainability.sourceRoot="$RUNNER_TEMP/tramai-v050" \
+            -Pmaintainability.outputDir="${{ github.workspace }}/build/reports/maintainability/canonical" \
+            --no-daemon
 
       - name: Full Verification
         run: ./gradlew verifyFullMaintainabilityBaseline --no-daemon
 
-      - name: Generate Source Metrics
-        run: ./gradlew generateSourceMetrics --no-daemon
+      - name: Commit and push generated baseline
+        if: inputs.generate-baseline
+        run: |
+          if [ "$GITHUB_REF_NAME" = "master" ] || [ "$GITHUB_REF_NAME" = "main" ]; then
+            echo "ERROR: Cannot commit generated baseline to master/main"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add config/quality/0.6.0-baseline.json
+          if ! git diff --staged --quiet; then
+            git commit -m "build(0.6.0): capture canonical v0.5.0 test-quality baseline"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
 
-      - name: Generate Dependency Graph
-        run: ./gradlew generateResolvedDependencyGraph --no-daemon
+      - name: Copy canonical probe evidence
+        if: inputs.generate-baseline
+        run: |
+          echo "Canonical evidence in build/reports/maintainability/canonical/"
+          ls -la build/reports/maintainability/canonical/ 2>/dev/null || echo "(generated inline)"
 
       - name: Upload All Reports
         if: always()
@@ -52,6 +81,9 @@ jobs:
           path: |
             build/reports/maintainability/
             config/quality/0.6.0-baseline.json
+            **/build/reports/jacoco/**/*.xml
+            **/build/reports/pitest/**
+            build/reports/maintainability/canonical/
           retention-days: 90
 
       - name: Job Summary
@@ -71,6 +103,36 @@ jobs:
             echo "- **Modules:** $MODULES" >> $GITHUB_STEP_SUMMARY
             echo "- **Edges:** $EDGES" >> $GITHUB_STEP_SUMMARY
             echo "- **Cycles:** $CYCLES" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Coverage" >> $GITHUB_STEP_SUMMARY
+          if [ -f build/reports/maintainability/coverage-summary.json ]; then
+            LINE_COV=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/coverage-summary.json')); print(f'{d.get(\"overallLineCoverage\",0):.1f}%')" 2>/dev/null || echo "?")
+            BRANCH_COV=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/coverage-summary.json')); print(f'{d.get(\"overallBranchCoverage\",0):.1f}%')" 2>/dev/null || echo "?")
+            MODULES=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/coverage-summary.json')); print(len(d.get('criticalModules',{})))" 2>/dev/null || echo "?")
+            echo "- **Line coverage:** $LINE_COV" >> $GITHUB_STEP_SUMMARY
+            echo "- **Branch coverage:** $BRANCH_COV" >> $GITHUB_STEP_SUMMARY
+            echo "- **Critical modules:** $MODULES" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Mutation Analysis" >> $GITHUB_STEP_SUMMARY
+          if [ -f build/reports/maintainability/mutation-summary.json ]; then
+            TOTAL=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/mutation-summary.json')); print(d.get('totalMutants','?'))" 2>/dev/null || echo "?")
+            SCORE=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/mutation-summary.json')); print(f'{d.get(\"mutationScore\",0):.2f}%')" 2>/dev/null || echo "?")
+            echo "- **Total mutants:** $TOTAL" >> $GITHUB_STEP_SUMMARY
+            echo "- **Overall score:** $SCORE" >> $GITHUB_STEP_SUMMARY
+            python3 -c "import json,os; d=json.load(open('build/reports/maintainability/mutation-summary.json')); f=os.environ['GITHUB_STEP_SUMMARY']; [open(f,'a').write(f'  - **{family}:** {m[\"mutationScore\"]:.2f}% ({m[\"killedMutants\"]}/{m[\"totalMutants\"]})\n') for family,m in sorted(d.get('byFamily',{}).items())]" 2>/dev/null || true
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Performance" >> $GITHUB_STEP_SUMMARY
+          if [ -f build/reports/maintainability/test-performance/median.json ]; then
+            COUNT=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/test-performance/median.json')); print(d.get('totalTestCount','?'))" 2>/dev/null || echo "?")
+            DURATION=$(python3 -c "import json; d=json.load(open('build/reports/maintainability/test-performance/median.json')); print(f'{d.get(\"totalDurationMs\",0)}ms')" 2>/dev/null || echo "?")
+            echo "- **Total tests:** $COUNT" >> $GITHUB_STEP_SUMMARY
+            echo "- **Median duration:** $DURATION" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY

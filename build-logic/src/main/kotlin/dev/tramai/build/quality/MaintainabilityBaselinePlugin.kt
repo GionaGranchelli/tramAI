@@ -4,6 +4,8 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.GradleException
 import org.gradle.api.Action
+import org.gradle.api.tasks.testing.Test
+import org.gradle.testing.jacoco.tasks.JacocoReport
 import java.io.File
 
 /**
@@ -24,6 +26,43 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         val cancellationInventory = CancellationCatchInventory(ctx)
         val globalStateInventory = GlobalStateInventory(ctx)
         val nondeterminismInventory = NondeterminismInventory(ctx)
+        val testQualityConfiguration = TestQualityConfiguration.load(project.rootDir)
+        val criticalModules = testQualityConfiguration.criticalModules.toSet()
+        val reportDir = File(project.layout.buildDirectory.get().asFile, "reports/maintainability")
+
+        // Register JaCoCo on critical modules using provider-safe API (no tasks.matching / executionData(TaskCollection))
+        val criticalTestTaskPaths = criticalModules.sorted().map { "$it:test" }
+        val criticalCoverageReportTaskPaths = criticalModules.sorted().map { "$it:jacocoTestReport" }
+
+        project.allprojects
+            .filter { it.path in criticalModules }
+            .forEach { criticalProject ->
+                criticalProject.pluginManager.withPlugin("java") {
+                    criticalProject.pluginManager.apply("jacoco")
+
+                    val testTask = criticalProject.tasks.named("test", Test::class.java)
+                    val excludedPatterns = testQualityConfiguration.coverage.exclusions.map { it.pattern }
+
+                    criticalProject.tasks.named("jacocoTestReport", JacocoReport::class.java) {
+                        dependsOn(testTask)
+                        reports {
+                            xml.required.set(true)
+                            html.required.set(true)
+                        }
+                        // Filter class directories to exclude patterns using Gradle fileTree
+                        val mainSourceSet = criticalProject.extensions.getByType(
+                            org.gradle.api.plugins.JavaPluginExtension::class.java
+                        ).sourceSets.getByName("main")
+                        classDirectories.from(
+                            mainSourceSet.output.classesDirs.files.map { root ->
+                                criticalProject.fileTree(root) {
+                                    exclude(excludedPatterns)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
 
         // ---- Generation Tasks ----
 
@@ -196,6 +235,93 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
+        project.tasks.register("generateCoverageBaseline") {
+            group = "maintainability"
+            description = "Generates JaCoCo coverage measurements for critical modules"
+            dependsOn(criticalCoverageReportTaskPaths)
+            doLast {
+                val coverage = CoverageCollector(
+                    project.rootDir,
+                    testQualityConfiguration
+                ).collect()
+                reportDir.mkdirs()
+                ReportNormalizer.writeJson(coverage, File(reportDir, "coverage-summary.json"))
+                println(
+                    "Critical coverage baseline: ${coverage.criticalModules.size} modules, " +
+                        "${"%.2f".format(coverage.overallLineCoverage)}% lines, " +
+                        "${"%.2f".format(coverage.overallBranchCoverage)}% branches"
+                )
+            }
+        }
+
+        project.tasks.register("generateCriticalMutationBaseline") {
+            group = "maintainability"
+            description = "Runs targeted PITest mutation analysis and generates the critical mutation baseline"
+            doLast {
+                val mutationRoot = File(reportDir, "mutation")
+                mutationRoot.mkdirs()
+                val initScript = File(reportDir, "critical-mutation-probe.init.gradle")
+                initScript.writeText(
+                    mutationInitScript(testQualityConfiguration, mutationRoot),
+                    Charsets.UTF_8
+                )
+                testQualityConfiguration.mutation.targetFamilies.keys.sorted().forEach { family ->
+                    runNestedGradle(
+                        project,
+                        listOf(
+                            "--init-script",
+                            initScript.absolutePath,
+                            "-PtramaiMutationFamily=$family",
+                            "canonicalMutationProbe"
+                        )
+                    )
+                }
+                val mutation = generator.generateMutationBaseline(
+                    testQualityConfiguration,
+                    mutationRoot
+                )
+                ReportNormalizer.writeJson(mutation, File(reportDir, "mutation-summary.json"))
+                println(
+                    "Critical mutation baseline: ${mutation.totalMutants} mutants, " +
+                        "${"%.2f".format(mutation.mutationScore)}% killed"
+                )
+            }
+        }
+
+        project.tasks.register("generateTestPerformanceBaseline") {
+            group = "maintainability"
+            description = "Runs one warm-up and three measured critical-module test executions"
+            doLast {
+                val outputRoot = File(reportDir, "test-performance")
+                val runsRoot = File(outputRoot, "runs")
+                if (runsRoot.exists()) runsRoot.deleteRecursively()
+                runsRoot.mkdirs()
+                val testTaskPaths = criticalModules.sorted().map { "$it:test" }
+
+                runNestedGradle(project, listOf("--rerun-tasks") + testTaskPaths)
+                val collector = TestPerformanceCollector(project.rootDir, testQualityConfiguration)
+                val observations = (1..3).flatMap { run ->
+                    runNestedGradle(project, listOf("--rerun-tasks") + testTaskPaths)
+                    copyTestReports(project.rootDir, criticalModules, File(runsRoot, run.toString()))
+                    collector.collectMeasuredRun(
+                        run = run,
+                        gradleVersion = project.gradle.gradleVersion,
+                        reportRoot = runsRoot
+                    )
+                }
+                val performance = TestPerformanceAggregator().aggregate(observations)
+                ReportNormalizer.writeJson(
+                    observations,
+                    File(outputRoot, "observations.json")
+                )
+                ReportNormalizer.writeJson(performance, File(outputRoot, "median.json"))
+                println(
+                    "Test performance baseline: ${performance.totalTestCount} tests, " +
+                        "${performance.totalDurationMs}ms aggregate median"
+                )
+            }
+        }
+
         // ---- Aggregate Task ----
 
         project.tasks.register("generateMaintainabilityBaseline") {
@@ -216,6 +342,47 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 val baseline = generator.generateCompleteBaseline()
                 generator.updateBaselineJson(baseline)
                 println("Maintainability baseline generated: ${ctx.rootDir}/config/quality/0.6.0-baseline.json")
+            }
+        }
+
+        project.tasks.register("generateFullMaintainabilityBaseline") {
+            group = "maintainability"
+            description = "Generates structural, API, dependency, coverage, mutation, and timing baselines"
+            dependsOn(
+                "generateMaintainabilityBaseline",
+                "generateCoverageBaseline",
+                "generateTestPerformanceBaseline",
+                "generateCriticalMutationBaseline"
+            )
+            doLast {
+                val baselineFile = File(project.rootDir, "config/quality/0.6.0-baseline.json")
+                val generated = generator.generateFullBaseline()
+                val structuralBaseline = ReportNormalizer.readJson(
+                    baselineFile,
+                    BaselineDocument::class.java
+                )
+                val coverage = ReportNormalizer.readJson(
+                    File(reportDir, "coverage-summary.json"),
+                    CoverageData::class.java
+                )
+                val mutation = ReportNormalizer.readJson(
+                    File(reportDir, "mutation-summary.json"),
+                    MutationData::class.java
+                )
+                val performance = ReportNormalizer.readJson(
+                    File(reportDir, "test-performance/median.json"),
+                    TestPerformanceData::class.java
+                )
+                generator.updateBaselineJson(
+                    structuralBaseline.copy(
+                        baselineIdentity = generated.baselineIdentity,
+                        testQuality = TestQualityBaseline(performance, coverage, mutation),
+                        generatedAt = generated.generatedAt,
+                        generatedBy = "generateFullMaintainabilityBaseline",
+                        environment = generated.environment
+                    )
+                )
+                println("Full maintainability baseline generated: ${baselineFile.absolutePath}")
             }
         }
 
@@ -274,6 +441,63 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
+        project.tasks.register("verifyCriticalCoverage") {
+            group = "maintainability"
+            description = "Compares current critical-module coverage with the committed baseline"
+            dependsOn("generateCoverageBaseline")
+            doLast {
+                val committed = readCommittedBaseline(project)
+                val current = ReportNormalizer.readJson(
+                    File(reportDir, "coverage-summary.json"),
+                    CoverageData::class.java
+                )
+                verifyTestQualityDiagnostics(
+                    project,
+                    "Critical coverage",
+                    CoverageBaselineVerifier(testQualityConfiguration)
+                        .verify(committed.testQuality.coverage, current)
+                )
+            }
+        }
+
+        project.tasks.register("verifyCriticalMutationBaseline") {
+            group = "maintainability"
+            description = "Compares current critical mutation results with the committed baseline"
+            dependsOn("generateCriticalMutationBaseline")
+            doLast {
+                val committed = readCommittedBaseline(project)
+                val current = ReportNormalizer.readJson(
+                    File(reportDir, "mutation-summary.json"),
+                    MutationData::class.java
+                )
+                verifyTestQualityDiagnostics(
+                    project,
+                    "Critical mutation",
+                    MutationBaselineVerifier(testQualityConfiguration, project.rootDir)
+                        .verify(committed.testQuality.mutation, current)
+                )
+            }
+        }
+
+        project.tasks.register("verifyTestPerformanceBaseline") {
+            group = "maintainability"
+            description = "Compares current median test timing with the committed baseline"
+            dependsOn("generateTestPerformanceBaseline")
+            doLast {
+                val committed = readCommittedBaseline(project)
+                val current = ReportNormalizer.readJson(
+                    File(reportDir, "test-performance/median.json"),
+                    TestPerformanceData::class.java
+                )
+                verifyTestQualityDiagnostics(
+                    project,
+                    "Test performance",
+                    TestPerformanceVerifier(testQualityConfiguration)
+                        .verify(committed.testQuality.testPerformance, current)
+                )
+            }
+        }
+
         // ---- Canonical Baseline Generation ----
         // Only for tagged releases. Runs from a detached v0.5.0 worktree.
         // Set maintainability.sourceRoot to the worktree path, or run from the
@@ -313,9 +537,19 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 // When probing a detached worktree, use CanonicalGradleProbe for API/dependency
                 // measurements. The generator handles structural/scanner data from directory mode.
                 val sourceRootFile = if (sourceRootProp != null) project.rootDir.resolve(sourceRootProp).normalize() else null
+                val outputDirProp = project.findProperty("maintainability.outputDir")?.toString()
+                val probeOutputDir = if (outputDirProp != null) {
+                    project.rootDir.resolve(outputDirProp).also { it.mkdirs() }
+                } else null
+                val canonicalProbe = sourceRootFile?.let {
+                    CanonicalGradleProbe(
+                        sourceRoot = it,
+                        outputDir = probeOutputDir,
+                        analyzerRoot = project.rootDir
+                    )
+                }
                 val apiOverride: ApiBaseline? = if (sourceRootFile != null) {
-                    val probe = CanonicalGradleProbe(sourceRootFile, analyzerRoot = project.rootDir)
-                    val result = probe.probeApiBaseline()
+                    val result = canonicalProbe!!.probeApiBaseline()
                     project.logger.lifecycle("Canonical API probe: ${result.records.size} records")
                     val stabilities = result.records.groupBy { it.stability }.mapValues { it.value.size }
                     project.logger.lifecycle("  Stability breakdown: $stabilities")
@@ -332,8 +566,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 } else null
 
                 val dependencyOverride: List<ResolvedDependency>? = if (sourceRootFile != null) {
-                    val probe = CanonicalGradleProbe(sourceRootFile, analyzerRoot = project.rootDir)
-                    val result = probe.probeDependencyBaseline()
+                    val result = canonicalProbe!!.probeDependencyBaseline()
                     project.logger.lifecycle("Canonical dependency probe: ${result.records.size} records")
                     if (result.records.isEmpty()) {
                         throw GradleException("Canonical dependency probe produced no dependency records. " +
@@ -342,9 +575,24 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     result.records
                 } else null
 
+                val testQualityOverride = canonicalProbe?.probeTestQualityBaseline(
+                    testQualityConfiguration
+                )
+                if (testQualityOverride != null) {
+                    project.logger.lifecycle(
+                        "Canonical test-quality probe: " +
+                            "${testQualityOverride.coverage.criticalModules.size} coverage modules, " +
+                            "${testQualityOverride.mutation.totalMutants} mutants, " +
+                            "${testQualityOverride.testPerformance.totalTestCount} tests"
+                    )
+                }
+
                 val baseline = canonicalGenerator.generateCompleteBaseline(
                     apiOverride = apiOverride,
-                    dependencyOverride = dependencyOverride
+                    dependencyOverride = dependencyOverride,
+                    coverageOverride = testQualityOverride?.coverage,
+                    mutationOverride = testQualityOverride?.mutation,
+                    testPerformanceOverride = testQualityOverride?.testPerformance
                 )
                 val identity = baseline.baselineIdentity
 
@@ -392,14 +640,171 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
-        // Full verification adds mutation/coverage checks (currently stubs)
         project.tasks.register("verifyFullMaintainabilityBaseline") {
             group = "maintainability"
-            description = "Full verification including API, dependency, coverage, and mutation"
-            dependsOn("verifyMaintainabilityBaseline", "verifyPublicApiBaseline", "verifyResolvedDependencyBaseline")
+            description = "Full verification including API, dependency, coverage, mutation, and timing"
+            dependsOn(
+                "verifyMaintainabilityBaseline",
+                "verifyCriticalCoverage",
+                "verifyCriticalMutationBaseline",
+                "verifyTestPerformanceBaseline"
+            )
             doLast {
                 println("Full maintainability baseline verification complete.")
             }
         }
     }
+
+    private fun readCommittedBaseline(project: Project): BaselineDocument {
+        val file = File(project.rootDir, "config/quality/0.6.0-baseline.json")
+        if (!file.isFile) throw GradleException("Committed baseline not found: ${file.absolutePath}")
+        return try {
+            ReportNormalizer.readJson(file, BaselineDocument::class.java)
+        } catch (e: Exception) {
+            throw GradleException("Failed to read committed baseline: ${e.message}", e)
+        }
+    }
+
+    private fun verifyTestQualityDiagnostics(
+        project: Project,
+        label: String,
+        diagnostics: List<VerificationDiagnostic>
+    ) {
+        diagnostics.filter { it.severity == DiagnosticSeverity.WARNING }
+            .forEach { project.logger.warn("WARN: ${it.message}") }
+        val failures = diagnostics.filter { it.severity == DiagnosticSeverity.FAILURE }
+        failures.forEach { project.logger.error("FAIL: ${it.message}") }
+        if (failures.isNotEmpty()) {
+            throw GradleException(
+                "$label baseline verification FAILED:\n" +
+                    failures.joinToString("\n") { "  - ${it.message}" }
+            )
+        }
+        println("$label baseline verification PASSED.")
+    }
+
+    private fun runNestedGradle(project: Project, arguments: List<String>) {
+        val wrapper = File(
+            project.rootDir,
+            if (System.getProperty("os.name").startsWith("Windows")) "gradlew.bat" else "gradlew"
+        )
+        val command = mutableListOf<String>()
+        if (!wrapper.canExecute() && !wrapper.name.endsWith(".bat")) command += "bash"
+        command += wrapper.absolutePath
+        command += listOf(
+            "--no-daemon",
+            "--no-build-cache",
+            "--no-configuration-cache",
+            "--no-parallel",
+            "--console=plain"
+        )
+        command += arguments
+        val process = ProcessBuilder(command)
+            .directory(project.rootDir)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        val exitCode = process.waitFor()
+        if (exitCode != 0) {
+            throw GradleException(
+                "Nested Gradle execution failed with exit code $exitCode:\n$output"
+            )
+        }
+        project.logger.lifecycle(output.trimEnd())
+    }
+
+    private fun copyTestReports(
+        repositoryRoot: File,
+        criticalModules: Set<String>,
+        runRoot: File
+    ) {
+        criticalModules.sorted().forEach { module ->
+            val modulePath = module.removePrefix(":").replace(":", "/")
+            val sourceDir = File(repositoryRoot, "$modulePath/build/test-results/test")
+            val destinationDir = File(runRoot, modulePath)
+            val reports = sourceDir.listFiles { file ->
+                file.isFile && file.name.startsWith("TEST-") && file.extension == "xml"
+            }?.sortedBy { it.name }.orEmpty()
+            if (reports.isEmpty()) {
+                throw GradleException(
+                    "Missing expected test report for $module at ${sourceDir.absolutePath}"
+                )
+            }
+            destinationDir.mkdirs()
+            reports.forEach { it.copyTo(File(destinationDir, it.name), overwrite = true) }
+        }
+    }
+
+    private fun mutationInitScript(
+        configuration: TestQualityConfiguration,
+        reportRoot: File
+    ): String {
+        val familyModules = configuration.mutation.targetFamilies.entries
+            .sortedBy { it.key }
+            .joinToString(",\n") { (family, target) ->
+                val modules = target.modules.sorted().joinToString(", ") {
+                    "'${groovyString(it)}'"
+                }
+                val classes = target.targetClasses.sorted().joinToString(", ") {
+                    "'${groovyString(it)}'"
+                }
+                val tests = target.targetTests.sorted().joinToString(", ") {
+                    "'${groovyString(it)}'"
+                }
+                "    '${groovyString(family)}': [modules: [$modules], targetClasses: [$classes], targetTests: [$tests]]"
+            }
+        return """
+            initscript {
+                repositories {
+                    gradlePluginPortal()
+                    mavenCentral()
+                }
+                dependencies {
+                    classpath 'info.solidsoft.gradle.pitest:gradle-pitest-plugin:1.19.0'
+                }
+            }
+
+            def targetFamilities = [
+            $familyModules
+            ]
+            def selectedFamily = gradle.startParameter.projectProperties['tramaiMutationFamily']
+            if (selectedFamily == null || !targetFamilities.containsKey(selectedFamily)) {
+                throw new GradleException("Unknown or missing tramaiMutationFamily: " + selectedFamily)
+            }
+            def familyConfig = targetFamilities[selectedFamily]
+            def selectedModules = familyConfig.modules as Set
+            def familyTargetClasses = familyConfig.targetClasses as Set
+            def familyTargetTests = familyConfig.targetTests as Set
+            def mutationTasks = []
+            def outputRoot = new File('${groovyString(reportRoot.absolutePath)}')
+
+            gradle.beforeProject { measuredProject ->
+                if (!(measuredProject.path in selectedModules)) return
+                def pluginClass = initscript.classLoader.loadClass(
+                    'info.solidsoft.gradle.pitest.PitestPlugin'
+                )
+                measuredProject.pluginManager.apply(pluginClass)
+                measuredProject.extensions.configure('pitest') {
+                    targetClasses.set(familyTargetClasses)
+                    targetTests.set(familyTargetTests)
+                    outputFormats.set(['XML', 'HTML'] as Set)
+                    timestampedReports.set(false)
+                    failWhenNoMutations.set(true)
+                    threads.set(2)
+                    def moduleSlug = measuredProject.path.substring(1).replace(':', '_')
+                    reportDir.set(new File(outputRoot, selectedFamily + '/' + moduleSlug))
+                }
+                mutationTasks << measuredProject.tasks.named('pitest')
+            }
+
+            gradle.projectsEvaluated {
+                rootProject.tasks.register('canonicalMutationProbe') {
+                    dependsOn mutationTasks.collect { it.get() }
+                }
+            }
+        """.trimIndent() + "\n"
+    }
+
+    private fun groovyString(value: String): String =
+        value.replace("\\", "\\\\").replace("'", "\\'")
 }

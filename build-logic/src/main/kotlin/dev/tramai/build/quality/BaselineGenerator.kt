@@ -8,11 +8,9 @@ import org.gradle.api.artifacts.component.ModuleComponentSelector
 import org.gradle.api.artifacts.result.ResolvedComponentResult
 import org.gradle.api.artifacts.result.ResolvedDependencyResult
 import org.gradle.api.artifacts.result.UnresolvedDependencyResult
-import org.w3c.dom.Element
 import java.io.File
 import java.security.MessageDigest
 import java.time.Instant
-import javax.xml.parsers.DocumentBuilderFactory
 
 /**
  * Generates the TramAI 0.6.0 maintainability baseline.
@@ -65,7 +63,10 @@ class BaselineGenerator(
 
     fun generateCompleteBaseline(
         apiOverride: ApiBaseline? = null,
-        dependencyOverride: List<ResolvedDependency>? = null
+        dependencyOverride: List<ResolvedDependency>? = null,
+        coverageOverride: CoverageData? = null,
+        mutationOverride: MutationData? = null,
+        testPerformanceOverride: TestPerformanceData? = null
     ): BaselineDocument {
         val baseline = generateFullBaseline()
         val graphAnalyzer = ModuleGraphAnalyzer(ctx)
@@ -94,8 +95,10 @@ class BaselineGenerator(
             ),
             protocolCatalog = generateRuntimeProtocolCatalog(),
             api = apiOverride ?: generateApiBaseline(),
-            testQuality = baseline.testQuality.copy(
-                testPerformance = generateTestPerformance()
+            testQuality = TestQualityBaseline(
+                testPerformance = testPerformanceOverride ?: generateTestPerformance(),
+                coverage = coverageOverride ?: CoverageData(),
+                mutation = mutationOverride ?: MutationData()
             )
         )
     }
@@ -462,94 +465,69 @@ class BaselineGenerator(
     }
 
     fun generateTestPerformance(): TestPerformanceData {
-        val modulePerformance = linkedMapOf<String, ModuleTestPerformance>()
-        val classTimings = mutableListOf<TestTiming>()
-        val testTimings = mutableListOf<TestTiming>()
+        val observationsFile = File(reportOutputDir, "test-performance-observations.json")
+        if (!observationsFile.isFile) return TestPerformanceData()
+        val observations = try {
+            ReportNormalizer.readJson(
+                observationsFile,
+                Array<TestPerformanceObservation>::class.java
+            ).toList()
+        } catch (e: Exception) {
+            throw GradleException("Failed to read test-performance observations: ${e.message}", e)
+        }
+        return TestPerformanceAggregator().aggregate(observations).also {
+            ReportNormalizer.writeJson(it, File(reportOutputDir, "test-performance.json"))
+        }
+    }
 
-        // Test performance requires Gradle — skip in canonical mode
-        val gradleProject = ctx.gradleProject ?: return TestPerformanceData()
+    fun generateCoverageBaseline(
+        configuration: TestQualityConfiguration,
+        reportRoot: File? = null
+    ): CoverageData =
+        CoverageCollector(ctx.rootDir, configuration).collect(reportRoot).also {
+            ReportNormalizer.writeJson(it, File(reportOutputDir, "coverage.json"))
+        }
 
-        gradleProject.allprojects
-            .filter { it != gradleProject && it.buildFile.exists() }
-            .sortedBy { it.path }
-            .forEach { project ->
-                val resultDir = File(project.layout.buildDirectory.get().asFile, "test-results/test")
-                val xmlFiles = resultDir.listFiles { file ->
-                    file.isFile && file.name.startsWith("TEST-") && file.extension == "xml"
-                }?.sortedBy { it.name }.orEmpty()
-                if (xmlFiles.isEmpty()) return@forEach
-
-                var durationMs = 0L
-                var tests = 0
-                var skipped = 0
-                var failures = 0
-
-                xmlFiles.forEach { xmlFile ->
-                    val document = newSecureDocumentBuilderFactory().newDocumentBuilder().parse(xmlFile)
-                    val suite = document.documentElement
-                    val suiteDuration = secondsToMillis(suite.getAttribute("time"))
-                    val suiteTests = suite.getAttribute("tests").toIntOrNull() ?: 0
-                    val suiteSkipped = suite.getAttribute("skipped").toIntOrNull() ?: 0
-                    val suiteFailures = (suite.getAttribute("failures").toIntOrNull() ?: 0) +
-                        (suite.getAttribute("errors").toIntOrNull() ?: 0)
-                    val className = suite.getAttribute("name").ifBlank {
-                        xmlFile.name.removePrefix("TEST-").removeSuffix(".xml")
-                    }
-
-                    durationMs += suiteDuration
-                    tests += suiteTests
-                    skipped += suiteSkipped
-                    failures += suiteFailures
-                    classTimings.add(
-                        TestTiming(
-                            module = project.path,
-                            className = className,
-                            testName = "<class>",
-                            durationMs = suiteDuration
-                        )
+    fun generateMutationBaseline(
+        configuration: TestQualityConfiguration,
+        reportRoot: File? = null
+    ): MutationData {
+        val parser = MutationReportParser()
+        val reports = configuration.mutation.targetFamilies.flatMap { (family, target) ->
+            target.modules.map { module ->
+                val moduleSlug = module.removePrefix(":").replace(":", "_")
+                val candidates = if (reportRoot != null) {
+                    listOf(
+                        File(reportRoot, "$family/$moduleSlug/mutations.xml"),
+                        File(reportRoot, "$family/$moduleSlug/index.html")
                     )
-
-                    val cases = suite.getElementsByTagName("testcase")
-                    for (index in 0 until cases.length) {
-                        val case = cases.item(index) as? Element ?: continue
-                        testTimings.add(
-                            TestTiming(
-                                module = project.path,
-                                className = case.getAttribute("classname").ifBlank { className },
-                                testName = case.getAttribute("name").ifBlank { "<unknown>" },
-                                durationMs = secondsToMillis(case.getAttribute("time"))
-                            )
-                        )
-                    }
+                } else {
+                    val moduleDir = File(ctx.rootDir, module.removePrefix(":").replace(":", "/"))
+                    listOf(
+                        File(moduleDir, "build/reports/pitest/$family/mutations.xml"),
+                        File(moduleDir, "build/reports/pitest/mutations.xml"),
+                        File(moduleDir, "build/reports/pitest/index.html")
+                    )
                 }
-
-                modulePerformance[project.path] = ModuleTestPerformance(
-                    module = project.path,
-                    totalDurationMs = durationMs,
-                    testCount = tests,
-                    skippedCount = skipped,
-                    failureCount = failures
-                )
+                val report = candidates.firstOrNull { it.isFile }
+                    ?: throw GradleException(
+                        "No mutation report for configured target $family/$module; expected one of " +
+                            candidates.joinToString()
+                    )
+                parser.parse(module, family, report)
             }
-
-        val result = TestPerformanceData(
-            byModule = modulePerformance,
-            slowestClasses = classTimings
-                .sortedWith(compareByDescending<TestTiming> { it.durationMs }.thenBy { it.module }.thenBy { it.className })
-                .take(10),
-            slowestTests = testTimings
-                .sortedWith(
-                    compareByDescending<TestTiming> { it.durationMs }
-                        .thenBy { it.module }
-                        .thenBy { it.className }
-                        .thenBy { it.testName }
-                )
-                .take(10),
-            totalDurationMs = modulePerformance.values.sumOf { it.totalDurationMs },
-            totalTestCount = modulePerformance.values.sumOf { it.testCount }
-        )
-        ReportNormalizer.writeJson(result, File(reportOutputDir, "test-performance.json"))
-        return result
+        }
+        return MutationBaselineVerifier.aggregate(
+            reports = reports,
+            analyzerVersion = "pitest",
+            measuredCommit = try {
+                ctx.runGit("rev-parse", "HEAD")
+            } catch (_: Exception) {
+                ""
+            }
+        ).also {
+            ReportNormalizer.writeJson(it, File(reportOutputDir, "mutation.json"))
+        }
     }
 
     fun updateBaselineJson(baseline: BaselineDocument) {
@@ -801,18 +779,6 @@ class BaselineGenerator(
 
     private fun sha256(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
-
-    private fun secondsToMillis(value: String): Long =
-        value.toBigDecimalOrNull()?.multiply(1000.toBigDecimal())?.toLong() ?: 0L
-
-    private fun newSecureDocumentBuilderFactory(): DocumentBuilderFactory =
-        DocumentBuilderFactory.newInstance().apply {
-            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            setFeature("http://xml.org/sax/features/external-general-entities", false)
-            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            isXIncludeAware = false
-            isExpandEntityReferences = false
-        }
 
     private data class BaselineGitIdentity(
         val baselineCommitSha: String,
