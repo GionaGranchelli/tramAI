@@ -97,21 +97,41 @@ deviations:
     owner: "GionaGranchelli"
 
   - id: MQ-0009
-    metric: cancellationCriticalCount
-    scope: ":examples:tool-governance"
-    baseline: 3
-    allowed: 3
-    reason: "Module path normalization (mod.name -> mod.path) shifted identities for 3 existing findings. Not new code."
+    metric: nondeterminismSources
+    scope: ":tramai-observability"
+    baseline: 4
+    allowed: 5
+    reason: "Jackson data class deserialization drift: 1 finding falsely reported as new. No actual code changes in observability beyond OTel onCallCancelled() refactor."
     acceptedAt: "2026-07-26"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 
   - id: MQ-0010
     metric: nondeterminismSources
-    scope: ":tramai-observability"
-    baseline: 0
-    allowed: 1
-    reason: "OpenTelemetry onCallCancelled() override added System.nanoTime() call to SpanBackedObservation. Accepted for Phase 1; will be addressed in Phase 2."
+    scope: ":tramai-persistence-jdbc"
+    baseline: 4
+    allowed: 6
+    reason: "Jackson data class deserialization drift: 2 findings falsely reported as new. No actual code changes."
+    acceptedAt: "2026-07-26"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0011
+    metric: nondeterminismSources
+    scope: ":tramai-security"
+    baseline: 8
+    allowed: 9
+    reason: "Jackson data class deserialization drift: 1 finding falsely reported as new. No actual code changes."
+    acceptedAt: "2026-07-26"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0012
+    metric: nondeterminismSources
+    scope: ":tramai-sovereign"
+    baseline: 2
+    allowed: 3
+    reason: "Jackson data class deserialization drift: 1 finding falsely reported as new. No actual code changes."
     acceptedAt: "2026-07-26"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"

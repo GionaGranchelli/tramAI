@@ -173,24 +173,21 @@ private class SpanBackedObservation(
 
     override fun onCallCompleted(parseSuccess: Boolean?) {
         parseSuccess?.let { span.setAttribute("tramai.structured.parse_success", it) }
-        val attributes = completionAttributes(parseSuccess)
-        metrics.attempts.add(1, attributes)
-        metrics.duration.record(
-            (System.nanoTime() - startedAtNanos) / 1_000_000.0,
-            attributes,
-        )
-        span.end()
+        completeCall(completionAttributes(parseSuccess))
     }
 
     override fun onCallCancelled() {
         span.setAttribute(ATTR_TRAMAI_OUTCOME, "cancelled")
-        span.end()
-        val attributes = completionAttributes(parseSuccess = null)
+        completeCall(completionAttributes(parseSuccess = null))
+    }
+
+    private fun completeCall(attributes: Attributes) {
         metrics.attempts.add(1, attributes)
         metrics.duration.record(
             (System.nanoTime() - startedAtNanos) / 1_000_000.0,
             attributes,
         )
+        span.end()
     }
 
     private fun responseAttributes(response: ModelResponse): Attributes {
