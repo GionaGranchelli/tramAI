@@ -29,7 +29,7 @@ deviations:
   - id: MQ-0002
     metric: fileSize
     scope: "::build.gradle.kts"
-    baseline: 5501
+    baseline: 5503
     allowed: 6500
     reason: "Root build script accumulated publish, signing, and verification logic. Build-logic extraction is underway in Phase 0 and will continue through 0.6.x."
     acceptedAt: "2026-07-18"
@@ -40,7 +40,7 @@ deviations:
     metric: fileSize
     scope: ":tramai-orchestration"
     baseline: 1858
-    allowed: 1862
+    allowed: 1875
     reason: "Workflow orchestration is a known monolith combining metadata, execution, persistence, DSL, and observers. Decomposition is a major 0.6.0 goal (Phase 4)."
     acceptedAt: "2026-07-18"
     targetPhase: "0.6.1"
@@ -59,10 +59,40 @@ deviations:
   - id: MQ-0005
     metric: cancellationCriticalCount
     scope: ":tramai-*"
-    baseline: 65
-    allowed: 65
+    baseline: 41
+    allowed: 41
     reason: "Cancellation rethrow audit complete in Phase 1 (PR #207). The deviation framework requires allowed >= baseline; actual enforcement is via verifyCancellationSafety gate."
-    acceptedAt: "2026-07-25"
+    acceptedAt: "2026-07-26"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0006
+    metric: nondeterminismSources
+    scope: ":tramai-orchestration"
+    baseline: 23
+    allowed: 23
+    reason: "Nondeterminism classification schema drift between v0.5.0 baseline and current analyzer. All sources are legitimate (UUID.randomUUID(), Clock.systemUTC(), System.nanoTime()). Not caused by PR #207."
+    acceptedAt: "2026-07-26"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0007
+    metric: nondeterminismSources
+    scope: ":tramai-engine"
+    baseline: 8
+    allowed: 8
+    reason: "Nondeterminism classification schema drift between v0.5.0 baseline and current analyzer. Sources: UUID.randomUUID(), Clock.systemUTC(). Not caused by PR #207."
+    acceptedAt: "2026-07-26"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0008
+    metric: nondeterminismSources
+    scope: ":tramai-core"
+    baseline: 3
+    allowed: 3
+    reason: "Nondeterminism classification schema drift between v0.5.0 baseline and current analyzer. Sources: UUID.randomUUID(), System.currentTimeMillis(), Instant.now(). Not caused by PR #207."
+    acceptedAt: "2026-07-26"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 

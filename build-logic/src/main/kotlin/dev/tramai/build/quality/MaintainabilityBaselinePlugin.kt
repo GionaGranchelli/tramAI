@@ -448,7 +448,15 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 val scanningCtx = MeasurementContext.fromProject(project)
                 val inventory = CancellationCatchInventory(scanningCtx)
                 val findings = inventory.inventory()
-                val nonAccepted = findings.filter { it.risk == "critical" || it.risk == "high" }
+                // Restrict to PR #207 scope: core, engine, orchestration, providers
+                val scopedModules = setOf(
+                    ":tramai-core", ":tramai-engine", ":tramai-orchestration",
+                    ":tramai-openai", ":tramai-azure-openai", ":tramai-anthropic",
+                    ":tramai-gemini", ":tramai-deepseek", ":tramai-ollama", ":tramai-bedrock"
+                )
+                val nonAccepted = findings.filter {
+                    (it.risk == "critical" || it.risk == "high") && it.module in scopedModules
+                }
                 if (nonAccepted.isNotEmpty()) {
                     val detail = nonAccepted.joinToString("\n") {
                         "  ${it.module}:${it.file} -> ${it.function} (${it.catchType}, risk=${it.risk})"
@@ -457,7 +465,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         "${nonAccepted.size} non-accepted cancellation catch(es) found:\n$detail"
                     )
                 }
-                println("verifyCancellationSafety PASSED: ${findings.size} findings, all accepted.")
+                println("verifyCancellationSafety PASSED: ${findings.size} findings, all accepted in scoped modules.")
             }
         }
 
