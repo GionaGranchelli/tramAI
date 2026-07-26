@@ -653,6 +653,66 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 println("Full maintainability baseline verification complete.")
             }
         }
+
+        // ---- Change Policy Verification ----
+
+        project.tasks.register("verifyChangePolicy", ChangePolicyVerifierTask::class.java) {
+            group = "maintainability"
+            description = "Enforces change-policy rules: forbidden path combinations and deviation evidence"
+
+            // Override base ref for CI: ./gradlew verifyChangePolicy -PchangePolicyBase=${{ github.event.pull_request.base.sha }}
+            val ciBase = project.findProperty("changePolicyBase")?.toString()
+            if (ciBase != null) {
+                baseRef.set(ciBase)
+                deviationBaseRef.set(ciBase)
+            } else {
+                baseRef.set("origin/master")
+                deviationBaseRef.set("origin/master")
+            }
+
+            // Override change class: ./gradlew verifyChangePolicy -PchangeClass=baseline-migration
+            val declaredClass = project.findProperty("changeClass")?.toString()
+            if (declaredClass != null) {
+                changeClass.set(declaredClass)
+            }
+        }
+
+        // ---- PR Verification (primary local check gate) ----
+
+        val verifyPr = project.tasks.register("verifyPr") {
+            group = "verification"
+            description = "Primary local verification gate. Runs subproject tests, build-logic tests, maintainability baseline, and change policy. Not a full CI replica — see .github/AGENTS.md for additional step commands."
+
+            dependsOn("verifyMaintainabilityBaseline")
+            dependsOn("verifyChangePolicy")
+
+            // Include build-logic tests (included build — must use includedBuild API)
+            val buildLogicTestTask = project.gradle.includedBuild("build-logic")?.task(":test")
+            if (buildLogicTestTask != null) {
+                dependsOn(buildLogicTestTask)
+            } else {
+                logger.warn("verifyPr: included build 'build-logic' not found, build-logic tests not aggregated")
+            }
+
+            doLast {
+                logger.lifecycle("verifyPr completed — see individual task results above.")
+            }
+        }
+
+        // Wire subproject test tasks lazily — use withPlugin so they register
+        // after subproject build scripts evaluate, not as an eager snapshot.
+        project.subprojects.forEach { subproject ->
+            subproject.pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
+                verifyPr.configure {
+                    dependsOn(subproject.tasks.named("test"))
+                }
+            }
+            subproject.pluginManager.withPlugin("java") {
+                verifyPr.configure {
+                    dependsOn(subproject.tasks.named("test"))
+                }
+            }
+        }
     }
 
     private fun readCommittedBaseline(project: Project): BaselineDocument {

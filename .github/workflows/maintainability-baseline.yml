@@ -32,8 +32,33 @@ jobs:
         with:
           cache-read-only: true
 
+      - name: Detect baseline-migration label
+        id: label-check
+        run: |
+          LABELS='${{ toJson(github.event.pull_request.labels) }}'
+          if echo "$LABELS" | grep -q '"baseline-migration"'; then
+            echo "changeClass=baseline-migration" >> "$GITHUB_OUTPUT"
+          else
+            echo "changeClass=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify Change Policy
+        run: |
+          CHANGE_CLASS="${{ steps.label-check.outputs.changeClass }}"
+          if [ -n "$CHANGE_CLASS" ]; then
+            ./gradlew verifyChangePolicy --no-daemon \
+              -PchangePolicyBase=${{ github.event.pull_request.base.sha }} \
+              -PchangeClass="$CHANGE_CLASS"
+          else
+            ./gradlew verifyChangePolicy --no-daemon \
+              -PchangePolicyBase=${{ github.event.pull_request.base.sha }}
+          fi
+
       - name: Verify Maintainability Baseline
         run: ./gradlew verifyMaintainabilityBaseline --no-daemon
+
+      - name: Test build-logic
+        run: ./gradlew :build-logic:test --no-daemon
 
       - name: Upload Reports
         if: always()
