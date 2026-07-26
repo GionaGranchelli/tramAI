@@ -653,6 +653,29 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 println("Full maintainability baseline verification complete.")
             }
         }
+
+        // ---- Change Policy Verification ----
+
+        project.tasks.register("verifyChangePolicy", ChangePolicyVerifierTask::class.java) {
+            group = "maintainability"
+            description = "Enforces change-policy rules: forbidden path combinations, deviation evidence, workflow sync"
+            baseRef.set("origin/master")
+        }
+
+        // ---- PR Verification (single authoritative CI-local command) ----
+
+        project.tasks.register("verifyPr") {
+            group = "verification"
+            description = "Single authoritative command equivalent to CI. Runs tests + maintainability + change policy."
+            dependsOn(
+                "test",
+                "verifyMaintainabilityBaseline",
+                "verifyChangePolicy"
+            )
+            doLast {
+                println("verifyPr PASSED — all checks complete.")
+            }
+        }
     }
 
     private fun readCommittedBaseline(project: Project): BaselineDocument {

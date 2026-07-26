@@ -106,24 +106,101 @@ That means:
 
 If a reviewer cannot tell from the tests what a feature guarantees, the test suite is not strong enough yet.
 
-## Preferred Workflow
+## Mandatory Execution Protocol
 
-Before significant implementation work:
+### Before editing
 
-- check the relevant spec in `docs/specs/`
-- check any related ADRs in `docs/adr/`
-- check the current execution task in `docs/board/tasks/` if one exists
+1. **Classify the change** — exactly one of:
+   - `runtime-behaviour` — production logic, tests, internal refactoring
+   - `public-api` — annotation surface, public contracts, SPI
+   - `build-logic` — scanners, analyzers, Gradle plugins, baselines
+   - `canonical-baseline` — updating `config/quality/0.6.0-baseline.json`
+   - `quality-deviation` — adding/modifying `config/quality/maintainability-deviations.yml`
+   - `ci-workflow` — `.github/workflows/**`
+   - `documentation` — docs, comments, AGENTS.md, task descriptions
+   - `baseline-migration` — scanner identity, schema, or cardinality change
 
-During implementation:
+2. **List:**
+   - intended files
+   - protected invariants
+   - expected measurement changes
+   - required verification commands
 
-- keep changes aligned with the spec
-- do not smuggle architectural changes in through implementation details
-- add or update tests alongside the code
+3. **Run the relevant pre-change verification** to establish that the branch starts from a valid state.
 
-After implementation:
+### Stop and report before continuing when
 
-- verify the acceptance criteria are actually covered
-- update docs if the public contract changed
+- implementation unexpectedly requires changing an analyzer
+- analyzer output identity, cardinality, scope, or schema would change
+- `config/quality/0.6.0-baseline.json` would need modification
+- a deviation ceiling would need to increase
+- a CI workflow must be weakened or bypassed
+- the requested task expands into another roadmap epic
+
+### Forbidden (unless explicitly required by the task)
+
+- regenerating the canonical baseline
+- increasing deviation ceilings to make CI pass
+- changing production code and its governing analyzer in the same PR
+- changing a quality gate after it reports a production defect
+- claiming completion based only on `./gradlew test`
+
+### After editing
+
+- run `./gradlew verifyPr`
+- inspect `git diff` for unintended files
+- report every command run and its result
+- report skipped checks explicitly
+- do not push while a required local check is failing
+
+## CI Failure Protocol
+
+When a pipeline fails:
+
+1. Read the exact failed step and its complete log.
+2. Download and inspect associated artifacts.
+3. Categorize the failure:
+   - `production-defect` — bug in production code
+   - `test-defect` — test is wrong or flaky
+   - `analyzer-defect` — scanner/verifier has a bug
+   - `baseline-mismatch` — current measurement differs from committed baseline
+   - `environment-mismatch` — CI environment differs from local
+   - `workflow-defect` — CI workflow configuration is wrong
+   - `flaky-external` — network, rate limit, or transient dependency failure
+4. State the diagnosed category and evidence before editing.
+5. Do not modify a gate until evidence shows the gate is incorrect.
+6. Do not modify a deviation until the current and canonical populations have been measured.
+7. After two unsuccessful fixes, stop and provide a root-cause report rather than applying another speculative patch.
+
+## Completion Report Format
+
+Finish every implementation task with a structured report:
+
+```
+## Scope
+Files intentionally changed.
+
+## Invariants
+What was preserved or strengthened.
+
+## Verification
+- command — result
+- command — result
+
+## Quality impact
+- cancellation findings: before → after
+- nondeterminism findings: before → after
+- API changes: none / listed
+- deviations changed: none / listed
+
+## Not run
+Checks skipped and why.
+
+## Remaining risks
+Known limitations or follow-up work.
+```
+
+"No remaining blockers" is only allowed when all mandatory entries have concrete evidence.
 
 ## Repository Guidance
 
