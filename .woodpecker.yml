@@ -1,3 +1,6 @@
+clone:
+  depth: 0
+
 when:
   - event: push
     branch:
@@ -11,7 +14,19 @@ steps:
     commands:
       - ./gradlew test
 
+  - name: verify-cancellation-safety
+    image: eclipse-temurin:25-jdk
+    depends_on: [test]
+    commands:
+      - |
+        if [ "$CI_PIPELINE_EVENT" = "pull_request" ]; then
+          ./gradlew verifyCancellationSafety --no-daemon -PtramaiCancellationBaseSha="${CI_COMMIT_TARGET}"
+        elif [ "$CI_PIPELINE_EVENT" = "push" ]; then
+          ./gradlew verifyCancellationSafety --no-daemon -PtramaiCancellationBaseSha="${CI_COMMIT_BEFORE}"
+        fi
+
   - name: publish-local
     image: eclipse-temurin:25-jdk
+    depends_on: [verify-cancellation-safety]
     commands:
       - ./gradlew publishToMavenLocal
