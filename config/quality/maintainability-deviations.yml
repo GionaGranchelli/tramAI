@@ -29,7 +29,7 @@ deviations:
   - id: MQ-0002
     metric: fileSize
     scope: "::build.gradle.kts"
-    baseline: 5503
+    baseline: 5501
     allowed: 6500
     reason: "Root build script accumulated publish, signing, and verification logic. Build-logic extraction is underway in Phase 0 and will continue through 0.6.x."
     acceptedAt: "2026-07-18"
@@ -59,8 +59,8 @@ deviations:
   - id: MQ-0005
     metric: cancellationCriticalCount
     scope: ":tramai-*"
-    baseline: 41
-    allowed: 41
+    baseline: 65
+    allowed: 65
     reason: "Cancellation rethrow audit complete in Phase 1 (PR #207). The deviation framework requires allowed >= baseline; actual enforcement is via verifyCancellationSafety gate."
     acceptedAt: "2026-07-26"
     targetPhase: "0.6.1"

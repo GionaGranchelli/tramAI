@@ -908,7 +908,9 @@ class TramaiEngineTest {
         assertThat(chunks).containsExactly(StreamChunk.Token("first"))
         assertThat(provider.cancelled).isTrue()
         val record = observer.records.single()
-        assertThat(record.providerFailure).isInstanceOf(kotlinx.coroutines.CancellationException::class.java)
+        // Cancellation is a call-cancelled event, not a provider failure —
+        // onCallCancelled() replaces onProviderFailure + onCallCompleted.
+        assertThat(record.providerFailure).isNull()
         assertThat(record.response).isNull()
     }
 
