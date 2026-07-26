@@ -691,8 +691,13 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             dependsOn("verifyMaintainabilityBaseline")
             dependsOn("verifyChangePolicy")
 
-            // Include build-logic tests (included build)
-            dependsOn(":build-logic:test")
+            // Include build-logic tests (included build — must use includedBuild API)
+            val buildLogicTestTask = project.gradle.includedBuild("build-logic")?.task(":test")
+            if (buildLogicTestTask != null) {
+                dependsOn(buildLogicTestTask)
+            } else {
+                logger.warn("verifyPr: included build 'build-logic' not found, build-logic tests not aggregated")
+            }
 
             doLast {
                 logger.lifecycle("verifyPr completed — see individual task results above.")

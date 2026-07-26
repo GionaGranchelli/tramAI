@@ -32,6 +32,9 @@ jobs:
         with:
           cache-read-only: true
 
+      - name: Verify Change Policy
+        run: ./gradlew verifyChangePolicy --no-daemon -PchangePolicyBase=${{ github.event.pull_request.base.sha }}
+
       - name: Verify Maintainability Baseline
         run: ./gradlew verifyMaintainabilityBaseline --no-daemon
 
