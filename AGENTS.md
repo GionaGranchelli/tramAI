@@ -147,7 +147,8 @@ If a reviewer cannot tell from the tests what a feature guarantees, the test sui
 
 ### After editing
 
-- run `./gradlew verifyPr`
+- run `./gradlew verifyPr` (primary local gate — runs tests, maintainability baseline, and change policy)
+- for additional CI-equivalent steps, see `.github/AGENTS.md` for local equivalents
 - inspect `git diff` for unintended files
 - report every command run and its result
 - report skipped checks explicitly

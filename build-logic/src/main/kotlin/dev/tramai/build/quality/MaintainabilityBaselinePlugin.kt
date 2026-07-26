@@ -658,22 +658,34 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
         project.tasks.register("verifyChangePolicy", ChangePolicyVerifierTask::class.java) {
             group = "maintainability"
-            description = "Enforces change-policy rules: forbidden path combinations, deviation evidence, workflow sync"
+            description = "Enforces change-policy rules: forbidden path combinations and deviation evidence"
             baseRef.set("origin/master")
         }
 
-        // ---- PR Verification (single authoritative CI-local command) ----
+        // ---- PR Verification (primary local check gate) ----
 
         project.tasks.register("verifyPr") {
             group = "verification"
-            description = "Single authoritative command equivalent to CI. Runs tests + maintainability + change policy."
+            description = "Primary local verification gate. Runs tests + maintainability baseline + change policy. Not a full CI replica — see .github/AGENTS.md for additional step commands."
             dependsOn(
                 "test",
                 "verifyMaintainabilityBaseline",
                 "verifyChangePolicy"
             )
+            // Enforce ordering: test first, then baseline, then policy
+            mustRunAfter("test")
             doLast {
-                println("verifyPr PASSED — all checks complete.")
+                val testTask = project.tasks.findByName("test")
+                val baselineTask = project.tasks.findByName("verifyMaintainabilityBaseline")
+                val policyTask = project.tasks.findByName("verifyChangePolicy")
+                if (testTask?.state?.didWork == true &&
+                    baselineTask?.state?.didWork == true &&
+                    policyTask?.state?.didWork == true
+                ) {
+                    println("verifyPr PASSED — tests, maintainability, and change policy all completed.")
+                } else {
+                    println("verifyPr completed — see individual task results above.")
+                }
             }
         }
     }

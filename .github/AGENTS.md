@@ -1,6 +1,7 @@
-# AGENTS.md — .github/workflows/
+# AGENTS.md — .github/
 
-This directory contains TramAI's CI and release pipeline definitions.
+This directory contains TramAI's CI and release pipeline definitions (`.github/workflows/`)
+and related GitHub configuration.
 
 ## Rules
 
