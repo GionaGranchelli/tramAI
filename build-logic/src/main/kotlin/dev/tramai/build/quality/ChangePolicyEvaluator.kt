@@ -64,32 +64,49 @@ object ChangePolicyEvaluator {
 
         val changeClass = input.changeClass ?: detectChangeClass(files)
 
-        // === Rule 1: Production + baseline separation ===
+        // Compute path categories once
         val productionChanged = files.any { isProductionPath(it) }
         val baselineChanged = files.any { isBaselinePath(it) }
-
-        if (productionChanged && baselineChanged) {
-            if (changeClass == "baseline-migration") {
-                // baseline-migration allows build-logic + baseline together,
-                // but must still reject tramai runtime production changes
-                val runtimeChanged = files.any { isRuntimeProductionPath(it) }
-                if (runtimeChanged) {
-                    violations.add(runtimeInBaselineMigrationViolation(files))
-                }
-            } else {
-                violations.add(productionBaselineSeparationViolation(files, changeClass))
-            }
-        }
-
-        // === Rule 2: Analyzer + runtime separation ===
         val analyzerChanged = files.any { isAnalyzerPath(it) || isAnalyzerAdjacentPath(it) }
         val runtimeChanged = files.any { isRuntimeProductionPath(it) }
 
-        if (analyzerChanged && runtimeChanged) {
-            if (changeClass != "baseline-migration") {
+        // === Baseline-migration: narrow exceptional class ===
+        // This block runs FIRST, before the general rules below.
+        // It does NOT fall through — the general rules check !baseline-migration.
+        if (changeClass == "baseline-migration") {
+            // MUST change the canonical baseline
+            if (!baselineChanged) {
+                violations.add(
+                    PolicyViolation("production-baseline-separation",
+                        "A baseline-migration PR must change the canonical baseline " +
+                            "(config/quality/0.6.0-baseline.json). " +
+                            "Found no changes to that file.")
+                )
+            }
+            // MUST include an analyzer change
+            if (!analyzerChanged) {
+                violations.add(
+                    PolicyViolation("analyzer-runtime-separation",
+                        "A baseline-migration PR must include an analyzer change (build-logic/). " +
+                            "Found no changes in build-logic/.")
+                )
+            }
+            // MUST NOT include tramai runtime production changes
+            if (runtimeChanged) {
+                violations.add(runtimeInBaselineMigrationViolation(files))
+            }
+            // Skip general rules below — baseline-migration is fully validated here.
+            // (Still evaluate deviation changes if present.)
+        } else {
+            // === Rule 1: Production + baseline separation ===
+            if (productionChanged && baselineChanged) {
+                violations.add(productionBaselineSeparationViolation(files, changeClass))
+            }
+
+            // === Rule 2: Analyzer + runtime separation ===
+            if (analyzerChanged && runtimeChanged) {
                 violations.add(analyzerRuntimeSeparationViolation(files))
             }
-            // baseline-migration still blocks tramai runtime changes via Rule 1 above
         }
 
         // === Rule 3: Deviation evidence validation ===
@@ -342,7 +359,9 @@ object ChangePolicyEvaluator {
                 if (id.isNullOrBlank()) {
                     return DeviationParseResult.Invalid("Deviation entry at index $i has no 'id' field")
                 }
-                result[id] = dev
+                if (result.put(id, dev) != null) {
+                    return DeviationParseResult.Invalid("Duplicate deviation id: $id")
+                }
             }
             DeviationParseResult.Success(result)
         } catch (e: Exception) {

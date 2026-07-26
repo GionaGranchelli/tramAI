@@ -679,15 +679,10 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
         // ---- PR Verification (primary local check gate) ----
 
-        project.tasks.register("verifyPr") {
+        val verifyPr = project.tasks.register("verifyPr") {
             group = "verification"
             description = "Primary local verification gate. Runs subproject tests, build-logic tests, maintainability baseline, and change policy. Not a full CI replica — see .github/AGENTS.md for additional step commands."
 
-            // Aggregate all subproject test tasks
-            val subprojectTestTasks = project.subprojects.flatMap { sub ->
-                sub.tasks.matching { it.name == "test" }.toList()
-            }
-            dependsOn(subprojectTestTasks)
             dependsOn("verifyMaintainabilityBaseline")
             dependsOn("verifyChangePolicy")
 
@@ -701,6 +696,21 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
             doLast {
                 logger.lifecycle("verifyPr completed — see individual task results above.")
+            }
+        }
+
+        // Wire subproject test tasks lazily — use withPlugin so they register
+        // after subproject build scripts evaluate, not as an eager snapshot.
+        project.subprojects.forEach { subproject ->
+            subproject.pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
+                verifyPr.configure {
+                    dependsOn(subproject.tasks.named("test"))
+                }
+            }
+            subproject.pluginManager.withPlugin("java") {
+                verifyPr.configure {
+                    dependsOn(subproject.tasks.named("test"))
+                }
             }
         }
     }

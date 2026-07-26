@@ -98,6 +98,62 @@ class ChangePolicyEvaluatorTest {
     }
 
     @Test
+    fun `baseline-migration without baseline file change fails`() {
+        val input = ChangePolicyInput(
+            changeClass = "baseline-migration",
+            changedFiles = listOf(
+                "build-logic/src/main/kotlin/Scanner.kt",
+                "tramai-core/src/main/kotlin/Core.kt"
+            ),
+            baseDeviationsYaml = null,
+            currentDeviationsYaml = null
+        )
+        val result = ChangePolicyEvaluator.evaluate(input)
+        assertFalse(result.passed)
+        assertTrue(result.violations.any { it.message.contains("must change the canonical baseline") })
+    }
+
+    @Test
+    fun `baseline-migration without analyzer change fails`() {
+        val input = ChangePolicyInput(
+            changeClass = "baseline-migration",
+            changedFiles = listOf(
+                "config/quality/0.6.0-baseline.json",
+                "config/quality/maintainability-deviations.yml"
+            ),
+            baseDeviationsYaml = null,
+            currentDeviationsYaml = null
+        )
+        val result = ChangePolicyEvaluator.evaluate(input)
+        assertFalse(result.passed)
+        assertTrue(result.violations.any { it.message.contains("must include an analyzer change") })
+    }
+
+    @Test
+    fun `baseline-migration with analyzer plus runtime but no baseline fails`() {
+        // The bypass scenario: analyzer + runtime with -PchangeClass=baseline-migration
+        // but no baseline file changed. Must fail because:
+        // 1) baseline-migration requires baseline change
+        // 2) runtime production is always blocked in baseline-migration
+        val input = ChangePolicyInput(
+            changeClass = "baseline-migration",
+            changedFiles = listOf(
+                "build-logic/src/main/kotlin/dev/tramai/build/quality/KotlinCancellationCatchScanner.kt",
+                "tramai-engine/src/main/kotlin/Engine.kt"
+            ),
+            baseDeviationsYaml = null,
+            currentDeviationsYaml = null
+        )
+        val result = ChangePolicyEvaluator.evaluate(input)
+        assertFalse(result.passed)
+        // Should have at LEAST two violations: no baseline, and runtime blocked
+        assertTrue(result.violations.any { it.message.contains("must change the canonical baseline") },
+            "Should fail because no baseline change")
+        assertTrue(result.violations.any { it.message.contains("tramai runtime") },
+            "Should fail because runtime production changes")
+    }
+
+    @Test
     fun `auto-detect never returns baseline-migration`() {
         // Even with analyzer + baseline + deviations changes, auto-detect should
         // never produce 'baseline-migration' — must be explicit
@@ -427,6 +483,32 @@ class ChangePolicyEvaluatorTest {
     @Test
     fun `parseResult returns Invalid for missing deviations key`() {
         assertTrue(ChangePolicyEvaluator.parseResult("someKey: value") is DeviationParseResult.Invalid)
+    }
+
+    @Test
+    fun `parseResult returns Invalid for duplicate deviation ids`() {
+        val yaml = """
+            |deviations:
+            |  - id: MQ-DUP
+            |    metric: m
+            |    scope: ":t"
+            |    baseline: 1
+            |    allowed: 1
+            |    reason: "First."
+            |    acceptedAt: "2026-07-01"
+            |    targetPhase: "0.6.1"
+            |    owner: "agent"
+            |  - id: MQ-DUP
+            |    metric: m
+            |    scope: ":t"
+            |    baseline: 2
+            |    allowed: 2
+            |    reason: "Second with same id."
+            |    acceptedAt: "2026-07-01"
+            |    targetPhase: "0.6.1"
+            |    owner: "agent"
+        """.trimMargin()
+        assertTrue(ChangePolicyEvaluator.parseResult(yaml) is DeviationParseResult.Invalid)
     }
 
     @Test
