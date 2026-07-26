@@ -912,6 +912,7 @@ class TramaiEngineTest {
         // onCallCancelled() replaces onProviderFailure + onCallCompleted.
         assertThat(record.providerFailure).isNull()
         assertThat(record.response).isNull()
+        assertThat(record.cancelled).isTrue()
     }
 
     @Test
@@ -3595,6 +3596,10 @@ private class RecordingObserver : OperationObserver {
                 record.parseSuccess = parseSuccess
                 record.completionCount++
             }
+
+            override fun onCallCancelled() {
+                record.cancelled = true
+            }
         }
     }
 
@@ -3605,6 +3610,7 @@ private class RecordingObserver : OperationObserver {
         var parseSuccess: Boolean? = null,
         var completionCount: Int = 0,
         val engineEvents: MutableList<EngineEventRecord> = mutableListOf(),
+        var cancelled: Boolean = false,
     )
 }
 

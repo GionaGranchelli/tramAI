@@ -462,8 +462,9 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
                 if (baseSha != null) {
                     // ── PR mode: compare against base SHA ──
-                    val worktreeDir = File(System.getProperty("java.io.tmpdir"), "tramai-base-${baseSha.take(8)}")
+                    val worktreeDir = java.nio.file.Files.createTempDirectory("tramai-base-${baseSha.take(8)}-").toFile()
                     val baseCatches: List<CancellationCatchFinding>
+                    var worktreeCreated = false
 
                     try {
                         // Create temporary git worktree at base SHA
@@ -477,6 +478,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         val addOutput = addProcess.inputStream.bufferedReader().readText()
                         val addExit = addProcess.waitFor()
                         if (addExit != 0) throw GradleException("Failed to create worktree at $baseSha: $addOutput")
+                        worktreeCreated = true
 
                         // Scan base sources with same scanner + scoped module filter
                         val baseCtx = MeasurementContext.fromDirectory(worktreeDir)
@@ -484,137 +486,92 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                         val baseAllFindings = baseInventory.inventory()
                         baseCatches = baseAllFindings.filter { it.module in scopedModules }
                     } finally {
-                        // Clean up worktree
-                        ProcessBuilder("git", "worktree", "remove", "--force", worktreeDir.absolutePath)
-                            .directory(project.rootDir)
-                            .start()
-                            .waitFor()
+                        if (worktreeCreated) {
+                            ProcessBuilder("git", "worktree", "remove", "--force", worktreeDir.absolutePath)
+                                .directory(project.rootDir)
+                                .start()
+                                .waitFor()
+                            ProcessBuilder("git", "worktree", "prune")
+                                .directory(project.rootDir)
+                                .start()
+                                .waitFor()
+                        }
                         worktreeDir.deleteRecursively()
                     }
 
-                    // ── Occurrence-based identity comparison ──
-                    data class IdentityEntry(val key: String, val finding: CancellationCatchFinding)
+                    // ── Risk population matching comparison ──
+                    val delta = CancellationDeltaComparator.compare(baseCatches, scopedFindings)
 
-                    fun groupWithOccurrence(entries: List<CancellationCatchFinding>): List<IdentityEntry> =
-                        entries
-                            .groupBy { "${it.module}::${it.file}::${it.function}::${it.catchType}" }
-                            .flatMap { (_, group) ->
-                                group.sortedBy { it.sourceLine }
-                                    .mapIndexed { idx, finding ->
-                                        IdentityEntry(
-                                            FindingIdentity.fromCancellationCatch(finding, idx).toIdentityKey(),
-                                            finding
-                                        )
-                                    }
-                            }
-
-                    fun riskOrder(risk: String): Int = when (risk) {
-                        "accepted" -> 1; "low" -> 2; "medium" -> 3; "high" -> 4; "critical" -> 5; else -> 0
+                    if (delta.newCriticalHigh.isNotEmpty() || delta.worsened.isNotEmpty()) {
+                        throw GradleException(delta.diagnostics.joinToString("\n"))
                     }
 
-                    val baseEntries = groupWithOccurrence(baseCatches)
-                    val currentEntries = groupWithOccurrence(scopedFindings)
-
-                    val baseMap = baseEntries.associate { it.key to it.finding }
-                    val currentMap = currentEntries.associate { it.key to it.finding }
-
-                    // New critical/high findings
-                    val newKeys = currentMap.keys - baseMap.keys
-                    val newCriticalHigh = currentMap.filter { (key, finding) ->
-                        key in newKeys && (finding.risk == "critical" || finding.risk == "high")
-                    }
-
-                    // Risk worsening: compare paired occurrence positions for shared identities
-                    val baseRiskMap = baseEntries.groupBy({ it.key }, { it.finding.risk })
-                    val currentRiskMap = currentEntries.groupBy({ it.key }, { it.finding.risk })
-
-                    val worsenedMessages = mutableListOf<String>()
-                    for ((key, current) in currentRiskMap) {
-                        val base = baseRiskMap[key] ?: continue
-                        for (i in 0 until minOf(base.size, current.size)) {
-                            if (riskOrder(base[i]) < riskOrder(current[i])) {
-                                val finding = currentMap[key]!!
-                                worsenedMessages.add("${finding.module}:${finding.file} -> ${finding.function} (${finding.catchType}): risk ${base[i]} → ${current[i]}")
-                            }
-                        }
-                    }
-
-                    // Report
-                    val diag = mutableListOf<String>()
-                    diag.add("verifyCancellationSafety: ${scopedFindings.size} current, ${baseCatches.size} base findings")
-                    diag.add("  Base SHA: ${baseSha.take(8)}")
-
-                    if (newCriticalHigh.isNotEmpty()) {
-                        diag.add("${newCriticalHigh.size} new critical/high cancellation catch(es):")
-                        newCriticalHigh.forEach { (_, f) ->
-                            diag.add("  ${f.module}:${f.file}:${f.sourceLine} -> ${f.function} (${f.catchType}, risk=${f.risk})")
-                        }
-                    }
-                    if (worsenedMessages.isNotEmpty()) {
-                        diag.add("${worsenedMessages.size} risk worsening(s):")
-                        worsenedMessages.forEach { diag.add("  $it") }
-                    }
-
-                    if (newCriticalHigh.isNotEmpty() || worsenedMessages.isNotEmpty()) {
-                        throw GradleException(diag.joinToString("\n"))
-                    }
-
-                    println(diag.joinToString("\n"))
+                    println(delta.diagnostics.joinToString("\n"))
                     println("verifyCancellationSafety PASSED: no new critical/high findings or risk worsenings against base SHA.")
                 } else {
-                    // ── Local dev mode: compare against committed baseline ──
-                    val baselineFile = File(project.rootDir, "config/quality/0.6.0-baseline.json")
-                    val committed: BaselineDocument = ReportNormalizer.readJson(baselineFile, BaselineDocument::class.java)
-                    val committedCatches = committed.runtimeSafety.cancellationCatches
-
-                    // Build committed identity set for new-finding detection
-                    val committedIdentities = committedCatches.map {
-                        FindingIdentity.fromCancellationCatch(it).toIdentityKey()
-                    }.toSet()
-
-                    // Detect NEW critical/high findings (not in committed baseline at all)
-                    val newFindings = scopedFindings.filter { finding ->
-                        val key = FindingIdentity.fromCancellationCatch(finding).toIdentityKey()
-                        (finding.risk == "critical" || finding.risk == "high") && key !in committedIdentities
+                    // ── Local dev mode: auto-resolve merge base against origin/master ──
+                    val resolveProcess = ProcessBuilder("git", "merge-base", "HEAD", "origin/master")
+                        .directory(project.rootDir)
+                        .redirectErrorStream(true)
+                        .start()
+                    val resolveOutput = resolveProcess.inputStream.bufferedReader().readText().trim()
+                    val resolveExit = resolveProcess.waitFor()
+                    if (resolveExit != 0) {
+                        throw GradleException(
+                            "verifyCancellationSafety requires -PtramaiCancellationBaseSha when origin/master is not available.\n" +
+                            "Usage: ./gradlew verifyCancellationSafety -PtramaiCancellationBaseSha=<sha>\n" +
+                            "In CI this is auto-wired. Locally, use the base branch SHA."
+                        )
                     }
 
-                    // Detect risk worsenings using DeviationBudgetEvaluator.evaluateRiskWorsening()
-                    val diagnostics = mutableListOf<VerificationDiagnostic>()
-                    val deviationParser = DeviationParser(project.rootDir)
-                    val evaluator = DeviationBudgetEvaluator(deviationParser)
-                    val deviations = deviationParser.parse().deviations
+                    val baseShaLocal = resolveOutput
+                    println("verifyCancellationSafety: auto-resolved merge base against origin/master = ${baseShaLocal.take(8)}")
 
-                    evaluator.evaluateRiskWorsening(
-                        metricName = "cancellationRiskWorsening",
-                        deviations = deviations,
-                        allCurrent = scopedFindings.toList<Any?>(),
-                        committedIds = committedIdentities.toList(),
-                        committedFindings = committedCatches.toList<Any?>(),
-                        toModuleScope = { f -> DeviationBudgetEvaluator.moduleScope(f) },
-                        riskWorseCode = DiagnosticCode.CANCELLATION_RISK_WORSENED,
-                        diagnostics = diagnostics
-                    )
+                    // Scan merge base using the same worktree approach
+                    val worktreeDir = java.nio.file.Files.createTempDirectory("tramai-base-${baseShaLocal.take(8)}-").toFile()
+                    val localBaseCatches: List<CancellationCatchFinding>
+                    var worktreeCreated = false
 
-                    val worsenedFailures = diagnostics.filter { it.severity == DiagnosticSeverity.FAILURE }
+                    try {
+                        val addProcess = ProcessBuilder(
+                            "git", "worktree", "add",
+                            worktreeDir.absolutePath, baseShaLocal, "--detach"
+                        )
+                            .directory(project.rootDir)
+                            .redirectErrorStream(true)
+                            .start()
+                        val addOutput = addProcess.inputStream.bufferedReader().readText()
+                        val addExit = addProcess.waitFor()
+                        if (addExit != 0) throw GradleException("Failed to create worktree at $baseShaLocal: $addOutput")
+                        worktreeCreated = true
 
-                    if (newFindings.isNotEmpty() || worsenedFailures.isNotEmpty()) {
-                        val messages = mutableListOf<String>()
-                        if (newFindings.isNotEmpty()) {
-                            messages.add("${newFindings.size} new cancellation catch(es) found (not in committed baseline):")
-                            newFindings.forEach { f ->
-                                messages.add("  ${f.module}:${f.file} -> ${f.function} (${f.catchType}, risk=${f.risk})")
-                            }
+                        val baseCtx = MeasurementContext.fromDirectory(worktreeDir)
+                        val baseInventory = CancellationCatchInventory(baseCtx)
+                        val baseAllFindings = baseInventory.inventory()
+                        localBaseCatches = baseAllFindings.filter { it.module in scopedModules }
+                    } finally {
+                        if (worktreeCreated) {
+                            ProcessBuilder("git", "worktree", "remove", "--force", worktreeDir.absolutePath)
+                                .directory(project.rootDir)
+                                .start()
+                                .waitFor()
+                            ProcessBuilder("git", "worktree", "prune")
+                                .directory(project.rootDir)
+                                .start()
+                                .waitFor()
                         }
-                        if (worsenedFailures.isNotEmpty()) {
-                            messages.add("Risk worsening failures:")
-                            worsenedFailures.forEach { d ->
-                                messages.add("  ${d.message}")
-                            }
-                        }
-                        throw GradleException(messages.joinToString("\n"))
+                        worktreeDir.deleteRecursively()
                     }
 
-                    println("verifyCancellationSafety PASSED: ${scopedFindings.size} findings in scoped modules, no new critical/high findings or risk worsenings.")
+                    // Same risk population matching comparison
+                    val delta = CancellationDeltaComparator.compare(localBaseCatches, scopedFindings)
+
+                    if (delta.newCriticalHigh.isNotEmpty() || delta.worsened.isNotEmpty()) {
+                        throw GradleException(delta.diagnostics.joinToString("\n"))
+                    }
+
+                    println(delta.diagnostics.joinToString("\n"))
+                    println("verifyCancellationSafety PASSED: ${scopedFindings.size} findings in scoped modules, no new critical/high findings or risk worsenings against origin/master.")
                 }
             }
         }
