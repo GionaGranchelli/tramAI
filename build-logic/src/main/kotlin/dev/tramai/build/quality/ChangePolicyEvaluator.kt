@@ -67,18 +67,21 @@ object ChangePolicyEvaluator {
             val baselineChanged = files.any { isBaselinePath(it) }
 
             if (productionChanged && baselineChanged) {
+                val prodPaths = files.filter { isProductionPath(it) }.joinToString(", ")
+                val baselinePaths = files.filter { isBaselinePath(it) }.joinToString(", ")
                 violations.add(
                     PolicyViolation(
                         rule = "production-baseline-separation",
                         message = buildString {
-                            append("Production source and canonical baseline must not change together.\n")
-                            append("  Detected change class: $changeClass\n")
-                            append("  To change both, classify this PR as 'baseline-migration' via -PchangeClass=baseline-migration.\n")
-                            append("  Changed production: ${files.filter { isProductionPath(it) }.joinToString(", ")}\n")
-                            append("  Changed baseline: ${files.filter { isBaselinePath(it) }.joinToString(", ")}")
+                            append("Production source and canonical baseline must not change together.")
+                            append("\n  Detected change class: $changeClass")
+                            append("\n  To change both, classify this PR as 'baseline-migration' via -PchangeClass=baseline-migration.")
+                            append("\n  Changed production: $prodPaths")
+                            append("\n  Changed baseline: $baselinePaths")
                         }
                     )
-                }
+                )
+            }
         }
 
         // --- Rule 2: Analyzer + runtime separation ---
@@ -87,18 +90,21 @@ object ChangePolicyEvaluator {
             val runtimeChanged = files.any { isRuntimeProductionPath(it) }
 
             if (analyzerChanged && runtimeChanged) {
+                val analyzerPaths = files.filter { isAnalyzerPath(it) || isAnalyzerAdjacentPath(it) }.joinToString(", ")
+                val runtimePaths = files.filter { isRuntimeProductionPath(it) }.joinToString(", ")
                 violations.add(
                     PolicyViolation(
                         rule = "analyzer-runtime-separation",
                         message = buildString {
-                            append("Analyzer/tooling code and runtime production modules must not change together.\n")
-                            append("  Detected change class: $changeClass\n")
-                            append("  Submit separate PRs: one for tooling, one for runtime remediation.\n")
-                            append("  Changed analyzer: ${files.filter { isAnalyzerPath(it) || isAnalyzerAdjacentPath(it) }.joinToString(", ")}\n")
-                            append("  Changed runtime: ${files.filter { isRuntimeProductionPath(it) }.joinToString(", ")}")
+                            append("Analyzer/tooling code and runtime production modules must not change together.")
+                            append("\n  Detected change class: $changeClass")
+                            append("\n  Submit separate PRs: one for tooling, one for runtime remediation.")
+                            append("\n  Changed analyzer: $analyzerPaths")
+                            append("\n  Changed runtime: $runtimePaths")
                         }
                     )
-                }
+                )
+            }
         }
 
         // --- Rule 3: Deviation evidence validation ---
