@@ -182,6 +182,17 @@ private class SpanBackedObservation(
         span.end()
     }
 
+    override fun onCallCancelled() {
+        span.setAttribute(ATTR_TRAMAI_OUTCOME, "cancelled")
+        span.end()
+        val attributes = completionAttributes(parseSuccess = null)
+        metrics.attempts.add(1, attributes)
+        metrics.duration.record(
+            (System.nanoTime() - startedAtNanos) / 1_000_000.0,
+            attributes,
+        )
+    }
+
     private fun responseAttributes(response: ModelResponse): Attributes {
         val attributes = mutableMapOf<String, Any?>()
         attributes.putAll(baseAttributes)

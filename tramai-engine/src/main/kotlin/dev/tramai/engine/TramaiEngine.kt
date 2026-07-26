@@ -430,6 +430,14 @@ internal class TramaiInvocationHandler(
     private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard, isLegacyFallback = isLegacyFallback, auditEmitter = policyDecisionAuditEmitter)
     private val modelRegistryEnforcer = ModelRegistryEnforcer(modelRegistry, modelRegistrySettings)
 
+    private fun OperationObservation.completeCancellation(cancellation: CancellationException) {
+        try {
+            onCallCancelled()
+        } catch (observerError: Throwable) {
+            cancellation.addSuppressed(observerError)
+        }
+    }
+
     override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
         if (method.declaringClass == Any::class.java) {
             return handleObjectMethod(proxy, method, args.orEmpty())
@@ -814,7 +822,7 @@ internal class TramaiInvocationHandler(
             observation.onProviderFailure(timeout)
             handleFallbackResult(timeout, emittedAnyTokens, route.providerName, observation)
         } catch (error: CancellationException) {
-            observation.onCallCancelled()
+            observation.completeCancellation(error)
             throw error
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
@@ -2085,7 +2093,7 @@ internal class TramaiInvocationHandler(
                 attempt.observation.onCallCompleted(parseSuccess = null)
                 throw error
             } catch (error: CancellationException) {
-                attempt.observation.onCallCancelled()
+                attempt.observation.completeCancellation(error)
                 throw error
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()

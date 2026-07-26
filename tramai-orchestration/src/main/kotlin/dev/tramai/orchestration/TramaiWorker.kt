@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -16,6 +17,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.InetAddress
 import java.security.MessageDigest
@@ -504,15 +506,17 @@ class TramaiWorker(
             releaseLease(handle)
         } catch (error: CancellationException) {
             if (shuttingDownGracefully) {
-                tracker.cancelActiveAttempt("Worker shutdown cancelled the running step")
-                observability.onWorkflowAbandoned(
-                    workflowId = checkpoint.workflowId,
-                    workerId = config.workerId,
-                    lastStep = checkpoint.lastCompletedStepName,
-                    timeoutMillis = config.drainTimeoutMillis,
-                )
-                releaseLease(handle)
-                executionFailures.remove(checkpoint.workflowId)
+                withContext(NonCancellable) {
+                    tracker.cancelActiveAttempt("Worker shutdown cancelled the running step")
+                    observability.onWorkflowAbandoned(
+                        workflowId = checkpoint.workflowId,
+                        workerId = config.workerId,
+                        lastStep = checkpoint.lastCompletedStepName,
+                        timeoutMillis = config.drainTimeoutMillis,
+                    )
+                    releaseLease(handle)
+                    executionFailures.remove(checkpoint.workflowId)
+                }
             }
             throw error
         } catch (error: Throwable) {
@@ -556,9 +560,10 @@ class TramaiWorker(
     }
 
     private suspend fun releaseLease(handle: ActiveExecution) {
-        val lease = handle.lease.getAndSet(null) ?: return
+        val lease = handle.lease.get() ?: return
         try {
             leaseStore.release(lease)
+            handle.lease.compareAndSet(lease, null)
             observability.onLeaseReleased(handle.workflowId, config.workerId)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()

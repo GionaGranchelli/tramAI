@@ -331,8 +331,8 @@ data class NondeterminismFinding(
     val file: String,
     val line: Int,
     val source: String,
-    val classification: String = "unknown",
-    val category: String = "unknown"
+    val category: String,
+    val classification: String? = null,
 )
 
 data class ProtocolCatalog(

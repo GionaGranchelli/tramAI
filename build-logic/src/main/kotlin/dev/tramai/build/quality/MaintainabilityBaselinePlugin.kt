@@ -448,14 +448,9 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                 val scanningCtx = MeasurementContext.fromProject(project)
                 val inventory = CancellationCatchInventory(scanningCtx)
                 val findings = inventory.inventory()
-                // Restrict to PR #207 scope: core, engine, orchestration, providers
-                val scopedModules = setOf(
-                    ":tramai-core", ":tramai-engine", ":tramai-orchestration",
-                    ":tramai-openai", ":tramai-azure-openai", ":tramai-anthropic",
-                    ":tramai-gemini", ":tramai-deepseek", ":tramai-ollama", ":tramai-bedrock"
-                )
+                // Derive module scope from ModuleCatalog — all non-example production modules
                 val nonAccepted = findings.filter {
-                    (it.risk == "critical" || it.risk == "high") && it.module in scopedModules
+                    (it.risk == "critical" || it.risk == "high") && it.module in criticalModules
                 }
                 if (nonAccepted.isNotEmpty()) {
                     val detail = nonAccepted.joinToString("\n") {

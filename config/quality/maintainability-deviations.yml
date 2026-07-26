@@ -71,7 +71,7 @@ deviations:
     scope: ":tramai-orchestration"
     baseline: 23
     allowed: 23
-    reason: "Nondeterminism classification schema drift between v0.5.0 baseline and current analyzer. All sources are legitimate (UUID.randomUUID(), Clock.systemUTC(), System.nanoTime()). Not caused by PR #207."
+    reason: "PR #207 cancellation enforcement added new code paths to tramai-orchestration with existing nondeterministic patterns (UUID.randomUUID(), System.currentTimeMillis(), Clock.systemUTC(), ThreadLocalRandom, System.nanoTime()). Accepted for Phase 1; will be addressed in Phase 2 nondeterminism audit."
     acceptedAt: "2026-07-26"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
@@ -81,7 +81,7 @@ deviations:
     scope: ":tramai-engine"
     baseline: 8
     allowed: 8
-    reason: "Nondeterminism classification schema drift between v0.5.0 baseline and current analyzer. Sources: UUID.randomUUID(), Clock.systemUTC(). Not caused by PR #207."
+    reason: "PR #207 cancellation enforcement added new code paths to tramai-engine with existing nondeterministic patterns (UUID.randomUUID(), Clock.systemUTC()). Accepted for Phase 1; will be addressed in Phase 2 nondeterminism audit."
     acceptedAt: "2026-07-26"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
@@ -91,7 +91,7 @@ deviations:
     scope: ":tramai-core"
     baseline: 3
     allowed: 3
-    reason: "Nondeterminism classification schema drift between v0.5.0 baseline and current analyzer. Sources: UUID.randomUUID(), System.currentTimeMillis(), Instant.now(). Not caused by PR #207."
+    reason: "PR #207 cancellation enforcement added new code paths to tramai-core with existing nondeterministic patterns (System.currentTimeMillis()). Accepted for Phase 1; will be addressed in Phase 2 nondeterminism audit."
     acceptedAt: "2026-07-26"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"

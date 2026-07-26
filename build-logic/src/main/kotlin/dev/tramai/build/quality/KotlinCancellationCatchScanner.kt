@@ -44,7 +44,9 @@ object KotlinCancellationCatchScanner {
 
             // Skip comment lines
             val trimmed = line.trim()
-            if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue
+            if (trimmed.startsWith("//")) continue
+            if (trimmed.startsWith("*") && !trimmed.contains("*/")) continue
+            if (trimmed.startsWith("/*") && !trimmed.contains("*/")) continue
 
             for (pattern in broadCatchPatterns) {
                 val match = pattern.find(line) ?: continue
@@ -213,11 +215,16 @@ object KotlinCancellationCatchScanner {
             val stripped = stripComment(lines[i])
             val trimmed = stripped.trim()
             if (trimmed.isBlank()) continue
-            // Skip single-line and block comment markers
-            if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue
-            // This is the first real statement — check if it's the helper
-            val helperMatch = rethrowIfCancellationPattern.find(stripped)
-            if (helperMatch != null && !isInsideStringLiteral(stripped, helperMatch.range.first)) {
+            // Skip multi-line block comment starts and line-comment-only lines
+            if (trimmed.startsWith("//")) continue
+            if (trimmed.startsWith("*") && !trimmed.contains("*/")) continue
+            if (trimmed.startsWith("/*") && !trimmed.contains("*/")) continue
+            // This is the first real statement — check if the ENTIRE line is
+            // just: <catchVar>.rethrowIfCancellation()  (with optional trailing semicolon)
+            val fullLinePattern = Regex(
+                """^\s*${Regex.escape(catchVar)}\.rethrowIfCancellation\s*\(\s*\)\s*;?\s*$"""
+            )
+            if (fullLinePattern.matches(trimmed)) {
                 foundHelper = true
             }
             break
