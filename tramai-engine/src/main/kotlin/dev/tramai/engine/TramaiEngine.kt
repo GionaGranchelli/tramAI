@@ -814,10 +814,7 @@ internal class TramaiInvocationHandler(
             observation.onProviderFailure(timeout)
             handleFallbackResult(timeout, emittedAnyTokens, route.providerName, observation)
         } catch (error: CancellationException) {
-            val cancellation = CancellationException("Streaming operation was cancelled by the consumer")
-            cancellation.initCause(error)
-            observation.onProviderFailure(cancellation)
-            observation.onCallCompleted(parseSuccess = null)
+            observation.onCallCancelled()
             throw error
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
@@ -2088,6 +2085,7 @@ internal class TramaiInvocationHandler(
                 attempt.observation.onCallCompleted(parseSuccess = null)
                 throw error
             } catch (error: CancellationException) {
+                attempt.observation.onCallCancelled()
                 throw error
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()

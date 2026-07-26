@@ -615,4 +615,66 @@ class KotlinCancellationCatchScannerTest {
         assertEquals(1, addedCounts.find { it.first == "id2" }?.second)
         assertEquals(1, addedCounts.find { it.first == "id3" }?.second)
     }
+
+    // ── Negative tests: rethrowIfCancellation must be first executable statement ──
+
+    @Test
+    fun `rethrowIfCancellation after side effect is NOT accepted`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    logError(e)
+                    e.rethrowIfCancellation()
+                    handleError(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertNotEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() after a side effect should NOT be accepted")
+    }
+
+    @Test
+    fun `rethrowIfCancellation inside string is not recognized as helper`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    val msg = "e.rethrowIfCancellation()"
+                    handleError(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertNotEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() inside string should NOT be accepted")
+    }
+
+    @Test
+    fun `rethrowIfCancellation inside conditional is NOT accepted as first statement`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    if (someCondition) {
+                        e.rethrowIfCancellation()
+                    }
+                    handleError(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertNotEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() inside a conditional branch should NOT be accepted as first-statement helper")
+    }
 }

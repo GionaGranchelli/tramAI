@@ -33,6 +33,9 @@ jobs:
       - name: Run tests
         run: ./gradlew test
 
+      - name: Verify cancellation safety
+        run: ./gradlew verifyCancellationSafety
+
       - name: Publish to Maven Local for example smoke test
         run: ./gradlew publishToMavenLocal
 

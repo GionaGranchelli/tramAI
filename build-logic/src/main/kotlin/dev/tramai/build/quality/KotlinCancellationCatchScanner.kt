@@ -194,7 +194,9 @@ object KotlinCancellationCatchScanner {
     /** Check if the catch block rethrows CancellationException (within catch body, including nested blocks).
      *  Requires that the caught exception variable itself is rethrown AND the throw is inside the
      *  same branch as the CancellationException check, not merely nearby.
-     *  Also recognizes `catchVar.rethrowIfCancellation()` as a safe pattern. */
+     *  Also recognizes `catchVar.rethrowIfCancellation()` as a safe pattern.
+     *  For the rethrowIfCancellation() helper, it must be the FIRST non-blank, non-comment
+     *  line in the catch body — before it, only blank lines and comments are allowed. */
     private fun checkRethrowsCancellation(lines: List<String>, catchIdx: Int): Boolean {
         val catchVar = extractCatchVariable(lines[catchIdx]) ?: return false
         val catchBodyEnd = findCatchBodyEnd(lines, catchIdx)
@@ -205,10 +207,22 @@ object KotlinCancellationCatchScanner {
             """\b${Regex.escape(catchVar)}\.rethrowIfCancellation\s*\(\s*\)"""
         )
 
+        // Check rethrowIfCancellation() — must be first non-blank, non-comment line
+        var foundHelper = false
         for (i in catchIdx + 1 until end) {
             val stripped = stripComment(lines[i])
-            if (rethrowIfCancellationPattern.containsMatchIn(stripped)) return true
+            val trimmed = stripped.trim()
+            if (trimmed.isBlank()) continue
+            // Skip single-line and block comment markers
+            if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue
+            // This is the first real statement — check if it's the helper
+            val helperMatch = rethrowIfCancellationPattern.find(stripped)
+            if (helperMatch != null && !isInsideStringLiteral(stripped, helperMatch.range.first)) {
+                foundHelper = true
+            }
+            break
         }
+        if (foundHelper) return true
 
         // Pattern: throw <catchVar> (exact variable rethrow)
         val throwVarPattern = Regex("""\bthrow\s+${Regex.escape(catchVar)}\b""")

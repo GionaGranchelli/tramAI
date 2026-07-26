@@ -64,6 +64,15 @@ interface OperationObservation {
      * `parseSuccess` is `null` for raw string/unit operations.
      */
     fun onCallCompleted(parseSuccess: Boolean?)
+
+    /**
+     * Called when the attempt is cancelled externally.
+     *
+     * Default implementation ends the span as a non-error terminal.
+     */
+    fun onCallCancelled() {
+        onCallCompleted(parseSuccess = null)
+    }
 }
 
 /**
@@ -92,4 +101,6 @@ object NoOpOperationObservation : OperationObservation {
     ) = Unit
 
     override fun onCallCompleted(parseSuccess: Boolean?) = Unit
+
+    override fun onCallCancelled() = Unit
 }

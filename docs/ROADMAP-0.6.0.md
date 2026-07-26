@@ -285,7 +285,7 @@ This phase is intentionally completed before large decomposition work.
 
 **Goal:** Make coroutine cancellation propagate consistently through every suspend boundary.
 
-**Status: ✅ Complete (PR #207)**
+**Status: 🔄 In progress — PR #207**
 
 ### Tasks
 

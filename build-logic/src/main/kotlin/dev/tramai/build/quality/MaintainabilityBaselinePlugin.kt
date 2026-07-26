@@ -441,6 +441,26 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
+        project.tasks.register("verifyCancellationSafety") {
+            group = "maintainability"
+            description = "Scans all production source for broad catches in suspend-capable code and fails if any finding has risk=critical or risk=high"
+            doLast {
+                val scanningCtx = MeasurementContext.fromProject(project)
+                val inventory = CancellationCatchInventory(scanningCtx)
+                val findings = inventory.inventory()
+                val nonAccepted = findings.filter { it.risk == "critical" || it.risk == "high" }
+                if (nonAccepted.isNotEmpty()) {
+                    val detail = nonAccepted.joinToString("\n") {
+                        "  ${it.module}:${it.file} -> ${it.function} (${it.catchType}, risk=${it.risk})"
+                    }
+                    throw GradleException(
+                        "${nonAccepted.size} non-accepted cancellation catch(es) found:\n$detail"
+                    )
+                }
+                println("verifyCancellationSafety PASSED: ${findings.size} findings, all accepted.")
+            }
+        }
+
         project.tasks.register("verifyCriticalCoverage") {
             group = "maintainability"
             description = "Compares current critical-module coverage with the committed baseline"
