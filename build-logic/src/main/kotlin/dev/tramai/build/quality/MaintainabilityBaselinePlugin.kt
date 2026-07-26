@@ -443,7 +443,7 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
         project.tasks.register("verifyCancellationSafety") {
             group = "maintainability"
-            description = "Scans all production source for broad catches in suspend-capable code and rejects newly introduced critical/high findings and risk worsenings"
+            description = "Scans all production source for broad catches in suspend-capable code and rejects newly introduced critical/high findings and risk worsenings. Accepts -PtramaiCancellationBaseSha for PR base SHA comparison."
             doLast {
                 val scanningCtx = MeasurementContext.fromProject(project)
                 val inventory = CancellationCatchInventory(scanningCtx)
@@ -455,62 +455,167 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
                     .filterNot { it.startsWith(":examples:") }
                     .toSet()
 
-                // Load committed baseline WITH risk values for risk worsening comparison
-                val baselineFile = File(project.rootDir, "config/quality/0.6.0-baseline.json")
-                val committed: BaselineDocument = ReportNormalizer.readJson(baselineFile, BaselineDocument::class.java)
-                val committedCatches = committed.runtimeSafety.cancellationCatches
-
-                // Build committed identity set for new-finding detection
-                val committedIdentities = committedCatches.map {
-                    FindingIdentity.fromCancellationCatch(it).toIdentityKey()
-                }.toSet()
-
-                // Filter to scoped modules only
                 val scopedFindings = findings.filter { it.module in scopedModules }
 
-                // Detect NEW critical/high findings (not in committed baseline at all)
-                val newFindings = scopedFindings.filter { finding ->
-                    val key = FindingIdentity.fromCancellationCatch(finding).toIdentityKey()
-                    (finding.risk == "critical" || finding.risk == "high") && key !in committedIdentities
-                }
+                // Determine comparison mode
+                val baseSha = project.findProperty("tramaiCancellationBaseSha")?.toString()
 
-                // Detect risk worsenings using DeviationBudgetEvaluator.evaluateRiskWorsening()
-                val diagnostics = mutableListOf<VerificationDiagnostic>()
-                val deviationParser = DeviationParser(project.rootDir)
-                val evaluator = DeviationBudgetEvaluator(deviationParser)
-                val deviations = deviationParser.parse().deviations
+                if (baseSha != null) {
+                    // ── PR mode: compare against base SHA ──
+                    val worktreeDir = File(System.getProperty("java.io.tmpdir"), "tramai-base-${baseSha.take(8)}")
+                    val baseCatches: List<CancellationCatchFinding>
 
-                evaluator.evaluateRiskWorsening(
-                    metricName = "cancellationRiskWorsening",
-                    deviations = deviations,
-                    allCurrent = scopedFindings.toList<Any?>(),
-                    committedIds = committedIdentities.toList(),
-                    committedFindings = committedCatches.toList<Any?>(),
-                    toModuleScope = { f -> DeviationBudgetEvaluator.moduleScope(f) },
-                    riskWorseCode = DiagnosticCode.CANCELLATION_RISK_WORSENED,
-                    diagnostics = diagnostics
-                )
+                    try {
+                        // Create temporary git worktree at base SHA
+                        val addProcess = ProcessBuilder(
+                            "git", "worktree", "add",
+                            worktreeDir.absolutePath, baseSha, "--detach"
+                        )
+                            .directory(project.rootDir)
+                            .redirectErrorStream(true)
+                            .start()
+                        val addOutput = addProcess.inputStream.bufferedReader().readText()
+                        val addExit = addProcess.waitFor()
+                        if (addExit != 0) throw GradleException("Failed to create worktree at $baseSha: $addOutput")
 
-                val worsenedFailures = diagnostics.filter { it.severity == DiagnosticSeverity.FAILURE }
+                        // Scan base sources with same scanner + scoped module filter
+                        val baseCtx = MeasurementContext.fromDirectory(worktreeDir)
+                        val baseInventory = CancellationCatchInventory(baseCtx)
+                        val baseAllFindings = baseInventory.inventory()
+                        baseCatches = baseAllFindings.filter { it.module in scopedModules }
+                    } finally {
+                        // Clean up worktree
+                        ProcessBuilder("git", "worktree", "remove", "--force", worktreeDir.absolutePath)
+                            .directory(project.rootDir)
+                            .start()
+                            .waitFor()
+                        worktreeDir.deleteRecursively()
+                    }
 
-                if (newFindings.isNotEmpty() || worsenedFailures.isNotEmpty()) {
-                    val messages = mutableListOf<String>()
-                    if (newFindings.isNotEmpty()) {
-                        messages.add("${newFindings.size} new cancellation catch(es) found (not in committed baseline):")
-                        newFindings.forEach { f ->
-                            messages.add("  ${f.module}:${f.file} -> ${f.function} (${f.catchType}, risk=${f.risk})")
+                    // ── Occurrence-based identity comparison ──
+                    data class IdentityEntry(val key: String, val finding: CancellationCatchFinding)
+
+                    fun groupWithOccurrence(entries: List<CancellationCatchFinding>): List<IdentityEntry> =
+                        entries
+                            .groupBy { "${it.module}::${it.file}::${it.function}::${it.catchType}" }
+                            .flatMap { (_, group) ->
+                                group.sortedBy { it.sourceLine }
+                                    .mapIndexed { idx, finding ->
+                                        IdentityEntry(
+                                            FindingIdentity.fromCancellationCatch(finding, idx).toIdentityKey(),
+                                            finding
+                                        )
+                                    }
+                            }
+
+                    fun riskOrder(risk: String): Int = when (risk) {
+                        "accepted" -> 1; "low" -> 2; "medium" -> 3; "high" -> 4; "critical" -> 5; else -> 0
+                    }
+
+                    val baseEntries = groupWithOccurrence(baseCatches)
+                    val currentEntries = groupWithOccurrence(scopedFindings)
+
+                    val baseMap = baseEntries.associate { it.key to it.finding }
+                    val currentMap = currentEntries.associate { it.key to it.finding }
+
+                    // New critical/high findings
+                    val newKeys = currentMap.keys - baseMap.keys
+                    val newCriticalHigh = currentMap.filter { (key, finding) ->
+                        key in newKeys && (finding.risk == "critical" || finding.risk == "high")
+                    }
+
+                    // Risk worsening: compare paired occurrence positions for shared identities
+                    val baseRiskMap = baseEntries.groupBy({ it.key }, { it.finding.risk })
+                    val currentRiskMap = currentEntries.groupBy({ it.key }, { it.finding.risk })
+
+                    val worsenedMessages = mutableListOf<String>()
+                    for ((key, current) in currentRiskMap) {
+                        val base = baseRiskMap[key] ?: continue
+                        for (i in 0 until minOf(base.size, current.size)) {
+                            if (riskOrder(base[i]) < riskOrder(current[i])) {
+                                val finding = currentMap[key]!!
+                                worsenedMessages.add("${finding.module}:${finding.file} -> ${finding.function} (${finding.catchType}): risk ${base[i]} → ${current[i]}")
+                            }
                         }
                     }
-                    if (worsenedFailures.isNotEmpty()) {
-                        messages.add("Risk worsening failures:")
-                        worsenedFailures.forEach { d ->
-                            messages.add("  ${d.message}")
+
+                    // Report
+                    val diag = mutableListOf<String>()
+                    diag.add("verifyCancellationSafety: ${scopedFindings.size} current, ${baseCatches.size} base findings")
+                    diag.add("  Base SHA: ${baseSha.take(8)}")
+
+                    if (newCriticalHigh.isNotEmpty()) {
+                        diag.add("${newCriticalHigh.size} new critical/high cancellation catch(es):")
+                        newCriticalHigh.forEach { (_, f) ->
+                            diag.add("  ${f.module}:${f.file}:${f.sourceLine} -> ${f.function} (${f.catchType}, risk=${f.risk})")
                         }
                     }
-                    throw GradleException(messages.joinToString("\n"))
-                }
+                    if (worsenedMessages.isNotEmpty()) {
+                        diag.add("${worsenedMessages.size} risk worsening(s):")
+                        worsenedMessages.forEach { diag.add("  $it") }
+                    }
 
-                println("verifyCancellationSafety PASSED: ${scopedFindings.size} findings in scoped modules, no new critical/high findings or risk worsenings.")
+                    if (newCriticalHigh.isNotEmpty() || worsenedMessages.isNotEmpty()) {
+                        throw GradleException(diag.joinToString("\n"))
+                    }
+
+                    println(diag.joinToString("\n"))
+                    println("verifyCancellationSafety PASSED: no new critical/high findings or risk worsenings against base SHA.")
+                } else {
+                    // ── Local dev mode: compare against committed baseline ──
+                    val baselineFile = File(project.rootDir, "config/quality/0.6.0-baseline.json")
+                    val committed: BaselineDocument = ReportNormalizer.readJson(baselineFile, BaselineDocument::class.java)
+                    val committedCatches = committed.runtimeSafety.cancellationCatches
+
+                    // Build committed identity set for new-finding detection
+                    val committedIdentities = committedCatches.map {
+                        FindingIdentity.fromCancellationCatch(it).toIdentityKey()
+                    }.toSet()
+
+                    // Detect NEW critical/high findings (not in committed baseline at all)
+                    val newFindings = scopedFindings.filter { finding ->
+                        val key = FindingIdentity.fromCancellationCatch(finding).toIdentityKey()
+                        (finding.risk == "critical" || finding.risk == "high") && key !in committedIdentities
+                    }
+
+                    // Detect risk worsenings using DeviationBudgetEvaluator.evaluateRiskWorsening()
+                    val diagnostics = mutableListOf<VerificationDiagnostic>()
+                    val deviationParser = DeviationParser(project.rootDir)
+                    val evaluator = DeviationBudgetEvaluator(deviationParser)
+                    val deviations = deviationParser.parse().deviations
+
+                    evaluator.evaluateRiskWorsening(
+                        metricName = "cancellationRiskWorsening",
+                        deviations = deviations,
+                        allCurrent = scopedFindings.toList<Any?>(),
+                        committedIds = committedIdentities.toList(),
+                        committedFindings = committedCatches.toList<Any?>(),
+                        toModuleScope = { f -> DeviationBudgetEvaluator.moduleScope(f) },
+                        riskWorseCode = DiagnosticCode.CANCELLATION_RISK_WORSENED,
+                        diagnostics = diagnostics
+                    )
+
+                    val worsenedFailures = diagnostics.filter { it.severity == DiagnosticSeverity.FAILURE }
+
+                    if (newFindings.isNotEmpty() || worsenedFailures.isNotEmpty()) {
+                        val messages = mutableListOf<String>()
+                        if (newFindings.isNotEmpty()) {
+                            messages.add("${newFindings.size} new cancellation catch(es) found (not in committed baseline):")
+                            newFindings.forEach { f ->
+                                messages.add("  ${f.module}:${f.file} -> ${f.function} (${f.catchType}, risk=${f.risk})")
+                            }
+                        }
+                        if (worsenedFailures.isNotEmpty()) {
+                            messages.add("Risk worsening failures:")
+                            worsenedFailures.forEach { d ->
+                                messages.add("  ${d.message}")
+                            }
+                        }
+                        throw GradleException(messages.joinToString("\n"))
+                    }
+
+                    println("verifyCancellationSafety PASSED: ${scopedFindings.size} findings in scoped modules, no new critical/high findings or risk worsenings.")
+                }
             }
         }
 
