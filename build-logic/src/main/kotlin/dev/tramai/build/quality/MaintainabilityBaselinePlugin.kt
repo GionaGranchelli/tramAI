@@ -659,33 +659,43 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
         project.tasks.register("verifyChangePolicy", ChangePolicyVerifierTask::class.java) {
             group = "maintainability"
             description = "Enforces change-policy rules: forbidden path combinations and deviation evidence"
-            baseRef.set("origin/master")
+
+            // Override base ref for CI: ./gradlew verifyChangePolicy -PchangePolicyBase=${{ github.event.pull_request.base.sha }}
+            val ciBase = project.findProperty("changePolicyBase")?.toString()
+            if (ciBase != null) {
+                baseRef.set(ciBase)
+                deviationBaseRef.set(ciBase)
+            } else {
+                baseRef.set("origin/master")
+                deviationBaseRef.set("origin/master")
+            }
+
+            // Override change class: ./gradlew verifyChangePolicy -PchangeClass=baseline-migration
+            val declaredClass = project.findProperty("changeClass")?.toString()
+            if (declaredClass != null) {
+                changeClass.set(declaredClass)
+            }
         }
 
         // ---- PR Verification (primary local check gate) ----
 
         project.tasks.register("verifyPr") {
             group = "verification"
-            description = "Primary local verification gate. Runs tests + maintainability baseline + change policy. Not a full CI replica — see .github/AGENTS.md for additional step commands."
-            dependsOn(
-                "test",
-                "verifyMaintainabilityBaseline",
-                "verifyChangePolicy"
-            )
-            // Enforce ordering: test first, then baseline, then policy
-            mustRunAfter("test")
+            description = "Primary local verification gate. Runs subproject tests, build-logic tests, maintainability baseline, and change policy. Not a full CI replica — see .github/AGENTS.md for additional step commands."
+
+            // Aggregate all subproject test tasks
+            val subprojectTestTasks = project.subprojects.flatMap { sub ->
+                sub.tasks.matching { it.name == "test" }.toList()
+            }
+            dependsOn(subprojectTestTasks)
+            dependsOn("verifyMaintainabilityBaseline")
+            dependsOn("verifyChangePolicy")
+
+            // Include build-logic tests (included build)
+            dependsOn(":build-logic:test")
+
             doLast {
-                val testTask = project.tasks.findByName("test")
-                val baselineTask = project.tasks.findByName("verifyMaintainabilityBaseline")
-                val policyTask = project.tasks.findByName("verifyChangePolicy")
-                if (testTask?.state?.didWork == true &&
-                    baselineTask?.state?.didWork == true &&
-                    policyTask?.state?.didWork == true
-                ) {
-                    println("verifyPr PASSED — tests, maintainability, and change policy all completed.")
-                } else {
-                    println("verifyPr completed — see individual task results above.")
-                }
+                logger.lifecycle("verifyPr completed — see individual task results above.")
             }
         }
     }

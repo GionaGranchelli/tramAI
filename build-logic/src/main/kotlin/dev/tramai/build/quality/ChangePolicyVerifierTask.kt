@@ -2,25 +2,22 @@ package dev.tramai.build.quality
 
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
-import org.gradle.api.tasks.TaskAction
-import org.gradle.api.tasks.Internal
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.Optional
+import org.gradle.api.tasks.TaskAction
 import java.io.File
 
 /**
  * Verifies that the current branch's change set conforms to the repository's
  * change-policy rules.
  *
- * Registered as "verifyChangePolicy" in MaintainabilityBaselinePlugin.
- *
- * Rules enforced:
+ * Rules enforced (delegated to [ChangePolicyEvaluator]):
  *  1. Production code and canonical baseline must not change together
- *     (**/src/main/** ∧ config/quality/0.6.0-baseline.json)
- *  2. Analyzer code (build-logic/**Scanner*) and runtime production modules
- *     must not change together
- *  3. New or modified deviations must carry structured evidence
- *     (baseline, allowed, reason, acceptedAt)
+ *     (unless -PchangeClass=baseline-migration)
+ *  2. Analyzer/tooling code and runtime production modules must not change together
+ *  3. New or modified deviations must carry full structured evidence
+ *     (baseline, allowed, reason, acceptedAt, targetPhase, owner)
  *
  * This task FAILS CLOSED: if the git diff cannot be determined, the build
  * fails rather than silently passing.
@@ -30,163 +27,150 @@ abstract class ChangePolicyVerifierTask : DefaultTask() {
     @get:Input
     abstract val baseRef: Property<String>
 
-    @get:Internal
-    lateinit var projectRoot: File
-        private set
+    @get:Input
+    @get:Optional
+    abstract val changeClass: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val deviationBaseRef: Property<String>
 
     init {
         baseRef.convention("origin/master")
+        deviationBaseRef.convention("origin/master")
         group = "maintainability"
         description = "Enforces change-policy rules: forbidden path combinations and deviation evidence"
     }
 
     @TaskAction
     fun verify() {
-        projectRoot = project.rootDir
+        val rootDir = project.rootDir
 
-        val result = getChangedFiles()
-        val changedFiles = result.files
-        val diffErrors = result.errors
-
-        if (diffErrors.isNotEmpty()) {
+        // --- Collect all changed files (committed + staged + unstaged + untracked) ---
+        val allChanged = collectChangedFiles(rootDir)
+        if (allChanged == null) {
             throw GradleException(
-                "verifyChangePolicy FAILED: could not determine changed files against ${baseRef.get()}.\n" +
-                    "  Reason: ${diffErrors.joinToString("; ")}\n" +
-                    "  This gate fails closed — the diff must be available to evaluate change policy.\n" +
-                    "  Ensure the repository has fetch-depth > 0 and the base ref is present."
+                "verifyChangePolicy FAILED: could not determine changed files.\n" +
+                    "  This gate fails closed — the diff must be available to evaluate policy.\n" +
+                    "  Ensure git is available and the repository is not in a detached HEAD state."
             )
         }
 
-        if (changedFiles.isEmpty()) {
-            logger.lifecycle("verifyChangePolicy: no changes detected against ${baseRef.get()}")
+        if (allChanged.isEmpty()) {
+            logger.lifecycle("verifyChangePolicy: no changes detected (clean tree, no branch commits)")
             return
         }
 
-        val failures = mutableListOf<String>()
-
-        // Rule 1: production + canonical baseline
-        // Production follows the multi-module pattern: tramai-*/src/main/**, build-logic/src/main/**
-        val productionChanged = changedFiles.any { it.contains("/src/main/") }
-        val baselineChanged = changedFiles.any { it == "config/quality/0.6.0-baseline.json" }
-        if (productionChanged && baselineChanged) {
-            failures.add(
-                "POLICY: Production source (**/src/main/**) and canonical baseline " +
-                    "(config/quality/0.6.0-baseline.json) must not change together.\n" +
-                    "  If the baseline needs updating, submit a separate PR with type 'baseline-migration'.\n" +
-                    "  Changed production paths: ${changedFiles.filter { it.contains("/src/main/") }.joinToString(", ")}"
+        // Warn if there are uncommitted changes — the agent should commit before CI
+        val hasUncommitted = hasUncommittedChanges(rootDir)
+        if (hasUncommitted) {
+            logger.warn(
+                "verifyChangePolicy: WARNING — working tree has uncommitted changes.\n" +
+                    "  Policy evaluation includes staged, unstaged, and untracked files.\n" +
+                    "  However, CI evaluates only committed branch changes.\n" +
+                    "  Commit before pushing to avoid CI vs local mismatch."
             )
         }
 
-        // Rule 2: analyzer + remediated runtime together
-        val analyzerChanged = changedFiles.any { it.contains("Scanner") && it.startsWith("build-logic/") }
-        val runtimeChanged = changedFiles.any {
-            it.startsWith("tramai-") &&
-                !it.startsWith("tramai-spring-boot-starter") &&
-                it.contains("/src/main/")
-        }
-        if (analyzerChanged && runtimeChanged) {
-            failures.add(
-                "POLICY: Analyzer code (build-logic/**Scanner*) and runtime production modules " +
-                    "must not change in the same PR.\n" +
-                    "  Submit separate PRs: one for tooling changes, one for runtime remediation.\n" +
-                    "  Changed analyzer: ${changedFiles.filter { it.contains("Scanner") && it.startsWith("build-logic/") }.joinToString(", ")}\n" +
-                    "  Changed runtime: ${changedFiles.filter { it.startsWith("tramai-") && it.contains("/src/main/") }.joinToString(", ")}"
-            )
+        // --- Read base and current deviation YAML ---
+        val baseDeviationsYaml = readFileFromGit(rootDir, deviationBaseRef.get(),
+            "config/quality/maintainability-deviations.yml")
+        val currentDeviationsFile = File(rootDir, "config/quality/maintainability-deviations.yml")
+        val currentDeviationsYaml = if (currentDeviationsFile.isFile) {
+            currentDeviationsFile.readText()
+        } else {
+            null // file was deleted
         }
 
-        // Rule 3: deviation ceiling increase without evidence
-        val deviationsChanged = changedFiles.any { it == "config/quality/maintainability-deviations.yml" }
-        if (deviationsChanged) {
-            val deviationFile = File(projectRoot, "config/quality/maintainability-deviations.yml")
-            if (deviationFile.isFile) {
-                val content = deviationFile.readText()
-                // Split on deviation block markers
-                val deviationBlocks = content.split("  - id:")
-                // Skip the first split (header), check the rest
-                for (i in 1 until deviationBlocks.size) {
-                    val block = deviationBlocks[i]
-                    val hasBaseline = block.contains("baseline:")
-                    val hasAllowed = block.contains("allowed:")
-                    val hasReason = block.contains("reason:")
-                    val hasAcceptedAt = block.contains("acceptedAt:")
-                    if (!hasBaseline || !hasAllowed || !hasReason || !hasAcceptedAt) {
-                        val idMatch = Regex("id:\\s*(\\S+)").find(block)
-                        val id = idMatch?.groupValues?.getOrNull(1) ?: "unknown"
-                        val missing = listOfNotNull(
-                            "baseline" to hasBaseline,
-                            "allowed" to hasAllowed,
-                            "reason" to hasReason,
-                            "acceptedAt" to hasAcceptedAt
-                        ).filter { !it.second }.joinToString(", ") { it.first }
-                        failures.add(
-                            "POLICY: Deviation $id is missing required evidence fields: $missing.\n" +
-                                "  Every deviation must include: baseline, allowed, reason, acceptedAt."
-                        )
-                    }
-                }
-            }
-        }
+        // --- Evaluate ---
+        val declaredClass = changeClass.orNull
+        val input = ChangePolicyInput(
+            changeClass = declaredClass,
+            changedFiles = allChanged,
+            baseDeviationsYaml = baseDeviationsYaml,
+            currentDeviationsYaml = currentDeviationsYaml
+        )
+        val result = ChangePolicyEvaluator.evaluate(input)
 
-        if (failures.isNotEmpty()) {
+        if (result.violations.isNotEmpty()) {
             throw GradleException(
-                "Change policy verification FAILED (${failures.size} violation(s)):\n\n" +
-                    failures.joinToString("\n---\n") +
-                    "\n\nSee AGENTS.md and the task template for allowed change types."
+                "Change policy verification FAILED (${result.violations.size} violation(s)):\n\n" +
+                    result.violations.joinToString("\n---\n") { it.formatted() } +
+                    "\n\nTo override the detected change class, pass -PchangeClass=<class>.\n" +
+                    "Supported values: runtime-behaviour, build-logic, baseline-migration.\n" +
+                    "See AGENTS.md and docs/board/tasks/TASK-TEMPLATE.md for allowed change types."
             )
         }
 
-        logger.lifecycle("verifyChangePolicy PASSED — ${changedFiles.size} file(s) changed, no policy violations.")
+        logger.lifecycle("verifyChangePolicy PASSED — ${allChanged.size} changed file(s), change class: ${declaredClass ?: ChangePolicyEvaluator.detectChangeClass(allChanged)}, no policy violations.")
     }
 
+    // --- File collection ---
+
     /**
-     * Returns the list of changed files and any errors encountered.
-     * FAILS CLOSED: errors are returned to the caller instead of silently
-     * returning an empty set.
+     * Collects all changed files from the union of:
+     *  - committed branch changes (baseRef...HEAD)
+     *  - staged changes (git diff --cached)
+     *  - unstaged changes (git diff)
+     *  - untracked files (git ls-files --others)
+     *
+     * Returns null on failure (fail closed). Returns empty list for clean state.
      */
-    private fun getChangedFiles(): DiffResult {
+    private fun collectChangedFiles(rootDir: File): List<String>? {
+        val all = mutableSetOf<String>()
+
+        // 1. Committed branch changes
         val base = baseRef.get()
+        val branchResult = runGit(rootDir, "diff", "--name-only", "$base...HEAD")
+        if (branchResult == null) return null
+        all.addAll(branchResult)
+
+        // 2. Staged changes
+        val stagedResult = runGit(rootDir, "diff", "--cached", "--name-only")
+        if (stagedResult == null) return null
+        all.addAll(stagedResult)
+
+        // 3. Unstaged changes
+        val unstagedResult = runGit(rootDir, "diff", "--name-only")
+        if (unstagedResult == null) return null
+        all.addAll(unstagedResult)
+
+        // 4. Untracked files
+        val untrackedResult = runGit(rootDir, "ls-files", "--others", "--exclude-standard")
+        if (untrackedResult == null) return null
+        all.addAll(untrackedResult)
+
+        return all.filter { it.isNotBlank() }.sorted()
+    }
+
+    private fun hasUncommittedChanges(rootDir: File): Boolean {
+        val status = runGit(rootDir, "status", "--porcelain") ?: return false
+        return status.any { it.isNotBlank() }
+    }
+
+    private fun readFileFromGit(rootDir: File, ref: String, path: String): String? {
+        val result = runGit(rootDir, "show", "$ref:$path")
+        // git show returns non-zero exit if the file doesn't exist at that ref
+        return result?.joinToString("\n")
+    }
+
+    private fun runGit(rootDir: File, vararg args: String): List<String>? {
         return try {
-            val process = ProcessBuilder(
-                "git", "diff", "--name-only", "$base...HEAD"
-            )
-                .directory(projectRoot)
+            val process = ProcessBuilder("git", *args)
+                .directory(rootDir)
                 .redirectErrorStream(true)
                 .start()
             val output = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             val exitCode = process.waitFor()
             if (exitCode != 0) {
-                // git diff returns non-zero when the merge-base can't be found
-                // (e.g. shallow clone, base ref missing). Try fallback to HEAD~1.
-                val fallbackProcess = ProcessBuilder(
-                    "git", "diff", "--name-only", "HEAD~1...HEAD"
-                )
-                    .directory(projectRoot)
-                    .redirectErrorStream(true)
-                    .start()
-                val fallbackOutput = fallbackProcess.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-                val fallbackExit = fallbackProcess.waitFor()
-
-                if (fallbackExit == 0) {
-                    DiffResult(fallbackOutput.lines().filter { it.isNotBlank() }, emptyList())
-                } else {
-                    DiffResult(
-                        emptyList(),
-                        listOf(
-                            "git diff --name-only $base...HEAD exited $exitCode",
-                            "git diff --name-only HEAD~1...HEAD also failed (exit $fallbackExit)"
-                        )
-                    )
-                }
+                logger.warn("git ${args.joinToString(" ")} failed (exit=$exitCode): ${output.take(200)}")
+                null
             } else {
-                DiffResult(output.lines().filter { it.isNotBlank() }, emptyList())
+                output.lines().filter { it.isNotBlank() }
             }
         } catch (e: Exception) {
-            DiffResult(emptyList(), listOf("Exception running git diff: ${e.message}"))
+            logger.warn("git ${args.joinToString(" ")} exception: ${e.message}")
+            null
         }
     }
-
-    private data class DiffResult(
-        val files: List<String>,
-        val errors: List<String>
-    )
 }

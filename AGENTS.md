@@ -110,8 +110,8 @@ If a reviewer cannot tell from the tests what a feature guarantees, the test sui
 
 ### Before editing
 
-1. **Classify the change** — exactly one of:
-   - `runtime-behaviour` — production logic, tests, internal refactoring
+1. **Classify the primary change** — pick one primary class plus any supporting:
+   - `runtime-behaviour` — production logic, tests, internal refactoring (primary)
    - `public-api` — annotation surface, public contracts, SPI
    - `build-logic` — scanners, analyzers, Gradle plugins, baselines
    - `canonical-baseline` — updating `config/quality/0.6.0-baseline.json`
@@ -119,6 +119,12 @@ If a reviewer cannot tell from the tests what a feature guarantees, the test sui
    - `ci-workflow` — `.github/workflows/**`
    - `documentation` — docs, comments, AGENTS.md, task descriptions
    - `baseline-migration` — scanner identity, schema, or cardinality change
+
+   When running `./gradlew verifyChangePolicy`, use `-PchangeClass=<class>` to
+   override auto-detection. The evaluator accepts:
+   - `runtime-behaviour` (default) — rejects production+baseline and analyzer+runtime mixes
+   - `build-logic` — allows analyzer changes, still rejects baseline+production mixes
+   - `baseline-migration` — permits analyzer + baseline changes together
 
 2. **List:**
    - intended files
@@ -147,8 +153,9 @@ If a reviewer cannot tell from the tests what a feature guarantees, the test sui
 
 ### After editing
 
-- run `./gradlew verifyPr` (primary local gate — runs tests, maintainability baseline, and change policy)
+- run `./gradlew verifyPr` (primary local gate — runs subproject tests, build-logic tests, maintainability baseline, and change policy)
 - for additional CI-equivalent steps, see `.github/AGENTS.md` for local equivalents
+- in CI, set `-PchangePolicyBase=${{ github.event.pull_request.base.sha }}` for accurate PR-delta comparison
 - inspect `git diff` for unintended files
 - report every command run and its result
 - report skipped checks explicitly
