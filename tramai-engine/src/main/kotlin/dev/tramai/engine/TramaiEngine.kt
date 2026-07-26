@@ -1645,6 +1645,7 @@ internal class TramaiInvocationHandler(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
+                error.rethrowIfCancellation()
                 throw DlpInspectionException(
                     message = "DLP redaction audit emission failed",
                     cause = error,
@@ -1819,6 +1820,7 @@ internal class TramaiInvocationHandler(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
+        e.rethrowIfCancellation()
         emitEngineEventSafely(
             observer = scope.engineEventObserver,
             name = "tramai.dlp.inspection_failed",
@@ -2257,6 +2259,7 @@ internal class TramaiInvocationHandler(
     } catch (e: DlpInspectionException) {
         throw e
     } catch (e: Exception) {
+        e.rethrowIfCancellation()
         observation.onEngineEvent(
             name = "tramai.dlp.inspection_failed",
             attributes = mapOf("providerId" to providerId, "correlationId" to correlationId),
@@ -2456,6 +2459,7 @@ internal class TramaiInvocationHandler(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
+        e.rethrowIfCancellation()
         if (tool.idempotent) {
             ToolResult.TransientFailure(e)
         } else {
@@ -2633,6 +2637,7 @@ internal class TramaiInvocationHandler(
                 continuationVersion = continuation.version,
             )
         } catch (failure: Exception) {
+            failure.rethrowIfCancellation()
             // Do NOT compensate for successful suspension — ApprovalSuspendedException is the intended result
             if (failure is ApprovalSuspendedException) throw failure
 
@@ -2644,7 +2649,8 @@ internal class TramaiInvocationHandler(
                     suspendedInvocationStore.remove(approvalId)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation()
                     // best-effort cleanup
                 }
                 // 2. Cancel continuation
@@ -2934,6 +2940,7 @@ internal class TramaiInvocationHandler(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "resume-failed: ${e::class.simpleName ?: "unknown"}")
             throw e
         }
@@ -3117,6 +3124,7 @@ internal class TramaiInvocationHandler(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             runCatching {
                 engineEventObserver.onEngineEvent(
                     name = "resume-suspended-context-cleanup-failure",
@@ -3140,6 +3148,7 @@ internal class TramaiInvocationHandler(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             runCatching {
                 engineEventObserver.onEngineEvent(
                     name = "resume-completion-audit-failure",

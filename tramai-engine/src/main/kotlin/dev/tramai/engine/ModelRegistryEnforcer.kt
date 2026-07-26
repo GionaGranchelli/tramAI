@@ -5,6 +5,7 @@ import dev.tramai.core.exception.ModelNotRegisteredException
 import dev.tramai.core.exception.ModelRegistryContractViolationException
 import dev.tramai.core.exception.ModelRegistryException
 import dev.tramai.core.exception.ModelRegistryUnavailableException
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.model.ModelRegistry
 import dev.tramai.core.model.ModelRegistrySettings
 import dev.tramai.core.model.RegisteredModel
@@ -25,6 +26,7 @@ internal class ModelRegistryEnforcer(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             throw ModelRegistryUnavailableException()
         }
 

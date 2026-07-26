@@ -96,6 +96,26 @@ deviations:
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 
+  - id: MQ-0009
+    metric: cancellationCriticalCount
+    scope: ":examples:tool-governance"
+    baseline: 3
+    allowed: 3
+    reason: "Module path normalization (mod.name -> mod.path) shifted identities for 3 existing findings. Not new code."
+    acceptedAt: "2026-07-26"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0010
+    metric: nondeterminismSources
+    scope: ":tramai-observability"
+    baseline: 0
+    allowed: 1
+    reason: "OpenTelemetry onCallCancelled() override added System.nanoTime() call to SpanBackedObservation. Accepted for Phase 1; will be addressed in Phase 2."
+    acceptedAt: "2026-07-26"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
 # Verification policy:
 # - New findings that match an existing deviation (same metric + scope) are allowed.
 # - New findings with no matching deviation cause verify tasks to fail.

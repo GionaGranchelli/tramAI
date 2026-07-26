@@ -10,6 +10,7 @@ import dev.tramai.security.audit.AuditHashAlgorithm
 import dev.tramai.security.audit.AuditStore
 import dev.tramai.security.audit.CURRENT_AUDIT_SCHEMA_VERSION
 import dev.tramai.security.audit.calculateHash
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.SQLException
@@ -155,6 +156,7 @@ class JdbcAuditStore(
                 return event
             } catch (e: Exception) {
                 conn.rollback()
+                e.rethrowIfCancellation()
                 throw e
             } finally {
                 conn.autoCommit = previousAutoCommit
