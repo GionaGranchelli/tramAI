@@ -178,7 +178,7 @@ private class SpanBackedObservation(
 
     override fun onCallCancelled() {
         span.setAttribute(ATTR_TRAMAI_OUTCOME, "cancelled")
-        completeCall(completionAttributes(parseSuccess = null))
+        completeCall(completionAttributes(parseSuccess = null, outcomeOverride = "cancelled"))
     }
 
     private fun completeCall(attributes: Attributes) {
@@ -198,10 +198,10 @@ private class SpanBackedObservation(
         return attributes.toOpenTelemetryAttributes()
     }
 
-    private fun completionAttributes(parseSuccess: Boolean?): Attributes {
+    private fun completionAttributes(parseSuccess: Boolean?, outcomeOverride: String? = null): Attributes {
         val attributes = mutableMapOf<String, Any?>()
         attributes.putAll(baseAttributes)
-        attributes[ATTR_TRAMAI_OUTCOME] = currentOutcome()
+        attributes[ATTR_TRAMAI_OUTCOME] = outcomeOverride ?: currentOutcome()
         latestResponse?.modelUsed?.let { attributes[ATTR_GEN_AI_RESPONSE_MODEL] = it }
         parseSuccess?.let { attributes["tramai.structured.parse_success"] = it }
         failure?.let { attributes["tramai.error.type"] = it::class.simpleName ?: "Throwable" }

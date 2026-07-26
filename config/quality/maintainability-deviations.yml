@@ -100,8 +100,8 @@ deviations:
     metric: nondeterminismSources
     scope: ":tramai-observability"
     baseline: 4
-    allowed: 5
-    reason: "Jackson data class deserialization drift: 1 finding falsely reported as new. No actual code changes in observability beyond OTel onCallCancelled() refactor."
+    allowed: 4
+    reason: "No actual code changes — fixed OTel onCallCancelled() outcome override. Actual total is 4."
     acceptedAt: "2026-07-26"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
@@ -110,8 +110,8 @@ deviations:
     metric: nondeterminismSources
     scope: ":tramai-persistence-jdbc"
     baseline: 4
-    allowed: 6
-    reason: "Jackson data class deserialization drift: 2 findings falsely reported as new. No actual code changes."
+    allowed: 4
+    reason: "Actual total is 4 — scanner deduplication fix (sourceLine) no longer inflates count."
     acceptedAt: "2026-07-26"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
@@ -120,8 +120,8 @@ deviations:
     metric: nondeterminismSources
     scope: ":tramai-security"
     baseline: 8
-    allowed: 9
-    reason: "Jackson data class deserialization drift: 1 finding falsely reported as new. No actual code changes."
+    allowed: 8
+    reason: "Actual total is 8 — scanner deduplication fix (sourceLine) no longer inflates count."
     acceptedAt: "2026-07-26"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
@@ -130,8 +130,8 @@ deviations:
     metric: nondeterminismSources
     scope: ":tramai-sovereign"
     baseline: 2
-    allowed: 3
-    reason: "Jackson data class deserialization drift: 1 finding falsely reported as new. No actual code changes."
+    allowed: 2
+    reason: "Actual total is 2 — scanner deduplication fix (sourceLine) no longer inflates count."
     acceptedAt: "2026-07-26"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"

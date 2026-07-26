@@ -443,43 +443,74 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
 
         project.tasks.register("verifyCancellationSafety") {
             group = "maintainability"
-            description = "Scans all production source for broad catches in suspend-capable code and rejects newly introduced critical/high findings"
+            description = "Scans all production source for broad catches in suspend-capable code and rejects newly introduced critical/high findings and risk worsenings"
             doLast {
                 val scanningCtx = MeasurementContext.fromProject(project)
                 val inventory = CancellationCatchInventory(scanningCtx)
                 val findings = inventory.inventory()
-                // Read committed baseline for delta comparison
-                // NOTE: Using raw JSON tree because CancellationCatchFinding data class
-                // deserialization does not correctly populate fields even with @JsonProperty.
-                val rawFile = File(project.rootDir, "config/quality/0.6.0-baseline.json")
-                val rawMapper = com.fasterxml.jackson.databind.ObjectMapper()
-                val rawNode = rawMapper.readTree(rawFile)
-                val rawCatches = rawNode.get("runtimeSafety").get("cancellationCatches")
-                val committedKeys = mutableSetOf<String>()
-                for (i in 0 until rawCatches.size()) {
-                    val item = rawCatches.get(i)
-                    var mod = item.get("module").asText()
-                    if (!mod.startsWith(":")) mod = ":$mod"
-                    val key = "$mod::${item.get("file").asText()}::${item.get("function").asText()}::${item.get("catchType").asText()}"
-                    committedKeys.add(key)
+
+                // Derive scope from all non-example modules
+                val scopedModules = scanningCtx.modules
+                    .map { it.path }
+                    .filterNot { it.startsWith(":examples:") }
+                    .toSet()
+
+                // Load committed baseline WITH risk values for risk worsening comparison
+                val baselineFile = File(project.rootDir, "config/quality/0.6.0-baseline.json")
+                val committed: BaselineDocument = ReportNormalizer.readJson(baselineFile, BaselineDocument::class.java)
+                val committedCatches = committed.runtimeSafety.cancellationCatches
+
+                // Build committed identity set for new-finding detection
+                val committedIdentities = committedCatches.map {
+                    FindingIdentity.fromCancellationCatch(it).toIdentityKey()
+                }.toSet()
+
+                // Filter to scoped modules only
+                val scopedFindings = findings.filter { it.module in scopedModules }
+
+                // Detect NEW critical/high findings (not in committed baseline at all)
+                val newFindings = scopedFindings.filter { finding ->
+                    val key = FindingIdentity.fromCancellationCatch(finding).toIdentityKey()
+                    (finding.risk == "critical" || finding.risk == "high") && key !in committedIdentities
                 }
-                // Derive module scope from ModuleCatalog — all non-example production modules
-                val nonAccepted = findings.filter { finding ->
-                    if (finding.risk != "critical" && finding.risk != "high") return@filter false
-                    if (finding.module !in criticalModules) return@filter false
-                    val key = "${finding.module}::${finding.file}::${finding.function}::${finding.catchType}"
-                    // Only reject NEW findings (not in committed baseline) or worsened risk
-                    key !in committedKeys
-                }
-                if (nonAccepted.isNotEmpty()) {
-                    val detail = nonAccepted.joinToString("\n") {
-                        "  ${it.module}:${it.file} -> ${it.function} (${it.catchType}, risk=${it.risk})"
+
+                // Detect risk worsenings using DeviationBudgetEvaluator.evaluateRiskWorsening()
+                val diagnostics = mutableListOf<VerificationDiagnostic>()
+                val deviationParser = DeviationParser(project.rootDir)
+                val evaluator = DeviationBudgetEvaluator(deviationParser)
+                val deviations = deviationParser.parse().deviations
+
+                evaluator.evaluateRiskWorsening(
+                    metricName = "cancellationRiskWorsening",
+                    deviations = deviations,
+                    allCurrent = scopedFindings.toList<Any?>(),
+                    committedIds = committedIdentities.toList(),
+                    committedFindings = committedCatches.toList<Any?>(),
+                    toModuleScope = { f -> DeviationBudgetEvaluator.moduleScope(f) },
+                    riskWorseCode = DiagnosticCode.CANCELLATION_RISK_WORSENED,
+                    diagnostics = diagnostics
+                )
+
+                val worsenedFailures = diagnostics.filter { it.severity == DiagnosticSeverity.FAILURE }
+
+                if (newFindings.isNotEmpty() || worsenedFailures.isNotEmpty()) {
+                    val messages = mutableListOf<String>()
+                    if (newFindings.isNotEmpty()) {
+                        messages.add("${newFindings.size} new cancellation catch(es) found (not in committed baseline):")
+                        newFindings.forEach { f ->
+                            messages.add("  ${f.module}:${f.file} -> ${f.function} (${f.catchType}, risk=${f.risk})")
+                        }
                     }
-                    throw GradleException(
-                        "${nonAccepted.size} new cancellation catch(es) found (not in committed baseline):\n$detail"
-                    )
+                    if (worsenedFailures.isNotEmpty()) {
+                        messages.add("Risk worsening failures:")
+                        worsenedFailures.forEach { d ->
+                            messages.add("  ${d.message}")
+                        }
+                    }
+                    throw GradleException(messages.joinToString("\n"))
                 }
-                println("verifyCancellationSafety PASSED: ${findings.size} findings, no new critical/high findings in scoped modules.")
+
+                println("verifyCancellationSafety PASSED: ${scopedFindings.size} findings in scoped modules, no new critical/high findings or risk worsenings.")
             }
         }
 

@@ -84,7 +84,8 @@ object KotlinCancellationCatchScanner {
                         isSuspendCapable = inSuspend,
                         rethrowsCancellation = rethrowsCancellation,
                         transformsException = transformsException,
-                        risk = risk
+                        risk = risk,
+                        sourceLine = originalLineNum
                     )
                 )
             }
@@ -92,8 +93,8 @@ object KotlinCancellationCatchScanner {
 
         return findings
             .sortedByDescending { riskWeight(it.risk) }
-            // Deduplicate: same (module, file, function, catchType) → keep worst risk
-            .distinctBy { "${it.module}::${it.file}::${it.function}::${it.catchType}" }
+            // Deduplicate: same (module, file, function, catchType, sourceLine) → keep worst risk
+            .distinctBy { "${it.module}::${it.file}::${it.function}::${it.catchType}::${it.sourceLine}" }
     }
 
     /**

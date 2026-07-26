@@ -312,7 +312,8 @@ data class CancellationCatchFinding(
     @JsonProperty("isSuspendCapable") val isSuspendCapable: Boolean = false,
     @JsonProperty("rethrowsCancellation") val rethrowsCancellation: Boolean = false,
     @JsonProperty("transformsException") val transformsException: Boolean = false,
-    @JsonProperty("risk") val risk: String = "medium"
+    @JsonProperty("risk") val risk: String = "medium",
+    @JsonProperty("sourceLine") val sourceLine: Int = 0
 )
 
 data class GlobalStateFinding(
