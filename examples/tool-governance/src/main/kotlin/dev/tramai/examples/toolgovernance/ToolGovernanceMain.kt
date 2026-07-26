@@ -2,6 +2,7 @@ package dev.tramai.examples.toolgovernance
 
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.exception.PolicyViolationException
 import dev.tramai.core.policy.*
@@ -98,6 +99,7 @@ object ToolGovernanceMain {
             val result = service.lookup("CUST-001")
             println("  Result: $result")
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             println("  Exception: ${e::class.simpleName}: ${e.message}")
         }
 
@@ -143,6 +145,7 @@ object ToolGovernanceMain {
             println("  Reason: ${e.decision.reason}")
             println("  Code: ${e.decision.reasonCode}")
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             println("  Unexpected exception: ${e::class.simpleName}: ${e.message}")
         }
 
@@ -192,6 +195,7 @@ object ToolGovernanceMain {
             println("  Tool: ${e.toolName}")
             println("  Workflow: ${e.workflowRunId}")
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             println("  Exception: ${e::class.simpleName}: ${e.message}")
         }
 

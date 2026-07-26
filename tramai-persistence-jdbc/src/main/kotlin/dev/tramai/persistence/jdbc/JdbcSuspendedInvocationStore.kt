@@ -18,6 +18,7 @@ import dev.tramai.engine.SensitiveReplayEnvelope
 import dev.tramai.engine.SuspendedInvocationMetadata
 import dev.tramai.engine.SuspendedInvocationStore
 import dev.tramai.engine.TokenBudgetSnapshot
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import java.sql.ResultSet
 import java.sql.SQLException
 import java.time.Clock
@@ -259,6 +260,7 @@ class JdbcSuspendedInvocationStore(
                 return payloadWithMessages.metadata.toDomain()
             } catch (e: Exception) {
                 conn.rollback()
+                e.rethrowIfCancellation()
                 throw e
             } finally {
                 conn.autoCommit = previousAutoCommit

@@ -305,34 +305,35 @@ data class RuntimeSafetyBaseline(
 )
 
 data class CancellationCatchFinding(
-    val module: String,
-    val file: String,
-    val function: String,
-    val catchType: String,
-    val isSuspendCapable: Boolean = false,
-    val rethrowsCancellation: Boolean = false,
-    val transformsException: Boolean = false,
-    val risk: String = "medium"
+    @JsonProperty("module") val module: String,
+    @JsonProperty("file") val file: String,
+    @JsonProperty("function") val function: String,
+    @JsonProperty("catchType") val catchType: String,
+    @JsonProperty("isSuspendCapable") val isSuspendCapable: Boolean = false,
+    @JsonProperty("rethrowsCancellation") val rethrowsCancellation: Boolean = false,
+    @JsonProperty("transformsException") val transformsException: Boolean = false,
+    @JsonProperty("risk") val risk: String = "medium",
+    @JsonProperty("sourceLine") val sourceLine: Int = 0
 )
 
 data class GlobalStateFinding(
-    val module: String,
-    val file: String,
-    val declaration: String,
-    val kind: String,
-    val type: String,
-    val mutable: Boolean = true,
-    val lifecycle: String = "process",
-    val threadSafety: String = "unknown"
+    @JsonProperty("module") val module: String,
+    @JsonProperty("file") val file: String,
+    @JsonProperty("declaration") val declaration: String,
+    @JsonProperty("kind") val kind: String,
+    @JsonProperty("type") val type: String,
+    @JsonProperty("mutable") val mutable: Boolean = true,
+    @JsonProperty("lifecycle") val lifecycle: String = "process",
+    @JsonProperty("threadSafety") val threadSafety: String = "unknown"
 )
 
 data class NondeterminismFinding(
-    val module: String,
-    val file: String,
-    val line: Int,
-    val source: String,
-    val classification: String = "unknown",
-    val category: String = "unknown"
+    @JsonProperty("module") val module: String,
+    @JsonProperty("file") val file: String,
+    @JsonProperty("line") val line: Int,
+    @JsonProperty("source") val source: String,
+    @JsonProperty("classification") val classification: String = "unknown",
+    @JsonProperty("category") val category: String = "unknown"
 )
 
 data class ProtocolCatalog(

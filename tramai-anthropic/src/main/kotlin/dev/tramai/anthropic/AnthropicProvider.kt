@@ -10,6 +10,7 @@ import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.UsageMetrics
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.provider.applyTramaiTimeout
 import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
@@ -98,6 +99,7 @@ class AnthropicProvider(
                 },
             )
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             throw providerTransportFailure("Anthropic", error)
         }
     }
@@ -204,6 +206,7 @@ class AnthropicProvider(
             }
             emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             emit(StreamChunk.Error(providerTransportFailure("Anthropic", e)))
         }
     }

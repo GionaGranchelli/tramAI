@@ -27,6 +27,7 @@ import dev.tramai.core.exception.ApprovalStoreNotConsumableException
 import dev.tramai.core.exception.ApprovalStoreNotFoundException
 import dev.tramai.core.exception.ApprovalStoreTokenRejectedException
 import dev.tramai.core.exception.ApprovalTokenRejectedException
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Clock
@@ -94,6 +95,7 @@ class DefaultApprovalGateCoordinator(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             observeFailure("createApproval", approvalId, e)
             throw ApprovalCreationException(approvalId)
         }
@@ -127,6 +129,7 @@ class DefaultApprovalGateCoordinator(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             observeFailure("cancelApproval", approvalId, e)
             throw mapStoreError(approvalId, e)
         }
@@ -158,6 +161,7 @@ class DefaultApprovalGateCoordinator(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             observeFailure("authorizeResume.consumeApprovedOrReplay", command.approvalId, e)
             throw mapStoreError(command.approvalId, e)
         }
@@ -261,6 +265,7 @@ class DefaultApprovalGateCoordinator(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             observeFailure("$operationName.get", approvalId, e)
             throw mapStoreError(approvalId, e)
         } ?: throw ApprovalNotFoundException(approvalId)

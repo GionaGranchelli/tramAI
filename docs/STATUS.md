@@ -95,6 +95,8 @@ Summary:
 | Sovereign document intelligence example | Implemented |
 | OpenTelemetry observability (spans, metrics, opt-in) | Implemented |
 | Orchestration (typed workflows, checkpoints, worker pools) | Implemented / evolving |
+| Coroutine cancellation correctness (audited paths: all 7 provider adapters, engine, workflow steps, tools) | 🟡 In progress — runtime-boundary characterization pending |
+| Cancellation rethrow static analysis (KotlinCancellationCatchScanner) | ✅ Implemented — quality gate scans all non-example modules |
 | RAG (ingestion, chunking, embeddings, vector stores) | Implemented / evolving |
 | Chat memory (token-aware, persistent) | Implemented / evolving |
 | MCP adapter | Implemented / evolving |

@@ -128,6 +128,34 @@ class OpenTelemetryOperationObserverTest {
     }
 
     @Test
+    fun `records cancellation as span outcome attribute and metric`() {
+        val observation = OpenTelemetryOperationObserver(openTelemetry).onCallStarted(
+            OperationCallContext(
+                serviceInterface = "test.Service",
+                methodName = "respond",
+                providerId = "openai",
+                requestedModel = "gpt-4o",
+                attempt = 0,
+            ),
+        )
+
+        observation.onCallCancelled()
+
+        val span = exporter.finishedSpanItems.single()
+        assertThat(span.attributes.asMap())
+            .containsEntry(AttributeKey.stringKey("tramai.outcome"), "cancelled")
+
+        val metrics = metricReader.collectAllMetrics()
+        // The attempt counter should carry the "cancelled" outcome
+        val attemptMetric = longSumPoint(metrics, ATTEMPTS)
+        assertThat(attemptMetric.attributes.asMap())
+            .containsEntry(AttributeKey.stringKey("tramai.outcome"), "cancelled")
+        // No error type attribute should be present
+        assertThat(attemptMetric.attributes.asMap().keys.map { it.key })
+            .doesNotContain("tramai.error.type")
+    }
+
+    @Test
     fun `records engine events as span events and metrics`() {
         val observation = OpenTelemetryOperationObserver(openTelemetry).onCallStarted(
             OperationCallContext(

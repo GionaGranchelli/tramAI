@@ -44,7 +44,9 @@ object KotlinCancellationCatchScanner {
 
             // Skip comment lines
             val trimmed = line.trim()
-            if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) continue
+            if (trimmed.startsWith("//")) continue
+            if (trimmed.startsWith("*") && !trimmed.contains("*/")) continue
+            if (trimmed.startsWith("/*") && !trimmed.contains("*/")) continue
 
             for (pattern in broadCatchPatterns) {
                 val match = pattern.find(line) ?: continue
@@ -82,7 +84,8 @@ object KotlinCancellationCatchScanner {
                         isSuspendCapable = inSuspend,
                         rethrowsCancellation = rethrowsCancellation,
                         transformsException = transformsException,
-                        risk = risk
+                        risk = risk,
+                        sourceLine = originalLineNum
                     )
                 )
             }
@@ -90,8 +93,8 @@ object KotlinCancellationCatchScanner {
 
         return findings
             .sortedByDescending { riskWeight(it.risk) }
-            // Deduplicate: same (module, file, function, catchType) → keep worst risk
-            .distinctBy { "${it.module}::${it.file}::${it.function}::${it.catchType}" }
+            // Deduplicate: same (module, file, function, catchType, sourceLine) → keep worst risk
+            .distinctBy { "${it.module}::${it.file}::${it.function}::${it.catchType}::${it.sourceLine}" }
     }
 
     /**
@@ -193,11 +196,41 @@ object KotlinCancellationCatchScanner {
 
     /** Check if the catch block rethrows CancellationException (within catch body, including nested blocks).
      *  Requires that the caught exception variable itself is rethrown AND the throw is inside the
-     *  same branch as the CancellationException check, not merely nearby. */
+     *  same branch as the CancellationException check, not merely nearby.
+     *  Also recognizes `catchVar.rethrowIfCancellation()` as a safe pattern.
+     *  For the rethrowIfCancellation() helper, it must be the FIRST non-blank, non-comment
+     *  line in the catch body — before it, only blank lines and comments are allowed. */
     private fun checkRethrowsCancellation(lines: List<String>, catchIdx: Int): Boolean {
         val catchVar = extractCatchVariable(lines[catchIdx]) ?: return false
         val catchBodyEnd = findCatchBodyEnd(lines, catchIdx)
         val end = minOf(catchBodyEnd, lines.size)
+
+        // Pattern: <catchVar>.rethrowIfCancellation() — extension-based cancellation rethrow
+        val rethrowIfCancellationPattern = Regex(
+            """\b${Regex.escape(catchVar)}\.rethrowIfCancellation\s*\(\s*\)"""
+        )
+
+        // Check rethrowIfCancellation() — must be first non-blank, non-comment line
+        var foundHelper = false
+        for (i in catchIdx + 1 until end) {
+            val stripped = stripComment(lines[i])
+            val trimmed = stripped.trim()
+            if (trimmed.isBlank()) continue
+            // Skip multi-line block comment starts and line-comment-only lines
+            if (trimmed.startsWith("//")) continue
+            if (trimmed.startsWith("*") && !trimmed.contains("*/")) continue
+            if (trimmed.startsWith("/*") && !trimmed.contains("*/")) continue
+            // This is the first real statement — check if the ENTIRE line is
+            // just: <catchVar>.rethrowIfCancellation()  (with optional trailing semicolon)
+            val fullLinePattern = Regex(
+                """^\s*${Regex.escape(catchVar)}\.rethrowIfCancellation\s*\(\s*\)\s*;?\s*$"""
+            )
+            if (fullLinePattern.matches(trimmed)) {
+                foundHelper = true
+            }
+            break
+        }
+        if (foundHelper) return true
 
         // Pattern: throw <catchVar> (exact variable rethrow)
         val throwVarPattern = Regex("""\bthrow\s+${Regex.escape(catchVar)}\b""")

@@ -16,6 +16,7 @@ import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.provider.providerTransportFailure
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -81,6 +82,7 @@ class BedrockProvider @JvmOverloads constructor(
             val body = objectMapper.readTree(response.body().asUtf8String())
             mapClaudeResponse(body, effectiveModel)
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             throw providerTransportFailure(PROVIDER_ID, error)
         }
     }
@@ -109,6 +111,7 @@ class BedrockProvider @JvmOverloads constructor(
                 usage = extractUsage(body),
             ))
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             emit(StreamChunk.Error(providerTransportFailure(PROVIDER_ID, e)))
         }
     }

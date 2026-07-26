@@ -1,11 +1,13 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -15,6 +17,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.InetAddress
 import java.security.MessageDigest
@@ -343,6 +346,7 @@ class TramaiWorker(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
+                error.rethrowIfCancellation()
                 observability.onPollFailed(config.workerId, error)
                 delay(maxOf(100L, config.pollIntervalMillis))
             }
@@ -502,18 +506,21 @@ class TramaiWorker(
             releaseLease(handle)
         } catch (error: CancellationException) {
             if (shuttingDownGracefully) {
-                tracker.cancelActiveAttempt("Worker shutdown cancelled the running step")
-                observability.onWorkflowAbandoned(
-                    workflowId = checkpoint.workflowId,
-                    workerId = config.workerId,
-                    lastStep = checkpoint.lastCompletedStepName,
-                    timeoutMillis = config.drainTimeoutMillis,
-                )
-                releaseLease(handle)
-                executionFailures.remove(checkpoint.workflowId)
+                withContext(NonCancellable) {
+                    tracker.cancelActiveAttempt("Worker shutdown cancelled the running step")
+                    observability.onWorkflowAbandoned(
+                        workflowId = checkpoint.workflowId,
+                        workerId = config.workerId,
+                        lastStep = checkpoint.lastCompletedStepName,
+                        timeoutMillis = config.drainTimeoutMillis,
+                    )
+                    releaseLease(handle)
+                    executionFailures.remove(checkpoint.workflowId)
+                }
             }
             throw error
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             executionFailures[checkpoint.workflowId] = error
             tracker.failActiveAttempt(error)
             releaseLease(handle)
@@ -541,6 +548,7 @@ class TramaiWorker(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
+                error.rethrowIfCancellation()
                 observability.onLeaseRenewalFailed(handle.workflowId, config.workerId, error)
                 nextDelayMillis = maxOf(50L, interval / 2)
                 continue
@@ -552,11 +560,13 @@ class TramaiWorker(
     }
 
     private suspend fun releaseLease(handle: ActiveExecution) {
-        val lease = handle.lease.getAndSet(null) ?: return
+        val lease = handle.lease.get() ?: return
         try {
             leaseStore.release(lease)
+            handle.lease.compareAndSet(lease, null)
             observability.onLeaseReleased(handle.workflowId, config.workerId)
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             observability.onLeaseReleaseFailed(handle.workflowId, config.workerId, error)
         }
     }
@@ -794,6 +804,7 @@ private class ExecutionTracker(
                     this@ExecutionTracker.block()
                     Result.success(Unit)
                 } catch (error: Throwable) {
+                    error.rethrowIfCancellation()
                     Result.failure(error)
                 }
             }

@@ -1,7 +1,11 @@
 package dev.tramai.orchestration
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.security.MessageDigest
 import java.time.Clock
 import java.time.Instant
@@ -279,7 +283,13 @@ class Workflow<S, R> internal constructor(
                 context = context,
             )
             throw suspended
+        } catch (error: CancellationException) {
+            withContext(NonCancellable) {
+                persistenceSession?.runCatchingAbort(error)
+            }
+            throw error
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             persistenceSession?.runCatchingAbort(error)
             observer.onWorkflowFailed(name, error, context)
             throw error
@@ -358,7 +368,13 @@ class Workflow<S, R> internal constructor(
                 context = context,
             )
             throw suspended
+        } catch (error: CancellationException) {
+            withContext(NonCancellable) {
+                persistenceSession.runCatchingAbort(error)
+            }
+            throw error
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             persistenceSession.runCatchingAbort(error)
             observer.onWorkflowFailed(name, error, context)
             throw error
@@ -540,6 +556,7 @@ class Workflow<S, R> internal constructor(
                 )
             }
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             observer.onStepFailed(name, step.name, error, context)
             throw error
         }

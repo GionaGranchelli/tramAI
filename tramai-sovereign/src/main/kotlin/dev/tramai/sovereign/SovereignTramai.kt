@@ -17,6 +17,7 @@ import dev.tramai.sovereign.evidence.SovereignEvidencePackV1
 import dev.tramai.sovereign.evidence.SupplyChainEvidenceV1
 import dev.tramai.sovereign.evidence.ZeroEgressEvidenceV1
 import dev.tramai.core.observation.OperationInterceptor
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.security.DlpInterceptor
@@ -545,7 +546,8 @@ class SovereignTramai private constructor(
                 modelRegistry.findApprovedModel(providerName, modelName)
             } catch (exception: kotlinx.coroutines.CancellationException) {
                 throw exception
-            } catch (_: Exception) {
+            } catch (exception: Exception) {
+                exception.rethrowIfCancellation()
                 throw IllegalStateException(
                     "artifact-approved-model-lookup-failed",
                 )
@@ -590,6 +592,7 @@ class SovereignTramai private constructor(
                     sanitizedArtifactReason(exception),
                 )
             } catch (exception: Exception) {
+                exception.rethrowIfCancellation()
                 throw IllegalStateException("artifact-verification-failed")
             } ?: throw IllegalStateException("artifact-manifest-not-found")
         }

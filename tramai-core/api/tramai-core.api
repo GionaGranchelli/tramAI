@@ -778,6 +778,10 @@ public final class dev/tramai/core/approval/gateway/WorkflowRunId {
 	public final synthetic fun unbox-impl ()Ljava/lang/String;
 }
 
+public final class dev/tramai/core/coroutines/CancellationKt {
+	public static final fun rethrowIfCancellation (Ljava/lang/Throwable;)V
+}
+
 public final class dev/tramai/core/exception/ApprovalAuthorizationException : dev/tramai/core/exception/ApprovalException {
 	public fun <init> (Ljava/lang/String;)V
 	public final fun getApprovalId ()Ljava/lang/String;
@@ -1548,6 +1552,7 @@ public final class dev/tramai/core/observation/NoOpOperationInterceptor : dev/tr
 
 public final class dev/tramai/core/observation/NoOpOperationObservation : dev/tramai/core/observation/OperationObservation {
 	public static final field INSTANCE Ldev/tramai/core/observation/NoOpOperationObservation;
+	public fun onCallCancelled ()V
 	public fun onCallCompleted (Ljava/lang/Boolean;)V
 	public fun onEngineEvent (Ljava/lang/String;Ljava/util/Map;)V
 	public fun onProviderFailure (Ljava/lang/Throwable;)V
@@ -1590,6 +1595,7 @@ public final class dev/tramai/core/observation/OperationInterceptor$DefaultImpls
 }
 
 public abstract interface class dev/tramai/core/observation/OperationObservation {
+	public fun onCallCancelled ()V
 	public abstract fun onCallCompleted (Ljava/lang/Boolean;)V
 	public fun onEngineEvent (Ljava/lang/String;Ljava/util/Map;)V
 	public static synthetic fun onEngineEvent$default (Ldev/tramai/core/observation/OperationObservation;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)V
@@ -1599,6 +1605,7 @@ public abstract interface class dev/tramai/core/observation/OperationObservation
 }
 
 public final class dev/tramai/core/observation/OperationObservation$DefaultImpls {
+	public static fun onCallCancelled (Ldev/tramai/core/observation/OperationObservation;)V
 	public static fun onEngineEvent (Ldev/tramai/core/observation/OperationObservation;Ljava/lang/String;Ljava/util/Map;)V
 	public static synthetic fun onEngineEvent$default (Ldev/tramai/core/observation/OperationObservation;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)V
 }

@@ -1,12 +1,14 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -202,6 +204,7 @@ internal data class ShellWorkflowStep<S>(
                         }
                     }
                 } catch (error: TimeoutCancellationException) {
+                    currentCoroutineContext().ensureActive()
                     observer.onWorkflowEvent(
                         workflowName = workflowName,
                         name = "tramai.workflow.shell.timeout",
@@ -414,8 +417,4 @@ private fun ShellCommand.commandIdentifiers(): Set<String> {
 }
 
 
-private fun Throwable.rethrowIfCancellation() {
-    if (this is CancellationException) {
-        throw this
-    }
-}
+

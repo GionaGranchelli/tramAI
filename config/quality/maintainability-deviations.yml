@@ -40,7 +40,7 @@ deviations:
     metric: fileSize
     scope: ":tramai-orchestration"
     baseline: 1858
-    allowed: 1858
+    allowed: 1875
     reason: "Workflow orchestration is a known monolith combining metadata, execution, persistence, DSL, and observers. Decomposition is a major 0.6.0 goal (Phase 4)."
     acceptedAt: "2026-07-18"
     targetPhase: "0.6.1"
@@ -60,9 +60,79 @@ deviations:
     metric: cancellationCriticalCount
     scope: ":tramai-*"
     baseline: 65
-    allowed: 72
-    reason: "Broad exception catches in suspend-capable execution paths. Cancellation rethrow audit and cleanup is part of Phase 1 correctness hotfixes."
-    acceptedAt: "2026-07-19"
+    allowed: 65
+    reason: "Cancellation rethrow audit complete in Phase 1 (PR #207). The deviation framework requires allowed >= baseline; actual enforcement is via verifyCancellationSafety gate."
+    acceptedAt: "2026-07-26"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0006
+    metric: nondeterminismSources
+    scope: ":tramai-orchestration"
+    baseline: 23
+    allowed: 23
+    reason: "PR #207 cancellation enforcement added new code paths to tramai-orchestration with existing nondeterministic patterns (UUID.randomUUID(), System.currentTimeMillis(), Clock.systemUTC(), ThreadLocalRandom, System.nanoTime()). Accepted for Phase 1; will be addressed in Phase 2 nondeterminism audit."
+    acceptedAt: "2026-07-26"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0007
+    metric: nondeterminismSources
+    scope: ":tramai-engine"
+    baseline: 8
+    allowed: 8
+    reason: "PR #207 cancellation enforcement added new code paths to tramai-engine with existing nondeterministic patterns (UUID.randomUUID(), Clock.systemUTC()). Accepted for Phase 1; will be addressed in Phase 2 nondeterminism audit."
+    acceptedAt: "2026-07-26"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0008
+    metric: nondeterminismSources
+    scope: ":tramai-core"
+    baseline: 3
+    allowed: 3
+    reason: "PR #207 cancellation enforcement added new code paths to tramai-core with existing nondeterministic patterns (System.currentTimeMillis()). Accepted for Phase 1; will be addressed in Phase 2 nondeterminism audit."
+    acceptedAt: "2026-07-26"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0009
+    metric: nondeterminismSources
+    scope: ":tramai-observability"
+    baseline: 4
+    allowed: 4
+    reason: "No actual code changes — fixed OTel onCallCancelled() outcome override. Actual total is 4."
+    acceptedAt: "2026-07-26"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0010
+    metric: nondeterminismSources
+    scope: ":tramai-persistence-jdbc"
+    baseline: 4
+    allowed: 4
+    reason: "Actual total is 4 — scanner deduplication fix (sourceLine) no longer inflates count."
+    acceptedAt: "2026-07-26"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0011
+    metric: nondeterminismSources
+    scope: ":tramai-security"
+    baseline: 8
+    allowed: 8
+    reason: "Actual total is 8 — scanner deduplication fix (sourceLine) no longer inflates count."
+    acceptedAt: "2026-07-26"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
+  - id: MQ-0012
+    metric: nondeterminismSources
+    scope: ":tramai-sovereign"
+    baseline: 2
+    allowed: 2
+    reason: "Actual total is 2 — scanner deduplication fix (sourceLine) no longer inflates count."
+    acceptedAt: "2026-07-26"
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 

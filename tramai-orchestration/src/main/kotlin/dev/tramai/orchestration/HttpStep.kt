@@ -1,5 +1,6 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -79,6 +80,7 @@ internal data class HttpWorkflowStep<S>(
         val request = try {
             requestBuilder(state, context)
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             throw wrapHttpError(
                 error = error,
                 redactedUrl = "<request-builder>",
@@ -91,6 +93,7 @@ internal data class HttpWorkflowStep<S>(
             validateMethod(method, request.method)
             validateRequestUri(request.url)
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             observer.onWorkflowEvent(
                 workflowName = workflowName,
                 name = "tramai.workflow.http.request.validation.failed",
@@ -123,20 +126,21 @@ internal data class HttpWorkflowStep<S>(
         var retryAttempt = 0
         while (true) {
             val attemptNumber = retryAttempt + 1
-                val response = try {
-                    executeRequest(
-                        HttpRequestExecution(
-                            request = request,
-                            uri = uri,
-                            method = method,
-                            observer = observer,
-                            workflowName = workflowName,
-                            context = context,
-                            httpClient = httpClient,
-                            redactedUrl = redactedUrl,
-                        ),
-                    )
+            val response = try {
+                executeRequest(
+                    HttpRequestExecution(
+                        request = request,
+                        uri = uri,
+                        method = method,
+                        observer = observer,
+                        workflowName = workflowName,
+                        context = context,
+                        httpClient = httpClient,
+                        redactedUrl = redactedUrl,
+                    ),
+                )
             } catch (error: Throwable) {
+                error.rethrowIfCancellation()
                 throw wrapHttpError(
                     error = error,
                     redactedUrl = redactedUrl,
@@ -178,6 +182,7 @@ internal data class HttpWorkflowStep<S>(
             return try {
                 merge(state, response.toWorkflowResponse(), context)
             } catch (error: Throwable) {
+                error.rethrowIfCancellation()
                 throw wrapHttpError(
                     error = error,
                     redactedUrl = redactedUrl,

@@ -73,6 +73,7 @@ import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.SensitiveToolArguments
 import dev.tramai.core.approval.ToolArgumentsDigester
 import dev.tramai.core.approval.Sha256Digest
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ApprovalSuspendedException
 import dev.tramai.core.exception.ApprovalNotFoundException
 import dev.tramai.core.exception.ToolInvalidInputException
@@ -83,7 +84,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
@@ -426,6 +429,14 @@ internal class TramaiInvocationHandler(
 
     private val policyHelper = PolicyEnforcementHelper(policyEngine, migrationWarningGuard, isLegacyFallback = isLegacyFallback, auditEmitter = policyDecisionAuditEmitter)
     private val modelRegistryEnforcer = ModelRegistryEnforcer(modelRegistry, modelRegistrySettings)
+
+    private fun OperationObservation.completeCancellation(cancellation: CancellationException) {
+        try {
+            onCallCancelled()
+        } catch (observerError: Throwable) {
+            cancellation.addSuppressed(observerError)
+        }
+    }
 
     override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
         if (method.declaringClass == Any::class.java) {
@@ -799,6 +810,7 @@ internal class TramaiInvocationHandler(
         } catch (finished: StreamingRouteFinished) {
             finished.result
         } catch (error: TimeoutCancellationException) {
+            currentCoroutineContext().ensureActive()
             val timeout = TimeoutException(
                 message = buildTimeoutMessage(
                     providerId = route.providerName,
@@ -810,12 +822,10 @@ internal class TramaiInvocationHandler(
             observation.onProviderFailure(timeout)
             handleFallbackResult(timeout, emittedAnyTokens, route.providerName, observation)
         } catch (error: CancellationException) {
-            val cancellation = CancellationException("Streaming operation was cancelled by the consumer")
-            cancellation.initCause(error)
-            observation.onProviderFailure(cancellation)
-            observation.onCallCompleted(parseSuccess = null)
+            observation.completeCancellation(error)
             throw error
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             val normalized = normalizeStreamingError(error, route.providerName, operation)
             observation.onProviderFailure(normalized)
             handleFallbackResult(normalized, emittedAnyTokens, route.providerName, observation)
@@ -1635,6 +1645,7 @@ internal class TramaiInvocationHandler(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
+                error.rethrowIfCancellation()
                 throw DlpInspectionException(
                     message = "DLP redaction audit emission failed",
                     cause = error,
@@ -1809,6 +1820,7 @@ internal class TramaiInvocationHandler(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
+        e.rethrowIfCancellation()
         emitEngineEventSafely(
             observer = scope.engineEventObserver,
             name = "tramai.dlp.inspection_failed",
@@ -1996,6 +2008,7 @@ internal class TramaiInvocationHandler(
                 enforceToolExposure(operation, correlationId, securityContext)
                 return callProviderWithRetries(providerRetryRequest(route, routeIndex, operation, messages, attemptCounter, correlationId, securityContext))
             } catch (error: Throwable) {
+                error.rethrowIfCancellation()
                 if (!shouldFallbackFrom(error)) {
                     throw error
                 }
@@ -2082,8 +2095,10 @@ internal class TramaiInvocationHandler(
                 attempt.observation.onCallCompleted(parseSuccess = null)
                 throw error
             } catch (error: CancellationException) {
+                attempt.observation.completeCancellation(error)
                 throw error
             } catch (error: Throwable) {
+                error.rethrowIfCancellation()
                 handleProviderRetryFailure(error, retry, attempt.observation, retryIndex, maxAttempts)
             }
         }
@@ -2244,6 +2259,7 @@ internal class TramaiInvocationHandler(
     } catch (e: DlpInspectionException) {
         throw e
     } catch (e: Exception) {
+        e.rethrowIfCancellation()
         observation.onEngineEvent(
             name = "tramai.dlp.inspection_failed",
             attributes = mapOf("providerId" to providerId, "correlationId" to correlationId),
@@ -2443,6 +2459,7 @@ internal class TramaiInvocationHandler(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
+        e.rethrowIfCancellation()
         if (tool.idempotent) {
             ToolResult.TransientFailure(e)
         } else {
@@ -2620,6 +2637,7 @@ internal class TramaiInvocationHandler(
                 continuationVersion = continuation.version,
             )
         } catch (failure: Exception) {
+            failure.rethrowIfCancellation()
             // Do NOT compensate for successful suspension — ApprovalSuspendedException is the intended result
             if (failure is ApprovalSuspendedException) throw failure
 
@@ -2631,7 +2649,8 @@ internal class TramaiInvocationHandler(
                     suspendedInvocationStore.remove(approvalId)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation()
                     // best-effort cleanup
                 }
                 // 2. Cancel continuation
@@ -2690,8 +2709,9 @@ internal class TramaiInvocationHandler(
             provider.complete(request)
         }
     } catch (error: Throwable) {
-        throw when (error) {
-            is TimeoutCancellationException -> TimeoutException(
+        if (error is TimeoutCancellationException) {
+            currentCoroutineContext().ensureActive()
+            throw TimeoutException(
                 message = buildTimeoutMessage(
                     providerId = providerId,
                     operation = operation,
@@ -2699,7 +2719,9 @@ internal class TramaiInvocationHandler(
                 ),
                 cause = error,
             )
-
+        }
+        error.rethrowIfCancellation()
+        throw when (error) {
             is ProviderException -> error
 
             else -> ProviderException(
@@ -2918,6 +2940,7 @@ internal class TramaiInvocationHandler(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             emitResumeUncertainOutcomeOnce(uncertainOutcome, command, metadata, "resume-failed: ${e::class.simpleName ?: "unknown"}")
             throw e
         }
@@ -3101,6 +3124,7 @@ internal class TramaiInvocationHandler(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             runCatching {
                 engineEventObserver.onEngineEvent(
                     name = "resume-suspended-context-cleanup-failure",
@@ -3124,6 +3148,7 @@ internal class TramaiInvocationHandler(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             runCatching {
                 engineEventObserver.onEngineEvent(
                     name = "resume-completion-audit-failure",

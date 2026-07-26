@@ -441,6 +441,141 @@ abstract class MaintainabilityBaselinePlugin : Plugin<Project> {
             }
         }
 
+        project.tasks.register("verifyCancellationSafety") {
+            group = "maintainability"
+            description = "Scans all production source for broad catches in suspend-capable code and rejects newly introduced critical/high findings and risk worsenings. Accepts -PtramaiCancellationBaseSha for PR base SHA comparison."
+            doLast {
+                val scanningCtx = MeasurementContext.fromProject(project)
+                val inventory = CancellationCatchInventory(scanningCtx)
+                val findings = inventory.inventory()
+
+                // Derive scope from all non-example modules
+                val scopedModules = scanningCtx.modules
+                    .map { it.path }
+                    .filterNot { it.startsWith(":examples:") }
+                    .toSet()
+
+                val scopedFindings = findings.filter { it.module in scopedModules }
+
+                // Determine comparison mode
+                val baseSha = project.findProperty("tramaiCancellationBaseSha")?.toString()
+
+                if (baseSha != null) {
+                    // ── PR mode: compare against base SHA ──
+                    val worktreeDir = java.nio.file.Files.createTempDirectory("tramai-base-${baseSha.take(8)}-").toFile()
+                    val baseCatches: List<CancellationCatchFinding>
+                    var worktreeCreated = false
+
+                    try {
+                        // Create temporary git worktree at base SHA
+                        val addProcess = ProcessBuilder(
+                            "git", "worktree", "add",
+                            worktreeDir.absolutePath, baseSha, "--detach"
+                        )
+                            .directory(project.rootDir)
+                            .redirectErrorStream(true)
+                            .start()
+                        val addOutput = addProcess.inputStream.bufferedReader().readText()
+                        val addExit = addProcess.waitFor()
+                        if (addExit != 0) throw GradleException("Failed to create worktree at $baseSha: $addOutput")
+                        worktreeCreated = true
+
+                        // Scan base sources with same scanner + scoped module filter
+                        val baseCtx = MeasurementContext.fromDirectory(worktreeDir)
+                        val baseInventory = CancellationCatchInventory(baseCtx)
+                        val baseAllFindings = baseInventory.inventory()
+                        baseCatches = baseAllFindings.filter { it.module in scopedModules }
+                    } finally {
+                        if (worktreeCreated) {
+                            ProcessBuilder("git", "worktree", "remove", "--force", worktreeDir.absolutePath)
+                                .directory(project.rootDir)
+                                .start()
+                                .waitFor()
+                            ProcessBuilder("git", "worktree", "prune")
+                                .directory(project.rootDir)
+                                .start()
+                                .waitFor()
+                        }
+                        worktreeDir.deleteRecursively()
+                    }
+
+                    // ── Risk population matching comparison ──
+                    val delta = CancellationDeltaComparator.compare(baseCatches, scopedFindings)
+
+                    if (delta.newCriticalHigh.isNotEmpty() || delta.worsened.isNotEmpty()) {
+                        throw GradleException(delta.diagnostics.joinToString("\n"))
+                    }
+
+                    println(delta.diagnostics.joinToString("\n"))
+                    println("verifyCancellationSafety PASSED: no new critical/high findings or risk worsenings against base SHA.")
+                } else {
+                    // ── Local dev mode: auto-resolve merge base against origin/master ──
+                    val resolveProcess = ProcessBuilder("git", "merge-base", "HEAD", "origin/master")
+                        .directory(project.rootDir)
+                        .redirectErrorStream(true)
+                        .start()
+                    val resolveOutput = resolveProcess.inputStream.bufferedReader().readText().trim()
+                    val resolveExit = resolveProcess.waitFor()
+                    if (resolveExit != 0) {
+                        throw GradleException(
+                            "verifyCancellationSafety requires -PtramaiCancellationBaseSha when origin/master is not available.\n" +
+                            "Usage: ./gradlew verifyCancellationSafety -PtramaiCancellationBaseSha=<sha>\n" +
+                            "In CI this is auto-wired. Locally, use the base branch SHA."
+                        )
+                    }
+
+                    val baseShaLocal = resolveOutput
+                    println("verifyCancellationSafety: auto-resolved merge base against origin/master = ${baseShaLocal.take(8)}")
+
+                    // Scan merge base using the same worktree approach
+                    val worktreeDir = java.nio.file.Files.createTempDirectory("tramai-base-${baseShaLocal.take(8)}-").toFile()
+                    val localBaseCatches: List<CancellationCatchFinding>
+                    var worktreeCreated = false
+
+                    try {
+                        val addProcess = ProcessBuilder(
+                            "git", "worktree", "add",
+                            worktreeDir.absolutePath, baseShaLocal, "--detach"
+                        )
+                            .directory(project.rootDir)
+                            .redirectErrorStream(true)
+                            .start()
+                        val addOutput = addProcess.inputStream.bufferedReader().readText()
+                        val addExit = addProcess.waitFor()
+                        if (addExit != 0) throw GradleException("Failed to create worktree at $baseShaLocal: $addOutput")
+                        worktreeCreated = true
+
+                        val baseCtx = MeasurementContext.fromDirectory(worktreeDir)
+                        val baseInventory = CancellationCatchInventory(baseCtx)
+                        val baseAllFindings = baseInventory.inventory()
+                        localBaseCatches = baseAllFindings.filter { it.module in scopedModules }
+                    } finally {
+                        if (worktreeCreated) {
+                            ProcessBuilder("git", "worktree", "remove", "--force", worktreeDir.absolutePath)
+                                .directory(project.rootDir)
+                                .start()
+                                .waitFor()
+                            ProcessBuilder("git", "worktree", "prune")
+                                .directory(project.rootDir)
+                                .start()
+                                .waitFor()
+                        }
+                        worktreeDir.deleteRecursively()
+                    }
+
+                    // Same risk population matching comparison
+                    val delta = CancellationDeltaComparator.compare(localBaseCatches, scopedFindings)
+
+                    if (delta.newCriticalHigh.isNotEmpty() || delta.worsened.isNotEmpty()) {
+                        throw GradleException(delta.diagnostics.joinToString("\n"))
+                    }
+
+                    println(delta.diagnostics.joinToString("\n"))
+                    println("verifyCancellationSafety PASSED: ${scopedFindings.size} findings in scoped modules, no new critical/high findings or risk worsenings against origin/master.")
+                }
+            }
+        }
+
         project.tasks.register("verifyCriticalCoverage") {
             group = "maintainability"
             description = "Compares current critical-module coverage with the committed baseline"

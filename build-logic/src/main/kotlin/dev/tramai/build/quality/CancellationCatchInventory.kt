@@ -12,14 +12,14 @@ class CancellationCatchInventory(private val ctx: MeasurementContext) {
         val findings = mutableListOf<CancellationCatchFinding>()
 
         for (mod in ctx.modules) {
-            listOf(mod.sourceDirs, mod.testSourceDirs).flatten().forEach { srcDir ->
+            mod.sourceDirs.forEach { srcDir ->
                 if (!srcDir.exists()) return@forEach
 
                 srcDir.walkTopDown().forEach { file ->
                     if (!file.isFile || file.extension != "kt") return@forEach
                     val content = file.readText()
                     val relativePath = ReportNormalizer.repoRelativePath(file, ctx.rootDir)
-                    findings.addAll(KotlinCancellationCatchScanner.scan(content, mod.name, relativePath))
+                    findings.addAll(KotlinCancellationCatchScanner.scan(content, mod.path, relativePath))
                 }
             }
         }

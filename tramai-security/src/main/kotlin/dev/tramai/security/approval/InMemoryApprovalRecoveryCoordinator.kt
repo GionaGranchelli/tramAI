@@ -11,6 +11,7 @@ import dev.tramai.core.exception.ApprovalAuthorizationException
 import dev.tramai.core.exception.ApprovalContinuationNotFoundException
 import dev.tramai.core.exception.ApprovalRecoveryAuditUnavailableException
 import dev.tramai.core.exception.ApprovalRecoveryUnavailableException
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
 
@@ -95,7 +96,8 @@ class InMemoryApprovalRecoveryCoordinator(
                 )
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                e.rethrowIfCancellation()
                 // Operational reporting is best-effort for stale detection.
             }
         }
@@ -163,7 +165,8 @@ class InMemoryApprovalRecoveryCoordinator(
             )
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
             // Requested event is the durable audit boundary; completion notification is best-effort.
         }
 

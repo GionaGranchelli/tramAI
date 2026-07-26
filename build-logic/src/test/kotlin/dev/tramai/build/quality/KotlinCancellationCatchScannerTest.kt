@@ -290,6 +290,83 @@ class KotlinCancellationCatchScannerTest {
     }
 
     @Test
+    fun `rethrowIfCancellation extension is recognized as accepted`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation()
+                    handleError(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() should be recognized as accepted risk")
+    }
+
+    @Test
+    fun `rethrowIfCancellation with different variable name is recognized`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (error: Throwable) {
+                    error.rethrowIfCancellation()
+                    throw ProviderException(error)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() with different variable name should be accepted")
+    }
+
+    @Test
+    fun `rethrowIfCancellation with trailing whitespace in parens is recognized`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation( )
+                    handleError(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() with whitespace should be accepted")
+    }
+
+    @Test
+    fun `different variable rethrowIfCancellation is not accepted`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    val other = RuntimeException()
+                    other.rethrowIfCancellation()
+                    handleError(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertNotEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() on different variable should NOT be accepted")
+    }
+
+    @Test
     fun `throwing caught variable in unrelated condition is not accepted`() {
         val findings = KotlinCancellationCatchScanner.scan(
             """
@@ -537,5 +614,142 @@ class KotlinCancellationCatchScannerTest {
         assertEquals(2, addedCounts.size) // id2 and id3 are new
         assertEquals(1, addedCounts.find { it.first == "id2" }?.second)
         assertEquals(1, addedCounts.find { it.first == "id3" }?.second)
+    }
+
+    // ── Negative tests: rethrowIfCancellation must be first executable statement ──
+
+    @Test
+    fun `rethrowIfCancellation after side effect is NOT accepted`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    logError(e)
+                    e.rethrowIfCancellation()
+                    handleError(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertNotEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() after a side effect should NOT be accepted")
+    }
+
+    @Test
+    fun `rethrowIfCancellation inside string is not recognized as helper`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    val msg = "e.rethrowIfCancellation()"
+                    handleError(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertNotEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() inside string should NOT be accepted")
+    }
+
+    @Test
+    fun `rethrowIfCancellation inside conditional is NOT accepted as first statement`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    if (someCondition) {
+                        e.rethrowIfCancellation()
+                    }
+                    handleError(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertNotEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() inside a conditional branch should NOT be accepted as first-statement helper")
+    }
+
+    @Test
+    fun `rethrowIfCancellation after semicolon-prefixed side effect on same line is NOT accepted`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (error: Throwable) {
+                    auditFailure(error); error.rethrowIfCancellation()
+                    handleError(error)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertNotEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() after side effect on same line should NOT be accepted")
+    }
+
+    @Test
+    fun `rethrowIfCancellation inside inline conditional is NOT accepted`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (error: Throwable) {
+                    if (shouldPropagate) error.rethrowIfCancellation()
+                    handleError(error)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertNotEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() inside inline conditional should NOT be accepted")
+    }
+
+    @Test
+    fun `rethrowIfCancellation after inline block comment is NOT accepted`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (error: Throwable) {
+                    /* intent: suppress cancellation */ error.rethrowIfCancellation()
+                    handleError(error)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertNotEquals("accepted", findings.first().risk,
+            "rethrowIfCancellation() after inline block comment should NOT be accepted")
+    }
+
+    @Test
+    fun `multiple statements on first line without helper are NOT accepted as rethrow`() {
+        val findings = KotlinCancellationCatchScanner.scan(
+            """
+            suspend fun riskyOperation() {
+                try {
+                    doSomething()
+                } catch (e: Exception) {
+                    logError(e); notifyAlert(e); throw DomainException(e)
+                }
+            }
+            """.trimIndent(), "test", "Test.kt"
+        )
+        assertTrue(findings.isNotEmpty(), "Should find catch")
+        assertNotEquals("accepted", findings.first().risk,
+            "Multiple statements without rethrowIfCancellation() should NOT be accepted")
     }
 }

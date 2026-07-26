@@ -14,6 +14,7 @@ import dev.tramai.core.model.UsageMetrics
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.provider.applyTramaiTimeout
 import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
@@ -185,6 +186,7 @@ open class OpenAiCompatibleProvider(
                 },
             )
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             throw providerTransportFailure(providerName, error)
         }
     }
