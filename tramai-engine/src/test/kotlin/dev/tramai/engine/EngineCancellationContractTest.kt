@@ -2,13 +2,23 @@ package dev.tramai.engine
 
 import dev.tramai.core.annotations.AiService
 import dev.tramai.core.annotations.Operation
+import dev.tramai.core.model.ModelRequest
+import dev.tramai.core.model.ModelResponse
+import dev.tramai.core.model.StreamChunk
+import dev.tramai.core.model.ToolCall
 import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderRegistry
+import dev.tramai.core.provider.StreamCapable
 import dev.tramai.structured.JacksonStructuredOutputHandler
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -16,20 +26,29 @@ import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Contract tests for non-streaming engine cancellation behavior.
+ * Contract tests for engine cancellation behavior across all execution paths.
  *
  * These tests prove that [CancellationException] thrown by a provider:
  * - bypasses retry loops and fallback routing
- * - preserves the original exception identity
+ * - preserves the original exception type and message
  * - is properly recorded via [OperationObservation.onCallCancelled]
  * - is not wrapped in structured-output exceptions
  * - observer failures during cancellation notification are suppressed
  *   but do not replace the original cancellation
+ *
+ * NOTE: Reference identity (isSameAs) is NOT asserted because the engine's
+ * TramaiInvocationHandler wraps CancellationException at the coroutine
+ * boundary (frame: _COROUTINE._BOUNDARY._), creating a new instance.
+ * Type + message is the strongest identity contract available here.
+ *
+ * Tool-execution cancellation is NOT covered in this PR — it reveals a
+ * genuine engine defect (tool CancellationException is not routed through
+ * onCallCancelled). Tracked for PR #210.
  */
 class EngineCancellationContractTest {
 
     // -------------------------------------------------------------------------
-    // Test 1: provider cancellation bypasses retry and fallback and preserves identity
+    // Test 1: provider cancellation bypasses retry and fallback
     // -------------------------------------------------------------------------
 
     @Test
@@ -52,15 +71,11 @@ class EngineCancellationContractTest {
         )
         val service = engine.create<CancellationTestService>()
 
-        val thrown = runCatching { runBlocking { service.execute("input") } }
-            .exceptionOrNull() as? CancellationException
-            ?: error("Expected CancellationException")
-
-        // The cancellation exception reaches the caller with the same type and message
-        assertThat(thrown).isInstanceOf(CancellationException::class.java)
+        assertThatThrownBy { runBlocking { service.execute("input") } }
+            .isInstanceOf(CancellationException::class.java)
             .hasMessage("cancelled by test")
 
-        // The cancelling provider was called exactly once (no retries)
+        // The cancelling provider was called exactly once (no retries despite providerRetries=2)
         assertThat(cancellingProvider.calls.get()).isEqualTo(1)
 
         // The fallback provider was never called
@@ -104,7 +119,7 @@ class EngineCancellationContractTest {
         // Provider was called twice: first for the "not json" response, second attempt throws cancellation
         assertThat(provider.calls.get()).isEqualTo(2)
 
-        // Observer recorded the cancellation
+        // Observer recorded the cancellation on the second attempt
         assertThat(observer.records).anySatisfy { record ->
             assertThat(record.cancelled).isTrue()
         }
@@ -135,11 +150,12 @@ class EngineCancellationContractTest {
             .exceptionOrNull() as? CancellationException
             ?: error("Expected CancellationException")
 
-        // The original cancellation is still thrown (not replaced by IllegalStateException)
-        assertThat(thrown).isInstanceOf(CancellationException::class.java)
+        assertThat(thrown)
+            .isInstanceOf(CancellationException::class.java)
             .hasMessage("cancelled by test")
 
-        // The observer's failure is in the suppressed list
+        // The original cancellation is still thrown (not replaced by IllegalStateException).
+        // The observer error is suppressed on the thrown exception instance.
         assertThat(thrown.suppressed)
             .hasSize(1)
             .anySatisfy { suppressed ->
@@ -150,56 +166,120 @@ class EngineCancellationContractTest {
     }
 
     // -------------------------------------------------------------------------
+    // Test 4: streaming consumer cancellation bypasses fallback
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `stream consumer cancellation bypasses fallback and completes as cancelled`() {
+        val streamingProvider = StreamingProvider()
+        val fallback = FailingIfCalledStreamingProvider()
+        val observer = CancellationObserver()
+
+        val registry = ProviderRegistry.builder()
+            .provider("primary", streamingProvider)
+            .provider("fallback", fallback)
+            .model("test-model", "primary")
+            .fallbackProvider("test-model", "fallback")
+            .defaultProvider("primary")
+            .build()
+
+        val engine = TramaiEngine(
+            providerRegistry = registry,
+            operationObserver = observer,
+        )
+        val service = engine.create<StreamingTestService>()
+
+        val collected = runBlocking { service.stream("input").take(1).toList() }
+
+        assertThat(collected).containsExactly(StreamChunk.Token("first"))
+        assertThat(streamingProvider.cancelled).isTrue()
+        assertThat(fallback.calls.get()).isZero()
+
+        assertThat(observer.records).hasSize(1)
+        val record = observer.records.single()
+        assertThat(record.cancelled).isTrue()
+        assertThat(record.providerFailure).isNull()
+        assertThat(record.completionCount).isZero()
+    }
+
+    // -------------------------------------------------------------------------
     // Private fixtures
     // -------------------------------------------------------------------------
 
-    /**
-     * Provider that throws [CancellationException] on every call.
-     * Tracks call count and preserves the exception instance for identity checks.
-     */
+    /** Provider that throws [CancellationException] on every call. */
     private class CancellingProvider : ModelProvider {
         val calls = AtomicInteger(0)
         val thrownException = CancellationException("cancelled by test")
 
-        override suspend fun complete(request: dev.tramai.core.model.ModelRequest): dev.tramai.core.model.ModelResponse {
+        override suspend fun complete(request: ModelRequest): ModelResponse {
             calls.incrementAndGet()
             throw thrownException
         }
     }
 
-    /**
-     * Provider that throws an error if called — used to verify the fallback is never reached.
-     */
+    /** Provider that throws an error — used to verify fallback is never reached. */
     private class FailingIfCalledProvider : ModelProvider {
         val calls = AtomicInteger(0)
 
-        override suspend fun complete(request: dev.tramai.core.model.ModelRequest): dev.tramai.core.model.ModelResponse {
+        override suspend fun complete(request: ModelRequest): ModelResponse {
             calls.incrementAndGet()
             error("must not be called")
         }
     }
 
     /**
-     * Provider that returns "not json" on the first call, then throws [CancellationException]
-     * on the second call. Used to verify cancellation during structured output retry repair.
+     * Provider that returns "not json" on first call, then [CancellationException]
+     * on second. Used to verify cancellation during structured output retry repair.
      */
     private class StructuredCancellingProvider : ModelProvider {
         val calls = AtomicInteger(0)
         val thrownException = CancellationException("cancelled during structured repair")
 
-        override suspend fun complete(request: dev.tramai.core.model.ModelRequest): dev.tramai.core.model.ModelResponse {
+        override suspend fun complete(request: ModelRequest): ModelResponse {
             val count = calls.incrementAndGet()
             return if (count == 1) {
-                dev.tramai.core.model.ModelResponse(content = "not json")
+                ModelResponse(content = "not json")
             } else {
                 throw thrownException
             }
         }
     }
 
-    /**
-     * Observer that tracks cancellation, provider failure, and completion count.
-     */
+    /** Streaming provider that emits one token then suspends for cancellation. */
+    private class StreamingProvider : ModelProvider, StreamCapable {
+        @Volatile
+        var cancelled: Boolean = false
+
+        override suspend fun complete(request: ModelRequest): ModelResponse {
+            error("StreamingProvider.complete should not be called")
+        }
+
+        override fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
+            try {
+                emit(StreamChunk.Token("first"))
+                awaitCancellation()
+            } finally {
+                cancelled = true
+            }
+        }
+    }
+
+    /** Streaming fallback that errors if called. */
+    private class FailingIfCalledStreamingProvider : ModelProvider, StreamCapable {
+        val calls = AtomicInteger(0)
+
+        override suspend fun complete(request: ModelRequest): ModelResponse {
+            calls.incrementAndGet()
+            error("must not be called")
+        }
+
+        override fun stream(request: ModelRequest): Flow<StreamChunk> {
+            calls.incrementAndGet()
+            error("must not be called")
+        }
+    }
+
+    /** Observer that tracks cancellation, provider failure, and completion count. */
     private class CancellationObserver : OperationObserver {
         val records = mutableListOf<CancellationRecord>()
 
@@ -207,7 +287,7 @@ class EngineCancellationContractTest {
             val record = CancellationRecord()
             records += record
             return object : OperationObservation {
-                override fun onProviderResponse(response: dev.tramai.core.model.ModelResponse) {
+                override fun onProviderResponse(response: ModelResponse) {
                     record.providerResponse = response
                 }
 
@@ -236,21 +316,18 @@ class EngineCancellationContractTest {
         }
 
         data class CancellationRecord(
-            var providerResponse: dev.tramai.core.model.ModelResponse? = null,
+            var providerResponse: ModelResponse? = null,
             var providerFailure: Throwable? = null,
             var completionCount: Int = 0,
             var cancelled: Boolean = false,
         )
     }
 
-    /**
-     * Observer whose [OperationObservation.onCallCancelled] throws [IllegalStateException].
-     * Used to verify observer errors are suppressed without replacing the original cancellation.
-     */
+    /** Observer whose [OperationObservation.onCallCancelled] throws [IllegalStateException]. */
     private class FailingOnCancelledObserver : OperationObserver {
         override fun onCallStarted(context: OperationCallContext): OperationObservation {
             return object : OperationObservation {
-                override fun onProviderResponse(response: dev.tramai.core.model.ModelResponse) = Unit
+                override fun onProviderResponse(response: ModelResponse) = Unit
                 override fun onProviderFailure(error: Throwable) = Unit
                 override fun onStructuredParseFailure(rawResponse: String, errorSummary: String) = Unit
                 override fun onEngineEvent(name: String, attributes: Map<String, Any?>) = Unit
@@ -286,6 +363,12 @@ class EngineCancellationContractTest {
             providerRetries = 1,
         )
         suspend fun parse(input: String): ParsedResult
+    }
+
+    @AiService
+    private interface StreamingTestService {
+        @Operation(model = "test-model")
+        fun stream(input: String): Flow<StreamChunk>
     }
 
     private data class ParsedResult(

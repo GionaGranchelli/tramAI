@@ -10,7 +10,6 @@ import dev.tramai.engine.create
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.sdk.OpenTelemetrySdk
 import io.opentelemetry.sdk.metrics.SdkMeterProvider
-import io.opentelemetry.sdk.metrics.data.HistogramPointData
 import io.opentelemetry.sdk.metrics.data.LongPointData
 import io.opentelemetry.sdk.metrics.data.MetricData
 import io.opentelemetry.sdk.testing.exporter.InMemoryMetricReader
@@ -100,13 +99,6 @@ class OpenTelemetryCancellationIntegrationTest {
         return metrics.single { it.name == name }.longSumData.points.single()
     }
 
-    @Suppress("unused")
-    private fun histogramPoint(
-        metrics: Collection<MetricData>,
-        name: String,
-    ): HistogramPointData {
-        return metrics.single { it.name == name }.histogramData.points.single()
-    }
 }
 
 @AiService
