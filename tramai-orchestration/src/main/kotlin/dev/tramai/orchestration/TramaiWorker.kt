@@ -546,8 +546,12 @@ class TramaiWorker(
         cancellation: CancellationException,
         cleanup: suspend () -> Unit,
     ) {
-        runCatching { cleanup() }
-            .onFailure { cancellation.addSuppressed(it) }
+        try {
+            cleanup()
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            cancellation.addSuppressed(error)
+        }
     }
 
     private suspend fun renewLeaseLoop(handle: ActiveExecution) {

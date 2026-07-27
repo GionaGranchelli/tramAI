@@ -27,7 +27,6 @@ interface ExternalStepExecutorFactory {
     val typeId: String
     fun create(): ExternalStepExecutor
 }
-
 fun interface ExternalStepExecutor {
     suspend fun execute(spec: Map<String, Any?>): Map<String, Any?>
 }
@@ -35,7 +34,6 @@ fun interface ExternalStepExecutor {
 class ExternalStepExecutorNotRegisteredException(
     typeId: String,
 ) : RuntimeException("No external step executor is registered for plugin step type '$typeId'")
-
 interface ExternalStepExecutorResolver {
     fun isRegistered(typeId: String): Boolean
 
@@ -1225,7 +1223,9 @@ private data class ParallelWorkflowStep<S, I, O>(
                 try {
                     invoke(item).also { observer.onStepCompleted(workflowName, "$name[$index]", context) }
                 } catch (error: Throwable) {
-                    error.rethrowIfCancellation(); observer.onStepFailed(workflowName, "$name[$index]", error, context); throw error
+                    error.rethrowIfCancellation()
+                    observer.onStepFailed(workflowName, "$name[$index]", error, context)
+                    throw error
                 }
             }
         }.awaitAll()
