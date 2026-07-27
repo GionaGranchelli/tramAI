@@ -23,7 +23,6 @@ data class WorkflowContext(
     val workflowId: String = UUID.randomUUID().toString(),
     val attributes: Map<String, Any?> = emptyMap(),
 )
-
 interface ExternalStepExecutorFactory {
     val typeId: String
     fun create(): ExternalStepExecutor
@@ -1224,13 +1223,9 @@ private data class ParallelWorkflowStep<S, I, O>(
             observer.onStepStarted(workflowName, "$name[$index]", context)
             async {
                 try {
-                    val result = invoke(item)
-                    observer.onStepCompleted(workflowName, "$name[$index]", context)
-                    result
+                    invoke(item).also { observer.onStepCompleted(workflowName, "$name[$index]", context) }
                 } catch (error: Throwable) {
-                    error.rethrowIfCancellation()
-                    observer.onStepFailed(workflowName, "$name[$index]", error, context)
-                    throw error
+                    error.rethrowIfCancellation(); observer.onStepFailed(workflowName, "$name[$index]", error, context); throw error
                 }
             }
         }.awaitAll()
