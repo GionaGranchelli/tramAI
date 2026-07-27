@@ -273,6 +273,194 @@ class ToolCancellationContractTest {
     }
 
     // -------------------------------------------------------------------------
+    // Regression tests: observer failure after tool processing
+    // -------------------------------------------------------------------------
+
+    // -------------------------------------------------------------------------
+    // Test 4: observer completion failure does not invalidate successful
+    // tool processing when the helper is on the success path (line 1562)
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `observer completion failure on success path does not invalidate tool processing`() {
+        val tool = CompletingTool()
+        val provider = RecordingProvider()
+        val observer = FirstCallFailingCompletionObserver()
+
+        val registry = ProviderRegistry.builder()
+            .provider("primary", provider)
+            .model("test-model", "primary")
+            .defaultProvider("primary")
+            .build()
+
+        val engine = TramaiEngine(
+            providerRegistry = registry,
+            toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+            operationObserver = observer,
+        )
+        val service = engine.create<TestService>()
+
+        provider.responses.add(
+            ModelResponse(
+                content = "doing work",
+                toolCalls = listOf(ToolCall("1", "completing-tool", """{"input":"x"}""")),
+            ),
+        )
+        provider.responses.add(
+            ModelResponse(content = "result after tool call"),
+        )
+
+        val result = runBlocking { service.execute("input") }
+
+        assertThat(result).isEqualTo("result after tool call")
+
+        // Tool was called exactly once
+        assertThat(tool.calls.get()).isEqualTo(1)
+
+        // Provider was called twice (initial + reinjection after tool result)
+        assertThat(provider.calls.get()).isEqualTo(2)
+
+        // The first onCallCompleted threw but was suppressed; second succeeded
+        assertThat(observer.completionCallCount.get()).isEqualTo(2)
+        assertThat(observer.firstThrew.get()).isTrue()
+    }
+
+    // -------------------------------------------------------------------------
+    // Test 5: observer completion failure is suppressed on tool processing
+    // failure (the error-path catch of the try around processToolCalls)
+    //
+    // An Error (not Exception) from a tool propagates through
+    // executeToolAttempt uncaught, reaching the error catch where
+    // completeAfterToolProcessing(primaryError=…) suppresses the observer
+    // exception on the original Error.
+    // -------------------------------------------------------------------------
+
+    /** Error that bypasses executeToolAttempt's catch(Exception). */
+    private class ToolProcessingError(message: String) : Error(message)
+
+    @Test
+    fun `observer completion failure is suppressed on tool processing failure`() {
+        val tool = ThrowingErrorTool()
+        val provider = RecordingProvider()
+        val observer = AlwaysFailingCompletionObserver()
+
+        val registry = ProviderRegistry.builder()
+            .provider("primary", provider)
+            .model("test-model", "primary")
+            .defaultProvider("primary")
+            .build()
+
+        val engine = TramaiEngine(
+            providerRegistry = registry,
+            toolRegistry = ToolRegistry(mapOf(tool.name to tool)),
+            operationObserver = observer,
+        )
+        val service = engine.create<TestService>()
+
+        provider.responses.add(
+            ModelResponse(
+                content = "try me",
+                toolCalls = listOf(ToolCall("1", "throwing-error-tool", """{"input":"x"}""")),
+            ),
+        )
+
+        val thrown = org.assertj.core.api.Assertions.catchThrowable { runBlocking { service.execute("input") } }
+        assertThat(thrown)
+            .isInstanceOf(ToolProcessingError::class.java)
+            .hasMessage("tool processing failed")
+        assertThat(thrown.suppressed)
+            .hasSize(1)
+            .allMatch { it.message == "observer completion failed" }
+
+        // Tool was called exactly once (Error bypasses retry)
+        assertThat(tool.calls.get()).isEqualTo(1)
+
+        // onCallCompleted was invoked exactly once
+        assertThat(observer.completionCallCount.get()).isEqualTo(1)
+    }
+
+    // -------------------------------------------------------------------------
+    // Additional fixtures for observer-failure regression tests
+    // -------------------------------------------------------------------------
+
+    /** Tool that succeeds on each call. */
+    private class CompletingTool : ResolvedTool {
+        val calls = AtomicInteger(0)
+        override val name: String = "completing-tool"
+        override val description: String = "a tool that succeeds"
+        override val inputSchemaJson: String = """{"type":"object","properties":{"input":{"type":"string"}}}"""
+        override val idempotent: Boolean = true
+        override val sideEffectLevel: dev.tramai.core.model.SideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+        override val security = null
+
+        override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult {
+            calls.incrementAndGet()
+            return ToolResult.Success("done")
+        }
+    }
+
+    /** Tool that throws an Error (bypassing executeToolAttempt's catch(Exception)). */
+    private class ThrowingErrorTool : ResolvedTool {
+        val calls = AtomicInteger(0)
+        override val name: String = "throwing-error-tool"
+        override val description: String = "a tool that throws an Error"
+        override val inputSchemaJson: String = """{"type":"object","properties":{"input":{"type":"string"}}}"""
+        override val idempotent: Boolean = true
+        override val sideEffectLevel: dev.tramai.core.model.SideEffectLevel = dev.tramai.core.model.SideEffectLevel.READ_ONLY
+        override val security = null
+
+        override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult {
+            calls.incrementAndGet()
+            throw ToolProcessingError("tool processing failed")
+        }
+    }
+
+    /**
+     * Observer whose inner observation throws on the first
+     * [OperationObservation.onCallCompleted] call only.
+     */
+    private class FirstCallFailingCompletionObserver : OperationObserver {
+        val completionCallCount = AtomicInteger(0)
+        val firstThrew = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        override fun onCallStarted(context: OperationCallContext): OperationObservation {
+            return object : OperationObservation {
+                override fun onCallCompleted(parseSuccess: Boolean?) {
+                    val callNumber = completionCallCount.incrementAndGet()
+                    if (callNumber == 1) {
+                        firstThrew.set(true)
+                        throw RuntimeException("observer completion failed")
+                    }
+                }
+                override fun onCallCancelled() = Unit
+                override fun onProviderResponse(response: ModelResponse) = Unit
+                override fun onProviderFailure(error: Throwable) = Unit
+                override fun onStructuredParseFailure(rawResponse: String, errorSummary: String) = Unit
+                override fun onEngineEvent(name: String, attributes: Map<String, Any?>) = Unit
+            }
+        }
+    }
+
+    /** Observer whose inner observation always throws on onCallCompleted. */
+    private class AlwaysFailingCompletionObserver : OperationObserver {
+        val completionCallCount = AtomicInteger(0)
+
+        override fun onCallStarted(context: OperationCallContext): OperationObservation {
+            return object : OperationObservation {
+                override fun onCallCompleted(parseSuccess: Boolean?) {
+                    completionCallCount.incrementAndGet()
+                    throw RuntimeException("observer completion failed")
+                }
+                override fun onCallCancelled() = Unit
+                override fun onProviderResponse(response: ModelResponse) = Unit
+                override fun onProviderFailure(error: Throwable) = Unit
+                override fun onStructuredParseFailure(rawResponse: String, errorSummary: String) = Unit
+                override fun onEngineEvent(name: String, attributes: Map<String, Any?>) = Unit
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Service interfaces
     // -------------------------------------------------------------------------
 

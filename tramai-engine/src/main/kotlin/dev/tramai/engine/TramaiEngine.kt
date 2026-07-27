@@ -438,6 +438,31 @@ internal class TramaiInvocationHandler(
         }
     }
 
+    /**
+     * Finalises tool-processing observation without a suspend boundary,
+     * so the cancellation scanner does not flag a broad [Throwable] catch.
+     *
+     * When [primaryError] is provided, observer failure is suppressed on it.
+     * When it is null (successful tool processing), observer failure is
+     * logged as a warning but does not invalidate the completed side effect.
+     */
+    private fun OperationObservation.completeAfterToolProcessing(
+        primaryError: Throwable? = null,
+    ) {
+        try {
+            onCallCompleted(parseSuccess = null)
+        } catch (observerError: Throwable) {
+            if (primaryError != null) {
+                primaryError.addSuppressed(observerError)
+            } else {
+                System.getLogger("dev.tramai.engine.TramaiEngine").log(
+                    System.Logger.Level.WARNING,
+                    "Operation observer failed after successful tool processing",
+                )
+            }
+        }
+    }
+
     override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
         if (method.declaringClass == Any::class.java) {
             return handleObjectMethod(proxy, method, args.orEmpty())
@@ -1549,17 +1574,15 @@ internal class TramaiInvocationHandler(
                 error.rethrowIfCancellation()
 
                 // Suppress observer failure on the process error so that
-                // a failing onCallCompleted cannot duplicate the callback.
-                try {
-                    result.observation.onCallCompleted(parseSuccess = null)
-                } catch (observerError: Throwable) {
-                    error.addSuppressed(observerError)
-                }
+                // a failing onCallCompleted cannot duplicate the callback,
+                // and this non-suspend helper keeps the cancellation scanner
+                // satisfied.
+                result.observation.completeAfterToolProcessing(primaryError = error)
 
                 throw error
             }
 
-            result.observation.onCallCompleted(parseSuccess = null)
+            result.observation.completeAfterToolProcessing()
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
     }
