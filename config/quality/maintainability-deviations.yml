@@ -136,6 +136,16 @@ deviations:
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 
+  - id: MQ-0013
+    metric: nondeterminismSources
+    scope: ":tramai-standalone"
+    baseline: 2
+    allowed: 2
+    reason: "Tramai.kt uses Clock.systemUTC() for the default clock parameter (existing pattern). Will be addressed in Phase 2 nondeterminism audit."
+    acceptedAt: "2026-07-27"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
 # Verification policy:
 # - New findings that match an existing deviation (same metric + scope) are allowed.
 # - New findings with no matching deviation cause verify tasks to fail.

@@ -438,6 +438,32 @@ internal class TramaiInvocationHandler(
         }
     }
 
+    /**
+     * Finalises tool-processing observation without a suspend boundary,
+     * so the cancellation scanner does not flag a broad [Throwable] catch.
+     *
+     * When [primaryError] is provided, observer failure is suppressed on it.
+     * When it is null (successful tool processing), observer failure is
+     * logged as a warning but does not invalidate the completed side effect.
+     */
+    private fun OperationObservation.completeAfterToolProcessing(
+        primaryError: Throwable? = null,
+    ) {
+        try {
+            onCallCompleted(parseSuccess = null)
+        } catch (observerError: Throwable) {
+            if (primaryError != null) {
+                primaryError.addSuppressed(observerError)
+            } else {
+                System.getLogger("dev.tramai.engine.TramaiEngine").log(
+                    System.Logger.Level.WARNING,
+                    "Operation observer failed after successful tool processing",
+                    observerError,
+                )
+            }
+        }
+    }
+
     override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
         if (method.declaringClass == Any::class.java) {
             return handleObjectMethod(proxy, method, args.orEmpty())
@@ -1512,8 +1538,6 @@ internal class TramaiInvocationHandler(
                 return result
             }
 
-            result.observation.onCallCompleted(parseSuccess = null)
-
             // Normalize unregistered tool calls: replace unknown names with safe placeholder
             val normalizedToolCalls = toolCalls.map { toolCall ->
                 if (toolRegistry.resolve(toolCall.name) == null) {
@@ -1529,12 +1553,37 @@ internal class TramaiInvocationHandler(
                 content = result.response.content,
                 toolCalls = normalizedToolCalls,
             )
-            processToolCalls(
-                ToolCallsContext(
-                    loop = context,
-                    toolCalls = normalizedToolCalls,
-                ),
-            )
+
+            // Tool execution must complete before the observation is finalised,
+            // so that cancellation during tool execution calls onCallCancelled
+            // instead of onCallCompleted.
+            // The try covers only processToolCalls, not onCallCompleted:
+            // if the observer throws after successful tool execution, that
+            // failure is suppressed on the process error rather than causing
+            // a duplicate onCallCompleted call or invalidating the side effect.
+            try {
+                processToolCalls(
+                    ToolCallsContext(
+                        loop = context,
+                        toolCalls = normalizedToolCalls,
+                    ),
+                )
+            } catch (cancellation: CancellationException) {
+                result.observation.completeCancellation(cancellation)
+                throw cancellation
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+
+                // Suppress observer failure on the process error so that
+                // a failing onCallCompleted cannot duplicate the callback,
+                // and this non-suspend helper keeps the cancellation scanner
+                // satisfied.
+                result.observation.completeAfterToolProcessing(primaryError = error)
+
+                throw error
+            }
+
+            result.observation.completeAfterToolProcessing()
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
     }
@@ -2475,9 +2524,14 @@ internal class TramaiInvocationHandler(
         if (result !is ToolResult.TransientFailure) {
             return result
         }
+
+        // Cancellation must never be retried or converted to PermanentFailure
+        result.cause.rethrowIfCancellation()
+
         if (attemptIndex < maxAttempts - 1) {
             return null
         }
+
         return ToolResult.PermanentFailure(
             result.cause.message ?: "Tool execution failed after $maxAttempts attempt(s)",
         )
