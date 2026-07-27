@@ -1512,8 +1512,6 @@ internal class TramaiInvocationHandler(
                 return result
             }
 
-            result.observation.onCallCompleted(parseSuccess = null)
-
             // Normalize unregistered tool calls: replace unknown names with safe placeholder
             val normalizedToolCalls = toolCalls.map { toolCall ->
                 if (toolRegistry.resolve(toolCall.name) == null) {
@@ -1529,12 +1527,28 @@ internal class TramaiInvocationHandler(
                 content = result.response.content,
                 toolCalls = normalizedToolCalls,
             )
-            processToolCalls(
-                ToolCallsContext(
-                    loop = context,
-                    toolCalls = normalizedToolCalls,
-                ),
-            )
+
+            // Tool execution must complete before the observation is finalised,
+            // so that cancellation during tool execution calls onCallCancelled
+            // instead of onCallCompleted.
+            try {
+                processToolCalls(
+                    ToolCallsContext(
+                        loop = context,
+                        toolCalls = normalizedToolCalls,
+                    ),
+                )
+                result.observation.onCallCompleted(parseSuccess = null)
+            } catch (cancellation: CancellationException) {
+                result.observation.completeCancellation(cancellation)
+                throw cancellation
+            } catch (error: Throwable) {
+                error.rethrowIfCancellation()
+
+                // Preserve the existing non-cancellation terminal behaviour.
+                result.observation.onCallCompleted(parseSuccess = null)
+                throw error
+            }
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
     }
@@ -2475,9 +2489,14 @@ internal class TramaiInvocationHandler(
         if (result !is ToolResult.TransientFailure) {
             return result
         }
+
+        // Cancellation must never be retried or converted to PermanentFailure
+        result.cause.rethrowIfCancellation()
+
         if (attemptIndex < maxAttempts - 1) {
             return null
         }
+
         return ToolResult.PermanentFailure(
             result.cause.message ?: "Tool execution failed after $maxAttempts attempt(s)",
         )

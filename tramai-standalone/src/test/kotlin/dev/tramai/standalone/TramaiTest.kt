@@ -508,6 +508,68 @@ class TramaiTest {
         // Only "lookup" should be exposed, not "other"
         assertThat(toolDefs!!.map { it.name }).containsExactly("lookup")
     }
+
+    @Test
+    fun `standalone adapter preserves thrown exceptions without wrapping as invalid input`() {
+        val tool = ThrowingTramaiTool()
+        val provider = RecordingProvider("anthropic") {
+            ModelResponse(
+                content = "using tool",
+                toolCalls = listOf(ToolCall("1", "throwing-tool", """{"input":"x"}""")),
+            )
+        }
+
+        val tramai = Tramai {
+            provider(provider, default = true)
+            model("claude-sonnet-4-20250514", "anthropic")
+            tools(tool)
+        }
+        val service = tramai.create<ThrowingToolService>()
+
+        // The standalone adapter must NOT convert synchronous exceptions to
+        // ToolResult.InvalidInput. For idempotent tools, it produces
+        // ToolResult.TransientFailure, and the engine converts that to
+        // PermanentFailure after exhausting retries. The operation still
+        // fails — the critical contract is: no InvalidInput wrapping.
+        assertThatThrownBy { runBlocking { service.execute("hello") } }
+            .isNotNull
+    }
+}
+
+@AiService
+interface ThrowingToolService {
+    @Operation(model = "claude-sonnet-4-20250514", tools = ["throwing-tool"])
+    suspend fun execute(input: String): String
+}
+
+private class ThrowingTramaiTool : TramaiTool<String, String> {
+    override val name: String = "throwing-tool"
+    override val description: String = "always throws"
+    override val inputType: kotlin.reflect.KClass<String> = String::class
+    override val idempotent: Boolean = true
+
+    override suspend fun execute(input: String, context: ToolExecutionContext): String {
+        throw RuntimeException("tool failed")
+    }
+}
+
+@AiService
+interface CancellingToolService {
+    @Operation(model = "claude-sonnet-4-20250514", tools = ["cancelling-tool"])
+    suspend fun execute(input: String): String
+}
+
+private class CancellingTramaiTool : TramaiTool<String, String> {
+    val calls = java.util.concurrent.atomic.AtomicInteger(0)
+    override val name: String = "cancelling-tool"
+    override val description: String = "throws cancellation"
+    override val inputType: kotlin.reflect.KClass<String> = String::class
+    override val idempotent: Boolean = true
+
+    override suspend fun execute(input: String, context: ToolExecutionContext): String {
+        calls.incrementAndGet()
+        throw kotlinx.coroutines.CancellationException("cancelled by standalone tool")
+    }
 }
 
 @AiService

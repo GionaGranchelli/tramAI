@@ -5,6 +5,7 @@ import dev.tramai.core.approval.ApprovalGateCoordinator
 import dev.tramai.core.approval.ApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.NoOpApprovalLifecycleAuditEmitter
 import dev.tramai.core.approval.ToolArgumentsDigester
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.ToolInvalidInputException
 import dev.tramai.core.memory.ChatMemory
@@ -496,7 +497,10 @@ private fun createResolvedTool(
             return ToolResult.InvalidInput(
                 e.message ?: ERROR_INVALID_TOOL_INPUT,
             )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             return ToolResult.InvalidInput(
                 e.message ?: ERROR_INVALID_TOOL_INPUT,
             )
@@ -507,7 +511,10 @@ private fun createResolvedTool(
             ToolResult.Success(handler.serialize(result))
         } catch (e: ToolInvalidInputException) {
             ToolResult.InvalidInput(e.message ?: ERROR_INVALID_TOOL_INPUT)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             if (tool.idempotent) {
                 ToolResult.TransientFailure(e)
             } else {
