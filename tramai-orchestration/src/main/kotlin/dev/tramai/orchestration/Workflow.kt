@@ -1223,10 +1223,15 @@ private data class ParallelWorkflowStep<S, I, O>(
             stepCounter.beforeParallelBranch(workflowName, name, index)
             observer.onStepStarted(workflowName, "$name[$index]", context)
             async {
-                runCatching { invoke(item) }
-                    .onSuccess { observer.onStepCompleted(workflowName, "$name[$index]", context) }
-                    .onFailure { observer.onStepFailed(workflowName, "$name[$index]", it, context) }
-                    .getOrThrow()
+                try {
+                    val result = invoke(item)
+                    observer.onStepCompleted(workflowName, "$name[$index]", context)
+                    result
+                } catch (error: Throwable) {
+                    error.rethrowIfCancellation()
+                    observer.onStepFailed(workflowName, "$name[$index]", error, context)
+                    throw error
+                }
             }
         }.awaitAll()
         merge(state, results)

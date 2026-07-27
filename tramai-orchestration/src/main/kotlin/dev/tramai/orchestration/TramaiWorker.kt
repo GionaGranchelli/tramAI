@@ -507,14 +507,22 @@ class TramaiWorker(
         } catch (error: CancellationException) {
             if (shuttingDownGracefully) {
                 withContext(NonCancellable) {
-                    tracker.cancelActiveAttempt("Worker shutdown cancelled the running step")
-                    observability.onWorkflowAbandoned(
-                        workflowId = checkpoint.workflowId,
-                        workerId = config.workerId,
-                        lastStep = checkpoint.lastCompletedStepName,
-                        timeoutMillis = config.drainTimeoutMillis,
-                    )
-                    releaseLease(handle)
+                    runCleanupPreservingCancellation(error) {
+                        tracker.cancelActiveAttempt(
+                            "Worker shutdown cancelled the running step",
+                        )
+                    }
+                    runCleanupPreservingCancellation(error) {
+                        observability.onWorkflowAbandoned(
+                            workflowId = checkpoint.workflowId,
+                            workerId = config.workerId,
+                            lastStep = checkpoint.lastCompletedStepName,
+                            timeoutMillis = config.drainTimeoutMillis,
+                        )
+                    }
+                    runCleanupPreservingCancellation(error) {
+                        releaseLease(handle)
+                    }
                     executionFailures.remove(checkpoint.workflowId)
                 }
             }
@@ -526,6 +534,20 @@ class TramaiWorker(
             releaseLease(handle)
             throw error
         }
+    }
+
+    /**
+     * Executes [cleanup] in the context of a [CancellationException] being
+     * handled.  If [cleanup] itself throws, the failure is suppressed onto
+     * [cancellation] rather than replacing it, so that subsequent cleanup
+     * steps can still run.
+     */
+    private suspend fun runCleanupPreservingCancellation(
+        cancellation: CancellationException,
+        cleanup: suspend () -> Unit,
+    ) {
+        runCatching { cleanup() }
+            .onFailure { cancellation.addSuppressed(it) }
     }
 
     private suspend fun renewLeaseLoop(handle: ActiveExecution) {
