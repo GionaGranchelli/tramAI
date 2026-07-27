@@ -42,9 +42,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * preserves cancellation classification, message, retry/fallback bypass, and
  * observer semantics.
  *
- * Tool-execution cancellation is NOT covered in this PR — it reveals a
- * genuine engine defect (tool CancellationException is not routed through
- * onCallCancelled). Tracked for PR #210.
+ * Tool-execution cancellation is NOT covered in this PR because it exposes
+ * a genuine engine defect. Tracked by GitHub issue #210 and required as
+ * the first item in the next cancellation-remediation PR.
  */
 class EngineCancellationContractTest {
 
@@ -87,6 +87,7 @@ class EngineCancellationContractTest {
         val record = observer.records.single()
         assertThat(record.cancelled).isTrue()
         assertThat(record.providerFailure).isNull()
+        assertThat(record.providerResponse).isNull()
         assertThat(record.completionCount).isEqualTo(0)
     }
 
