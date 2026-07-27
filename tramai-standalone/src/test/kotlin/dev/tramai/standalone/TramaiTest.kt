@@ -510,13 +510,26 @@ class TramaiTest {
     }
 
     @Test
-    fun `standalone adapter preserves thrown exceptions without wrapping as invalid input`() {
-        val tool = ThrowingTramaiTool()
-        val provider = RecordingProvider("anthropic") {
-            ModelResponse(
-                content = "using tool",
-                toolCalls = listOf(ToolCall("1", "throwing-tool", """{"input":"x"}""")),
-            )
+    fun `standalone adapter does not convert tool cancellation to transient failure`() {
+        val tool = CancellingTramaiTool()
+        val responses = ArrayDeque(
+            listOf(
+                ModelResponse(
+                    content = "using tool",
+                    toolCalls = listOf(ToolCall("1", "cancelling-tool", """"x"""")),
+                ),
+                ModelResponse(content = "must not be requested"),
+            ),
+        )
+        val provider = object : ModelProvider {
+            val requests = mutableListOf<ModelRequest>()
+
+            override suspend fun complete(request: ModelRequest): ModelResponse {
+                requests += request
+                return responses.removeFirst()
+            }
+
+            override fun providerId(): String = "anthropic"
         }
 
         val tramai = Tramai {
@@ -524,32 +537,17 @@ class TramaiTest {
             model("claude-sonnet-4-20250514", "anthropic")
             tools(tool)
         }
-        val service = tramai.create<ThrowingToolService>()
+        val service = tramai.create<CancellingToolService>()
 
-        // The standalone adapter must NOT convert synchronous exceptions to
-        // ToolResult.InvalidInput. For idempotent tools, it produces
-        // ToolResult.TransientFailure, and the engine converts that to
-        // PermanentFailure after exhausting retries. The operation still
-        // fails — the critical contract is: no InvalidInput wrapping.
         assertThatThrownBy { runBlocking { service.execute("hello") } }
-            .isNotNull
-    }
-}
+            .isInstanceOf(kotlinx.coroutines.CancellationException::class.java)
+            .hasMessage("cancelled by standalone tool")
 
-@AiService
-interface ThrowingToolService {
-    @Operation(model = "claude-sonnet-4-20250514", tools = ["throwing-tool"])
-    suspend fun execute(input: String): String
-}
+        // Tool was called exactly once (not retried)
+        assertThat(tool.calls.get()).isEqualTo(1)
 
-private class ThrowingTramaiTool : TramaiTool<String, String> {
-    override val name: String = "throwing-tool"
-    override val description: String = "always throws"
-    override val inputType: kotlin.reflect.KClass<String> = String::class
-    override val idempotent: Boolean = true
-
-    override suspend fun execute(input: String, context: ToolExecutionContext): String {
-        throw RuntimeException("tool failed")
+        // Provider was called exactly once (second response not consumed)
+        assertThat(provider.requests).hasSize(1)
     }
 }
 

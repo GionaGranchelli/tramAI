@@ -185,9 +185,3 @@ interface CancellableService {
     @Operation(model = "test-model")
     suspend fun respond(input: String): String
 }
-
-@AiService
-interface ToolCancellableService {
-    @Operation(model = "test-model")
-    suspend fun respond(input: String): String
-}

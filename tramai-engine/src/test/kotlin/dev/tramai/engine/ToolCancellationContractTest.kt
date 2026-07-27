@@ -97,6 +97,7 @@ class ToolCancellationContractTest {
         val provider = RecordingProvider()
         val observer = CancellationObserver()
         val cancellingTool = object : ResolvedTool {
+            val toolCalls = java.util.concurrent.atomic.AtomicInteger(0)
             override val name: String = "wrapping-tool"
             override val description: String = "a tool that returns cancellation as transient failure"
             override val inputSchemaJson: String = """{"type":"object","properties":{"input":{"type":"string"}}}"""
@@ -105,6 +106,7 @@ class ToolCancellationContractTest {
             override val security = null
 
             override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult {
+                toolCalls.incrementAndGet()
                 return ToolResult.TransientFailure(
                     CancellationException("cancelled from resolved tool"),
                 )
@@ -136,6 +138,7 @@ class ToolCancellationContractTest {
             .hasMessage("cancelled from resolved tool")
 
         // Tool was not retried
+        assertThat(cancellingTool.toolCalls.get()).isEqualTo(1)
         // Provider was called exactly once
         assertThat(provider.calls.get()).isEqualTo(1)
 

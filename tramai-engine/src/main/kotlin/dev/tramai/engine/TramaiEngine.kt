@@ -1531,6 +1531,10 @@ internal class TramaiInvocationHandler(
             // Tool execution must complete before the observation is finalised,
             // so that cancellation during tool execution calls onCallCancelled
             // instead of onCallCompleted.
+            // The try covers only processToolCalls, not onCallCompleted:
+            // if the observer throws after successful tool execution, that
+            // failure is suppressed on the process error rather than causing
+            // a duplicate onCallCompleted call or invalidating the side effect.
             try {
                 processToolCalls(
                     ToolCallsContext(
@@ -1538,17 +1542,24 @@ internal class TramaiInvocationHandler(
                         toolCalls = normalizedToolCalls,
                     ),
                 )
-                result.observation.onCallCompleted(parseSuccess = null)
             } catch (cancellation: CancellationException) {
                 result.observation.completeCancellation(cancellation)
                 throw cancellation
             } catch (error: Throwable) {
                 error.rethrowIfCancellation()
 
-                // Preserve the existing non-cancellation terminal behaviour.
-                result.observation.onCallCompleted(parseSuccess = null)
+                // Suppress observer failure on the process error so that
+                // a failing onCallCompleted cannot duplicate the callback.
+                try {
+                    result.observation.onCallCompleted(parseSuccess = null)
+                } catch (observerError: Throwable) {
+                    error.addSuppressed(observerError)
+                }
+
                 throw error
             }
+
+            result.observation.onCallCompleted(parseSuccess = null)
         }
         error("Exceeded maximum tool call loops ($maxToolLoops)")
     }
