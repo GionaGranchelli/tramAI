@@ -458,6 +458,7 @@ internal class TramaiInvocationHandler(
                 System.getLogger("dev.tramai.engine.TramaiEngine").log(
                     System.Logger.Level.WARNING,
                     "Operation observer failed after successful tool processing",
+                    observerError,
                 )
             }
         }
