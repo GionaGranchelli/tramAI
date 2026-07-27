@@ -5,7 +5,6 @@ import dev.tramai.core.annotations.Operation
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
-import dev.tramai.core.model.ToolCall
 import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
@@ -26,20 +25,22 @@ import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Contract tests for engine cancellation behavior across all execution paths.
+ * Contract tests for selected engine cancellation boundaries.
  *
  * These tests prove that [CancellationException] thrown by a provider:
  * - bypasses retry loops and fallback routing
- * - preserves the original exception type and message
+ * - preserves cancellation classification (type + message)
  * - is properly recorded via [OperationObservation.onCallCancelled]
  * - is not wrapped in structured-output exceptions
  * - observer failures during cancellation notification are suppressed
  *   but do not replace the original cancellation
  *
- * NOTE: Reference identity (isSameAs) is NOT asserted because the engine's
- * TramaiInvocationHandler wraps CancellationException at the coroutine
- * boundary (frame: _COROUTINE._BOUNDARY._), creating a new instance.
- * Type + message is the strongest identity contract available here.
+ * Identity contract
+ * —————————————————
+ * Reference identity (isSameAs) is NOT part of this contract because coroutine
+ * stack-trace recovery may expose a copied CancellationException. The contract
+ * preserves cancellation classification, message, retry/fallback bypass, and
+ * observer semantics.
  *
  * Tool-execution cancellation is NOT covered in this PR — it reveals a
  * genuine engine defect (tool CancellationException is not routed through
@@ -52,7 +53,7 @@ class EngineCancellationContractTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `provider cancellation bypasses retry and fallback and preserves identity`() {
+    fun `provider cancellation bypasses retry and fallback without normal failure classification`() {
         val cancellingProvider = CancellingProvider()
         val failingProvider = FailingIfCalledProvider()
         val observer = CancellationObserver()
@@ -119,10 +120,14 @@ class EngineCancellationContractTest {
         // Provider was called twice: first for the "not json" response, second attempt throws cancellation
         assertThat(provider.calls.get()).isEqualTo(2)
 
-        // Observer recorded the cancellation on the second attempt
-        assertThat(observer.records).anySatisfy { record ->
-            assertThat(record.cancelled).isTrue()
-        }
+        // Exactly one observer record is marked cancelled, with clean classification
+        val cancellationRecord = observer.records.single { it.cancelled }
+        assertThat(cancellationRecord.providerFailure).isNull()
+        assertThat(cancellationRecord.completionCount).isZero()
+        assertThat(cancellationRecord.providerResponse).isNull()
+
+        // Exactly one record is marked cancelled (no spurious cancellation records)
+        assertThat(observer.records.count { it.cancelled }).isEqualTo(1)
     }
 
     // -------------------------------------------------------------------------

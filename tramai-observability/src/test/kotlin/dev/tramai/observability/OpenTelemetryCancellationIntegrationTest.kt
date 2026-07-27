@@ -8,6 +8,7 @@ import dev.tramai.core.provider.ModelProvider
 import dev.tramai.engine.TramaiEngine
 import dev.tramai.engine.create
 import io.opentelemetry.api.common.AttributeKey
+import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.sdk.OpenTelemetrySdk
 import io.opentelemetry.sdk.metrics.SdkMeterProvider
 import io.opentelemetry.sdk.metrics.data.LongPointData
@@ -71,6 +72,7 @@ class OpenTelemetryCancellationIntegrationTest {
         }
 
         assertThat(caught).isNotNull
+        assertThat(caught).hasMessage("cancelled")
 
         // Span assertions
         val spans = exporter.finishedSpanItems
@@ -78,6 +80,8 @@ class OpenTelemetryCancellationIntegrationTest {
         val span = spans.single()
         assertThat(span.attributes.asMap())
             .containsEntry(AttributeKey.stringKey("tramai.outcome"), "cancelled")
+        // Span must not be classified as a generic error
+        assertThat(span.status.statusCode).isNotEqualTo(StatusCode.ERROR)
 
         // Metric assertions
         val metrics = metricReader.collectAllMetrics()
