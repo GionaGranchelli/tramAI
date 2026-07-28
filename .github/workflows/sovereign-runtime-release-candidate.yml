@@ -75,6 +75,16 @@ jobs:
       - name: Verify sovereign runtime release candidate
         run: ./gradlew verifySovereignRuntimeReleaseCandidate --no-configuration-cache --rerun-tasks
 
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sovereign-rc-test-reports
+          path: |
+            **/build/test-results/test/
+            **/build/reports/tests/test/
+          if-no-files-found: warn
+
       - name: Upload bundle manifest
         uses: actions/upload-artifact@v4
         with:

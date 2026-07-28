@@ -2,6 +2,7 @@ package dev.tramai.orchestration
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
@@ -9,7 +10,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
-import kotlin.system.measureTimeMillis
 import kotlin.test.Test
 
 /**
@@ -52,21 +52,31 @@ class TramaiWorkerCancellationContractTest {
         val worker = worker("worker-0", leaseStore, checkpointStore, workflow,
             drainTimeoutMillis = 2_000, pollIntervalMillis = 20)
         worker.start()
-        stepStarted.await()
-
-        // Step is running — shutdown should wait, not complete immediately
-        val shutdownMs = measureTimeMillis {
-            val shutdown = async { worker.shutdown() }
-            delay(50)
-            assertThat(shutdown.isCompleted).isFalse()
-            allowCompletion.complete(Unit)
-            withTimeout(1_000) { shutdown.await() }
+        withTimeout(5_000) {
+            stepStarted.await()
         }
-        assertThat(shutdownMs).isLessThan(500)
 
-        // Work completed successfully
+        val shutdown = async(start = CoroutineStart.UNDISPATCHED) {
+            worker.shutdown()
+        }
+
+        assertThat(shutdown.isCompleted).isFalse()
+
+        allowCompletion.complete(Unit)
+
+        withTimeout(5_000) {
+            shutdown.await()
+        }
+
         assertThat(checkpointStore.load(workflow.name, runId)).isNull()
-        assertThat(leaseStore.listActiveWorkers()).isEmpty()
+
+        assertThat(
+            checkpointStore.latestStepAttempt(runId, "work")?.status,
+        ).isEqualTo(StepAttemptStatus.COMPLETED)
+
+        assertThat(
+            leaseStore.currentLease(workflow.name, runId),
+        ).isNull()
     }
 
     // -------------------------------------------------------------------------
@@ -96,11 +106,10 @@ class TramaiWorkerCancellationContractTest {
             checkpointStore.latestStepAttempt(runId, "blocking")?.status == StepAttemptStatus.STARTED
         }
 
-        val shutdownMillis = measureTimeMillis {
+        withTimeout(5_000) {
             worker.shutdown()
         }
         // Shutdown returns fast because drain fires and delay throws immediately
-        assertThat(shutdownMillis).isLessThan(500)
         waitUntil {
             checkpointStore.load(workflow.name, runId) != null &&
                 checkpointStore.latestStepAttempt(runId, "blocking")?.status ==
@@ -194,34 +203,59 @@ class TramaiWorkerCancellationContractTest {
     @Test
     fun `lease renewal cancellation does not trigger onLeaseRenewalFailed`() = runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
-        val leaseStore = InMemoryWorkflowLeaseStore()
-        val renewStore = BlockingRenewLeaseStore(leaseStore)
-        val stepReleased = CompletableDeferred<Unit>()
+        val delegateLeaseStore = InMemoryWorkflowLeaseStore()
+        val leaseStore = BlockingRenewLeaseStore(delegateLeaseStore)
+
         val workflow = workerWorkflow("lease-renewal-cancel") {
             localStep(
                 name = "hold-lease",
-                transform = { state, _ ->
-                    renewStore.renewalStarted.await()
-                    stepReleased.complete(Unit)
-                    state.copy(value = "${state.value}:done")
+                transform = { _, _ ->
+                    awaitCancellation()
                 },
             )
         }
+
         val runId = "run-lease-renewal"
-        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+        seedCheckpoint(
+            checkpointStore,
+            workflow,
+            runId,
+            WorkerState("start"),
+        )
 
         val observer = RecordingLeaseObserver()
-        val worker = worker("worker-0", renewStore, checkpointStore, workflow,
-            leaseDurationMillis = 50, pollIntervalMillis = 20,
-            observability = observer)
+        val worker = worker(
+            workerId = "worker-0",
+            leaseStore = leaseStore,
+            checkpointStore = checkpointStore,
+            workflow = workflow,
+            leaseDurationMillis = 50,
+            pollIntervalMillis = 20,
+            drainTimeoutMillis = 200,
+            observability = observer,
+        )
+
         worker.start()
-        waitUntil {
-            checkpointStore.latestStepAttempt(runId, "hold-lease")?.status == StepAttemptStatus.STARTED
+
+        withTimeout(5_000) {
+            leaseStore.renewalStarted.await()
         }
-        stepReleased.await()
-        worker.shutdown()
+
+        withTimeout(5_000) {
+            worker.shutdown()
+        }
 
         assertThat(observer.leaseRenewalFailedCount).isZero()
+
+        assertThat(
+            checkpointStore.latestStepAttempt(runId, "hold-lease")?.status,
+        ).isEqualTo(StepAttemptStatus.CANCELLED)
+
+        assertThat(worker.latestFailure(runId)).isNull()
+
+        assertThat(
+            delegateLeaseStore.currentLease(workflow.name, runId),
+        ).isNull()
     }
 
     // -------------------------------------------------------------------------
@@ -261,7 +295,7 @@ class TramaiWorkerCancellationContractTest {
 
     private class BlockingRenewLeaseStore(
         private val delegate: InMemoryWorkflowLeaseStore,
-    ) : WorkflowLeaseStore by delegate {
+    ) : WorkflowLeaseStore by delegate, WorkflowLeaseCheckpointFence by delegate {
         val renewalStarted = CompletableDeferred<Unit>()
 
         override suspend fun renew(

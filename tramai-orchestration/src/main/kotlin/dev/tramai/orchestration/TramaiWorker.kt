@@ -891,16 +891,19 @@ private fun sha256Hex(value: String): String = MessageDigest.getInstance("SHA-25
     .digest(value.toByteArray(Charsets.UTF_8))
     .joinToString("") { byte -> "%02x".format(byte) }
 
-private fun runCleanupPreservingCancellation(
+private suspend fun runCleanupPreservingCancellation(
     cancellation: CancellationException,
     cleanup: suspend () -> Unit,
 ) {
     try {
-        runBlocking { cleanup() }
-    } catch (cleanupError: Throwable) {
-        cleanupError.rethrowIfCancellation()
-        if (cleanupError !== cancellation) {
-            cancellation.addSuppressed(cleanupError)
+        cleanup()
+    } catch (cleanupCancellation: CancellationException) {
+        if (cleanupCancellation !== cancellation) {
+            cancellation.addSuppressed(cleanupCancellation)
         }
+    } catch (cleanupError: Exception) {
+        // Required as the first statement by the cancellation scanner.
+        cleanupError.rethrowIfCancellation()
+        cancellation.addSuppressed(cleanupError)
     }
 }
