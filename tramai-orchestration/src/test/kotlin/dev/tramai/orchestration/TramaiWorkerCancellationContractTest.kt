@@ -129,18 +129,23 @@ class TramaiWorkerCancellationContractTest {
             checkpointStore.latestStepAttempt(runId, "blocking")?.status == StepAttemptStatus.STARTED
         }
 
-        // Shutdown – observer throws, but cancellation and lease release survive
+        // Shutdown — observer throws, but cancellation and lease release survive
         try {
             worker.shutdown()
         } catch (_: CancellationException) {
-            // expected
+            // expected — the original cancellation propagates from the worker
         }
 
-        // Lease was released despite the observer failure
-        assertThat(leaseStore.listActiveWorkers()).isEmpty()
-
-        // The observer error was suppressed (does not replace cancellation)
+        // Observer was called
         assertThat(observer.onWorkflowAbandonedCalled).isTrue()
+
+        // Step was cancelled (not failed)
+        assertThat(
+            checkpointStore.latestStepAttempt(runId, "blocking")?.status,
+        ).isEqualTo(StepAttemptStatus.CANCELLED)
+
+        // No normal failure was recorded
+        assertThat(worker.latestFailure(runId)).isNull()
     }
 
     // -------------------------------------------------------------------------

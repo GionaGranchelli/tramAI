@@ -30,7 +30,6 @@ interface ExternalStepExecutorFactory {
 fun interface ExternalStepExecutor {
     suspend fun execute(spec: Map<String, Any?>): Map<String, Any?>
 }
-
 class ExternalStepExecutorNotRegisteredException(
     typeId: String,
 ) : RuntimeException("No external step executor is registered for plugin step type '$typeId'")
@@ -381,7 +380,6 @@ class Workflow<S, R> internal constructor(
     fun requiredExternalStepTypes(): Set<String> = collectPluginStepTypes(steps)
 
     internal fun checkpointMetadata(): Map<String, String> = definitionCompatibility.toCheckpointMetadata()
-
     internal fun stepNameAt(index: Int): String? = steps.getOrNull(index)?.name
 
     internal fun topLevelStepNames(): Set<String> = steps.mapTo(linkedSetOf()) { it.name }
@@ -1220,13 +1218,15 @@ private data class ParallelWorkflowStep<S, I, O>(
             stepCounter.beforeParallelBranch(workflowName, name, index)
             observer.onStepStarted(workflowName, "$name[$index]", context)
             async {
-                try {
-                    invoke(item).also { observer.onStepCompleted(workflowName, "$name[$index]", context) }
-                } catch (error: Throwable) {
-                    error.rethrowIfCancellation()
-                    observer.onStepFailed(workflowName, "$name[$index]", error, context)
-                    throw error
-                }
+                executeObservedParallelBranch(
+                    workflowName = workflowName,
+                    stepName = name,
+                    branchIndex = index,
+                    item = item,
+                    context = context,
+                    observer = observer,
+                    invoke = invoke,
+                )
             }
         }.awaitAll()
         merge(state, results)

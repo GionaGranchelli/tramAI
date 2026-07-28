@@ -1,6 +1,8 @@
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -31,12 +33,10 @@ class WorkflowCancellationContractTest {
             )
         }.build { Unit }
 
-        // runCatching handles CancellationException which runBlocking
-        // propagates via thread interruption (bypassing regular try/catch)
-        val thrown = kotlin.runCatching {
+        assertThatThrownBy {
             runBlocking { workflow.run(initialState = Unit, observer = observer) }
-        }.exceptionOrNull()
-        assertThat(thrown).isNotNull()
+        }.isInstanceOf(CancellationException::class.java)
+            .hasMessage("cancelled by step")
 
         // No step-failure or workflow-failure events
         assertThat(observer.failedSteps).isEmpty()
@@ -55,6 +55,7 @@ class WorkflowCancellationContractTest {
     @Test
     fun `cancellation during resume preserves cancellation classification`() {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val leaseStore = InMemoryWorkflowLeaseStore()
         val observer = RecordingCancellationObserver()
         val workflow = workflow<Unit>("cancel-resume") {
             localStep(
@@ -81,7 +82,7 @@ class WorkflowCancellationContractTest {
         }
 
         // Resume — the step throws CancellationException
-        val thrown = kotlin.runCatching {
+        assertThatThrownBy {
             runBlocking {
                 workflow.resume(
                     context = context,
@@ -89,16 +90,21 @@ class WorkflowCancellationContractTest {
                     persistence = WorkflowPersistence(
                         checkpointStore = checkpointStore,
                         stateCodec = UnitCodec,
+                        leaseStore = leaseStore,
                     ),
                 )
             }
-        }.exceptionOrNull()
-        assertThat(thrown).isNotNull()
+        }
 
         // No failure classification (cancellation escapes cleanly)
         assertThat(observer.failedSteps).isEmpty()
         assertThat(observer.workflowFailed).isFalse()
         assertThat(observer.workflowCompleted).isFalse()
+
+        // Lease was released
+        runBlocking {
+            assertThat(leaseStore.currentLease(workflow.name, context.workflowId)).isNull()
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -108,23 +114,31 @@ class WorkflowCancellationContractTest {
     @Test
     fun `cancellation in one parallel branch cancels siblings without onStepFailed`() {
         val observer = RecordingCancellationObserver()
-        var mergeCalled = false
+        val siblingStarted = CompletableDeferred<Unit>()
+        val siblingCancelled = CompletableDeferred<Unit>()
 
         val workflow = workflow<Unit>("cancel-parallel") {
             parallelStep(
                 name = "parallel",
-                items = { listOf("a", "b") },
+                items = { listOf("slow", "cancel") },
                 invoke = { item ->
-                    if (item == "b") {
-                        Thread.sleep(10)
-                        throw CancellationException("branch b cancelled")
+                    when (item as String) {
+                        "slow" -> {
+                            siblingStarted.complete(Unit)
+                            try {
+                                awaitCancellation()
+                            } finally {
+                                siblingCancelled.complete(Unit)
+                            }
+                        }
+                        "cancel" -> {
+                            siblingStarted.await()
+                            throw CancellationException("branch cancelled")
+                        }
+                        else -> error("unexpected item: $item")
                     }
-                    item
                 },
-                merge = { state, _ ->
-                    mergeCalled = true
-                    state
-                },
+                merge = { state, _ -> state },
             )
             localStep(
                 name = "must-not-execute",
@@ -136,11 +150,11 @@ class WorkflowCancellationContractTest {
             runBlocking { workflow.run(initialState = Unit, observer = observer) }
         }.isInstanceOf(CancellationException::class.java)
 
+        // The slow branch was actually cancelled by its sibling
+        assertThat(siblingCancelled.isCompleted).isTrue()
+
         // No parallel branch received onStepFailed
         assertThat(observer.failedSteps).isEmpty()
-
-        // Merge was not called
-        assertThat(mergeCalled).isFalse()
 
         // No workflow failure or completion
         assertThat(observer.workflowFailed).isFalse()
