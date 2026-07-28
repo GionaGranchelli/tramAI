@@ -1,8 +1,7 @@
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.runInterruptible
 import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -29,7 +28,7 @@ class FileWorkflowCheckpointStore(
         if (!Files.exists(checkpointPath)) {
             return null
         }
-        return withFileLock(checkpointPath) {
+        return withFileLockCancellable(checkpointPath) {
             if (!Files.exists(checkpointPath)) {
                 null
             } else {
@@ -42,7 +41,7 @@ class FileWorkflowCheckpointStore(
         expectedRevision: Long?,
     ): WorkflowCheckpoint {
         val checkpointPath = checkpointPath(checkpoint.workflowName, checkpoint.workflowId)
-        return withFileLock(checkpointPath) {
+        return withFileLockCancellable(checkpointPath) {
             val existing = if (Files.exists(checkpointPath)) {
                 decodeCheckpoint(Files.readString(checkpointPath))
             } else {
@@ -67,7 +66,7 @@ class FileWorkflowCheckpointStore(
         expectedRevision: Long?,
     ) {
         val checkpointPath = checkpointPath(workflowName, workflowId)
-        withFileLock(checkpointPath) {
+        withFileLockCancellable(checkpointPath) {
             val existing = if (Files.exists(checkpointPath)) {
                 decodeCheckpoint(Files.readString(checkpointPath))
             } else {
@@ -169,29 +168,10 @@ internal fun decodeCheckpoint(content: String): WorkflowCheckpoint {
         savedAtEpochMillis = properties.getProperty("savedAtEpochMillis")?.toLong() ?: System.currentTimeMillis(),
     )
 }
-internal inline fun <T> withFileLock(
+internal suspend inline fun <T> withFileLockCancellable(
     checkpointPath: Path,
-    block: () -> T,
-): T {
-    val lockPath = checkpointPath.resolveSibling("${checkpointPath.fileName}.lock")
-    ensureOwnerOnlyDirectory(lockPath.parent)
-    ensureOwnerOnlyFile(lockPath)
-    FileChannel.open(
-        lockPath,
-        StandardOpenOption.CREATE,
-        StandardOpenOption.WRITE,
-    ).use { channel ->
-        channel.lock().use {
-            return block()
-        }
-    }
-}
-
-internal suspend inline fun <T> withFileLockSuspending(
-    checkpointPath: Path,
-    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    crossinline block: suspend () -> T,
-): T = withContext(ioDispatcher) {
+    crossinline block: () -> T,
+): T = runInterruptible(Dispatchers.IO) {
     val lockPath = checkpointPath.resolveSibling("${checkpointPath.fileName}.lock")
     ensureOwnerOnlyDirectory(lockPath.parent)
     ensureOwnerOnlyFile(lockPath)
@@ -211,28 +191,32 @@ internal fun writeStringAtomically(
 ) {
     ensureOwnerOnlyDirectory(path.parent)
     val tempFile = Files.createTempFile(path.parent, path.fileName.toString(), ".tmp")
-    applyOwnerOnlyFilePermissions(tempFile)
-    Files.writeString(
-        tempFile,
-        content,
-        StandardCharsets.UTF_8,
-        StandardOpenOption.TRUNCATE_EXISTING,
-    )
     try {
-        Files.move(
+        applyOwnerOnlyFilePermissions(tempFile)
+        Files.writeString(
             tempFile,
-            path,
-            StandardCopyOption.REPLACE_EXISTING,
-            StandardCopyOption.ATOMIC_MOVE,
+            content,
+            StandardCharsets.UTF_8,
+            StandardOpenOption.TRUNCATE_EXISTING,
         )
-    } catch (_: AtomicMoveNotSupportedException) {
-        Files.move(
-            tempFile,
-            path,
-            StandardCopyOption.REPLACE_EXISTING,
-        )
+        try {
+            Files.move(
+                tempFile,
+                path,
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE,
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(
+                tempFile,
+                path,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }
+        applyOwnerOnlyFilePermissions(path)
+    } finally {
+        Files.deleteIfExists(tempFile)
     }
-    applyOwnerOnlyFilePermissions(path)
 }
 internal fun validateExpectedRevision(
     workflowName: String,

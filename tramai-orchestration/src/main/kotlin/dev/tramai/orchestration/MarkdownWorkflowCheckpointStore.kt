@@ -18,7 +18,7 @@ class MarkdownWorkflowCheckpointStore(
         if (!Files.exists(checkpointPath)) {
             return null
         }
-        return withFileLock(checkpointPath) {
+        return withFileLockCancellable(checkpointPath) {
             if (!Files.exists(checkpointPath)) {
                 null
             } else {
@@ -31,7 +31,7 @@ class MarkdownWorkflowCheckpointStore(
         expectedRevision: Long?,
     ): WorkflowCheckpoint {
         val checkpointPath = checkpointPath(checkpoint.workflowName, checkpoint.workflowId)
-        return withFileLock(checkpointPath) {
+        return withFileLockCancellable(checkpointPath) {
             val existing = if (Files.exists(checkpointPath)) {
                 decodeMarkdownCheckpoint(Files.readString(checkpointPath))
             } else {
@@ -54,7 +54,7 @@ class MarkdownWorkflowCheckpointStore(
         expectedRevision: Long?,
     ) {
         val checkpointPath = checkpointPath(workflowName, workflowId)
-        withFileLock(checkpointPath) {
+        withFileLockCancellable(checkpointPath) {
             val existing = if (Files.exists(checkpointPath)) {
                 decodeMarkdownCheckpoint(Files.readString(checkpointPath))
             } else {

@@ -20,7 +20,7 @@ class FileWorkflowLeaseStore(
         if (!Files.exists(leasePath)) {
             return null
         }
-        return withFileLock(leasePath) {
+        return withFileLockCancellable(leasePath) {
             val existing = readLeaseIfPresent(leasePath)
             if (existing == null) {
                 null
@@ -40,7 +40,7 @@ class FileWorkflowLeaseStore(
         leaseDurationMillis: Long,
     ): WorkflowLease {
         val leasePath = leasePath(workflowName, workflowId)
-        return withFileLock(leasePath) {
+        return withFileLockCancellable(leasePath) {
             val existing = readLeaseIfPresent(leasePath)
             if (existing != null && !isExpired(existing)) {
                 throw WorkflowLeaseConflictException(
@@ -67,7 +67,7 @@ class FileWorkflowLeaseStore(
         leaseDurationMillis: Long,
     ): WorkflowLease {
         val leasePath = leasePath(lease.workflowName, lease.workflowId)
-        return withFileLock(leasePath) {
+        return withFileLockCancellable(leasePath) {
             val existing = readLeaseIfPresent(leasePath)
                 ?: throw WorkflowLeaseConflictException(
                     "Workflow '${lease.workflowName}' and workflowId='${lease.workflowId}' has no active lease to renew",
@@ -94,11 +94,11 @@ class FileWorkflowLeaseStore(
     }
     override suspend fun release(lease: WorkflowLease) {
         val leasePath = leasePath(lease.workflowName, lease.workflowId)
-        withFileLock(leasePath) {
-            val existing = readLeaseIfPresent(leasePath) ?: return@withFileLock
+        withFileLockCancellable(leasePath) {
+            val existing = readLeaseIfPresent(leasePath) ?: return@withFileLockCancellable
             if (isExpired(existing)) {
                 Files.deleteIfExists(leasePath)
-                return@withFileLock
+                return@withFileLockCancellable
             }
             if (existing.leaseId != lease.leaseId || existing.ownerId != lease.ownerId) {
                 throw WorkflowLeaseConflictException(
@@ -116,11 +116,13 @@ class FileWorkflowLeaseStore(
         expectedLease: WorkflowLease,
     ): WorkflowCheckpoint {
         val leasePath = leasePath(expectedLease.workflowName, expectedLease.workflowId)
-        return withFileLockSuspending(leasePath) {
+        // ponytail: validate lease under lock, save outside — revision conflict
+        // in the checkpoint store guards against concurrent lease changes.
+        withFileLockCancellable(leasePath) {
             val current = readLeaseIfPresent(leasePath)?.takeUnless(::isExpired)
             validateExpectedLease(expectedLease, current)
-            checkpointStore.save(checkpoint, expectedRevision)
         }
+        return checkpointStore.save(checkpoint, expectedRevision)
     }
 
     override suspend fun deleteCheckpointIfLeaseOwner(
@@ -131,11 +133,11 @@ class FileWorkflowLeaseStore(
         expectedLease: WorkflowLease,
     ) {
         val leasePath = leasePath(expectedLease.workflowName, expectedLease.workflowId)
-        withFileLockSuspending(leasePath) {
+        withFileLockCancellable(leasePath) {
             val current = readLeaseIfPresent(leasePath)?.takeUnless(::isExpired)
             validateExpectedLease(expectedLease, current)
-            checkpointStore.delete(workflowName, workflowId, expectedRevision)
         }
+        checkpointStore.delete(workflowName, workflowId, expectedRevision)
     }
 
     private fun leasePath(
