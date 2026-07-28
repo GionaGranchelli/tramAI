@@ -132,13 +132,14 @@ class ApprovedResumeLifecycleJdbcE2ETest {
         val rawTokenValue = "resume-token-e2e-lifecycle-002"
         val resumeToken = ResumeToken(rawTokenValue)
         val baseNow = clock.instant()
+        val approvalExpiresAt = baseNow.plus(Duration.ofMinutes(10))
 
         // Insert PENDING approval (not yet approved — the control plane will approve it)
         // Version 0 and proper metadata JSON to match JdbcApprovalStore.create() format
         sql(
             """INSERT INTO approvals (approval_id, status, created_at, sanitized_metadata, version)
                VALUES ('${approvalId.value}', 'PENDING', now(),
-                       '{"binding":{"workflowRunId":"${workflowRunId.value}","toolName":"tool-lifecycle-002","argumentsDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","policyVersion":"v1","workflowDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","approvalTokenDigest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"requestedBy":"test-requester","expiresAt":"2026-07-28T10:15:30Z","requestedAt":"2026-06-28T10:15:30Z"}'::jsonb,
+                       '{"binding":{"workflowRunId":"${workflowRunId.value}","toolName":"tool-lifecycle-002","argumentsDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","policyVersion":"v1","workflowDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","approvalTokenDigest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"requestedBy":"test-requester","expiresAt":"$approvalExpiresAt","requestedAt":"$baseNow"}'::jsonb,
                        0)""",
         )
 
@@ -152,7 +153,7 @@ class ApprovedResumeLifecycleJdbcE2ETest {
                        'corr-lifecycle-002', 'tc-lifecycle-002', 'tool-lifecycle-002',
                        'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                        'v1', 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-                       now(), now() + interval '5 minutes', 0)""",
+                       '$baseNow', '$approvalExpiresAt', 0)""",
         )
 
         // Create credential via the real encrypted credential store
