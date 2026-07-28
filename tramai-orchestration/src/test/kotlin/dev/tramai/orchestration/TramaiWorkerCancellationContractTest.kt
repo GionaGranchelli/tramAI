@@ -9,7 +9,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.assertThatThrownBy
 import kotlin.test.Test
 
 /**
@@ -180,18 +179,35 @@ class TramaiWorkerCancellationContractTest {
     fun `poll job cancellation does not trigger onPollFailed`() = runBlocking {
         val checkpointStore = InMemoryWorkflowCheckpointStore()
         val leaseStore = InMemoryWorkflowLeaseStore()
+        val checkpointCatalog = BlockingCheckpointCatalog()
+
         val workflow = workerWorkflow("poll-cancel") {
             localStep(
                 name = "never-reached",
                 transform = { state, _ -> state },
             )
         }
+
         val observer = RecordingPollObserver()
-        val worker = worker("worker-0", leaseStore, checkpointStore, workflow,
-            pollIntervalMillis = 10, observability = observer)
+        val worker = worker(
+            workerId = "worker-0",
+            leaseStore = leaseStore,
+            checkpointStore = checkpointStore,
+            checkpointCatalog = checkpointCatalog,
+            workflow = workflow,
+            pollIntervalMillis = 10,
+            observability = observer,
+        )
+
         worker.start()
-        delay(50) // let a poll cycle happen
-        worker.shutdown()
+
+        withTimeout(5_000) {
+            checkpointCatalog.pollEntered.await()
+        }
+
+        withTimeout(5_000) {
+            worker.shutdown()
+        }
 
         assertThat(observer.pollFailedCount).isZero()
     }
@@ -279,6 +295,15 @@ class TramaiWorkerCancellationContractTest {
         var pollFailedCount = 0
         override fun onPollFailed(workerId: String, error: Throwable) {
             pollFailedCount++
+        }
+    }
+
+    private class BlockingCheckpointCatalog : WorkflowCheckpointCatalog {
+        val pollEntered = CompletableDeferred<Unit>()
+
+        override suspend fun listCheckpoints(): List<WorkflowCheckpoint> {
+            pollEntered.complete(Unit)
+            awaitCancellation()
         }
     }
 

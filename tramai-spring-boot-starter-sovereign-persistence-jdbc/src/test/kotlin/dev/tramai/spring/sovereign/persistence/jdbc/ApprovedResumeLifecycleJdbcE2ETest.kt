@@ -164,7 +164,7 @@ class ApprovedResumeLifecycleJdbcE2ETest {
                     workflowRunId = workflowRunId,
                     resumeToken = SealedResumeToken.seal(resumeToken),
                     createdAt = baseNow,
-                    expiresAt = baseNow.plusSeconds(300),
+                    expiresAt = approvalExpiresAt,
                     version = 0L,
                 ),
             )

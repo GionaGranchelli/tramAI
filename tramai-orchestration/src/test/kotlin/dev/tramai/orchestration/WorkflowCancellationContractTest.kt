@@ -120,6 +120,7 @@ class WorkflowCancellationContractTest {
         val observer = RecordingCancellationObserver()
         val siblingStarted = CompletableDeferred<Unit>()
         val siblingCancelled = CompletableDeferred<Unit>()
+        var mergeCalled = false
 
         val workflow = workflow<Unit>("cancel-parallel") {
             parallelStep(
@@ -142,7 +143,10 @@ class WorkflowCancellationContractTest {
                         else -> error("unexpected item: $item")
                     }
                 },
-                merge = { state, _ -> state },
+                merge = { state, _ ->
+                    mergeCalled = true
+                    state
+                },
             )
             localStep(
                 name = "must-not-execute",
@@ -156,6 +160,9 @@ class WorkflowCancellationContractTest {
 
         // The slow branch was actually cancelled by its sibling
         assertThat(siblingCancelled.isCompleted).isTrue()
+
+        // Merge was not called
+        assertThat(mergeCalled).isFalse()
 
         // No parallel branch received onStepFailed
         assertThat(observer.failedSteps).isEmpty()

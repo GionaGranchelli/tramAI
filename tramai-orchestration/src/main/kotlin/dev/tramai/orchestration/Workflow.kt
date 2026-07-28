@@ -384,6 +384,7 @@ class Workflow<S, R> internal constructor(
     fun requiredExternalStepTypes(): Set<String> = collectPluginStepTypes(steps)
 
     internal fun checkpointMetadata(): Map<String, String> = definitionCompatibility.toCheckpointMetadata()
+
     internal fun stepNameAt(index: Int): String? = steps.getOrNull(index)?.name
 
     internal fun topLevelStepNames(): Set<String> = steps.mapTo(linkedSetOf()) { it.name }
