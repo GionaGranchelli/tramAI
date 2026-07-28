@@ -1219,13 +1219,7 @@ private data class ParallelWorkflowStep<S, I, O>(
             observer.onStepStarted(workflowName, "$name[$index]", context)
             async {
                 executeObservedParallelBranch(
-                    workflowName = workflowName,
-                    stepName = name,
-                    branchIndex = index,
-                    item = item,
-                    context = context,
-                    observer = observer,
-                    invoke = invoke,
+                    workflowName, name, index, item, context, observer, invoke,
                 )
             }
         }.awaitAll()
