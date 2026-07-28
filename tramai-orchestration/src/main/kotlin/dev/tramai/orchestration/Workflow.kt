@@ -1223,10 +1223,9 @@ private data class ParallelWorkflowStep<S, I, O>(
             stepCounter.beforeParallelBranch(workflowName, name, index)
             observer.onStepStarted(workflowName, "$name[$index]", context)
             async {
-                runCatching { invoke(item) }
-                    .onSuccess { observer.onStepCompleted(workflowName, "$name[$index]", context) }
-                    .onFailure { observer.onStepFailed(workflowName, "$name[$index]", it, context) }
-                    .getOrThrow()
+                executeObservedParallelBranch(
+                    workflowName, name, index, item, context, observer, invoke,
+                )
             }
         }.awaitAll()
         merge(state, results)

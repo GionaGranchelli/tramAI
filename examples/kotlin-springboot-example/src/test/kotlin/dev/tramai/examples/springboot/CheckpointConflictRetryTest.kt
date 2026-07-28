@@ -415,25 +415,44 @@ class CheckpointConflictRetryTest {
         // as long as the coroutine is still active)
         var pollDelay = 200L
         var checkpointCancelled = false
-        repeat(240) {
-            try {
-                val json = asyncJson(get("/invoice/workflow/checkpoint/$workflowId"))
-                    .andExpect(status().isOk)
-                    .andReturn()
-                    .response
-                    .contentAsString
-                val node = objectMapper.readTree(json)
-                val metadata = node["metadata"]
-                if (metadata != null && metadata["workflow_status"]?.asText() == "CANCELLED") {
-                    checkpointCancelled = true
-                    return@repeat
+
+        for (attempt in 0 until 240) {
+            val response = asyncJson(
+                get("/invoice/workflow/checkpoint/$workflowId"),
+            )
+                .andReturn()
+                .response
+
+            when (response.status) {
+                200 -> {
+                    val node = objectMapper.readTree(response.contentAsString)
+                    val status = node["metadata"]
+                        ?.get("workflow_status")
+                        ?.asText()
+
+                    if (status == "CANCELLED") {
+                        checkpointCancelled = true
+                        break
+                    }
                 }
-            } catch (_: Exception) {
-                // Checkpoint may not exist yet during warmup — retry
+
+                404 -> {
+                    // The workflow was accepted, but its initial checkpoint has
+                    // not yet been persisted. Retry during startup.
+                }
+
+                else -> error(
+                    "Unexpected checkpoint response ${response.status}: " +
+                        response.contentAsString,
+                )
             }
+
             Thread.sleep(pollDelay)
-            pollDelay = (pollDelay * 1.5).toLong().coerceAtMost(1000)
+            pollDelay = (pollDelay * 1.5)
+                .toLong()
+                .coerceAtMost(1_000)
         }
+
         assertThat(checkpointCancelled)
             .describedAs("checkpoint should eventually show CANCELLED")
             .isTrue()

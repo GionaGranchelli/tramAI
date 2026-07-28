@@ -507,14 +507,22 @@ class TramaiWorker(
         } catch (error: CancellationException) {
             if (shuttingDownGracefully) {
                 withContext(NonCancellable) {
-                    tracker.cancelActiveAttempt("Worker shutdown cancelled the running step")
-                    observability.onWorkflowAbandoned(
-                        workflowId = checkpoint.workflowId,
-                        workerId = config.workerId,
-                        lastStep = checkpoint.lastCompletedStepName,
-                        timeoutMillis = config.drainTimeoutMillis,
-                    )
-                    releaseLease(handle)
+                    runCleanupPreservingCancellation(error) {
+                        tracker.cancelActiveAttempt(
+                            "Worker shutdown cancelled the running step",
+                        )
+                    }
+                    runCleanupPreservingCancellation(error) {
+                        observability.onWorkflowAbandoned(
+                            workflowId = checkpoint.workflowId,
+                            workerId = config.workerId,
+                            lastStep = checkpoint.lastCompletedStepName,
+                            timeoutMillis = config.drainTimeoutMillis,
+                        )
+                    }
+                    runCleanupPreservingCancellation(error) {
+                        releaseLease(handle)
+                    }
                     executionFailures.remove(checkpoint.workflowId)
                 }
             }
@@ -882,3 +890,20 @@ private class LeaseFencedCheckpointStore(
 private fun sha256Hex(value: String): String = MessageDigest.getInstance("SHA-256")
     .digest(value.toByteArray(Charsets.UTF_8))
     .joinToString("") { byte -> "%02x".format(byte) }
+
+private suspend fun runCleanupPreservingCancellation(
+    cancellation: CancellationException,
+    cleanup: suspend () -> Unit,
+) {
+    try {
+        cleanup()
+    } catch (cleanupCancellation: CancellationException) {
+        if (cleanupCancellation !== cancellation) {
+            cancellation.addSuppressed(cleanupCancellation)
+        }
+    } catch (cleanupError: Exception) {
+        // Required as the first statement by the cancellation scanner.
+        cleanupError.rethrowIfCancellation()
+        cancellation.addSuppressed(cleanupError)
+    }
+}
