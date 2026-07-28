@@ -891,13 +891,14 @@ private fun sha256Hex(value: String): String = MessageDigest.getInstance("SHA-25
     .digest(value.toByteArray(Charsets.UTF_8))
     .joinToString("") { byte -> "%02x".format(byte) }
 
-private suspend fun runCleanupPreservingCancellation(
+private fun runCleanupPreservingCancellation(
     cancellation: CancellationException,
     cleanup: suspend () -> Unit,
 ) {
     try {
-        cleanup()
+        runBlocking { cleanup() }
     } catch (cleanupError: Throwable) {
+        cleanupError.rethrowIfCancellation()
         if (cleanupError !== cancellation) {
             cancellation.addSuppressed(cleanupError)
         }
