@@ -91,10 +91,14 @@ class WorkflowCancellationContractTest {
                         checkpointStore = checkpointStore,
                         stateCodec = UnitCodec,
                         leaseStore = leaseStore,
+                        leasePolicy = WorkflowLeasePolicy(
+                            ownerId = "resume-cancellation-test",
+                        ),
                     ),
                 )
             }
-        }
+        }.isInstanceOf(CancellationException::class.java)
+            .hasMessage("cancelled during resume")
 
         // No failure classification (cancellation escapes cleanly)
         assertThat(observer.failedSteps).isEmpty()

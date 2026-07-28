@@ -23,16 +23,20 @@ data class WorkflowContext(
     val workflowId: String = UUID.randomUUID().toString(),
     val attributes: Map<String, Any?> = emptyMap(),
 )
+
 interface ExternalStepExecutorFactory {
     val typeId: String
     fun create(): ExternalStepExecutor
 }
+
 fun interface ExternalStepExecutor {
     suspend fun execute(spec: Map<String, Any?>): Map<String, Any?>
 }
+
 class ExternalStepExecutorNotRegisteredException(
     typeId: String,
 ) : RuntimeException("No external step executor is registered for plugin step type '$typeId'")
+
 interface ExternalStepExecutorResolver {
     fun isRegistered(typeId: String): Boolean
 
