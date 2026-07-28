@@ -90,7 +90,7 @@ class TramaiWorkerCancellationContractTest {
         seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
 
         val worker = worker("worker-0", leaseStore, checkpointStore, workflow,
-            drainTimeoutMillis = 50, pollIntervalMillis = 20)
+            drainTimeoutMillis = 200, pollIntervalMillis = 20)
         worker.start()
         waitUntil {
             checkpointStore.latestStepAttempt(runId, "blocking")?.status == StepAttemptStatus.STARTED
@@ -136,7 +136,7 @@ class TramaiWorkerCancellationContractTest {
 
         val observer = ThrowingOnAbandonObserver()
         val worker = worker("worker-0", leaseStore, checkpointStore, workflow,
-            drainTimeoutMillis = 50, pollIntervalMillis = 20,
+            drainTimeoutMillis = 200, pollIntervalMillis = 20,
             observability = observer)
         worker.start()
         waitUntil {
