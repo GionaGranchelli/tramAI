@@ -97,7 +97,8 @@ class FileWorkflowPersistenceCancellationContractTest {
                 store.save(checkpoint, expectedRevision = null)
             }
 
-            enteredLock.await()
+            enteredLock.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertThat(first.isActive).`as`("first coroutine entered the lock").isTrue()
 
             // Second coroutine: undispatched so it reaches the Mutex
             // suspension before control returns to this thread.
@@ -113,13 +114,17 @@ class FileWorkflowPersistenceCancellationContractTest {
             second.join()
             assertThat(second.isCancelled).isTrue()
 
-            // The second's save must not have persisted.
-            assertThat(store.load(checkpoint.workflowName, checkpoint.workflowId))
-                .isNull()
-
-            // Unblock the first coroutine so it completes normally.
+            // Release the first coroutine so it completes normally.
             releaseLock.countDown()
             withTimeout(5_000) { first.join() }
+
+            // The second's save must not have persisted — after the first
+            // completes, the stored value must be the original checkpoint,
+            // not "should-not-persist".
+            val loaded = withTimeout(5_000) {
+                store.load(checkpoint.workflowName, checkpoint.workflowId)
+            }
+            assertThat(loaded?.statePayload).isEqualTo(checkpoint.statePayload)
 
             // Registry must return to baseline (cancelled waiter removed).
             assertThat(pathLockRegistrySize()).isEqualTo(registryBefore)
@@ -169,7 +174,9 @@ class FileWorkflowPersistenceCancellationContractTest {
                 )
             }
 
-            enteredSecondWrite.await()
+            assertThat(
+                enteredSecondWrite.await(5, java.util.concurrent.TimeUnit.SECONDS),
+            ).`as`("update coroutine entered the hook").isTrue()
 
             update.cancel()
             update.join()
