@@ -2,6 +2,9 @@ package dev.tramai.orchestration
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -168,23 +171,68 @@ internal fun decodeCheckpoint(content: String): WorkflowCheckpoint {
         savedAtEpochMillis = properties.getProperty("savedAtEpochMillis")?.toLong() ?: System.currentTimeMillis(),
     )
 }
+// 64-stripe JVM-local mutex pool — prevents OverlappingFileLockException
+// from same-JVM concurrent FileChannel.lock() on the same path while the
+// OS file lock handles cross-process coordination.
+private val localMutexes = Array(64) { Mutex() }
+private fun localMutexFor(path: Path): Mutex =
+    localMutexes[path.hashCode().and(0x3F)]
+
 internal suspend inline fun <T> withFileLockCancellable(
-    checkpointPath: Path,
+    targetPath: Path,
     crossinline block: () -> T,
-): T = runInterruptible(Dispatchers.IO) {
-    val lockPath = checkpointPath.resolveSibling("${checkpointPath.fileName}.lock")
-    ensureOwnerOnlyDirectory(lockPath.parent)
-    ensureOwnerOnlyFile(lockPath)
-    FileChannel.open(
-        lockPath,
-        StandardOpenOption.CREATE,
-        StandardOpenOption.WRITE,
-    ).use { channel ->
-        channel.lock().use {
-            block()
+): T = localMutexFor(targetPath).withLock {
+    runInterruptible(Dispatchers.IO) {
+        val lockPath = targetPath.resolveSibling("${targetPath.fileName}.lock")
+        ensureOwnerOnlyDirectory(lockPath.parent)
+        ensureOwnerOnlyFile(lockPath)
+        FileChannel.open(
+            lockPath,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.WRITE,
+        ).use { channel ->
+            channel.lock().use {
+                block()
+            }
         }
     }
 }
+
+internal suspend fun <T> withFileLockCancellableSuspending(
+    targetPath: Path,
+    block: suspend () -> T,
+): T = localMutexFor(targetPath).withLock {
+    withContext(Dispatchers.IO) {
+        val lockPath = targetPath.resolveSibling("${targetPath.fileName}.lock")
+        ensureOwnerOnlyDirectory(lockPath.parent)
+        ensureOwnerOnlyFile(lockPath)
+        FileChannel.open(
+            lockPath,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.WRITE,
+        ).use { channel ->
+            runInterruptible {
+                channel.lock()
+            }.use {
+                block()
+            }
+        }
+    }
+}
+
+/**
+ * Seam for testing cancellation during the atomic-write window.
+ * The default is a no-op; tests may replace it with a blocking hook.
+ */
+internal val atomicWriteHook: java.util.concurrent.atomic.AtomicReference<AtomicWriteHook> =
+    java.util.concurrent.atomic.AtomicReference(object : AtomicWriteHook {
+        override fun afterTempWriteBeforeMove(tempFile: Path) {}
+    })
+
+internal fun interface AtomicWriteHook {
+    fun afterTempWriteBeforeMove(tempFile: Path)
+}
+
 internal fun writeStringAtomically(
     path: Path,
     content: String,
@@ -199,6 +247,7 @@ internal fun writeStringAtomically(
             StandardCharsets.UTF_8,
             StandardOpenOption.TRUNCATE_EXISTING,
         )
+        atomicWriteHook.get().afterTempWriteBeforeMove(tempFile)
         try {
             Files.move(
                 tempFile,

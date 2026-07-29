@@ -116,13 +116,11 @@ class FileWorkflowLeaseStore(
         expectedLease: WorkflowLease,
     ): WorkflowCheckpoint {
         val leasePath = leasePath(expectedLease.workflowName, expectedLease.workflowId)
-        // ponytail: validate lease under lock, save outside — revision conflict
-        // in the checkpoint store guards against concurrent lease changes.
-        withFileLockCancellable(leasePath) {
+        return withFileLockCancellableSuspending(leasePath) {
             val current = readLeaseIfPresent(leasePath)?.takeUnless(::isExpired)
             validateExpectedLease(expectedLease, current)
+            checkpointStore.save(checkpoint, expectedRevision)
         }
-        return checkpointStore.save(checkpoint, expectedRevision)
     }
 
     override suspend fun deleteCheckpointIfLeaseOwner(
@@ -133,11 +131,11 @@ class FileWorkflowLeaseStore(
         expectedLease: WorkflowLease,
     ) {
         val leasePath = leasePath(expectedLease.workflowName, expectedLease.workflowId)
-        withFileLockCancellable(leasePath) {
+        withFileLockCancellableSuspending(leasePath) {
             val current = readLeaseIfPresent(leasePath)?.takeUnless(::isExpired)
             validateExpectedLease(expectedLease, current)
+            checkpointStore.delete(workflowName, workflowId, expectedRevision)
         }
-        checkpointStore.delete(workflowName, workflowId, expectedRevision)
     }
 
     private fun leasePath(
