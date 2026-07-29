@@ -80,15 +80,13 @@ class FileWorkflowPersistenceCancellationContractTest {
     fun `jvm mutex released on cancellation — second coroutine cancelled while waiting`() {
         runBlocking {
             val checkpoint = testCheckpoint()
+            val registryBefore = pathLockRegistrySize()
 
             val enteredLock = java.util.concurrent.CountDownLatch(1)
             val releaseLock = java.util.concurrent.CountDownLatch(1)
 
             val hookWriter = AtomicFileWriter(beforeMove = {
                 enteredLock.countDown()
-                // Block until released by the test. When the latch
-                // is counted down, the first coroutine completes its
-                // save normally, releasing the JVM mutex and OS lock.
                 releaseLock.await()
             })
 
@@ -101,30 +99,30 @@ class FileWorkflowPersistenceCancellationContractTest {
 
             enteredLock.await()
 
-            // Second coroutine: tries same path — blocks on the JVM mutex.
-            val second = launch(Dispatchers.IO) {
+            // Second coroutine: undispatched so it reaches the Mutex
+            // suspension before control returns to this thread.
+            val second = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                 store.save(
                     checkpoint.copy(statePayload = "should-not-persist"),
                     expectedRevision = 1,
                 )
             }
 
-            // Give the scheduler time to move second onto the mutex queue.
-            kotlinx.coroutines.delay(200)
+            assertThat(second.isCompleted).isFalse()
             second.cancel()
-
-            try {
-                withTimeout(5_000) { second.join() }
-            } catch (_: CancellationException) { }
+            second.join()
             assertThat(second.isCancelled).isTrue()
 
             // The second's save must not have persisted.
             assertThat(store.load(checkpoint.workflowName, checkpoint.workflowId))
                 .isNull()
 
-            // Unblock the first coroutine so it completes its save normally.
+            // Unblock the first coroutine so it completes normally.
             releaseLock.countDown()
             withTimeout(5_000) { first.join() }
+
+            // Registry must return to baseline (cancelled waiter removed).
+            assertThat(pathLockRegistrySize()).isEqualTo(registryBefore)
 
             // Path must be usable after both coroutines release.
             val reloaded = store.save(
@@ -142,24 +140,28 @@ class FileWorkflowPersistenceCancellationContractTest {
         runBlocking {
             val checkpoint = testCheckpoint()
 
-            val enteredHook = java.util.concurrent.atomic.AtomicBoolean(false)
-            val hookWriter = AtomicFileWriter(beforeMove = { _ ->
-                enteredHook.set(true)
-                // Block until cancelled. runInterruptible interrupts
-                // the IO thread, causing Thread.sleep to throw
-                // InterruptedException, which runInterruptible converts
-                // to CancellationException. writeStringAtomically's
-                // finally block cleans up the temp file.
-                @Suppress("BlockingMethodInNonBlockingContext")
-                Thread.sleep(5_000)
+            val writeCount = java.util.concurrent.atomic.AtomicInteger(0)
+            val enteredSecondWrite = java.util.concurrent.CountDownLatch(1)
+            val holdSecondWrite = java.util.concurrent.CountDownLatch(1)
+
+            val hookWriter = AtomicFileWriter(beforeMove = {
+                if (writeCount.incrementAndGet() == 2) {
+                    enteredSecondWrite.countDown()
+                    // Block until cancelled. runInterruptible interrupts
+                    // the IO thread, CountDownLatch.await() throws
+                    // InterruptedException, converted to
+                    // CancellationException. writeStringAtomically's
+                    // finally block cleans up the temp file.
+                    holdSecondWrite.await()
+                }
             })
 
             val store = checkpointStore(atomicWriter = hookWriter)
 
-            // Persist the original checkpoint.
+            // Persist the original checkpoint (writeCount == 1, no hook).
             val persisted = store.save(checkpoint, expectedRevision = null)
 
-            // Start an update that blocks inside the beforeMove hook.
+            // Start an update (writeCount == 2, hook fires and blocks).
             val update = launch(Dispatchers.IO) {
                 store.save(
                     checkpoint.copy(statePayload = "in-flight"),
@@ -167,18 +169,11 @@ class FileWorkflowPersistenceCancellationContractTest {
                 )
             }
 
-            // Wait until the update has entered the hook.
-            withTimeout(5_000) {
-                while (!enteredHook.get()) {
-                    kotlinx.coroutines.delay(10)
-                }
-            }
+            enteredSecondWrite.await()
 
             update.cancel()
-
-            try {
-                withTimeout(5_000) { update.join() }
-            } catch (_: CancellationException) { }
+            update.join()
+            assertThat(update.isCancelled).isTrue()
 
             // Original checkpoint must be preserved — the update was
             // cancelled before the atomic move.

@@ -299,6 +299,7 @@ internal fun writeStringAtomically(
 ) {
     ensureOwnerOnlyDirectory(path.parent)
     val tempFile = Files.createTempFile(path.parent, path.fileName.toString(), ".tmp")
+    var primaryFailure: Exception? = null
     try {
         applyOwnerOnlyFilePermissions(tempFile)
         Files.writeString(
@@ -323,8 +324,19 @@ internal fun writeStringAtomically(
             )
         }
         applyOwnerOnlyFilePermissions(path)
+    } catch (failure: Exception) {
+        primaryFailure = failure
+        throw failure
     } finally {
-        Files.deleteIfExists(tempFile)
+        try {
+            Files.deleteIfExists(tempFile)
+        } catch (cleanupFailure: Exception) {
+            if (primaryFailure != null) {
+                primaryFailure.addSuppressed(cleanupFailure)
+            } else {
+                throw cleanupFailure
+            }
+        }
     }
 }
 internal fun validateExpectedRevision(
