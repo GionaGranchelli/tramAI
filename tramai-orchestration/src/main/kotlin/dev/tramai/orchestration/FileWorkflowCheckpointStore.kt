@@ -1,8 +1,10 @@
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.CoroutineDispatcher
 import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -13,14 +15,34 @@ import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.PosixFilePermission
 import java.util.Base64
 import java.util.Properties
+import java.util.concurrent.atomic.AtomicInteger
 import java.io.StringWriter
 /**
  * Plain file-backed checkpoint store using a simple properties-based envelope.
  */
-class FileWorkflowCheckpointStore(
+class FileWorkflowCheckpointStore private constructor(
     private val rootDirectory: Path,
-    private val pathStrategy: WorkflowCheckpointPathStrategy = DefaultWorkflowCheckpointPathStrategy("checkpoint.properties"),
+    private val pathStrategy: WorkflowCheckpointPathStrategy,
+    private val atomicWriter: AtomicFileWriter,
 ) : WorkflowCheckpointStore, WorkflowCheckpointCatalog {
+
+    constructor(
+        rootDirectory: Path,
+        pathStrategy: WorkflowCheckpointPathStrategy =
+            DefaultWorkflowCheckpointPathStrategy("checkpoint.properties"),
+    ) : this(rootDirectory, pathStrategy, realAtomicFileWriter)
+
+    internal companion object {
+        fun forTest(
+            rootDirectory: Path,
+            atomicWriter: AtomicFileWriter,
+        ) = FileWorkflowCheckpointStore(
+            rootDirectory,
+            DefaultWorkflowCheckpointPathStrategy("checkpoint.properties"),
+            atomicWriter,
+        )
+    }
+
     override suspend fun load(
         workflowName: String,
         workflowId: String,
@@ -29,7 +51,7 @@ class FileWorkflowCheckpointStore(
         if (!Files.exists(checkpointPath)) {
             return null
         }
-        return withFileLock(checkpointPath) {
+        return withFileLockCancellable(checkpointPath) {
             if (!Files.exists(checkpointPath)) {
                 null
             } else {
@@ -42,7 +64,7 @@ class FileWorkflowCheckpointStore(
         expectedRevision: Long?,
     ): WorkflowCheckpoint {
         val checkpointPath = checkpointPath(checkpoint.workflowName, checkpoint.workflowId)
-        return withFileLock(checkpointPath) {
+        return withFileLockCancellable(checkpointPath) {
             val existing = if (Files.exists(checkpointPath)) {
                 decodeCheckpoint(Files.readString(checkpointPath))
             } else {
@@ -57,7 +79,7 @@ class FileWorkflowCheckpointStore(
             val persisted = checkpoint.copy(
                 revision = (existing?.revision ?: 0) + 1,
             )
-            writeStringAtomically(checkpointPath, encodeCheckpoint(persisted))
+            atomicWriter.write(checkpointPath, encodeCheckpoint(persisted))
             persisted
         }
     }
@@ -67,7 +89,7 @@ class FileWorkflowCheckpointStore(
         expectedRevision: Long?,
     ) {
         val checkpointPath = checkpointPath(workflowName, workflowId)
-        withFileLock(checkpointPath) {
+        withFileLockCancellable(checkpointPath) {
             val existing = if (Files.exists(checkpointPath)) {
                 decodeCheckpoint(Files.readString(checkpointPath))
             } else {
@@ -169,70 +191,153 @@ internal fun decodeCheckpoint(content: String): WorkflowCheckpoint {
         savedAtEpochMillis = properties.getProperty("savedAtEpochMillis")?.toLong() ?: System.currentTimeMillis(),
     )
 }
-internal inline fun <T> withFileLock(
-    checkpointPath: Path,
-    block: () -> T,
-): T {
-    val lockPath = checkpointPath.resolveSibling("${checkpointPath.fileName}.lock")
-    ensureOwnerOnlyDirectory(lockPath.parent)
-    ensureOwnerOnlyFile(lockPath)
-    FileChannel.open(
-        lockPath,
-        StandardOpenOption.CREATE,
-        StandardOpenOption.WRITE,
-    ).use { channel ->
-        channel.lock().use {
-            return block()
+
+// --- Per-path Mutex registry with reference counting ---
+
+internal data class PathLockEntry(
+    val mutex: Mutex = Mutex(),
+    val users: AtomicInteger = AtomicInteger(0),
+)
+
+private val pathLocks = java.util.concurrent.ConcurrentHashMap<Path, PathLockEntry>()
+
+private fun retainPathLock(path: Path): Pair<Path, PathLockEntry> {
+    val key = path.toAbsolutePath().normalize()
+    val entry = pathLocks.compute(key) { _, existing ->
+        (existing ?: PathLockEntry()).also {
+            it.users.incrementAndGet()
         }
+    }!!
+    return key to entry
+}
+
+private fun releasePathLock(key: Path, expected: PathLockEntry) {
+    pathLocks.computeIfPresent(key) { _, current ->
+        check(current === expected) { "PathLockEntry mismatch during release" }
+        if (current.users.decrementAndGet() == 0) null else current
     }
 }
 
-internal suspend inline fun <T> withFileLockSuspending(
-    checkpointPath: Path,
-    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    crossinline block: suspend () -> T,
-): T = withContext(ioDispatcher) {
-    val lockPath = checkpointPath.resolveSibling("${checkpointPath.fileName}.lock")
-    ensureOwnerOnlyDirectory(lockPath.parent)
-    ensureOwnerOnlyFile(lockPath)
-    FileChannel.open(
-        lockPath,
-        StandardOpenOption.CREATE,
-        StandardOpenOption.WRITE,
-    ).use { channel ->
-        channel.lock().use {
-            block()
+internal suspend inline fun <T> withFileLockCancellable(
+    targetPath: Path,
+    crossinline block: () -> T,
+): T {
+    val (key, entry) = retainPathLock(targetPath)
+    try {
+        return entry.mutex.withLock {
+            runInterruptible(Dispatchers.IO) {
+                val lockPath = targetPath.resolveSibling("${targetPath.fileName}.lock")
+                ensureOwnerOnlyDirectory(lockPath.parent)
+                ensureOwnerOnlyFile(lockPath)
+                FileChannel.open(
+                    lockPath,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE,
+                ).use { channel ->
+                    channel.lock().use {
+                        block()
+                    }
+                }
+            }
         }
+    } finally {
+        releasePathLock(key, entry)
     }
 }
+
+internal suspend fun <T> withFileLockCancellableSuspending(
+    targetPath: Path,
+    block: suspend () -> T,
+): T {
+    val (key, entry) = retainPathLock(targetPath)
+    try {
+        return entry.mutex.withLock {
+            withContext(Dispatchers.IO) {
+                val lockPath = targetPath.resolveSibling("${targetPath.fileName}.lock")
+                ensureOwnerOnlyDirectory(lockPath.parent)
+                ensureOwnerOnlyFile(lockPath)
+                FileChannel.open(
+                    lockPath,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE,
+                ).use { channel ->
+                    runInterruptible {
+                        channel.lock()
+                    }.use {
+                        block()
+                    }
+                }
+            }
+        }
+    } finally {
+        releasePathLock(key, entry)
+    }
+}
+
+/**
+ * File writer with an injectable hook that fires after the temporary file
+ * is written but before the atomic move. Tests use this to block and cancel
+ * during the atomic-write window while still exercising the real
+ * [writeStringAtomically] implementation.
+ */
+internal class AtomicFileWriter(
+    private val beforeMove: (tempFile: Path) -> Unit = {},
+) {
+    fun write(path: Path, content: String) {
+        writeStringAtomically(path, content, beforeMove)
+    }
+}
+
+internal val realAtomicFileWriter = AtomicFileWriter()
+
+internal fun pathLockRegistrySize(): Int = pathLocks.size
+
 internal fun writeStringAtomically(
     path: Path,
     content: String,
+    beforeMove: (Path) -> Unit = {},
 ) {
     ensureOwnerOnlyDirectory(path.parent)
     val tempFile = Files.createTempFile(path.parent, path.fileName.toString(), ".tmp")
-    applyOwnerOnlyFilePermissions(tempFile)
-    Files.writeString(
-        tempFile,
-        content,
-        StandardCharsets.UTF_8,
-        StandardOpenOption.TRUNCATE_EXISTING,
-    )
+    var primaryFailure: Exception? = null
     try {
-        Files.move(
+        applyOwnerOnlyFilePermissions(tempFile)
+        Files.writeString(
             tempFile,
-            path,
-            StandardCopyOption.REPLACE_EXISTING,
-            StandardCopyOption.ATOMIC_MOVE,
+            content,
+            StandardCharsets.UTF_8,
+            StandardOpenOption.TRUNCATE_EXISTING,
         )
-    } catch (_: AtomicMoveNotSupportedException) {
-        Files.move(
-            tempFile,
-            path,
-            StandardCopyOption.REPLACE_EXISTING,
-        )
+        beforeMove(tempFile)
+        try {
+            Files.move(
+                tempFile,
+                path,
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE,
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(
+                tempFile,
+                path,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }
+        applyOwnerOnlyFilePermissions(path)
+    } catch (failure: Exception) {
+        primaryFailure = failure
+        throw failure
+    } finally {
+        try {
+            Files.deleteIfExists(tempFile)
+        } catch (cleanupFailure: Exception) {
+            if (primaryFailure != null) {
+                primaryFailure.addSuppressed(cleanupFailure)
+            } else {
+                throw cleanupFailure
+            }
+        }
     }
-    applyOwnerOnlyFilePermissions(path)
 }
 internal fun validateExpectedRevision(
     workflowName: String,
