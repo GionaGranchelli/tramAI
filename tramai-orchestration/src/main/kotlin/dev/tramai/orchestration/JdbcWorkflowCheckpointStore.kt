@@ -15,13 +15,13 @@ class JdbcWorkflowCheckpointStore(
     override suspend fun load(
         workflowName: String,
         workflowId: String,
-    ): WorkflowCheckpoint? = dataSource.connection.use { connection ->
+    ): WorkflowCheckpoint? = executeJdbcCancellable(dataSource) {
         load(connection, workflowName, workflowId)
     }
     override suspend fun save(
         checkpoint: WorkflowCheckpoint,
         expectedRevision: Long?,
-    ): WorkflowCheckpoint = dataSource.connection.use { connection ->
+    ): WorkflowCheckpoint = executeJdbcCancellable(dataSource) {
         saveInConnection(connection, checkpoint, expectedRevision)
     }
     override suspend fun delete(
@@ -29,12 +29,12 @@ class JdbcWorkflowCheckpointStore(
         workflowId: String,
         expectedRevision: Long?,
     ) {
-        dataSource.connection.use { connection ->
+        executeJdbcCancellable(dataSource) {
             deleteInConnection(connection, workflowName, workflowId, expectedRevision)
         }
     }
 
-    override suspend fun listCheckpoints(): List<WorkflowCheckpoint> = dataSource.connection.use { connection ->
+    override suspend fun listCheckpoints(): List<WorkflowCheckpoint> = executeJdbcCancellable(dataSource) {
         connection.prepareStatement(listSql()).use { statement ->
             statement.executeQuery().use { resultSet ->
                 val checkpoints = mutableListOf<WorkflowCheckpoint>()

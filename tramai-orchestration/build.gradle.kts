@@ -31,6 +31,7 @@ dependencies {
     testImplementation(libs.assertj.core)
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(libs.mcp.sdk.server)
+    testImplementation(libs.h2database)
 }
 
 tasks.test {

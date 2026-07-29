@@ -1,6 +1,13 @@
 package dev.tramai.orchestration
 import java.sql.SQLException
 import javax.sql.DataSource
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withContext
 /**
  * JDBC-backed lease store for multi-node workflow ownership.
  *
@@ -52,7 +59,7 @@ class JdbcWorkflowLeaseStore(
             checkpointRevision = checkpointRevision,
             expiresAtEpochMillis = now + leaseDurationMillis,
         )
-        dataSource.connection.use { connection ->
+        executeJdbcCancellable(dataSource) {
             connection.prepareStatement(renewSql()).use { statement ->
                 if (checkpointRevision == null) {
                     statement.setNull(1, java.sql.Types.BIGINT)
@@ -67,7 +74,7 @@ class JdbcWorkflowLeaseStore(
                 statement.setLong(7, now)
                 val updated = statement.executeUpdate()
                 if (updated == 0) {
-                    val existing = loadLease(lease.workflowName, lease.workflowId)
+                    val existing = loadLease(connection, lease.workflowName, lease.workflowId)
                     throw renewalConflict(
                         attempted = lease,
                         existing = existing,
@@ -78,7 +85,7 @@ class JdbcWorkflowLeaseStore(
         return renewed
     }
     override suspend fun release(lease: WorkflowLease) {
-        dataSource.connection.use { connection ->
+        executeJdbcCancellable(dataSource) {
             connection.prepareStatement(releaseSql()).use { statement ->
                 statement.setString(1, lease.workflowName)
                 statement.setString(2, lease.workflowId)
@@ -86,10 +93,10 @@ class JdbcWorkflowLeaseStore(
                 statement.setString(4, lease.ownerId)
                 val deleted = statement.executeUpdate()
                 if (deleted == 0) {
-                    val existing = loadLease(lease.workflowName, lease.workflowId) ?: return
+                    val existing = loadLease(connection, lease.workflowName, lease.workflowId) ?: return@executeJdbcCancellable
                     if (isExpired(existing)) {
-                        deleteExpiredLease(existing)
-                        return
+                        deleteExpiredLease(connection, existing)
+                        return@executeJdbcCancellable
                     }
                     throw releaseConflict(
                         attempted = lease,
@@ -147,14 +154,14 @@ class JdbcWorkflowLeaseStore(
         )
     """.trimIndent()
     private suspend fun insertLease(lease: WorkflowLease): WorkflowLease {
-        dataSource.connection.use { connection ->
+        executeJdbcCancellable(dataSource) {
             try {
                 connection.prepareStatement(insertSql()).use { statement ->
                     statement.bindLease(lease)
                     statement.executeUpdate()
                 }
             } catch (error: SQLException) {
-                val current = loadLease(lease.workflowName, lease.workflowId)
+                val current = loadLease(connection, lease.workflowName, lease.workflowId)
                 if (current != null && !isExpired(current)) {
                     throw activeLeaseConflict(current)
                 }
@@ -167,7 +174,7 @@ class JdbcWorkflowLeaseStore(
         lease: WorkflowLease,
         previous: WorkflowLease,
     ): WorkflowLease {
-        dataSource.connection.use { connection ->
+        executeJdbcCancellable(dataSource) {
             connection.prepareStatement(replaceExpiredSql()).use { statement ->
                 statement.setString(1, lease.leaseId)
                 statement.setString(2, lease.ownerId)
@@ -185,7 +192,7 @@ class JdbcWorkflowLeaseStore(
                 statement.setLong(10, clockMillis())
                 val updated = statement.executeUpdate()
                 if (updated == 0) {
-                    val current = loadLease(lease.workflowName, lease.workflowId)
+                    val current = loadLease(connection, lease.workflowName, lease.workflowId)
                     if (current != null && !isExpired(current)) {
                         throw activeLeaseConflict(current)
                     }
@@ -200,7 +207,7 @@ class JdbcWorkflowLeaseStore(
     private suspend fun loadLease(
         workflowName: String,
         workflowId: String,
-    ): WorkflowLease? = dataSource.connection.use { connection ->
+    ): WorkflowLease? = executeJdbcCancellable(dataSource) {
         loadLease(connection, workflowName, workflowId)
     }
 
@@ -220,13 +227,25 @@ class JdbcWorkflowLeaseStore(
         }
     }
     private suspend fun deleteExpiredLease(lease: WorkflowLease) {
-        dataSource.connection.use { connection ->
+        executeJdbcCancellable(dataSource) {
             connection.prepareStatement(deleteExpiredSql()).use { statement ->
                 statement.setString(1, lease.workflowName)
                 statement.setString(2, lease.workflowId)
                 statement.setLong(3, clockMillis())
                 statement.executeUpdate()
             }
+        }
+    }
+
+    private fun deleteExpiredLease(
+        connection: java.sql.Connection,
+        lease: WorkflowLease,
+    ) {
+        connection.prepareStatement(deleteExpiredSql()).use { statement ->
+            statement.setString(1, lease.workflowName)
+            statement.setString(2, lease.workflowId)
+            statement.setLong(3, clockMillis())
+            statement.executeUpdate()
         }
     }
 
@@ -260,18 +279,32 @@ class JdbcWorkflowLeaseStore(
         }
     }
 
-    private fun <T> withTransaction(block: (java.sql.Connection) -> T): T = dataSource.connection.use { connection ->
+    private suspend fun <T> withTransaction(block: (java.sql.Connection) -> T): T = withContext(Dispatchers.IO) {
+        val connection = dataSource.connection
         val previousAutoCommit = connection.autoCommit
         connection.autoCommit = false
         try {
-            val result = block(connection)
-            connection.commit()
+            val result = runInterruptible { block(connection) }
+            currentCoroutineContext().ensureActive()
+            runInterruptible { connection.commit() }
             result
         } catch (error: Throwable) {
-            connection.rollback()
+            if (error is CancellationException) {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    runInterruptible { connection.rollback() }
+                }
+            } else {
+                runInterruptible { connection.rollback() }
+            }
+            error.addSuppressed(
+                RuntimeException("Rollback completed for: ${error.message}"),
+            )
             throw error
         } finally {
-            connection.autoCommit = previousAutoCommit
+            runInterruptible {
+                connection.autoCommit = previousAutoCommit
+                connection.close()
+            }
         }
     }
 
