@@ -22,6 +22,7 @@ import java.io.StringWriter
 class FileWorkflowCheckpointStore(
     private val rootDirectory: Path,
     private val pathStrategy: WorkflowCheckpointPathStrategy = DefaultWorkflowCheckpointPathStrategy("checkpoint.properties"),
+    private val atomicWriter: AtomicFileWriter = realAtomicFileWriter,
 ) : WorkflowCheckpointStore, WorkflowCheckpointCatalog {
     override suspend fun load(
         workflowName: String,
@@ -59,7 +60,7 @@ class FileWorkflowCheckpointStore(
             val persisted = checkpoint.copy(
                 revision = (existing?.revision ?: 0) + 1,
             )
-            writeStringAtomically(checkpointPath, encodeCheckpoint(persisted))
+            atomicWriter.write(checkpointPath, encodeCheckpoint(persisted))
             persisted
         }
     }
@@ -171,17 +172,18 @@ internal fun decodeCheckpoint(content: String): WorkflowCheckpoint {
         savedAtEpochMillis = properties.getProperty("savedAtEpochMillis")?.toLong() ?: System.currentTimeMillis(),
     )
 }
-// 64-stripe JVM-local mutex pool — prevents OverlappingFileLockException
-// from same-JVM concurrent FileChannel.lock() on the same path while the
-// OS file lock handles cross-process coordination.
-private val localMutexes = Array(64) { Mutex() }
-private fun localMutexFor(path: Path): Mutex =
-    localMutexes[path.hashCode().and(0x3F)]
+// Per-path JVM-local mutex pool — prevents OverlappingFileLockException
+// from same-JVM concurrent FileChannel.lock() on the same path.
+// ponytail: ConcurrentHashMap.computeIfAbsent, no ref-counting.
+// Max entries = max unique lock paths, negligible memory cost.
+private val pathLockMutexes = java.util.concurrent.ConcurrentHashMap<Path, Mutex>()
+private fun mutexFor(path: Path): Mutex =
+    pathLockMutexes.computeIfAbsent(path.toAbsolutePath().normalize()) { Mutex() }
 
 internal suspend inline fun <T> withFileLockCancellable(
     targetPath: Path,
     crossinline block: () -> T,
-): T = localMutexFor(targetPath).withLock {
+): T = mutexFor(targetPath).withLock {
     runInterruptible(Dispatchers.IO) {
         val lockPath = targetPath.resolveSibling("${targetPath.fileName}.lock")
         ensureOwnerOnlyDirectory(lockPath.parent)
@@ -201,7 +203,7 @@ internal suspend inline fun <T> withFileLockCancellable(
 internal suspend fun <T> withFileLockCancellableSuspending(
     targetPath: Path,
     block: suspend () -> T,
-): T = localMutexFor(targetPath).withLock {
+): T = mutexFor(targetPath).withLock {
     withContext(Dispatchers.IO) {
         val lockPath = targetPath.resolveSibling("${targetPath.fileName}.lock")
         ensureOwnerOnlyDirectory(lockPath.parent)
@@ -221,16 +223,16 @@ internal suspend fun <T> withFileLockCancellableSuspending(
 }
 
 /**
- * Seam for testing cancellation during the atomic-write window.
- * The default is a no-op; tests may replace it with a blocking hook.
+ * Seam for injecting a custom file writer (e.g. blocking hook for testing
+ * cancellation during the atomic-write window). Defaults to the real
+ * writeStringAtomically implementation.
  */
-internal val atomicWriteHook: java.util.concurrent.atomic.AtomicReference<AtomicWriteHook> =
-    java.util.concurrent.atomic.AtomicReference(object : AtomicWriteHook {
-        override fun afterTempWriteBeforeMove(tempFile: Path) {}
-    })
+fun interface AtomicFileWriter {
+    fun write(path: Path, content: String)
+}
 
-internal fun interface AtomicWriteHook {
-    fun afterTempWriteBeforeMove(tempFile: Path)
+internal val realAtomicFileWriter = AtomicFileWriter { path, content ->
+    writeStringAtomically(path, content)
 }
 
 internal fun writeStringAtomically(
@@ -247,7 +249,6 @@ internal fun writeStringAtomically(
             StandardCharsets.UTF_8,
             StandardOpenOption.TRUNCATE_EXISTING,
         )
-        atomicWriteHook.get().afterTempWriteBeforeMove(tempFile)
         try {
             Files.move(
                 tempFile,

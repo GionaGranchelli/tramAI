@@ -146,6 +146,16 @@ deviations:
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 
+  - id: MQ-0014
+    metric: globalMutableState
+    scope: ":tramai-orchestration"
+    baseline: 8
+    allowed: 9
+    reason: "Per-path JVM-local Mutex registry (ConcurrentHashMap) added to prevent OverlappingFileLockException from same-JVM concurrent FileChannel.lock(). Bounded by unique lock paths. ponytail: migrate to VirtualThread-per-path if contention measured."
+    acceptedAt: "2026-07-29"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
 # Verification policy:
 # - New findings that match an existing deviation (same metric + scope) are allowed.
 # - New findings with no matching deviation cause verify tasks to fail.

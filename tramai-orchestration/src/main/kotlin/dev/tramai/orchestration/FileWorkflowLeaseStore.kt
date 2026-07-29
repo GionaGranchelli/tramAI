@@ -11,6 +11,7 @@ class FileWorkflowLeaseStore(
     private val rootDirectory: Path,
     private val pathStrategy: WorkflowCheckpointPathStrategy = DefaultWorkflowCheckpointPathStrategy("lease.properties"),
     private val clockMillis: () -> Long = System::currentTimeMillis,
+    private val atomicWriter: AtomicFileWriter = realAtomicFileWriter,
 ) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence {
     override suspend fun currentLease(
         workflowName: String,
@@ -57,7 +58,7 @@ class FileWorkflowLeaseStore(
                 acquiredAtEpochMillis = now,
                 expiresAtEpochMillis = now + leaseDurationMillis,
             )
-            writeStringAtomically(leasePath, encodeLease(lease))
+            atomicWriter.write(leasePath, encodeLease(lease))
             lease
         }
     }
@@ -88,7 +89,7 @@ class FileWorkflowLeaseStore(
                 checkpointRevision = checkpointRevision,
                 expiresAtEpochMillis = now + leaseDurationMillis,
             )
-            writeStringAtomically(leasePath, encodeLease(renewed))
+            atomicWriter.write(leasePath, encodeLease(renewed))
             renewed
         }
     }
