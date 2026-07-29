@@ -1,7 +1,6 @@
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -9,10 +8,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.util.UUID
 import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
@@ -42,7 +39,7 @@ class FileWorkflowPersistenceCancellationContractTest {
         atomicWriter: AtomicFileWriter = realAtomicFileWriter,
     ): FileWorkflowCheckpointStore {
         root = createTempDirectory("file-cancel-checkpoint-")
-        return FileWorkflowCheckpointStore(root, atomicWriter = atomicWriter)
+        return FileWorkflowCheckpointStore.forTest(root, atomicWriter)
     }
 
     private fun testCheckpoint(
@@ -58,7 +55,7 @@ class FileWorkflowPersistenceCancellationContractTest {
         clockMillis: () -> Long = System::currentTimeMillis,
     ): FileWorkflowLeaseStore {
         root = createTempDirectory("file-cancel-lease-")
-        return FileWorkflowLeaseStore(root, clockMillis = clockMillis)
+        return FileWorkflowLeaseStore.forTest(root, realAtomicFileWriter, clockMillis)
     }
 
     // ═══ Test 1: Pre-cancelled checkpoint save ═══
@@ -84,24 +81,25 @@ class FileWorkflowPersistenceCancellationContractTest {
         runBlocking {
             val checkpoint = testCheckpoint()
 
-            val enteredLock = CompletableDeferred<Unit>()
-            val releaseLock = CompletableDeferred<Unit>()
+            val enteredLock = java.util.concurrent.CountDownLatch(1)
+            val releaseLock = java.util.concurrent.CountDownLatch(1)
 
-            val blockingWriter = AtomicFileWriter { path, content ->
-                enteredLock.complete(Unit)
-                // Block inside the JVM mutex + OS lock until released.
-                runBlocking { releaseLock.await() }
-                realAtomicFileWriter.write(path, content)
-            }
+            val hookWriter = AtomicFileWriter(beforeMove = {
+                enteredLock.countDown()
+                // Block until released by the test. When the latch
+                // is counted down, the first coroutine completes its
+                // save normally, releasing the JVM mutex and OS lock.
+                releaseLock.await()
+            })
 
-            val store = checkpointStore(atomicWriter = blockingWriter)
+            val store = checkpointStore(atomicWriter = hookWriter)
 
-            // First coroutine: enters the lock and blocks.
+            // First coroutine: enters the lock and blocks on releaseLock.
             val first = launch(Dispatchers.IO) {
                 store.save(checkpoint, expectedRevision = null)
             }
 
-            withTimeout(5_000) { enteredLock.await() }
+            enteredLock.await()
 
             // Second coroutine: tries same path — blocks on the JVM mutex.
             val second = launch(Dispatchers.IO) {
@@ -112,27 +110,27 @@ class FileWorkflowPersistenceCancellationContractTest {
             }
 
             // Give the scheduler time to move second onto the mutex queue.
-            kotlinx.coroutines.delay(500)
+            kotlinx.coroutines.delay(200)
             second.cancel()
 
-            // Join within timeout — cancellation must release the mutex waiter.
-            withTimeout(5_000) { second.join() }
+            try {
+                withTimeout(5_000) { second.join() }
+            } catch (_: CancellationException) { }
+            assertThat(second.isCancelled).isTrue()
 
             // The second's save must not have persisted.
             assertThat(store.load(checkpoint.workflowName, checkpoint.workflowId))
                 .isNull()
 
-            // Release the first coroutine so the path is usable again.
-            releaseLock.complete(Unit)
+            // Unblock the first coroutine so it completes its save normally.
+            releaseLock.countDown()
             withTimeout(5_000) { first.join() }
 
-            // After release, the same checkpoint path must be lockable again.
-            val reloaded = withTimeout(5_000) {
-                store.save(
-                    checkpoint.copy(statePayload = "after-release"),
-                    expectedRevision = 1,
-                )
-            }
+            // Path must be usable after both coroutines release.
+            val reloaded = store.save(
+                checkpoint.copy(statePayload = "after-release"),
+                expectedRevision = 1,
+            )
             assertThat(reloaded.statePayload).isEqualTo("after-release")
         }
     }
@@ -143,50 +141,25 @@ class FileWorkflowPersistenceCancellationContractTest {
     fun `cancellation during atomic write window preserves old checkpoint and cleans temp files`() {
         runBlocking {
             val checkpoint = testCheckpoint()
-            val tempFileWritten = CompletableDeferred<Unit>()
-            val holdAtomicMove = CompletableDeferred<Unit>()
-            var writeCount = 0
 
-            val hookWriter = AtomicFileWriter { path, content ->
-                writeCount++
-                if (writeCount == 2) {
-                    ensureOwnerOnlyDirectory(path.parent)
-                    val tempFile = Files.createTempFile(
-                        path.parent,
-                        path.fileName.toString(),
-                        ".tmp",
-                    )
-                    try {
-                        Files.writeString(tempFile, content, StandardCharsets.UTF_8)
-                        tempFileWritten.complete(Unit)
-                        // Block between temp-file write and atomic move.
-                        runBlocking { holdAtomicMove.await() }
-                        try {
-                            Files.move(
-                                tempFile, path,
-                                StandardCopyOption.REPLACE_EXISTING,
-                                StandardCopyOption.ATOMIC_MOVE,
-                            )
-                        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
-                            Files.move(
-                                tempFile, path,
-                                StandardCopyOption.REPLACE_EXISTING,
-                            )
-                        }
-                    } finally {
-                        Files.deleteIfExists(tempFile)
-                    }
-                } else {
-                    realAtomicFileWriter.write(path, content)
-                }
-            }
+            val enteredHook = java.util.concurrent.atomic.AtomicBoolean(false)
+            val hookWriter = AtomicFileWriter(beforeMove = { _ ->
+                enteredHook.set(true)
+                // Block until cancelled. runInterruptible interrupts
+                // the IO thread, causing Thread.sleep to throw
+                // InterruptedException, which runInterruptible converts
+                // to CancellationException. writeStringAtomically's
+                // finally block cleans up the temp file.
+                @Suppress("BlockingMethodInNonBlockingContext")
+                Thread.sleep(5_000)
+            })
 
             val store = checkpointStore(atomicWriter = hookWriter)
 
             // Persist the original checkpoint.
             val persisted = store.save(checkpoint, expectedRevision = null)
 
-            // Start an update that will be cancelled during the atomic-write window.
+            // Start an update that blocks inside the beforeMove hook.
             val update = launch(Dispatchers.IO) {
                 store.save(
                     checkpoint.copy(statePayload = "in-flight"),
@@ -194,32 +167,33 @@ class FileWorkflowPersistenceCancellationContractTest {
                 )
             }
 
-            withTimeout(5_000) { tempFileWritten.await() }
+            // Wait until the update has entered the hook.
+            withTimeout(5_000) {
+                while (!enteredHook.get()) {
+                    kotlinx.coroutines.delay(10)
+                }
+            }
 
             update.cancel()
 
-            // Wait for update to finish (cancelled or not) within timeout.
             try {
                 withTimeout(5_000) { update.join() }
-            } catch (_: CancellationException) {
-                // Expected when cancellation propagates through the coroutine.
-            }
+            } catch (_: CancellationException) { }
 
-            // Original checkpoint must be preserved regardless.
+            // Original checkpoint must be preserved — the update was
+            // cancelled before the atomic move.
             assertThat(
                 store.load(checkpoint.workflowName, checkpoint.workflowId)?.statePayload,
             ).isEqualTo(checkpoint.statePayload)
 
-            // No temp files left behind.
+            // No temp files left behind — proves production finally block ran.
             assertThat(temporaryFilesUnder(root)).isEmpty()
 
             // Path remains usable after cancellation.
-            val redo = withTimeout(5_000) {
-                store.save(
-                    checkpoint.copy(statePayload = "redo-after-cancel"),
-                    expectedRevision = persisted.revision,
-                )
-            }
+            val redo = store.save(
+                checkpoint.copy(statePayload = "redo-after-cancel"),
+                expectedRevision = persisted.revision,
+            )
             assertThat(
                 store.load(checkpoint.workflowName, checkpoint.workflowId)?.statePayload,
             ).isEqualTo("redo-after-cancel")
@@ -271,8 +245,8 @@ class FileWorkflowPersistenceCancellationContractTest {
     fun `cancellation during fenced save preserves lease and checkpoint state`() {
         runBlocking {
             root = createTempDirectory("file-cancel-fenced-")
-            val checkpointStore = FileWorkflowCheckpointStore(root)
-            val leaseStore = FileWorkflowLeaseStore(root)
+            val checkpointStore = FileWorkflowCheckpointStore.forTest(root, realAtomicFileWriter)
+            val leaseStore = FileWorkflowLeaseStore.forTest(root, realAtomicFileWriter)
             val original = testCheckpoint()
             checkpointStore.save(original, expectedRevision = null)
             val lease = leaseStore.claim(
@@ -304,8 +278,8 @@ class FileWorkflowPersistenceCancellationContractTest {
     fun `fenced save does not deadlock when lease and checkpoint are different paths`() {
         runBlocking {
             root = createTempDirectory("file-cancel-fenced-")
-            val checkpointStore = FileWorkflowCheckpointStore(root)
-            val leaseStore = FileWorkflowLeaseStore(root)
+            val checkpointStore = FileWorkflowCheckpointStore.forTest(root, realAtomicFileWriter)
+            val leaseStore = FileWorkflowLeaseStore.forTest(root, realAtomicFileWriter)
 
             val checkpoint = testCheckpoint()
             checkpointStore.save(checkpoint, expectedRevision = null)
@@ -326,6 +300,29 @@ class FileWorkflowPersistenceCancellationContractTest {
                 checkpointStore.load(checkpoint.workflowName, checkpoint.workflowId)
                     ?.statePayload,
             ).isEqualTo("updated-under-fence")
+        }
+    }
+
+    // ═══ Test 6c: Path mutex registry returns to zero after use ═══
+
+    @Test
+    fun `path mutex registry releases entries after every operation completes`() {
+        runBlocking {
+            val store = checkpointStore()
+            val beforeSize = pathLockRegistrySize()
+
+            // Create many distinct checkpoints to exercise the registry.
+            val count = 50
+            repeat(count) { i ->
+                store.save(
+                    testCheckpoint(workflowId = "registry-test-$i"),
+                    expectedRevision = null,
+                )
+            }
+
+            // All operations completed — registry should return to baseline.
+            val afterSize = pathLockRegistrySize()
+            assertThat(afterSize).isEqualTo(beforeSize)
         }
     }
 

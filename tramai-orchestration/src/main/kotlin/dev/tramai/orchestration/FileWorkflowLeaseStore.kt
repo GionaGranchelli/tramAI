@@ -7,12 +7,34 @@ import java.util.UUID
 /**
  * Plain file-backed lease store for local and single-filesystem deployments that still need active ownership.
  */
-class FileWorkflowLeaseStore(
+class FileWorkflowLeaseStore private constructor(
     private val rootDirectory: Path,
-    private val pathStrategy: WorkflowCheckpointPathStrategy = DefaultWorkflowCheckpointPathStrategy("lease.properties"),
+    private val pathStrategy: WorkflowCheckpointPathStrategy =
+        DefaultWorkflowCheckpointPathStrategy("lease.properties"),
     private val clockMillis: () -> Long = System::currentTimeMillis,
     private val atomicWriter: AtomicFileWriter = realAtomicFileWriter,
 ) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence {
+
+    constructor(
+        rootDirectory: Path,
+        pathStrategy: WorkflowCheckpointPathStrategy =
+            DefaultWorkflowCheckpointPathStrategy("lease.properties"),
+        clockMillis: () -> Long = System::currentTimeMillis,
+    ) : this(rootDirectory, pathStrategy, clockMillis, realAtomicFileWriter)
+
+    internal companion object {
+        fun forTest(
+            rootDirectory: Path,
+            atomicWriter: AtomicFileWriter,
+            clockMillis: () -> Long = System::currentTimeMillis,
+        ) = FileWorkflowLeaseStore(
+            rootDirectory,
+            DefaultWorkflowCheckpointPathStrategy("lease.properties"),
+            clockMillis,
+            atomicWriter,
+        )
+    }
+
     override suspend fun currentLease(
         workflowName: String,
         workflowId: String,
