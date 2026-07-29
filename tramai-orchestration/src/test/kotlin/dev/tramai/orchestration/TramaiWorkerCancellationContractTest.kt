@@ -113,13 +113,13 @@ class TramaiWorkerCancellationContractTest {
             checkpointStore.load(workflow.name, runId) != null &&
                 checkpointStore.latestStepAttempt(runId, "blocking")?.status ==
                 StepAttemptStatus.CANCELLED &&
-                leaseStore.listActiveWorkers().isEmpty()
+                leaseStore.listActiveWorkers().isEmpty() &&
+                leaseStore.currentLease(workflow.name, runId) == null
         }
         assertThat(checkpointStore.latestStepAttempt(runId, "blocking")?.status)
             .isEqualTo(StepAttemptStatus.CANCELLED)
         assertThat(leaseStore.listActiveWorkers()).isEmpty()
         assertThat(worker.latestFailure(runId)).isNull()
-        assertThat(leaseStore.currentLease(workflow.name, runId)).isNull()
     }
 
     // -------------------------------------------------------------------------

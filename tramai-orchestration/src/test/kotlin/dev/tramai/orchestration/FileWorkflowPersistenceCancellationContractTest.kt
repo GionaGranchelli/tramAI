@@ -97,8 +97,9 @@ class FileWorkflowPersistenceCancellationContractTest {
                 store.save(checkpoint, expectedRevision = null)
             }
 
-            enteredLock.await(5, java.util.concurrent.TimeUnit.SECONDS)
-            assertThat(first.isActive).`as`("first coroutine entered the lock").isTrue()
+            assertThat(
+                enteredLock.await(5, java.util.concurrent.TimeUnit.SECONDS),
+            ).`as`("first coroutine entered the atomic-write hook").isTrue()
 
             // Second coroutine: undispatched so it reaches the Mutex
             // suspension before control returns to this thread.
