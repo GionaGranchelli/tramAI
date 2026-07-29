@@ -152,23 +152,28 @@ class TramaiWorkerCancellationContractTest {
         }
 
         // Shutdown — observer throws, but cancellation and lease release survive
-        worker.shutdown()
+        withTimeout(5_000) {
+            worker.shutdown()
+        }
 
-        // Observer was called
-        assertThat(observer.onWorkflowAbandonedCalled).isTrue()
+        // Observer was called (wait for async abandonment callback)
+        withTimeout(5_000) {
+            observer.abandonmentCalled.await()
+        }
 
-        // Step was cancelled (not failed)
+        // Step was cancelled (not failed) — wait for async cleanup
+        waitUntil {
+            checkpointStore.latestStepAttempt(runId, "blocking")?.status ==
+                StepAttemptStatus.CANCELLED &&
+                leaseStore.currentLease(workflow.name, runId) == null
+        }
+
         assertThat(
             checkpointStore.latestStepAttempt(runId, "blocking")?.status,
         ).isEqualTo(StepAttemptStatus.CANCELLED)
 
         // No normal failure was recorded
         assertThat(worker.latestFailure(runId)).isNull()
-
-        // Lease was released despite observer failure
-        waitUntil {
-            leaseStore.currentLease(workflow.name, runId) == null
-        }
     }
 
     // -------------------------------------------------------------------------
@@ -279,14 +284,14 @@ class TramaiWorkerCancellationContractTest {
     // -------------------------------------------------------------------------
 
     private class ThrowingOnAbandonObserver : TramaiWorkerObserver {
-        var onWorkflowAbandonedCalled = false
+        val abandonmentCalled = CompletableDeferred<Unit>()
         override fun onWorkflowAbandoned(
             workflowId: String,
             workerId: String,
             lastStep: String?,
             timeoutMillis: Long,
         ) {
-            onWorkflowAbandonedCalled = true
+            abandonmentCalled.complete(Unit)
             throw RuntimeException("observer abandon failure")
         }
     }
