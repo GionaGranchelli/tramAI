@@ -1,13 +1,8 @@
 package dev.tramai.orchestration
+
 import java.sql.SQLException
 import javax.sql.DataSource
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.runInterruptible
-import kotlinx.coroutines.withContext
+
 /**
  * JDBC-backed lease store for multi-node workflow ownership.
  *
@@ -74,7 +69,7 @@ class JdbcWorkflowLeaseStore(
                 statement.setLong(7, now)
                 val updated = statement.executeUpdate()
                 if (updated == 0) {
-                    val existing = loadLease(connection, lease.workflowName, lease.workflowId)
+                    val existing = loadLease(conn, lease.workflowName, lease.workflowId)
                     throw renewalConflict(
                         attempted = lease,
                         existing = existing,
@@ -118,9 +113,9 @@ class JdbcWorkflowLeaseStore(
         require(jdbcCheckpointStore.dataSource === dataSource) {
             "JdbcWorkflowLeaseStore can only fence JdbcWorkflowCheckpointStore instances that share the same DataSource"
         }
-        return withTransaction { connection ->
-            lockLeaseRow(connection, expectedLease)
-            jdbcCheckpointStore.saveInConnection(connection, checkpoint, expectedRevision)
+        return executeJdbcCancellable(dataSource, transactional = true) { conn ->
+            lockLeaseRow(conn, expectedLease)
+            jdbcCheckpointStore.saveInConnection(conn, checkpoint, expectedRevision)
         }
     }
 
@@ -136,9 +131,9 @@ class JdbcWorkflowLeaseStore(
         require(jdbcCheckpointStore.dataSource === dataSource) {
             "JdbcWorkflowLeaseStore can only fence JdbcWorkflowCheckpointStore instances that share the same DataSource"
         }
-        withTransaction { connection ->
-            lockLeaseRow(connection, expectedLease)
-            jdbcCheckpointStore.deleteInConnection(connection, workflowName, workflowId, expectedRevision)
+        executeJdbcCancellable(dataSource, transactional = true) { conn ->
+            lockLeaseRow(conn, expectedLease)
+            jdbcCheckpointStore.deleteInConnection(conn, workflowName, workflowId, expectedRevision)
         }
     }
     fun createTableSql(): String = """
@@ -275,35 +270,6 @@ class JdbcWorkflowLeaseStore(
                         "Workflow '${expectedLease.workflowName}' and workflowId='${expectedLease.workflowId}' is now fenced by lease '${existing.leaseId}' owned by '${existing.ownerId}'",
                     )
                 }
-            }
-        }
-    }
-
-    private suspend fun <T> withTransaction(block: (java.sql.Connection) -> T): T = withContext(Dispatchers.IO) {
-        val connection = dataSource.connection
-        val previousAutoCommit = connection.autoCommit
-        connection.autoCommit = false
-        try {
-            val result = runInterruptible { block(connection) }
-            currentCoroutineContext().ensureActive()
-            runInterruptible { connection.commit() }
-            result
-        } catch (error: Throwable) {
-            if (error is CancellationException) {
-                withContext(NonCancellable + Dispatchers.IO) {
-                    runInterruptible { connection.rollback() }
-                }
-            } else {
-                runInterruptible { connection.rollback() }
-            }
-            error.addSuppressed(
-                RuntimeException("Rollback completed for: ${error.message}"),
-            )
-            throw error
-        } finally {
-            runInterruptible {
-                connection.autoCommit = previousAutoCommit
-                connection.close()
             }
         }
     }

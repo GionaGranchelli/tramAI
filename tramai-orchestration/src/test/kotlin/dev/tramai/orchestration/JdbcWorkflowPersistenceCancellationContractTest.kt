@@ -1,8 +1,10 @@
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -70,6 +72,24 @@ class JdbcWorkflowPersistenceCancellationContractTest {
         metadata = mapOf("test" to "true"),
     )
 
+    /** Await [deferred] until it completes, expecting [CancellationException]. */
+    private suspend fun awaitCancellation(deferred: Deferred<*>): CancellationException {
+        val failure = try {
+            withTimeout(1_000) {
+                deferred.await()
+            }
+            throw AssertionError("Expected cancellation but operation completed normally")
+        } catch (error: TimeoutCancellationException) {
+            throw AssertionError("Operation did not respond to cancellation within timeout", error)
+        } catch (error: CancellationException) {
+            error
+        }
+        assertThat(failure)
+            .`as`("cancellation exception must not be a TimeoutCancellationException")
+            .isNotInstanceOf(TimeoutCancellationException::class.java)
+        return failure
+    }
+
     @Test
     fun `pre-cancelled checkpoint save throws CancellationException and persists nothing`() {
         runBlocking {
@@ -94,10 +114,7 @@ class JdbcWorkflowPersistenceCancellationContractTest {
             }
             Thread.sleep(100)
             job.cancel()
-            val thrown = try {
-                withTimeout(5_000) { deferred.await() }; null
-            } catch (e: CancellationException) { e }
-            assertThat(thrown).isInstanceOf(CancellationException::class.java)
+            awaitCancellation(deferred)
             blockOnGetConnection.countDown()
         }
     }
@@ -119,12 +136,15 @@ class JdbcWorkflowPersistenceCancellationContractTest {
             assertThat(queryStarted.await(5, TimeUnit.SECONDS))
                 .`as`("query started").isTrue()
             job.cancel()
-            val thrown = try {
-                withTimeout(5_000) { deferred.await() }; null
-            } catch (e: CancellationException) { e }
-            assertThat(thrown).isInstanceOf(CancellationException::class.java)
+            val thrown = awaitCancellation(deferred)
+            val blockingStmt = statementRef.get() as? BlockingPreparedStatement
+            assertThat(blockingStmt)
+                .`as`("statement proxy was captured").isNotNull
+            assertThat(blockingStmt!!.isCancelled())
+                .`as`("Statement.cancel() was called").isTrue()
+            assertThat(blockingStmt.isClosed())
+                .`as`("statement was closed").isTrue()
             blockOnQuery.countDown()
-            // verify no further errors when checking statement
         }
     }
 
@@ -145,10 +165,7 @@ class JdbcWorkflowPersistenceCancellationContractTest {
             assertThat(updateStarted.await(5, TimeUnit.SECONDS))
                 .`as`("update started").isTrue()
             job.cancel()
-            val thrown = try {
-                withTimeout(5_000) { deferred.await() }; null
-            } catch (e: CancellationException) { e }
-            assertThat(thrown).isInstanceOf(CancellationException::class.java)
+            awaitCancellation(deferred)
             // Release latch for cleanup — cancellation should have interrupted the latch
             blockOnUpdate.countDown()
         }
@@ -185,10 +202,7 @@ class JdbcWorkflowPersistenceCancellationContractTest {
                 .`as`("fenced save update started").isTrue()
 
             job.cancel()
-            val thrown = try {
-                withTimeout(5_000) { deferred.await() }; null
-            } catch (e: CancellationException) { e }
-            assertThat(thrown).isInstanceOf(CancellationException::class.java)
+            awaitCancellation(deferred)
             blockOnUpdate.countDown()
 
             val reloaded = checkpointStore.load(cp.workflowName, cp.workflowId)
@@ -228,10 +242,7 @@ class JdbcWorkflowPersistenceCancellationContractTest {
                 .`as`("commit started").isTrue()
 
             job.cancel()
-            val thrown = try {
-                withTimeout(5_000) { deferred.await() }; null
-            } catch (e: CancellationException) { e }
-            assertThat(thrown).isInstanceOf(CancellationException::class.java)
+            awaitCancellation(deferred)
 
             // Check checkpoint state BEFORE releasing commit latch — cancellation
             // should have interrupted the commit via thread interruption
@@ -274,10 +285,7 @@ class JdbcWorkflowPersistenceCancellationContractTest {
                 .`as`("fenced save update started").isTrue()
 
             job.cancel()
-            val thrown = try {
-                withTimeout(5_000) { deferred.await() }; null
-            } catch (e: CancellationException) { e }
-            assertThat(thrown).isInstanceOf(CancellationException::class.java)
+            awaitCancellation(deferred)
             blockOnUpdate.countDown()
         }
     }
@@ -302,10 +310,7 @@ class JdbcWorkflowPersistenceCancellationContractTest {
                 .`as`("lease claim update started").isTrue()
 
             job.cancel()
-            val thrown = try {
-                withTimeout(5_000) { deferred.await() }; null
-            } catch (e: CancellationException) { e }
-            assertThat(thrown).isInstanceOf(CancellationException::class.java)
+            awaitCancellation(deferred)
 
             // Check lease state BEFORE releasing update latch — cancellation
             // should have interrupted the latch via thread interruption

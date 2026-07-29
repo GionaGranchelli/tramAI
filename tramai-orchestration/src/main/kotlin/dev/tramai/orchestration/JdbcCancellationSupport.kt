@@ -2,6 +2,8 @@ package dev.tramai.orchestration
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -9,102 +11,49 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import java.sql.Connection
 import java.sql.Statement
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import javax.sql.DataSource
 
 /**
- * Execution context for a single JDBC operation that tracks the active statement
- * so it can be cancelled via [Statement.cancel] when the coroutine is cancelled.
+ * Tracks the active [Statement] for a single JDBC operation so that
+ * [requestCancellation] can be called when the coroutine is cancelled.
+ *
+ * This class deliberately does NOT expose a `connection` property so that
+ * call sites always use the tracked proxy passed as the lambda parameter.
  */
-internal class JdbcOperationContext(
-    /** The underlying JDBC connection used by this operation. */
-    val connection: Connection,
-) {
+internal class JdbcOperationContext {
     private val activeStatement = AtomicReference<Statement?>(null)
+    private val cancellationRequested = AtomicBoolean(false)
 
-    /** Register the currently executing statement for cancellation. */
+    /** Register a statement for cancellation. */
     fun attachStatement(statement: Statement) {
+        if (cancellationRequested.get()) {
+            // Cancellation was already triggered — cancel immediately.
+            try {
+                statement.cancel()
+            } catch (_: Exception) {
+                // Best-effort; the original CancellationException is already in flight.
+            }
+            return
+        }
         activeStatement.set(statement)
     }
 
-    /** Cancel the active statement if any. */
-    fun cancelActiveStatement() {
+    /**
+     * Cancel the currently active statement (if any) and remember that
+     * cancellation has been requested so any subsequently attached statements
+     * are cancelled immediately.
+     */
+    fun requestCancellation() {
+        cancellationRequested.set(true)
         activeStatement.getAndSet(null)?.cancel()
     }
 }
 
 /**
- * Execute [block] with a JDBC connection obtained from [dataSource], supporting
- * coroutine cancellation at any point.
- *
- * * All blocking JDBC operations run on [Dispatchers.IO] with [runInterruptible].
- * * On cancellation, the active [Statement.cancel] is called under [NonCancellable]
- *   and the IO thread is interrupted via [runInterruptible].
- * * When [transactional] is `true`, the connection uses manual commit. If the block
- *   completes successfully, [commit] is called (after [ensureActive] to prevent
- *   post-cancellation commits). On cancellation or other failure, [rollback] is
- *   called under [NonCancellable].
- */
-internal suspend fun <T> executeJdbcCancellable(
-    dataSource: DataSource,
-    transactional: Boolean = false,
-    block: JdbcOperationContext.(Connection) -> T,
-): T = withContext(Dispatchers.IO) {
-    val connection = dataSource.connection
-    val ctx = JdbcOperationContext(connection)
-    val wrappedConnection = connection.trackedConnection(ctx)
-    var previousAutoCommit: Boolean? = null
-    if (transactional) {
-        previousAutoCommit = connection.autoCommit
-        connection.autoCommit = false
-    }
-    try {
-        runInterruptible {
-            ctx.block(wrappedConnection)
-        }
-    } catch (e: CancellationException) {
-        withContext(NonCancellable + Dispatchers.IO) {
-            runInterruptible {
-                try {
-                    ctx.cancelActiveStatement()
-                } catch (t: Throwable) {
-                    e.addSuppressed(t)
-                }
-                try {
-                    if (transactional) connection.rollback()
-                } catch (t: Throwable) {
-                    e.addSuppressed(t)
-                }
-            }
-        }
-        throw e
-    } catch (e: Throwable) {
-        if (transactional) {
-            runInterruptible {
-                try {
-                    connection.rollback()
-                } catch (rollbackError: Throwable) {
-                    e.addSuppressed(rollbackError)
-                }
-            }
-        }
-        throw e
-    } finally {
-        runInterruptible {
-            try {
-                if (transactional && previousAutoCommit != null) {
-                    connection.autoCommit = previousAutoCommit
-                }
-            } finally {
-                connection.close()
-            }
-        }
-    }
-}
-
-/**
  * Wraps a [Connection] so that every [prepareStatement] and [createStatement] call
- * automatically registers the statement with [JdbcOperationContext] for cancellation.
+ * automatically registers the statement with [ctx] for cancellation.
  */
 private fun Connection.trackedConnection(ctx: JdbcOperationContext): Connection {
     val delegate = this
@@ -174,6 +123,103 @@ private fun Connection.trackedConnection(ctx: JdbcOperationContext): Connection 
             val stmt = delegate.createStatement(resultSetType, resultSetConcurrency, resultSetHoldability)
             ctx.attachStatement(stmt)
             return stmt
+        }
+    }
+}
+
+/**
+ * Execute [block] with a JDBC connection obtained from [dataSource], supporting
+ * coroutine cancellation at any point.
+ *
+ * * All blocking JDBC operations run on [Dispatchers.IO] with [runInterruptible].
+ * * Connection acquisition (`dataSource.connection`) runs inside [runInterruptible].
+ * * Before the blocking call, an [invokeOnCompletion] handle is registered so that
+ *   [JdbcOperationContext.requestCancellation] fires **before** the blocking operation
+ *   returns — this calls [Statement.cancel] on the active statement concurrently even
+ *   when the JDBC driver ignores thread interruption.
+ * * On cancellation, the active statement is cancelled, the transaction is rolled back
+ *   (when [transactional] is true), and cleanup failures are suppressed onto the
+ *   original [CancellationException].
+ * * Auto-commit restoration and connection closing run under [NonCancellable].
+ * * The block parameter is a [Connection] proxy that auto-registers statements;
+ *   there is no receiver so accidental raw-connection access is not representable.
+ */
+@OptIn(InternalCoroutinesApi::class)
+internal suspend fun <T> executeJdbcCancellable(
+    dataSource: DataSource,
+    transactional: Boolean = false,
+    block: (Connection) -> T,
+): T = withContext(Dispatchers.IO) {
+    val connection = runInterruptible(Dispatchers.IO) {
+        dataSource.connection
+    }
+    val ctx = JdbcOperationContext()
+    val wrappedConnection = connection.trackedConnection(ctx)
+
+    var previousAutoCommit: Boolean? = null
+    if (transactional) {
+        previousAutoCommit = connection.autoCommit
+        connection.autoCommit = false
+    }
+
+    // Register a handle that fires on cancellation BEFORE the blocking call returns.
+    val job = currentCoroutineContext()[Job]
+    val cancellationHandle = job?.invokeOnCompletion(onCancelling = true) { cause ->
+        if (cause is CancellationException) {
+            ctx.requestCancellation()
+        }
+    }
+
+    try {
+        val result = runInterruptible {
+            block(wrappedConnection)
+        }
+        if (transactional) {
+            runInterruptible {
+                ensureActive()
+                connection.commit()
+            }
+        }
+        result
+    } catch (e: CancellationException) {
+        withContext(NonCancellable + Dispatchers.IO) {
+            runInterruptible {
+                try {
+                    ctx.requestCancellation()
+                } catch (t: Throwable) {
+                    e.addSuppressed(t)
+                }
+                try {
+                    if (transactional) connection.rollback()
+                } catch (t: Throwable) {
+                    e.addSuppressed(t)
+                }
+            }
+        }
+        throw e
+    } catch (e: Throwable) {
+        if (transactional) {
+            runInterruptible {
+                try {
+                    connection.rollback()
+                } catch (rollbackError: Throwable) {
+                    e.addSuppressed(rollbackError)
+                }
+            }
+        }
+        throw e
+    } finally {
+        cancellationHandle?.dispose()
+        withContext(NonCancellable + Dispatchers.IO) {
+            runInterruptible {
+                try {
+                    if (transactional && previousAutoCommit != null) {
+                        connection.autoCommit = previousAutoCommit
+                    }
+                } finally {
+                    connection.close()
+                }
+            }
         }
     }
 }
