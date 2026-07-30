@@ -139,18 +139,20 @@ class JdbcWorkflowPersistenceCancellationContractTest {
             // The interrupt-ignoring proxy only unblocks when Statement.cancel()
             // is called by the invokeOnCompletion handler. If the handler fires
             // correctly, the deferred completes within the timeout; if not, the
-            // test times out. The exception type is SQLException (the proxy's
-            // cancellation signal), not CancellationException — that's expected
-            // for interrupt-ignoring drivers.
-            try {
-                withTimeout(5_000) {
-                    deferred.await()
+            // test times out. The thrown exception is a CancellationException
+            // (the async machinery wraps our promoted exception), proving the
+            // caller never sees the raw SQLException from Statement.cancel().
+            val thrown = try {
+                withTimeout(5_000) { deferred.await() }
+                null
+            } catch (e: CancellationException) {
+                if (e is TimeoutCancellationException) {
+                    throw AssertionError("invokeOnCompletion handler did not call Statement.cancel()")
                 }
-            } catch (_: SQLException) {
-                // Expected — proxy threw after Statement.cancel() released it.
-            } catch (_: TimeoutCancellationException) {
-                throw AssertionError("invokeOnCompletion handler did not call Statement.cancel()")
+                e
             }
+            assertThat(thrown)
+                .`as`("cancellation is preserved as primary exception").isNotNull
             val blockingStmt = statementRef.get()
             assertThat(blockingStmt)
                 .`as`("statement proxy was captured").isNotNull

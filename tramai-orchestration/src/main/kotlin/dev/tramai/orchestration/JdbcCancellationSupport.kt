@@ -59,6 +59,12 @@ internal class JdbcOperationContext {
     }
 
     /**
+     * Returns `true` if [requestCancellation] has been called, meaning
+     * the coroutine was cancelled and the handler fired.
+     */
+    fun isCancellationRequested(): Boolean = cancellationRequested.get()
+
+    /**
      * Returns any failure from [Statement.cancel] that was captured during
      * cancellation, or `null` if cancellation succeeded or was not triggered.
      */
@@ -70,6 +76,20 @@ internal class JdbcOperationContext {
             statement.cancel()
         } catch (failure: SQLException) {
             cancellationFailure.compareAndSet(null, failure)
+        }
+    }
+}
+
+/**
+ * Roll back [connection] under [NonCancellable], suppressing any
+ * [SQLException] from the rollback onto [primary].
+ */
+private suspend fun rollbackSuppressing(connection: Connection, primary: Throwable) {
+    withContext(NonCancellable + Dispatchers.IO) {
+        try {
+            runInterruptible { connection.rollback() }
+        } catch (rollbackFailure: SQLException) {
+            primary.addSuppressed(rollbackFailure)
         }
     }
 }
@@ -177,7 +197,11 @@ internal suspend fun <T> executeJdbcCancellable(
     dataSource: DataSource,
     transactional: Boolean = false,
     block: (Connection) -> T,
-): T = withContext(Dispatchers.IO) {
+): T {
+    // Capture the parent Job before withContext so the cancellation handler
+    // is registered on the correct job (not the internally managed one).
+    val parentJob = currentCoroutineContext()[Job]
+    return withContext(Dispatchers.IO) {
     val connection = runInterruptible(Dispatchers.IO) {
         dataSource.connection
     }
@@ -198,8 +222,7 @@ internal suspend fun <T> executeJdbcCancellable(
         }
 
         // Register a handle that fires on cancellation BEFORE the blocking call returns.
-        val job = currentCoroutineContext()[Job]
-        cancellationHandle = job?.invokeOnCompletion(onCancelling = true) { cause ->
+        cancellationHandle = parentJob?.invokeOnCompletion(onCancelling = true) { cause ->
             if (cause is CancellationException) {
                 ctx.requestCancellation()
             }
@@ -216,32 +239,43 @@ internal suspend fun <T> executeJdbcCancellable(
         }
         result
     } catch (e: CancellationException) {
-        primaryFailure.set(e)
         ctx.takeCancellationFailure()?.let(e::addSuppressed)
         if (transactional) {
-            withContext(NonCancellable + Dispatchers.IO) {
-                runInterruptible {
-                    try {
-                        connection.rollback()
-                    } catch (rollbackError: SQLException) {
-                        e.addSuppressed(rollbackError)
-                    }
-                }
-            }
+            rollbackSuppressing(connection, e)
         }
+        primaryFailure.set(e)
         throw e
     } catch (e: Exception) {
-        // The scanner requires rethrowIfCancellation() as the first statement.
+        // Scanner-required: rethrow cancellation before processing.
         e.rethrowIfCancellation()
+        // For non-cancellation failures, check whether the coroutine was
+        // cancelled but the JDBC driver responded with SQLException.
+        // Use ensureActive which reliably detects cancellation regardless
+        // of which Job is in the context.
+        var wasCancelled = ctx.isCancellationRequested()
+        if (!wasCancelled) {
+            try {
+                ensureActive()
+            } catch (_: CancellationException) {
+                wasCancelled = true
+            }
+        }
+        if (wasCancelled) {
+            val cancellation = CancellationException(
+                "Operation was cancelled while executing JDBC operation",
+            )
+            cancellation.addSuppressed(e)
+            ctx.takeCancellationFailure()?.let(cancellation::addSuppressed)
+            primaryFailure.set(cancellation)
+            if (transactional) {
+                rollbackSuppressing(connection, cancellation)
+            }
+            throw cancellation
+        }
+
         primaryFailure.set(e)
         if (transactional) {
-            withContext(NonCancellable + Dispatchers.IO) {
-                try {
-                    runInterruptible { connection.rollback() }
-                } catch (rollbackError: SQLException) {
-                    e.addSuppressed(rollbackError)
-                }
-            }
+            rollbackSuppressing(connection, e)
         }
         throw e
     } finally {
@@ -281,4 +315,5 @@ internal suspend fun <T> executeJdbcCancellable(
             }
         }
     }
+}
 }
