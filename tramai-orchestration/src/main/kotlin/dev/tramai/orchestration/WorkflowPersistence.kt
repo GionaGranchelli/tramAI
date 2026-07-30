@@ -1,5 +1,41 @@
 package dev.tramai.orchestration
 import java.time.Instant
+
+/**
+ * Machine-readable reason why a workflow entered recovery-required state.
+ */
+enum class WorkflowRecoveryReason {
+    /** A non-replayable step completed with an unknown outcome — manual confirmation required. */
+    NON_REPLAYABLE_OUTCOME_UNKNOWN,
+    /** An externally idempotent step is missing its idempotency key — cannot safely retry. */
+    EXTERNAL_IDEMPOTENCY_KEY_MISSING,
+}
+
+/**
+ * Record explaining why a checkpoint is in recovery-required state and the context
+ * of the unresolved step attempt.
+ */
+data class WorkflowRecoveryRecord(
+    val reason: WorkflowRecoveryReason,
+    val stepName: String,
+    val attemptId: String,
+    val priorWorkerId: String,
+    val detectedAtEpochMillis: Long,
+    val idempotencyKey: String? = null,
+    val instructions: String? = null,
+)
+
+/**
+ * Durable recovery state for a workflow checkpoint.
+ *
+ * Default is [Normal]. Workflows with [Required] state are skipped by workers
+ * until an operator resolves them via [WorkflowRecoveryController].
+ */
+sealed interface WorkflowRecoveryState {
+    data object Normal : WorkflowRecoveryState
+    data class Required(val record: WorkflowRecoveryRecord) : WorkflowRecoveryState
+}
+
 /**
  * Serialized checkpoint for one workflow run.
  *
@@ -15,6 +51,7 @@ data class WorkflowCheckpoint(
     val revision: Long = 0,
     val metadata: Map<String, String> = emptyMap(),
     val savedAtEpochMillis: Long = System.currentTimeMillis(),
+    val recoveryState: WorkflowRecoveryState = WorkflowRecoveryState.Normal,
 )
 /**
  * SPI used to encode and decode typed workflow state for checkpoint storage.
@@ -42,6 +79,53 @@ interface WorkflowCheckpointStore {
         workflowId: String,
         expectedRevision: Long? = null,
     )
+
+    /**
+     * Atomically persist [record] as the recovery reason for this checkpoint.
+     *
+     * Uses the default implementation: loads the current checkpoint, sets [recoveryState]
+     * to [WorkflowRecoveryState.Required], and saves with the given [expectedRevision].
+     * Override for a genuinely atomic store-level operation.
+     */
+    suspend fun requireRecovery(
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long,
+        record: WorkflowRecoveryRecord,
+    ): WorkflowCheckpoint {
+        val current = load(workflowName, workflowId)
+            ?: throw WorkflowCheckpointConflictException(
+                "Cannot require recovery for '$workflowName'/'$workflowId': checkpoint does not exist",
+            )
+        return save(
+            checkpoint = current.copy(
+                recoveryState = WorkflowRecoveryState.Required(record),
+            ),
+            expectedRevision = expectedRevision,
+        )
+    }
+
+    /**
+     * Atomically clear the recovery state on this checkpoint, returning it to [Normal].
+     *
+     * Uses the default implementation: loads the current checkpoint, sets [recoveryState]
+     * to [Normal], and saves with the given [expectedRevision].
+     * Override for a genuinely atomic store-level operation.
+     */
+    suspend fun clearRecovery(
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long,
+    ): WorkflowCheckpoint {
+        val current = load(workflowName, workflowId)
+            ?: throw WorkflowCheckpointConflictException(
+                "Cannot clear recovery for '$workflowName'/'$workflowId': checkpoint does not exist",
+            )
+        return save(
+            checkpoint = current.copy(recoveryState = WorkflowRecoveryState.Normal),
+            expectedRevision = expectedRevision,
+        )
+    }
 }
 
 fun interface WorkflowCheckpointCatalog {
