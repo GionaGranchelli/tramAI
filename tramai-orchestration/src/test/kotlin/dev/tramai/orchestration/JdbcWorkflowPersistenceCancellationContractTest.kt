@@ -123,8 +123,8 @@ class JdbcWorkflowPersistenceCancellationContractTest {
     fun `cancellation during executeQuery cancels statement and reclaims resources`() {
         val blockOnQuery = CountDownLatch(1)
         val queryStarted = CountDownLatch(1)
-        val statementRef = AtomicReference<PreparedStatement>()
-        val blockingDs = blockingExecuteQueryDataSource(
+        val statementRef = AtomicReference<InterruptIgnoringPreparedStatement>()
+        val blockingDs = interruptIgnoringQueryDataSource(
             pooledDataSource, blockOnQuery, queryStarted, statementRef,
         )
         val store = JdbcWorkflowCheckpointStore(dataSource = blockingDs)
@@ -136,14 +136,28 @@ class JdbcWorkflowPersistenceCancellationContractTest {
             assertThat(queryStarted.await(5, TimeUnit.SECONDS))
                 .`as`("query started").isTrue()
             job.cancel()
-            val thrown = awaitCancellation(deferred)
-            val blockingStmt = statementRef.get() as? BlockingPreparedStatement
+            // The interrupt-ignoring proxy only unblocks when Statement.cancel()
+            // is called by the invokeOnCompletion handler. If the handler fires
+            // correctly, the deferred completes within the timeout; if not, the
+            // test times out. The exception type is SQLException (the proxy's
+            // cancellation signal), not CancellationException — that's expected
+            // for interrupt-ignoring drivers.
+            try {
+                withTimeout(5_000) {
+                    deferred.await()
+                }
+            } catch (_: SQLException) {
+                // Expected — proxy threw after Statement.cancel() released it.
+            } catch (_: TimeoutCancellationException) {
+                throw AssertionError("invokeOnCompletion handler did not call Statement.cancel()")
+            }
+            val blockingStmt = statementRef.get()
             assertThat(blockingStmt)
                 .`as`("statement proxy was captured").isNotNull
-            assertThat(blockingStmt!!.isCancelled())
-                .`as`("Statement.cancel() was called").isTrue()
+            assertThat(blockingStmt!!.cancelCalled)
+                .`as`("Statement.cancel() was called by completion handler").isTrue()
             assertThat(blockingStmt.isClosed())
-                .`as`("statement was closed").isTrue()
+                .`as`("statement was closed after cancellation").isTrue()
             blockOnQuery.countDown()
         }
     }
@@ -285,7 +299,22 @@ class JdbcWorkflowPersistenceCancellationContractTest {
                 .`as`("fenced save update started").isTrue()
 
             job.cancel()
-            awaitCancellation(deferred)
+            // Await completion — cancellation should propagate, not time out.
+            try {
+                withTimeout(5_000) { deferred.await() }
+            } catch (e: CancellationException) {
+                if (e is TimeoutCancellationException) {
+                    throw AssertionError("Operation did not respond to cancellation within timeout", e)
+                }
+                // Expected: cancellation propagated successfully.
+            }
+
+            // Verify the rollback failure didn't prevent cancellation propagation:
+            // the checkpoint must remain unchanged.
+            val reloaded = checkpointStore.load(cp.workflowName, cp.workflowId)
+            assertThat(reloaded?.statePayload).isEqualTo(cp.statePayload)
+            assertThat(reloaded?.revision).isEqualTo(1)
+
             blockOnUpdate.countDown()
         }
     }
@@ -415,16 +444,16 @@ class JdbcWorkflowPersistenceCancellationContractTest {
         override fun isWrapperFor(iface: Class<*>?): Boolean = delegate.isWrapperFor(iface)
     }
 
-    private fun blockingExecuteQueryDataSource(
+    private fun interruptIgnoringQueryDataSource(
         delegate: DataSource,
         blockOnQuery: CountDownLatch,
         queryStarted: CountDownLatch,
-        statementRef: AtomicReference<PreparedStatement> = AtomicReference(),
+        statementRef: AtomicReference<InterruptIgnoringPreparedStatement> = AtomicReference(),
     ): DataSource = object : DataSource by delegate {
         override fun getConnection(): Connection =
-            BlockingQueryConnection(delegate.connection, blockOnQuery, queryStarted, statementRef)
+            InterruptIgnoringQueryConnection(delegate.connection, blockOnQuery, queryStarted, statementRef)
         override fun getConnection(username: String?, password: String?): Connection =
-            BlockingQueryConnection(
+            InterruptIgnoringQueryConnection(
                 delegate.getConnection(username, password),
                 blockOnQuery, queryStarted, statementRef,
             )
@@ -437,27 +466,27 @@ class JdbcWorkflowPersistenceCancellationContractTest {
         override fun isWrapperFor(iface: Class<*>?): Boolean = delegate.isWrapperFor(iface)
     }
 
-    private class BlockingQueryConnection(
+    private class InterruptIgnoringQueryConnection(
         private val delegate: Connection,
         private val blockOnQuery: CountDownLatch,
         private val queryStarted: CountDownLatch,
-        private val statementRef: AtomicReference<PreparedStatement>,
+        private val statementRef: AtomicReference<InterruptIgnoringPreparedStatement>,
     ) : Connection by delegate {
         override fun prepareStatement(sql: String): PreparedStatement {
             val stmt = delegate.prepareStatement(sql)
-            val proxy = BlockingPreparedStatement(stmt, blockOnQuery, queryStarted)
+            val proxy = InterruptIgnoringPreparedStatement(stmt, blockOnQuery, queryStarted)
             statementRef.set(proxy)
             return proxy
         }
         override fun prepareStatement(sql: String, autoGeneratedKeys: Int): PreparedStatement {
             val stmt = delegate.prepareStatement(sql, autoGeneratedKeys)
-            val proxy = BlockingPreparedStatement(stmt, blockOnQuery, queryStarted)
+            val proxy = InterruptIgnoringPreparedStatement(stmt, blockOnQuery, queryStarted)
             statementRef.set(proxy)
             return proxy
         }
         override fun prepareStatement(sql: String, resultSetType: Int, resultSetConcurrency: Int): PreparedStatement {
             val stmt = delegate.prepareStatement(sql, resultSetType, resultSetConcurrency)
-            val proxy = BlockingPreparedStatement(stmt, blockOnQuery, queryStarted)
+            val proxy = InterruptIgnoringPreparedStatement(stmt, blockOnQuery, queryStarted)
             statementRef.set(proxy)
             return proxy
         }
@@ -465,47 +494,70 @@ class JdbcWorkflowPersistenceCancellationContractTest {
             sql: String, resultSetType: Int, resultSetConcurrency: Int, resultSetHoldability: Int,
         ): PreparedStatement {
             val stmt = delegate.prepareStatement(sql, resultSetType, resultSetConcurrency, resultSetHoldability)
-            val proxy = BlockingPreparedStatement(stmt, blockOnQuery, queryStarted)
+            val proxy = InterruptIgnoringPreparedStatement(stmt, blockOnQuery, queryStarted)
             statementRef.set(proxy)
             return proxy
         }
         override fun prepareStatement(sql: String, columnIndexes: IntArray): PreparedStatement {
             val stmt = delegate.prepareStatement(sql, columnIndexes)
-            val proxy = BlockingPreparedStatement(stmt, blockOnQuery, queryStarted)
+            val proxy = InterruptIgnoringPreparedStatement(stmt, blockOnQuery, queryStarted)
             statementRef.set(proxy)
             return proxy
         }
         override fun prepareStatement(sql: String, columnNames: Array<out String>): PreparedStatement {
             val stmt = delegate.prepareStatement(sql, columnNames)
-            val proxy = BlockingPreparedStatement(stmt, blockOnQuery, queryStarted)
+            val proxy = InterruptIgnoringPreparedStatement(stmt, blockOnQuery, queryStarted)
             statementRef.set(proxy)
             return proxy
         }
     }
 
-    private class BlockingPreparedStatement(
+    /**
+     * A [PreparedStatement] proxy that deliberately ignores thread interruption
+     * in [executeQuery] and unblocks only when [cancel] is called.
+     *
+     * This proves the [invokeOnCompletion] handler fires [`Statement.cancel`] on
+     * the active statement concurrently, before the blocking operation returns.
+     */
+    private class InterruptIgnoringPreparedStatement(
         private val delegate: PreparedStatement,
-        private val blockOnQuery: CountDownLatch,
+        private val blockOnCompletion: CountDownLatch,
         private val started: CountDownLatch,
     ) : PreparedStatement by delegate {
         @Volatile
-        var cancelled: Boolean = false
+        var cancelCalled: Boolean = false
         private val closed = AtomicReference(false)
+        private val cancellationLatch = CountDownLatch(1)
 
         override fun executeQuery(): ResultSet {
             started.countDown()
-            blockOnQuery.await()
-            return delegate.executeQuery()
+            // Ignore InterruptedException — only cancel() releases us.
+            while (true) {
+                try {
+                    cancellationLatch.await()
+                    break
+                } catch (_: InterruptedException) {
+                    // Deliberately ignore thread interruption.
+                }
+            }
+            throw SQLException("Query cancelled by Statement.cancel()")
         }
-        override fun executeUpdate(): Int {
-            started.countDown()
-            blockOnQuery.await()
-            return delegate.executeUpdate()
+
+        override fun cancel() {
+            cancelCalled = true
+            try {
+                delegate.cancel()
+            } finally {
+                cancellationLatch.countDown()
+            }
         }
-        override fun cancel() { cancelled = true; delegate.cancel() }
-        override fun close() { closed.set(true); delegate.close() }
+
+        override fun close() {
+            closed.set(true)
+            delegate.close()
+        }
+
         override fun isClosed(): Boolean = closed.get() || delegate.isClosed
-        fun isCancelled(): Boolean = cancelled
     }
 
     private fun blockingExecuteUpdateDataSource(
