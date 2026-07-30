@@ -228,8 +228,8 @@ internal suspend fun <T> executeJdbcCancellable(
             }
         }
         throw e
-    } catch (e: Exception) {
-        // Non-cancellation failure — rollback under NonCancellable.
+    } catch (e: SQLException) {
+        // Non-cancellation JDBC failure — rollback.
         primaryFailure.set(e)
         if (transactional) {
             try {
