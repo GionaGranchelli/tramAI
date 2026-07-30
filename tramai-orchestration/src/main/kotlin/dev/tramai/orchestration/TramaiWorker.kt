@@ -357,6 +357,15 @@ class TramaiWorker(
         if (!acceptingWork || activeExecutions.containsKey(checkpoint.workflowId)) return
         if (!ownsPartition(checkpoint.workflowId)) return
         if (leaseStore.currentLease(checkpoint.workflowName, checkpoint.workflowId) != null) return
+        if (checkpoint.recoveryState is WorkflowRecoveryState.Required) {
+            observability.onUnknownAttempt(
+                runId = checkpoint.workflowId,
+                stepName = "recovery-required",
+                priorWorkerId = checkpoint.recoveryState.record.priorWorkerId,
+                attemptTime = checkpoint.recoveryState.record.detectedAtEpochMillis,
+            )
+            return
+        }
 
         val lease = try {
             leaseStore.claim(
@@ -448,6 +457,19 @@ class TramaiWorker(
             )
             when (unknownAttempt.replayPolicy) {
                 ReplayPolicy.NON_REPLAYABLE -> {
+                    checkpointStore.requireRecovery(
+                        workflowName = checkpoint.workflowName,
+                        workflowId = checkpoint.workflowId,
+                        expectedRevision = checkpoint.revision,
+                        record = WorkflowRecoveryRecord(
+                            reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
+                            stepName = unknownAttempt.stepName,
+                            attemptId = unknownAttempt.attemptId,
+                            priorWorkerId = unknownAttempt.workerId,
+                            detectedAtEpochMillis = unknownAttempt.startedAt,
+                            idempotencyKey = unknownAttempt.idempotencyKey,
+                        ),
+                    )
                     throw NonReplayableStepStateUnknownException(
                         runId = unknownAttempt.runId,
                         stepName = unknownAttempt.stepName,
@@ -458,6 +480,18 @@ class TramaiWorker(
 
                 ReplayPolicy.EXTERNALLY_IDEMPOTENT -> {
                     if (unknownAttempt.idempotencyKey.isNullOrBlank()) {
+                        checkpointStore.requireRecovery(
+                            workflowName = checkpoint.workflowName,
+                            workflowId = checkpoint.workflowId,
+                            expectedRevision = checkpoint.revision,
+                            record = WorkflowRecoveryRecord(
+                                reason = WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING,
+                                stepName = unknownAttempt.stepName,
+                                attemptId = unknownAttempt.attemptId,
+                                priorWorkerId = unknownAttempt.workerId,
+                                detectedAtEpochMillis = unknownAttempt.startedAt,
+                            ),
+                        )
                         throw NonReplayableStepStateUnknownException(
                             runId = unknownAttempt.runId,
                             stepName = unknownAttempt.stepName,
