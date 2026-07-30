@@ -2,6 +2,7 @@ package dev.tramai.orchestration
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -9,6 +10,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import java.sql.Connection
 import java.sql.SQLException
 import java.sql.Statement
@@ -154,18 +156,19 @@ private fun Connection.trackedConnection(ctx: JdbcOperationContext): Connection 
  *
  * * All blocking JDBC operations run on [Dispatchers.IO] with [runInterruptible].
  * * Connection acquisition (`dataSource.connection`) runs inside [runInterruptible].
+ * * Auto-commit setup (getting/setting) runs inside the protected try/finally block
+ *   so that connection leaks are not possible regardless of failure timing.
  * * Before the blocking call, an [invokeOnCompletion] handle is registered so that
  *   [JdbcOperationContext.requestCancellation] fires **before** the blocking operation
  *   returns — this calls [Statement.cancel] on the active statement concurrently even
  *   when the JDBC driver ignores thread interruption.
- * * The completion handler captures [Statement.cancel] failures atomically; they are
- *   later suppressed onto the primary [CancellationException].
  * * On cancellation: [Statement.cancel] failure is suppressed, transaction rollback
  *   runs under [NonCancellable], and rollback failures are suppressed.
- * * On non-cancellation failure: rollback runs and its failures are suppressed.
- * * Final cleanup (auto-commit restore, connection close) runs under [NonCancellable]
- *   and cleanup failures are suppressed onto the primary exception when one exists,
- *   or thrown directly on the success path.
+ * * On any non-cancellation failure: rollback runs, failures are suppressed.
+ * * Final cleanup (auto-commit restore, connection close) runs under [NonCancellable];
+ *   close() is always attempted even when auto-commit restoration fails. All cleanup
+ *   failures are suppressed onto the primary exception when one exists, or thrown
+ *   directly on the success path.
  * * The block parameter is a [Connection] proxy that auto-registers statements;
  *   there is no receiver so accidental raw-connection access is not representable.
  */
@@ -181,28 +184,27 @@ internal suspend fun <T> executeJdbcCancellable(
     val ctx = JdbcOperationContext()
     val wrappedConnection = connection.trackedConnection(ctx)
 
+    // Everything from here enters the protected region so the finally block
+    // always runs — connection leaks are not possible.
     var previousAutoCommit: Boolean? = null
-    if (transactional) {
-        previousAutoCommit = runInterruptible {
-            val prev = connection.autoCommit
-            connection.autoCommit = false
-            prev
-        }
-    }
-
-    // Register a handle that fires on cancellation BEFORE the blocking call returns.
-    // The handler captures Statement.cancel() failures atomically.
-    val job = currentCoroutineContext()[Job]
-    val cancellationHandle = job?.invokeOnCompletion(onCancelling = true) { cause ->
-        if (cause is CancellationException) {
-            ctx.requestCancellation()
-        }
-    }
-
-    // Track the primary failure so cleanup can suppress onto it.
+    var cancellationHandle: DisposableHandle? = null
     val primaryFailure = AtomicReference<Throwable?>(null)
 
     try {
+        if (transactional) {
+            previousAutoCommit = runInterruptible {
+                connection.autoCommit.also { connection.autoCommit = false }
+            }
+        }
+
+        // Register a handle that fires on cancellation BEFORE the blocking call returns.
+        val job = currentCoroutineContext()[Job]
+        cancellationHandle = job?.invokeOnCompletion(onCancelling = true) { cause ->
+            if (cause is CancellationException) {
+                ctx.requestCancellation()
+            }
+        }
+
         val result = runInterruptible {
             block(wrappedConnection)
         }
@@ -228,40 +230,52 @@ internal suspend fun <T> executeJdbcCancellable(
             }
         }
         throw e
-    } catch (e: SQLException) {
-        // Non-cancellation JDBC failure — rollback.
+    } catch (e: Exception) {
+        // The scanner requires rethrowIfCancellation() as the first statement.
+        e.rethrowIfCancellation()
         primaryFailure.set(e)
         if (transactional) {
-            try {
-                runInterruptible { connection.rollback() }
-            } catch (rollbackError: SQLException) {
-                e.addSuppressed(rollbackError)
+            withContext(NonCancellable + Dispatchers.IO) {
+                try {
+                    runInterruptible { connection.rollback() }
+                } catch (rollbackError: SQLException) {
+                    e.addSuppressed(rollbackError)
+                }
             }
         }
         throw e
     } finally {
         cancellationHandle?.dispose()
-        val primary = primaryFailure.get()
         withContext(NonCancellable + Dispatchers.IO) {
             runInterruptible {
+                // Collect cleanup failures without skipping close().
+                // Always attempt close() even when auto-commit restoration fails.
+                var cleanupFailure: SQLException? = null
+
                 try {
                     if (transactional && previousAutoCommit != null) {
                         connection.autoCommit = previousAutoCommit
                     }
-                } catch (cleanupError: SQLException) {
-                    if (primary != null) {
-                        primary.addSuppressed(cleanupError)
-                    } else {
-                        throw cleanupError
-                    }
+                } catch (failure: SQLException) {
+                    cleanupFailure = failure
                 }
+
                 try {
                     connection.close()
-                } catch (closeError: SQLException) {
-                    if (primary != null) {
-                        primary.addSuppressed(closeError)
+                } catch (failure: SQLException) {
+                    if (cleanupFailure == null) {
+                        cleanupFailure = failure
                     } else {
-                        throw closeError
+                        cleanupFailure.addSuppressed(failure)
+                    }
+                }
+
+                cleanupFailure?.let { failure ->
+                    val primary = primaryFailure.get()
+                    if (primary != null) {
+                        primary.addSuppressed(failure)
+                    } else {
+                        throw failure
                     }
                 }
             }
