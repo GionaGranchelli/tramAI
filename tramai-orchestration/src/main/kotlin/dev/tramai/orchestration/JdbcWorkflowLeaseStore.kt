@@ -1,6 +1,8 @@
 package dev.tramai.orchestration
+
 import java.sql.SQLException
 import javax.sql.DataSource
+
 /**
  * JDBC-backed lease store for multi-node workflow ownership.
  *
@@ -52,8 +54,8 @@ class JdbcWorkflowLeaseStore(
             checkpointRevision = checkpointRevision,
             expiresAtEpochMillis = now + leaseDurationMillis,
         )
-        dataSource.connection.use { connection ->
-            connection.prepareStatement(renewSql()).use { statement ->
+        executeJdbcCancellable(dataSource) { conn ->
+            conn.prepareStatement(renewSql()).use { statement ->
                 if (checkpointRevision == null) {
                     statement.setNull(1, java.sql.Types.BIGINT)
                 } else {
@@ -67,7 +69,7 @@ class JdbcWorkflowLeaseStore(
                 statement.setLong(7, now)
                 val updated = statement.executeUpdate()
                 if (updated == 0) {
-                    val existing = loadLease(lease.workflowName, lease.workflowId)
+                    val existing = loadLease(conn, lease.workflowName, lease.workflowId)
                     throw renewalConflict(
                         attempted = lease,
                         existing = existing,
@@ -78,18 +80,18 @@ class JdbcWorkflowLeaseStore(
         return renewed
     }
     override suspend fun release(lease: WorkflowLease) {
-        dataSource.connection.use { connection ->
-            connection.prepareStatement(releaseSql()).use { statement ->
+        executeJdbcCancellable(dataSource) { conn ->
+            conn.prepareStatement(releaseSql()).use { statement ->
                 statement.setString(1, lease.workflowName)
                 statement.setString(2, lease.workflowId)
                 statement.setString(3, lease.leaseId)
                 statement.setString(4, lease.ownerId)
                 val deleted = statement.executeUpdate()
                 if (deleted == 0) {
-                    val existing = loadLease(lease.workflowName, lease.workflowId) ?: return
+                    val existing = loadLease(conn, lease.workflowName, lease.workflowId) ?: return@executeJdbcCancellable
                     if (isExpired(existing)) {
-                        deleteExpiredLease(existing)
-                        return
+                        deleteExpiredLease(conn, existing)
+                        return@executeJdbcCancellable
                     }
                     throw releaseConflict(
                         attempted = lease,
@@ -111,9 +113,9 @@ class JdbcWorkflowLeaseStore(
         require(jdbcCheckpointStore.dataSource === dataSource) {
             "JdbcWorkflowLeaseStore can only fence JdbcWorkflowCheckpointStore instances that share the same DataSource"
         }
-        return withTransaction { connection ->
-            lockLeaseRow(connection, expectedLease)
-            jdbcCheckpointStore.saveInConnection(connection, checkpoint, expectedRevision)
+        return executeJdbcCancellable(dataSource, transactional = true) { conn ->
+            lockLeaseRow(conn, expectedLease)
+            jdbcCheckpointStore.saveInConnection(conn, checkpoint, expectedRevision)
         }
     }
 
@@ -129,9 +131,9 @@ class JdbcWorkflowLeaseStore(
         require(jdbcCheckpointStore.dataSource === dataSource) {
             "JdbcWorkflowLeaseStore can only fence JdbcWorkflowCheckpointStore instances that share the same DataSource"
         }
-        withTransaction { connection ->
-            lockLeaseRow(connection, expectedLease)
-            jdbcCheckpointStore.deleteInConnection(connection, workflowName, workflowId, expectedRevision)
+        executeJdbcCancellable(dataSource, transactional = true) { conn ->
+            lockLeaseRow(conn, expectedLease)
+            jdbcCheckpointStore.deleteInConnection(conn, workflowName, workflowId, expectedRevision)
         }
     }
     fun createTableSql(): String = """
@@ -147,14 +149,14 @@ class JdbcWorkflowLeaseStore(
         )
     """.trimIndent()
     private suspend fun insertLease(lease: WorkflowLease): WorkflowLease {
-        dataSource.connection.use { connection ->
+        executeJdbcCancellable(dataSource) { conn ->
             try {
-                connection.prepareStatement(insertSql()).use { statement ->
+                conn.prepareStatement(insertSql()).use { statement ->
                     statement.bindLease(lease)
                     statement.executeUpdate()
                 }
             } catch (error: SQLException) {
-                val current = loadLease(lease.workflowName, lease.workflowId)
+                val current = loadLease(conn, lease.workflowName, lease.workflowId)
                 if (current != null && !isExpired(current)) {
                     throw activeLeaseConflict(current)
                 }
@@ -167,8 +169,8 @@ class JdbcWorkflowLeaseStore(
         lease: WorkflowLease,
         previous: WorkflowLease,
     ): WorkflowLease {
-        dataSource.connection.use { connection ->
-            connection.prepareStatement(replaceExpiredSql()).use { statement ->
+        executeJdbcCancellable(dataSource) { conn ->
+            conn.prepareStatement(replaceExpiredSql()).use { statement ->
                 statement.setString(1, lease.leaseId)
                 statement.setString(2, lease.ownerId)
                 if (lease.checkpointRevision == null) {
@@ -185,7 +187,7 @@ class JdbcWorkflowLeaseStore(
                 statement.setLong(10, clockMillis())
                 val updated = statement.executeUpdate()
                 if (updated == 0) {
-                    val current = loadLease(lease.workflowName, lease.workflowId)
+                    val current = loadLease(conn, lease.workflowName, lease.workflowId)
                     if (current != null && !isExpired(current)) {
                         throw activeLeaseConflict(current)
                     }
@@ -200,8 +202,8 @@ class JdbcWorkflowLeaseStore(
     private suspend fun loadLease(
         workflowName: String,
         workflowId: String,
-    ): WorkflowLease? = dataSource.connection.use { connection ->
-        loadLease(connection, workflowName, workflowId)
+    ): WorkflowLease? = executeJdbcCancellable(dataSource) { conn ->
+        loadLease(conn, workflowName, workflowId)
     }
 
     private fun loadLease(
@@ -220,13 +222,25 @@ class JdbcWorkflowLeaseStore(
         }
     }
     private suspend fun deleteExpiredLease(lease: WorkflowLease) {
-        dataSource.connection.use { connection ->
-            connection.prepareStatement(deleteExpiredSql()).use { statement ->
+        executeJdbcCancellable(dataSource) { conn ->
+            conn.prepareStatement(deleteExpiredSql()).use { statement ->
                 statement.setString(1, lease.workflowName)
                 statement.setString(2, lease.workflowId)
                 statement.setLong(3, clockMillis())
                 statement.executeUpdate()
             }
+        }
+    }
+
+    private fun deleteExpiredLease(
+        connection: java.sql.Connection,
+        lease: WorkflowLease,
+    ) {
+        connection.prepareStatement(deleteExpiredSql()).use { statement ->
+            statement.setString(1, lease.workflowName)
+            statement.setString(2, lease.workflowId)
+            statement.setLong(3, clockMillis())
+            statement.executeUpdate()
         }
     }
 
@@ -257,21 +271,6 @@ class JdbcWorkflowLeaseStore(
                     )
                 }
             }
-        }
-    }
-
-    private fun <T> withTransaction(block: (java.sql.Connection) -> T): T = dataSource.connection.use { connection ->
-        val previousAutoCommit = connection.autoCommit
-        connection.autoCommit = false
-        try {
-            val result = block(connection)
-            connection.commit()
-            result
-        } catch (error: Throwable) {
-            connection.rollback()
-            throw error
-        } finally {
-            connection.autoCommit = previousAutoCommit
         }
     }
 
