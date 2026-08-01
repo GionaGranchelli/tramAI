@@ -781,6 +781,291 @@ class TramaiWorkerTest {
             .contains("1970-01-01T00:00:00.042Z")
     }
 
+    @Test
+    fun `non replayable unknown attempt persists recovery-required checkpoint`() {
+        runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        var now = 4_625L
+        val leaseStore = InMemoryWorkflowLeaseStore(clockMillis = { now })
+        val executions = AtomicInteger()
+        val workflow = workflow<WorkerState>("context-ai-non-replayable-recovery") {
+            aiStep(
+                name = "plan",
+                input = { state, _ -> state.value },
+                invoke = { value, _ ->
+                    executions.incrementAndGet()
+                    delay(200)
+                    "$value:planned"
+                },
+                merge = { state, result, _ -> state.copy(value = result) },
+            )
+        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        val runId = "run-context-ai-recovery-required"
+        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+
+        val workerA = worker("worker-a", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        workerA.start()
+        waitUntil {
+            executions.get() == 1 && checkpointStore.latestStepAttempt(runId, "plan")?.status == StepAttemptStatus.STARTED
+        }
+        workerA.crash()
+
+        now += 250
+        val workerB = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        workerB.start()
+        try {
+            waitUntil {
+                workerB.latestFailure(runId) is NonReplayableStepStateUnknownException
+            }
+
+            val checkpoint = checkpointStore.load(workflow.name, runId)!!
+            assertThat(checkpoint.recoveryState).isInstanceOf(WorkflowRecoveryState.Required::class.java)
+            val required = checkpoint.recoveryState as WorkflowRecoveryState.Required
+            assertThat(required.record.reason).isEqualTo(WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN)
+            assertThat(required.record.stepName).isEqualTo("plan")
+            assertThat(required.record.priorWorkerId).isEqualTo("worker-a")
+        } finally {
+            workerB.shutdown()
+        }
+    }
+    }
+
+    @Test
+    fun `externally idempotent unknown attempt without key persists recovery-required checkpoint`() {
+        runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val workflow = workerWorkflow("missing-key-recovery") {
+            httpStep(
+                name = "create",
+                config = workerHttpConfig(),
+                request = { _, _ ->
+                    HttpRequest(
+                        method = "POST",
+                        url = "http://127.0.0.1/unused",
+                        body = """{"ok":true}""",
+                    )
+                },
+                merge = { state, response, _ -> state.copy(value = "${state.value}:${response.status}") },
+            )
+        }
+        val runId = "run-missing-key-recovery"
+        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+        checkpointStore.recordStepAttempt(
+            StepAttemptRecord(
+                runId = runId,
+                stepName = "create",
+                attemptId = "attempt-1",
+                workerId = "worker-a",
+                leaseToken = "lease-a",
+                status = StepAttemptStatus.UNKNOWN,
+                startedAt = 10L,
+                replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                idempotencyKey = null,
+            ),
+        )
+
+        val worker = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        worker.start()
+        try {
+            waitUntil {
+                worker.latestFailure(runId) is NonReplayableStepStateUnknownException
+            }
+
+            val checkpoint = checkpointStore.load(workflow.name, runId)!!
+            assertThat(checkpoint.recoveryState).isInstanceOf(WorkflowRecoveryState.Required::class.java)
+            val required = checkpoint.recoveryState as WorkflowRecoveryState.Required
+            assertThat(required.record.reason).isEqualTo(WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING)
+            assertThat(required.record.stepName).isEqualTo("create")
+        } finally {
+            worker.shutdown()
+        }
+    }
+    }
+
+    @Test
+    fun `pure unknown attempt re executes without persisting recovery state`() {
+        runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val workflow = workerWorkflow("pure-unknown") {
+            localStep(
+                name = "work",
+                transform = { state, _ -> state.copy(value = "${state.value}:done") },
+            )
+        }
+        val runId = "run-pure-unknown"
+        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+        checkpointStore.recordStepAttempt(
+            StepAttemptRecord(
+                runId = runId,
+                stepName = "work",
+                attemptId = "attempt-1",
+                workerId = "worker-a",
+                leaseToken = "lease-a",
+                status = StepAttemptStatus.UNKNOWN,
+                startedAt = 10L,
+                replayPolicy = ReplayPolicy.PURE,
+            ),
+        )
+
+        val worker = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        worker.start()
+        try {
+            waitUntil {
+                checkpointStore.load(workflow.name, runId) == null &&
+                    checkpointStore.latestStepAttempt(runId, "work")?.status == StepAttemptStatus.COMPLETED
+            }
+
+            assertThat(worker.latestFailure(runId)).isNull()
+        } finally {
+            worker.shutdown()
+        }
+    }
+    }
+
+    @Test
+    fun `idempotent unknown attempt re executes without persisting recovery state`() {
+        runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val workflow = workerWorkflow("idempotent-unknown") {
+            localStep(
+                name = "work",
+                transform = { state, _ -> state.copy(value = "${state.value}:done") },
+            )
+        }
+        val runId = "run-idempotent-unknown"
+        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+        checkpointStore.recordStepAttempt(
+            StepAttemptRecord(
+                runId = runId,
+                stepName = "work",
+                attemptId = "attempt-1",
+                workerId = "worker-a",
+                leaseToken = "lease-a",
+                status = StepAttemptStatus.UNKNOWN,
+                startedAt = 10L,
+                replayPolicy = ReplayPolicy.IDEMPOTENT,
+            ),
+        )
+
+        val worker = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        worker.start()
+        try {
+            waitUntil {
+                checkpointStore.load(workflow.name, runId) == null &&
+                    checkpointStore.latestStepAttempt(runId, "work")?.status == StepAttemptStatus.COMPLETED
+            }
+
+            assertThat(worker.latestFailure(runId)).isNull()
+        } finally {
+            worker.shutdown()
+        }
+    }
+    }
+
+    @Test
+    fun `externally idempotent unknown attempt with mismatched key enters recovery`() {
+        runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        workerHttpServer { exchange ->
+            exchange.respondText(201, "created")
+        }.use { server ->
+            val workflow = workerWorkflow("key-mismatch") {
+                httpStep(
+                    name = "create",
+                    config = workerHttpConfig(),
+                    request = { _, context ->
+                        HttpRequest(
+                            method = "POST",
+                            url = server.url("/resource"),
+                            headers = mapOf("Idempotency-Key" to "key-${context.workflowId}"),
+                            body = """{"ok":true}""",
+                        )
+                    },
+                    merge = { state, response, _ -> state.copy(value = "${state.value}:${response.status}") },
+                )
+            }
+            val runId = "run-key-mismatch"
+            seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+            checkpointStore.recordStepAttempt(
+                StepAttemptRecord(
+                    runId = runId,
+                    stepName = "create",
+                    attemptId = "attempt-1",
+                    workerId = "worker-a",
+                    leaseToken = "lease-a",
+                    status = StepAttemptStatus.UNKNOWN,
+                    startedAt = 10L,
+                    replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                    idempotencyKey = "key-DIFFERENT",
+                ),
+            )
+
+            val worker = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+            worker.start()
+            try {
+                waitUntil {
+                    worker.latestFailure(runId) is NonReplayableStepStateUnknownException
+                }
+
+                val checkpoint = checkpointStore.load(workflow.name, runId)!!
+                assertThat(checkpoint.recoveryState).isInstanceOf(WorkflowRecoveryState.Required::class.java)
+                val required = checkpoint.recoveryState as WorkflowRecoveryState.Required
+                assertThat(required.record.reason).isEqualTo(WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH)
+                assertThat(required.record.idempotencyKey).isEqualTo("key-DIFFERENT")
+            } finally {
+                worker.shutdown()
+            }
+        }
+    }
+    }
+
+    @Test
+    fun `recovery persistence is rejected when lease is lost before requireRecovery`() {
+        runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val leaseStore = LeaseStealingLeaseStore(InMemoryWorkflowLeaseStore())
+        val workflow = workerWorkflow("lease-stolen-recovery") {
+            localStep(
+                name = "work",
+                transform = { state, _ -> state.copy(value = "${state.value}:done") },
+            )
+        }
+        val runId = "run-lease-stolen-recovery"
+        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+        checkpointStore.recordStepAttempt(
+            StepAttemptRecord(
+                runId = runId,
+                stepName = "work",
+                attemptId = "attempt-1",
+                workerId = "worker-a",
+                leaseToken = "lease-a",
+                status = StepAttemptStatus.UNKNOWN,
+                startedAt = 10L,
+                replayPolicy = ReplayPolicy.NON_REPLAYABLE,
+            ),
+        )
+
+        val worker = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        worker.start()
+        try {
+            waitUntil {
+                worker.latestFailure(runId) is StaleWorkflowLeaseException
+            }
+
+            // The stale worker must NOT have mutated the checkpoint: it stays Normal,
+            // so the workflow remains runnable by the true lease holder.
+            val checkpoint = checkpointStore.load(workflow.name, runId)!!
+            assertThat(checkpoint.recoveryState).isSameAs(WorkflowRecoveryState.Normal)
+        } finally {
+            worker.shutdown()
+        }
+    }
+    }
+
     private fun workerWorkflow(
         name: String,
         configure: WorkflowBuilder<WorkerState>.() -> Unit,
@@ -1003,6 +1288,59 @@ private class CountingWorkerRegistryLeaseStore(
 
     override suspend fun listStaleWorkers(staleThresholdMillis: Long): List<WorkerRegistryRecord> =
         delegate.listStaleWorkers(staleThresholdMillis)
+}
+
+/**
+ * Lease store that steals (releases) the expected lease inside the checkpoint
+ * fence, simulating a takeover between claim and requireRecovery. The delegate's
+ * fence then rejects the mutation with [WorkflowLeaseConflictException].
+ */
+private class LeaseStealingLeaseStore(
+    private val delegate: InMemoryWorkflowLeaseStore,
+) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence, WorkerRegistryStore by delegate {
+    override suspend fun currentLease(
+        workflowName: String,
+        workflowId: String,
+    ): WorkflowLease? = delegate.currentLease(workflowName, workflowId)
+
+    override suspend fun claim(
+        workflowName: String,
+        workflowId: String,
+        ownerId: String,
+        checkpointRevision: Long?,
+        leaseDurationMillis: Long,
+    ): WorkflowLease = delegate.claim(workflowName, workflowId, ownerId, checkpointRevision, leaseDurationMillis)
+
+    override suspend fun renew(
+        lease: WorkflowLease,
+        checkpointRevision: Long?,
+        leaseDurationMillis: Long,
+    ): WorkflowLease = delegate.renew(lease, checkpointRevision, leaseDurationMillis)
+
+    override suspend fun release(lease: WorkflowLease) {
+        delegate.release(lease)
+    }
+
+    override suspend fun saveCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        checkpoint: WorkflowCheckpoint,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ): WorkflowCheckpoint {
+        // Simulate the lease being taken over just before the fence check.
+        delegate.release(expectedLease)
+        return delegate.saveCheckpointIfLeaseOwner(checkpointStore, checkpoint, expectedRevision, expectedLease)
+    }
+
+    override suspend fun deleteCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ) {
+        delegate.deleteCheckpointIfLeaseOwner(checkpointStore, workflowName, workflowId, expectedRevision, expectedLease)
+    }
 }
 
 private class WorkerTestHttpServer(

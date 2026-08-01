@@ -463,7 +463,8 @@ class TramaiWorker(
                 previousWorkerId = unknownAttempt.workerId,
                 newWorkerId = config.workerId,
             )
-            when (unknownAttempt.replayPolicy) {
+            try {
+                when (unknownAttempt.replayPolicy) {
                 ReplayPolicy.NON_REPLAYABLE -> {
                     fencedCheckpointStore.requireRecovery(
                         workflowName = checkpoint.workflowName,
@@ -537,6 +538,16 @@ class TramaiWorker(
                 ReplayPolicy.PURE,
                 ReplayPolicy.IDEMPOTENT,
                 -> Unit
+                }
+            } catch (error: Throwable) {
+                // The recovery persistence paths throw NonReplayableStepStateUnknownException
+                // (or a lease conflict when the fence rejects a stale worker). Record the
+                // failure so latestFailure() reflects it, and release the lease so the
+                // checkpoint can be reclaimed once an operator resolves it. The unknown
+                // attempt record is deliberately left at UNKNOWN as audit evidence.
+                executionFailures[checkpoint.workflowId] = error
+                releaseLease(handle)
+                throw error
             }
         }
 
