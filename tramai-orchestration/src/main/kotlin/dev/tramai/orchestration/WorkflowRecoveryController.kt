@@ -31,17 +31,23 @@ interface WorkflowRecoveryController {
      * The exact attempt referenced by the recovery record is marked [StepAttemptStatus.FAILED]
      * with the operator's [reason] and timestamp BEFORE recovery is cleared — if that
      * transition or the clear fails, the checkpoint stays in `Required` (safe). The failed
-     * attempt remains in the attempt store as audit evidence.
+     * attempt remains in the attempt store as audit evidence. This transition is MANDATORY
+     * for the retry to be correct: persistence failures propagate rather than being swallowed.
      *
-     * For [ReplayPolicy.EXTERNALLY_IDEMPOTENT] steps the worker verifies on retry that
-     * the recomputed idempotency key matches the stored key (a mismatch re-enters recovery
-     * with `IDEMPOTENCY_KEY_MISMATCH`).
+     * Supported only for [WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN]. Retrying
+     * [WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING] or
+     * [WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH] is rejected: the worker's
+     * idempotency-key guard only inspects UNKNOWN/STARTED attempts, so an unconditional
+     * retry would re-execute the step with a different or missing key, breaking the
+     * idempotency contract. The correct resolution for those reasons is a corrected
+     * workflow definition (re-submit) or [failWorkflow].
      *
      * @return the checkpoint after clearing recovery (revision advanced by one).
      * @throws WorkflowCheckpointConflictException if [expectedRevision] is stale.
      * @throws WorkflowRecoveryStateException if the checkpoint is not in [WorkflowRecoveryState.Required],
-     * if no [StepAttemptRecordStore] is configured, or if the referenced unresolved attempt
-     * cannot be found — in every case the checkpoint stays `Required`.
+     * if the recovery reason is not retryable, if no [StepAttemptRecordStore] is configured,
+     * or if the referenced unresolved attempt cannot be found — in every case the checkpoint
+     * stays `Required`.
      */
     suspend fun retryStep(
         workflowName: String,
@@ -80,7 +86,12 @@ interface WorkflowRecoveryController {
  * (no clear-before-delete), so a failed delete leaves the checkpoint in
  * [WorkflowRecoveryState.Required] and the workflow stays blocked. When a
  * [StepAttemptRecordStore] is provided, the resolution reason is recorded onto
- * the exact unresolved attempt as best-effort audit evidence.
+ * the exact unresolved attempt as best-effort audit evidence (storage errors are
+ * logged, not propagated).
+ *
+ * [retryStep]'s attempt transition is MANDATORY — it must succeed before the
+ * checkpoint is unblocked and failures propagate (see [WorkflowRecoveryController.retryStep]
+ * for the supported reasons).
  *
  * Override for a genuinely atomic implementation (e.g. JDBC transaction).
  */
@@ -96,6 +107,22 @@ class InMemoryWorkflowRecoveryController(
         reason: String,
     ): WorkflowCheckpoint {
         val (_, record) = loadRequiredCheckpoint(workflowName, workflowId, expectedRevision)
+        // Operator retry can only re-approve NON_REPLAYABLE steps. For the two
+        // externally-idempotent reasons the correct fix is a corrected workflow
+        // definition (or failWorkflow), NOT an unconditional retry: the worker's
+        // key-verification guard only runs against UNKNOWN/STARTED attempts, so
+        // clearing recovery here would let the step re-execute with a different or
+        // missing key — breaking the idempotency contract. Reject until a
+        // worker-visible retry-approval mechanism exists (see StepAttemptResolutionAction).
+        if (record.reason == WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING ||
+            record.reason == WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH
+        ) {
+            throw WorkflowRecoveryStateException(
+                "Cannot retry workflow '$workflowName'/'$workflowId': recovery reason ${record.reason} " +
+                    "requires a corrected idempotency-key definition, not an operator retry. " +
+                    "Correct the workflow definition and re-submit, or use failWorkflow.",
+            )
+        }
         // MANDATORY transition: the unresolved attempt must be marked FAILED before the
         // checkpoint is unblocked. If this throws, the checkpoint stays Required and the
         // workflow stays blocked — otherwise the worker would re-detect the same UNKNOWN

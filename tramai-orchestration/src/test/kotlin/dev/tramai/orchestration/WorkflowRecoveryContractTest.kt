@@ -472,6 +472,109 @@ class WorkflowRecoveryContractTest {
     }
 
     @Test
+    fun `retryStep rejects IDEMPOTENCY_KEY_MISMATCH recovery and keeps checkpoint required`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val controller = InMemoryWorkflowRecoveryController(store, store)
+            val saved = store.save(sampleCheckpoint())
+            store.recordStepAttempt(
+                StepAttemptRecord(
+                    runId = saved.workflowId,
+                    stepName = "step",
+                    attemptId = "a",
+                    workerId = "w",
+                    leaseToken = "l",
+                    status = StepAttemptStatus.UNKNOWN,
+                    startedAt = 0,
+                    idempotencyKey = "recorded-key",
+                    replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                ),
+            )
+            val required = store.requireRecovery(
+                workflowName = saved.workflowName,
+                workflowId = saved.workflowId,
+                expectedRevision = saved.revision,
+                record = WorkflowRecoveryRecord(
+                    reason = WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH,
+                    stepName = "step",
+                    attemptId = "a",
+                    priorWorkerId = "w",
+                    detectedAtEpochMillis = 0,
+                    idempotencyKey = "recorded-key",
+                ),
+            )
+
+            assertThatThrownBy {
+                runBlocking {
+                    controller.retryStep(
+                        workflowName = saved.workflowName,
+                        workflowId = saved.workflowId,
+                        expectedRevision = required.revision,
+                        reason = "retry must not bypass key verification",
+                    )
+                }
+            }.isInstanceOf(WorkflowRecoveryStateException::class.java)
+
+            val after = store.load(saved.workflowName, saved.workflowId)!!
+            assertThat(after.recoveryState).isInstanceOf(WorkflowRecoveryState.Required::class.java)
+            assertThat(after.revision).isEqualTo(required.revision)
+            // The guard fires before the mandatory transition — the attempt stays UNKNOWN.
+            assertThat(store.listStepAttempts(saved.workflowId).single().status)
+                .isEqualTo(StepAttemptStatus.UNKNOWN)
+        }
+    }
+
+    @Test
+    fun `retryStep rejects EXTERNAL_IDEMPOTENCY_KEY_MISSING recovery and keeps checkpoint required`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val controller = InMemoryWorkflowRecoveryController(store, store)
+            val saved = store.save(sampleCheckpoint())
+            store.recordStepAttempt(
+                StepAttemptRecord(
+                    runId = saved.workflowId,
+                    stepName = "step",
+                    attemptId = "a",
+                    workerId = "w",
+                    leaseToken = "l",
+                    status = StepAttemptStatus.UNKNOWN,
+                    startedAt = 0,
+                    replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                ),
+            )
+            val required = store.requireRecovery(
+                workflowName = saved.workflowName,
+                workflowId = saved.workflowId,
+                expectedRevision = saved.revision,
+                record = WorkflowRecoveryRecord(
+                    reason = WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING,
+                    stepName = "step",
+                    attemptId = "a",
+                    priorWorkerId = "w",
+                    detectedAtEpochMillis = 0,
+                ),
+            )
+
+            assertThatThrownBy {
+                runBlocking {
+                    controller.retryStep(
+                        workflowName = saved.workflowName,
+                        workflowId = saved.workflowId,
+                        expectedRevision = required.revision,
+                        reason = "retry must not bypass key verification",
+                    )
+                }
+            }.isInstanceOf(WorkflowRecoveryStateException::class.java)
+
+            val after = store.load(saved.workflowName, saved.workflowId)!!
+            assertThat(after.recoveryState).isInstanceOf(WorkflowRecoveryState.Required::class.java)
+            assertThat(after.revision).isEqualTo(required.revision)
+            assertThat(store.listStepAttempts(saved.workflowId).single().status)
+                .isEqualTo(StepAttemptStatus.UNKNOWN)
+        }
+    }
+
+    @Test
     fun `Two concurrent requireRecovery calls — first wins`() {
         runBlocking {
             val store = InMemoryWorkflowCheckpointStore()

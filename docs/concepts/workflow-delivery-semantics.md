@@ -52,10 +52,12 @@ Workers skip checkpoints in `Required` state — no lease is claimed, no executi
 
 An operator resolves `Required` state through `WorkflowRecoveryController`:
 
-- `retryStep(workflowName, workflowId, expectedRevision, reason)` — marks the exact unresolved attempt `FAILED` with the operator's resolution evidence, then clears the recovery state. The worker starts a NEW attempt on the next poll; the failed attempt remains in the attempt store as audit evidence. The stored idempotency key is verified on retry (see Idempotency Keys).
-- `failWorkflow(workflowName, workflowId, expectedRevision, reason)` — permanently deletes the checkpoint in a single fenced operation. If the delete fails, the checkpoint remains in `Required` state and the workflow stays blocked — there is no window where a failed workflow becomes runnable. When a step-attempt store is available, the resolution reason and timestamp are recorded onto the exact failed attempt record as best-effort audit evidence.
+- `retryStep(workflowName, workflowId, expectedRevision, reason)` — marks the exact unresolved attempt `FAILED` with the operator's resolution evidence, then clears the recovery state. The worker starts a NEW attempt on the next poll; the failed attempt remains in the attempt store as audit evidence.
+  - **Supported only for `NON_REPLAYABLE_OUTCOME_UNKNOWN`.** Retrying `EXTERNAL_IDEMPOTENCY_KEY_MISSING` or `IDEMPOTENCY_KEY_MISMATCH` is rejected (`WorkflowRecoveryStateException`): the worker's idempotency-key guard only inspects UNKNOWN/STARTED attempts, so an unconditional retry would re-execute the step with a different or missing key — breaking the idempotency contract. The correct resolution for those reasons is a corrected workflow definition (re-submit) or `failWorkflow`.
+  - The attempt transition is **mandatory** — persistence failures propagate and the checkpoint stays `Required`.
+- `failWorkflow(workflowName, workflowId, expectedRevision, reason)` — permanently deletes the checkpoint in a single fenced operation. If the delete fails, the checkpoint remains in `Required` state and the workflow stays blocked — there is no window where a failed workflow becomes runnable. When a step-attempt store is available, the resolution reason and timestamp are recorded onto the exact failed attempt record as **best-effort** audit evidence (storage errors are logged, never propagated).
 
-Both operations load and validate the checkpoint first — they throw `WorkflowCheckpointConflictException` on a stale revision and `WorkflowRecoveryStateException` when the checkpoint is not in `Required` state, so a normal (runnable) workflow can never be accidentally advanced or deleted.
+Both operations load and validate the checkpoint first — they throw `WorkflowCheckpointConflictException` on a stale revision and `WorkflowRecoveryStateException` when the checkpoint is not in `Required` state or the recovery reason is not retryable, so a normal (runnable) workflow can never be accidentally advanced or deleted.
 
 ## Recovery Record
 
@@ -102,7 +104,10 @@ Default implementations use `load` + `save` under the store's existing optimisti
 
 ## Audit Trail
 
-Step attempt records persist independently of checkpoint state. After `failWorkflow` deletes the checkpoint, the attempt records remain queryable through `StepAttemptRecordStore.listStepAttempts(runId)`. The resolution evidence (`resolutionReason`/`resolutionAtEpochMillis`, and `FAILED` status on retry) is written to the exact attempt referenced by the recovery record when a step-attempt store is supplied — this write is best-effort (storage errors are logged, not propagated), so treat it as audit *aid*, not a durability guarantee.
+Step attempt records persist independently of checkpoint state. After `failWorkflow` deletes the checkpoint, the attempt records remain queryable through `StepAttemptRecordStore.listStepAttempts(runId)`. The resolution evidence (`resolutionReason`/`resolutionAtEpochMillis`, and `FAILED` status) is written to the exact attempt referenced by the recovery record when a step-attempt store is supplied:
+
+- `retryStep` — the `FAILED` transition is **mandatory**: failures propagate and the checkpoint stays `Required`.
+- `failWorkflow` — the evidence write is **best-effort** (storage errors are logged, not propagated), so treat it as audit *aid*, not a durability guarantee.
 
 ## Configuration Properties
 
