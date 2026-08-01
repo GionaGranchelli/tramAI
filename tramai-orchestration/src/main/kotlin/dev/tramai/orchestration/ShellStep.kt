@@ -1,6 +1,7 @@
 package dev.tramai.orchestration
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
@@ -8,8 +9,8 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayOutputStream
@@ -191,7 +192,13 @@ internal data class ShellWorkflowStep<S>(
                 withContext(ioDispatcher) { start() }
             }
         process.outputStream.close()
+        val lifecycle = CancellableProcessLifecycle(process)
+        // Attach-then-active-check: cancellation requests process-tree termination
+        // immediately (closing the pipes unblocks the readers below), so structured
+        // concurrency never waits on blocking readers behind a live process.
+        lifecycle.attachTo(currentCoroutineContext().job)
 
+        var primaryFailure: Throwable? = null
         try {
             return coroutineScope {
                 val stdoutDeferred = async(ioDispatcher) { process.inputStream.captureStream(config.maxOutputBytes) }
@@ -199,9 +206,7 @@ internal data class ShellWorkflowStep<S>(
 
                 try {
                     withTimeout(config.timeoutSeconds.seconds) {
-                        runInterruptible(ioDispatcher) {
-                            process.waitFor()
-                        }
+                        lifecycle.awaitExit()
                     }
                 } catch (error: TimeoutCancellationException) {
                     currentCoroutineContext().ensureActive()
@@ -213,13 +218,13 @@ internal data class ShellWorkflowStep<S>(
                         ),
                         context = context,
                     )
-                    withContext(NonCancellable + ioDispatcher) {
-                        terminateProcessTree(process)
-                    }
-                    throw WorkflowShellException(
+                    val cleanup = lifecycle.terminateAndAwait()
+                    val shellException = WorkflowShellException(
                         stepName = name,
                         message = "timed out after ${config.timeoutSeconds}s",
                     )
+                    shellException.suppressCleanup(cleanup)
+                    throw shellException
                 }
 
                 val stdout = stdoutDeferred.await()
@@ -247,13 +252,22 @@ internal data class ShellWorkflowStep<S>(
                     charset = config.charset,
                 )
             }
+        } catch (error: CancellationException) {
+            primaryFailure = error
+            throw error
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            primaryFailure = error
+            throw error
         } finally {
-            withContext(NonCancellable + ioDispatcher) {
-                if (process.toHandle().isAlive) {
-                    terminateProcessTree(process)
-                } else {
-                    process.waitForUninterruptibly()
-                }
+            val cleanup = withContext(NonCancellable + ioDispatcher) {
+                lifecycle.terminateAndAwait()
+            }
+            val primary = primaryFailure
+            if (primary != null) {
+                primary.suppressCleanup(cleanup)
+            } else if (cleanup.survivors.isNotEmpty()) {
+                throw ProcessTreeSurvivorException(cleanup.survivors)
             }
         }
     }

@@ -6,15 +6,15 @@ import io.modelcontextprotocol.kotlin.sdk.client.StdioClientTransport
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.io.Source
 import kotlinx.io.Sink
@@ -144,6 +144,13 @@ internal class SubprocessMcpTransportProvider : McpTransportProvider {
             )
         }
 
+        val lifecycle = CancellableProcessLifecycle(process)
+        // Attach-then-active-check: parent cancellation (or the withTimeout firing)
+        // requests server-tree termination immediately — closing the process pipes
+        // unblocks the stdio client, so cleanup can never be delayed indefinitely
+        // behind client.close().
+        lifecycle.attachTo(currentCoroutineContext().job)
+
         // Fire-and-forget stderr drain so OS pipe buffer never blocks the subprocess.
         // Must not use coroutineScope — it would wait for the drain to complete (never, until EOF).
         val drainScope = CoroutineScope(Dispatchers.IO)
@@ -156,12 +163,9 @@ internal class SubprocessMcpTransportProvider : McpTransportProvider {
             output = process.outputStream.asSink().buffered(),
             cleanup = {
                 drainScope.cancel()
-                withContext(NonCancellable + Dispatchers.IO) {
-                    if (process.toHandle().isAlive) {
-                        terminateProcessTree(process)
-                    } else {
-                        process.waitForUninterruptibly()
-                    }
+                val result = lifecycle.terminateAndAwait()
+                if (result.survivors.isNotEmpty()) {
+                    throw ProcessTreeSurvivorException(result.survivors)
                 }
             },
         )
@@ -314,7 +318,7 @@ internal data class McpWorkflowStep<S>(
             withTimeout(config.timeoutSeconds.seconds) {
                 val connection = transportProvider.connect(toolCall)
 
-                try {
+                val result = try {
                     val client = Client(
                         clientInfo = Implementation(
                             name = "tramai-mcp-step",
@@ -336,18 +340,55 @@ internal data class McpWorkflowStep<S>(
                         val callResult: CallToolResult = client.callTool(toolCall.toolName, argumentsJson)
                         toMcpToolResult(callResult)
                     } finally {
+                        // If close() throws, it propagates to the catch below where the
+                        // transport cleanup still runs and is suppressed onto it.
                         client.close()
                     }
-                } finally {
-                    runCatching { connection.cleanup?.invoke() }
+                } catch (error: CancellationException) {
+                    cleanupConnection(connection, error)
+                    throw error
+                } catch (error: Throwable) {
+                    error.rethrowIfCancellation()
+                    cleanupConnection(connection, error)
+                    throw error
                 }
+                cleanupConnection(connection, null)
+                result
             }
         } catch (error: TimeoutCancellationException) {
             currentCoroutineContext().ensureActive()
-            throw WorkflowMcpException(
+            val mcpException = WorkflowMcpException(
                 stepName = name,
                 message = "timed out after ${config.timeoutSeconds}s",
             )
+            error.suppressedExceptions.forEach { mcpException.addSuppressed(it) }
+            throw mcpException
+        }
+    }
+
+    /**
+     * Invokes the transport cleanup exactly once per connection, suppressing cleanup
+     * failures onto the primary exception when one is in flight, or throwing them when
+     * there is no primary failure (cleanup errors must not be swallowed silently).
+     */
+    private suspend fun cleanupConnection(
+        connection: McpTransportConnection,
+        primary: Throwable?,
+    ) {
+        if (connection.cleanup == null) return
+        val cleanupError: Throwable? = try {
+            connection.cleanup.invoke()
+            null
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            error
+        }
+        if (cleanupError != null) {
+            if (primary != null) {
+                primary.addSuppressed(cleanupError)
+            } else {
+                throw cleanupError
+            }
         }
     }
 

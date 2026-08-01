@@ -6,6 +6,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import java.nio.file.Files
@@ -56,6 +57,164 @@ class FileWorkflowPersistenceCancellationContractTest {
     ): FileWorkflowLeaseStore {
         root = createTempDirectory("file-cancel-lease-")
         return FileWorkflowLeaseStore.forTest(root, realAtomicFileWriter, clockMillis)
+    }
+
+    // ═══ Cross-process OS file-lock cancellation ═══
+    // The helper JVM (FileLockHolderMain) acquires the SAME FileChannel.lock() on the
+    // actual `<path>.lock` file that production uses — not the Unix `flock` command —
+    // so these tests prove cancellation of a real cross-process OS-lock wait.
+
+    private fun javaBinary(): String = Path.of(System.getProperty("java.home"), "bin", "java").toString()
+
+    private fun spawnLockHolder(lockPath: Path): Triple<Process, Path, Path> {
+        val markerPath = kotlin.io.path.createTempFile("lock-holder-marker", ".flag")
+        val releasePath = kotlin.io.path.createTempFile("lock-holder-release", ".flag")
+        Files.deleteIfExists(markerPath)
+        Files.deleteIfExists(releasePath)
+        val classPath = System.getProperty("java.class.path")
+        val helper = ProcessBuilder(
+            javaBinary(),
+            "-cp",
+            classPath,
+            "dev.tramai.orchestration.FileLockHolderMainKt",
+            lockPath.toString(),
+            markerPath.toString(),
+            releasePath.toString(),
+        ).redirectOutput(ProcessBuilder.Redirect.DISCARD).start()
+        return Triple(helper, releasePath, markerPath)
+    }
+
+    private fun awaitFile(path: Path, timeoutMillis: Long = 15_000) {
+        val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
+        while (!Files.exists(path)) {
+            check(System.nanoTime() < deadline) { "Timed out waiting for $path" }
+            Thread.sleep(25)
+        }
+    }
+
+    @Test
+    fun `real cross-process checkpoint lock wait is cancellable without mutation`() {
+        runBlocking {
+            val store = checkpointStore()
+            val workflowName = "cross-wf"
+            val workflowId = "cross-id"
+            val checkpointLockPath = DefaultWorkflowCheckpointPathStrategy("checkpoint.properties")
+                .resolve(root, workflowName, workflowId).resolveSibling(
+                    "checkpoint.properties.lock",
+                )
+            val registryBefore = pathLockRegistrySize()
+
+            val (helper, releasePath, markerPath) = spawnLockHolder(checkpointLockPath)
+            try {
+                awaitFile(markerPath)
+                // The helper JVM owns the OS lock; confirm the helper is holding it.
+                assertThat(helper.isAlive).isTrue()
+
+                val job = launch(Dispatchers.IO) {
+                    store.save(testCheckpoint(workflowName = workflowName, workflowId = workflowId))
+                }
+                // The operation is confirmed to be waiting on the OS lock.
+                assertThat(withTimeoutOrNull(500) { job.join() }).isNull()
+
+                val cancelledAt = System.nanoTime()
+                job.cancel()
+                // join() on a cancelled child may return normally or throw the job's
+                // CancellationException depending on kotlinx version — assert the OUTCOME
+                // (job completed within bounds, no mutation) rather than the exception type.
+                runCatching { withTimeout(10_000) { job.join() } }
+                val elapsedMillis = (System.nanoTime() - cancelledAt) / 1_000_000L
+
+                // Cancellation completed within a bounded window...
+                assertThat(elapsedMillis).isLessThan(10_000)
+                assertThat(job.isCompleted).isTrue()
+                // ...without depending on lock release: the helper still lives and holds it.
+                assertThat(helper.isAlive).isTrue()
+                assertThat(Path.of("$checkpointLockPath").let { Files.exists(it) }).isTrue()
+                // No checkpoint mutation or temporary file was created.
+                val workflowDir = root.resolve(workflowName).resolve(workflowId)
+                assertThat(temporaryFilesUnder(workflowDir)).isEmpty()
+                assertThat(store.load(workflowName, workflowId)).isNull()
+                // Path-lock registry returns to its original size.
+                assertThat(pathLockRegistrySize()).isEqualTo(registryBefore)
+
+                // After releasing the helper, the store remains usable.
+                Files.writeString(releasePath, "go")
+                helper.waitFor()
+                val saved = store.save(testCheckpoint(workflowName = workflowName, workflowId = workflowId))
+                assertThat(store.load(workflowName, workflowId)?.revision).isEqualTo(saved.revision)
+            } finally {
+                runCatching { Files.writeString(releasePath, "go") }
+                helper.destroyForcibly()
+                helper.waitFor()
+            }
+        }
+    }
+
+    @Test
+    fun `real cross-process suspending file lock wait is cancellable without mutation`() {
+        runBlocking {
+            val store = checkpointStore()
+            val leaseStore = FileWorkflowLeaseStore.forTest(root, realAtomicFileWriter)
+            val workflowName = "cross-susp-wf"
+            val workflowId = "cross-susp-id"
+            val leaseLockPath = DefaultWorkflowCheckpointPathStrategy("lease.properties")
+                .resolve(root, workflowName, workflowId).resolveSibling(
+                    "lease.properties.lock",
+                )
+            val registryBefore = pathLockRegistrySize()
+
+            // Claim a lease first so the fenced operation has a valid expected lease.
+            val lease = leaseStore.claim(
+                workflowName = workflowName,
+                workflowId = workflowId,
+                ownerId = "owner-1",
+                checkpointRevision = null,
+                leaseDurationMillis = 60_000,
+            )
+
+            val (helper, releasePath, markerPath) = spawnLockHolder(leaseLockPath)
+            try {
+                awaitFile(markerPath)
+                assertThat(helper.isAlive).isTrue()
+
+                val job = launch(Dispatchers.IO) {
+                    leaseStore.saveCheckpointIfLeaseOwner(
+                        checkpointStore = store,
+                        checkpoint = testCheckpoint(workflowName = workflowName, workflowId = workflowId),
+                        expectedRevision = null,
+                        expectedLease = lease,
+                    )
+                }
+                assertThat(withTimeoutOrNull(500) { job.join() }).isNull()
+
+                val cancelledAt = System.nanoTime()
+                job.cancel()
+                runCatching { withTimeout(10_000) { job.join() } }
+                val elapsedMillis = (System.nanoTime() - cancelledAt) / 1_000_000L
+
+                assertThat(elapsedMillis).isLessThan(10_000)
+                assertThat(job.isCompleted).isTrue()
+                assertThat(helper.isAlive).isTrue()
+                val workflowDir = root.resolve(workflowName).resolve(workflowId)
+                assertThat(temporaryFilesUnder(workflowDir)).isEmpty()
+                assertThat(store.load(workflowName, workflowId)).isNull()
+                assertThat(pathLockRegistrySize()).isEqualTo(registryBefore)
+
+                Files.writeString(releasePath, "go")
+                helper.waitFor()
+                val saved = leaseStore.saveCheckpointIfLeaseOwner(
+                    checkpointStore = store,
+                    checkpoint = testCheckpoint(workflowName = workflowName, workflowId = workflowId),
+                    expectedRevision = null,
+                    expectedLease = lease,
+                )
+                assertThat(store.load(workflowName, workflowId)?.revision).isEqualTo(saved.revision)
+            } finally {
+                runCatching { Files.writeString(releasePath, "go") }
+                helper.destroyForcibly()
+                helper.waitFor()
+            }
+        }
     }
 
     // ═══ Test 1: Pre-cancelled checkpoint save ═══
@@ -384,4 +543,5 @@ class FileWorkflowPersistenceCancellationContractTest {
             assertThat(temporaryFilesUnder(root)).isEmpty()
         }
     }
+
 }
