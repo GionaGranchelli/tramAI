@@ -11,7 +11,7 @@ This document defines the execution contract, the failure recovery model, and wh
 | Step execution | At least once | A step may execute more than once if the worker crashes after execution but before checkpoint persistence. |
 | Checkpoint advancement | Exactly once per persisted checkpoint | The checkpoint revision acts as an optimistic lock — stale writes are rejected. |
 | External side effects | No guarantee | A side effect (API call, file write, email send) may occur zero, one, or multiple times depending on crash timing. |
-| Idempotency key reuse | Guaranteed when provided | An EXTERNALLY_IDEMPOTENT step that recorded an idempotency key will replay with the same key. |
+| Idempotency key stability | Guaranteed when provided | An EXTERNALLY_IDEMPOTENT step that recorded an idempotency key is never re-executed with a different key — a mismatch enters recovery-required state instead. |
 
 ## Checkpoint Lifecycle
 
@@ -52,8 +52,8 @@ Workers skip checkpoints in `Required` state — no lease is claimed, no executi
 
 An operator resolves `Required` state through `WorkflowRecoveryController`:
 
-- `retryStep(workflowName, workflowId, expectedRevision, reason)` — clears the recovery state and lets the worker retry the unresolved step. The original unknown attempt record remains as audit evidence. The stored idempotency key is reused.
-- `failWorkflow(workflowName, workflowId, expectedRevision, reason)` — clears the recovery state and permanently deletes the checkpoint. Step attempt records remain as audit evidence.
+- `retryStep(workflowName, workflowId, expectedRevision, reason)` — clears the recovery state and lets the worker retry the unresolved step. The original unknown attempt record remains as audit evidence. The stored idempotency key is verified on retry (see Idempotency Keys).
+- `failWorkflow(workflowName, workflowId, expectedRevision, reason)` — permanently deletes the checkpoint in a single fenced operation. If the delete fails, the checkpoint remains in `Required` state and the workflow stays blocked — there is no window where a failed workflow becomes runnable. When a step-attempt store is available, the resolution reason and timestamp are recorded onto the unknown attempt record as durable audit evidence.
 
 Both operations use optimistic concurrency — the `expectedRevision` must match the current checkpoint revision or the operation throws `WorkflowCheckpointConflictException`.
 
@@ -63,7 +63,7 @@ When a checkpoint enters `Required` state, the following information is persiste
 
 | Field | Description |
 |-------|-------------|
-| `reason` | Machine-readable cause: `NON_REPLAYABLE_OUTCOME_UNKNOWN` or `EXTERNAL_IDEMPOTENCY_KEY_MISSING` |
+| `reason` | Machine-readable cause: `NON_REPLAYABLE_OUTCOME_UNKNOWN`, `EXTERNAL_IDEMPOTENCY_KEY_MISSING`, or `IDEMPOTENCY_KEY_MISMATCH` |
 | `stepName` | The step that failed |
 | `attemptId` | The unresolved attempt identifier |
 | `priorWorkerId` | The worker that started the failed attempt |
@@ -76,9 +76,10 @@ When a checkpoint enters `Required` state, the following information is persiste
 An `EXTERNALLY_IDEMPOTENT` step must provide an idempotency key at execution time. The key is:
 
 1. **Recorded** in `StepAttemptRecord.idempotencyKey` on the first attempt.
-2. **Reused** on any retry — the worker passes the same key to the step implementation.
+2. **Verified** on any retry — the worker recomputes the key from the current workflow definition and requires it to match the recorded key. If the recomputed key differs (e.g. after a deployment or definition change), the checkpoint enters `Required` state with reason `IDEMPOTENCY_KEY_MISMATCH`; the step is never re-executed with a different key.
+3. **Applied** to the external call by the step implementation. TramAI verifies key stability but the application code remains responsible for using the recorded key when calling the external system.
 
-If no key was recorded (e.g., an older worker version without key generation), the checkpoint enters `Required` state. The operator must verify the external system state before deciding to retry or fail.
+If no key was recorded (e.g., an older worker version without key generation), the checkpoint enters `Required` state with reason `EXTERNAL_IDEMPOTENCY_KEY_MISSING`. The operator must verify the external system state before deciding to retry or fail.
 
 ## Worker Shutdown and Abandonment
 
@@ -101,7 +102,7 @@ Default implementations use `load` + `save` under the store's existing optimisti
 
 ## Audit Trail
 
-Step attempt records persist independently of checkpoint state. After `failWorkflow` deletes the checkpoint, the attempt records remain queryable through `StepAttemptRecordStore.listStepAttempts(runId)`.
+Step attempt records persist independently of checkpoint state. After `failWorkflow` deletes the checkpoint, the attempt records remain queryable through `StepAttemptRecordStore.listStepAttempts(runId)`, and — when the controller was given a step-attempt store — the resolved attempt carries the operator's `resolutionReason` and `resolutionAtEpochMillis`.
 
 ## Configuration Properties
 

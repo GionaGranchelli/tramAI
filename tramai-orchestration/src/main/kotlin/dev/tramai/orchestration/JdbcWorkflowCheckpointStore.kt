@@ -60,6 +60,7 @@ class JdbcWorkflowCheckpointStore(
             PRIMARY KEY (${table.workflowNameColumn}, ${table.workflowIdColumn})
         )
     """.trimIndent()
+    fun migrationSql(): String = "ALTER TABLE ${table.tableName} ADD COLUMN ${table.recoveryStateColumn} TEXT NULL"
     internal fun saveInConnection(
         connection: java.sql.Connection,
         checkpoint: WorkflowCheckpoint,
@@ -156,7 +157,7 @@ class JdbcWorkflowCheckpointStore(
             statement.setLong(5, persisted.revision)
             statement.setString(6, encodeMetadata(persisted.metadata))
             statement.setLong(7, persisted.savedAtEpochMillis)
-            statement.setString(8, serializeRecoveryState(persisted.recoveryState))
+            statement.setString(8, encodeRecoveryState(persisted.recoveryState))
             statement.setString(9, checkpoint.workflowName)
             statement.setString(10, checkpoint.workflowId)
             statement.setLong(11, expectedRevision)
@@ -257,7 +258,7 @@ class JdbcWorkflowCheckpointStore(
         setLong(7, checkpoint.revision)
         setString(8, encodeMetadata(checkpoint.metadata))
         setLong(9, checkpoint.savedAtEpochMillis)
-        setString(10, serializeRecoveryState(checkpoint.recoveryState))
+        setString(10, encodeRecoveryState(checkpoint.recoveryState))
     }
     private fun java.sql.ResultSet.toCheckpoint(): WorkflowCheckpoint = WorkflowCheckpoint(
         workflowName = getString(table.workflowNameColumn),
@@ -269,40 +270,8 @@ class JdbcWorkflowCheckpointStore(
         revision = getLong(table.revisionColumn),
         metadata = decodeMetadata(getString(table.metadataColumn)),
         savedAtEpochMillis = getLong(table.savedAtEpochMillisColumn),
-        recoveryState = deserializeRecoveryState(getString(table.recoveryStateColumn)),
+        recoveryState = decodeRecoveryState(getString(table.recoveryStateColumn)),
     )
-
-    private fun serializeRecoveryState(state: WorkflowRecoveryState): String? = when (state) {
-        WorkflowRecoveryState.Normal -> null
-        is WorkflowRecoveryState.Required -> encodeMetadata(
-            mapOf(
-                "reason" to state.record.reason.name,
-                "stepName" to state.record.stepName,
-                "attemptId" to state.record.attemptId,
-                "priorWorkerId" to state.record.priorWorkerId,
-                "detectedAtEpochMillis" to state.record.detectedAtEpochMillis.toString(),
-                "idempotencyKey" to (state.record.idempotencyKey ?: ""),
-                "instructions" to (state.record.instructions ?: ""),
-            )
-        )
-    }
-
-    private fun deserializeRecoveryState(payload: String?): WorkflowRecoveryState {
-        if (payload.isNullOrBlank()) return WorkflowRecoveryState.Normal
-        val map = decodeMetadata(payload)
-        val reason = WorkflowRecoveryReason.valueOf(map["reason"] ?: return WorkflowRecoveryState.Normal)
-        return WorkflowRecoveryState.Required(
-            WorkflowRecoveryRecord(
-                reason = reason,
-                stepName = map["stepName"] ?: return WorkflowRecoveryState.Normal,
-                attemptId = map["attemptId"] ?: return WorkflowRecoveryState.Normal,
-                priorWorkerId = map["priorWorkerId"] ?: return WorkflowRecoveryState.Normal,
-                detectedAtEpochMillis = map["detectedAtEpochMillis"]?.toLongOrNull() ?: return WorkflowRecoveryState.Normal,
-                idempotencyKey = map["idempotencyKey"]?.ifBlank { null },
-                instructions = map["instructions"]?.ifBlank { null },
-            )
-        )
-    }
 }
 data class JdbcWorkflowCheckpointTable(
     val tableName: String = "tramai_workflow_checkpoint",

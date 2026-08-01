@@ -30,11 +30,13 @@ interface WorkflowRecoveryController {
     ): WorkflowCheckpoint
 
     /**
-     * Clear the recovery state and permanently delete the checkpoint.
+     * Permanently delete the checkpoint, resolving the workflow as failed.
      *
-     * The workflow will not be polled or executed again. Step attempt records
-     * remain in the store as audit evidence. Calling [retryStep] after [failWorkflow]
-     * is not possible because the checkpoint no longer exists.
+     * The workflow will not be polled again. When a [StepAttemptRecordStore] is
+     * available, the resolution reason is recorded onto the unknown attempt record
+     * as durable audit evidence; otherwise the operator's reason is not persisted
+     * (documented limitation). Calling [retryStep] after [failWorkflow] is not
+     * possible because the checkpoint no longer exists.
      *
      * @throws WorkflowCheckpointConflictException if [expectedRevision] is stale.
      */
@@ -49,16 +51,17 @@ interface WorkflowRecoveryController {
 /**
  * Default in-memory implementation of [WorkflowRecoveryController].
  *
- * Delegates to the store's [WorkflowCheckpointStore.clearRecovery] and
- * [WorkflowCheckpointStore.delete] primitives, both fenced by expected revision.
- * When both operations are required (failWorkflow), they are applied sequentially
- * under the store's optimistic concurrency — the first call consumes a revision,
- * so the second call uses [expectedRevision] + 1.
+ * [failWorkflow] deletes the checkpoint directly in a single fenced operation
+ * (no clear-before-delete), so a failed delete leaves the checkpoint in
+ * [WorkflowRecoveryState.Required] and the workflow stays blocked. When a
+ * [StepAttemptRecordStore] is provided, the resolution reason is recorded onto
+ * the unknown attempt record as durable audit evidence.
  *
- * Override for a genuinely atomic two-phase operation (e.g. JDBC transaction).
+ * Override for a genuinely atomic implementation (e.g. JDBC transaction).
  */
 class InMemoryWorkflowRecoveryController(
     private val checkpointStore: WorkflowCheckpointStore,
+    private val stepAttemptStore: StepAttemptRecordStore? = null,
 ) : WorkflowRecoveryController {
 
     override suspend fun retryStep(
@@ -67,11 +70,14 @@ class InMemoryWorkflowRecoveryController(
         expectedRevision: Long,
         reason: String,
     ): WorkflowCheckpoint {
-        return checkpointStore.clearRecovery(
+        val stepName = recoveryStepName(workflowName, workflowId)
+        val result = checkpointStore.clearRecovery(
             workflowName = workflowName,
             workflowId = workflowId,
             expectedRevision = expectedRevision,
         )
+        recordResolutionEvidence(workflowName, workflowId, stepName, reason)
+        return result
     }
 
     override suspend fun failWorkflow(
@@ -80,17 +86,46 @@ class InMemoryWorkflowRecoveryController(
         expectedRevision: Long,
         reason: String,
     ) {
-        // Clear recovery first — consumes one revision.
-        checkpointStore.clearRecovery(
+        val stepName = recoveryStepName(workflowName, workflowId)
+        recordResolutionEvidence(workflowName, workflowId, stepName, reason)
+        // Delete directly with the ORIGINAL revision. If this fails, the checkpoint
+        // stays in Required and the workflow stays blocked — the safe behavior.
+        checkpointStore.delete(
             workflowName = workflowName,
             workflowId = workflowId,
             expectedRevision = expectedRevision,
         )
-        // Then delete — revision has been bumped by clearRecovery.
-        checkpointStore.delete(
-            workflowName = workflowName,
-            workflowId = workflowId,
-            expectedRevision = expectedRevision + 1,
-        )
+    }
+
+    private suspend fun recoveryStepName(
+        workflowName: String,
+        workflowId: String,
+    ): String? = try {
+        val checkpoint = checkpointStore.load(workflowName, workflowId)
+        (checkpoint?.recoveryState as? WorkflowRecoveryState.Required)?.record?.stepName
+    } catch (error: Throwable) {
+        System.err.println("Failed to read recovery record for '$workflowName'/'$workflowId': $error")
+        null
+    }
+
+    private suspend fun recordResolutionEvidence(
+        workflowName: String,
+        workflowId: String,
+        stepName: String?,
+        reason: String,
+    ) {
+        val store = stepAttemptStore ?: return
+        if (stepName == null) return
+        try {
+            val attempt = store.latestStepAttempt(workflowId, stepName) ?: return
+            store.updateStepAttempt(
+                attempt.copy(
+                    resolutionReason = reason,
+                    resolutionAtEpochMillis = System.currentTimeMillis(),
+                ),
+            )
+        } catch (error: Throwable) {
+            System.err.println("Failed to record resolution evidence for '$workflowName'/'$workflowId' step '$stepName': $error")
+        }
     }
 }

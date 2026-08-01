@@ -9,6 +9,8 @@ enum class WorkflowRecoveryReason {
     NON_REPLAYABLE_OUTCOME_UNKNOWN,
     /** An externally idempotent step is missing its idempotency key — cannot safely retry. */
     EXTERNAL_IDEMPOTENCY_KEY_MISSING,
+    /** The idempotency key computed for the current workflow definition differs from the key recorded by the prior attempt. */
+    IDEMPOTENCY_KEY_MISMATCH,
 }
 
 /**
@@ -83,8 +85,9 @@ interface WorkflowCheckpointStore {
     /**
      * Atomically persist [record] as the recovery reason for this checkpoint.
      *
-     * Uses the default implementation: loads the current checkpoint, sets [recoveryState]
-     * to [WorkflowRecoveryState.Required], and saves with the given [expectedRevision].
+     * Uses the default implementation: loads the current checkpoint, sets
+     * [WorkflowRecoveryState.Required] on [WorkflowCheckpoint.recoveryState],
+     * and saves with the given [expectedRevision].
      * Override for a genuinely atomic store-level operation.
      */
     suspend fun requireRecovery(
@@ -95,7 +98,7 @@ interface WorkflowCheckpointStore {
     ): WorkflowCheckpoint {
         val current = load(workflowName, workflowId)
             ?: throw WorkflowCheckpointConflictException(
-                "Cannot require recovery for '$workflowName'/'$workflowId': checkpoint does not exist",
+                "Cannot require recovery for workflow '$workflowName' and workflowId='$workflowId': checkpoint does not exist for expected revision $expectedRevision",
             )
         return save(
             checkpoint = current.copy(
@@ -108,8 +111,9 @@ interface WorkflowCheckpointStore {
     /**
      * Atomically clear the recovery state on this checkpoint, returning it to [Normal].
      *
-     * Uses the default implementation: loads the current checkpoint, sets [recoveryState]
-     * to [Normal], and saves with the given [expectedRevision].
+     * Uses the default implementation: loads the current checkpoint, sets
+     * [WorkflowRecoveryState.Normal] on [WorkflowCheckpoint.recoveryState],
+     * and saves with the given [expectedRevision].
      * Override for a genuinely atomic store-level operation.
      */
     suspend fun clearRecovery(
@@ -119,7 +123,7 @@ interface WorkflowCheckpointStore {
     ): WorkflowCheckpoint {
         val current = load(workflowName, workflowId)
             ?: throw WorkflowCheckpointConflictException(
-                "Cannot clear recovery for '$workflowName'/'$workflowId': checkpoint does not exist",
+                "Cannot clear recovery for workflow '$workflowName' and workflowId='$workflowId': checkpoint does not exist for expected revision $expectedRevision",
             )
         return save(
             checkpoint = current.copy(recoveryState = WorkflowRecoveryState.Normal),
@@ -171,6 +175,83 @@ class WorkflowResumeException(
 class WorkflowCheckpointConflictException(
     message: String,
 ) : RuntimeException(message)
+
+/**
+ * Raised when persisted checkpoint data is present but malformed or corrupted.
+ *
+ * Only a null/blank recovery payload (an old normal checkpoint) decodes as
+ * [WorkflowRecoveryState.Normal]. Any non-blank payload with missing or invalid
+ * fields throws this instead of silently unblocking a workflow that was
+ * deliberately stopped.
+ */
+class WorkflowCheckpointCorruptionException(
+    message: String,
+) : RuntimeException(message)
+
+/**
+ * Shared recovery-state codec for store implementations.
+ *
+ * [encodeRecoveryState] returns null for [WorkflowRecoveryState.Normal] so stores
+ * can omit the field entirely (backward compatible with checkpoints written before
+ * recovery state existed).
+ *
+ * [decodeRecoveryState] fails closed: only null/blank payloads decode to Normal.
+ * Any non-blank malformed payload throws [WorkflowCheckpointCorruptionException].
+ */
+internal fun encodeRecoveryState(state: WorkflowRecoveryState): String? = when (state) {
+    WorkflowRecoveryState.Normal -> null
+    is WorkflowRecoveryState.Required -> encodeMetadata(
+        mapOf(
+            "reason" to state.record.reason.name,
+            "stepName" to state.record.stepName,
+            "attemptId" to state.record.attemptId,
+            "priorWorkerId" to state.record.priorWorkerId,
+            "detectedAtEpochMillis" to state.record.detectedAtEpochMillis.toString(),
+            "idempotencyKey" to (state.record.idempotencyKey ?: ""),
+            "instructions" to (state.record.instructions ?: ""),
+        ),
+    )
+}
+
+internal fun decodeRecoveryState(payload: String?): WorkflowRecoveryState {
+    if (payload.isNullOrBlank()) return WorkflowRecoveryState.Normal
+    val map = try {
+        decodeMetadata(payload)
+    } catch (error: IllegalArgumentException) {
+        throw WorkflowCheckpointCorruptionException(
+            "Persisted recovery state is not a valid encoded payload: '$payload'",
+        )
+    }
+    val reason = map["reason"]?.let { name ->
+        WorkflowRecoveryReason.entries.firstOrNull { it.name == name }
+    } ?: throw WorkflowCheckpointCorruptionException(
+        "Persisted recovery state is missing or has an invalid 'reason' field: '${map["reason"]}'",
+    )
+    val stepName = map["stepName"] ?: throw WorkflowCheckpointCorruptionException(
+        "Persisted recovery state is missing 'stepName'",
+    )
+    val attemptId = map["attemptId"] ?: throw WorkflowCheckpointCorruptionException(
+        "Persisted recovery state is missing 'attemptId'",
+    )
+    val priorWorkerId = map["priorWorkerId"] ?: throw WorkflowCheckpointCorruptionException(
+        "Persisted recovery state is missing 'priorWorkerId'",
+    )
+    val detectedAt = map["detectedAtEpochMillis"]?.toLongOrNull()
+        ?: throw WorkflowCheckpointCorruptionException(
+            "Persisted recovery state has invalid 'detectedAtEpochMillis': '${map["detectedAtEpochMillis"]}'",
+        )
+    return WorkflowRecoveryState.Required(
+        WorkflowRecoveryRecord(
+            reason = reason,
+            stepName = stepName,
+            attemptId = attemptId,
+            priorWorkerId = priorWorkerId,
+            detectedAtEpochMillis = detectedAt,
+            idempotencyKey = map["idempotencyKey"]?.ifBlank { null },
+            instructions = map["instructions"]?.ifBlank { null },
+        ),
+    )
+}
 /**
  * Simple in-memory checkpoint store for tests and lightweight local use.
  */

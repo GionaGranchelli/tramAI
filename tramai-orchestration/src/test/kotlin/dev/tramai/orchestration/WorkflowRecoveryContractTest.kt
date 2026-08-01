@@ -4,9 +4,15 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlin.io.path.createTempDirectory
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import kotlin.test.Test
+import java.io.PrintWriter
+import java.sql.Connection
+import java.sql.SQLException
+import java.util.logging.Logger
+import javax.sql.DataSource
 
 class WorkflowRecoveryContractTest {
 
@@ -283,6 +289,117 @@ class WorkflowRecoveryContractTest {
         }
     }
 
+    @Test
+    fun `File store round trips recovery state`() {
+        runBlocking {
+            val directory = createTempDirectory("tramai-file-recovery")
+            try {
+                val store = FileWorkflowCheckpointStore(directory)
+                val record = recoveryRecord()
+                val saved = store.save(
+                    sampleCheckpoint().copy(recoveryState = WorkflowRecoveryState.Required(record)),
+                )
+                store.requireRecovery(
+                    workflowName = saved.workflowName,
+                    workflowId = saved.workflowId,
+                    expectedRevision = saved.revision,
+                    record = record,
+                )
+                val reloaded = store.load(saved.workflowName, saved.workflowId)!!
+                assertRequiredRecord(reloaded, record)
+            } finally {
+                directory.toFile().deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun `Markdown store round trips recovery state`() {
+        runBlocking {
+            val directory = createTempDirectory("tramai-markdown-recovery")
+            try {
+                val store = MarkdownWorkflowCheckpointStore(directory)
+                val record = recoveryRecord()
+                val saved = store.save(
+                    sampleCheckpoint().copy(recoveryState = WorkflowRecoveryState.Required(record)),
+                )
+                store.requireRecovery(
+                    workflowName = saved.workflowName,
+                    workflowId = saved.workflowId,
+                    expectedRevision = saved.revision,
+                    record = record,
+                )
+                val reloaded = store.load(saved.workflowName, saved.workflowId)!!
+                assertRequiredRecord(reloaded, record)
+            } finally {
+                directory.toFile().deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun `File store treats absent recovery data as Normal`() {
+        runBlocking {
+            val directory = createTempDirectory("tramai-file-normal")
+            try {
+                val store = FileWorkflowCheckpointStore(directory)
+                store.save(sampleCheckpoint().copy(recoveryState = WorkflowRecoveryState.Normal))
+                val reloaded = store.load("recovery-test", "wf-recovery-1")!!
+                assertThat(reloaded.recoveryState).isSameAs(WorkflowRecoveryState.Normal)
+            } finally {
+                directory.toFile().deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun `Markdown store treats absent recovery data as Normal`() {
+        runBlocking {
+            val directory = createTempDirectory("tramai-markdown-normal")
+            try {
+                val store = MarkdownWorkflowCheckpointStore(directory)
+                store.save(sampleCheckpoint().copy(recoveryState = WorkflowRecoveryState.Normal))
+                val reloaded = store.load("recovery-test", "wf-recovery-1")!!
+                assertThat(reloaded.recoveryState).isSameAs(WorkflowRecoveryState.Normal)
+            } finally {
+                directory.toFile().deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun `decoding malformed recovery payload fails closed`() {
+        assertThatThrownBy { decodeRecoveryState("not-a-valid-properties-format") }
+            .isInstanceOf(WorkflowCheckpointCorruptionException::class.java)
+        assertThat(decodeRecoveryState(null)).isSameAs(WorkflowRecoveryState.Normal)
+    }
+
+    @Test
+    fun `jdbc migration sql adds recovery column`() {
+        val store = JdbcWorkflowCheckpointStore(NoopDataSource())
+        assertThat(store.migrationSql())
+            .contains("ALTER TABLE")
+            .contains("ADD COLUMN recovery_state TEXT NULL")
+    }
+
+    private fun assertRequiredRecord(
+        checkpoint: WorkflowCheckpoint,
+        record: WorkflowRecoveryRecord,
+    ) {
+        val required = checkpoint.recoveryState as WorkflowRecoveryState.Required
+        assertThat(required.record).isEqualTo(record)
+    }
+
+    private fun recoveryRecord(): WorkflowRecoveryRecord = WorkflowRecoveryRecord(
+        reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
+        stepName = "process-payment",
+        attemptId = "attempt-42",
+        priorWorkerId = "worker-7",
+        detectedAtEpochMillis = 123456,
+        idempotencyKey = "idem-key-1",
+        instructions = "confirm with operator",
+    )
+
     private fun sampleCheckpoint(): WorkflowCheckpoint = WorkflowCheckpoint(
         workflowName = "recovery-test",
         workflowId = "wf-recovery-1",
@@ -293,4 +410,18 @@ class WorkflowRecoveryContractTest {
         metadata = mapOf("tenant" to "test"),
         savedAtEpochMillis = 1000,
     )
+}
+private class NoopDataSource : DataSource {
+    override fun getConnection(): Connection = error("Not used by migrationSql")
+    override fun getConnection(
+        username: String?,
+        password: String?,
+    ): Connection = error("Not used by migrationSql")
+    override fun getLogWriter(): PrintWriter? = null
+    override fun setLogWriter(out: PrintWriter?) = Unit
+    override fun setLoginTimeout(seconds: Int) = Unit
+    override fun getLoginTimeout(): Int = 0
+    override fun getParentLogger(): Logger = Logger.getGlobal()
+    override fun <T : Any?> unwrap(iface: Class<T>?): T = throw SQLException("Unsupported")
+    override fun isWrapperFor(iface: Class<*>?): Boolean = false
 }

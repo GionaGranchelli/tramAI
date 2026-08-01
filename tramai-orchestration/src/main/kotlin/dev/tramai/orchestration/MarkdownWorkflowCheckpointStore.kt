@@ -90,6 +90,7 @@ internal fun encodeMarkdownCheckpoint(checkpoint: WorkflowCheckpoint): String {
         appendLine("lastCompletedStepName: ${base64Encode(checkpoint.lastCompletedStepName.orEmpty())}")
         appendLine("revision: ${checkpoint.revision}")
         appendLine("savedAtEpochMillis: ${checkpoint.savedAtEpochMillis}")
+        appendLine("recoveryState: ${encodeRecoveryState(checkpoint.recoveryState)?.let(::base64Encode).orEmpty()}")
         if (metadataLines.isNotBlank()) {
             appendLine(metadataLines)
         }
@@ -145,6 +146,9 @@ internal fun decodeMarkdownCheckpoint(content: String): WorkflowCheckpoint {
         revision = frontMatter.requireValue("revision").toLong(),
         metadata = metadata,
         savedAtEpochMillis = frontMatter.requireValue("savedAtEpochMillis").toLong(),
+        recoveryState = decodeRecoveryState(
+            frontMatter["recoveryState"]?.takeIf { it.isNotBlank() }?.let(::base64Decode),
+        ),
     )
 }
 private fun markdownFence(content: String): String {
