@@ -545,6 +545,7 @@ class TramaiWorker(
                 // failure so latestFailure() reflects it, and release the lease so the
                 // checkpoint can be reclaimed once an operator resolves it. The unknown
                 // attempt record is deliberately left at UNKNOWN as audit evidence.
+                error.rethrowIfCancellation()
                 executionFailures[checkpoint.workflowId] = error
                 releaseLease(handle)
                 throw error

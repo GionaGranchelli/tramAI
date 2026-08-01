@@ -156,7 +156,7 @@ deviations:
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 
-  - id: MQ-0006
+  - id: MQ-0015
     metric: nondeterminismSources
     scope: ":tramai-orchestration"
     baseline: 23

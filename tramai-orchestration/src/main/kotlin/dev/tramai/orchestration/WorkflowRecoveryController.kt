@@ -1,5 +1,7 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.coroutines.rethrowIfCancellation
+
 /**
  * Controller for resolving workflows in [WorkflowRecoveryState.Required] state.
  *
@@ -17,7 +19,8 @@ interface WorkflowRecoveryController {
      *
      * The original [WorkflowRecoveryRecord] and unknown attempt record remain in the
      * stores as audit evidence. For [ReplayPolicy.EXTERNALLY_IDEMPOTENT] steps the
-     * stored idempotency key is reused.
+     * worker verifies on retry that the recomputed idempotency key matches the stored
+     * key (a mismatch re-enters recovery with `IDEMPOTENCY_KEY_MISMATCH`).
      *
      * @return the checkpoint after clearing recovery (revision advanced by one).
      * @throws WorkflowCheckpointConflictException if [expectedRevision] is stale.
@@ -87,7 +90,6 @@ class InMemoryWorkflowRecoveryController(
         reason: String,
     ) {
         val stepName = recoveryStepName(workflowName, workflowId)
-        recordResolutionEvidence(workflowName, workflowId, stepName, reason)
         // Delete directly with the ORIGINAL revision. If this fails, the checkpoint
         // stays in Required and the workflow stays blocked — the safe behavior.
         checkpointStore.delete(
@@ -95,6 +97,9 @@ class InMemoryWorkflowRecoveryController(
             workflowId = workflowId,
             expectedRevision = expectedRevision,
         )
+        // Record resolution evidence only AFTER a successful delete — never write
+        // "resolved: failed" for a workflow that is still in Required state.
+        recordResolutionEvidence(workflowName, workflowId, stepName, reason)
     }
 
     private suspend fun recoveryStepName(
@@ -104,6 +109,7 @@ class InMemoryWorkflowRecoveryController(
         val checkpoint = checkpointStore.load(workflowName, workflowId)
         (checkpoint?.recoveryState as? WorkflowRecoveryState.Required)?.record?.stepName
     } catch (error: Throwable) {
+        error.rethrowIfCancellation()
         System.err.println("Failed to read recovery record for '$workflowName'/'$workflowId': $error")
         null
     }
@@ -125,6 +131,7 @@ class InMemoryWorkflowRecoveryController(
                 ),
             )
         } catch (error: Throwable) {
+            error.rethrowIfCancellation()
             System.err.println("Failed to record resolution evidence for '$workflowName'/'$workflowId' step '$stepName': $error")
         }
     }
