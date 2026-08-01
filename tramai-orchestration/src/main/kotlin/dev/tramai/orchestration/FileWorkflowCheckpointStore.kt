@@ -162,6 +162,7 @@ internal fun encodeCheckpoint(checkpoint: WorkflowCheckpoint): String {
     properties["statePayloadBase64"] = base64Encode(checkpoint.statePayload)
     properties["revision"] = checkpoint.revision.toString()
     properties["savedAtEpochMillis"] = checkpoint.savedAtEpochMillis.toString()
+    properties["recoveryState"] = encodeRecoveryState(checkpoint.recoveryState)?.let(::base64Encode) ?: ""
     checkpoint.metadata.forEach { (key, value) ->
         properties["metadata.${base64Encode(key)}"] = base64Encode(value)
     }
@@ -189,6 +190,9 @@ internal fun decodeCheckpoint(content: String): WorkflowCheckpoint {
         revision = properties.getProperty("revision")?.toLong() ?: 0,
         metadata = metadata,
         savedAtEpochMillis = properties.getProperty("savedAtEpochMillis")?.toLong() ?: System.currentTimeMillis(),
+        recoveryState = decodeRecoveryState(
+            properties.getProperty("recoveryState")?.takeIf { it.isNotBlank() }?.let(::base64Decode),
+        ),
     )
 }
 

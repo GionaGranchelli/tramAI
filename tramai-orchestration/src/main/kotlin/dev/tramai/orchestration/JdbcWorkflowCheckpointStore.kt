@@ -56,9 +56,11 @@ class JdbcWorkflowCheckpointStore(
             ${table.revisionColumn} BIGINT NOT NULL,
             ${table.metadataColumn} TEXT NOT NULL,
             ${table.savedAtEpochMillisColumn} BIGINT NOT NULL,
+            ${table.recoveryStateColumn} TEXT NULL,
             PRIMARY KEY (${table.workflowNameColumn}, ${table.workflowIdColumn})
         )
     """.trimIndent()
+    fun migrationSql(): String = "ALTER TABLE ${table.tableName} ADD COLUMN ${table.recoveryStateColumn} TEXT NULL"
     internal fun saveInConnection(
         connection: java.sql.Connection,
         checkpoint: WorkflowCheckpoint,
@@ -155,9 +157,10 @@ class JdbcWorkflowCheckpointStore(
             statement.setLong(5, persisted.revision)
             statement.setString(6, encodeMetadata(persisted.metadata))
             statement.setLong(7, persisted.savedAtEpochMillis)
-            statement.setString(8, checkpoint.workflowName)
-            statement.setString(9, checkpoint.workflowId)
-            statement.setLong(10, expectedRevision)
+            statement.setString(8, encodeRecoveryState(persisted.recoveryState))
+            statement.setString(9, checkpoint.workflowName)
+            statement.setString(10, checkpoint.workflowId)
+            statement.setLong(11, expectedRevision)
             val updated = statement.executeUpdate()
             if (updated == 0) {
                 val existing = load(connection, checkpoint.workflowName, checkpoint.workflowId)
@@ -181,8 +184,9 @@ class JdbcWorkflowCheckpointStore(
             ${table.statePayloadColumn},
             ${table.revisionColumn},
             ${table.metadataColumn},
-            ${table.savedAtEpochMillisColumn}
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ${table.savedAtEpochMillisColumn},
+            ${table.recoveryStateColumn}
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """.trimIndent()
     private fun updateSql(): String = """
         UPDATE ${table.tableName}
@@ -193,7 +197,8 @@ class JdbcWorkflowCheckpointStore(
             ${table.statePayloadColumn} = ?,
             ${table.revisionColumn} = ?,
             ${table.metadataColumn} = ?,
-            ${table.savedAtEpochMillisColumn} = ?
+            ${table.savedAtEpochMillisColumn} = ?,
+            ${table.recoveryStateColumn} = ?
         WHERE ${table.workflowNameColumn} = ?
             AND ${table.workflowIdColumn} = ?
             AND ${table.revisionColumn} = ?
@@ -208,7 +213,8 @@ class JdbcWorkflowCheckpointStore(
             ${table.statePayloadColumn},
             ${table.revisionColumn},
             ${table.metadataColumn},
-            ${table.savedAtEpochMillisColumn}
+            ${table.savedAtEpochMillisColumn},
+            ${table.recoveryStateColumn}
         FROM ${table.tableName}
         WHERE ${table.workflowNameColumn} = ?
             AND ${table.workflowIdColumn} = ?
@@ -223,7 +229,8 @@ class JdbcWorkflowCheckpointStore(
             ${table.statePayloadColumn},
             ${table.revisionColumn},
             ${table.metadataColumn},
-            ${table.savedAtEpochMillisColumn}
+            ${table.savedAtEpochMillisColumn},
+            ${table.recoveryStateColumn}
         FROM ${table.tableName}
         ORDER BY ${table.workflowNameColumn}, ${table.workflowIdColumn}
     """.trimIndent()
@@ -251,6 +258,7 @@ class JdbcWorkflowCheckpointStore(
         setLong(7, checkpoint.revision)
         setString(8, encodeMetadata(checkpoint.metadata))
         setLong(9, checkpoint.savedAtEpochMillis)
+        setString(10, encodeRecoveryState(checkpoint.recoveryState))
     }
     private fun java.sql.ResultSet.toCheckpoint(): WorkflowCheckpoint = WorkflowCheckpoint(
         workflowName = getString(table.workflowNameColumn),
@@ -262,6 +270,7 @@ class JdbcWorkflowCheckpointStore(
         revision = getLong(table.revisionColumn),
         metadata = decodeMetadata(getString(table.metadataColumn)),
         savedAtEpochMillis = getLong(table.savedAtEpochMillisColumn),
+        recoveryState = decodeRecoveryState(getString(table.recoveryStateColumn)),
     )
 }
 data class JdbcWorkflowCheckpointTable(
@@ -275,6 +284,7 @@ data class JdbcWorkflowCheckpointTable(
     val revisionColumn: String = "revision",
     val metadataColumn: String = "metadata_payload",
     val savedAtEpochMillisColumn: String = "saved_at_epoch_millis",
+    val recoveryStateColumn: String = "recovery_state",
 ) {
     init {
         requireValidSqlIdentifier(tableName, "JdbcWorkflowCheckpointTable.tableName")
@@ -287,6 +297,7 @@ data class JdbcWorkflowCheckpointTable(
         requireValidSqlIdentifier(revisionColumn, "JdbcWorkflowCheckpointTable.revisionColumn")
         requireValidSqlIdentifier(metadataColumn, "JdbcWorkflowCheckpointTable.metadataColumn")
         requireValidSqlIdentifier(savedAtEpochMillisColumn, "JdbcWorkflowCheckpointTable.savedAtEpochMillisColumn")
+        requireValidSqlIdentifier(recoveryStateColumn, "JdbcWorkflowCheckpointTable.recoveryStateColumn")
     }
 }
 internal fun encodeMetadata(metadata: Map<String, String>): String {

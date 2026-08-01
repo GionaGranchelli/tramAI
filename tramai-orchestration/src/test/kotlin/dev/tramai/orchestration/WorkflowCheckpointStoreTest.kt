@@ -230,14 +230,15 @@ private class FakeJdbcBackend {
                 revision = parameters[7] as Long,
                 metadata = decodeMetadata(parameters[8] as String),
                 savedAtEpochMillis = parameters[9] as Long,
+                recoveryState = deserializeTestRecoveryState(parameters[10] as? String),
             )
             rows[checkpoint.workflowName to checkpoint.workflowId] = checkpoint
             1
         }
         normalizedSql.startsWith("UPDATE") -> {
-            val key = (parameters[8] as String) to (parameters[9] as String)
+            val key = (parameters[9] as String) to (parameters[10] as String)
             val existing = rows[key] ?: return 0
-            val expectedRevision = parameters[10] as Long
+            val expectedRevision = parameters[11] as Long
             if (existing.revision != expectedRevision) {
                 return 0
             }
@@ -249,6 +250,7 @@ private class FakeJdbcBackend {
                 revision = parameters[5] as Long,
                 metadata = decodeMetadata(parameters[6] as String),
                 savedAtEpochMillis = parameters[7] as Long,
+                recoveryState = deserializeTestRecoveryState(parameters[8] as? String),
             )
             1
         }
@@ -292,6 +294,22 @@ private fun WorkflowCheckpoint.stringValue(column: Any?): String? = when (column
     "last_completed_step_name" -> lastCompletedStepName
     "state_payload" -> statePayload
     "metadata_payload" -> encodeMetadata(metadata)
+    "recovery_state" -> recoveryState.let {
+        when (it) {
+            WorkflowRecoveryState.Normal -> null
+            is WorkflowRecoveryState.Required -> encodeMetadata(
+                mapOf(
+                    "reason" to it.record.reason.name,
+                    "stepName" to it.record.stepName,
+                    "attemptId" to it.record.attemptId,
+                    "priorWorkerId" to it.record.priorWorkerId,
+                    "detectedAtEpochMillis" to it.record.detectedAtEpochMillis.toString(),
+                    "idempotencyKey" to (it.record.idempotencyKey ?: ""),
+                    "instructions" to (it.record.instructions ?: ""),
+                )
+            )
+        }
+    }
     else -> error("Unsupported column '$column'")
 }
 private fun WorkflowCheckpoint.intValue(column: Any?): Int = when (column) {
@@ -303,6 +321,22 @@ private fun WorkflowCheckpoint.longValue(column: Any?): Long = when (column) {
     "revision" -> revision
     "saved_at_epoch_millis" -> savedAtEpochMillis
     else -> error("Unsupported column '$column'")
+}
+private fun deserializeTestRecoveryState(payload: String?): WorkflowRecoveryState {
+    if (payload.isNullOrBlank()) return WorkflowRecoveryState.Normal
+    val map = decodeMetadata(payload)
+    val reason = WorkflowRecoveryReason.valueOf(map["reason"] ?: return WorkflowRecoveryState.Normal)
+    return WorkflowRecoveryState.Required(
+        WorkflowRecoveryRecord(
+            reason = reason,
+            stepName = map["stepName"] ?: return WorkflowRecoveryState.Normal,
+            attemptId = map["attemptId"] ?: return WorkflowRecoveryState.Normal,
+            priorWorkerId = map["priorWorkerId"] ?: return WorkflowRecoveryState.Normal,
+            detectedAtEpochMillis = map["detectedAtEpochMillis"]?.toLongOrNull() ?: return WorkflowRecoveryState.Normal,
+            idempotencyKey = map["idempotencyKey"]?.ifBlank { null },
+            instructions = map["instructions"]?.ifBlank { null },
+        )
+    )
 }
 private fun <T> proxy(
     type: Class<T>,

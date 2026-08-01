@@ -357,6 +357,12 @@ class TramaiWorker(
         if (!acceptingWork || activeExecutions.containsKey(checkpoint.workflowId)) return
         if (!ownsPartition(checkpoint.workflowId)) return
         if (leaseStore.currentLease(checkpoint.workflowName, checkpoint.workflowId) != null) return
+        if (checkpoint.recoveryState is WorkflowRecoveryState.Required) {
+            // Blocked workflow awaiting operator resolution — skip silently. The
+            // unknown-attempt event is already emitted once when the attempt is first
+            // detected (recoverAttemptIfNeeded), not on every poll cycle.
+            return
+        }
 
         val lease = try {
             leaseStore.claim(
@@ -438,6 +444,14 @@ class TramaiWorker(
         tracker.prepareForCheckpoint(checkpoint)
         handle.lastRevision.set(checkpoint.revision)
 
+        val fencedCheckpointStore = LeaseFencedCheckpointStore(
+            delegate = checkpointStore,
+            leaseStore = leaseStore,
+            leaseProvider = { handle.lease.get() },
+            tracker = tracker,
+            revisionSink = { handle.lastRevision.set(it) },
+        )
+
         val unknownAttempt = tracker.recoverAttemptIfNeeded(checkpoint)
         if (unknownAttempt != null) {
             observability.onLeaseExpired(checkpoint.workflowId, unknownAttempt.workerId)
@@ -446,8 +460,22 @@ class TramaiWorker(
                 previousWorkerId = unknownAttempt.workerId,
                 newWorkerId = config.workerId,
             )
-            when (unknownAttempt.replayPolicy) {
+            try {
+                when (unknownAttempt.replayPolicy) {
                 ReplayPolicy.NON_REPLAYABLE -> {
+                    fencedCheckpointStore.requireRecovery(
+                        workflowName = checkpoint.workflowName,
+                        workflowId = checkpoint.workflowId,
+                        expectedRevision = checkpoint.revision,
+                        record = WorkflowRecoveryRecord(
+                            reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
+                            stepName = unknownAttempt.stepName,
+                            attemptId = unknownAttempt.attemptId,
+                            priorWorkerId = unknownAttempt.workerId,
+                            detectedAtEpochMillis = unknownAttempt.startedAt,
+                            idempotencyKey = unknownAttempt.idempotencyKey,
+                        ),
+                    )
                     throw NonReplayableStepStateUnknownException(
                         runId = unknownAttempt.runId,
                         stepName = unknownAttempt.stepName,
@@ -457,7 +485,20 @@ class TramaiWorker(
                 }
 
                 ReplayPolicy.EXTERNALLY_IDEMPOTENT -> {
-                    if (unknownAttempt.idempotencyKey.isNullOrBlank()) {
+                    val storedKey = unknownAttempt.idempotencyKey
+                    if (storedKey.isNullOrBlank()) {
+                        fencedCheckpointStore.requireRecovery(
+                            workflowName = checkpoint.workflowName,
+                            workflowId = checkpoint.workflowId,
+                            expectedRevision = checkpoint.revision,
+                            record = WorkflowRecoveryRecord(
+                                reason = WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING,
+                                stepName = unknownAttempt.stepName,
+                                attemptId = unknownAttempt.attemptId,
+                                priorWorkerId = unknownAttempt.workerId,
+                                detectedAtEpochMillis = unknownAttempt.startedAt,
+                            ),
+                        )
                         throw NonReplayableStepStateUnknownException(
                             runId = unknownAttempt.runId,
                             stepName = unknownAttempt.stepName,
@@ -466,21 +507,48 @@ class TramaiWorker(
                             recoveryInstructions = "The prior attempt requires a stable idempotency key for replay, but no key was recorded. Investigate the external system before resuming.",
                         )
                     }
+                    val currentKey = tracker.currentStepReplayDescriptor()?.idempotencyKey
+                    if (currentKey != storedKey) {
+                        fencedCheckpointStore.requireRecovery(
+                            workflowName = checkpoint.workflowName,
+                            workflowId = checkpoint.workflowId,
+                            expectedRevision = checkpoint.revision,
+                            record = WorkflowRecoveryRecord(
+                                reason = WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH,
+                                stepName = unknownAttempt.stepName,
+                                attemptId = unknownAttempt.attemptId,
+                                priorWorkerId = unknownAttempt.workerId,
+                                detectedAtEpochMillis = unknownAttempt.startedAt,
+                                idempotencyKey = storedKey,
+                            ),
+                        )
+                        throw NonReplayableStepStateUnknownException(
+                            runId = unknownAttempt.runId,
+                            stepName = unknownAttempt.stepName,
+                            priorWorkerId = unknownAttempt.workerId,
+                            attemptTime = unknownAttempt.startedAt,
+                            recoveryInstructions = "The idempotency key computed for the current workflow definition (${currentKey ?: "<none>"}) differs from the key recorded by the prior attempt ($storedKey). Resolve the mismatch before resuming.",
+                        )
+                    }
                 }
 
                 ReplayPolicy.PURE,
                 ReplayPolicy.IDEMPOTENT,
                 -> Unit
+                }
+            } catch (error: Throwable) {
+                // The recovery persistence paths throw NonReplayableStepStateUnknownException
+                // (or a lease conflict when the fence rejects a stale worker). Record the
+                // failure so latestFailure() reflects it, and release the lease so the
+                // checkpoint can be reclaimed once an operator resolves it. The unknown
+                // attempt record is deliberately left at UNKNOWN as audit evidence.
+                error.rethrowIfCancellation()
+                executionFailures[checkpoint.workflowId] = error
+                releaseLease(handle)
+                throw error
             }
         }
 
-        val fencedCheckpointStore = LeaseFencedCheckpointStore(
-            delegate = checkpointStore,
-            leaseStore = leaseStore,
-            leaseProvider = { handle.lease.get() },
-            tracker = tracker,
-            revisionSink = { handle.lastRevision.set(it) },
-        )
         val persistence = WorkflowPersistence(
             checkpointStore = fencedCheckpointStore,
             stateCodec = binding.stateCodec,
@@ -663,6 +731,8 @@ private class ExecutionTracker(
             preparedReplayDescriptor = replayDescriptor
         }
     }
+
+    fun currentStepReplayDescriptor(): WorkflowStepReplayDescriptor? = synchronized(monitor) { preparedReplayDescriptor }
 
     suspend fun recoverAttemptIfNeeded(checkpoint: WorkflowCheckpoint): StepAttemptRecord? {
         val nextStepName = workflow.stepNameAt(checkpoint.nextStepIndex) ?: return null
@@ -876,6 +946,23 @@ private class LeaseFencedCheckpointStore(
             expectedRevision = expectedRevision,
             expectedLease = expectedLease,
         )
+    }
+
+    override suspend fun requireRecovery(
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long,
+        record: WorkflowRecoveryRecord,
+    ): WorkflowCheckpoint {
+        val expectedLease = expectedLease(workflowName, workflowId)
+        val current = delegate.load(workflowName, workflowId)
+            ?: throw WorkflowCheckpointConflictException("Cannot require recovery for '$workflowName'/'$workflowId': checkpoint does not exist")
+        return leaseFence.saveCheckpointIfLeaseOwner(
+            checkpointStore = delegate,
+            checkpoint = current.copy(recoveryState = WorkflowRecoveryState.Required(record)),
+            expectedRevision = expectedRevision,
+            expectedLease = expectedLease,
+        ).also { revisionSink(it.revision) }
     }
 
     private fun expectedLease(

@@ -156,6 +156,16 @@ deviations:
     targetPhase: "0.6.1"
     owner: "GionaGranchelli"
 
+  - id: MQ-0015
+    metric: nondeterminismSources
+    scope: ":tramai-orchestration"
+    baseline: 23
+    allowed: 32
+    reason: "PR #215 recovery semantics adds recovery-persistence branches (fenced requireRecovery, failWorkflow direct delete, idempotency-key verification, recovery failure recording) that the nondeterminism scanner counts as new finding sources. These are the deterministic recovery failure-handling paths, not runtime nondeterminism; resolves as orchestration decomposes."
+    acceptedAt: "2026-08-01"
+    targetPhase: "0.6.1"
+    owner: "GionaGranchelli"
+
 # Verification policy:
 # - New findings that match an existing deviation (same metric + scope) are allowed.
 # - New findings with no matching deviation cause verify tasks to fail.

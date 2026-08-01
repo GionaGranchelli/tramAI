@@ -30,6 +30,8 @@ data class StepAttemptRecord(
     val replayPolicy: ReplayPolicy,
     val inputFingerprint: String? = null,
     val outputSummary: String? = null,
+    val resolutionReason: String? = null,
+    val resolutionAtEpochMillis: Long? = null,
 )
 
 interface StepAttemptRecordStore {
