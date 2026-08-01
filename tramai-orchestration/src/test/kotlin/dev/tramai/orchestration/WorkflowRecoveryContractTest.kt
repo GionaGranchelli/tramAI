@@ -137,8 +137,20 @@ class WorkflowRecoveryContractTest {
     fun `retryStep clears recovery state`() {
         runBlocking {
             val store = InMemoryWorkflowCheckpointStore()
-            val controller = InMemoryWorkflowRecoveryController(store)
+            val controller = InMemoryWorkflowRecoveryController(store, store)
             val saved = store.save(sampleCheckpoint())
+            store.recordStepAttempt(
+                StepAttemptRecord(
+                    runId = saved.workflowId,
+                    stepName = "step",
+                    attemptId = "a",
+                    workerId = "w",
+                    leaseToken = "l",
+                    status = StepAttemptStatus.UNKNOWN,
+                    startedAt = 0,
+                    replayPolicy = ReplayPolicy.NON_REPLAYABLE,
+                ),
+            )
             val required = store.requireRecovery(
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
@@ -333,6 +345,133 @@ class WorkflowRecoveryContractTest {
     }
 
     @Test
+    fun `retryStep without a step attempt store throws and keeps checkpoint required`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val controller = InMemoryWorkflowRecoveryController(checkpointStore = store, stepAttemptStore = null)
+            val saved = store.save(sampleCheckpoint())
+            val required = store.requireRecovery(
+                workflowName = saved.workflowName,
+                workflowId = saved.workflowId,
+                expectedRevision = saved.revision,
+                record = WorkflowRecoveryRecord(
+                    reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
+                    stepName = "step",
+                    attemptId = "a",
+                    priorWorkerId = "w",
+                    detectedAtEpochMillis = 0,
+                ),
+            )
+
+            assertThatThrownBy {
+                runBlocking {
+                    controller.retryStep(
+                        workflowName = saved.workflowName,
+                        workflowId = saved.workflowId,
+                        expectedRevision = required.revision,
+                        reason = "cannot retry without a store",
+                    )
+                }
+            }.isInstanceOf(WorkflowRecoveryStateException::class.java)
+
+            val after = store.load(saved.workflowName, saved.workflowId)!!
+            assertThat(after.recoveryState).isInstanceOf(WorkflowRecoveryState.Required::class.java)
+            assertThat(after.revision).isEqualTo(required.revision)
+        }
+    }
+
+    @Test
+    fun `retryStep with missing referenced attempt throws and keeps checkpoint required`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val controller = InMemoryWorkflowRecoveryController(store, store)
+            val saved = store.save(sampleCheckpoint())
+            // No attempt is recorded — the recovery record references "missing-attempt".
+            val required = store.requireRecovery(
+                workflowName = saved.workflowName,
+                workflowId = saved.workflowId,
+                expectedRevision = saved.revision,
+                record = WorkflowRecoveryRecord(
+                    reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
+                    stepName = "step",
+                    attemptId = "missing-attempt",
+                    priorWorkerId = "w",
+                    detectedAtEpochMillis = 0,
+                ),
+            )
+
+            assertThatThrownBy {
+                runBlocking {
+                    controller.retryStep(
+                        workflowName = saved.workflowName,
+                        workflowId = saved.workflowId,
+                        expectedRevision = required.revision,
+                        reason = "attempt is gone",
+                    )
+                }
+            }.isInstanceOf(WorkflowRecoveryStateException::class.java)
+
+            val after = store.load(saved.workflowName, saved.workflowId)!!
+            assertThat(after.recoveryState).isInstanceOf(WorkflowRecoveryState.Required::class.java)
+            assertThat(after.revision).isEqualTo(required.revision)
+        }
+    }
+
+    @Test
+    fun `retryStep propagates attempt update failure and keeps checkpoint required`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val controller = InMemoryWorkflowRecoveryController(
+                checkpointStore = store,
+                stepAttemptStore = FailingAttemptUpdateStore(store),
+            )
+            val saved = store.save(sampleCheckpoint())
+            store.recordStepAttempt(
+                StepAttemptRecord(
+                    runId = saved.workflowId,
+                    stepName = "step",
+                    attemptId = "a",
+                    workerId = "w",
+                    leaseToken = "l",
+                    status = StepAttemptStatus.UNKNOWN,
+                    startedAt = 0,
+                    replayPolicy = ReplayPolicy.NON_REPLAYABLE,
+                ),
+            )
+            val required = store.requireRecovery(
+                workflowName = saved.workflowName,
+                workflowId = saved.workflowId,
+                expectedRevision = saved.revision,
+                record = WorkflowRecoveryRecord(
+                    reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
+                    stepName = "step",
+                    attemptId = "a",
+                    priorWorkerId = "w",
+                    detectedAtEpochMillis = 0,
+                ),
+            )
+
+            assertThatThrownBy {
+                runBlocking {
+                    controller.retryStep(
+                        workflowName = saved.workflowName,
+                        workflowId = saved.workflowId,
+                        expectedRevision = required.revision,
+                        reason = "update will fail",
+                    )
+                }
+            }.isInstanceOf(IllegalStateException::class.java)
+
+            val after = store.load(saved.workflowName, saved.workflowId)!!
+            assertThat(after.recoveryState).isInstanceOf(WorkflowRecoveryState.Required::class.java)
+            assertThat(after.revision).isEqualTo(required.revision)
+            // The unresolved attempt was NOT resolved by the failed retry.
+            assertThat(store.listStepAttempts(saved.workflowId).single().status)
+                .isEqualTo(StepAttemptStatus.UNKNOWN)
+        }
+    }
+
+    @Test
     fun `Two concurrent requireRecovery calls — first wins`() {
         runBlocking {
             val store = InMemoryWorkflowCheckpointStore()
@@ -520,4 +659,20 @@ private class NoopDataSource : DataSource {
     override fun getParentLogger(): Logger = Logger.getGlobal()
     override fun <T : Any?> unwrap(iface: Class<T>?): T = throw SQLException("Unsupported")
     override fun isWrapperFor(iface: Class<*>?): Boolean = false
+}
+
+/** Step-attempt store whose [updateStepAttempt] always fails — simulates persistence failure. */
+private class FailingAttemptUpdateStore(
+    private val delegate: StepAttemptRecordStore,
+) : StepAttemptRecordStore {
+    override suspend fun recordStepAttempt(attempt: StepAttemptRecord) = delegate.recordStepAttempt(attempt)
+
+    override suspend fun updateStepAttempt(attempt: StepAttemptRecord): StepAttemptRecord =
+        throw IllegalStateException("simulated attempt update failure")
+
+    override suspend fun latestStepAttempt(runId: String, stepName: String): StepAttemptRecord? =
+        delegate.latestStepAttempt(runId, stepName)
+
+    override suspend fun listStepAttempts(runId: String): List<StepAttemptRecord> =
+        delegate.listStepAttempts(runId)
 }

@@ -29,9 +29,9 @@ interface WorkflowRecoveryController {
      * worker to re-attempt the step with a NEW attempt on the next poll cycle.
      *
      * The exact attempt referenced by the recovery record is marked [StepAttemptStatus.FAILED]
-     * with the operator's [reason] and timestamp BEFORE recovery is cleared — if clearing
-     * fails, the checkpoint stays in `Required` (safe). The failed attempt remains in the
-     * attempt store as audit evidence.
+     * with the operator's [reason] and timestamp BEFORE recovery is cleared — if that
+     * transition or the clear fails, the checkpoint stays in `Required` (safe). The failed
+     * attempt remains in the attempt store as audit evidence.
      *
      * For [ReplayPolicy.EXTERNALLY_IDEMPOTENT] steps the worker verifies on retry that
      * the recomputed idempotency key matches the stored key (a mismatch re-enters recovery
@@ -39,7 +39,9 @@ interface WorkflowRecoveryController {
      *
      * @return the checkpoint after clearing recovery (revision advanced by one).
      * @throws WorkflowCheckpointConflictException if [expectedRevision] is stale.
-     * @throws WorkflowRecoveryStateException if the checkpoint is not in [WorkflowRecoveryState.Required].
+     * @throws WorkflowRecoveryStateException if the checkpoint is not in [WorkflowRecoveryState.Required],
+     * if no [StepAttemptRecordStore] is configured, or if the referenced unresolved attempt
+     * cannot be found — in every case the checkpoint stays `Required`.
      */
     suspend fun retryStep(
         workflowName: String,
@@ -94,9 +96,11 @@ class InMemoryWorkflowRecoveryController(
         reason: String,
     ): WorkflowCheckpoint {
         val (_, record) = loadRequiredCheckpoint(workflowName, workflowId, expectedRevision)
-        // Resolve the exact unresolved attempt BEFORE unblocking the checkpoint —
-        // if clearing fails, the checkpoint stays Required (safe).
-        resolveAttemptAsFailed(workflowName, workflowId, record, reason)
+        // MANDATORY transition: the unresolved attempt must be marked FAILED before the
+        // checkpoint is unblocked. If this throws, the checkpoint stays Required and the
+        // workflow stays blocked — otherwise the worker would re-detect the same UNKNOWN
+        // attempt and re-enter Required, recreating the retry loop.
+        resolveAttemptForRetry(workflowName, workflowId, record, reason)
         return checkpointStore.clearRecovery(
             workflowName = workflowName,
             workflowId = workflowId,
@@ -118,9 +122,9 @@ class InMemoryWorkflowRecoveryController(
             workflowId = workflowId,
             expectedRevision = expectedRevision,
         )
-        // Record resolution evidence only AFTER a successful delete — never write
+        // Best-effort evidence only AFTER a successful delete — never write
         // "resolved: failed" for a workflow that is still in Required state.
-        resolveAttemptAsFailed(workflowName, workflowId, record, reason)
+        recordFailureEvidenceBestEffort(workflowName, workflowId, record, reason)
     }
 
     /**
@@ -151,10 +155,51 @@ class InMemoryWorkflowRecoveryController(
 
     /**
      * Marks the exact attempt referenced by [record] as [StepAttemptStatus.FAILED] with
-     * the operator's resolution evidence. Best-effort: storage errors are logged and
-     * swallowed so a resolution never blocks on evidence writes.
+     * the operator's resolution evidence.
+     *
+     * MANDATORY for retry: this transition must succeed before the checkpoint is unblocked,
+     * otherwise the worker re-detects the same UNKNOWN attempt and re-enters Required.
+     * Storage failures are NOT caught — they propagate so the checkpoint remains Required.
+     *
+     * @throws WorkflowRecoveryStateException if no [StepAttemptRecordStore] is configured
+     * or the referenced attempt cannot be found.
      */
-    private suspend fun resolveAttemptAsFailed(
+    private suspend fun resolveAttemptForRetry(
+        workflowName: String,
+        workflowId: String,
+        record: WorkflowRecoveryRecord,
+        reason: String,
+    ) {
+        val store = stepAttemptStore
+            ?: throw WorkflowRecoveryStateException(
+                "Cannot retry workflow '$workflowName'/'$workflowId': no StepAttemptRecordStore is configured",
+            )
+        val attempt = store.listStepAttempts(workflowId).singleOrNull {
+            it.stepName == record.stepName && it.attemptId == record.attemptId
+        } ?: throw WorkflowRecoveryStateException(
+            "Cannot retry workflow '$workflowName'/'$workflowId': unresolved attempt '${record.attemptId}' for step '${record.stepName}' was not found",
+        )
+        val resolvedAt = System.currentTimeMillis()
+        store.updateStepAttempt(
+            attempt.copy(
+                status = StepAttemptStatus.FAILED,
+                completedAt = attempt.completedAt ?: resolvedAt,
+                resolutionReason = reason,
+                resolutionAtEpochMillis = resolvedAt,
+            ),
+        )
+    }
+
+    /**
+     * Best-effort audit evidence for [failWorkflow]: marks the exact attempt referenced by
+     * [record] as [StepAttemptStatus.FAILED] with the operator's resolution evidence.
+     *
+     * Runs only AFTER the checkpoint was deleted successfully. Storage errors are logged
+     * and swallowed — evidence is optional and must never block the resolution. The
+     * attempt-record write is not revision-fenced, so concurrent resolutions could
+     * overwrite each other's evidence (checkpoint execution safety is unaffected).
+     */
+    private suspend fun recordFailureEvidenceBestEffort(
         workflowName: String,
         workflowId: String,
         record: WorkflowRecoveryRecord,
@@ -165,11 +210,13 @@ class InMemoryWorkflowRecoveryController(
             val attempt = store.listStepAttempts(workflowId).singleOrNull {
                 it.stepName == record.stepName && it.attemptId == record.attemptId
             } ?: return
+            val resolvedAt = System.currentTimeMillis()
             store.updateStepAttempt(
                 attempt.copy(
                     status = StepAttemptStatus.FAILED,
+                    completedAt = attempt.completedAt ?: resolvedAt,
                     resolutionReason = reason,
-                    resolutionAtEpochMillis = System.currentTimeMillis(),
+                    resolutionAtEpochMillis = resolvedAt,
                 ),
             )
         } catch (error: Throwable) {
