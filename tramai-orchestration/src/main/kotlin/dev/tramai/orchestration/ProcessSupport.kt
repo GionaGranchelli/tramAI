@@ -1,5 +1,6 @@
 package dev.tramai.orchestration
 
+import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -131,10 +132,10 @@ internal class CancellableProcessLifecycle(
         val exitFuture = process.onExit()
         return suspendCancellableCoroutine { continuation ->
             if (exitFuture.isDone) {
-                continuation.resume(runCatching { process.exitValue() }.getOrDefault(-1))
+                continuation.resume(safeExitValue())
             } else {
                 exitFuture.thenRun {
-                    continuation.resume(runCatching { process.exitValue() }.getOrDefault(-1))
+                    continuation.resume(safeExitValue())
                 }
                 continuation.invokeOnCancellation {
                     requestTermination()
@@ -163,6 +164,7 @@ internal class CancellableProcessLifecycle(
                 try {
                     handle.destroyForcibly()
                 } catch (error: Throwable) {
+                    error.rethrowIfCancellation()
                     recordFailure("Failed to force-kill process ${handle.pid()}", error)
                 }
             }
@@ -188,6 +190,18 @@ internal class CancellableProcessLifecycle(
         val handle = process.toHandle()
         val descendants = handle.descendants().use { stream -> stream.toList() }
         return descendants + handle
+    }
+
+    /**
+     * Reads the exit value after [Process.onExit] completion. `exitValue()` throws
+     * [IllegalThreadStateException] if the process is not yet terminated; because the
+     * future is done the race is theoretical, but guard it with a narrow catch (not a
+     * broad one) so no cancellation is ever swallowed.
+     */
+    private fun safeExitValue(): Int = try {
+        process.exitValue()
+    } catch (_: IllegalThreadStateException) {
+        -1
     }
 
     private fun closeQuietly(closeable: AutoCloseable?, label: String) {
