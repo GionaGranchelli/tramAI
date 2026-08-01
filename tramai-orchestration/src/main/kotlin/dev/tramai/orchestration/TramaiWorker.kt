@@ -358,12 +358,9 @@ class TramaiWorker(
         if (!ownsPartition(checkpoint.workflowId)) return
         if (leaseStore.currentLease(checkpoint.workflowName, checkpoint.workflowId) != null) return
         if (checkpoint.recoveryState is WorkflowRecoveryState.Required) {
-            observability.onUnknownAttempt(
-                runId = checkpoint.workflowId,
-                stepName = "recovery-required",
-                priorWorkerId = checkpoint.recoveryState.record.priorWorkerId,
-                attemptTime = checkpoint.recoveryState.record.detectedAtEpochMillis,
-            )
+            // Blocked workflow awaiting operator resolution — skip silently. The
+            // unknown-attempt event is already emitted once when the attempt is first
+            // detected (recoverAttemptIfNeeded), not on every poll cycle.
             return
         }
 

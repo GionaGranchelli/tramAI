@@ -1181,6 +1181,10 @@ public final class dev/tramai/orchestration/WorkflowRecoveryState$Required : dev
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class dev/tramai/orchestration/WorkflowRecoveryStateException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
 public final class dev/tramai/orchestration/WorkflowResumeException : java/lang/RuntimeException {
 	public fun <init> (Ljava/lang/String;)V
 }

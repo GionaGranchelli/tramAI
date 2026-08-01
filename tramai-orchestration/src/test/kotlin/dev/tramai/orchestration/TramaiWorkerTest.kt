@@ -1063,7 +1063,82 @@ class TramaiWorkerTest {
         } finally {
             worker.shutdown()
         }
+        }
     }
+
+    @Test
+    fun `operator retryStep enables genuine retry with a new attempt`() {
+        runBlocking {
+        val checkpointStore = InMemoryWorkflowCheckpointStore()
+        val leaseStore = InMemoryWorkflowLeaseStore()
+        val executions = AtomicInteger()
+        val workflow = workflow<WorkerState>("operator-retry-e2e") {
+            aiStep(
+                name = "plan",
+                replayPolicy = ReplayPolicy.NON_REPLAYABLE,
+                input = { it.value },
+                invoke = { value ->
+                    executions.incrementAndGet()
+                    "$value:planned"
+                },
+                merge = { state, result -> state.copy(value = result) },
+            )
+        }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+        val runId = "run-operator-retry"
+        seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+        checkpointStore.recordStepAttempt(
+            StepAttemptRecord(
+                runId = runId,
+                stepName = "plan",
+                attemptId = "attempt-1",
+                workerId = "worker-a",
+                leaseToken = "lease-a",
+                status = StepAttemptStatus.UNKNOWN,
+                startedAt = 10L,
+                replayPolicy = ReplayPolicy.NON_REPLAYABLE,
+            ),
+        )
+
+        // First worker detects the UNKNOWN non-replayable attempt and enters Required.
+        val workerA = worker("worker-a", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        workerA.start()
+        try {
+            waitUntil {
+                (checkpointStore.load(workflow.name, runId)?.recoveryState as? WorkflowRecoveryState.Required) != null
+            }
+        } finally {
+            workerA.shutdown()
+        }
+        assertThat(executions.get()).isEqualTo(0)
+
+        // Operator resolves: retryStep marks attempt-1 FAILED with evidence, clears recovery.
+        val controller = InMemoryWorkflowRecoveryController(checkpointStore, checkpointStore)
+        val blocked = checkpointStore.load(workflow.name, runId)!!
+        controller.retryStep(
+            workflowName = workflow.name,
+            workflowId = runId,
+            expectedRevision = blocked.revision,
+            reason = "operator confirmed side effect did not complete",
+        )
+        assertThat(checkpointStore.listStepAttempts(runId).single { it.attemptId == "attempt-1" }.status)
+            .isEqualTo(StepAttemptStatus.FAILED)
+
+        // Second worker starts a NEW attempt and completes — no re-Required.
+        val workerB = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
+        workerB.start()
+        try {
+            waitUntil {
+                checkpointStore.load(workflow.name, runId) == null
+            }
+
+            val attempts = checkpointStore.listStepAttempts(runId)
+            assertThat(attempts.map { it.status }).containsExactly(StepAttemptStatus.FAILED, StepAttemptStatus.COMPLETED)
+            assertThat(attempts.map { it.attemptId }.distinct()).hasSize(2)
+            assertThat(executions.get()).isEqualTo(1)
+        } finally {
+            workerB.shutdown()
+        }
+        }
     }
 
     private fun workerWorkflow(

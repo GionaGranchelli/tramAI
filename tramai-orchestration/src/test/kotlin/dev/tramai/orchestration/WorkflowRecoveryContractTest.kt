@@ -237,6 +237,102 @@ class WorkflowRecoveryContractTest {
     }
 
     @Test
+    fun `retryStep rejects checkpoint that is not recovery-required`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val controller = InMemoryWorkflowRecoveryController(store)
+            val saved = store.save(sampleCheckpoint())
+            assertThat(saved.recoveryState).isSameAs(WorkflowRecoveryState.Normal)
+
+            assertThatThrownBy {
+                runBlocking {
+                    controller.retryStep(
+                        workflowName = saved.workflowName,
+                        workflowId = saved.workflowId,
+                        expectedRevision = saved.revision,
+                        reason = "should not apply",
+                    )
+                }
+            }.isInstanceOf(WorkflowRecoveryStateException::class.java)
+
+            val after = store.load(saved.workflowName, saved.workflowId)!!
+            assertThat(after.revision).isEqualTo(saved.revision)
+            assertThat(after.recoveryState).isSameAs(WorkflowRecoveryState.Normal)
+        }
+    }
+
+    @Test
+    fun `failWorkflow rejects checkpoint that is not recovery-required and does not delete it`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val controller = InMemoryWorkflowRecoveryController(store)
+            val saved = store.save(sampleCheckpoint())
+
+            assertThatThrownBy {
+                runBlocking {
+                    controller.failWorkflow(
+                        workflowName = saved.workflowName,
+                        workflowId = saved.workflowId,
+                        expectedRevision = saved.revision,
+                        reason = "should not apply",
+                    )
+                }
+            }.isInstanceOf(WorkflowRecoveryStateException::class.java)
+
+            val after = store.load(saved.workflowName, saved.workflowId)
+            assertThat(after).isNotNull
+            assertThat(after!!.revision).isEqualTo(saved.revision)
+            assertThat(after.recoveryState).isSameAs(WorkflowRecoveryState.Normal)
+        }
+    }
+
+    @Test
+    fun `retryStep marks the exact unresolved attempt failed with resolution evidence`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val controller = InMemoryWorkflowRecoveryController(store, store)
+            val saved = store.save(sampleCheckpoint())
+            store.recordStepAttempt(
+                StepAttemptRecord(
+                    runId = saved.workflowId,
+                    stepName = "step",
+                    attemptId = "attempt-1",
+                    workerId = "w",
+                    leaseToken = "l",
+                    status = StepAttemptStatus.UNKNOWN,
+                    startedAt = 0,
+                    replayPolicy = ReplayPolicy.NON_REPLAYABLE,
+                ),
+            )
+            val required = store.requireRecovery(
+                workflowName = saved.workflowName,
+                workflowId = saved.workflowId,
+                expectedRevision = saved.revision,
+                record = WorkflowRecoveryRecord(
+                    reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
+                    stepName = "step",
+                    attemptId = "attempt-1",
+                    priorWorkerId = "w",
+                    detectedAtEpochMillis = 0,
+                ),
+            )
+            controller.retryStep(
+                workflowName = saved.workflowName,
+                workflowId = saved.workflowId,
+                expectedRevision = required.revision,
+                reason = "operator confirmed safe to retry",
+            )
+
+            val attempt = store.listStepAttempts(saved.workflowId).single()
+            assertThat(attempt.status).isEqualTo(StepAttemptStatus.FAILED)
+            assertThat(attempt.resolutionReason).isEqualTo("operator confirmed safe to retry")
+            assertThat(attempt.resolutionAtEpochMillis).isNotNull
+            val after = store.load(saved.workflowName, saved.workflowId)!!
+            assertThat(after.recoveryState).isSameAs(WorkflowRecoveryState.Normal)
+        }
+    }
+
+    @Test
     fun `Two concurrent requireRecovery calls — first wins`() {
         runBlocking {
             val store = InMemoryWorkflowCheckpointStore()

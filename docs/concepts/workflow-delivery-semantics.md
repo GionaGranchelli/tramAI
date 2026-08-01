@@ -52,10 +52,10 @@ Workers skip checkpoints in `Required` state — no lease is claimed, no executi
 
 An operator resolves `Required` state through `WorkflowRecoveryController`:
 
-- `retryStep(workflowName, workflowId, expectedRevision, reason)` — clears the recovery state and lets the worker retry the unresolved step. The original unknown attempt record remains as audit evidence. The stored idempotency key is verified on retry (see Idempotency Keys).
-- `failWorkflow(workflowName, workflowId, expectedRevision, reason)` — permanently deletes the checkpoint in a single fenced operation. If the delete fails, the checkpoint remains in `Required` state and the workflow stays blocked — there is no window where a failed workflow becomes runnable. When a step-attempt store is available, the resolution reason and timestamp are recorded onto the unknown attempt record as durable audit evidence.
+- `retryStep(workflowName, workflowId, expectedRevision, reason)` — marks the exact unresolved attempt `FAILED` with the operator's resolution evidence, then clears the recovery state. The worker starts a NEW attempt on the next poll; the failed attempt remains in the attempt store as audit evidence. The stored idempotency key is verified on retry (see Idempotency Keys).
+- `failWorkflow(workflowName, workflowId, expectedRevision, reason)` — permanently deletes the checkpoint in a single fenced operation. If the delete fails, the checkpoint remains in `Required` state and the workflow stays blocked — there is no window where a failed workflow becomes runnable. When a step-attempt store is available, the resolution reason and timestamp are recorded onto the exact failed attempt record as best-effort audit evidence.
 
-Both operations use optimistic concurrency — the `expectedRevision` must match the current checkpoint revision or the operation throws `WorkflowCheckpointConflictException`.
+Both operations load and validate the checkpoint first — they throw `WorkflowCheckpointConflictException` on a stale revision and `WorkflowRecoveryStateException` when the checkpoint is not in `Required` state, so a normal (runnable) workflow can never be accidentally advanced or deleted.
 
 ## Recovery Record
 
@@ -68,7 +68,7 @@ When a checkpoint enters `Required` state, the following information is persiste
 | `attemptId` | The unresolved attempt identifier |
 | `priorWorkerId` | The worker that started the failed attempt |
 | `detectedAtEpochMillis` | When recovery was triggered |
-| `idempotencyKey` | The stored idempotency key (if any) for reuse on retry |
+| `idempotencyKey` | The key recorded by the previous attempt, retained for stability verification during replay |
 | `instructions` | Optional operator guidance |
 
 ## Idempotency Keys
@@ -88,7 +88,7 @@ When a worker shuts down:
 1. New polling stops immediately.
 2. Active executions enter a drain period (`drainTimeoutMillis`).
 3. If an execution does not complete within the drain window, its coroutine is cancelled.
-4. The worker release its leases and records `CancellationException` as the attempt status.
+4. The worker releases its leases and records `CancellationException` as the attempt status.
 5. If a cancelled step was NON_REPLAYABLE and left in UNKNOWN status, the checkpoint enters `Required` state on the next worker poll.
 
 ## Persistence Store Contract
@@ -102,7 +102,7 @@ Default implementations use `load` + `save` under the store's existing optimisti
 
 ## Audit Trail
 
-Step attempt records persist independently of checkpoint state. After `failWorkflow` deletes the checkpoint, the attempt records remain queryable through `StepAttemptRecordStore.listStepAttempts(runId)`, and — when the controller was given a step-attempt store — the resolved attempt carries the operator's `resolutionReason` and `resolutionAtEpochMillis`.
+Step attempt records persist independently of checkpoint state. After `failWorkflow` deletes the checkpoint, the attempt records remain queryable through `StepAttemptRecordStore.listStepAttempts(runId)`. The resolution evidence (`resolutionReason`/`resolutionAtEpochMillis`, and `FAILED` status on retry) is written to the exact attempt referenced by the recovery record when a step-attempt store is supplied — this write is best-effort (storage errors are logged, not propagated), so treat it as audit *aid*, not a durability guarantee.
 
 ## Configuration Properties
 
