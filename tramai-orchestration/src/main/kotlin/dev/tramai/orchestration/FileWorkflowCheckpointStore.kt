@@ -1,11 +1,13 @@
 package dev.tramai.orchestration
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.nio.channels.FileChannel
+import java.nio.channels.FileLockInterruptionException
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -238,7 +240,15 @@ internal suspend inline fun <T> withFileLockCancellable(
                     StandardOpenOption.CREATE,
                     StandardOpenOption.WRITE,
                 ).use { channel ->
-                    channel.lock().use {
+                    // Narrow the FileLockInterruptionException mapping to lock ACQUISITION
+                    // only: the protected block may throw that exception on its own, which
+                    // must not be converted into cancellation.
+                    val lock = try {
+                        channel.lock()
+                    } catch (error: FileLockInterruptionException) {
+                        throw CancellationException("File lock wait interrupted by cancellation", error)
+                    }
+                    lock.use {
                         block()
                     }
                 }
@@ -265,9 +275,14 @@ internal suspend fun <T> withFileLockCancellableSuspending(
                     StandardOpenOption.CREATE,
                     StandardOpenOption.WRITE,
                 ).use { channel ->
-                    runInterruptible {
-                        channel.lock()
-                    }.use {
+                    val lock = try {
+                        runInterruptible {
+                            channel.lock()
+                        }
+                    } catch (error: FileLockInterruptionException) {
+                        throw CancellationException("File lock wait interrupted by cancellation", error)
+                    }
+                    lock.use {
                         block()
                     }
                 }

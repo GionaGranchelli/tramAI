@@ -2,15 +2,14 @@ package dev.tramai.orchestration
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.runInterruptible
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -59,39 +58,46 @@ internal suspend fun executeAgentCli(
     val promptLength = request.promptLength
     val context = request.context
     val observer = request.observer
-    val process = withContext(ioDispatcher) {
+    val process = startOwnedProcess(ioDispatcher) {
         processBuilder
             .redirectErrorStream(false)
             .start()
     }
-    process.outputStream.close()
-
-    observer.onWorkflowEvent(
-        workflowName = workflowName,
-        name = "$eventPrefix.started",
-        attributes = mapOf(
-            "step_name" to stepName,
-            "agent_type" to agentType,
-            "prompt_length" to promptLength,
-        ),
-        context = context,
-    )
+    val lifecycle = CancellableProcessLifecycle(process)
+    // Attach-then-active-check: parent cancellation requests process-tree termination
+    // immediately, closing the pipes so the blocking readers below cannot delay
+    // cancellation completion. The handle is disposed in the finally so a completed
+    // step does not leave a handler attached to a long-lived workflow job.
+    val registration = lifecycle.attachTo(currentCoroutineContext().job)
 
     val startedAtNanos = System.nanoTime()
+    var primaryFailure: Throwable? = null
     try {
+        process.outputStream.close()
+        observer.onWorkflowEvent(
+            workflowName = workflowName,
+            name = "$eventPrefix.started",
+            attributes = mapOf(
+                "step_name" to stepName,
+                "agent_type" to agentType,
+                "prompt_length" to promptLength,
+            ),
+            context = context,
+        )
         return coroutineScope {
             val stdoutDeferred = async(ioDispatcher) { process.inputStream.captureAgentOutput(maxOutputBytes) }
             val stderrDeferred = async(ioDispatcher) { process.errorStream.captureAgentOutput(maxOutputBytes) }
 
             try {
                 withTimeout(timeoutSeconds.seconds) {
-                    runInterruptible(ioDispatcher) {
-                        process.waitFor()
-                    }
+                    lifecycle.awaitExit()
                 }
-            } catch (_: TimeoutCancellationException) {
+            } catch (error: TimeoutCancellationException) {
                 currentCoroutineContext().ensureActive()
-                terminateAgentProcessTree(process, ioDispatcher)
+                // Only request termination here: closing the pipes lets the reader
+                // coroutines finish. The bounded graceful→forced cleanup happens exactly
+                // once in the outer finally and attaches its diagnostics to this exception.
+                lifecycle.requestTermination()
                 throw AgentCliTimeoutException(timeoutSeconds)
             }
 
@@ -124,8 +130,19 @@ internal suspend fun executeAgentCli(
                 durationMillis = durationMillis,
             )
         }
+    } catch (error: CancellationException) {
+        primaryFailure = error
+        throw error
+    } catch (error: Throwable) {
+        error.rethrowIfCancellation()
+        primaryFailure = error
+        throw error
     } finally {
-        terminateAgentProcessTree(process, ioDispatcher)
+        registration.dispose()
+        // NonCancellable + IO nesting lives inside terminateAndAwait; calling it
+        // directly here keeps the primary failure (and its diagnostics) intact.
+        val cleanup = lifecycle.terminateAndAwait()
+        surfaceProcessCleanup(primaryFailure, cleanup)
     }
 }
 
@@ -188,19 +205,6 @@ private fun InputStream.captureAgentOutput(
     )
 }
 
-private suspend fun terminateAgentProcessTree(
-    process: Process,
-    ioDispatcher: CoroutineDispatcher,
-) {
-    withContext(NonCancellable + ioDispatcher) {
-        terminateProcessTree(
-            process = process,
-            gracePeriodMillis = agentCliTerminationGracePeriodMillis,
-            forceKillWaitMillis = agentCliTerminationKillWaitMillis,
-        )
-    }
-}
-
 internal fun AgentCliExecution.describeNonZeroExit(): String {
     val stderrSummary = stderr.trim()
     if (stderrSummary.isEmpty()) {
@@ -226,5 +230,3 @@ internal fun Throwable.rethrowAgentCancellation() {
 private const val agentCliStreamChunkSize = 8_192
 private const val agentCliMinimumBufferSize = 16
 private const val agentCliFailureMessageMaxChars = 4_096
-private const val agentCliTerminationGracePeriodMillis = 1_000L
-private const val agentCliTerminationKillWaitMillis = 1_000L

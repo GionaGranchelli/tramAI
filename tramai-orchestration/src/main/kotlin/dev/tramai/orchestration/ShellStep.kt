@@ -1,16 +1,15 @@
 package dev.tramai.orchestration
 
 import dev.tramai.core.coroutines.rethrowIfCancellation
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.runInterruptible
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -188,23 +187,35 @@ internal data class ShellWorkflowStep<S>(
                 environment().putAll(shellCommand.env)
             }
             .run {
-                withContext(ioDispatcher) { start() }
+                startOwnedProcess(ioDispatcher) { start() }
             }
-        process.outputStream.close()
+        val lifecycle = CancellableProcessLifecycle(process)
+        // Attach-then-active-check: cancellation requests process-tree termination
+        // immediately (closing the pipes unblocks the readers below), so structured
+        // concurrency never waits on blocking readers behind a live process. The
+        // returned handle is disposed in the finally so a completed step does not leave
+        // a handler (and its process reference) attached to a long-lived workflow job.
+        val registration = lifecycle.attachTo(currentCoroutineContext().job)
 
+        var primaryFailure: Throwable? = null
         try {
+            process.outputStream.close()
             return coroutineScope {
                 val stdoutDeferred = async(ioDispatcher) { process.inputStream.captureStream(config.maxOutputBytes) }
                 val stderrDeferred = async(ioDispatcher) { process.errorStream.captureStream(config.maxOutputBytes) }
 
                 try {
                     withTimeout(config.timeoutSeconds.seconds) {
-                        runInterruptible(ioDispatcher) {
-                            process.waitFor()
-                        }
+                        lifecycle.awaitExit()
                     }
                 } catch (error: TimeoutCancellationException) {
                     currentCoroutineContext().ensureActive()
+                    // Request termination BEFORE the observer: closing the pipes lets
+                    // the reader coroutines finish, and an observer failure can never
+                    // skip the termination request. The bounded graceful→forced cleanup
+                    // happens exactly once in the outer finally and attaches its
+                    // diagnostics to this exception.
+                    lifecycle.requestTermination()
                     observer.onWorkflowEvent(
                         workflowName = workflowName,
                         name = "tramai.workflow.shell.timeout",
@@ -213,9 +224,6 @@ internal data class ShellWorkflowStep<S>(
                         ),
                         context = context,
                     )
-                    withContext(NonCancellable + ioDispatcher) {
-                        terminateProcessTree(process)
-                    }
                     throw WorkflowShellException(
                         stepName = name,
                         message = "timed out after ${config.timeoutSeconds}s",
@@ -247,14 +255,19 @@ internal data class ShellWorkflowStep<S>(
                     charset = config.charset,
                 )
             }
+        } catch (error: CancellationException) {
+            primaryFailure = error
+            throw error
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            primaryFailure = error
+            throw error
         } finally {
-            withContext(NonCancellable + ioDispatcher) {
-                if (process.toHandle().isAlive) {
-                    terminateProcessTree(process)
-                } else {
-                    process.waitForUninterruptibly()
-                }
-            }
+            registration.dispose()
+            // NonCancellable + IO nesting lives inside terminateAndAwait; calling it
+            // directly here keeps the primary failure (and its diagnostics) intact.
+            val cleanup = lifecycle.terminateAndAwait()
+            surfaceProcessCleanup(primaryFailure, cleanup)
         }
     }
 

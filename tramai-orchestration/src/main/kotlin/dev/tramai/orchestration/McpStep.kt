@@ -6,12 +6,14 @@ import io.modelcontextprotocol.kotlin.sdk.client.StdioClientTransport
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -144,6 +146,13 @@ internal class SubprocessMcpTransportProvider : McpTransportProvider {
             )
         }
 
+        val lifecycle = CancellableProcessLifecycle(process)
+        // Attach-then-active-check: parent cancellation (or the withTimeout firing)
+        // requests server-tree termination immediately — closing the process pipes
+        // unblocks the stdio client, so cleanup can never be delayed indefinitely
+        // behind client.close(). The handle is disposed when the connection cleans up.
+        val registration = lifecycle.attachTo(currentCoroutineContext().job)
+
         // Fire-and-forget stderr drain so OS pipe buffer never blocks the subprocess.
         // Must not use coroutineScope — it would wait for the drain to complete (never, until EOF).
         val drainScope = CoroutineScope(Dispatchers.IO)
@@ -156,13 +165,11 @@ internal class SubprocessMcpTransportProvider : McpTransportProvider {
             output = process.outputStream.asSink().buffered(),
             cleanup = {
                 drainScope.cancel()
-                withContext(NonCancellable + Dispatchers.IO) {
-                    if (process.toHandle().isAlive) {
-                        terminateProcessTree(process)
-                    } else {
-                        process.waitForUninterruptibly()
-                    }
-                }
+                registration.dispose()
+                val result = lifecycle.terminateAndAwait()
+                // Surface failures/survivors exactly once; no primary failure here (the
+                // caller decides suppression when a client-operation failure exists).
+                surfaceProcessCleanup(primary = null, cleanup = result)
             },
         )
     }
@@ -314,14 +321,18 @@ internal data class McpWorkflowStep<S>(
             withTimeout(config.timeoutSeconds.seconds) {
                 val connection = transportProvider.connect(toolCall)
 
-                try {
-                    val client = Client(
-                        clientInfo = Implementation(
-                            name = "tramai-mcp-step",
-                            version = MCP_STEP_VERSION,
-                        ),
-                    )
+                var primaryFailure: Throwable? = null
+                val result: McpToolResult = try {
+                    var client: Client? = null
                     try {
+                        // Client construction is inside the tracked lifecycle: a setup
+                        // failure here is reconnectable (no tool result was produced).
+                        client = Client(
+                            clientInfo = Implementation(
+                                name = "tramai-mcp-step",
+                                version = MCP_STEP_VERSION,
+                            ),
+                        )
                         client.connect(
                             StdioClientTransport(
                                 input = connection.input,
@@ -335,19 +346,95 @@ internal data class McpWorkflowStep<S>(
 
                         val callResult: CallToolResult = client.callTool(toolCall.toolName, argumentsJson)
                         toMcpToolResult(callResult)
+                    } catch (error: Throwable) {
+                        // Track the primary BEFORE rethrowing cancellation: the finally
+                        // cleanup must see it so cleanup failures never replace it.
+                        primaryFailure = error
+                        if (error is CancellationException) throw error
+                        throw error
                     } finally {
-                        client.close()
+                        // client.close() must never replace a primary failure (especially a
+                        // CancellationException): run it under NonCancellable and suppress any
+                        // close failure onto the primary. If there is no primary failure and
+                        // close itself fails, the tool may already have executed exactly once,
+                        // so the failure is wrapped as non-reconnectable (never retry the tool).
+                        try {
+                            withContext(NonCancellable) { client?.close() }
+                        } catch (closeError: Throwable) {
+                            if (primaryFailure != null) {
+                                // A primary failure (typically cancellation) wins: suppress
+                                // the close failure onto it, never replace it.
+                                primaryFailure!!.addSuppressedDistinct(closeError)
+                            } else {
+                                if (closeError is CancellationException) {
+                                    // Cancellation becomes the tracked primary itself before
+                                    // being rethrown, so a later transport-cleanup failure is
+                                    // suppressed onto the exception that is actually thrown.
+                                    primaryFailure = closeError
+                                    throw closeError
+                                }
+                                val cleanupException = McpPostCallCleanupException(closeError)
+                                // Track it as primary so a subsequent transport cleanup
+                                // failure is suppressed onto it instead of replacing it.
+                                primaryFailure = cleanupException
+                                throw cleanupException
+                            }
+                        }
                     }
                 } finally {
-                    runCatching { connection.cleanup?.invoke() }
+                    // Exactly-once transport cleanup; suppression semantics live in
+                    // cleanupConnection (primary failure wins over any cleanup throwable).
+                    cleanupConnection(connection, primaryFailure)
                 }
+                result
             }
         } catch (error: TimeoutCancellationException) {
             currentCoroutineContext().ensureActive()
-            throw WorkflowMcpException(
+            val mcpException = WorkflowMcpException(
                 stepName = name,
                 message = "timed out after ${config.timeoutSeconds}s",
             )
+            error.suppressedExceptions.forEach { mcpException.addSuppressed(it) }
+            throw mcpException
+        }
+    }
+
+    /**
+     * Invokes the transport cleanup exactly once per connection.
+     *
+     * - Runs under `NonCancellable` so a custom suspend cleanup always executes, even in
+     *   an already-cancelled context.
+     * - When a primary failure exists, every cleanup throwable — including a cleanup
+     *   [CancellationException] — is suppressed onto the primary; the primary (typically
+     *   cancellation) is preserved.
+     * - When no primary failure exists, cancellation is preserved via
+     *   [rethrowIfCancellation] and other cleanup errors are wrapped in
+     *   [McpPostCallCleanupException] (never silently swallowed): the tool may
+     *   already have executed, so the failure must never trigger a reconnect.
+     */
+    private suspend fun cleanupConnection(
+        connection: McpTransportConnection,
+        primary: Throwable?,
+    ) {
+        if (connection.cleanup == null) return
+        val cleanupError: Throwable? = try {
+            withContext(NonCancellable) { connection.cleanup.invoke() }
+            null
+        } catch (error: Throwable) {
+            if (primary != null) {
+                // A primary failure (typically cancellation) wins: suppress every cleanup
+                // throwable — including a cleanup CancellationException — onto it.
+                primary.addSuppressedDistinct(error)
+                null
+            } else {
+                if (error is CancellationException) throw error
+                // No primary: the tool call already completed (or never produced a
+                // failure). Wrap so the reconnect classifier never retries the tool.
+                McpPostCallCleanupException(error)
+            }
+        }
+        if (cleanupError != null) {
+            throw cleanupError
         }
     }
 
@@ -493,12 +580,21 @@ internal data class McpWorkflowStep<S>(
 }
 
 /**
+ * Failure of client.close() or transport cleanup AFTER the tool call already
+ * completed (no earlier primary failure). The tool may have executed exactly
+ * once, so this is never reconnectable — a retry would duplicate the call.
+ */
+private class McpPostCallCleanupException(cause: Throwable) :
+    RuntimeException("MCP cleanup failed after tool completion", cause)
+
+/**
  * Only retry on transport/setup failures, not timeouts or tool-level errors.
  * A non-idempotent MCP tool must not run twice after partial completion.
  */
 private fun Throwable.isTransientForReconnect(): Boolean = when (this) {
     is TimeoutCancellationException -> false
     is WorkflowMcpException -> !message.orEmpty().contains("timed out")
+    is McpPostCallCleanupException -> false
     else -> true
 }
 
