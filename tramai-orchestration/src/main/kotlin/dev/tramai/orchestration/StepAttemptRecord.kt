@@ -17,6 +17,11 @@ enum class ReplayPolicy {
     NON_REPLAYABLE,
 }
 
+enum class StepAttemptResolutionAction {
+    RETRY_APPROVED,
+    WORKFLOW_FAILED,
+}
+
 data class StepAttemptRecord(
     val runId: String,
     val stepName: String,
@@ -32,12 +37,39 @@ data class StepAttemptRecord(
     val outputSummary: String? = null,
     val resolutionReason: String? = null,
     val resolutionAtEpochMillis: Long? = null,
+    val resolutionAction: StepAttemptResolutionAction? = null,
+    val approvedIdempotencyKey: String? = null,
 )
+
+internal fun decodeResolutionAction(name: String?): StepAttemptResolutionAction? =
+    if (name.isNullOrBlank()) {
+        null
+    } else {
+        StepAttemptResolutionAction.entries.firstOrNull { it.name == name }
+            ?: throw IllegalArgumentException("Unknown StepAttemptResolutionAction: '$name'")
+    }
 
 interface StepAttemptRecordStore {
     suspend fun recordStepAttempt(record: StepAttemptRecord): StepAttemptRecord
 
     suspend fun updateStepAttempt(record: StepAttemptRecord): StepAttemptRecord
+
+    /**
+     * Atomically replace the persisted attempt from [expected] to [updated] only when the
+     * persisted record is still exactly [expected].
+     *
+     * Used for authorization-critical transitions (retry approval, approval consumption,
+     * stale-approval voiding) where a checkpoint-revision fence cannot protect the attempt
+     * record: the attempt store and the checkpoint store are independent, so a stale operator
+     * or worker must not overwrite a concurrent successful authorization.
+     *
+     * @return true when the record was replaced; false when the persisted record differs
+     * from [expected] (caller must reload and re-validate before deciding).
+     */
+    suspend fun compareAndSetStepAttempt(
+        expected: StepAttemptRecord,
+        updated: StepAttemptRecord,
+    ): Boolean
 
     suspend fun latestStepAttempt(
         runId: String,

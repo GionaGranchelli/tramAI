@@ -28,19 +28,16 @@ interface WorkflowRecoveryController {
      * Resolve the unresolved step attempt and clear the recovery state, allowing the
      * worker to re-attempt the step with a NEW attempt on the next poll cycle.
      *
-     * The exact attempt referenced by the recovery record is marked [StepAttemptStatus.FAILED]
-     * with the operator's [reason] and timestamp BEFORE recovery is cleared — if that
-     * transition or the clear fails, the checkpoint stays in `Required` (safe). The failed
-     * attempt remains in the attempt store as audit evidence. This transition is MANDATORY
-     * for the retry to be correct: persistence failures propagate rather than being swallowed.
+     * The exact attempt referenced by the recovery record remains [StepAttemptStatus.UNKNOWN]
+     * and receives [StepAttemptResolutionAction.RETRY_APPROVED] with the operator's [reason]
+     * BEFORE recovery is cleared. The worker consumes the approval by marking that attempt
+     * failed immediately before starting a new attempt. Persistence failures propagate.
      *
      * Supported only for [WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN]. Retrying
      * [WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING] or
-     * [WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH] is rejected: the worker's
-     * idempotency-key guard only inspects UNKNOWN/STARTED attempts, so an unconditional
-     * retry would re-execute the step with a different or missing key, breaking the
-     * idempotency contract. The correct resolution for those reasons is a corrected
-     * workflow definition (re-submit) or [failWorkflow].
+     * [WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH] with this overload is rejected:
+     * those reasons require the key-bound overload with an explicit approved key, so an
+     * approval can never authorize an unspecified future key.
      *
      * @return the checkpoint after clearing recovery (revision advanced by one).
      * @throws WorkflowCheckpointConflictException if [expectedRevision] is stale.
@@ -57,11 +54,27 @@ interface WorkflowRecoveryController {
     ): WorkflowCheckpoint
 
     /**
+     * Approve retry of an externally idempotent unresolved attempt, binding approval to
+     * exactly [approvedIdempotencyKey]. The worker executes only when the current workflow
+     * definition produces the same key.
+     *
+     * @throws IllegalArgumentException if [approvedIdempotencyKey] is blank.
+     */
+    suspend fun retryStep(
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long,
+        reason: String,
+        approvedIdempotencyKey: String,
+    ): WorkflowCheckpoint
+
+    /**
      * Permanently delete the checkpoint, resolving the workflow as failed.
      *
      * The workflow will not be polled again. When a [StepAttemptRecordStore] is available,
-     * the resolution reason is recorded onto the exact failed attempt record as best-effort
-     * audit evidence (storage failures are logged, not propagated); otherwise the operator's
+     * [StepAttemptResolutionAction.WORKFLOW_FAILED] and the resolution reason are recorded
+     * onto the exact failed attempt record as best-effort audit evidence (storage failures
+     * are logged, not propagated); otherwise the operator's
      * reason is not persisted (documented limitation). Calling [retryStep] after
      * [failWorkflow] is not possible because the checkpoint no longer exists.
      *
@@ -89,9 +102,9 @@ interface WorkflowRecoveryController {
  * the exact unresolved attempt as best-effort audit evidence (storage errors are
  * logged, not propagated).
  *
- * [retryStep]'s attempt transition is MANDATORY — it must succeed before the
- * checkpoint is unblocked and failures propagate (see [WorkflowRecoveryController.retryStep]
- * for the supported reasons).
+ * [retryStep]'s approval write is MANDATORY — it must succeed before the checkpoint is
+ * unblocked. Approval and checkpoint state live in independent stores, so a clear failure
+ * preserves a retryable partial state rather than claiming cross-store atomicity.
  *
  * Override for a genuinely atomic implementation (e.g. JDBC transaction).
  */
@@ -105,29 +118,52 @@ class InMemoryWorkflowRecoveryController(
         workflowId: String,
         expectedRevision: Long,
         reason: String,
+    ): WorkflowCheckpoint = retryStepInternal(
+        workflowName = workflowName,
+        workflowId = workflowId,
+        expectedRevision = expectedRevision,
+        reason = reason,
+        approvedIdempotencyKey = null,
+    )
+
+    override suspend fun retryStep(
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long,
+        reason: String,
+        approvedIdempotencyKey: String,
+    ): WorkflowCheckpoint {
+        require(approvedIdempotencyKey.isNotBlank()) { "approvedIdempotencyKey must not be blank" }
+        return retryStepInternal(
+            workflowName = workflowName,
+            workflowId = workflowId,
+            expectedRevision = expectedRevision,
+            reason = reason,
+            approvedIdempotencyKey = approvedIdempotencyKey,
+        )
+    }
+
+    private suspend fun retryStepInternal(
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long,
+        reason: String,
+        approvedIdempotencyKey: String?,
     ): WorkflowCheckpoint {
         val (_, record) = loadRequiredCheckpoint(workflowName, workflowId, expectedRevision)
-        // Operator retry can only re-approve NON_REPLAYABLE steps. For the two
-        // externally-idempotent reasons the correct fix is a corrected workflow
-        // definition (or failWorkflow), NOT an unconditional retry: the worker's
-        // key-verification guard only runs against UNKNOWN/STARTED attempts, so
-        // clearing recovery here would let the step re-execute with a different or
-        // missing key — breaking the idempotency contract. Reject until a
-        // worker-visible retry-approval mechanism exists (see StepAttemptResolutionAction).
         if (record.reason == WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING ||
             record.reason == WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH
         ) {
+            if (!approvedIdempotencyKey.isNullOrBlank()) {
+                approveAttemptForRetry(workflowName, workflowId, record, reason, approvedIdempotencyKey)
+                return checkpointStore.clearRecovery(workflowName, workflowId, expectedRevision)
+            }
             throw WorkflowRecoveryStateException(
                 "Cannot retry workflow '$workflowName'/'$workflowId': recovery reason ${record.reason} " +
-                    "requires a corrected idempotency-key definition, not an operator retry. " +
-                    "Correct the workflow definition and re-submit, or use failWorkflow.",
+                    "requires a non-blank operator-approved idempotency key.",
             )
         }
-        // MANDATORY transition: the unresolved attempt must be marked FAILED before the
-        // checkpoint is unblocked. If this throws, the checkpoint stays Required and the
-        // workflow stays blocked — otherwise the worker would re-detect the same UNKNOWN
-        // attempt and re-enter Required, recreating the retry loop.
-        resolveAttemptForRetry(workflowName, workflowId, record, reason)
+        approveAttemptForRetry(workflowName, workflowId, record, reason, approvedIdempotencyKey)
         return checkpointStore.clearRecovery(
             workflowName = workflowName,
             workflowId = workflowId,
@@ -181,8 +217,8 @@ class InMemoryWorkflowRecoveryController(
     }
 
     /**
-     * Marks the exact attempt referenced by [record] as [StepAttemptStatus.FAILED] with
-     * the operator's resolution evidence.
+     * Keeps the exact attempt referenced by [record] [StepAttemptStatus.UNKNOWN] and writes
+     * worker-visible retry approval plus the operator's resolution evidence.
      *
      * MANDATORY for retry: this transition must succeed before the checkpoint is unblocked,
      * otherwise the worker re-detects the same UNKNOWN attempt and re-enters Required.
@@ -191,11 +227,12 @@ class InMemoryWorkflowRecoveryController(
      * @throws WorkflowRecoveryStateException if no [StepAttemptRecordStore] is configured
      * or the referenced attempt cannot be found.
      */
-    private suspend fun resolveAttemptForRetry(
+    private suspend fun approveAttemptForRetry(
         workflowName: String,
         workflowId: String,
         record: WorkflowRecoveryRecord,
         reason: String,
+        approvedIdempotencyKey: String?,
     ) {
         val store = stepAttemptStore
             ?: throw WorkflowRecoveryStateException(
@@ -206,15 +243,53 @@ class InMemoryWorkflowRecoveryController(
         } ?: throw WorkflowRecoveryStateException(
             "Cannot retry workflow '$workflowName'/'$workflowId': unresolved attempt '${record.attemptId}' for step '${record.stepName}' was not found",
         )
+        if (attempt.status != StepAttemptStatus.UNKNOWN) {
+            throw WorkflowRecoveryStateException(
+                "Cannot retry workflow '$workflowName'/'$workflowId': attempt '${attempt.attemptId}' is ${attempt.status}, not UNKNOWN",
+            )
+        }
+        if (attempt.replayPolicy == ReplayPolicy.EXTERNALLY_IDEMPOTENT && approvedIdempotencyKey.isNullOrBlank()) {
+            throw WorkflowRecoveryStateException(
+                "Cannot retry workflow '$workflowName'/'$workflowId': externally idempotent attempt '${attempt.attemptId}' requires a non-blank operator-approved idempotency key",
+            )
+        }
+        if (attempt.resolutionAction != null) {
+            val identical = attempt.resolutionAction == StepAttemptResolutionAction.RETRY_APPROVED &&
+                attempt.resolutionReason == reason &&
+                attempt.approvedIdempotencyKey == approvedIdempotencyKey
+            if (!identical) {
+                throw WorkflowRecoveryStateException(
+                    "Cannot retry workflow '$workflowName'/'$workflowId': attempt '${attempt.attemptId}' already has a conflicting resolution",
+                )
+            }
+            return
+        }
         val resolvedAt = System.currentTimeMillis()
-        store.updateStepAttempt(
-            attempt.copy(
-                status = StepAttemptStatus.FAILED,
-                completedAt = attempt.completedAt ?: resolvedAt,
-                resolutionReason = reason,
-                resolutionAtEpochMillis = resolvedAt,
-            ),
+        val updated = attempt.copy(
+            resolutionAction = StepAttemptResolutionAction.RETRY_APPROVED,
+            resolutionReason = reason,
+            resolutionAtEpochMillis = resolvedAt,
+            approvedIdempotencyKey = approvedIdempotencyKey,
         )
+        // Atomic CAS: a concurrent operator may have written an approval between our read and
+        // here, and the checkpoint-revision fence cannot protect the attempt record (attempt
+        // store and checkpoint store are independent). A failed CAS must never overwrite a
+        // successful concurrent authorization.
+        if (!store.compareAndSetStepAttempt(expected = attempt, updated = updated)) {
+            val current = store.listStepAttempts(workflowId).singleOrNull {
+                it.stepName == record.stepName && it.attemptId == record.attemptId
+            } ?: throw WorkflowRecoveryStateException(
+                "Cannot retry workflow '$workflowName'/'$workflowId': unresolved attempt '${record.attemptId}' for step '${record.stepName}' was not found after a concurrent modification",
+            )
+            val identical = current.resolutionAction == StepAttemptResolutionAction.RETRY_APPROVED &&
+                current.resolutionReason == reason &&
+                current.approvedIdempotencyKey == approvedIdempotencyKey
+            if (!identical) {
+                throw WorkflowRecoveryStateException(
+                    "Cannot retry workflow '$workflowName'/'$workflowId': attempt '${attempt.attemptId}' has a conflicting concurrent resolution; reload the checkpoint and retry",
+                )
+            }
+        }
     }
 
     /**
@@ -242,8 +317,10 @@ class InMemoryWorkflowRecoveryController(
                 attempt.copy(
                     status = StepAttemptStatus.FAILED,
                     completedAt = attempt.completedAt ?: resolvedAt,
+                    resolutionAction = StepAttemptResolutionAction.WORKFLOW_FAILED,
                     resolutionReason = reason,
                     resolutionAtEpochMillis = resolvedAt,
+                    approvedIdempotencyKey = null,
                 ),
             )
         } catch (error: Throwable) {

@@ -4,6 +4,8 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpHandler
 import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -1111,7 +1113,7 @@ class TramaiWorkerTest {
         }
         assertThat(executions.get()).isEqualTo(0)
 
-        // Operator resolves: retryStep marks attempt-1 FAILED with evidence, clears recovery.
+        // Operator resolves: retryStep persists worker-visible approval, then clears recovery.
         val controller = InMemoryWorkflowRecoveryController(checkpointStore, checkpointStore)
         val blocked = checkpointStore.load(workflow.name, runId)!!
         controller.retryStep(
@@ -1121,7 +1123,9 @@ class TramaiWorkerTest {
             reason = "operator confirmed side effect did not complete",
         )
         assertThat(checkpointStore.listStepAttempts(runId).single { it.attemptId == "attempt-1" }.status)
-            .isEqualTo(StepAttemptStatus.FAILED)
+            .isEqualTo(StepAttemptStatus.UNKNOWN)
+        assertThat(checkpointStore.listStepAttempts(runId).single { it.attemptId == "attempt-1" }.resolutionAction)
+            .isEqualTo(StepAttemptResolutionAction.RETRY_APPROVED)
 
         // Second worker starts a NEW attempt and completes — no re-Required.
         val workerB = worker("worker-b", leaseStore, checkpointStore, workflow, leaseDurationMillis = 100, pollIntervalMillis = 20)
@@ -1133,11 +1137,226 @@ class TramaiWorkerTest {
 
             val attempts = checkpointStore.listStepAttempts(runId)
             assertThat(attempts.map { it.status }).containsExactly(StepAttemptStatus.FAILED, StepAttemptStatus.COMPLETED)
+            assertThat(attempts.first().resolutionAction).isEqualTo(StepAttemptResolutionAction.RETRY_APPROVED)
             assertThat(attempts.map { it.attemptId }.distinct()).hasSize(2)
             assertThat(executions.get()).isEqualTo(1)
         } finally {
             workerB.shutdown()
         }
+        }
+    }
+
+    @Test
+    fun `externally idempotent approval executes only with exact approved key`() {
+        runBlocking {
+            val checkpointStore = InMemoryWorkflowCheckpointStore()
+            val leaseStore = InMemoryWorkflowLeaseStore()
+            val executions = AtomicInteger()
+            val runId = "run-approved-key"
+            val approvedKey = "approved:$runId"
+            val workflow = workflow<WorkerState>("approved-external-key") {
+                aiStep(
+                    name = "plan",
+                    replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                    idempotencyKey = { _, _ -> approvedKey },
+                    input = { it.value },
+                    invoke = { executions.incrementAndGet(); "$it:planned" },
+                    merge = { state, result -> state.copy(value = result) },
+                )
+            }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+            seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+            checkpointStore.recordStepAttempt(approvedAttempt(runId, ReplayPolicy.EXTERNALLY_IDEMPOTENT, approvedKey))
+
+            val worker = worker("worker-b", leaseStore, checkpointStore, workflow)
+            worker.start()
+            try {
+                waitUntil { checkpointStore.load(workflow.name, runId) == null }
+                val attempts = checkpointStore.listStepAttempts(runId)
+                assertThat(executions.get()).isEqualTo(1)
+                assertThat(attempts).hasSize(2)
+                assertThat(attempts.first().status).isEqualTo(StepAttemptStatus.FAILED)
+                assertThat(attempts.first().resolutionAction).isEqualTo(StepAttemptResolutionAction.RETRY_APPROVED)
+                assertThat(attempts.last().idempotencyKey).isEqualTo(approvedKey)
+                assertThat(attempts.last().attemptId).isNotEqualTo(attempts.first().attemptId)
+            } finally {
+                worker.shutdown()
+            }
+        }
+    }
+
+    @Test
+    fun `workflow definition change after approval restores required recovery without execution`() {
+        runBlocking {
+            val checkpointStore = InMemoryWorkflowCheckpointStore()
+            val leaseStore = InMemoryWorkflowLeaseStore()
+            val executions = AtomicInteger()
+            val runId = "run-changed-after-approval"
+            val workflow = workflow<WorkerState>("changed-after-approval") {
+                aiStep(
+                    name = "plan",
+                    replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                    idempotencyKey = { _, _ -> "current-key" },
+                    input = { it.value },
+                    invoke = { executions.incrementAndGet(); "$it:planned" },
+                    merge = { state, result -> state.copy(value = result) },
+                )
+            }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+            seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+            checkpointStore.recordStepAttempt(approvedAttempt(runId, ReplayPolicy.EXTERNALLY_IDEMPOTENT, "approved-key"))
+
+            val worker = worker("worker-b", leaseStore, checkpointStore, workflow)
+            worker.start()
+            try {
+                waitUntil { worker.latestFailure(runId) is NonReplayableStepStateUnknownException }
+                val checkpoint = checkpointStore.load(workflow.name, runId)!!
+                val recovery = checkpoint.recoveryState as WorkflowRecoveryState.Required
+                val attempt = checkpointStore.listStepAttempts(runId).single()
+                assertThat(executions.get()).isZero()
+                assertThat(recovery.record.reason).isEqualTo(WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH)
+                assertThat(recovery.record.instructions).contains("approved-key").contains("current-key")
+                assertThat(attempt.status).isEqualTo(StepAttemptStatus.UNKNOWN)
+                // The stale approval was voided on mismatch: no resolution action, no approved
+                // key; the reason/timestamp remain as the latest resolution context of the attempt.
+                assertThat(attempt.resolutionAction).isNull()
+                assertThat(attempt.approvedIdempotencyKey).isNull()
+                assertThat(attempt.resolutionReason).isEqualTo("operator approved retry")
+
+                // A fresh key-bound approval matching the current definition is accepted
+                // (no conflicting-resolution guard on a voided approval) and consumed, so
+                // the step executes exactly once with the corrected key.
+                val controller = InMemoryWorkflowRecoveryController(checkpointStore, checkpointStore)
+                controller.retryStep(workflow.name, runId, checkpoint.revision, "corrected approval", "current-key")
+                waitUntil { executions.get() == 1 }
+                val attempts = checkpointStore.listStepAttempts(runId)
+                val executed = attempts.single { it.status == StepAttemptStatus.COMPLETED }
+                assertThat(executed.attemptId).isNotEqualTo(attempt.attemptId)
+                assertThat(executed.idempotencyKey).isEqualTo("current-key")
+            } finally {
+                worker.shutdown()
+            }
+        }
+    }
+
+    @Test
+    fun `approval consumption failure prevents step execution`() {
+        runBlocking {
+            val checkpointStore = InMemoryWorkflowCheckpointStore()
+            val executions = AtomicInteger()
+            val workflow = retryApprovalWorkflow("failed-consumption", executions)
+            val runId = "run-failed-consumption"
+            seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+            checkpointStore.recordStepAttempt(approvedAttempt(runId))
+            val attemptStore = FailingApprovalConsumptionStore(checkpointStore, IllegalStateException("consume failed"))
+            val worker = worker("worker-b", InMemoryWorkflowLeaseStore(), checkpointStore, workflow, stepAttemptStore = attemptStore)
+            worker.start()
+            try {
+                waitUntil { worker.latestFailure(runId)?.message == "consume failed" }
+                assertThat(executions.get()).isZero()
+                assertThat(checkpointStore.listStepAttempts(runId).single().status).isEqualTo(StepAttemptStatus.UNKNOWN)
+            } finally {
+                worker.shutdown()
+            }
+        }
+    }
+
+    @Test
+    fun `lease loss before approval consumption prevents mutation and execution`() {
+        runBlocking {
+            val checkpointStore = InMemoryWorkflowCheckpointStore()
+            val executions = AtomicInteger()
+            val workflow = retryApprovalWorkflow("approval-lease-loss", executions)
+            val runId = "run-approval-lease-loss"
+            seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+            checkpointStore.recordStepAttempt(approvedAttempt(runId))
+            val worker = worker("worker-b", ApprovalLeaseLossStore(InMemoryWorkflowLeaseStore()), checkpointStore, workflow)
+            worker.start()
+            try {
+                waitUntil { worker.latestFailure(runId) is StaleWorkflowLeaseException }
+                assertThat(executions.get()).isZero()
+                assertThat(checkpointStore.listStepAttempts(runId).single().status).isEqualTo(StepAttemptStatus.UNKNOWN)
+            } finally {
+                worker.shutdown()
+            }
+        }
+    }
+
+    @Test
+    fun `cancellation during approval consumption does not execute step`() {
+        runBlocking {
+            val checkpointStore = InMemoryWorkflowCheckpointStore()
+            val executions = AtomicInteger()
+            val workflow = retryApprovalWorkflow("cancelled-consumption", executions)
+            val runId = "run-cancelled-consumption"
+            seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+            checkpointStore.recordStepAttempt(approvedAttempt(runId))
+            val attemptStore = FailingApprovalConsumptionStore(checkpointStore, CancellationException("cancel consume"))
+            val worker = worker("worker-b", InMemoryWorkflowLeaseStore(), checkpointStore, workflow, stepAttemptStore = attemptStore)
+            worker.start()
+            try {
+                // Deterministic: the worker must actually reach the consumption CAS before we
+                // assert the cancellation outcome — no sleep-based approximation.
+                withTimeout(5_000) { attemptStore.consumptionAttempted.await() }
+                assertThat(executions.get()).isZero()
+                assertThat(checkpointStore.listStepAttempts(runId).single().status).isEqualTo(StepAttemptStatus.UNKNOWN)
+            } finally {
+                worker.shutdown()
+            }
+        }
+    }
+
+    @Test
+    fun `WORKFLOW_FAILED action is never treated as retry permission`() {
+        runBlocking {
+            val checkpointStore = InMemoryWorkflowCheckpointStore()
+            val executions = AtomicInteger()
+            val workflow = retryApprovalWorkflow("workflow-failed-action", executions)
+            val runId = "run-workflow-failed-action"
+            seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+            checkpointStore.recordStepAttempt(
+                approvedAttempt(runId).copy(
+                    resolutionAction = StepAttemptResolutionAction.WORKFLOW_FAILED,
+                    approvedIdempotencyKey = null,
+                ),
+            )
+            val worker = worker("worker-b", InMemoryWorkflowLeaseStore(), checkpointStore, workflow)
+            worker.start()
+            try {
+                waitUntil { worker.latestFailure(runId) is WorkflowRecoveryStateException }
+                assertThat(executions.get()).isZero()
+                assertThat(checkpointStore.listStepAttempts(runId).single().status).isEqualTo(StepAttemptStatus.UNKNOWN)
+            } finally {
+                worker.shutdown()
+            }
+        }
+    }
+
+    @Test
+    fun `two workers consume one approval once and consumed approval is not reused`() {
+        runBlocking {
+            val checkpointStore = InMemoryWorkflowCheckpointStore()
+            val leaseStore = InMemoryWorkflowLeaseStore()
+            val executions = AtomicInteger()
+            val workflow = retryApprovalWorkflow("single-consumer-approval", executions)
+            val runId = "run-single-consumer-approval"
+            seedCheckpoint(checkpointStore, workflow, runId, WorkerState("start"))
+            checkpointStore.recordStepAttempt(approvedAttempt(runId))
+            val workerA = worker("worker-a", leaseStore, checkpointStore, workflow)
+            val workerB = worker("worker-b", leaseStore, checkpointStore, workflow)
+            workerA.start()
+            workerB.start()
+            try {
+                waitUntil { checkpointStore.load(workflow.name, runId) == null }
+                val attempts = checkpointStore.listStepAttempts(runId)
+                assertThat(executions.get()).isEqualTo(1)
+                assertThat(attempts).hasSize(2)
+                assertThat(attempts.count { it.status == StepAttemptStatus.FAILED }).isEqualTo(1)
+                assertThat(attempts.count { it.status == StepAttemptStatus.COMPLETED }).isEqualTo(1)
+                delay(100)
+                assertThat(executions.get()).isEqualTo(1)
+            } finally {
+                workerA.shutdown()
+                workerB.shutdown()
+            }
         }
     }
 
@@ -1147,6 +1366,39 @@ class TramaiWorkerTest {
     ): Workflow<WorkerState, String> = workflow<WorkerState>(name, configure = configure)
         .build { it.value }
         .registerWorkerBinding(WorkerStateCodec)
+
+    private fun retryApprovalWorkflow(
+        name: String,
+        executions: AtomicInteger,
+    ): Workflow<WorkerState, String> = workflow<WorkerState>(name) {
+        aiStep(
+            name = "plan",
+            replayPolicy = ReplayPolicy.NON_REPLAYABLE,
+            input = { it.value },
+            invoke = { executions.incrementAndGet(); "$it:planned" },
+            merge = { state, result -> state.copy(value = result) },
+        )
+    }.build { it.value }.registerWorkerBinding(WorkerStateCodec)
+
+    private fun approvedAttempt(
+        runId: String,
+        replayPolicy: ReplayPolicy = ReplayPolicy.NON_REPLAYABLE,
+        approvedIdempotencyKey: String? = null,
+    ): StepAttemptRecord = StepAttemptRecord(
+        runId = runId,
+        stepName = "plan",
+        attemptId = "attempt-1",
+        workerId = "worker-a",
+        leaseToken = "lease-a",
+        status = StepAttemptStatus.UNKNOWN,
+        startedAt = 10L,
+        idempotencyKey = null,
+        replayPolicy = replayPolicy,
+        resolutionReason = "operator approved retry",
+        resolutionAtEpochMillis = 20L,
+        resolutionAction = StepAttemptResolutionAction.RETRY_APPROVED,
+        approvedIdempotencyKey = approvedIdempotencyKey,
+    )
 
     private fun worker(
         workerId: String,
@@ -1416,6 +1668,83 @@ private class LeaseStealingLeaseStore(
     ) {
         delegate.deleteCheckpointIfLeaseOwner(checkpointStore, workflowName, workflowId, expectedRevision, expectedLease)
     }
+}
+
+private class FailingApprovalConsumptionStore(
+    private val delegate: StepAttemptRecordStore,
+    private val failure: Throwable,
+) : StepAttemptRecordStore by delegate {
+    /** Completes the moment the consumption CAS is actually invoked — deterministic test signal. */
+    val consumptionAttempted = CompletableDeferred<Unit>()
+
+    override suspend fun updateStepAttempt(record: StepAttemptRecord): StepAttemptRecord {
+        if (record.status == StepAttemptStatus.FAILED &&
+            record.resolutionAction == StepAttemptResolutionAction.RETRY_APPROVED
+        ) {
+            throw failure
+        }
+        return delegate.updateStepAttempt(record)
+    }
+
+    override suspend fun compareAndSetStepAttempt(
+        expected: StepAttemptRecord,
+        updated: StepAttemptRecord,
+    ): Boolean {
+        if (updated.status == StepAttemptStatus.FAILED &&
+            updated.resolutionAction == StepAttemptResolutionAction.RETRY_APPROVED
+        ) {
+            consumptionAttempted.complete(Unit)
+            throw failure
+        }
+        return delegate.compareAndSetStepAttempt(expected, updated)
+    }
+}
+
+private class ApprovalLeaseLossStore(
+    private val delegate: InMemoryWorkflowLeaseStore,
+) : WorkflowLeaseStore, WorkflowLeaseCheckpointFence, WorkerRegistryStore by delegate {
+    private var loseNextValidation = false
+
+    override suspend fun currentLease(workflowName: String, workflowId: String): WorkflowLease? {
+        if (loseNextValidation) {
+            loseNextValidation = false
+            return null
+        }
+        return delegate.currentLease(workflowName, workflowId)
+    }
+
+    override suspend fun claim(
+        workflowName: String,
+        workflowId: String,
+        ownerId: String,
+        checkpointRevision: Long?,
+        leaseDurationMillis: Long,
+    ): WorkflowLease = delegate.claim(
+        workflowName, workflowId, ownerId, checkpointRevision, leaseDurationMillis,
+    ).also { loseNextValidation = true }
+
+    override suspend fun renew(
+        lease: WorkflowLease,
+        checkpointRevision: Long?,
+        leaseDurationMillis: Long,
+    ): WorkflowLease = delegate.renew(lease, checkpointRevision, leaseDurationMillis)
+
+    override suspend fun release(lease: WorkflowLease) = delegate.release(lease)
+
+    override suspend fun saveCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        checkpoint: WorkflowCheckpoint,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ): WorkflowCheckpoint = delegate.saveCheckpointIfLeaseOwner(checkpointStore, checkpoint, expectedRevision, expectedLease)
+
+    override suspend fun deleteCheckpointIfLeaseOwner(
+        checkpointStore: WorkflowCheckpointStore,
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long?,
+        expectedLease: WorkflowLease,
+    ) = delegate.deleteCheckpointIfLeaseOwner(checkpointStore, workflowName, workflowId, expectedRevision, expectedLease)
 }
 
 private class WorkerTestHttpServer(

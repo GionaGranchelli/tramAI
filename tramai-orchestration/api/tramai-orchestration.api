@@ -269,6 +269,7 @@ public final class dev/tramai/orchestration/HttpStepConfig {
 public final class dev/tramai/orchestration/InMemoryWorkflowCheckpointStore : dev/tramai/orchestration/StepAttemptRecordStore, dev/tramai/orchestration/WorkflowCheckpointCatalog, dev/tramai/orchestration/WorkflowCheckpointStore {
 	public fun <init> ()V
 	public fun clearRecovery (Ljava/lang/String;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun compareAndSetStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun delete (Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun latestStepAttempt (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun listCheckpoints (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -301,6 +302,7 @@ public final class dev/tramai/orchestration/InMemoryWorkflowRecoveryController :
 	public fun <init> (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/StepAttemptRecordStore;)V
 	public synthetic fun <init> (Ldev/tramai/orchestration/WorkflowCheckpointStore;Ldev/tramai/orchestration/StepAttemptRecordStore;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun failWorkflow (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
@@ -683,14 +685,16 @@ public final class dev/tramai/orchestration/StaleWorkflowLeaseException : java/l
 }
 
 public final class dev/tramai/orchestration/StepAttemptRecord {
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/StepAttemptStatus;JLjava/lang/Long;Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/StepAttemptStatus;JLjava/lang/Long;Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/StepAttemptStatus;JLjava/lang/Long;Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/StepAttemptResolutionAction;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/StepAttemptStatus;JLjava/lang/Long;Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/StepAttemptResolutionAction;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component10 ()Ldev/tramai/orchestration/ReplayPolicy;
 	public final fun component11 ()Ljava/lang/String;
 	public final fun component12 ()Ljava/lang/String;
 	public final fun component13 ()Ljava/lang/String;
 	public final fun component14 ()Ljava/lang/Long;
+	public final fun component15 ()Ldev/tramai/orchestration/StepAttemptResolutionAction;
+	public final fun component16 ()Ljava/lang/String;
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3 ()Ljava/lang/String;
 	public final fun component4 ()Ljava/lang/String;
@@ -699,9 +703,10 @@ public final class dev/tramai/orchestration/StepAttemptRecord {
 	public final fun component7 ()J
 	public final fun component8 ()Ljava/lang/Long;
 	public final fun component9 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/StepAttemptStatus;JLjava/lang/Long;Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)Ldev/tramai/orchestration/StepAttemptRecord;
-	public static synthetic fun copy$default (Ldev/tramai/orchestration/StepAttemptRecord;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/StepAttemptStatus;JLjava/lang/Long;Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;ILjava/lang/Object;)Ldev/tramai/orchestration/StepAttemptRecord;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/StepAttemptStatus;JLjava/lang/Long;Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/StepAttemptResolutionAction;Ljava/lang/String;)Ldev/tramai/orchestration/StepAttemptRecord;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/StepAttemptRecord;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ldev/tramai/orchestration/StepAttemptStatus;JLjava/lang/Long;Ljava/lang/String;Ldev/tramai/orchestration/ReplayPolicy;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ldev/tramai/orchestration/StepAttemptResolutionAction;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/orchestration/StepAttemptRecord;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovedIdempotencyKey ()Ljava/lang/String;
 	public final fun getAttemptId ()Ljava/lang/String;
 	public final fun getCompletedAt ()Ljava/lang/Long;
 	public final fun getIdempotencyKey ()Ljava/lang/String;
@@ -709,6 +714,7 @@ public final class dev/tramai/orchestration/StepAttemptRecord {
 	public final fun getLeaseToken ()Ljava/lang/String;
 	public final fun getOutputSummary ()Ljava/lang/String;
 	public final fun getReplayPolicy ()Ldev/tramai/orchestration/ReplayPolicy;
+	public final fun getResolutionAction ()Ldev/tramai/orchestration/StepAttemptResolutionAction;
 	public final fun getResolutionAtEpochMillis ()Ljava/lang/Long;
 	public final fun getResolutionReason ()Ljava/lang/String;
 	public final fun getRunId ()Ljava/lang/String;
@@ -721,10 +727,19 @@ public final class dev/tramai/orchestration/StepAttemptRecord {
 }
 
 public abstract interface class dev/tramai/orchestration/StepAttemptRecordStore {
+	public abstract fun compareAndSetStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun latestStepAttempt (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun listStepAttempts (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun recordStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun updateStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/StepAttemptResolutionAction : java/lang/Enum {
+	public static final field RETRY_APPROVED Ldev/tramai/orchestration/StepAttemptResolutionAction;
+	public static final field WORKFLOW_FAILED Ldev/tramai/orchestration/StepAttemptResolutionAction;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/orchestration/StepAttemptResolutionAction;
+	public static fun values ()[Ldev/tramai/orchestration/StepAttemptResolutionAction;
 }
 
 public final class dev/tramai/orchestration/StepAttemptStatus : java/lang/Enum {
@@ -1124,6 +1139,7 @@ public final class dev/tramai/orchestration/WorkflowPersistence {
 
 public abstract interface class dev/tramai/orchestration/WorkflowRecoveryController {
 	public abstract fun failWorkflow (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
