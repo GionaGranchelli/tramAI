@@ -281,6 +281,31 @@ store.createTableSql() // → CREATE TABLE my_checkpoints ( ... )
 
 Applications are responsible for supplying a `javax.sql.DataSource` and creating the target table. Column names are configurable via `JdbcWorkflowCheckpointTable`.
 
+### Step-attempt stores
+
+Step attempts have a lifecycle independent from checkpoints. Use one of the two durable `StepAttemptRecordStore` implementations and pass it explicitly to both `TramaiWorker` and `InMemoryWorkflowRecoveryController`:
+
+```kotlin
+val fileAttempts = FileStepAttemptRecordStore(Path.of("./workflow-attempts"))
+
+val jdbcAttempts = JdbcStepAttemptRecordStore(
+    dataSource = dataSource,
+    table = JdbcStepAttemptTable(tableName = "my_step_attempts"),
+)
+jdbcAttempts.createTableSql() // execute during application schema setup
+```
+
+The file store uses URL-safe identity-preserving paths, owner-only permissions, OS file locks, atomic replacement, and fingerprint verification. The JDBC store uses a composite `(run_id, step_name, attempt_id)` primary key, prepared statements, fingerprint-guarded compare-and-set, and cancellable JDBC operations. Both fail closed on corrupt records. They do not provide cross-store transactions or exactly-once external side effects.
+
+`InMemoryWorkflowRecoveryController` coordinates recovery; it is not a persistence backend. It can coordinate file or JDBC stores:
+
+```kotlin
+val recoveryController = InMemoryWorkflowRecoveryController(
+    checkpointStore = checkpointStore,
+    stepAttemptStore = jdbcAttempts,
+)
+```
+
 ### Distributed workers
 
 `TramaiWorker` enables multi-node workflow execution. Workers poll a shared checkpoint catalog, claim workflows via lease fencing, and execute resumes.
@@ -299,6 +324,7 @@ workflow.registerWorkerBinding(
 
 // 2. Create shared stores (e.g., JDBC-backed)
 val checkpointStore = JdbcWorkflowCheckpointStore(dataSource)
+val stepAttemptStore = JdbcStepAttemptRecordStore(dataSource)
 val leaseStore = JdbcWorkflowLeaseStore(dataSource)
 
 // 3. Create the worker
@@ -312,6 +338,8 @@ val worker = TramaiWorker(
     ),
     leaseStore = leaseStore,
     checkpointStore = checkpointStore,
+    checkpointCatalog = checkpointStore,
+    stepAttemptStore = stepAttemptStore,
     workflowRegistry = mapOf("my-workflow" to workflow),
 )
 

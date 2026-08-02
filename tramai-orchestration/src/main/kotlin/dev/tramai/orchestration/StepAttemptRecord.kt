@@ -79,6 +79,11 @@ interface StepAttemptRecordStore {
     suspend fun listStepAttempts(runId: String): List<StepAttemptRecord>
 }
 
+class StepAttemptRecordCorruptionException(
+    message: String,
+    cause: Throwable? = null,
+) : RuntimeException(message, cause)
+
 class NonReplayableStepStateUnknownException(
     val runId: String,
     val stepName: String,

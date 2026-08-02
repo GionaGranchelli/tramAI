@@ -997,7 +997,7 @@ sealed interface StructuredTypeDescriptor {
 - Audit outbox store
 - Workflow checkpoint store
 - Workflow lease store
-- Step-attempt store
+- Step-attempt store — done for in-memory, file, and JDBC through the shared PR #218 TCK and restart recovery tests
 - Memory store
 
 ### Contract areas

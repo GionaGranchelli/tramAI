@@ -147,6 +147,16 @@ public abstract interface class dev/tramai/orchestration/ExternalStepExecutorRes
 	public abstract fun registeredTypeIds ()Ljava/util/Set;
 }
 
+public final class dev/tramai/orchestration/FileStepAttemptRecordStore : dev/tramai/orchestration/StepAttemptRecordStore {
+	public fun <init> (Ljava/nio/file/Path;)V
+	public synthetic fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/AtomicFileWriter;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun compareAndSetStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun latestStepAttempt (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun listStepAttempts (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun recordStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun updateStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
 public final class dev/tramai/orchestration/FileWorkflowCheckpointStore : dev/tramai/orchestration/WorkflowCheckpointCatalog, dev/tramai/orchestration/WorkflowCheckpointStore {
 	public fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;)V
 	public synthetic fun <init> (Ljava/nio/file/Path;Ldev/tramai/orchestration/WorkflowCheckpointPathStrategy;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -304,6 +314,64 @@ public final class dev/tramai/orchestration/InMemoryWorkflowRecoveryController :
 	public fun failWorkflow (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun retryStep (Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/JdbcStepAttemptRecordStore : dev/tramai/orchestration/StepAttemptRecordStore {
+	public fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcStepAttemptTable;)V
+	public synthetic fun <init> (Ljavax/sql/DataSource;Ldev/tramai/orchestration/JdbcStepAttemptTable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun compareAndSetStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun createTableSql ()Ljava/lang/String;
+	public fun latestStepAttempt (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun listStepAttempts (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun recordStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun updateStepAttempt (Ldev/tramai/orchestration/StepAttemptRecord;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class dev/tramai/orchestration/JdbcStepAttemptTable {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component11 ()Ljava/lang/String;
+	public final fun component12 ()Ljava/lang/String;
+	public final fun component13 ()Ljava/lang/String;
+	public final fun component14 ()Ljava/lang/String;
+	public final fun component15 ()Ljava/lang/String;
+	public final fun component16 ()Ljava/lang/String;
+	public final fun component17 ()Ljava/lang/String;
+	public final fun component18 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/orchestration/JdbcStepAttemptTable;
+	public static synthetic fun copy$default (Ldev/tramai/orchestration/JdbcStepAttemptTable;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/orchestration/JdbcStepAttemptTable;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApprovedIdempotencyKeyColumn ()Ljava/lang/String;
+	public final fun getAttemptIdColumn ()Ljava/lang/String;
+	public final fun getCompletedAtColumn ()Ljava/lang/String;
+	public final fun getIdempotencyKeyColumn ()Ljava/lang/String;
+	public final fun getInputFingerprintColumn ()Ljava/lang/String;
+	public final fun getLeaseTokenColumn ()Ljava/lang/String;
+	public final fun getOutputSummaryColumn ()Ljava/lang/String;
+	public final fun getRecordHashColumn ()Ljava/lang/String;
+	public final fun getReplayPolicyColumn ()Ljava/lang/String;
+	public final fun getResolutionActionColumn ()Ljava/lang/String;
+	public final fun getResolutionAtEpochMillisColumn ()Ljava/lang/String;
+	public final fun getResolutionReasonColumn ()Ljava/lang/String;
+	public final fun getRunIdColumn ()Ljava/lang/String;
+	public final fun getStartedAtColumn ()Ljava/lang/String;
+	public final fun getStatusColumn ()Ljava/lang/String;
+	public final fun getStepNameColumn ()Ljava/lang/String;
+	public final fun getTableName ()Ljava/lang/String;
+	public final fun getWorkerIdColumn ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class dev/tramai/orchestration/JdbcWorkflowCheckpointStore : dev/tramai/orchestration/WorkflowCheckpointCatalog, dev/tramai/orchestration/WorkflowCheckpointStore {
@@ -724,6 +792,11 @@ public final class dev/tramai/orchestration/StepAttemptRecord {
 	public final fun getWorkerId ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class dev/tramai/orchestration/StepAttemptRecordCorruptionException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
 public abstract interface class dev/tramai/orchestration/StepAttemptRecordStore {
