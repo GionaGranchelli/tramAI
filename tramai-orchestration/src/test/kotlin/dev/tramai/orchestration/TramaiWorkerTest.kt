@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpHandler
 import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1292,7 +1293,9 @@ class TramaiWorkerTest {
             val worker = worker("worker-b", InMemoryWorkflowLeaseStore(), checkpointStore, workflow, stepAttemptStore = attemptStore)
             worker.start()
             try {
-                delay(250)
+                // Deterministic: the worker must actually reach the consumption CAS before we
+                // assert the cancellation outcome — no sleep-based approximation.
+                withTimeout(5_000) { attemptStore.consumptionAttempted.await() }
                 assertThat(executions.get()).isZero()
                 assertThat(checkpointStore.listStepAttempts(runId).single().status).isEqualTo(StepAttemptStatus.UNKNOWN)
             } finally {
@@ -1671,6 +1674,9 @@ private class FailingApprovalConsumptionStore(
     private val delegate: StepAttemptRecordStore,
     private val failure: Throwable,
 ) : StepAttemptRecordStore by delegate {
+    /** Completes the moment the consumption CAS is actually invoked — deterministic test signal. */
+    val consumptionAttempted = CompletableDeferred<Unit>()
+
     override suspend fun updateStepAttempt(record: StepAttemptRecord): StepAttemptRecord {
         if (record.status == StepAttemptStatus.FAILED &&
             record.resolutionAction == StepAttemptResolutionAction.RETRY_APPROVED
@@ -1687,6 +1693,7 @@ private class FailingApprovalConsumptionStore(
         if (updated.status == StepAttemptStatus.FAILED &&
             updated.resolutionAction == StepAttemptResolutionAction.RETRY_APPROVED
         ) {
+            consumptionAttempted.complete(Unit)
             throw failure
         }
         return delegate.compareAndSetStepAttempt(expected, updated)

@@ -1,6 +1,7 @@
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -391,11 +392,9 @@ class WorkflowRecoveryContractTest {
     @Test
     fun `concurrent retry approvals — the approval whose checkpoint clear succeeds is the effective authorization`() {
         runBlocking {
-            val store = InMemoryWorkflowCheckpointStore()
-            val controllerA = InMemoryWorkflowRecoveryController(store, store)
-            val controllerB = InMemoryWorkflowRecoveryController(store, store)
-            val saved = store.save(sampleCheckpoint())
-            store.recordStepAttempt(
+            val delegate = InMemoryWorkflowCheckpointStore()
+            val saved = delegate.save(sampleCheckpoint())
+            delegate.recordStepAttempt(
                 StepAttemptRecord(
                     runId = saved.workflowId,
                     stepName = "step",
@@ -407,7 +406,7 @@ class WorkflowRecoveryContractTest {
                     replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
                 ),
             )
-            val required = store.requireRecovery(
+            val required = delegate.requireRecovery(
                 workflowName = saved.workflowName,
                 workflowId = saved.workflowId,
                 expectedRevision = saved.revision,
@@ -419,21 +418,19 @@ class WorkflowRecoveryContractTest {
                     detectedAtEpochMillis = 0,
                 ),
             )
+            // B's pre-read: the attempt exactly as it exists before any authorization.
+            val preRead = delegate.listStepAttempts(saved.workflowId).single()
 
-            // A approves key-A and clears recovery — this is the effective authorization.
-            controllerA.retryStep(
-                workflowName = saved.workflowName,
-                workflowId = saved.workflowId,
-                expectedRevision = required.revision,
-                reason = "reason-a",
-                approvedIdempotencyKey = "key-A",
-            )
+            val reached = Channel<Unit>(1)
+            val release = Channel<Unit>(1)
+            val store = FrozenAttemptGateStore(delegate, preRead, reached, release)
+            val controllerA = InMemoryWorkflowRecoveryController(store, store)
+            val controllerB = InMemoryWorkflowRecoveryController(store, store)
 
-            // B, which loaded the same checkpoint while it was still Required, issues a
-            // stale approval for key-B. The revision fence rejects it and the attempt
-            // authorization must remain A's.
-            assertThatThrownBy {
-                runBlocking {
+            // B loads the same Required checkpoint, then blocks at its attempt read until A
+            // has completed — the read-before-write interleaving from the concurrent-approval race.
+            val bOutcome = async {
+                runCatching {
                     controllerB.retryStep(
                         workflowName = saved.workflowName,
                         workflowId = saved.workflowId,
@@ -442,7 +439,23 @@ class WorkflowRecoveryContractTest {
                         approvedIdempotencyKey = "key-B",
                     )
                 }
-            }.isInstanceOf(WorkflowCheckpointConflictException::class.java)
+            }
+            reached.receive()
+
+            // A approves key-A and clears recovery — the effective authorization.
+            controllerA.retryStep(
+                workflowName = saved.workflowName,
+                workflowId = saved.workflowId,
+                expectedRevision = required.revision,
+                reason = "reason-a",
+                approvedIdempotencyKey = "key-A",
+            )
+            release.send(Unit)
+
+            // B resumes with its pre-A snapshot: its CAS must fail and its call must fail
+            // closed without overwriting A's authorization.
+            val bFailure = bOutcome.await().exceptionOrNull()
+            assertThat(bFailure).isInstanceOf(WorkflowRecoveryStateException::class.java)
 
             val attempt = store.listStepAttempts(saved.workflowId).single()
             assertThat(attempt.resolutionAction).isEqualTo(StepAttemptResolutionAction.RETRY_APPROVED)
@@ -1076,6 +1089,33 @@ private class NoopDataSource : DataSource {
     override fun getParentLogger(): Logger = Logger.getGlobal()
     override fun <T : Any?> unwrap(iface: Class<T>?): T = throw SQLException("Unsupported")
     override fun isWrapperFor(iface: Class<*>?): Boolean = false
+}
+
+/**
+ * Checkpoint/attempt store that makes the concurrent-approval race deterministic.
+ *
+ * The FIRST [listStepAttempts] caller (the slow operator B) is served a frozen
+ * pre-authorization attempt snapshot after the test releases it, so B builds its
+ * approval from a read that predates the winning authorization; all later calls
+ * delegate to the real store. Checkpoint operations always delegate.
+ */
+private class FrozenAttemptGateStore(
+    private val delegate: InMemoryWorkflowCheckpointStore,
+    private val frozenSnapshot: StepAttemptRecord,
+    private val reached: Channel<Unit>,
+    private val release: Channel<Unit>,
+) : WorkflowCheckpointStore by delegate, StepAttemptRecordStore by delegate {
+    private var servedStale = false
+
+    override suspend fun listStepAttempts(runId: String): List<StepAttemptRecord> {
+        if (!servedStale) {
+            servedStale = true
+            reached.send(Unit)
+            release.receive()
+            return listOf(frozenSnapshot)
+        }
+        return delegate.listStepAttempts(runId)
+    }
 }
 
 /** Step-attempt store whose [updateStepAttempt] always fails — simulates persistence failure. */
