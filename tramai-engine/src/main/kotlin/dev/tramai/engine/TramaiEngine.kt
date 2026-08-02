@@ -38,6 +38,9 @@ import dev.tramai.core.observation.OperationCallContext
 import dev.tramai.core.observation.OperationObservation
 import dev.tramai.core.observation.OperationObserver
 import dev.tramai.core.observation.OperationInterceptor
+import dev.tramai.core.observation.ToolFailureDiagnosticEvent
+import dev.tramai.core.observation.ToolFailureDiagnosticObserver
+import dev.tramai.core.observation.NoOpToolFailureDiagnosticObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.ProviderRegistry
@@ -136,6 +139,7 @@ class TramaiEngine(
     private val dlpRedactionAuditEmitter: DlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
     private val toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
     private val engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
+    private val toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
     private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
     // Approval suspension dependencies
     private val suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
@@ -178,6 +182,7 @@ class TramaiEngine(
         dlpRedactionAuditEmitter: DlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
         toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings(),
         engineEventObserver: EngineEventObserver = NoOpEngineEventObserver,
+        toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
         policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
         suspendedInvocationStore: SuspendedInvocationStore = InMemorySuspendedInvocationStore(),
         approvalContinuationStore: ApprovalContinuationStore? = null,
@@ -207,6 +212,7 @@ class TramaiEngine(
         dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
         toolResultFilteringSettings = toolResultFilteringSettings,
         engineEventObserver = engineEventObserver,
+        toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
         policyDecisionAuditEmitter = policyDecisionAuditEmitter,
         suspendedInvocationStore = suspendedInvocationStore,
         approvalContinuationStore = approvalContinuationStore,
@@ -249,6 +255,7 @@ class TramaiEngine(
             dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
             toolResultFilteringSettings = toolResultFilteringSettings,
             engineEventObserver = engineEventObserver,
+            toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
             policyDecisionAuditEmitter = policyDecisionAuditEmitter,
             suspendedInvocationStore = suspendedInvocationStore,
             approvalContinuationStore = approvalContinuationStore,
@@ -310,6 +317,7 @@ class TramaiEngine(
             dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
             toolResultFilteringSettings = toolResultFilteringSettings,
             engineEventObserver = engineEventObserver,
+            toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
             policyDecisionAuditEmitter = policyDecisionAuditEmitter,
             suspendedInvocationStore = suspendedInvocationStore,
             approvalContinuationStore = approvalContinuationStore,
@@ -416,6 +424,7 @@ internal class TramaiInvocationHandler(
     private val dlpRedactionAuditEmitter: DlpRedactionAuditEmitter,
     private val toolResultFilteringSettings: ToolResultFilteringSettings,
     private val engineEventObserver: EngineEventObserver,
+    private val toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver,
     private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter,
     // Approval suspension dependencies
     private val suspendedInvocationStore: SuspendedInvocationStore,
@@ -1623,7 +1632,10 @@ internal class TramaiInvocationHandler(
         for ((index, toolCall) in toolCalls.withIndex()) {
             val tool = toolRegistry.resolve(toolCall.name)
             val toolResult = if (tool == null) {
-                ToolResult.PermanentFailure("Tool '<unregistered>' not found")
+                ToolResult.PermanentFailure(
+                    code = ToolFailureCode.EXECUTION_FAILED,
+                    modelMessage = ModelVisibleToolMessage.trusted("Tool '<unregistered>' not found"),
+                )
             } else {
                 executeTool(
                     ToolExecutionRequest(
@@ -1994,12 +2006,12 @@ internal class TramaiInvocationHandler(
         is ToolResult.Success -> createToolSuccessMessage(toolResult, toolCallId)
         is ToolResult.InvalidInput -> Message(
             role = MessageRole.TOOL,
-            content = "Error: ${toolResult.message}",
+            content = "Error: ${toolResult.modelMessage?.value ?: toolResult.code.defaultModelMessage}",
             toolCallId = toolCallId,
         )
         is ToolResult.PermanentFailure -> Message(
             role = MessageRole.TOOL,
-            content = "Permanent error: ${toolResult.message}",
+            content = "Permanent error: ${toolResult.modelMessage?.value ?: toolResult.code.defaultModelMessage}",
             toolCallId = toolCallId,
         )
         is ToolResult.TransientFailure -> error("TransientFailure should be resolved inside executeTool")
@@ -2377,7 +2389,7 @@ internal class TramaiInvocationHandler(
             )
 
             val result = executeToolAttempt(tool, input, context)
-            toolRetryTerminalResult(result, attemptIndex, maxAttempts)?.let { return it }
+            toolRetryTerminalResult(result, tool, attemptIndex, maxAttempts)?.let { return it }
         }
 
         error("Tool retry loop exited without returning")
@@ -2504,20 +2516,26 @@ internal class TramaiInvocationHandler(
     ): ToolResult = try {
         tool.execute(input, context)
     } catch (e: dev.tramai.core.exception.ToolInvalidInputException) {
-        ToolResult.InvalidInput(e.message ?: "Invalid tool input")
+        recordToolFailureDiagnostic(tool, ToolFailureCode.INVALID_INPUT, context.attemptNumber, retryable = false, e)
+        ToolResult.InvalidInput(
+            code = ToolFailureCode.INVALID_INPUT,
+            modelMessage = e.safeModelMessage,
+        )
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         e.rethrowIfCancellation()
+        recordToolFailureDiagnostic(tool, ToolFailureCode.EXECUTION_FAILED, context.attemptNumber, retryable = tool.idempotent, e)
         if (tool.idempotent) {
             ToolResult.TransientFailure(e)
         } else {
-            ToolResult.PermanentFailure(e.message ?: "Tool execution failed")
+            ToolResult.PermanentFailure(code = ToolFailureCode.EXECUTION_FAILED)
         }
     }
 
     private fun toolRetryTerminalResult(
         result: ToolResult,
+        tool: ResolvedTool,
         attemptIndex: Int,
         maxAttempts: Int,
     ): ToolResult? {
@@ -2532,9 +2550,41 @@ internal class TramaiInvocationHandler(
             return null
         }
 
+        recordToolFailureDiagnostic(tool, ToolFailureCode.RETRY_EXHAUSTED, attemptIndex, retryable = false, result.cause)
+
         return ToolResult.PermanentFailure(
-            result.cause.message ?: "Tool execution failed after $maxAttempts attempt(s)",
+            code = ToolFailureCode.RETRY_EXHAUSTED,
         )
+    }
+
+    /**
+     * Delivers a [ToolFailureDiagnosticEvent] to the explicitly configured
+     * diagnostic observer. Fail-open: an observer failure must never replace
+     * cancellation, the original tool failure, or a successful tool result.
+     */
+    private fun recordToolFailureDiagnostic(
+        tool: ResolvedTool,
+        code: ToolFailureCode,
+        attempt: Int,
+        retryable: Boolean,
+        failure: Throwable,
+    ) {
+        try {
+            toolFailureDiagnosticObserver.record(
+                ToolFailureDiagnosticEvent(
+                    toolName = tool.name,
+                    code = code,
+                    attempt = attempt,
+                    retryable = retryable,
+                    failure = failure,
+                ),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            // Fail-open: a diagnostic-sink failure must never replace the tool failure.
+        }
     }
 
     private data class ToolExecutionRequest(
@@ -3714,7 +3764,10 @@ internal class TramaiInvocationHandler(
         actualIndex: Int,
     ): ToolResult {
         if (tool == null) {
-            return ToolResult.PermanentFailure("Tool '<unregistered>' not found")
+            return ToolResult.PermanentFailure(
+                code = ToolFailureCode.EXECUTION_FAILED,
+                modelMessage = ModelVisibleToolMessage.trusted("Tool '<unregistered>' not found"),
+            )
         }
         return try {
             executeTool(

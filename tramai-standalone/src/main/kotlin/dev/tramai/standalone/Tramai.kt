@@ -15,12 +15,16 @@ import dev.tramai.core.model.NoOpModelRegistry
 import dev.tramai.core.model.ResolvedTool
 import dev.tramai.core.model.SideEffectLevel
 import dev.tramai.core.model.ToolExecutionContext
+import dev.tramai.core.model.ToolFailureCode
 import dev.tramai.core.model.ToolResult
 import dev.tramai.core.model.TramaiTool
 import dev.tramai.core.observation.NoOpOperationInterceptor
 import dev.tramai.core.observation.NoOpOperationObserver
+import dev.tramai.core.observation.NoOpToolFailureDiagnosticObserver
 import dev.tramai.core.observation.OperationInterceptor
 import dev.tramai.core.observation.OperationObserver
+import dev.tramai.core.observation.ToolFailureDiagnosticEvent
+import dev.tramai.core.observation.ToolFailureDiagnosticObserver
 import dev.tramai.core.policy.NoOpPolicyDecisionAuditEmitter
 import dev.tramai.core.policy.PolicyDecisionAuditEmitter
 import dev.tramai.core.policy.PolicyEngine
@@ -65,6 +69,7 @@ class Tramai private constructor(
     private val dlpRedactionAuditEmitter: DlpRedactionAuditEmitter,
     private val toolResultFilteringSettings: ToolResultFilteringSettings,
     private val engineEventObserver: EngineEventObserver,
+    private val toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
     private val promptSanitizer: PromptSanitizer?,
     private val chatMemory: ChatMemory?,
     private val policyDecisionAuditEmitter: PolicyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
@@ -107,6 +112,7 @@ class Tramai private constructor(
         dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
         toolResultFilteringSettings = toolResultFilteringSettings,
         engineEventObserver = engineEventObserver,
+        toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
         promptSanitizer = promptSanitizer,
         chatMemory = chatMemory,
         policyDecisionAuditEmitter = policyDecisionAuditEmitter,
@@ -145,6 +151,7 @@ class Tramai private constructor(
         private var dlpRedactionAuditEmitter: DlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter
         private var toolResultFilteringSettings: ToolResultFilteringSettings = ToolResultFilteringSettings()
         private var engineEventObserver: EngineEventObserver = NoOpEngineEventObserver
+        private var toolFailureDiagnosticObserver: ToolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver
         private var promptSanitizer: PromptSanitizer? = null
         private val handler = JacksonStructuredOutputHandler()
         private var chatMemory: ChatMemory? = null
@@ -179,7 +186,7 @@ class Tramai private constructor(
                 if (this.tools.containsKey(tool.name)) {
                     throw ConfigurationException("Duplicate tool name registered: ${tool.name}")
                 }
-                this.tools[tool.name] = createResolvedTool(tool, handler)
+                this.tools[tool.name] = createResolvedTool(tool, handler) { toolFailureDiagnosticObserver }
             }
         }
 
@@ -295,6 +302,18 @@ class Tramai private constructor(
          */
         fun engineEventObserver(observer: EngineEventObserver): Builder = apply {
             this.engineEventObserver = observer
+        }
+
+        /**
+         * Configures the diagnostic observer for tool failures.
+         *
+         * The observer receives the original tool failure throwable for
+         * internal diagnostics only. Observer data is never forwarded to
+         * model messages, public exceptions, or engine events. Defaults to
+         * [NoOpToolFailureDiagnosticObserver] when not set.
+         */
+        fun toolFailureDiagnosticObserver(observer: ToolFailureDiagnosticObserver): Builder = apply {
+            this.toolFailureDiagnosticObserver = observer
         }
 
         /**
@@ -441,6 +460,7 @@ class Tramai private constructor(
                 dlpRedactionAuditEmitter = dlpRedactionAuditEmitter,
                 toolResultFilteringSettings = toolResultFilteringSettings,
                 engineEventObserver = engineEventObserver,
+                toolFailureDiagnosticObserver = toolFailureDiagnosticObserver,
                 promptSanitizer = promptSanitizer,
                 chatMemory = chatMemory,
                 policyDecisionAuditEmitter = policyDecisionAuditEmitter,
@@ -473,10 +493,15 @@ fun Tramai(configure: Tramai.Builder.() -> Unit): Tramai = Tramai.builder()
 /**
  * Creates a [ResolvedTool] that wraps a [TramaiTool] with schema generation and
  * deserialization via a [JacksonStructuredOutputHandler].
+ *
+ * @param observer lazily resolves the configured diagnostic observer so tools
+ * registered before [Tramai.Builder.toolFailureDiagnosticObserver] still see
+ * the final configuration at failure time.
  */
 private fun createResolvedTool(
     tool: TramaiTool<*, *>,
     handler: JacksonStructuredOutputHandler,
+    observer: () -> ToolFailureDiagnosticObserver,
 ): ResolvedTool = object : ResolvedTool {
     override val name: String = tool.name
     override val description: String = tool.description
@@ -494,15 +519,18 @@ private fun createResolvedTool(
         val typedInput = try {
             handler.deserialize(input, tool.inputType.createType())
         } catch (e: ToolInvalidInputException) {
+            recordAdapterDiagnostic(observer, tool, ToolFailureCode.INVALID_INPUT, retryable = false, e)
             return ToolResult.InvalidInput(
-                e.message ?: ERROR_INVALID_TOOL_INPUT,
+                code = ToolFailureCode.INVALID_INPUT,
+                modelMessage = e.safeModelMessage,
             )
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             e.rethrowIfCancellation()
+            recordAdapterDiagnostic(observer, tool, ToolFailureCode.INVALID_INPUT, retryable = false, e)
             return ToolResult.InvalidInput(
-                e.message ?: ERROR_INVALID_TOOL_INPUT,
+                code = ToolFailureCode.INVALID_INPUT,
             )
         }
 
@@ -510,19 +538,51 @@ private fun createResolvedTool(
             val result = typedTool.execute(typedInput, context)
             ToolResult.Success(handler.serialize(result))
         } catch (e: ToolInvalidInputException) {
-            ToolResult.InvalidInput(e.message ?: ERROR_INVALID_TOOL_INPUT)
+            recordAdapterDiagnostic(observer, tool, ToolFailureCode.INVALID_INPUT, retryable = false, e)
+            ToolResult.InvalidInput(
+                code = ToolFailureCode.INVALID_INPUT,
+                modelMessage = e.safeModelMessage,
+            )
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             e.rethrowIfCancellation()
+            recordAdapterDiagnostic(observer, tool, ToolFailureCode.EXECUTION_FAILED, retryable = tool.idempotent, e)
             if (tool.idempotent) {
                 ToolResult.TransientFailure(e)
             } else {
-                ToolResult.PermanentFailure(e.message ?: "Tool execution failed")
+                ToolResult.PermanentFailure(code = ToolFailureCode.EXECUTION_FAILED)
             }
         }
     }
 }
 
-/** @see Tramai */
-private const val ERROR_INVALID_TOOL_INPUT = "Invalid tool input"
+/**
+ * Delivers a [ToolFailureDiagnosticEvent] to the configured observer.
+ * Fail-open: an observer failure must never replace cancellation, the
+ * original tool failure, or a successful tool result.
+ */
+private fun recordAdapterDiagnostic(
+    observer: () -> ToolFailureDiagnosticObserver,
+    tool: TramaiTool<*, *>,
+    code: ToolFailureCode,
+    retryable: Boolean,
+    failure: Throwable,
+) {
+    try {
+        observer().record(
+            ToolFailureDiagnosticEvent(
+                toolName = tool.name,
+                code = code,
+                attempt = 0,
+                retryable = retryable,
+                failure = failure,
+            ),
+        )
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        e.rethrowIfCancellation()
+        // Fail-open: a diagnostic-sink failure must never replace the tool failure.
+    }
+}

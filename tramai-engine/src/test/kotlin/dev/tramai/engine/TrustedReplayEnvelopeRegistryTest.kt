@@ -8,6 +8,7 @@ import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.ToolDefinition
 import dev.tramai.core.observation.NoOpOperationInterceptor
 import dev.tramai.core.observation.NoOpOperationObserver
+import dev.tramai.core.observation.NoOpToolFailureDiagnosticObserver
 import dev.tramai.core.policy.PolicyDecision
 import dev.tramai.core.policy.PolicyEngine
 import dev.tramai.core.provider.ProviderRegistry
@@ -392,6 +393,7 @@ class TrustedReplayEnvelopeRegistryTest {
             dlpRedactionAuditEmitter = NoOpDlpRedactionAuditEmitter,
             toolResultFilteringSettings = ToolResultFilteringSettings(),
             engineEventObserver = NoOpEngineEventObserver,
+            toolFailureDiagnosticObserver = NoOpToolFailureDiagnosticObserver,
             policyDecisionAuditEmitter = NoOpPolicyDecisionAuditEmitter,
             suspendedInvocationStore = InMemorySuspendedInvocationStore(),
             approvalContinuationStore = null,
