@@ -1,10 +1,20 @@
 package dev.tramai.orchestration
 
+import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
+import io.modelcontextprotocol.kotlin.sdk.server.StdioServerTransport
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.Implementation
+import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.Tool
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -17,6 +27,8 @@ import kotlinx.io.Source
 import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.reflect.typeOf
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -28,6 +40,7 @@ import java.nio.file.attribute.PosixFilePermission
 import java.time.Clock
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 
@@ -35,8 +48,8 @@ import kotlin.test.Test
  * Cancellation contract for subprocess execution across Shell, Hermes, Codex and MCP.
  *
  * These tests use REAL parent/child processes (executable scripts writing PID files)
- * to prove end-to-end tree termination; fake process abstractions are used only for
- * deterministic cleanup-failure assertions (scenario 10).
+ * to prove end-to-end tree termination; cleanup-failure diagnostics are asserted on
+ * pure [ProcessCleanupResult] values via [surfaceProcessCleanup] (no fake processes).
  *
  * Scenarios 14-16 (cross-process OS file-lock cancellation, both lock variants, store
  * reusability) live in [FileWorkflowPersistenceCancellationContractTest] which shares
@@ -588,6 +601,127 @@ class SubprocessCancellationContractTest {
         }
     }
 
+    // ═══ 7e. MCP cleanup failure after a SUCCESSFUL tool result never reconnects ═══
+    //
+    // P1: a cleanup failure that surfaces AFTER the tool executed (no earlier primary
+    // failure) must be surfaced as a non-reconnectable McpPostCallCleanupException —
+    // with reconnect=true the retry loop would otherwise invoke the non-idempotent
+    // tool a second time. The tool result succeeds first; only the transport cleanup
+    // (the controllable close-time injection point) throws.
+
+    @Test
+    fun `mcp cleanup failure after successful tool result never re-executes the tool`() {
+        val toolExecutions = AtomicInteger(0)
+        val connectCount = AtomicInteger(0)
+        val cleanupRan = AtomicBoolean(false)
+
+        val serverToClient = PipedOutputStream()
+        val clientInput = PipedInputStream(serverToClient)
+        val clientToServer = PipedOutputStream()
+        val serverInput = PipedInputStream(clientToServer)
+        val scope = CoroutineScope(Job() + Dispatchers.IO)
+        val server = Server(
+            serverInfo = Implementation(name = "test-cleanup-fail", version = "1.0.0"),
+            options = ServerOptions(
+                capabilities = ServerCapabilities(
+                    tools = ServerCapabilities.Tools(listChanged = false),
+                ),
+            ),
+        ) {
+            addTool(
+                Tool(
+                    name = "get_data",
+                    description = "Returns a result",
+                    inputSchema = io.modelcontextprotocol.kotlin.sdk.types.ToolSchema(
+                        properties = buildJsonObject {},
+                        required = emptyList(),
+                    ),
+                ),
+            ) {
+                toolExecutions.incrementAndGet()
+                CallToolResult(content = listOf(TextContent("ok")))
+            }
+        }
+        scope.launch {
+            server.createSession(
+                StdioServerTransport(
+                    serverInput.asSource().buffered(),
+                    serverToClient.asSink().buffered(),
+                ),
+            )
+        }
+        val closeable = AutoCloseable {
+            runCatching { clientInput.close() }
+            runCatching { clientToServer.close() }
+            runCatching { serverToClient.close() }
+            runCatching { serverInput.close() }
+            scope.cancel()
+            runBlocking { server.close() }
+        }
+
+        try {
+            val provider = object : McpTransportProvider {
+                override suspend fun connect(toolCall: McpToolCall): McpTransportConnection {
+                    connectCount.incrementAndGet()
+                    return McpTransportConnection(
+                        input = clientInput.asSource().buffered(),
+                        output = clientToServer.asSink().buffered(),
+                        cleanup = {
+                            cleanupRan.set(true)
+                            throw IllegalStateException("simulated cleanup failure")
+                        },
+                    )
+                }
+            }
+
+            val step = McpWorkflowStep<SubprocessMcpState>(
+                name = "cleanup-fail-after-success",
+                definition = McpToolCallDefinition(
+                    serverCommand = listOf("unused"),
+                    toolName = "get_data",
+                ),
+                config = McpStepConfig.unrestricted().copy(timeoutSeconds = 30, reconnect = true),
+                toolCallBuilder = { _, _ ->
+                    McpToolCall(serverCommand = listOf("unused"), toolName = "get_data")
+                },
+                merge = { state, result, _ -> state.copy(result = result) },
+                transportProvider = provider,
+            )
+            val observer = RecordingSubprocessObserver()
+
+            runBlocking {
+                withTimeout(15_000) {
+                    val failure = runCatching {
+                        step.execute(
+                            workflowName = "mcp-cleanup-fail-after-success",
+                            state = SubprocessMcpState(),
+                            context = WorkflowContext(),
+                            observer = observer,
+                        )
+                    }.exceptionOrNull()
+
+                    assertThat(failure).isNotNull()
+                    assertThat(failure).isInstanceOf(WorkflowMcpException::class.java)
+                    // The cleanup failure is surfaced wrapped in the non-reconnectable
+                    // McpPostCallCleanupException (file-private; asserted by message+cause).
+                    val cleanupException = failure!!.cause
+                    assertThat(cleanupException).isNotNull()
+                    assertThat(cleanupException!!.message)
+                        .isEqualTo("MCP cleanup failed after tool completion")
+                    assertThat(cleanupException!!.cause).hasMessage("simulated cleanup failure")
+                    // Exactly-once execution: the cleanup failure must never trigger a
+                    // second connect + tool execution.
+                    assertThat(toolExecutions.get()).isEqualTo(1)
+                    assertThat(connectCount.get()).isEqualTo(1)
+                    assertThat(cleanupRan.get()).isTrue()
+                    assertThat(observer.eventNames).doesNotContain("tramai.workflow.mcp.reconnecting")
+                }
+            }
+        } finally {
+            closeable.close()
+        }
+    }
+
     // ═══ 8. Timeout is still mapped to the correct domain exception ═══
 
     @Test
@@ -609,6 +743,71 @@ class SubprocessCancellationContractTest {
             .hasMessageContaining("timed out")
 
         assertThat(observer.eventNames).contains("tramai.workflow.shell.timeout")
+    }
+
+    // ═══ 8b. Observer failure on the timeout event still terminates the process (P1) ═══
+
+    @Test
+    fun `observer failure on shell timeout event still terminates the process`() {
+        val pidFile = Files.createTempFile("subproc-shell-timeout-obs-fail", ".pid")
+        val throwingObserver = object : WorkflowObserver {
+            override fun onWorkflowEvent(
+                workflowName: String,
+                name: String,
+                attributes: Map<String, Any?>,
+                context: WorkflowContext,
+            ) {
+                // Throws on the timeout event — termination must already have been
+                // requested (closing the pipes) so the coroutineScope is not stranded
+                // on the blocked stdout/stderr readers behind the still-running process.
+                if (name == "tramai.workflow.shell.timeout") {
+                    throw IllegalStateException("observer failure on timeout event")
+                }
+            }
+        }
+        try {
+            val workflow = shellWorkflow("shell-timeout-obs-fail") {
+                shellStep(
+                    name = "sleep",
+                    config = ShellStepConfig(timeoutSeconds = 1, allowedCommands = setOf("sh")),
+                    definition = ShellCommandDefinition(executable = "sh"),
+                    command = { _, _ ->
+                        ShellCommand(
+                            command = listOf(
+                                "sh", "-c",
+                                "echo $$ > '${pidFile.toAbsolutePath()}'; exec sleep 30",
+                            ),
+                        )
+                    },
+                    merge = { state, result, _ -> state.copy(result = result) },
+                )
+            }
+
+            runBlocking {
+                withTimeout(15_000) {
+                    val captured = AtomicReference<Throwable?>()
+                    val job = launch {
+                        try {
+                            workflow.run(SubprocessShellState(), observer = throwingObserver)
+                        } catch (error: Throwable) {
+                            captured.set(error)
+                        }
+                    }
+                    val pid = awaitPid(pidFile)
+                    job.join()
+                    awaitProcessExit(pid)
+                    assertThat(pidIsAlive(pid)).isFalse()
+                    // The observer failure surfaces (wrapped by the step into a
+                    // WorkflowShellException), never swallowed.
+                    assertThat(captured.get()).isInstanceOfAny(
+                        WorkflowShellException::class.java,
+                        IllegalStateException::class.java,
+                    )
+                }
+            }
+        } finally {
+            Files.deleteIfExists(pidFile)
+        }
     }
 
     // ═══ 9. Parent cancellation is not mapped to timeout ═══
@@ -756,6 +955,55 @@ class SubprocessCancellationContractTest {
         }
     }
 
+    // ═══ 9d. Retained handles terminate a reparented child (P1) ═══
+
+    @Test
+    fun `child reparented after parent exits on stdin close is still terminated`() {
+        val parentPidFile = Files.createTempFile("subproc-reparent-parent", ".pid")
+        val childPidFile = Files.createTempFile("subproc-reparent-child", ".pid")
+        try {
+            withExecutableScript(
+                name = "reparent-on-stdin-close",
+                content = """
+                    |#!/bin/sh
+                    |echo $$ > '${parentPidFile.toAbsolutePath()}'
+                    |sleep 30 &
+                    |child=${'$'}!
+                    |echo ${'$'}child > '${childPidFile.toAbsolutePath()}'
+                    |cat > /dev/null
+                """.trimMargin(),
+            ) { script ->
+                runBlocking {
+                    withTimeout(15_000) {
+                        val process = ProcessBuilder(script.toString()).start()
+                        try {
+                            val lifecycle = CancellableProcessLifecycle(process)
+                            val parentPid = awaitPid(parentPidFile)
+                            val childPid = awaitPid(childPidFile)
+                            // Closing stdin makes `cat > /dev/null` see EOF, so the parent
+                            // exits and the background child is reparented (no longer a
+                            // descendant of the dead root).
+                            lifecycle.requestTermination()
+                            awaitProcessExit(parentPid)
+                            // The child must still be terminated through the retained
+                            // pre-pipe-close handle snapshot.
+                            val cleanup = lifecycle.terminateAndAwait()
+                            awaitProcessExit(childPid)
+                            assertThat(pidIsAlive(childPid)).isFalse()
+                            assertThat(cleanup.survivors).isEmpty()
+                        } finally {
+                            process.destroyForcibly()
+                            runCatching { process.waitFor(5, TimeUnit.SECONDS) }
+                        }
+                    }
+                }
+            }
+        } finally {
+            Files.deleteIfExists(parentPidFile)
+            Files.deleteIfExists(childPidFile)
+        }
+    }
+
     // ═══ 10. Cleanup diagnostics are surfaced exactly once ═══
 
     @Test
@@ -818,6 +1066,24 @@ class SubprocessCancellationContractTest {
         val survivorExceptions = primary.suppressed.filterIsInstance<ProcessTreeSurvivorException>()
         assertThat(survivorExceptions).hasSize(1)
         assertThat(survivorExceptions.single().survivorPids).containsExactly(999L)
+    }
+
+    @Test
+    fun `cleanup diagnostic that is the primary itself is not self-suppressed`() {
+        // addSuppressed on the same instance throws IllegalArgumentException, which
+        // would replace the very cancellation the suppression was meant to preserve.
+        val primary = CancellationException("parent cancelled")
+
+        val result = ProcessCleanupResult(
+            survivors = emptyList(),
+            failures = listOf("destroy failed" to primary),
+        )
+
+        surfaceProcessCleanup(primary, result)
+
+        assertThat(primary).isInstanceOf(CancellationException::class.java)
+        assertThat(primary.message).isEqualTo("parent cancelled")
+        assertThat(primary.suppressed).isEmpty()
     }
 
     // ═══ 11. Graceful shutdown escalates to forced termination ═══

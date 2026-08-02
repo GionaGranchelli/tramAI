@@ -93,11 +93,12 @@ internal class CancellableProcessLifecycle(
     private val cleanupFailures = CopyOnWriteArrayList<Pair<String, Throwable>>()
 
     /**
-     * PIDs captured by [requestTermination] BEFORE pipes were closed. If closing a pipe
-     * makes the root exit, surviving descendants are reparented and would be missed by a
-     * later snapshot; retaining these PIDs keeps them in [terminateAndAwait]'s union.
+     * ProcessHandle identities captured by [requestTermination] BEFORE pipes were closed.
+     * If closing a pipe makes the root exit, surviving descendants are reparented and
+     * would be missed by a later snapshot; retaining the handles (not PIDs, which the OS
+     * may reuse) keeps them in [terminateAndAwait]'s union.
      */
-    private val retainedHandlePids = CopyOnWriteArrayList<Long>()
+    private val retainedHandles = CopyOnWriteArrayList<ProcessHandle>()
 
     /**
      * Attach the cancellation handler to [job] and return its [DisposableHandle] so the
@@ -120,16 +121,17 @@ internal class CancellableProcessLifecycle(
 
     /**
      * Non-suspending, idempotent, never throws. Snapshots the tree FIRST (before any
-     * stream is closed), retains the snapshot by PID, closes the process pipes
-     * (unblocking stdout/stderr readers), then requests graceful termination of all
-     * descendants plus the root. Cleanup failures are recorded for later reporting.
+     * stream is closed), retains the snapshot as ProcessHandle identities, closes the
+     * process pipes (unblocking stdout/stderr readers), then requests graceful
+     * termination of all descendants plus the root. Cleanup failures are recorded for
+     * later reporting.
      */
     fun requestTermination() {
         if (!state.compareAndSet(State.RUNNING, State.TERMINATION_REQUESTED)) {
             return
         }
         val handles = processTreeHandles()
-        retainedHandlePids.addAll(handles.map { it.pid() })
+        retainedHandles.addAll(handles)
         closeQuietly(process.outputStream, "stdin")
         closeQuietly(process.inputStream, "stdout")
         closeQuietly(process.errorStream, "stderr")
@@ -199,16 +201,20 @@ internal class CancellableProcessLifecycle(
         closeQuietly(process.outputStream, "stdin")
     }
 
-    /** Union of retained (pre-pipe-close) handles, a fresh snapshot and the root, by PID. */
+    /** Union of retained (pre-pipe-close) handles, a fresh snapshot and the root, deduplicated by handle identity. */
     private fun resolveCleanupHandles(): List<ProcessHandle> {
-        val retained = retainedHandlePids.mapNotNull { pid -> ProcessHandle.of(pid).orElse(null) }
+        val retained = retainedHandles.toList()
         val fresh = processTreeHandles()
         val root = process.toHandle()
-        val byPid = linkedMapOf<Long, ProcessHandle>()
-        (retained + fresh + listOf(root)).forEach { handle -> byPid[handle.pid()] = handle }
+        // Dedup by ProcessHandle equality, never by PID: a reused PID would resolve to an
+        // unrelated process. PIDs appear only in diagnostics downstream (survivor lists).
+        val byHandle = linkedSetOf<ProcessHandle>()
+        byHandle.addAll(retained)
+        byHandle.addAll(fresh)
+        byHandle.add(root)
         val rootPid = process.pid()
         // Stable order: descendants first, root last (destroy descendants before root).
-        return byPid.values.sortedBy { if (it.pid() == rootPid) 1 else 0 }
+        return byHandle.sortedBy { if (it.pid() == rootPid) 1 else 0 }
     }
 
     /** Destroy/force-kill alive handles; descendants before the root. */
@@ -266,10 +272,23 @@ internal class CancellableProcessLifecycle(
 }
 
 /**
+ * [Throwable.addSuppressed] that is safe against self-suppression: adding the
+ * primary itself (or an already-suppressed diagnostic) throws
+ * [IllegalArgumentException] on the JVM, which would replace the very exception
+ * the suppression was meant to preserve. Only adds when distinct and not already
+ * present.
+ */
+internal fun Throwable.addSuppressedDistinct(error: Throwable) {
+    if (error !== this && suppressedExceptions.none { it === error }) {
+        addSuppressed(error)
+    }
+}
+
+/**
  * Central surfacing of cleanup diagnostics.
  *
  * - No failures and no survivors → nothing to do.
- * - [primary] present → every diagnostic is attached exactly once via [Throwable.addSuppressed];
+ * - [primary] present → every diagnostic is attached exactly once via [addSuppressedDistinct];
  *   the primary (cancellation or domain exception) is preserved.
  * - No primary → throws [ProcessCleanupException] with all diagnostics suppressed, so
  *   cleanup problems are never silently ignored on an otherwise successful execution.
@@ -285,10 +304,10 @@ internal fun surfaceProcessCleanup(primary: Throwable?, cleanup: ProcessCleanupR
         }
     }
     if (primary != null) {
-        diagnostics.forEach { primary.addSuppressed(it) }
+        diagnostics.forEach { primary.addSuppressedDistinct(it) }
     } else {
         val cleanupException = ProcessCleanupException()
-        diagnostics.forEach { cleanupException.addSuppressed(it) }
+        diagnostics.forEach { cleanupException.addSuppressedDistinct(it) }
         throw cleanupException
     }
 }

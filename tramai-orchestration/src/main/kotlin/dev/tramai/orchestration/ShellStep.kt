@@ -212,6 +212,12 @@ internal data class ShellWorkflowStep<S>(
                     }
                 } catch (error: TimeoutCancellationException) {
                     currentCoroutineContext().ensureActive()
+                    // Request termination BEFORE the observer: closing the pipes lets
+                    // the reader coroutines finish, and an observer failure can never
+                    // skip the termination request. The bounded graceful→forced cleanup
+                    // happens exactly once in the outer finally and attaches its
+                    // diagnostics to this exception.
+                    lifecycle.requestTermination()
                     observer.onWorkflowEvent(
                         workflowName = workflowName,
                         name = "tramai.workflow.shell.timeout",
@@ -220,11 +226,6 @@ internal data class ShellWorkflowStep<S>(
                         ),
                         context = context,
                     )
-                    // Only request termination here: closing the pipes lets the reader
-                    // coroutines finish. The bounded graceful→forced cleanup happens
-                    // exactly once in the outer finally and attaches its diagnostics to
-                    // this exception.
-                    lifecycle.requestTermination()
                     throw WorkflowShellException(
                         stepName = name,
                         message = "timed out after ${config.timeoutSeconds}s",

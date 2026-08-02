@@ -240,12 +240,16 @@ internal suspend inline fun <T> withFileLockCancellable(
                     StandardOpenOption.CREATE,
                     StandardOpenOption.WRITE,
                 ).use { channel ->
-                    try {
-                        channel.lock().use {
-                            block()
-                        }
+                    // Narrow the FileLockInterruptionException mapping to lock ACQUISITION
+                    // only: the protected block may throw that exception on its own, which
+                    // must not be converted into cancellation.
+                    val lock = try {
+                        channel.lock()
                     } catch (error: FileLockInterruptionException) {
                         throw CancellationException("File lock wait interrupted by cancellation", error)
+                    }
+                    lock.use {
+                        block()
                     }
                 }
             }
@@ -271,14 +275,15 @@ internal suspend fun <T> withFileLockCancellableSuspending(
                     StandardOpenOption.CREATE,
                     StandardOpenOption.WRITE,
                 ).use { channel ->
-                    try {
+                    val lock = try {
                         runInterruptible {
                             channel.lock()
-                        }.use {
-                            block()
                         }
                     } catch (error: FileLockInterruptionException) {
                         throw CancellationException("File lock wait interrupted by cancellation", error)
+                    }
+                    lock.use {
+                        block()
                     }
                 }
             }
