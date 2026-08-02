@@ -344,7 +344,10 @@ internal data class McpWorkflowStep<S>(
                         val callResult: CallToolResult = client.callTool(toolCall.toolName, argumentsJson)
                         toMcpToolResult(callResult)
                     } catch (error: Throwable) {
+                        // Track the primary BEFORE rethrowing cancellation: the finally
+                        // cleanup must see it so cleanup failures never replace it.
                         primaryFailure = error
+                        if (error is CancellationException) throw error
                         throw error
                     } finally {
                         // client.close() must never replace a primary failure (especially a
@@ -355,9 +358,12 @@ internal data class McpWorkflowStep<S>(
                             withContext(NonCancellable) { client.close() }
                         } catch (closeError: Throwable) {
                             if (primaryFailure != null) {
+                                // A primary failure (typically cancellation) wins: suppress
+                                // the close failure onto it, never replace it.
                                 primaryFailure!!.addSuppressed(closeError)
                             } else {
                                 primaryFailure = closeError
+                                if (closeError is CancellationException) throw closeError
                                 throw closeError
                             }
                         }
@@ -402,10 +408,12 @@ internal data class McpWorkflowStep<S>(
             null
         } catch (error: Throwable) {
             if (primary != null) {
+                // A primary failure (typically cancellation) wins: suppress every cleanup
+                // throwable — including a cleanup CancellationException — onto it.
                 primary.addSuppressed(error)
                 null
             } else {
-                error.rethrowIfCancellation()
+                if (error is CancellationException) throw error
                 error
             }
         }
