@@ -337,11 +337,14 @@ class InMemoryWorkflowCheckpointStore : WorkflowCheckpointStore, WorkflowCheckpo
         expected: StepAttemptRecord,
         updated: StepAttemptRecord,
     ): Boolean = synchronized(monitor) {
-        val key = AttemptKey(expected.runId, expected.stepName, expected.attemptId)
-        if (stepAttempts[key] != expected) {
+        val expectedKey = AttemptKey(expected.runId, expected.stepName, expected.attemptId)
+        val updatedKey = AttemptKey(updated.runId, updated.stepName, updated.attemptId)
+        if (expectedKey != updatedKey) {
+            false
+        } else if (stepAttempts[expectedKey] != expected) {
             false
         } else {
-            stepAttempts[key] = updated
+            stepAttempts[expectedKey] = updated
             true
         }
     }

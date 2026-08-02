@@ -104,6 +104,25 @@ All recovery state transitions are fenced by the checkpoint revision:
 
 Default implementations use `load` + `save` under the store's existing optimistic concurrency. JDBC stores should override with a transactional implementation.
 
+Checkpoint and attempt persistence are deliberately separate. `InMemoryWorkflowRecoveryController` is the recovery coordinator; its name does not imply that the supplied stores are in memory. Wire the same explicit pair into the controller and worker:
+
+```kotlin
+val checkpointStore = FileWorkflowCheckpointStore(Path.of("./workflow-checkpoints"))
+val attemptStore = FileStepAttemptRecordStore(Path.of("./workflow-attempts"))
+
+val recovery = InMemoryWorkflowRecoveryController(checkpointStore, attemptStore)
+val worker = TramaiWorker(
+    config = workerConfig,
+    leaseStore = leaseStore,
+    checkpointStore = checkpointStore,
+    checkpointCatalog = checkpointStore,
+    stepAttemptStore = attemptStore,
+    workflowRegistry = workflows,
+)
+```
+
+`JdbcWorkflowCheckpointStore` normally pairs with `JdbcStepAttemptRecordStore`. A human-readable `MarkdownWorkflowCheckpointStore` can pair with `FileStepAttemptRecordStore`. Deleting a checkpoint never deletes attempt evidence. Overlapping roots are unsafe: `FileWorkflowCheckpointStore.listCheckpoints` reads every regular file under its root without an extension filter, so an attempt file inside a checkpoint root would be parsed as a checkpoint and fail the enumeration.
+
 ## Audit Trail
 
 Step attempt records persist independently of checkpoint state. After `failWorkflow` deletes the checkpoint, the attempt records remain queryable through `StepAttemptRecordStore.listStepAttempts(runId)`. Resolution evidence is written to the exact attempt referenced by the recovery record when a step-attempt store is supplied:
