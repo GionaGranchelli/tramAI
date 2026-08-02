@@ -347,6 +347,113 @@ class WorkflowRecoveryContractTest {
     }
 
     @Test
+    fun `stale approval write cannot overwrite a concurrent successful authorization`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val original = StepAttemptRecord(
+                runId = "run-cas",
+                stepName = "step",
+                attemptId = "attempt-1",
+                workerId = "w",
+                leaseToken = "l",
+                status = StepAttemptStatus.UNKNOWN,
+                startedAt = 0,
+                replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+            )
+            store.recordStepAttempt(original)
+
+            // Operator A approves key-A — the successful authorization.
+            val keyA = original.copy(
+                resolutionAction = StepAttemptResolutionAction.RETRY_APPROVED,
+                resolutionReason = "reason-a",
+                resolutionAtEpochMillis = 1,
+                approvedIdempotencyKey = "key-A",
+            )
+            assertThat(store.compareAndSetStepAttempt(expected = original, updated = keyA)).isTrue()
+
+            // Operator B holds the pre-A snapshot and writes key-B AFTER A succeeded —
+            // the read-before-write interleaving from the concurrent-approval race.
+            val keyB = original.copy(
+                resolutionAction = StepAttemptResolutionAction.RETRY_APPROVED,
+                resolutionReason = "reason-b",
+                resolutionAtEpochMillis = 2,
+                approvedIdempotencyKey = "key-B",
+            )
+            assertThat(store.compareAndSetStepAttempt(expected = original, updated = keyB)).isFalse()
+
+            // B's failed write must not have replaced A's authorization.
+            val current = store.listStepAttempts("run-cas").single()
+            assertThat(current.approvedIdempotencyKey).isEqualTo("key-A")
+            assertThat(current.resolutionReason).isEqualTo("reason-a")
+        }
+    }
+
+    @Test
+    fun `concurrent retry approvals — the approval whose checkpoint clear succeeds is the effective authorization`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val controllerA = InMemoryWorkflowRecoveryController(store, store)
+            val controllerB = InMemoryWorkflowRecoveryController(store, store)
+            val saved = store.save(sampleCheckpoint())
+            store.recordStepAttempt(
+                StepAttemptRecord(
+                    runId = saved.workflowId,
+                    stepName = "step",
+                    attemptId = "attempt-1",
+                    workerId = "w",
+                    leaseToken = "l",
+                    status = StepAttemptStatus.UNKNOWN,
+                    startedAt = 0,
+                    replayPolicy = ReplayPolicy.EXTERNALLY_IDEMPOTENT,
+                ),
+            )
+            val required = store.requireRecovery(
+                workflowName = saved.workflowName,
+                workflowId = saved.workflowId,
+                expectedRevision = saved.revision,
+                record = WorkflowRecoveryRecord(
+                    reason = WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING,
+                    stepName = "step",
+                    attemptId = "attempt-1",
+                    priorWorkerId = "w",
+                    detectedAtEpochMillis = 0,
+                ),
+            )
+
+            // A approves key-A and clears recovery — this is the effective authorization.
+            controllerA.retryStep(
+                workflowName = saved.workflowName,
+                workflowId = saved.workflowId,
+                expectedRevision = required.revision,
+                reason = "reason-a",
+                approvedIdempotencyKey = "key-A",
+            )
+
+            // B, which loaded the same checkpoint while it was still Required, issues a
+            // stale approval for key-B. The revision fence rejects it and the attempt
+            // authorization must remain A's.
+            assertThatThrownBy {
+                runBlocking {
+                    controllerB.retryStep(
+                        workflowName = saved.workflowName,
+                        workflowId = saved.workflowId,
+                        expectedRevision = required.revision,
+                        reason = "reason-b",
+                        approvedIdempotencyKey = "key-B",
+                    )
+                }
+            }.isInstanceOf(WorkflowCheckpointConflictException::class.java)
+
+            val attempt = store.listStepAttempts(saved.workflowId).single()
+            assertThat(attempt.resolutionAction).isEqualTo(StepAttemptResolutionAction.RETRY_APPROVED)
+            assertThat(attempt.approvedIdempotencyKey).isEqualTo("key-A")
+            assertThat(attempt.resolutionReason).isEqualTo("reason-a")
+            assertThat(store.load(saved.workflowName, saved.workflowId)!!.recoveryState)
+                .isSameAs(WorkflowRecoveryState.Normal)
+        }
+    }
+
+    @Test
     fun `retryStep without a step attempt store throws and keeps checkpoint required`() {
         runBlocking {
             val store = InMemoryWorkflowCheckpointStore()
@@ -979,6 +1086,11 @@ private class FailingAttemptUpdateStore(
 
     override suspend fun updateStepAttempt(attempt: StepAttemptRecord): StepAttemptRecord =
         throw IllegalStateException("simulated attempt update failure")
+
+    override suspend fun compareAndSetStepAttempt(
+        expected: StepAttemptRecord,
+        updated: StepAttemptRecord,
+    ): Boolean = throw IllegalStateException("simulated attempt update failure")
 
     override suspend fun latestStepAttempt(runId: String, stepName: String): StepAttemptRecord? =
         delegate.latestStepAttempt(runId, stepName)

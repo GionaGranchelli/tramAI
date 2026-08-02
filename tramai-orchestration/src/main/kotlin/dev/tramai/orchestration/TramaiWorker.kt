@@ -651,13 +651,17 @@ class TramaiWorker(
                     // Void the stale approval so the operator can issue a fresh key-bound
                     // approval matching the current definition. The attempt stays UNKNOWN
                     // (never consumed, never authorized execution); the resolution reason
-                    // and timestamp remain as the audit trail of the rejected approval.
-                    stepAttemptStore.updateStepAttempt(
-                        attempt.copy(
-                            resolutionAction = null,
-                            approvedIdempotencyKey = null,
-                        ),
+                    // and timestamp are retained as the latest resolution context (not a
+                    // durable history — a subsequent approval overwrites them).
+                    val voided = attempt.copy(
+                        resolutionAction = null,
+                        approvedIdempotencyKey = null,
                     )
+                    if (!stepAttemptStore.compareAndSetStepAttempt(expected = attempt, updated = voided)) {
+                        throw WorkflowRecoveryStateException(
+                            "Workflow '${checkpoint.workflowName}' and workflowId='${checkpoint.workflowId}': attempt '${attempt.attemptId}' changed during stale-approval voiding",
+                        )
+                    }
                     fencedCheckpointStore.requireRecovery(
                         workflowName = checkpoint.workflowName,
                         workflowId = checkpoint.workflowId,
@@ -888,12 +892,18 @@ private class ExecutionTracker(
                 "Workflow '${workflow.name}' and workflowId='${context.workflowId}' has no active lease for retry-approval consumption",
             )
         }
-        stepAttemptStore.updateStepAttempt(
-            attempt.copy(
-                status = StepAttemptStatus.FAILED,
-                completedAt = attempt.completedAt ?: System.currentTimeMillis(),
-            ),
+        val consumed = attempt.copy(
+            status = StepAttemptStatus.FAILED,
+            completedAt = attempt.completedAt ?: System.currentTimeMillis(),
         )
+        // Atomic CAS: the approval is consumed exactly once. A concurrent writer (e.g. a
+        // stale-approval void) between the recovery read and here must not be overwritten;
+        // on failure the caller fails closed and the next worker re-evaluates.
+        if (!stepAttemptStore.compareAndSetStepAttempt(expected = attempt, updated = consumed)) {
+            throw WorkflowRecoveryStateException(
+                "Workflow '${workflow.name}' and workflowId='${context.workflowId}': attempt '${attempt.attemptId}' changed during retry-approval consumption",
+            )
+        }
     }
 
     fun enqueueStartAttempt(stepName: String) {

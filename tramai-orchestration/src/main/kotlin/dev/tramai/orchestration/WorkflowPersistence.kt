@@ -333,6 +333,19 @@ class InMemoryWorkflowCheckpointStore : WorkflowCheckpointStore, WorkflowCheckpo
         record
     }
 
+    override suspend fun compareAndSetStepAttempt(
+        expected: StepAttemptRecord,
+        updated: StepAttemptRecord,
+    ): Boolean = synchronized(monitor) {
+        val key = AttemptKey(expected.runId, expected.stepName, expected.attemptId)
+        if (stepAttempts[key] != expected) {
+            false
+        } else {
+            stepAttempts[key] = updated
+            true
+        }
+    }
+
     override suspend fun latestStepAttempt(
         runId: String,
         stepName: String,

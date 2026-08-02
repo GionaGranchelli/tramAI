@@ -1215,7 +1215,7 @@ class TramaiWorkerTest {
                 assertThat(recovery.record.instructions).contains("approved-key").contains("current-key")
                 assertThat(attempt.status).isEqualTo(StepAttemptStatus.UNKNOWN)
                 // The stale approval was voided on mismatch: no resolution action, no approved
-                // key, but the reason/timestamp remain as the audit trail of the rejection.
+                // key; the reason/timestamp remain as the latest resolution context of the attempt.
                 assertThat(attempt.resolutionAction).isNull()
                 assertThat(attempt.approvedIdempotencyKey).isNull()
                 assertThat(attempt.resolutionReason).isEqualTo("operator approved retry")
@@ -1678,6 +1678,18 @@ private class FailingApprovalConsumptionStore(
             throw failure
         }
         return delegate.updateStepAttempt(record)
+    }
+
+    override suspend fun compareAndSetStepAttempt(
+        expected: StepAttemptRecord,
+        updated: StepAttemptRecord,
+    ): Boolean {
+        if (updated.status == StepAttemptStatus.FAILED &&
+            updated.resolutionAction == StepAttemptResolutionAction.RETRY_APPROVED
+        ) {
+            throw failure
+        }
+        return delegate.compareAndSetStepAttempt(expected, updated)
     }
 }
 

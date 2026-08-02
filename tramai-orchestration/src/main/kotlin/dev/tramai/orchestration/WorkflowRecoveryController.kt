@@ -265,14 +265,31 @@ class InMemoryWorkflowRecoveryController(
             return
         }
         val resolvedAt = System.currentTimeMillis()
-        store.updateStepAttempt(
-            attempt.copy(
-                resolutionAction = StepAttemptResolutionAction.RETRY_APPROVED,
-                resolutionReason = reason,
-                resolutionAtEpochMillis = resolvedAt,
-                approvedIdempotencyKey = approvedIdempotencyKey,
-            ),
+        val updated = attempt.copy(
+            resolutionAction = StepAttemptResolutionAction.RETRY_APPROVED,
+            resolutionReason = reason,
+            resolutionAtEpochMillis = resolvedAt,
+            approvedIdempotencyKey = approvedIdempotencyKey,
         )
+        // Atomic CAS: a concurrent operator may have written an approval between our read and
+        // here, and the checkpoint-revision fence cannot protect the attempt record (attempt
+        // store and checkpoint store are independent). A failed CAS must never overwrite a
+        // successful concurrent authorization.
+        if (!store.compareAndSetStepAttempt(expected = attempt, updated = updated)) {
+            val current = store.listStepAttempts(workflowId).singleOrNull {
+                it.stepName == record.stepName && it.attemptId == record.attemptId
+            } ?: throw WorkflowRecoveryStateException(
+                "Cannot retry workflow '$workflowName'/'$workflowId': unresolved attempt '${record.attemptId}' for step '${record.stepName}' was not found after a concurrent modification",
+            )
+            val identical = current.resolutionAction == StepAttemptResolutionAction.RETRY_APPROVED &&
+                current.resolutionReason == reason &&
+                current.approvedIdempotencyKey == approvedIdempotencyKey
+            if (!identical) {
+                throw WorkflowRecoveryStateException(
+                    "Cannot retry workflow '$workflowName'/'$workflowId': attempt '${attempt.attemptId}' has a conflicting concurrent resolution; reload the checkpoint and retry",
+                )
+            }
+        }
     }
 
     /**

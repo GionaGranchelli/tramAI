@@ -54,6 +54,23 @@ interface StepAttemptRecordStore {
 
     suspend fun updateStepAttempt(record: StepAttemptRecord): StepAttemptRecord
 
+    /**
+     * Atomically replace the persisted attempt from [expected] to [updated] only when the
+     * persisted record is still exactly [expected].
+     *
+     * Used for authorization-critical transitions (retry approval, approval consumption,
+     * stale-approval voiding) where a checkpoint-revision fence cannot protect the attempt
+     * record: the attempt store and the checkpoint store are independent, so a stale operator
+     * or worker must not overwrite a concurrent successful authorization.
+     *
+     * @return true when the record was replaced; false when the persisted record differs
+     * from [expected] (caller must reload and re-validate before deciding).
+     */
+    suspend fun compareAndSetStepAttempt(
+        expected: StepAttemptRecord,
+        updated: StepAttemptRecord,
+    ): Boolean
+
     suspend fun latestStepAttempt(
         runId: String,
         stepName: String,
