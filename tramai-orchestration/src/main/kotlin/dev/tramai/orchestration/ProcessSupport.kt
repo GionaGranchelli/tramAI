@@ -7,6 +7,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.util.concurrent.CopyOnWriteArrayList
@@ -18,6 +20,23 @@ import kotlin.streams.toList
 internal const val processTerminationGracePeriodMillis = 1_000L
 internal const val processTerminationKillWaitMillis = 1_000L
 private const val processTerminationPollIntervalMillis = 25L
+
+/**
+ * Spawns a process with acquisition-ownership guarantees. [ensureActive] rejects
+ * pre-existing cancellation before any process is created, and [start] runs inside
+ * [NonCancellable] (outer hop changes no dispatcher, inner hop runs [start] on
+ * [dispatcher]) so a cancellation arriving DURING [start] cannot discard the returned
+ * [Process] — the caller attaches the lifecycle immediately after, so the tree is
+ * never orphaned between acquisition and ownership.
+ */
+internal suspend fun startOwnedProcess(dispatcher: CoroutineDispatcher, start: () -> Process): Process {
+    currentCoroutineContext().ensureActive()
+    return withContext(NonCancellable) {
+        withContext(dispatcher) {
+            start()
+        }
+    }
+}
 
 /**
  * Raised when a process tree survives [CancellableProcessLifecycle.terminateAndAwait]
@@ -68,7 +87,8 @@ internal class ProcessCleanupResult(
  *    descendant plus the root.
  * 3. [awaitExit] is cancellable: cancellation invokes [requestTermination] immediately,
  *    so termination begins before structured concurrency can wait on reader jobs.
- * 4. [terminateAndAwait] runs under `NonCancellable + IO`, escalates graceful → forced
+ * 4. [terminateAndAwait] runs under nested contexts — [NonCancellable] outside,
+ *    `Dispatchers.IO` inside — escalates graceful → forced
  *    termination with bounded waits over the union of retained and fresh tree handles,
  *    and reports survivors instead of waiting forever. It never calls an unbounded
  *    `Process.waitFor()`.
@@ -166,7 +186,10 @@ internal class CancellableProcessLifecycle(
     }
 
     /**
-     * Bounded, cancellation-safe final cleanup. Runs under `NonCancellable + IO`.
+     * Bounded, cancellation-safe final cleanup. Runs under nested contexts:
+     * [NonCancellable] outside, `Dispatchers.IO` inside. The outer call never changes
+     * dispatchers, so a cancellation arriving during the IO hop cannot replace the
+     * caller's primary cancellation with a fresh instance on dispatch-back.
      *
      * 1. Graceful termination request (idempotent; snapshots retained pre-pipe-close).
      * 2. Bounded grace-period wait over the union of retained + fresh tree handles.
@@ -177,22 +200,24 @@ internal class CancellableProcessLifecycle(
      *
      * @return cleanup result; survivors and failures are recorded, not thrown here.
      */
-    suspend fun terminateAndAwait(): ProcessCleanupResult = withContext(NonCancellable + Dispatchers.IO) {
-        requestTermination()
-        val handles = resolveCleanupHandles()
-        waitForHandlesToExitUninterruptibly(handles, gracePeriodMillis)
-        terminateHandles(handles, graceful = false)
-        waitForHandlesToExitUninterruptibly(handles, forceKillWaitMillis)
-        val survivors = handles.filter { it.isAlive }.map { it.pid() }
-        if (survivors.isNotEmpty()) {
-            // Log-only: survivor diagnostics are represented once via ProcessCleanupResult.survivors,
-            // never duplicated into failures as well.
-            onFailure(
-                "Process tree did not terminate within $forceKillWaitMillis ms after forced kill",
-                ProcessTreeSurvivorException(survivors),
-            )
+    suspend fun terminateAndAwait(): ProcessCleanupResult = withContext(NonCancellable) {
+        withContext(Dispatchers.IO) {
+            requestTermination()
+            val handles = resolveCleanupHandles()
+            waitForHandlesToExitUninterruptibly(handles, gracePeriodMillis)
+            terminateHandles(handles, graceful = false)
+            waitForHandlesToExitUninterruptibly(handles, forceKillWaitMillis)
+            val survivors = handles.filter { it.isAlive }.map { it.pid() }
+            if (survivors.isNotEmpty()) {
+                // Log-only: survivor diagnostics are represented once via ProcessCleanupResult.survivors,
+                // never duplicated into failures as well.
+                onFailure(
+                    "Process tree did not terminate within $forceKillWaitMillis ms after forced kill",
+                    ProcessTreeSurvivorException(survivors),
+                )
+            }
+            ProcessCleanupResult(survivors = survivors, failures = cleanupFailures.toList())
         }
-        ProcessCleanupResult(survivors = survivors, failures = cleanupFailures.toList())
     }
 
     /** Close process pipes without requesting termination (normal completion path). */

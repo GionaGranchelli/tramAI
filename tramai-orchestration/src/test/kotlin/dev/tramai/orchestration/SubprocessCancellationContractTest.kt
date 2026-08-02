@@ -9,6 +9,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.Tool
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -16,9 +17,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.io.RawSink
@@ -38,6 +43,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermission
 import java.time.Clock
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -967,7 +973,7 @@ class SubprocessCancellationContractTest {
                 content = """
                     |#!/bin/sh
                     |echo $$ > '${parentPidFile.toAbsolutePath()}'
-                    |sleep 30 &
+                    |sh -c 'trap "" TERM; exec sleep 30' &
                     |child=${'$'}!
                     |echo ${'$'}child > '${childPidFile.toAbsolutePath()}'
                     |cat > /dev/null
@@ -982,11 +988,15 @@ class SubprocessCancellationContractTest {
                             val childPid = awaitPid(childPidFile)
                             // Closing stdin makes `cat > /dev/null` see EOF, so the parent
                             // exits and the background child is reparented (no longer a
-                            // descendant of the dead root).
+                            // descendant of the dead root). The child ignores TERM, so the
+                            // graceful request inside requestTermination does NOT kill it —
+                            // only the retained-handle forced cleanup can.
                             lifecycle.requestTermination()
                             awaitProcessExit(parentPid)
+                            // The child survived the graceful request and is reparented.
+                            assertThat(pidIsAlive(childPid)).isTrue()
                             // The child must still be terminated through the retained
-                            // pre-pipe-close handle snapshot.
+                            // pre-pipe-close handle snapshot (destroyForcibly).
                             val cleanup = lifecycle.terminateAndAwait()
                             awaitProcessExit(childPid)
                             assertThat(pidIsAlive(childPid)).isFalse()
@@ -1209,6 +1219,151 @@ class SubprocessCancellationContractTest {
         }
     }
 
+    // ═══ 13b. Acquisition survives cancellation (P1) ═══
+    //
+    // With a plain `withContext(ioDispatcher) { start() }` acquisition, a cancellation
+    // arriving DURING start() can discard the Process before the lifecycle is attached
+    // — an orphaned OS process. startOwnedProcess runs creation under NonCancellable so
+    // the Process is always delivered to the caller; the immediate attachTo on the
+    // cancelled job then terminates the tree (attach-then-active-check).
+
+    @Test
+    fun `process started while the owner coroutine is cancelled is still delivered and terminated`() {
+        val pidFile = Files.createTempFile("subproc-acquire-race", ".pid")
+        try {
+            withExecutableScript(
+                name = "acquire-race",
+                content = """
+                    |#!/bin/sh
+                    |echo $$ > '${pidFile.toAbsolutePath()}'
+                    |exec sleep 30
+                """.trimMargin(),
+            ) { script ->
+                runBlocking {
+                    withTimeout(15_000) {
+                        val startedLatch = CountDownLatch(1)
+                        val releaseLatch = CountDownLatch(1)
+                        val job = launch {
+                            // Replicates the production acquisition: cancellation arriving
+                            // DURING start() must not discard the Process — the lifecycle is
+                            // attached immediately after and terminates the tree.
+                            val process = startOwnedProcess(Dispatchers.IO) {
+                                startedLatch.countDown()
+                                releaseLatch.await()
+                                ProcessBuilder(script.toString()).start()
+                            }
+                            val lifecycle = CancellableProcessLifecycle(process)
+                            lifecycle.attachTo(currentCoroutineContext().job)
+                        }
+                        // Wait off the runBlocking thread: latch.await() blocks, and the
+                        // single-threaded event loop must stay free to schedule the launch
+                        // body above (otherwise this deadlocks and withTimeout never fires).
+                        async(Dispatchers.IO) { startedLatch.await() }.await()
+                        job.cancel()
+                        releaseLatch.countDown()
+                        // The script writes the pid file before start() returns, so it exists
+                        // before any termination can be requested.
+                        val pid = awaitPid(pidFile)
+                        job.join()
+                        awaitProcessExit(pid)
+                        assertThat(pidIsAlive(pid)).isFalse()
+                    }
+                }
+            }
+        } finally {
+            Files.deleteIfExists(pidFile)
+        }
+    }
+
+    // ═══ 13c. Cleanup from an already-cancelled coroutine (P1) ═══
+    //
+    // A cleanup hop that combines `NonCancellable + dispatcher` can replace the primary
+    // cancellation with a fresh instance on dispatch-back. terminateAndAwait nests the
+    // contexts (NonCancellable outside, IO inside) so the outer call never changes
+    // dispatchers: the result is delivered in place, code after the call executes, and
+    // diagnostics attach to the original caught cancellation.
+
+    @Test
+    fun `terminateAndAwait from an already-cancelled coroutine returns its result and preserves the original cancellation`() {
+        val pidFile = Files.createTempFile("subproc-cancelled-cleanup", ".pid")
+        try {
+            withExecutableScript(
+                name = "cancelled-cleanup",
+                content = """
+                    |#!/bin/sh
+                    |echo $$ > '${pidFile.toAbsolutePath()}'
+                    |exec sleep 30
+                """.trimMargin(),
+            ) { script ->
+                runBlocking {
+                    withTimeout(15_000) {
+                        val process = ProcessBuilder(script.toString()).start()
+                        try {
+                            val lifecycle = CancellableProcessLifecycle(process)
+                            val pid = awaitPid(pidFile)
+                            val captured = AtomicReference<CancellationException?>()
+                            val afterCleanupExecuted = AtomicBoolean(false)
+                            val enteredAwaitExit = CompletableDeferred<Unit>()
+                            val deferred = async {
+                                try {
+                                    enteredAwaitExit.complete(Unit)
+                                    lifecycle.awaitExit()
+                                } catch (error: CancellationException) {
+                                    captured.set(error)
+                                    // terminateAndAwait must run and return its result even
+                                    // though this coroutine is already cancelled...
+                                    val cleanup = withContext(NonCancellable) {
+                                        lifecycle.terminateAndAwait()
+                                    }
+                                    assertThat(cleanup).isNotNull()
+                                    afterCleanupExecuted.set(true)
+                                    // ...and cleanup diagnostics attach to the ORIGINAL
+                                    // caught instance (production finally-block pattern).
+                                    surfaceProcessCleanup(error, cleanup)
+                                    surfaceProcessCleanup(
+                                        error,
+                                        ProcessCleanupResult(survivors = listOf(pid), failures = emptyList()),
+                                    )
+                                    throw error
+                                }
+                            }
+                            // Ensure the coroutine is inside awaitExit before cancelling —
+                            // cancelling a not-yet-started async skips the catch entirely.
+                            enteredAwaitExit.await()
+                            val cancellationCause = CancellationException("original parent cancellation")
+                            deferred.cancel(cancellationCause)
+                            val thrown = runCatching { deferred.await() }.exceptionOrNull()
+                            // Cleanup from the test body is idempotent (already ran above).
+                            val secondCleanup = lifecycle.terminateAndAwait()
+                            assertThat(secondCleanup).isNotNull()
+                            awaitProcessExit(pid)
+                            assertThat(pidIsAlive(pid)).isFalse()
+                            assertThat(afterCleanupExecuted.get()).isTrue()
+                            // Kotlinx delivers a fresh JobCancellationException at the
+                            // cancellation boundary (even inside the coroutine, cancel(cause)
+                            // resumes with a wrapper carrying the cause's message) — reference
+                            // identity is outside the contract. Assert: classification as
+                            // cancellation, the original message preserved, cleanup ran, and
+                            // diagnostics landed on the caught instance (never dropped).
+                            assertThat(captured.get()).isInstanceOf(CancellationException::class.java)
+                            assertThat(captured.get()).hasMessage("original parent cancellation")
+                            assertThat(thrown).isInstanceOf(CancellationException::class.java)
+                            assertThat(thrown).hasMessage("original parent cancellation")
+                            // Survivor diagnostics landed on the original instance, never a copy.
+                            assertThat(captured.get()!!.suppressed)
+                                .anySatisfy { assertThat(it).isInstanceOf(ProcessTreeSurvivorException::class.java) }
+                        } finally {
+                            process.destroyForcibly()
+                            runCatching { process.waitFor(5, TimeUnit.SECONDS) }
+                        }
+                    }
+                }
+            }
+        } finally {
+            Files.deleteIfExists(pidFile)
+        }
+    }
+
     // ═══ test infrastructure ═══
 
     private class RecordingSubprocessObserver : WorkflowObserver {
@@ -1253,8 +1408,6 @@ private fun buildWorkflow(
     clock = Clock.systemUTC(),
     externalStepExecutorResolver = NoOpExternalStepExecutorResolver,
 )
-
-/** Process whose destroy/destroyForcibly always fail — deterministic cleanup-failure injection. */
 
 private fun shellWorkflow(
     name: String,

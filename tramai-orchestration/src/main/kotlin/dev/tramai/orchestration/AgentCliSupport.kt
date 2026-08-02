@@ -4,14 +4,12 @@ import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -60,7 +58,7 @@ internal suspend fun executeAgentCli(
     val promptLength = request.promptLength
     val context = request.context
     val observer = request.observer
-    val process = withContext(ioDispatcher) {
+    val process = startOwnedProcess(ioDispatcher) {
         processBuilder
             .redirectErrorStream(false)
             .start()
@@ -141,9 +139,9 @@ internal suspend fun executeAgentCli(
         throw error
     } finally {
         registration.dispose()
-        val cleanup = withContext(NonCancellable + ioDispatcher) {
-            lifecycle.terminateAndAwait()
-        }
+        // NonCancellable + IO nesting lives inside terminateAndAwait; calling it
+        // directly here keeps the primary failure (and its diagnostics) intact.
+        val cleanup = lifecycle.terminateAndAwait()
         surfaceProcessCleanup(primaryFailure, cleanup)
     }
 }

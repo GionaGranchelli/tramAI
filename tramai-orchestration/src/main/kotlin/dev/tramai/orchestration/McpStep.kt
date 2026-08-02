@@ -366,11 +366,17 @@ internal data class McpWorkflowStep<S>(
                                 // the close failure onto it, never replace it.
                                 primaryFailure!!.addSuppressedDistinct(closeError)
                             } else {
+                                if (closeError is CancellationException) {
+                                    // Cancellation becomes the tracked primary itself before
+                                    // being rethrown, so a later transport-cleanup failure is
+                                    // suppressed onto the exception that is actually thrown.
+                                    primaryFailure = closeError
+                                    throw closeError
+                                }
                                 val cleanupException = McpPostCallCleanupException(closeError)
                                 // Track it as primary so a subsequent transport cleanup
                                 // failure is suppressed onto it instead of replacing it.
                                 primaryFailure = cleanupException
-                                if (closeError is CancellationException) throw closeError
                                 throw cleanupException
                             }
                         }
