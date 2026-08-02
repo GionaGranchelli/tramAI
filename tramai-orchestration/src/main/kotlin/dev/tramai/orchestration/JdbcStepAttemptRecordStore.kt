@@ -13,6 +13,7 @@ class JdbcStepAttemptRecordStore(
 ) : StepAttemptRecordStore {
     override suspend fun recordStepAttempt(record: StepAttemptRecord): StepAttemptRecord =
         executeJdbcCancellable(dataSource) { conn ->
+            record.requirePersistableIdentity()
             if (update(conn, record, requireHash = null) == 0) {
                 try {
                     insert(conn, record)
@@ -25,6 +26,7 @@ class JdbcStepAttemptRecordStore(
 
     override suspend fun updateStepAttempt(record: StepAttemptRecord): StepAttemptRecord =
         executeJdbcCancellable(dataSource) { conn ->
+            record.requirePersistableIdentity()
             if (update(conn, record, requireHash = null) == 0) {
                 if (!exists(conn, record)) {
                     throw IllegalStateException(
@@ -43,13 +45,15 @@ class JdbcStepAttemptRecordStore(
         updated: StepAttemptRecord,
     ): Boolean {
         if (expected.key() != updated.key()) return false
+        updated.requirePersistableIdentity()
         return executeJdbcCancellable(dataSource) { conn ->
             update(conn, updated, StepAttemptRecordCodec.fingerprint(expected)) > 0
         }
     }
 
-    override suspend fun latestStepAttempt(runId: String, stepName: String): StepAttemptRecord? =
-        executeJdbcCancellable(dataSource) { conn ->
+    override suspend fun latestStepAttempt(runId: String, stepName: String): StepAttemptRecord? {
+        require(runId.isNotBlank() && stepName.isNotBlank()) { "Step-attempt runId and stepName must not be blank" }
+        return executeJdbcCancellable(dataSource) { conn ->
             conn.prepareStatement(latestSql()).use { statement ->
                 statement.setString(1, runId)
                 statement.setString(2, stepName)
@@ -58,9 +62,11 @@ class JdbcStepAttemptRecordStore(
                 }
             }
         }
+    }
 
-    override suspend fun listStepAttempts(runId: String): List<StepAttemptRecord> =
-        executeJdbcCancellable(dataSource) { conn ->
+    override suspend fun listStepAttempts(runId: String): List<StepAttemptRecord> {
+        require(runId.isNotBlank()) { "Step-attempt runId must not be blank" }
+        return executeJdbcCancellable(dataSource) { conn ->
             conn.prepareStatement(listSql()).use { statement ->
                 statement.setString(1, runId)
                 statement.executeQuery().use { resultSet ->
@@ -70,6 +76,7 @@ class JdbcStepAttemptRecordStore(
                 }
             }
         }
+    }
 
     fun createTableSql(): String = """
         CREATE TABLE ${table.tableName} (
@@ -89,6 +96,7 @@ class JdbcStepAttemptRecordStore(
             ${table.resolutionAtEpochMillisColumn} BIGINT NULL,
             ${table.resolutionActionColumn} VARCHAR(64) NULL,
             ${table.approvedIdempotencyKeyColumn} VARCHAR(1024) NULL,
+            ${table.recordSchemaVersionColumn} VARCHAR(16) NOT NULL,
             ${table.recordHashColumn} VARCHAR(64) NOT NULL,
             PRIMARY KEY (${table.runIdColumn}, ${table.stepNameColumn}, ${table.attemptIdColumn})
         )
@@ -121,7 +129,7 @@ class JdbcStepAttemptRecordStore(
 
     private fun insertSql(): String = """
         INSERT INTO ${table.tableName} (${allColumns()})
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """.trimIndent()
 
     private fun updateSql(compareHash: Boolean): String = buildString {
@@ -170,6 +178,7 @@ class JdbcStepAttemptRecordStore(
         table.resolutionAtEpochMillisColumn,
         table.resolutionActionColumn,
         table.approvedIdempotencyKeyColumn,
+        table.recordSchemaVersionColumn,
         table.recordHashColumn,
     )
 
@@ -195,6 +204,7 @@ class JdbcStepAttemptRecordStore(
         setNullableLong(index++, record.resolutionAtEpochMillis)
         setNullableString(index++, record.resolutionAction?.name)
         setNullableString(index++, record.approvedIdempotencyKey)
+        setString(index++, StepAttemptRecordCodec.SCHEMA_VERSION)
         setString(index++, StepAttemptRecordCodec.fingerprint(record))
         return index
     }
@@ -231,6 +241,13 @@ class JdbcStepAttemptRecordStore(
             throw error
         } catch (error: Exception) {
             throw StepAttemptRecordCorruptionException("Invalid JDBC step-attempt record", error)
+        }
+        val storedVersion = getString(table.recordSchemaVersionColumn)
+            ?: throw StepAttemptRecordCorruptionException("Missing JDBC step-attempt schema version")
+        if (storedVersion != StepAttemptRecordCodec.SCHEMA_VERSION) {
+            throw StepAttemptRecordCorruptionException(
+                "Unsupported JDBC step-attempt schema version '$storedVersion' (expected '${StepAttemptRecordCodec.SCHEMA_VERSION}')",
+            )
         }
         val storedHash = getString(table.recordHashColumn)
             ?: throw StepAttemptRecordCorruptionException("Missing JDBC step-attempt fingerprint")
@@ -269,6 +286,7 @@ data class JdbcStepAttemptTable(
     val resolutionAtEpochMillisColumn: String = "resolution_at_epoch_millis",
     val resolutionActionColumn: String = "resolution_action",
     val approvedIdempotencyKeyColumn: String = "approved_idempotency_key",
+    val recordSchemaVersionColumn: String = "record_schema_version",
     val recordHashColumn: String = "record_hash",
 ) {
     init {
@@ -290,6 +308,7 @@ data class JdbcStepAttemptTable(
             "resolutionAtEpochMillisColumn" to resolutionAtEpochMillisColumn,
             "resolutionActionColumn" to resolutionActionColumn,
             "approvedIdempotencyKeyColumn" to approvedIdempotencyKeyColumn,
+            "recordSchemaVersionColumn" to recordSchemaVersionColumn,
             "recordHashColumn" to recordHashColumn,
         ).forEach { (name, identifier) ->
             requireValidSqlIdentifier(identifier, "JdbcStepAttemptTable.$name")

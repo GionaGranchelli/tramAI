@@ -6,7 +6,8 @@ import java.util.Base64
 import java.util.Properties
 
 internal object StepAttemptRecordCodec {
-    private const val SCHEMA_VERSION = "1"
+    /** Current persisted-format version. Persisted stores must write and validate this. */
+    internal const val SCHEMA_VERSION = "1"
 
     fun encode(record: StepAttemptRecord): String = buildString {
         property("schemaVersion", SCHEMA_VERSION)

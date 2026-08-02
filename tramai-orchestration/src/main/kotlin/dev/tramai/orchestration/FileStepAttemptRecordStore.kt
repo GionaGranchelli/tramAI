@@ -8,7 +8,7 @@ import java.util.Properties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
 
-class FileStepAttemptRecordStore private constructor(
+class FileStepAttemptRecordStore internal constructor(
     private val rootDirectory: Path,
     private val atomicWriter: AtomicFileWriter,
 ) : StepAttemptRecordStore {
@@ -23,6 +23,7 @@ class FileStepAttemptRecordStore private constructor(
     }
 
     override suspend fun recordStepAttempt(record: StepAttemptRecord): StepAttemptRecord {
+        record.requirePersistableIdentity()
         val path = attemptPath(record.runId, record.stepName, record.attemptId)
         return withFileLockCancellable(path) {
             atomicWriter.write(path, encodeStoredRecord(record))
@@ -31,6 +32,7 @@ class FileStepAttemptRecordStore private constructor(
     }
 
     override suspend fun updateStepAttempt(record: StepAttemptRecord): StepAttemptRecord {
+        record.requirePersistableIdentity()
         val path = attemptPath(record.runId, record.stepName, record.attemptId)
         return withFileLockCancellable(path) {
             if (!Files.exists(path)) {
@@ -49,6 +51,7 @@ class FileStepAttemptRecordStore private constructor(
         updated: StepAttemptRecord,
     ): Boolean {
         if (expected.identity() != updated.identity()) return false
+        updated.requirePersistableIdentity()
         val path = attemptPath(expected.runId, expected.stepName, expected.attemptId)
         return withFileLockCancellable(path) {
             val current = if (Files.exists(path)) {
@@ -65,12 +68,34 @@ class FileStepAttemptRecordStore private constructor(
         }
     }
 
-    override suspend fun latestStepAttempt(runId: String, stepName: String): StepAttemptRecord? =
-        listStepAttempts(runId)
-            .filter { it.stepName == stepName }
-            .maxWithOrNull(compareBy<StepAttemptRecord>({ it.startedAt }, { it.attemptId }))
+    override suspend fun latestStepAttempt(runId: String, stepName: String): StepAttemptRecord? {
+        require(runId.isNotBlank() && stepName.isNotBlank()) { "Step-attempt runId and stepName must not be blank" }
+        val stepDirectory = rootDirectory
+            .resolve(base64UrlEncodeNoPadding(runId))
+            .resolve(base64UrlEncodeNoPadding(stepName))
+        if (!Files.exists(stepDirectory)) return null
+        val paths = runInterruptible(Dispatchers.IO) {
+            Files.list(stepDirectory).use { stream ->
+                stream.filter(Files::isRegularFile)
+                    .filter { it.fileName.toString().endsWith(ATTEMPT_SUFFIX) }
+                    .toList()
+            }
+        }
+        return paths.mapNotNull { path ->
+            withFileLockCancellable(path) {
+                if (Files.exists(path)) {
+                    val fileName = path.fileName.toString()
+                    val keyAttemptId = decodePathSegment(fileName.removeSuffix(ATTEMPT_SUFFIX), path)
+                    readStoredRecord(path, runId, stepName, keyAttemptId)
+                } else {
+                    null
+                }
+            }
+        }.maxWithOrNull(compareBy<StepAttemptRecord>({ it.startedAt }, { it.attemptId }))
+    }
 
     override suspend fun listStepAttempts(runId: String): List<StepAttemptRecord> {
+        require(runId.isNotBlank()) { "Step-attempt runId must not be blank" }
         val runDirectory = rootDirectory.resolve(base64UrlEncodeNoPadding(runId))
         if (!Files.exists(runDirectory)) return emptyList()
         val paths = runInterruptible(Dispatchers.IO) {

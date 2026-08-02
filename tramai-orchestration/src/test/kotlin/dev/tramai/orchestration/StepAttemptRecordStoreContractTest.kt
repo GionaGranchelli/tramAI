@@ -131,10 +131,6 @@ abstract class StepAttemptRecordStoreContractTest {
     fun `9 CAS cannot change attempt identity`() {
         runBlocking {
             val original = minimalRecord()
-            if (!harness.supportsIdentityFencing) {
-                assertThat(original.sameIdentityAs(original.copy(attemptId = "other"))).isFalse()
-                return@runBlocking
-            }
             store.recordStepAttempt(original)
             assertThat(store.compareAndSetStepAttempt(original, original.copy(attemptId = "other"))).isFalse()
             assertThat(store.compareAndSetStepAttempt(original, original.copy(stepName = "other"))).isFalse()
@@ -294,7 +290,6 @@ abstract class StepAttemptRecordStoreContractTest {
 interface AttemptStoreHarness {
     val store: StepAttemptRecordStore
     val supportsPersistentCorruption: Boolean get() = false
-    val supportsIdentityFencing: Boolean get() = true
     fun recreate(): StepAttemptRecordStore = store
     fun close() = Unit
 
@@ -308,6 +303,8 @@ interface AttemptStoreHarness {
 
     suspend fun corruptFingerprint(record: StepAttemptRecord) = Unit
 
+    suspend fun corruptSchemaVersion(record: StepAttemptRecord) = Unit
+
     suspend fun cancelReplacement(original: StepAttemptRecord, updated: StepAttemptRecord) {
         val job = Job().also(Job::cancel)
         val deferred = kotlinx.coroutines.CoroutineScope(Dispatchers.IO + job).async {
@@ -320,7 +317,6 @@ interface AttemptStoreHarness {
 class InMemoryStepAttemptRecordStoreContractTest : StepAttemptRecordStoreContractTest() {
     override fun createHarness(): AttemptStoreHarness = object : AttemptStoreHarness {
         override val store = InMemoryWorkflowCheckpointStore()
-        override val supportsIdentityFencing = false
     }
 }
 
@@ -329,10 +325,56 @@ class FileStepAttemptRecordStoreContractTest : StepAttemptRecordStoreContractTes
     lateinit var root: Path
 
     override fun createHarness(): AttemptStoreHarness = FileAttemptStoreHarness(root)
+
+    @Test
+    fun `file store rejects blank identity components`() {
+        runBlocking {
+            assertThatThrownBy { runBlocking { store.recordStepAttempt(minimalRecord(runId = "")) } }
+                .isInstanceOf(IllegalArgumentException::class.java)
+            assertThatThrownBy { runBlocking { store.recordStepAttempt(minimalRecord(stepName = "")) } }
+                .isInstanceOf(IllegalArgumentException::class.java)
+            assertThatThrownBy { runBlocking { store.recordStepAttempt(minimalRecord(attemptId = "")) } }
+                .isInstanceOf(IllegalArgumentException::class.java)
+            assertThatThrownBy { runBlocking { store.listStepAttempts("") } }
+                .isInstanceOf(IllegalArgumentException::class.java)
+        }
+    }
+
+    @Test
+    fun `file latest step attempt does not read unrelated step directories`() {
+        runBlocking {
+            store.recordStepAttempt(minimalRecord(stepName = "current", attemptId = "a1", startedAt = 1))
+            // A corrupt record in an unrelated step directory must not break latest for "current":
+            // latestStepAttempt resolves only the requested step's directory.
+            val otherPath = root.resolve(base64UrlEncodeNoPadding("run"))
+                .resolve(base64UrlEncodeNoPadding("other"))
+                .resolve(base64UrlEncodeNoPadding("x") + ".attempt.properties")
+            Files.createDirectories(otherPath.parent)
+            Files.writeString(otherPath, "not a valid attempt record")
+            assertThat(store.latestStepAttempt("run", "current")?.attemptId).isEqualTo("a1")
+        }
+    }
 }
 
 class JdbcStepAttemptRecordStoreContractTest : StepAttemptRecordStoreContractTest() {
-    override fun createHarness(): AttemptStoreHarness = JdbcAttemptStoreHarness()
+    private lateinit var jdbcHarness: JdbcAttemptStoreHarness
+
+    override fun createHarness(): AttemptStoreHarness {
+        jdbcHarness = JdbcAttemptStoreHarness()
+        return jdbcHarness
+    }
+
+    @Test
+    fun `jdbc unknown record schema version fails closed`() {
+        runBlocking {
+            store.recordStepAttempt(minimalRecord())
+            val recorded = store.listStepAttempts("run").single()
+            jdbcHarness.corruptSchemaVersion(recorded)
+            assertThatThrownBy { runBlocking { store.listStepAttempts("run") } }
+                .isInstanceOf(StepAttemptRecordCorruptionException::class.java)
+                .hasMessageContaining("schema version")
+        }
+    }
 }
 
 private class FileAttemptStoreHarness(private val root: Path) : AttemptStoreHarness {
@@ -389,6 +431,20 @@ private class JdbcAttemptStoreHarness : AttemptStoreHarness {
                 "UPDATE tramai_workflow_step_attempt SET record_hash = ? WHERE run_id = ? AND step_name = ? AND attempt_id = ?",
             ).use { statement ->
                 statement.setString(1, "bad")
+                statement.setString(2, record.runId)
+                statement.setString(3, record.stepName)
+                statement.setString(4, record.attemptId)
+                statement.executeUpdate()
+            }
+        }
+    }
+
+    override suspend fun corruptSchemaVersion(record: StepAttemptRecord) {
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "UPDATE tramai_workflow_step_attempt SET record_schema_version = ? WHERE run_id = ? AND step_name = ? AND attempt_id = ?",
+            ).use { statement ->
+                statement.setString(1, "999")
                 statement.setString(2, record.runId)
                 statement.setString(3, record.stepName)
                 statement.setString(4, record.attemptId)
@@ -487,6 +543,3 @@ private fun testCodecRecord() = StepAttemptRecord(
     replayPolicy = ReplayPolicy.NON_REPLAYABLE,
     resolutionAction = StepAttemptResolutionAction.RETRY_APPROVED,
 )
-
-private fun StepAttemptRecord.sameIdentityAs(other: StepAttemptRecord): Boolean =
-    runId == other.runId && stepName == other.stepName && attemptId == other.attemptId
