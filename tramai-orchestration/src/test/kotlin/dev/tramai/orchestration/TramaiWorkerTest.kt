@@ -1226,7 +1226,13 @@ class TramaiWorkerTest {
                 // the step executes exactly once with the corrected key.
                 val controller = InMemoryWorkflowRecoveryController(checkpointStore, checkpointStore)
                 controller.retryStep(workflow.name, runId, checkpoint.revision, "corrected approval", "current-key")
-                waitUntil { executions.get() == 1 }
+                // Wait for the persisted COMPLETED attempt, not just the side effect: the
+                // worker persists COMPLETED after invoke() returns, so asserting on the
+                // store immediately after executions increments is racy under load.
+                waitUntil {
+                    executions.get() == 1 &&
+                        checkpointStore.listStepAttempts(runId).any { it.status == StepAttemptStatus.COMPLETED }
+                }
                 val attempts = checkpointStore.listStepAttempts(runId)
                 val executed = attempts.single { it.status == StepAttemptStatus.COMPLETED }
                 assertThat(executed.attemptId).isNotEqualTo(attempt.attemptId)
