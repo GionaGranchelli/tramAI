@@ -4,6 +4,7 @@ import dev.tramai.core.coroutines.rethrowIfCancellation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -31,11 +32,21 @@ internal class ProcessTreeSurvivorException(
 )
 
 /**
+ * Raised by [surfaceProcessCleanup] when a cleanup produced failures or survivors but
+ * there is no primary failure to attach them to. Cleanup problems are never silently
+ * swallowed on an otherwise successful execution.
+ */
+internal class ProcessCleanupException : RuntimeException(
+    "Process cleanup failed; see suppressed causes",
+)
+
+/**
  * Result of a bounded process-tree cleanup.
  *
  * @param survivors PIDs still alive after the force-kill deadline (diagnostic only).
  * @param failures cleanup failures recorded during termination (never thrown by the
- *   lifecycle itself — consumers decide how to surface them).
+ *   lifecycle itself — consumers decide how to surface them). Survivors are represented
+ *   exactly once, via [survivors]; they are not also duplicated in [failures].
  */
 internal class ProcessCleanupResult(
     val survivors: List<Long>,
@@ -48,15 +59,19 @@ internal class ProcessCleanupResult(
  * Contract:
  * 1. [attachTo] registers a cancellation handler on the owning [Job] with an
  *    attach-then-active-check, so cancellation between process creation and handler
- *    registration is impossible.
+ *    registration is impossible. It returns the [DisposableHandle] so consumers can
+ *    detach the handler once the process step completes (no leak on long-lived jobs).
  * 2. [requestTermination] is non-suspending, idempotent and never throws. It snapshots
- *    the tree, closes stdin/stdout/stderr (which unblocks any blocking readers), and
- *    requests graceful termination of every descendant plus the root.
+ *    the tree BEFORE closing stdin/stdout/stderr (so closing a pipe that makes the root
+ *    exit can never reparent descendants out of the retained snapshot), then closes the
+ *    pipes (unblocking any blocking readers) and requests graceful termination of every
+ *    descendant plus the root.
  * 3. [awaitExit] is cancellable: cancellation invokes [requestTermination] immediately,
  *    so termination begins before structured concurrency can wait on reader jobs.
  * 4. [terminateAndAwait] runs under `NonCancellable + IO`, escalates graceful → forced
- *    termination with bounded waits, and reports survivors instead of waiting forever.
- *    It never calls an unbounded `Process.waitFor()`.
+ *    termination with bounded waits over the union of retained and fresh tree handles,
+ *    and reports survivors instead of waiting forever. It never calls an unbounded
+ *    `Process.waitFor()`.
  * 5. Cleanup is idempotent — repeated calls from cancellation handlers, timeout
  *    handling and outer `finally` blocks are safe (atomic lifecycle state).
  *
@@ -78,43 +93,47 @@ internal class CancellableProcessLifecycle(
     private val cleanupFailures = CopyOnWriteArrayList<Pair<String, Throwable>>()
 
     /**
-     * Attach the cancellation handler to [job]. If [job] is already cancelled at attach
-     * time, termination is requested immediately (attach-then-active-check).
+     * PIDs captured by [requestTermination] BEFORE pipes were closed. If closing a pipe
+     * makes the root exit, surviving descendants are reparented and would be missed by a
+     * later snapshot; retaining these PIDs keeps them in [terminateAndAwait]'s union.
+     */
+    private val retainedHandlePids = CopyOnWriteArrayList<Long>()
+
+    /**
+     * Attach the cancellation handler to [job] and return its [DisposableHandle] so the
+     * caller can detach it when the process step completes. If [job] is already cancelled
+     * at attach time, termination is requested immediately (attach-then-active-check).
      */
     @OptIn(kotlinx.coroutines.InternalCoroutinesApi::class)
-    fun attachTo(job: Job) {
-        job.invokeOnCompletion(onCancelling = true) {
+    fun attachTo(job: Job): DisposableHandle {
+        val registration = job.invokeOnCompletion(onCancelling = true) {
             requestTermination()
         }
         if (job.isCancelled) {
             requestTermination()
         }
+        return registration
     }
 
     /** Whether [requestTermination] has already run (used for exactly-once cleanup). */
     fun isTerminationRequested(): Boolean = state.get() != State.RUNNING
 
     /**
-     * Non-suspending, idempotent, never throws. Closes the process pipes (unblocking
-     * stdout/stderr readers), snapshots the tree and requests graceful termination of
-     * all descendants plus the root. Cleanup failures are recorded for later reporting.
+     * Non-suspending, idempotent, never throws. Snapshots the tree FIRST (before any
+     * stream is closed), retains the snapshot by PID, closes the process pipes
+     * (unblocking stdout/stderr readers), then requests graceful termination of all
+     * descendants plus the root. Cleanup failures are recorded for later reporting.
      */
     fun requestTermination() {
         if (!state.compareAndSet(State.RUNNING, State.TERMINATION_REQUESTED)) {
             return
         }
+        val handles = processTreeHandles()
+        retainedHandlePids.addAll(handles.map { it.pid() })
         closeQuietly(process.outputStream, "stdin")
         closeQuietly(process.inputStream, "stdout")
         closeQuietly(process.errorStream, "stderr")
-        processTreeHandles().forEach { handle ->
-            if (handle.isAlive) {
-                try {
-                    handle.destroy()
-                } catch (error: Throwable) {
-                    recordFailure("Failed to request termination of process ${handle.pid()}", error)
-                }
-            }
-        }
+        terminateHandles(handles, graceful = true)
     }
 
     /**
@@ -147,32 +166,26 @@ internal class CancellableProcessLifecycle(
     /**
      * Bounded, cancellation-safe final cleanup. Runs under `NonCancellable + IO`.
      *
-     * 1. Graceful termination request (idempotent).
-     * 2. Bounded grace-period wait.
-     * 3. [Process.destroyForcibly] for surviving descendants and root.
+     * 1. Graceful termination request (idempotent; snapshots retained pre-pipe-close).
+     * 2. Bounded grace-period wait over the union of retained + fresh tree handles.
+     * 3. Forced termination ([Process.destroyForcibly]) of surviving descendants then
+     *    root — descendants are destroyed before the root.
      * 4. Bounded force-kill wait.
      * 5. Survivor inspection — survivors are reported, never waited on unboundedly.
      *
-     * @return cleanup result; failures and survivors are recorded, not thrown here.
+     * @return cleanup result; survivors and failures are recorded, not thrown here.
      */
     suspend fun terminateAndAwait(): ProcessCleanupResult = withContext(NonCancellable + Dispatchers.IO) {
         requestTermination()
-        val handles = processTreeHandles()
+        val handles = resolveCleanupHandles()
         waitForHandlesToExitUninterruptibly(handles, gracePeriodMillis)
-        handles.forEach { handle ->
-            if (handle.isAlive) {
-                try {
-                    handle.destroyForcibly()
-                } catch (error: Throwable) {
-                    error.rethrowIfCancellation()
-                    recordFailure("Failed to force-kill process ${handle.pid()}", error)
-                }
-            }
-        }
+        terminateHandles(handles, graceful = false)
         waitForHandlesToExitUninterruptibly(handles, forceKillWaitMillis)
         val survivors = handles.filter { it.isAlive }.map { it.pid() }
         if (survivors.isNotEmpty()) {
-            recordFailure(
+            // Log-only: survivor diagnostics are represented once via ProcessCleanupResult.survivors,
+            // never duplicated into failures as well.
+            onFailure(
                 "Process tree did not terminate within $forceKillWaitMillis ms after forced kill",
                 ProcessTreeSurvivorException(survivors),
             )
@@ -184,6 +197,39 @@ internal class CancellableProcessLifecycle(
     fun dispose() {
         state.set(State.CLEANED_UP)
         closeQuietly(process.outputStream, "stdin")
+    }
+
+    /** Union of retained (pre-pipe-close) handles, a fresh snapshot and the root, by PID. */
+    private fun resolveCleanupHandles(): List<ProcessHandle> {
+        val retained = retainedHandlePids.mapNotNull { pid -> ProcessHandle.of(pid).orElse(null) }
+        val fresh = processTreeHandles()
+        val root = process.toHandle()
+        val byPid = linkedMapOf<Long, ProcessHandle>()
+        (retained + fresh + listOf(root)).forEach { handle -> byPid[handle.pid()] = handle }
+        val rootPid = process.pid()
+        // Stable order: descendants first, root last (destroy descendants before root).
+        return byPid.values.sortedBy { if (it.pid() == rootPid) 1 else 0 }
+    }
+
+    /** Destroy/force-kill alive handles; descendants before the root. */
+    private fun terminateHandles(handles: List<ProcessHandle>, graceful: Boolean) {
+        val rootPid = process.pid()
+        val ordered = handles.sortedBy { if (it.pid() == rootPid) 1 else 0 }
+        ordered.forEach { handle ->
+            if (handle.isAlive) {
+                try {
+                    if (graceful) {
+                        handle.destroy()
+                    } else {
+                        handle.destroyForcibly()
+                    }
+                } catch (error: Throwable) {
+                    error.rethrowIfCancellation()
+                    val verb = if (graceful) "request termination of" else "force-kill"
+                    recordFailure("Failed to $verb process ${handle.pid()}", error)
+                }
+            }
+        }
     }
 
     private fun processTreeHandles(): List<ProcessHandle> {
@@ -220,14 +266,30 @@ internal class CancellableProcessLifecycle(
 }
 
 /**
- * Suppresses [result]'s failures (and survivor diagnostics) onto [primary] when present,
- * or returns them for the caller to surface. Used by consumers so cleanup failures never
- * replace the primary [CancellationException] or domain exception.
+ * Central surfacing of cleanup diagnostics.
+ *
+ * - No failures and no survivors → nothing to do.
+ * - [primary] present → every diagnostic is attached exactly once via [Throwable.addSuppressed];
+ *   the primary (cancellation or domain exception) is preserved.
+ * - No primary → throws [ProcessCleanupException] with all diagnostics suppressed, so
+ *   cleanup problems are never silently ignored on an otherwise successful execution.
  */
-internal fun Throwable.suppressCleanup(result: ProcessCleanupResult) {
-    result.failures.forEach { (_, error) -> addSuppressed(error) }
-    if (result.survivors.isNotEmpty()) {
-        addSuppressed(ProcessTreeSurvivorException(result.survivors))
+internal fun surfaceProcessCleanup(primary: Throwable?, cleanup: ProcessCleanupResult) {
+    if (cleanup.failures.isEmpty() && cleanup.survivors.isEmpty()) {
+        return
+    }
+    val diagnostics = buildList {
+        cleanup.failures.forEach { (_, error) -> add(error) }
+        if (cleanup.survivors.isNotEmpty()) {
+            add(ProcessTreeSurvivorException(cleanup.survivors))
+        }
+    }
+    if (primary != null) {
+        diagnostics.forEach { primary.addSuppressed(it) }
+    } else {
+        val cleanupException = ProcessCleanupException()
+        diagnostics.forEach { cleanupException.addSuppressed(it) }
+        throw cleanupException
     }
 }
 

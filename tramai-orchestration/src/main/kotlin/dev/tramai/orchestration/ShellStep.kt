@@ -191,15 +191,17 @@ internal data class ShellWorkflowStep<S>(
             .run {
                 withContext(ioDispatcher) { start() }
             }
-        process.outputStream.close()
         val lifecycle = CancellableProcessLifecycle(process)
         // Attach-then-active-check: cancellation requests process-tree termination
         // immediately (closing the pipes unblocks the readers below), so structured
-        // concurrency never waits on blocking readers behind a live process.
-        lifecycle.attachTo(currentCoroutineContext().job)
+        // concurrency never waits on blocking readers behind a live process. The
+        // returned handle is disposed in the finally so a completed step does not leave
+        // a handler (and its process reference) attached to a long-lived workflow job.
+        val registration = lifecycle.attachTo(currentCoroutineContext().job)
 
         var primaryFailure: Throwable? = null
         try {
+            process.outputStream.close()
             return coroutineScope {
                 val stdoutDeferred = async(ioDispatcher) { process.inputStream.captureStream(config.maxOutputBytes) }
                 val stderrDeferred = async(ioDispatcher) { process.errorStream.captureStream(config.maxOutputBytes) }
@@ -218,13 +220,15 @@ internal data class ShellWorkflowStep<S>(
                         ),
                         context = context,
                     )
-                    val cleanup = lifecycle.terminateAndAwait()
-                    val shellException = WorkflowShellException(
+                    // Only request termination here: closing the pipes lets the reader
+                    // coroutines finish. The bounded graceful→forced cleanup happens
+                    // exactly once in the outer finally and attaches its diagnostics to
+                    // this exception.
+                    lifecycle.requestTermination()
+                    throw WorkflowShellException(
                         stepName = name,
                         message = "timed out after ${config.timeoutSeconds}s",
                     )
-                    shellException.suppressCleanup(cleanup)
-                    throw shellException
                 }
 
                 val stdout = stdoutDeferred.await()
@@ -260,15 +264,11 @@ internal data class ShellWorkflowStep<S>(
             primaryFailure = error
             throw error
         } finally {
+            registration.dispose()
             val cleanup = withContext(NonCancellable + ioDispatcher) {
                 lifecycle.terminateAndAwait()
             }
-            val primary = primaryFailure
-            if (primary != null) {
-                primary.suppressCleanup(cleanup)
-            } else if (cleanup.survivors.isNotEmpty()) {
-                throw ProcessTreeSurvivorException(cleanup.survivors)
-            }
+            surfaceProcessCleanup(primaryFailure, cleanup)
         }
     }
 

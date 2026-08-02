@@ -65,27 +65,27 @@ internal suspend fun executeAgentCli(
             .redirectErrorStream(false)
             .start()
     }
-    process.outputStream.close()
     val lifecycle = CancellableProcessLifecycle(process)
     // Attach-then-active-check: parent cancellation requests process-tree termination
     // immediately, closing the pipes so the blocking readers below cannot delay
-    // cancellation completion.
-    lifecycle.attachTo(currentCoroutineContext().job)
-
-    observer.onWorkflowEvent(
-        workflowName = workflowName,
-        name = "$eventPrefix.started",
-        attributes = mapOf(
-            "step_name" to stepName,
-            "agent_type" to agentType,
-            "prompt_length" to promptLength,
-        ),
-        context = context,
-    )
+    // cancellation completion. The handle is disposed in the finally so a completed
+    // step does not leave a handler attached to a long-lived workflow job.
+    val registration = lifecycle.attachTo(currentCoroutineContext().job)
 
     val startedAtNanos = System.nanoTime()
     var primaryFailure: Throwable? = null
     try {
+        process.outputStream.close()
+        observer.onWorkflowEvent(
+            workflowName = workflowName,
+            name = "$eventPrefix.started",
+            attributes = mapOf(
+                "step_name" to stepName,
+                "agent_type" to agentType,
+                "prompt_length" to promptLength,
+            ),
+            context = context,
+        )
         return coroutineScope {
             val stdoutDeferred = async(ioDispatcher) { process.inputStream.captureAgentOutput(maxOutputBytes) }
             val stderrDeferred = async(ioDispatcher) { process.errorStream.captureAgentOutput(maxOutputBytes) }
@@ -96,10 +96,11 @@ internal suspend fun executeAgentCli(
                 }
             } catch (error: TimeoutCancellationException) {
                 currentCoroutineContext().ensureActive()
-                val cleanup = lifecycle.terminateAndAwait()
-                val timeoutException = AgentCliTimeoutException(timeoutSeconds)
-                timeoutException.suppressCleanup(cleanup)
-                throw timeoutException
+                // Only request termination here: closing the pipes lets the reader
+                // coroutines finish. The bounded graceful→forced cleanup happens exactly
+                // once in the outer finally and attaches its diagnostics to this exception.
+                lifecycle.requestTermination()
+                throw AgentCliTimeoutException(timeoutSeconds)
             }
 
             val stdout = stdoutDeferred.await()
@@ -139,15 +140,11 @@ internal suspend fun executeAgentCli(
         primaryFailure = error
         throw error
     } finally {
+        registration.dispose()
         val cleanup = withContext(NonCancellable + ioDispatcher) {
             lifecycle.terminateAndAwait()
         }
-        val primary = primaryFailure
-        if (primary != null) {
-            primary.suppressCleanup(cleanup)
-        } else if (cleanup.survivors.isNotEmpty()) {
-            throw ProcessTreeSurvivorException(cleanup.survivors)
-        }
+        surfaceProcessCleanup(primaryFailure, cleanup)
     }
 }
 

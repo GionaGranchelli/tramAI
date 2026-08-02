@@ -285,7 +285,7 @@ This phase is intentionally completed before large decomposition work.
 
 **Goal:** Make coroutine cancellation propagate consistently through every suspend boundary.
 
-**Status: ✅ Complete — PR #215 (workflow recovery) + PR #216 (subprocess & OS-lock cancellation contracts)**
+**Status: ✅ Complete — PRs #207, #209, #211–#214, and #216**
 
 ### Tasks
 
