@@ -52,10 +52,12 @@ Workers skip checkpoints in `Required` state — no lease is claimed, no executi
 
 An operator resolves `Required` state through `WorkflowRecoveryController`:
 
-- `retryStep(workflowName, workflowId, expectedRevision, reason)` — marks the exact unresolved attempt `FAILED` with the operator's resolution evidence, then clears the recovery state. The worker starts a NEW attempt on the next poll; the failed attempt remains in the attempt store as audit evidence.
-  - **Supported only for `NON_REPLAYABLE_OUTCOME_UNKNOWN`.** Retrying `EXTERNAL_IDEMPOTENCY_KEY_MISSING` or `IDEMPOTENCY_KEY_MISMATCH` is rejected (`WorkflowRecoveryStateException`): the worker's idempotency-key guard only inspects UNKNOWN/STARTED attempts, so an unconditional retry would re-execute the step with a different or missing key — breaking the idempotency contract. The correct resolution for those reasons is a corrected workflow definition (re-submit) or `failWorkflow`.
-  - The attempt transition is **mandatory** — persistence failures propagate and the checkpoint stays `Required`.
-- `failWorkflow(workflowName, workflowId, expectedRevision, reason)` — permanently deletes the checkpoint in a single fenced operation. If the delete fails, the checkpoint remains in `Required` state and the workflow stays blocked — there is no window where a failed workflow becomes runnable. When a step-attempt store is available, the resolution reason and timestamp are recorded onto the exact failed attempt record as **best-effort** audit evidence (storage errors are logged, never propagated).
+- `retryStep(workflowName, workflowId, expectedRevision, reason)` — records a durable `RETRY_APPROVED` action on the exact unresolved attempt while it remains `UNKNOWN`, then clears recovery. This overload supports `NON_REPLAYABLE_OUTCOME_UNKNOWN`.
+- `retryStep(workflowName, workflowId, expectedRevision, reason, approvedIdempotencyKey)` — also supports `EXTERNAL_IDEMPOTENCY_KEY_MISSING` and `IDEMPOTENCY_KEY_MISMATCH`, binding the operator decision to one exact non-blank key. The worker recomputes the current key and consumes the approval only if it matches; otherwise the step does not execute, the workflow returns to `Required` with `IDEMPOTENCY_KEY_MISMATCH`, and the stale approval is voided (resolution action and approved key cleared, attempt stays `UNKNOWN` with the original resolution reason/timestamp as audit trail) so a fresh key-bound approval matching the current definition can be issued.
+  - Retry approval is an operator decision that replay may proceed, not proof that replay is safe. The worker marks the approved prior attempt `FAILED` immediately before a new attempt starts. Approval persistence is mandatory; a write failure keeps the checkpoint `Required`, while a later clear failure preserves the approval for an identical retry of the clear.
+- `failWorkflow(workflowName, workflowId, expectedRevision, reason)` — permanently deletes the checkpoint in a single fenced operation. If the delete fails, the checkpoint remains in `Required` state and the workflow stays blocked. After successful deletion, `WORKFLOW_FAILED`, the reason, and timestamp are recorded on the exact attempt as **best-effort** evidence (storage errors are logged, never propagated).
+
+`confirmCompleted` remains unsupported: advancing past an unknown attempt would require trusted reconstruction or supply of the post-step workflow state.
 
 Both operations load and validate the checkpoint first — they throw `WorkflowCheckpointConflictException` on a stale revision and `WorkflowRecoveryStateException` when the checkpoint is not in `Required` state or the recovery reason is not retryable, so a normal (runnable) workflow can never be accidentally advanced or deleted.
 
@@ -79,9 +81,9 @@ An `EXTERNALLY_IDEMPOTENT` step must provide an idempotency key at execution tim
 
 1. **Recorded** in `StepAttemptRecord.idempotencyKey` on the first attempt.
 2. **Verified** on any retry — the worker recomputes the key from the current workflow definition and requires it to match the recorded key. If the recomputed key differs (e.g. after a deployment or definition change), the checkpoint enters `Required` state with reason `IDEMPOTENCY_KEY_MISMATCH`; the step is never re-executed with a different key.
-3. **Applied** to the external call by the step implementation. TramAI verifies key stability but the application code remains responsible for using the recorded key when calling the external system.
+3. **Applied** to the external call by the step implementation. TramAI verifies key stability, including an exact operator-approved key, but application code remains responsible for applying that key to the external operation.
 
-If no key was recorded (e.g., an older worker version without key generation), the checkpoint enters `Required` state with reason `EXTERNAL_IDEMPOTENCY_KEY_MISSING`. The operator must verify the external system state before deciding to retry or fail.
+If no key was recorded (e.g., an older worker version without key generation), the checkpoint enters `Required` state with reason `EXTERNAL_IDEMPOTENCY_KEY_MISSING`. The operator must verify the external system state before approving one exact key or failing the workflow. This protocol does not provide exactly-once external side effects; external-system idempotency remains part of the application contract.
 
 ## Worker Shutdown and Abandonment
 
@@ -104,10 +106,10 @@ Default implementations use `load` + `save` under the store's existing optimisti
 
 ## Audit Trail
 
-Step attempt records persist independently of checkpoint state. After `failWorkflow` deletes the checkpoint, the attempt records remain queryable through `StepAttemptRecordStore.listStepAttempts(runId)`. The resolution evidence (`resolutionReason`/`resolutionAtEpochMillis`, and `FAILED` status) is written to the exact attempt referenced by the recovery record when a step-attempt store is supplied:
+Step attempt records persist independently of checkpoint state. After `failWorkflow` deletes the checkpoint, the attempt records remain queryable through `StepAttemptRecordStore.listStepAttempts(runId)`. Resolution evidence is written to the exact attempt referenced by the recovery record when a step-attempt store is supplied:
 
-- `retryStep` — the `FAILED` transition is **mandatory**: failures propagate and the checkpoint stays `Required`.
-- `failWorkflow` — the evidence write is **best-effort** (storage errors are logged, not propagated), so treat it as audit *aid*, not a durability guarantee.
+- `retryStep` — `RETRY_APPROVED` is mandatory and remains worker-visible on the `UNKNOWN` attempt until consumption; the worker then preserves the action and resolution fields while changing the prior attempt to `FAILED`.
+- `failWorkflow` — `WORKFLOW_FAILED` evidence is **best-effort** after checkpoint deletion (storage errors are logged, not propagated), so treat it as audit *aid*, not a durability guarantee.
 
 ## Configuration Properties
 

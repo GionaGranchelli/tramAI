@@ -461,7 +461,94 @@ class TramaiWorker(
                 newWorkerId = config.workerId,
             )
             try {
-                when (unknownAttempt.replayPolicy) {
+                when (unknownAttempt.resolutionAction) {
+                    StepAttemptResolutionAction.RETRY_APPROVED -> consumeRetryApproval(
+                        checkpoint = checkpoint,
+                        handle = handle,
+                        tracker = tracker,
+                        fencedCheckpointStore = fencedCheckpointStore,
+                        attempt = unknownAttempt,
+                    )
+                    StepAttemptResolutionAction.WORKFLOW_FAILED -> throw WorkflowRecoveryStateException(
+                        "Attempt '${unknownAttempt.attemptId}' is resolved as WORKFLOW_FAILED and cannot be executed",
+                    )
+                    null -> recoverUnknownAttempt(checkpoint, tracker, fencedCheckpointStore, unknownAttempt)
+                }
+            } catch (error: Throwable) {
+                // The recovery persistence paths throw NonReplayableStepStateUnknownException
+                // (or a lease conflict when the fence rejects a stale worker). Record the
+                // failure so latestFailure() reflects it, and release the lease so the
+                // checkpoint can be reclaimed once an operator resolves it. The unknown
+                // attempt record is deliberately left at UNKNOWN as audit evidence.
+                error.rethrowIfCancellation()
+                executionFailures[checkpoint.workflowId] = error
+                releaseLease(handle)
+                throw error
+            }
+        }
+
+        val persistence = WorkflowPersistence(
+            checkpointStore = fencedCheckpointStore,
+            stateCodec = binding.stateCodec,
+            delayWakeupScheduler = binding.delayWakeupScheduler,
+            deleteCheckpointOnCompletion = binding.deleteCheckpointOnCompletion,
+        )
+        val observer = WorkerExecutionObserver(
+            workflowName = checkpoint.workflowName,
+            tracker = tracker,
+        )
+
+        try {
+            typedWorkflow.resume(
+                context = context,
+                observer = observer,
+                persistence = persistence,
+            )
+            executionFailures.remove(checkpoint.workflowId)
+            releaseLease(handle)
+        } catch (suspended: WorkflowSuspendedException) {
+            executionFailures.remove(checkpoint.workflowId)
+            tracker.cancelActiveAttempt("Workflow suspended before the current step reached a durable checkpoint")
+            releaseLease(handle)
+        } catch (error: CancellationException) {
+            if (shuttingDownGracefully) {
+                withContext(NonCancellable) {
+                    runCleanupPreservingCancellation(error) {
+                        tracker.cancelActiveAttempt(
+                            "Worker shutdown cancelled the running step",
+                        )
+                    }
+                    runCleanupPreservingCancellation(error) {
+                        observability.onWorkflowAbandoned(
+                            workflowId = checkpoint.workflowId,
+                            workerId = config.workerId,
+                            lastStep = checkpoint.lastCompletedStepName,
+                            timeoutMillis = config.drainTimeoutMillis,
+                        )
+                    }
+                    runCleanupPreservingCancellation(error) {
+                        releaseLease(handle)
+                    }
+                    executionFailures.remove(checkpoint.workflowId)
+                }
+            }
+            throw error
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            executionFailures[checkpoint.workflowId] = error
+            tracker.failActiveAttempt(error)
+            releaseLease(handle)
+            throw error
+        }
+    }
+
+    private suspend fun recoverUnknownAttempt(
+        checkpoint: WorkflowCheckpoint,
+        tracker: ExecutionTracker,
+        fencedCheckpointStore: WorkflowCheckpointStore,
+        unknownAttempt: StepAttemptRecord,
+    ) {
+        when (unknownAttempt.replayPolicy) {
                 ReplayPolicy.NON_REPLAYABLE -> {
                     fencedCheckpointStore.requireRecovery(
                         workflowName = checkpoint.workflowName,
@@ -535,72 +622,77 @@ class TramaiWorker(
                 ReplayPolicy.PURE,
                 ReplayPolicy.IDEMPOTENT,
                 -> Unit
-                }
-            } catch (error: Throwable) {
-                // The recovery persistence paths throw NonReplayableStepStateUnknownException
-                // (or a lease conflict when the fence rejects a stale worker). Record the
-                // failure so latestFailure() reflects it, and release the lease so the
-                // checkpoint can be reclaimed once an operator resolves it. The unknown
-                // attempt record is deliberately left at UNKNOWN as audit evidence.
-                error.rethrowIfCancellation()
-                executionFailures[checkpoint.workflowId] = error
-                releaseLease(handle)
-                throw error
-            }
         }
+    }
 
-        val persistence = WorkflowPersistence(
-            checkpointStore = fencedCheckpointStore,
-            stateCodec = binding.stateCodec,
-            delayWakeupScheduler = binding.delayWakeupScheduler,
-            deleteCheckpointOnCompletion = binding.deleteCheckpointOnCompletion,
-        )
-        val observer = WorkerExecutionObserver(
-            workflowName = checkpoint.workflowName,
-            tracker = tracker,
-        )
-
-        try {
-            typedWorkflow.resume(
-                context = context,
-                observer = observer,
-                persistence = persistence,
+    private suspend fun consumeRetryApproval(
+        checkpoint: WorkflowCheckpoint,
+        handle: ActiveExecution,
+        tracker: ExecutionTracker,
+        fencedCheckpointStore: WorkflowCheckpointStore,
+        attempt: StepAttemptRecord,
+    ) {
+        val expectedLease = handle.lease.get()
+            ?: throw StaleWorkflowLeaseException(
+                "Workflow '${checkpoint.workflowName}' and workflowId='${checkpoint.workflowId}' has no active lease for retry-approval consumption",
             )
-            executionFailures.remove(checkpoint.workflowId)
-            releaseLease(handle)
-        } catch (suspended: WorkflowSuspendedException) {
-            executionFailures.remove(checkpoint.workflowId)
-            tracker.cancelActiveAttempt("Workflow suspended before the current step reached a durable checkpoint")
-            releaseLease(handle)
-        } catch (error: CancellationException) {
-            if (shuttingDownGracefully) {
-                withContext(NonCancellable) {
-                    runCleanupPreservingCancellation(error) {
-                        tracker.cancelActiveAttempt(
-                            "Worker shutdown cancelled the running step",
-                        )
-                    }
-                    runCleanupPreservingCancellation(error) {
-                        observability.onWorkflowAbandoned(
-                            workflowId = checkpoint.workflowId,
-                            workerId = config.workerId,
-                            lastStep = checkpoint.lastCompletedStepName,
-                            timeoutMillis = config.drainTimeoutMillis,
-                        )
-                    }
-                    runCleanupPreservingCancellation(error) {
-                        releaseLease(handle)
-                    }
-                    executionFailures.remove(checkpoint.workflowId)
+        val currentLease = leaseStore.currentLease(checkpoint.workflowName, checkpoint.workflowId)
+        if (currentLease?.leaseId != expectedLease.leaseId || currentLease.ownerId != expectedLease.ownerId) {
+            throw StaleWorkflowLeaseException(
+                "Workflow '${checkpoint.workflowName}' and workflowId='${checkpoint.workflowId}' lease was lost before retry-approval consumption",
+            )
+        }
+        when (attempt.replayPolicy) {
+            ReplayPolicy.NON_REPLAYABLE -> tracker.consumeRetryApproval(attempt)
+            ReplayPolicy.EXTERNALLY_IDEMPOTENT -> {
+                val approvedKey = attempt.approvedIdempotencyKey
+                val currentKey = tracker.currentStepReplayDescriptor()?.idempotencyKey
+                if (approvedKey.isNullOrBlank() || currentKey != approvedKey) {
+                    // Void the stale approval so the operator can issue a fresh key-bound
+                    // approval matching the current definition. The attempt stays UNKNOWN
+                    // (never consumed, never authorized execution); the resolution reason
+                    // and timestamp remain as the audit trail of the rejected approval.
+                    stepAttemptStore.updateStepAttempt(
+                        attempt.copy(
+                            resolutionAction = null,
+                            approvedIdempotencyKey = null,
+                        ),
+                    )
+                    fencedCheckpointStore.requireRecovery(
+                        workflowName = checkpoint.workflowName,
+                        workflowId = checkpoint.workflowId,
+                        expectedRevision = checkpoint.revision,
+                        record = WorkflowRecoveryRecord(
+                            reason = WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH,
+                            stepName = attempt.stepName,
+                            attemptId = attempt.attemptId,
+                            priorWorkerId = attempt.workerId,
+                            detectedAtEpochMillis = attempt.startedAt,
+                            idempotencyKey = approvedKey,
+                            instructions = "The workflow definition changed after operator approval: approved key " +
+                                "${approvedKey ?: "<none>"}, current key ${currentKey ?: "<none>"}. The stale approval " +
+                                "was voided; issue a new key-bound retryStep approval with a key matching the current " +
+                                "definition, or use failWorkflow.",
+                        ),
+                    )
+                    throw NonReplayableStepStateUnknownException(
+                        runId = attempt.runId,
+                        stepName = attempt.stepName,
+                        priorWorkerId = attempt.workerId,
+                        attemptTime = attempt.startedAt,
+                        recoveryInstructions = "The operator-approved idempotency key (${approvedKey ?: "<none>"}) " +
+                            "differs from the current workflow definition (${currentKey ?: "<none>"}). The stale " +
+                            "approval was voided; obtain a new key-bound approval matching the current definition, " +
+                            "or use failWorkflow.",
+                    )
                 }
+                tracker.consumeRetryApproval(attempt)
             }
-            throw error
-        } catch (error: Throwable) {
-            error.rethrowIfCancellation()
-            executionFailures[checkpoint.workflowId] = error
-            tracker.failActiveAttempt(error)
-            releaseLease(handle)
-            throw error
+            ReplayPolicy.PURE,
+            ReplayPolicy.IDEMPOTENT,
+            -> throw WorkflowRecoveryStateException(
+                "Retry approval on attempt '${attempt.attemptId}' has unsupported replay policy ${attempt.replayPolicy}",
+            )
         }
     }
 
@@ -788,6 +880,20 @@ private class ExecutionTracker(
             activeAttempt = attempt
         }
         observability.onStepAttemptStarted(context.workflowId, stepName, attempt.attemptId, workerId)
+    }
+
+    suspend fun consumeRetryApproval(attempt: StepAttemptRecord) {
+        if (leaseProvider() == null) {
+            throw StaleWorkflowLeaseException(
+                "Workflow '${workflow.name}' and workflowId='${context.workflowId}' has no active lease for retry-approval consumption",
+            )
+        }
+        stepAttemptStore.updateStepAttempt(
+            attempt.copy(
+                status = StepAttemptStatus.FAILED,
+                completedAt = attempt.completedAt ?: System.currentTimeMillis(),
+            ),
+        )
     }
 
     fun enqueueStartAttempt(stepName: String) {

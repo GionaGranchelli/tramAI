@@ -299,7 +299,7 @@ class WorkflowRecoveryContractTest {
     }
 
     @Test
-    fun `retryStep marks the exact unresolved attempt failed with resolution evidence`() {
+    fun `retryStep persists approval on the exact unresolved attempt`() {
         runBlocking {
             val store = InMemoryWorkflowCheckpointStore()
             val controller = InMemoryWorkflowRecoveryController(store, store)
@@ -336,9 +336,11 @@ class WorkflowRecoveryContractTest {
             )
 
             val attempt = store.listStepAttempts(saved.workflowId).single()
-            assertThat(attempt.status).isEqualTo(StepAttemptStatus.FAILED)
+            assertThat(attempt.status).isEqualTo(StepAttemptStatus.UNKNOWN)
+            assertThat(attempt.resolutionAction).isEqualTo(StepAttemptResolutionAction.RETRY_APPROVED)
             assertThat(attempt.resolutionReason).isEqualTo("operator confirmed safe to retry")
             assertThat(attempt.resolutionAtEpochMillis).isNotNull
+            assertThat(attempt.approvedIdempotencyKey).isNull()
             val after = store.load(saved.workflowName, saved.workflowId)!!
             assertThat(after.recoveryState).isSameAs(WorkflowRecoveryState.Normal)
         }
@@ -575,6 +577,197 @@ class WorkflowRecoveryContractTest {
     }
 
     @Test
+    fun `key-bound retry accepts externally idempotent recovery reasons`() {
+        runBlocking {
+            for (recoveryReason in listOf(
+                WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING,
+                WorkflowRecoveryReason.IDEMPOTENCY_KEY_MISMATCH,
+            )) {
+                val store = InMemoryWorkflowCheckpointStore()
+                val saved = store.save(sampleCheckpoint())
+                store.recordStepAttempt(unresolvedAttempt(saved.workflowId, ReplayPolicy.EXTERNALLY_IDEMPOTENT))
+                val required = store.requireRecovery(
+                    saved.workflowName,
+                    saved.workflowId,
+                    saved.revision,
+                    recoveryRecord(recoveryReason),
+                )
+
+                InMemoryWorkflowRecoveryController(store, store).retryStep(
+                    saved.workflowName,
+                    saved.workflowId,
+                    required.revision,
+                    "operator approved exact key",
+                    "approved-key",
+                )
+
+                val attempt = store.listStepAttempts(saved.workflowId).single()
+                assertThat(attempt.status).isEqualTo(StepAttemptStatus.UNKNOWN)
+                assertThat(attempt.resolutionAction).isEqualTo(StepAttemptResolutionAction.RETRY_APPROVED)
+                assertThat(attempt.approvedIdempotencyKey).isEqualTo("approved-key")
+            }
+        }
+    }
+
+    @Test
+    fun `key-bound retry rejects blank approved key without mutation`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val saved = store.save(sampleCheckpoint())
+            store.recordStepAttempt(unresolvedAttempt(saved.workflowId, ReplayPolicy.EXTERNALLY_IDEMPOTENT))
+            val required = store.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord(
+                WorkflowRecoveryReason.EXTERNAL_IDEMPOTENCY_KEY_MISSING,
+            ))
+
+            assertThatThrownBy {
+                runBlocking {
+                    InMemoryWorkflowRecoveryController(store, store).retryStep(
+                        saved.workflowName, saved.workflowId, required.revision, "reason", "   ",
+                    )
+                }
+            }.isInstanceOf(IllegalArgumentException::class.java)
+            assertThat(store.listStepAttempts(saved.workflowId).single().resolutionAction).isNull()
+            assertThat(store.load(saved.workflowName, saved.workflowId)!!.recoveryState)
+                .isInstanceOf(WorkflowRecoveryState.Required::class.java)
+        }
+    }
+
+    @Test
+    fun `retry approval rejects terminal attempts and preserves required checkpoint`() {
+        runBlocking {
+            for (status in listOf(StepAttemptStatus.COMPLETED, StepAttemptStatus.FAILED, StepAttemptStatus.CANCELLED)) {
+                val store = InMemoryWorkflowCheckpointStore()
+                val saved = store.save(sampleCheckpoint())
+                store.recordStepAttempt(unresolvedAttempt(saved.workflowId).copy(status = status))
+                val required = store.requireRecovery(
+                    saved.workflowName, saved.workflowId, saved.revision, recoveryRecord(),
+                )
+                val result = runCatching {
+                    InMemoryWorkflowRecoveryController(store, store).retryStep(
+                        saved.workflowName, saved.workflowId, required.revision, "unsafe terminal mutation",
+                    )
+                }
+                assertThat(result.exceptionOrNull()).isInstanceOf(WorkflowRecoveryStateException::class.java)
+                assertThat(store.listStepAttempts(saved.workflowId).single().resolutionAction).isNull()
+                assertThat(store.load(saved.workflowName, saved.workflowId)!!.recoveryState)
+                    .isInstanceOf(WorkflowRecoveryState.Required::class.java)
+            }
+        }
+    }
+
+    @Test
+    fun `approval survives clear failure and identical retry clears while conflict is rejected`() {
+        runBlocking {
+            val delegate = InMemoryWorkflowCheckpointStore()
+            val checkpointStore = FailingClearOnceStore(delegate)
+            val saved = delegate.save(sampleCheckpoint())
+            delegate.recordStepAttempt(unresolvedAttempt(saved.workflowId))
+            val required = delegate.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord())
+            val controller = InMemoryWorkflowRecoveryController(checkpointStore, delegate)
+
+            assertThat(runCatching {
+                controller.retryStep(saved.workflowName, saved.workflowId, required.revision, "approved")
+            }.exceptionOrNull()).isInstanceOf(IllegalStateException::class.java)
+            assertThat(delegate.listStepAttempts(saved.workflowId).single().resolutionAction)
+                .isEqualTo(StepAttemptResolutionAction.RETRY_APPROVED)
+            assertThat(delegate.load(saved.workflowName, saved.workflowId)!!.recoveryState)
+                .isInstanceOf(WorkflowRecoveryState.Required::class.java)
+
+            assertThat(runCatching {
+                controller.retryStep(saved.workflowName, saved.workflowId, required.revision, "different")
+            }.exceptionOrNull()).isInstanceOf(WorkflowRecoveryStateException::class.java)
+
+            val cleared = controller.retryStep(saved.workflowName, saved.workflowId, required.revision, "approved")
+            assertThat(cleared.recoveryState).isSameAs(WorkflowRecoveryState.Normal)
+        }
+    }
+
+    @Test
+    fun `failWorkflow records WORKFLOW_FAILED evidence only after successful deletion`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val saved = store.save(sampleCheckpoint())
+            store.recordStepAttempt(
+                unresolvedAttempt(saved.workflowId).copy(approvedIdempotencyKey = "must-be-cleared"),
+            )
+            val required = store.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord())
+
+            InMemoryWorkflowRecoveryController(store, store).failWorkflow(
+                saved.workflowName, saved.workflowId, required.revision, "operator failed workflow",
+            )
+
+            val evidence = store.listStepAttempts(saved.workflowId).single()
+            assertThat(store.load(saved.workflowName, saved.workflowId)).isNull()
+            assertThat(evidence.status).isEqualTo(StepAttemptStatus.FAILED)
+            assertThat(evidence.resolutionAction).isEqualTo(StepAttemptResolutionAction.WORKFLOW_FAILED)
+            assertThat(evidence.approvedIdempotencyKey).isNull()
+        }
+    }
+
+    @Test
+    fun `failed deletion writes no workflow-failed evidence`() {
+        runBlocking {
+            val delegate = InMemoryWorkflowCheckpointStore()
+            val saved = delegate.save(sampleCheckpoint())
+            delegate.recordStepAttempt(unresolvedAttempt(saved.workflowId))
+            val required = delegate.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord())
+
+            assertThat(runCatching {
+                InMemoryWorkflowRecoveryController(FailingDeleteStore(delegate), delegate).failWorkflow(
+                    saved.workflowName, saved.workflowId, required.revision, "fail",
+                )
+            }.exceptionOrNull()).isInstanceOf(IllegalStateException::class.java)
+            assertThat(delegate.listStepAttempts(saved.workflowId).single().resolutionAction).isNull()
+            assertThat(delegate.load(saved.workflowName, saved.workflowId)!!.recoveryState)
+                .isInstanceOf(WorkflowRecoveryState.Required::class.java)
+        }
+    }
+
+    @Test
+    fun `evidence write failure after deletion does not recreate checkpoint`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val saved = store.save(sampleCheckpoint())
+            store.recordStepAttempt(unresolvedAttempt(saved.workflowId))
+            val required = store.requireRecovery(saved.workflowName, saved.workflowId, saved.revision, recoveryRecord())
+
+            InMemoryWorkflowRecoveryController(store, FailingAttemptUpdateStore(store)).failWorkflow(
+                saved.workflowName, saved.workflowId, required.revision, "fail",
+            )
+
+            assertThat(store.load(saved.workflowName, saved.workflowId)).isNull()
+            assertThat(store.listStepAttempts(saved.workflowId).single().resolutionAction).isNull()
+        }
+    }
+
+    @Test
+    fun `resolution fields round trip and old records retain null defaults`() {
+        runBlocking {
+            val store = InMemoryWorkflowCheckpointStore()
+            val old = unresolvedAttempt("old-run")
+            store.recordStepAttempt(old)
+            assertThat(store.listStepAttempts("old-run").single().resolutionAction).isNull()
+            assertThat(store.listStepAttempts("old-run").single().approvedIdempotencyKey).isNull()
+
+            val updated = old.copy(
+                resolutionAction = StepAttemptResolutionAction.RETRY_APPROVED,
+                approvedIdempotencyKey = "key",
+            )
+            store.updateStepAttempt(updated)
+            assertThat(store.listStepAttempts("old-run").single()).isEqualTo(updated)
+        }
+    }
+
+    @Test
+    fun `unknown persisted resolution action fails closed`() {
+        assertThat(decodeResolutionAction(null)).isNull()
+        assertThat(decodeResolutionAction("RETRY_APPROVED")).isEqualTo(StepAttemptResolutionAction.RETRY_APPROVED)
+        assertThatThrownBy { decodeResolutionAction("NOPE") }
+            .isInstanceOf(IllegalArgumentException::class.java)
+            .hasMessage("Unknown StepAttemptResolutionAction: 'NOPE'")
+    }
+
+    @Test
     fun `Two concurrent requireRecovery calls — first wins`() {
         runBlocking {
             val store = InMemoryWorkflowCheckpointStore()
@@ -728,14 +921,28 @@ class WorkflowRecoveryContractTest {
         assertThat(required.record).isEqualTo(record)
     }
 
-    private fun recoveryRecord(): WorkflowRecoveryRecord = WorkflowRecoveryRecord(
-        reason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
-        stepName = "process-payment",
-        attemptId = "attempt-42",
-        priorWorkerId = "worker-7",
-        detectedAtEpochMillis = 123456,
-        idempotencyKey = "idem-key-1",
-        instructions = "confirm with operator",
+    private fun recoveryRecord(
+        reason: WorkflowRecoveryReason = WorkflowRecoveryReason.NON_REPLAYABLE_OUTCOME_UNKNOWN,
+    ): WorkflowRecoveryRecord = WorkflowRecoveryRecord(
+        reason = reason,
+        stepName = "step",
+        attemptId = "attempt-1",
+        priorWorkerId = "worker-a",
+        detectedAtEpochMillis = 10,
+    )
+
+    private fun unresolvedAttempt(
+        runId: String,
+        replayPolicy: ReplayPolicy = ReplayPolicy.NON_REPLAYABLE,
+    ): StepAttemptRecord = StepAttemptRecord(
+        runId = runId,
+        stepName = "step",
+        attemptId = "attempt-1",
+        workerId = "worker-a",
+        leaseToken = "lease-a",
+        status = StepAttemptStatus.UNKNOWN,
+        startedAt = 10,
+        replayPolicy = replayPolicy,
     )
 
     private fun sampleCheckpoint(): WorkflowCheckpoint = WorkflowCheckpoint(
@@ -778,4 +985,34 @@ private class FailingAttemptUpdateStore(
 
     override suspend fun listStepAttempts(runId: String): List<StepAttemptRecord> =
         delegate.listStepAttempts(runId)
+}
+
+private class FailingClearOnceStore(
+    private val delegate: WorkflowCheckpointStore,
+) : WorkflowCheckpointStore by delegate {
+    private var fail = true
+
+    override suspend fun clearRecovery(
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long,
+    ): WorkflowCheckpoint {
+        if (fail) {
+            fail = false
+            throw IllegalStateException("simulated clear failure")
+        }
+        return delegate.clearRecovery(workflowName, workflowId, expectedRevision)
+    }
+}
+
+private class FailingDeleteStore(
+    private val delegate: WorkflowCheckpointStore,
+) : WorkflowCheckpointStore by delegate {
+    override suspend fun delete(
+        workflowName: String,
+        workflowId: String,
+        expectedRevision: Long?,
+    ) {
+        throw IllegalStateException("simulated delete failure")
+    }
 }

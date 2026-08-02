@@ -17,6 +17,11 @@ enum class ReplayPolicy {
     NON_REPLAYABLE,
 }
 
+enum class StepAttemptResolutionAction {
+    RETRY_APPROVED,
+    WORKFLOW_FAILED,
+}
+
 data class StepAttemptRecord(
     val runId: String,
     val stepName: String,
@@ -32,7 +37,17 @@ data class StepAttemptRecord(
     val outputSummary: String? = null,
     val resolutionReason: String? = null,
     val resolutionAtEpochMillis: Long? = null,
+    val resolutionAction: StepAttemptResolutionAction? = null,
+    val approvedIdempotencyKey: String? = null,
 )
+
+internal fun decodeResolutionAction(name: String?): StepAttemptResolutionAction? =
+    if (name.isNullOrBlank()) {
+        null
+    } else {
+        StepAttemptResolutionAction.entries.firstOrNull { it.name == name }
+            ?: throw IllegalArgumentException("Unknown StepAttemptResolutionAction: '$name'")
+    }
 
 interface StepAttemptRecordStore {
     suspend fun recordStepAttempt(record: StepAttemptRecord): StepAttemptRecord
