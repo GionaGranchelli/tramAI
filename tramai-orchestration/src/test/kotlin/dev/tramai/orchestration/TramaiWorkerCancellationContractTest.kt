@@ -67,6 +67,12 @@ class TramaiWorkerCancellationContractTest {
             shutdown.await()
         }
 
+        waitUntil {
+            checkpointStore.load(workflow.name, runId) == null &&
+                checkpointStore.latestStepAttempt(runId, "work")?.status == StepAttemptStatus.COMPLETED &&
+                leaseStore.currentLease(workflow.name, runId) == null
+        }
+
         assertThat(checkpointStore.load(workflow.name, runId)).isNull()
 
         assertThat(

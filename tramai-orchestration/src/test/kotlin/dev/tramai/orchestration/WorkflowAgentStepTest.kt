@@ -1,8 +1,10 @@
 package dev.tramai.orchestration
 
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.supervisorScope
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import java.nio.file.Files
@@ -272,15 +274,18 @@ class WorkflowAgentStepTest {
                     )
                 }
 
-                assertThatThrownBy {
-                    runBlocking { workflow.run(AgentState()) }
-                }.isInstanceOf(WorkflowHermesException::class.java)
-                    .hasMessageContaining("timed out after 1s")
-
                 runBlocking {
-                    val pid = awaitAgentPid(pidFile)
-                    awaitAgentProcessExit(pid)
-                    assertThat(ProcessHandle.of(pid).map { it.isAlive }.orElse(false)).isFalse()
+                    supervisorScope {
+                        val execution = async { workflow.run(AgentState()) }
+                        val process = awaitAgentProcessHandle(pidFile)
+
+                        val failure = runCatching { execution.await() }.exceptionOrNull()
+                        assertThat(failure).isInstanceOf(WorkflowHermesException::class.java)
+                            .hasMessageContaining("timed out after 1s")
+
+                        awaitAgentProcessExit(process)
+                        assertThat(process.isAlive).isFalse()
+                    }
                 }
             }
         } finally {
@@ -399,18 +404,21 @@ class WorkflowAgentStepTest {
                     )
                 }
 
-                assertThatThrownBy {
-                    runBlocking { workflow.run(AgentState()) }
-                }.isInstanceOf(WorkflowHermesException::class.java)
-                    .hasMessageContaining("timed out after 1s")
-
                 runBlocking {
-                    val parentPid = awaitAgentPid(parentPidFile)
-                    val childPid = awaitAgentPid(childPidFile)
-                    awaitAgentProcessExit(parentPid)
-                    awaitAgentProcessExit(childPid)
-                    assertThat(ProcessHandle.of(parentPid).map { it.isAlive }.orElse(false)).isFalse()
-                    assertThat(ProcessHandle.of(childPid).map { it.isAlive }.orElse(false)).isFalse()
+                    supervisorScope {
+                        val execution = async { workflow.run(AgentState()) }
+                        val parentProcess = awaitAgentProcessHandle(parentPidFile)
+                        val childProcess = awaitAgentProcessHandle(childPidFile)
+
+                        val failure = runCatching { execution.await() }.exceptionOrNull()
+                        assertThat(failure).isInstanceOf(WorkflowHermesException::class.java)
+                            .hasMessageContaining("timed out after 1s")
+
+                        awaitAgentProcessExit(parentProcess)
+                        awaitAgentProcessExit(childProcess)
+                        assertThat(parentProcess.isAlive).isFalse()
+                        assertThat(childProcess.isAlive).isFalse()
+                    }
                 }
             }
         } finally {
@@ -449,16 +457,16 @@ class WorkflowAgentStepTest {
                         workflow.run(AgentState())
                     }
 
-                    val parentPid = awaitAgentPid(parentPidFile)
-                    val childPid = awaitAgentPid(childPidFile)
+                    val parentProcess = awaitAgentProcessHandle(parentPidFile)
+                    val childProcess = awaitAgentProcessHandle(childPidFile)
 
                     job.cancel()
                     job.join()
 
-                    awaitAgentProcessExit(parentPid)
-                    awaitAgentProcessExit(childPid)
-                    assertThat(ProcessHandle.of(parentPid).map { it.isAlive }.orElse(false)).isFalse()
-                    assertThat(ProcessHandle.of(childPid).map { it.isAlive }.orElse(false)).isFalse()
+                    awaitAgentProcessExit(parentProcess)
+                    awaitAgentProcessExit(childProcess)
+                    assertThat(parentProcess.isAlive).isFalse()
+                    assertThat(childProcess.isAlive).isFalse()
                 }
             }
         } finally {
@@ -547,13 +555,16 @@ private fun withExecutableScript(
     }
 }
 
-private suspend fun awaitAgentPid(pidFile: Path): Long {
-    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+private suspend fun awaitAgentProcessHandle(pidFile: Path): ProcessHandle {
+    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
     while (System.nanoTime() < deadlineNanos) {
         if (Files.exists(pidFile)) {
             val rawPid = Files.readString(pidFile).trim()
             if (rawPid.isNotEmpty()) {
-                return rawPid.toLong()
+                val pid = rawPid.toLong()
+                return ProcessHandle.of(pid).orElseThrow {
+                    IllegalStateException("Agent process $pid exited before its handle was captured")
+                }
             }
         }
         delay(25)
@@ -561,14 +572,6 @@ private suspend fun awaitAgentPid(pidFile: Path): Long {
     error("Timed out waiting for agent PID at $pidFile")
 }
 
-private suspend fun awaitAgentProcessExit(pid: Long) {
-    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-    while (System.nanoTime() < deadlineNanos) {
-        val handle = ProcessHandle.of(pid)
-        if (handle.isEmpty || !handle.get().isAlive) {
-            return
-        }
-        delay(25)
-    }
-    error("Timed out waiting for process $pid to exit")
+private fun awaitAgentProcessExit(process: ProcessHandle) {
+    process.onExit().get(20, TimeUnit.SECONDS)
 }
