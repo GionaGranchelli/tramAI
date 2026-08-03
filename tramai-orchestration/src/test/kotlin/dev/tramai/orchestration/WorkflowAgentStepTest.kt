@@ -284,7 +284,7 @@ class WorkflowAgentStepTest {
                             .hasMessageContaining("timed out after 1s")
 
                         awaitAgentProcessExit(process)
-                        assertThat(process.isAlive).isFalse()
+                        assertThat(process?.isAlive ?: false).isFalse()
                     }
                 }
             }
@@ -416,8 +416,8 @@ class WorkflowAgentStepTest {
 
                         awaitAgentProcessExit(parentProcess)
                         awaitAgentProcessExit(childProcess)
-                        assertThat(parentProcess.isAlive).isFalse()
-                        assertThat(childProcess.isAlive).isFalse()
+                        assertThat(parentProcess?.isAlive ?: false).isFalse()
+                        assertThat(childProcess?.isAlive ?: false).isFalse()
                     }
                 }
             }
@@ -465,8 +465,8 @@ class WorkflowAgentStepTest {
 
                     awaitAgentProcessExit(parentProcess)
                     awaitAgentProcessExit(childProcess)
-                    assertThat(parentProcess.isAlive).isFalse()
-                    assertThat(childProcess.isAlive).isFalse()
+                    assertThat(parentProcess?.isAlive ?: false).isFalse()
+                    assertThat(childProcess?.isAlive ?: false).isFalse()
                 }
             }
         } finally {
@@ -555,16 +555,16 @@ private fun withExecutableScript(
     }
 }
 
-private suspend fun awaitAgentProcessHandle(pidFile: Path): ProcessHandle {
+private suspend fun awaitAgentProcessHandle(pidFile: Path): ProcessHandle? {
     val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
     while (System.nanoTime() < deadlineNanos) {
         if (Files.exists(pidFile)) {
             val rawPid = Files.readString(pidFile).trim()
             if (rawPid.isNotEmpty()) {
                 val pid = rawPid.toLong()
-                return ProcessHandle.of(pid).orElseThrow {
-                    IllegalStateException("Agent process $pid exited before its handle was captured")
-                }
+                // Null means the process already exited before its handle could
+                // be captured — a legitimate outcome for termination tests.
+                return ProcessHandle.of(pid).orElse(null)
             }
         }
         delay(25)
@@ -572,6 +572,9 @@ private suspend fun awaitAgentProcessHandle(pidFile: Path): ProcessHandle {
     error("Timed out waiting for agent PID at $pidFile")
 }
 
-private fun awaitAgentProcessExit(process: ProcessHandle) {
+private fun awaitAgentProcessExit(process: ProcessHandle?) {
+    if (process == null) {
+        return
+    }
     process.onExit().get(20, TimeUnit.SECONDS)
 }

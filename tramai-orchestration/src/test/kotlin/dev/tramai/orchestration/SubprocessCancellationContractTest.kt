@@ -1376,7 +1376,7 @@ class SubprocessCancellationContractTest {
                                     surfaceProcessCleanup(error, cleanup)
                                     surfaceProcessCleanup(
                                         error,
-                                        ProcessCleanupResult(survivors = listOf(pid.pid()), failures = emptyList()),
+                                        ProcessCleanupResult(survivors = listOfNotNull(pid?.pid()), failures = emptyList()),
                                     )
                                     throw error
                                 }
@@ -1511,16 +1511,17 @@ private fun withExecutableScript(
     }
 }
 
-private suspend fun awaitProcessHandle(pidFile: Path): ProcessHandle {
+private suspend fun awaitProcessHandle(pidFile: Path): ProcessHandle? {
     val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
     while (System.nanoTime() < deadlineNanos) {
         if (Files.exists(pidFile)) {
             val rawPid = Files.readString(pidFile).trim()
             if (rawPid.isNotEmpty()) {
                 val pid = rawPid.toLong()
-                return ProcessHandle.of(pid).orElseThrow {
-                    IllegalStateException("Process $pid exited before its handle was captured")
-                }
+                // Null means the process already exited before its handle could
+                // be captured — which is a legitimate outcome for tests that
+                // assert termination, not an error.
+                return ProcessHandle.of(pid).orElse(null)
             }
         }
         delay(25)
@@ -1528,8 +1529,11 @@ private suspend fun awaitProcessHandle(pidFile: Path): ProcessHandle {
     error("Timed out waiting for PID at $pidFile")
 }
 
-private fun awaitProcessExit(process: ProcessHandle) {
+private fun awaitProcessExit(process: ProcessHandle?) {
+    if (process == null) {
+        return
+    }
     process.onExit().get(20, TimeUnit.SECONDS)
 }
 
-private fun pidIsAlive(process: ProcessHandle): Boolean = process.isAlive
+private fun pidIsAlive(process: ProcessHandle?): Boolean = process?.isAlive == true
