@@ -266,6 +266,16 @@ class TramaiWorkerCancellationContractTest {
             worker.shutdown()
         }
 
+        // Drain timeout is a bound on shutdown, so cancellation cleanup may finish
+        // asynchronously after shutdown returns. Coordinate on the exact durable
+        // outcome instead of assuming a loaded dispatcher completes it in the
+        // residual (often 1 ms) post-cancellation window.
+        waitUntil {
+            checkpointStore.latestStepAttempt(runId, "hold-lease")?.status ==
+                StepAttemptStatus.CANCELLED &&
+                delegateLeaseStore.currentLease(workflow.name, runId) == null
+        }
+
         assertThat(observer.leaseRenewalFailedCount).isZero()
 
         assertThat(

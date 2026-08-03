@@ -11,6 +11,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import java.io.IOException
+import java.io.InputStream
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -138,6 +140,22 @@ internal class CancellableProcessLifecycle(
 
     /** Whether [requestTermination] has already run (used for exactly-once cleanup). */
     fun isTerminationRequested(): Boolean = state.get() != State.RUNNING
+
+    /**
+     * Read one chunk from an owned process stream. Closing stdout/stderr is part of
+     * [requestTermination], and the JDK is allowed to wake a concurrent blocking read
+     * by throwing [IOException] instead of returning EOF. Treat that specific lifecycle
+     * race as EOF only after termination has been requested; genuine read failures while
+     * the process is running remain visible to the caller.
+     */
+    fun readStreamChunk(inputStream: InputStream, buffer: ByteArray): Int? = try {
+        inputStream.read(buffer)
+    } catch (error: IOException) {
+        if (!isTerminationRequested()) {
+            throw error
+        }
+        null
+    }
 
     /**
      * Non-suspending, idempotent, never throws. Snapshots the tree FIRST (before any
