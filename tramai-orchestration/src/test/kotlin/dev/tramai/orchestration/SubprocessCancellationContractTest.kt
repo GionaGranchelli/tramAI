@@ -1014,6 +1014,58 @@ class SubprocessCancellationContractTest {
         }
     }
 
+    @Test
+    fun `termination request keeps root alive to reap a term-ignoring descendant`() {
+        val parentPidFile = Files.createTempFile("subproc-reap-parent", ".pid")
+        val childPidFile = Files.createTempFile("subproc-reap-child", ".pid")
+        try {
+            withExecutableScript(
+                name = "reap-before-root-exit",
+                content = """
+                    |#!/bin/sh
+                    |echo $$ > '${parentPidFile.toAbsolutePath()}'
+                    |sh -c 'trap "" TERM; exec sleep 30' &
+                    |child=${'$'}!
+                    |echo ${'$'}child > '${childPidFile.toAbsolutePath()}'
+                    |wait ${'$'}child
+                """.trimMargin(),
+            ) { script ->
+                runBlocking {
+                    withTimeout(15_000) {
+                        val process = ProcessBuilder(script.toString()).start()
+                        try {
+                            val lifecycle = CancellableProcessLifecycle(process)
+                            val parentPid = awaitPid(parentPidFile)
+                            val childPid = awaitPid(childPidFile)
+
+                            lifecycle.requestTermination()
+
+                            // The child ignores the graceful request. Keep its parent alive
+                            // until bounded cleanup force-kills the child and lets `wait`
+                            // reap it; killing both back-to-back can leave an orphaned zombie.
+                            assertThat(pidIsAlive(childPid)).isTrue()
+                            assertThat(process.waitFor(250, TimeUnit.MILLISECONDS)).isFalse()
+                            assertThat(pidIsAlive(parentPid)).isTrue()
+
+                            val cleanup = lifecycle.terminateAndAwait()
+                            awaitProcessExit(parentPid)
+                            awaitProcessExit(childPid)
+                            assertThat(pidIsAlive(parentPid)).isFalse()
+                            assertThat(pidIsAlive(childPid)).isFalse()
+                            assertThat(cleanup.survivors).isEmpty()
+                        } finally {
+                            process.destroyForcibly()
+                            runCatching { process.waitFor(5, TimeUnit.SECONDS) }
+                        }
+                    }
+                }
+            }
+        } finally {
+            Files.deleteIfExists(parentPidFile)
+            Files.deleteIfExists(childPidFile)
+        }
+    }
+
     // ═══ 10. Cleanup diagnostics are surfaced exactly once ═══
 
     @Test
