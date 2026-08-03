@@ -1632,7 +1632,7 @@ internal class TramaiInvocationHandler(
         for ((index, toolCall) in toolCalls.withIndex()) {
             val tool = toolRegistry.resolve(toolCall.name)
             val toolResult = if (tool == null) {
-                ToolResult.PermanentFailure(
+                ToolResult.SafePermanentFailure(
                     code = ToolFailureCode.EXECUTION_FAILED,
                     modelMessage = ModelVisibleToolMessage.trusted("Tool '<unregistered>' not found"),
                 )
@@ -2006,10 +2006,20 @@ internal class TramaiInvocationHandler(
         is ToolResult.Success -> createToolSuccessMessage(toolResult, toolCallId)
         is ToolResult.InvalidInput -> Message(
             role = MessageRole.TOOL,
+            content = "Error: ${toolResult.message}",
+            toolCallId = toolCallId,
+        )
+        is ToolResult.SafeInvalidInput -> Message(
+            role = MessageRole.TOOL,
             content = "Error: ${toolResult.modelMessage?.value ?: toolResult.code.defaultModelMessage}",
             toolCallId = toolCallId,
         )
         is ToolResult.PermanentFailure -> Message(
+            role = MessageRole.TOOL,
+            content = "Permanent error: ${toolResult.message}",
+            toolCallId = toolCallId,
+        )
+        is ToolResult.SafePermanentFailure -> Message(
             role = MessageRole.TOOL,
             content = "Permanent error: ${toolResult.modelMessage?.value ?: toolResult.code.defaultModelMessage}",
             toolCallId = toolCallId,
@@ -2516,8 +2526,8 @@ internal class TramaiInvocationHandler(
     ): ToolResult = try {
         tool.execute(input, context)
     } catch (e: dev.tramai.core.exception.ToolInvalidInputException) {
-        recordToolFailureDiagnostic(tool, ToolFailureCode.INVALID_INPUT, context.attemptNumber, retryable = false, e)
-        ToolResult.InvalidInput(
+        recordToolFailureDiagnostic(tool, ToolFailureCode.INVALID_INPUT, context.attemptNumber, retryClassified = false, e)
+        ToolResult.SafeInvalidInput(
             code = ToolFailureCode.INVALID_INPUT,
             modelMessage = e.safeModelMessage,
         )
@@ -2525,15 +2535,15 @@ internal class TramaiInvocationHandler(
         throw e
     } catch (e: Exception) {
         e.rethrowIfCancellation()
-        recordToolFailureDiagnostic(tool, ToolFailureCode.EXECUTION_FAILED, context.attemptNumber, retryable = tool.idempotent, e)
+        recordToolFailureDiagnostic(tool, ToolFailureCode.EXECUTION_FAILED, context.attemptNumber, retryClassified = tool.idempotent, e)
         if (tool.idempotent) {
             ToolResult.TransientFailure(e)
         } else {
-            ToolResult.PermanentFailure(code = ToolFailureCode.EXECUTION_FAILED)
+            ToolResult.SafePermanentFailure(code = ToolFailureCode.EXECUTION_FAILED)
         }
     }
 
-    private fun toolRetryTerminalResult(
+    private suspend fun toolRetryTerminalResult(
         result: ToolResult,
         tool: ResolvedTool,
         attemptIndex: Int,
@@ -2550,9 +2560,11 @@ internal class TramaiInvocationHandler(
             return null
         }
 
-        recordToolFailureDiagnostic(tool, ToolFailureCode.RETRY_EXHAUSTED, attemptIndex, retryable = false, result.cause)
+        // Retry-exhaustion classification is an engine decision; the tool
+        // cannot override it.
+        recordToolFailureDiagnostic(tool, ToolFailureCode.RETRY_EXHAUSTED, attemptIndex, retryClassified = false, result.cause)
 
-        return ToolResult.PermanentFailure(
+        return ToolResult.SafePermanentFailure(
             code = ToolFailureCode.RETRY_EXHAUSTED,
         )
     }
@@ -2561,12 +2573,16 @@ internal class TramaiInvocationHandler(
      * Delivers a [ToolFailureDiagnosticEvent] to the explicitly configured
      * diagnostic observer. Fail-open: an observer failure must never replace
      * cancellation, the original tool failure, or a successful tool result.
+     *
+     * A [CancellationException] thrown by the observer while the enclosing
+     * coroutine is still active is treated as an observer failure and
+     * swallowed; only genuine coroutine cancellation propagates.
      */
-    private fun recordToolFailureDiagnostic(
+    private suspend fun recordToolFailureDiagnostic(
         tool: ResolvedTool,
         code: ToolFailureCode,
         attempt: Int,
-        retryable: Boolean,
+        retryClassified: Boolean,
         failure: Throwable,
     ) {
         try {
@@ -2575,12 +2591,13 @@ internal class TramaiInvocationHandler(
                     toolName = tool.name,
                     code = code,
                     attempt = attempt,
-                    retryable = retryable,
+                    retryClassified = retryClassified,
                     failure = failure,
                 ),
             )
         } catch (e: CancellationException) {
-            throw e
+            currentCoroutineContext().ensureActive()
+            // Job is still active: this CE came from the observer, so swallow it.
         } catch (e: Exception) {
             e.rethrowIfCancellation()
             // Fail-open: a diagnostic-sink failure must never replace the tool failure.
@@ -3764,7 +3781,7 @@ internal class TramaiInvocationHandler(
         actualIndex: Int,
     ): ToolResult {
         if (tool == null) {
-            return ToolResult.PermanentFailure(
+            return ToolResult.SafePermanentFailure(
                 code = ToolFailureCode.EXECUTION_FAILED,
                 modelMessage = ModelVisibleToolMessage.trusted("Tool '<unregistered>' not found"),
             )

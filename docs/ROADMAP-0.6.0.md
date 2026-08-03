@@ -333,7 +333,7 @@ This phase is intentionally completed before large decomposition work.
    - public caller message; — **PR #219:** fixed default per code.
    - model-visible message; — **PR #219:** `ModelVisibleToolMessage.trusted(...)`.
    - audit/telemetry metadata. — pending later slice.
-3. Remove arbitrary exception messages from model-visible tool results. — **PR #219:** `ToolResult.InvalidInput`/`PermanentFailure` no longer carry exception text; built-in engine and standalone paths never derive model text from `Throwable.message`.
+3. Remove arbitrary exception messages from model-visible tool results. — **PR #219:** new `ToolResult.SafeInvalidInput`/`SafePermanentFailure` carry typed codes + trusted model messages; the legacy message variants are retained but deprecated and never used by built-in engine or standalone paths (no `Throwable.message` derivation).
 4. Review provider HTTP failure handling so response bodies are:
    - bounded;
    - sanitised;

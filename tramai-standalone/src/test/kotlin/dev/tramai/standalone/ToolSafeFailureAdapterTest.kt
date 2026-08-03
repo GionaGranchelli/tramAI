@@ -72,7 +72,7 @@ class ToolSafeFailureAdapterTest {
         val event = diagnostics.events.single()
         assertThat(event.code).isEqualTo(ToolFailureCode.EXECUTION_FAILED)
         assertThat(event.attempt).isZero()
-        assertThat(event.retryable).isFalse()
+        assertThat(event.retryClassified).isFalse()
         assertThat(event.failure.message).contains("sk-secret-219")
 
         assertToolMessages(provider, "Permanent error: Tool execution failed")
@@ -114,7 +114,13 @@ class ToolSafeFailureAdapterTest {
             ToolFailureCode.EXECUTION_FAILED,
             ToolFailureCode.RETRY_EXHAUSTED,
         )
-        assertThat(diagnostics.events[2].retryable).isFalse()
+        // Attempt indices come from ToolExecutionContext.attemptNumber: the
+        // adapter reports per-attempt diagnostics with the engine's attempt
+        // index, matching the engine-level event sequence.
+        assertThat(diagnostics.events.map { it.attempt }).containsExactly(0, 1, 1)
+        assertThat(diagnostics.events[0].retryClassified).isTrue()
+        assertThat(diagnostics.events[1].retryClassified).isTrue()
+        assertThat(diagnostics.events[2].retryClassified).isFalse()
 
         assertToolMessages(provider, "Permanent error: Tool execution failed")
         assertNoLeak(provider)
@@ -284,7 +290,7 @@ class ToolSafeFailureAdapterTest {
         val diagnostics = RecordingDiagnosticObserver()
 
         // tools() is called before toolFailureDiagnosticObserver() on purpose:
-        // the adapter resolves the observer lazily at failure time.
+        // tool resolution happens at build() with the final observer snapshot.
         val tramai = Tramai {
             provider(provider, default = true)
             model("test-model", "mock")
@@ -297,6 +303,38 @@ class ToolSafeFailureAdapterTest {
 
         assertThat(diagnostics.events).hasSize(1)
         assertThat(diagnostics.events.single().code).isEqualTo(ToolFailureCode.EXECUTION_FAILED)
+    }
+
+    @Test
+    fun `mutating the builder after build does not redirect runtime diagnostics`() {
+        val tool = FailingTool(idempotent = false, failure = RuntimeException("boom"))
+        val provider = ToolLoopProvider(
+            ModelResponse(
+                content = "using tool",
+                toolCalls = listOf(ToolCall("1", tool.name, "\"x\"")),
+            ),
+            ModelResponse(content = "done"),
+        )
+        val observerA = RecordingDiagnosticObserver()
+        val observerB = RecordingDiagnosticObserver()
+
+        val builder = Tramai.builder()
+            .provider(provider, default = true)
+            .model("test-model", "mock")
+            .tools(tool)
+            .toolFailureDiagnosticObserver(observerA)
+
+        val runtime = builder.build()
+        val service = runtime.create<ToolTestService>()
+
+        // Mutate the builder after build(): diagnostics of the built runtime
+        // must remain bound to the frozen observer snapshot (observerA).
+        builder.toolFailureDiagnosticObserver(observerB)
+
+        runBlocking { service.execute("input") }
+
+        assertThat(observerA.events).hasSize(1)
+        assertThat(observerB.events).isEmpty()
     }
 
     @Test

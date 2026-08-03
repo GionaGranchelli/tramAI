@@ -12,7 +12,10 @@ import dev.tramai.core.model.ToolFailureCode
  *
  * Failure semantics are fail-open: an observer exception is swallowed on
  * ordinary failure paths and must never replace cancellation, the original
- * tool failure, or a successful tool result.
+ * tool failure, or a successful tool result. An observer that throws
+ * [kotlinx.coroutines.CancellationException] while the enclosing coroutine is
+ * still active is treated the same as any other observer failure and
+ * swallowed; only genuine coroutine cancellation propagates.
  */
 fun interface ToolFailureDiagnosticObserver {
     fun record(event: ToolFailureDiagnosticEvent)
@@ -29,14 +32,14 @@ object NoOpToolFailureDiagnosticObserver : ToolFailureDiagnosticObserver {
  * @property toolName the tool that failed
  * @property code the [ToolFailureCode] the engine classified the failure as
  * @property attempt the zero-based attempt index within the retry loop
- * @property retryable true when the failure is retry-classified (an idempotent
- * tool with attempts remaining); false for the terminal event
+ * @property retryClassified true when the failure is classified as retryable
+ * (an idempotent tool); false for invalid-input and terminal exhaustion events
  * @property failure the original throwable; never forwarded beyond this observer
  */
 data class ToolFailureDiagnosticEvent(
     val toolName: String,
     val code: ToolFailureCode,
     val attempt: Int,
-    val retryable: Boolean,
+    val retryClassified: Boolean,
     val failure: Throwable,
 )

@@ -36,6 +36,8 @@ import dev.tramai.core.security.DlpRedactionAuditEmitter
 import dev.tramai.core.security.NoOpDlpInterceptor
 import dev.tramai.core.security.NoOpDlpRedactionAuditEmitter
 import dev.tramai.core.security.PromptSanitizer
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import dev.tramai.engine.CircuitBreakerSettings
 import dev.tramai.engine.EngineEventObserver
 import dev.tramai.engine.NoOpEngineEventObserver
@@ -140,7 +142,10 @@ class Tramai private constructor(
      */
     class Builder {
         private val registryBuilder = ProviderRegistry.builder()
-        private val tools = mutableMapOf<String, ResolvedTool>()
+        // Raw tools are kept until build() so the runtime is resolved against
+        // a frozen snapshot of the builder state (immutability of the built
+        // Tramai instance).
+        private val tools = mutableMapOf<String, TramaiTool<*, *>>()
         private var operationObserver: OperationObserver = NoOpOperationObserver
         private var operationInterceptor: OperationInterceptor = NoOpOperationInterceptor
         private var responseCache: OperationResponseCache = NoOpOperationResponseCache
@@ -186,7 +191,7 @@ class Tramai private constructor(
                 if (this.tools.containsKey(tool.name)) {
                     throw ConfigurationException("Duplicate tool name registered: ${tool.name}")
                 }
-                this.tools[tool.name] = createResolvedTool(tool, handler) { toolFailureDiagnosticObserver }
+                this.tools[tool.name] = tool
             }
         }
 
@@ -447,9 +452,16 @@ class Tramai private constructor(
                 }
             }
 
+            // Freeze the builder state: the observer and the resolved tools are
+            // snapshotted now, so mutating this builder after build() can never
+            // redirect diagnostics of the built runtime.
             return Tramai(
                 providerRegistry = registryBuilder.build(),
-                toolRegistry = ToolRegistry(tools.toMap()),
+                toolRegistry = ToolRegistry(
+                    tools.mapValues { (_, tool) ->
+                        createResolvedTool(tool, handler, toolFailureDiagnosticObserver)
+                    },
+                ),
                 operationObserver = operationObserver,
                 operationInterceptor = operationInterceptor,
                 responseCache = responseCache,
@@ -494,14 +506,13 @@ fun Tramai(configure: Tramai.Builder.() -> Unit): Tramai = Tramai.builder()
  * Creates a [ResolvedTool] that wraps a [TramaiTool] with schema generation and
  * deserialization via a [JacksonStructuredOutputHandler].
  *
- * @param observer lazily resolves the configured diagnostic observer so tools
- * registered before [Tramai.Builder.toolFailureDiagnosticObserver] still see
- * the final configuration at failure time.
+ * @param observer the diagnostic observer frozen at build time; the resolved
+ * tool is bound to it permanently and cannot be redirected afterwards.
  */
 private fun createResolvedTool(
     tool: TramaiTool<*, *>,
     handler: JacksonStructuredOutputHandler,
-    observer: () -> ToolFailureDiagnosticObserver,
+    observer: ToolFailureDiagnosticObserver,
 ): ResolvedTool = object : ResolvedTool {
     override val name: String = tool.name
     override val description: String = tool.description
@@ -519,8 +530,8 @@ private fun createResolvedTool(
         val typedInput = try {
             handler.deserialize(input, tool.inputType.createType())
         } catch (e: ToolInvalidInputException) {
-            recordAdapterDiagnostic(observer, tool, ToolFailureCode.INVALID_INPUT, retryable = false, e)
-            return ToolResult.InvalidInput(
+            recordAdapterDiagnostic(observer, tool, context, ToolFailureCode.INVALID_INPUT, retryClassified = false, e)
+            return ToolResult.SafeInvalidInput(
                 code = ToolFailureCode.INVALID_INPUT,
                 modelMessage = e.safeModelMessage,
             )
@@ -528,8 +539,8 @@ private fun createResolvedTool(
             throw e
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            recordAdapterDiagnostic(observer, tool, ToolFailureCode.INVALID_INPUT, retryable = false, e)
-            return ToolResult.InvalidInput(
+            recordAdapterDiagnostic(observer, tool, context, ToolFailureCode.INVALID_INPUT, retryClassified = false, e)
+            return ToolResult.SafeInvalidInput(
                 code = ToolFailureCode.INVALID_INPUT,
             )
         }
@@ -538,8 +549,8 @@ private fun createResolvedTool(
             val result = typedTool.execute(typedInput, context)
             ToolResult.Success(handler.serialize(result))
         } catch (e: ToolInvalidInputException) {
-            recordAdapterDiagnostic(observer, tool, ToolFailureCode.INVALID_INPUT, retryable = false, e)
-            ToolResult.InvalidInput(
+            recordAdapterDiagnostic(observer, tool, context, ToolFailureCode.INVALID_INPUT, retryClassified = false, e)
+            ToolResult.SafeInvalidInput(
                 code = ToolFailureCode.INVALID_INPUT,
                 modelMessage = e.safeModelMessage,
             )
@@ -547,11 +558,11 @@ private fun createResolvedTool(
             throw e
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            recordAdapterDiagnostic(observer, tool, ToolFailureCode.EXECUTION_FAILED, retryable = tool.idempotent, e)
+            recordAdapterDiagnostic(observer, tool, context, ToolFailureCode.EXECUTION_FAILED, retryClassified = tool.idempotent, e)
             if (tool.idempotent) {
                 ToolResult.TransientFailure(e)
             } else {
-                ToolResult.PermanentFailure(code = ToolFailureCode.EXECUTION_FAILED)
+                ToolResult.SafePermanentFailure(code = ToolFailureCode.EXECUTION_FAILED)
             }
         }
     }
@@ -561,26 +572,32 @@ private fun createResolvedTool(
  * Delivers a [ToolFailureDiagnosticEvent] to the configured observer.
  * Fail-open: an observer failure must never replace cancellation, the
  * original tool failure, or a successful tool result.
+ *
+ * A [kotlinx.coroutines.CancellationException] thrown by the observer while
+ * the enclosing coroutine is still active is treated as an observer failure
+ * and swallowed; only genuine coroutine cancellation propagates.
  */
-private fun recordAdapterDiagnostic(
-    observer: () -> ToolFailureDiagnosticObserver,
+private suspend fun recordAdapterDiagnostic(
+    observer: ToolFailureDiagnosticObserver,
     tool: TramaiTool<*, *>,
+    context: ToolExecutionContext,
     code: ToolFailureCode,
-    retryable: Boolean,
+    retryClassified: Boolean,
     failure: Throwable,
 ) {
     try {
-        observer().record(
+        observer.record(
             ToolFailureDiagnosticEvent(
                 toolName = tool.name,
                 code = code,
-                attempt = 0,
-                retryable = retryable,
+                attempt = context.attemptNumber,
+                retryClassified = retryClassified,
                 failure = failure,
             ),
         )
     } catch (e: kotlinx.coroutines.CancellationException) {
-        throw e
+        currentCoroutineContext().ensureActive()
+        // Job is still active: this CE came from the observer, so swallow it.
     } catch (e: Exception) {
         e.rethrowIfCancellation()
         // Fail-open: a diagnostic-sink failure must never replace the tool failure.

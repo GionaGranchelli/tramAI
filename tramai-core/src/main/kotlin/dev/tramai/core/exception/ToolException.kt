@@ -10,16 +10,20 @@ import dev.tramai.core.model.ModelVisibleToolMessage
  * validation feedback to the model, use [withSafeModelMessage] so the text is
  * explicitly marked as model-visible.
  */
-class ToolInvalidInputException(
+class ToolInvalidInputException private constructor(
     message: String,
-    val safeModelMessage: ModelVisibleToolMessage? = null,
+    val safeModelMessage: ModelVisibleToolMessage?,
 ) : TramaiException(message) {
+
+    /** Diagnostic-only invalid-input exception. */
+    constructor(message: String) : this(message, null)
 
     companion object {
         /**
          * Creates an invalid-input exception whose [message] is diagnostic-only
          * while [modelMessage] is deliberately trusted model-visible text.
          */
+        @JvmStatic
         fun withSafeModelMessage(
             message: String,
             modelMessage: String,
