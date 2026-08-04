@@ -151,13 +151,13 @@ class WorkflowMcpStepTest {
 
         runBlocking {
             supervisorScope {
-            val deferred = async {
-                workflow.run(McpState())
-            }
-            delay(500)
-            deferred.cancel()
-            val result = runCatching { deferred.await() }
-            assertThat(result.exceptionOrNull()).isInstanceOf(CancellationException::class.java)
+                val deferred = async {
+                    workflow.run(McpState())
+                }
+                delay(500)
+                deferred.cancel()
+                val result = runCatching { deferred.await() }
+                assertThat(result.exceptionOrNull()).isInstanceOf(CancellationException::class.java)
             }
         }
     }
@@ -196,18 +196,26 @@ class WorkflowMcpStepTest {
 
                 runBlocking {
                     supervisorScope {
-                    val deferred = async {
-                        workflow.run(McpState())
-                    }
-                    val parentProcess = awaitMcpProcessHandle(parentPidFile)
-                    val childProcess = awaitMcpProcessHandle(childPidFile)
-                    deferred.cancel()
-                    runCatching { deferred.await() }
+                        val deferred = async {
+                            workflow.run(McpState())
+                        }
+                        val parentProcess = checkNotNull(awaitMcpProcessHandle(parentPidFile))
+                        val childProcess = checkNotNull(awaitMcpProcessHandle(childPidFile))
+                        assertThat(parentProcess.isAlive).isTrue()
+                        assertThat(childProcess.isAlive).isTrue()
 
-                    awaitMcpProcessExit(parentProcess)
-                    awaitMcpProcessExit(childProcess)
-                    assertThat(parentProcess?.isAlive ?: false).isFalse()
-                    assertThat(childProcess?.isAlive ?: false).isFalse()
+                        deferred.cancel()
+
+                        // Cancellation must remain the workflow's primary
+                        // outcome; an unexpected WorkflowMcpException must
+                        // still fail the test rather than being swallowed.
+                        val failure = runCatching { deferred.await() }.exceptionOrNull()
+                        assertThat(failure).isInstanceOf(CancellationException::class.java)
+
+                        awaitMcpProcessExit(parentProcess)
+                        awaitMcpProcessExit(childProcess)
+                        assertThat(parentProcess.isAlive).isFalse()
+                        assertThat(childProcess.isAlive).isFalse()
                     }
                 }
             }

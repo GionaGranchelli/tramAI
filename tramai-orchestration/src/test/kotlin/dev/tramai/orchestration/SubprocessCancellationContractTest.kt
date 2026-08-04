@@ -342,14 +342,23 @@ class SubprocessCancellationContractTest {
                             val deferred = async {
                                 workflow.run(SubprocessMcpState())
                             }
-                            val parentPid = awaitProcessHandle(parentPidFile)
-                            val childPid = awaitProcessHandle(childPidFile)
+                            val parentProcess = checkNotNull(awaitProcessHandle(parentPidFile))
+                            val childProcess = checkNotNull(awaitProcessHandle(childPidFile))
+                            assertThat(parentProcess.isAlive).isTrue()
+                            assertThat(childProcess.isAlive).isTrue()
+
                             deferred.cancel()
-                            runCatching { deferred.await() }
-                            awaitProcessExit(parentPid)
-                            awaitProcessExit(childPid)
-                            assertThat(pidIsAlive(parentPid)).isFalse()
-                            assertThat(pidIsAlive(childPid)).isFalse()
+
+                            // Cancellation must remain the workflow's primary
+                            // outcome; an unexpected WorkflowMcpException must
+                            // still fail the test rather than being swallowed.
+                            val failure = runCatching { deferred.await() }.exceptionOrNull()
+                            assertThat(failure).isInstanceOf(CancellationException::class.java)
+
+                            awaitProcessExit(parentProcess)
+                            awaitProcessExit(childProcess)
+                            assertThat(parentProcess.isAlive).isFalse()
+                            assertThat(childProcess.isAlive).isFalse()
                         }
                     }
                 }
@@ -395,14 +404,14 @@ class SubprocessCancellationContractTest {
                 runBlocking {
                     withTimeout(15_000) {
                         supervisorScope {
-                        val deferred = async {
-                            workflow.run(SubprocessMcpState(), observer = observer)
-                        }
-                        awaitProcessHandle(parentPidFile)
-                        deferred.cancel()
-                        val outcome = runCatching { deferred.await() }
-                        assertThat(outcome.exceptionOrNull()).isInstanceOf(CancellationException::class.java)
-                        assertThat(observer.eventNames).doesNotContain("tramai.workflow.mcp.reconnecting")
+                            val deferred = async {
+                                workflow.run(SubprocessMcpState(), observer = observer)
+                            }
+                            awaitProcessHandle(parentPidFile)
+                            deferred.cancel()
+                            val outcome = runCatching { deferred.await() }
+                            assertThat(outcome.exceptionOrNull()).isInstanceOf(CancellationException::class.java)
+                            assertThat(observer.eventNames).doesNotContain("tramai.workflow.mcp.reconnecting")
                         }
                     }
                 }
@@ -532,20 +541,20 @@ class SubprocessCancellationContractTest {
         runBlocking {
             withTimeout(15_000) {
                 supervisorScope {
-                val captured = AtomicReference<Throwable?>()
-                val deferred = async {
-                    try {
-                        workflow.run(SubprocessMcpState())
-                    } catch (error: Throwable) {
-                        captured.set(error)
-                        throw error
+                    val captured = AtomicReference<Throwable?>()
+                    val deferred = async {
+                        try {
+                            workflow.run(SubprocessMcpState())
+                        } catch (error: Throwable) {
+                            captured.set(error)
+                            throw error
+                        }
                     }
-                }
-                delay(1_500)
-                deferred.cancel()
-                runCatching { deferred.await() }
-                assertThat(captured.get()).isInstanceOf(CancellationException::class.java)
-                assertThat(cleanupRan.get()).isTrue()
+                    delay(1_500)
+                    deferred.cancel()
+                    runCatching { deferred.await() }
+                    assertThat(captured.get()).isInstanceOf(CancellationException::class.java)
+                    assertThat(cleanupRan.get()).isTrue()
                 }
             }
         }
