@@ -23,6 +23,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -337,17 +338,19 @@ class SubprocessCancellationContractTest {
 
                 runBlocking {
                     withTimeout(15_000) {
-                        val deferred = async {
-                            workflow.run(SubprocessMcpState())
+                        supervisorScope {
+                            val deferred = async {
+                                workflow.run(SubprocessMcpState())
+                            }
+                            val parentPid = awaitProcessHandle(parentPidFile)
+                            val childPid = awaitProcessHandle(childPidFile)
+                            deferred.cancel()
+                            runCatching { deferred.await() }
+                            awaitProcessExit(parentPid)
+                            awaitProcessExit(childPid)
+                            assertThat(pidIsAlive(parentPid)).isFalse()
+                            assertThat(pidIsAlive(childPid)).isFalse()
                         }
-                        val parentPid = awaitProcessHandle(parentPidFile)
-                        val childPid = awaitProcessHandle(childPidFile)
-                        deferred.cancel()
-                        runCatching { deferred.await() }
-                        awaitProcessExit(parentPid)
-                        awaitProcessExit(childPid)
-                        assertThat(pidIsAlive(parentPid)).isFalse()
-                        assertThat(pidIsAlive(childPid)).isFalse()
                     }
                 }
             }
@@ -391,6 +394,7 @@ class SubprocessCancellationContractTest {
 
                 runBlocking {
                     withTimeout(15_000) {
+                        supervisorScope {
                         val deferred = async {
                             workflow.run(SubprocessMcpState(), observer = observer)
                         }
@@ -399,6 +403,7 @@ class SubprocessCancellationContractTest {
                         val outcome = runCatching { deferred.await() }
                         assertThat(outcome.exceptionOrNull()).isInstanceOf(CancellationException::class.java)
                         assertThat(observer.eventNames).doesNotContain("tramai.workflow.mcp.reconnecting")
+                        }
                     }
                 }
             }
@@ -526,6 +531,7 @@ class SubprocessCancellationContractTest {
 
         runBlocking {
             withTimeout(15_000) {
+                supervisorScope {
                 val captured = AtomicReference<Throwable?>()
                 val deferred = async {
                     try {
@@ -540,6 +546,7 @@ class SubprocessCancellationContractTest {
                 runCatching { deferred.await() }
                 assertThat(captured.get()).isInstanceOf(CancellationException::class.java)
                 assertThat(cleanupRan.get()).isTrue()
+                }
             }
         }
     }

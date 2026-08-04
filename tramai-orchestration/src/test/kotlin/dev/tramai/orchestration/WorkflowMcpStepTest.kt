@@ -150,6 +150,7 @@ class WorkflowMcpStepTest {
         val workflow = buildWorkflow(listOf(step))
 
         runBlocking {
+            supervisorScope {
             val deferred = async {
                 workflow.run(McpState())
             }
@@ -157,6 +158,7 @@ class WorkflowMcpStepTest {
             deferred.cancel()
             val result = runCatching { deferred.await() }
             assertThat(result.exceptionOrNull()).isInstanceOf(CancellationException::class.java)
+            }
         }
     }
 
@@ -193,6 +195,7 @@ class WorkflowMcpStepTest {
                 val workflow = buildWorkflow(listOf(step))
 
                 runBlocking {
+                    supervisorScope {
                     val deferred = async {
                         workflow.run(McpState())
                     }
@@ -205,6 +208,7 @@ class WorkflowMcpStepTest {
                     awaitMcpProcessExit(childProcess)
                     assertThat(parentProcess?.isAlive ?: false).isFalse()
                     assertThat(childProcess?.isAlive ?: false).isFalse()
+                    }
                 }
             }
         } finally {
