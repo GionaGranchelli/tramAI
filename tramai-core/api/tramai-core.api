@@ -989,7 +989,15 @@ public final class dev/tramai/core/exception/TokenBudgetExceededException : dev/
 }
 
 public final class dev/tramai/core/exception/ToolInvalidInputException : dev/tramai/core/exception/TramaiException {
+	public static final field Companion Ldev/tramai/core/exception/ToolInvalidInputException$Companion;
 	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ldev/tramai/core/model/ModelVisibleToolMessage;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getSafeModelMessage ()Ldev/tramai/core/model/ModelVisibleToolMessage;
+	public static final fun withSafeModelMessage (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/exception/ToolInvalidInputException;
+}
+
+public final class dev/tramai/core/exception/ToolInvalidInputException$Companion {
+	public final fun withSafeModelMessage (Ljava/lang/String;Ljava/lang/String;)Ldev/tramai/core/exception/ToolInvalidInputException;
 }
 
 public abstract class dev/tramai/core/exception/TramaiException : java/lang/RuntimeException {
@@ -1275,6 +1283,21 @@ public final class dev/tramai/core/model/ModelResponse {
 	public final fun totalTokens ()Ljava/lang/Integer;
 }
 
+public final class dev/tramai/core/model/ModelVisibleToolMessage {
+	public static final field Companion Ldev/tramai/core/model/ModelVisibleToolMessage$Companion;
+	public static final field MAX_LENGTH I
+	public synthetic fun <init> (Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+	public static final fun trusted (Ljava/lang/String;)Ldev/tramai/core/model/ModelVisibleToolMessage;
+}
+
+public final class dev/tramai/core/model/ModelVisibleToolMessage$Companion {
+	public final fun trusted (Ljava/lang/String;)Ldev/tramai/core/model/ModelVisibleToolMessage;
+}
+
 public final class dev/tramai/core/model/NoOpModelArtifactVerifier : dev/tramai/core/model/ModelArtifactVerifier {
 	public static final field INSTANCE Ldev/tramai/core/model/NoOpModelArtifactVerifier;
 	public fun verify (Ldev/tramai/core/model/RegisteredModel;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -1424,7 +1447,28 @@ public final class dev/tramai/core/model/ToolExecutionContext {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class dev/tramai/core/model/ToolFailureCode : java/lang/Enum {
+	public static final field EXECUTION_FAILED Ldev/tramai/core/model/ToolFailureCode;
+	public static final field INVALID_INPUT Ldev/tramai/core/model/ToolFailureCode;
+	public static final field RETRY_EXHAUSTED Ldev/tramai/core/model/ToolFailureCode;
+	public final fun getDefaultModelMessage ()Ljava/lang/String;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getValue ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/model/ToolFailureCode;
+	public static fun values ()[Ldev/tramai/core/model/ToolFailureCode;
+}
+
 public abstract class dev/tramai/core/model/ToolResult {
+	public static final field Companion Ldev/tramai/core/model/ToolResult$Companion;
+	public static final fun safeInvalidInput (Ldev/tramai/core/model/ModelVisibleToolMessage;)Ldev/tramai/core/model/ToolResult$InvalidInput;
+	public static final fun safePermanentFailure (Ldev/tramai/core/model/ModelVisibleToolMessage;)Ldev/tramai/core/model/ToolResult$PermanentFailure;
+}
+
+public final class dev/tramai/core/model/ToolResult$Companion {
+	public final fun safeInvalidInput (Ldev/tramai/core/model/ModelVisibleToolMessage;)Ldev/tramai/core/model/ToolResult$InvalidInput;
+	public static synthetic fun safeInvalidInput$default (Ldev/tramai/core/model/ToolResult$Companion;Ldev/tramai/core/model/ModelVisibleToolMessage;ILjava/lang/Object;)Ldev/tramai/core/model/ToolResult$InvalidInput;
+	public final fun safePermanentFailure (Ldev/tramai/core/model/ModelVisibleToolMessage;)Ldev/tramai/core/model/ToolResult$PermanentFailure;
+	public static synthetic fun safePermanentFailure$default (Ldev/tramai/core/model/ToolResult$Companion;Ldev/tramai/core/model/ModelVisibleToolMessage;ILjava/lang/Object;)Ldev/tramai/core/model/ToolResult$PermanentFailure;
 }
 
 public final class dev/tramai/core/model/ToolResult$InvalidInput : dev/tramai/core/model/ToolResult {
@@ -1565,6 +1609,11 @@ public final class dev/tramai/core/observation/NoOpOperationObserver : dev/trama
 	public fun onCallStarted (Ldev/tramai/core/observation/OperationCallContext;)Ldev/tramai/core/observation/OperationObservation;
 }
 
+public final class dev/tramai/core/observation/NoOpToolFailureDiagnosticObserver : dev/tramai/core/observation/ToolFailureDiagnosticObserver {
+	public static final field INSTANCE Ldev/tramai/core/observation/NoOpToolFailureDiagnosticObserver;
+	public fun record (Ldev/tramai/core/observation/ToolFailureDiagnosticEvent;)V
+}
+
 public final class dev/tramai/core/observation/OperationCallContext {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)V
 	public final fun component1 ()Ljava/lang/String;
@@ -1612,6 +1661,29 @@ public final class dev/tramai/core/observation/OperationObservation$DefaultImpls
 
 public abstract interface class dev/tramai/core/observation/OperationObserver {
 	public abstract fun onCallStarted (Ldev/tramai/core/observation/OperationCallContext;)Ldev/tramai/core/observation/OperationObservation;
+}
+
+public final class dev/tramai/core/observation/ToolFailureDiagnosticEvent {
+	public fun <init> (Ljava/lang/String;Ldev/tramai/core/model/ToolFailureCode;IZLjava/lang/Throwable;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ldev/tramai/core/model/ToolFailureCode;
+	public final fun component3 ()I
+	public final fun component4 ()Z
+	public final fun component5 ()Ljava/lang/Throwable;
+	public final fun copy (Ljava/lang/String;Ldev/tramai/core/model/ToolFailureCode;IZLjava/lang/Throwable;)Ldev/tramai/core/observation/ToolFailureDiagnosticEvent;
+	public static synthetic fun copy$default (Ldev/tramai/core/observation/ToolFailureDiagnosticEvent;Ljava/lang/String;Ldev/tramai/core/model/ToolFailureCode;IZLjava/lang/Throwable;ILjava/lang/Object;)Ldev/tramai/core/observation/ToolFailureDiagnosticEvent;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttempt ()I
+	public final fun getCode ()Ldev/tramai/core/model/ToolFailureCode;
+	public final fun getFailure ()Ljava/lang/Throwable;
+	public final fun getRetryClassified ()Z
+	public final fun getToolName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class dev/tramai/core/observation/ToolFailureDiagnosticObserver {
+	public abstract fun record (Ldev/tramai/core/observation/ToolFailureDiagnosticEvent;)V
 }
 
 public final class dev/tramai/core/policy/ApprovalMode : java/lang/Enum {

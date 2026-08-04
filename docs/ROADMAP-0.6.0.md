@@ -321,25 +321,27 @@ This phase is intentionally completed before large decomposition work.
 
 ## Epic 1.2: Safe error boundaries
 
+> **Status:** in progress — first slice (tool failures) implemented by PR #219. Provider HTTP, workflow-step, persistence, MCP, shell, and structured-output boundaries remain.
+
 **Goal:** Separate internal diagnostic detail from public, model-visible, audit-visible, and telemetry-visible errors.
 
 ### Tasks
 
-1. Define `SafeFailureCode` or domain-specific typed reason-code families.
+1. Define `SafeFailureCode` or domain-specific typed reason-code families. — **PR #219:** `ToolFailureCode` (tool domain only; other families are later slices).
 2. Define four explicit error surfaces:
-   - internal cause;
-   - public caller message;
-   - model-visible message;
-   - audit/telemetry metadata.
-3. Remove arbitrary exception messages from model-visible tool results.
+   - internal cause; — **PR #219:** `ToolFailureDiagnosticObserver` (fail-open, original `Throwable`).
+   - public caller message; — pending later slice (PR #219 does not publish caller-visible defaults).
+   - model-visible message; — **PR #219:** `ModelVisibleToolMessage.trusted(...)`.
+   - audit/telemetry metadata. — pending later slice.
+3. Remove arbitrary exception messages from model-visible tool results. — **PR #219:** `ToolResult` retains its four 0.5.0 variants for exhaustive-`when` compatibility; `safeInvalidInput(...)`/`safePermanentFailure(...)` factories wrap validated or fixed text in the existing variants. Built-in engine and standalone paths never derive text from `Throwable.message`.
 4. Review provider HTTP failure handling so response bodies are:
    - bounded;
    - sanitised;
    - disabled or redacted by default;
-   - never copied wholesale into public exceptions.
-5. Review debug logging of provider bodies and secret-related paths.
-6. Centralize safe error sanitisation for shell, HTTP, MCP, tools, providers, persistence, and approvals.
-7. Add negative tests with tokens, prompts, paths, SQL fragments, command arguments, and malformed payloads.
+   - never copied wholesale into public exceptions. — pending later slice.
+5. Review debug logging of provider bodies and secret-related paths. — pending later slice.
+6. Centralize safe error sanitisation for shell, HTTP, MCP, tools, providers, persistence, and approvals. — pending later slice.
+7. Add negative tests with tokens, prompts, paths, SQL fragments, command arguments, and malformed payloads. — **PR #219:** sensitive-fixture tests cover the tool boundary; other surfaces remain.
 
 ### Acceptance criteria
 
