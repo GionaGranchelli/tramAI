@@ -11,26 +11,10 @@ sealed class ToolResult {
         val contentParts: List<ContentPart>? = null,
     ) : ToolResult()
 
-    /**
-     * Input was rejected as invalid; engine feeds back to the model.
-     *
-     * The [message] is surfaced verbatim to the model. Deprecated: prefer
-     * [SafeInvalidInput], which carries a typed [ToolFailureCode] and an
-     * explicitly trusted [ModelVisibleToolMessage]. Built-in adapters must
-     * not use this variant.
-     */
-    @Deprecated("Use SafeInvalidInput with a typed code and trusted model message")
+    /** Input was rejected as invalid; engine feeds [message] back to the model. */
     data class InvalidInput(val message: String) : ToolResult()
 
-    /**
-     * Execution failed with a permanent error; surfaces to caller.
-     *
-     * The [message] is surfaced verbatim to the model. Deprecated: prefer
-     * [SafePermanentFailure], which carries a typed [ToolFailureCode] and an
-     * explicitly trusted [ModelVisibleToolMessage]. Built-in adapters must
-     * not use this variant.
-     */
-    @Deprecated("Use SafePermanentFailure with a typed code and trusted model message")
+    /** Execution failed with a permanent error; [message] is fed back to the model. */
     data class PermanentFailure(val message: String) : ToolResult()
 
     /**
@@ -40,27 +24,15 @@ sealed class ToolResult {
      */
     data class TransientFailure(val cause: Throwable) : ToolResult()
 
-    /**
-     * Input was rejected as invalid; engine feeds back to the model.
-     *
-     * [modelMessage] is the explicitly trusted model-visible text, or null to
-     * resolve the fixed default for [code] internally.
-     */
-    data class SafeInvalidInput(
-        val code: ToolFailureCode = ToolFailureCode.INVALID_INPUT,
-        val modelMessage: ModelVisibleToolMessage? = null,
-    ) : ToolResult()
+    companion object {
+        /** Validated message (or the INVALID_INPUT default) inside an [InvalidInput]. */
+        @JvmStatic
+        fun safeInvalidInput(modelMessage: ModelVisibleToolMessage? = null): InvalidInput =
+            InvalidInput(modelMessage?.value ?: ToolFailureCode.INVALID_INPUT.defaultModelMessage)
 
-    /**
-     * Execution failed with a permanent error; surfaces to caller.
-     *
-     * [modelMessage] is the explicitly trusted model-visible text, or null to
-     * resolve the fixed default for [code] internally. The original exception
-     * is intentionally not retained here: it is only available through an
-     * explicitly configured [dev.tramai.core.observation.ToolFailureDiagnosticObserver].
-     */
-    data class SafePermanentFailure(
-        val code: ToolFailureCode = ToolFailureCode.EXECUTION_FAILED,
-        val modelMessage: ModelVisibleToolMessage? = null,
-    ) : ToolResult()
+        /** Validated message (or the EXECUTION_FAILED default) inside a [PermanentFailure]. */
+        @JvmStatic
+        fun safePermanentFailure(modelMessage: ModelVisibleToolMessage? = null): PermanentFailure =
+            PermanentFailure(modelMessage?.value ?: ToolFailureCode.EXECUTION_FAILED.defaultModelMessage)
+    }
 }

@@ -531,18 +531,15 @@ private fun createResolvedTool(
             handler.deserialize(input, tool.inputType.createType())
         } catch (e: ToolInvalidInputException) {
             recordAdapterDiagnostic(observer, tool, context, ToolFailureCode.INVALID_INPUT, retryClassified = false, e)
-            return ToolResult.SafeInvalidInput(
-                code = ToolFailureCode.INVALID_INPUT,
-                modelMessage = e.safeModelMessage,
+            return ToolResult.InvalidInput(
+                e.safeModelMessage?.value ?: ToolFailureCode.INVALID_INPUT.defaultModelMessage,
             )
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             e.rethrowIfCancellation()
             recordAdapterDiagnostic(observer, tool, context, ToolFailureCode.INVALID_INPUT, retryClassified = false, e)
-            return ToolResult.SafeInvalidInput(
-                code = ToolFailureCode.INVALID_INPUT,
-            )
+            return ToolResult.InvalidInput(ToolFailureCode.INVALID_INPUT.defaultModelMessage)
         }
 
         return try {
@@ -550,9 +547,8 @@ private fun createResolvedTool(
             ToolResult.Success(handler.serialize(result))
         } catch (e: ToolInvalidInputException) {
             recordAdapterDiagnostic(observer, tool, context, ToolFailureCode.INVALID_INPUT, retryClassified = false, e)
-            ToolResult.SafeInvalidInput(
-                code = ToolFailureCode.INVALID_INPUT,
-                modelMessage = e.safeModelMessage,
+            ToolResult.InvalidInput(
+                e.safeModelMessage?.value ?: ToolFailureCode.INVALID_INPUT.defaultModelMessage,
             )
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -562,7 +558,7 @@ private fun createResolvedTool(
             if (tool.idempotent) {
                 ToolResult.TransientFailure(e)
             } else {
-                ToolResult.SafePermanentFailure(code = ToolFailureCode.EXECUTION_FAILED)
+                ToolResult.PermanentFailure(ToolFailureCode.EXECUTION_FAILED.defaultModelMessage)
             }
         }
     }

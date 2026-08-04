@@ -330,10 +330,10 @@ This phase is intentionally completed before large decomposition work.
 1. Define `SafeFailureCode` or domain-specific typed reason-code families. — **PR #219:** `ToolFailureCode` (tool domain only; other families are later slices).
 2. Define four explicit error surfaces:
    - internal cause; — **PR #219:** `ToolFailureDiagnosticObserver` (fail-open, original `Throwable`).
-   - public caller message; — **PR #219:** fixed default per code.
+   - public caller message; — pending later slice (PR #219 does not publish caller-visible defaults).
    - model-visible message; — **PR #219:** `ModelVisibleToolMessage.trusted(...)`.
    - audit/telemetry metadata. — pending later slice.
-3. Remove arbitrary exception messages from model-visible tool results. — **PR #219:** new `ToolResult.SafeInvalidInput`/`SafePermanentFailure` carry typed codes + trusted model messages; the legacy message variants are retained but deprecated and never used by built-in engine or standalone paths (no `Throwable.message` derivation).
+3. Remove arbitrary exception messages from model-visible tool results. — **PR #219:** `ToolResult` retains its four 0.5.0 variants for exhaustive-`when` compatibility; `safeInvalidInput(...)`/`safePermanentFailure(...)` factories wrap validated or fixed text in the existing variants. Built-in engine and standalone paths never derive text from `Throwable.message`.
 4. Review provider HTTP failure handling so response bodies are:
    - bounded;
    - sanitised;

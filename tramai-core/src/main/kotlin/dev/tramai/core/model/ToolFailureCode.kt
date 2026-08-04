@@ -1,11 +1,12 @@
 package dev.tramai.core.model
 
 /**
- * Stable machine-readable classification of a tool failure.
+ * Stable machine-readable diagnostic classification of a tool failure.
  *
- * Codes drive retry and policy decisions. Human-readable text must never
- * be used for classification. Each code carries the default messages that
- * are safe to surface on the model-visible and caller-visible boundaries.
+ * Codes classify failures for diagnostics and select fixed model-visible
+ * defaults. Retry remains driven by [ToolResult.TransientFailure] and tool
+ * idempotency; policy does not consume these codes. Caller-visible failure
+ * mapping remains a later Epic 1.2 slice.
  */
 enum class ToolFailureCode(val value: String) {
     /** Tool input was rejected as invalid. */
@@ -24,13 +25,5 @@ enum class ToolFailureCode(val value: String) {
             INVALID_INPUT -> "Invalid tool input"
             EXECUTION_FAILED -> "Tool execution failed"
             RETRY_EXHAUSTED -> "Tool execution failed"
-        }
-
-    /** Fixed default text safe to surface to the calling application. */
-    val defaultPublicMessage: String
-        get() = when (this) {
-            INVALID_INPUT -> "Tool input was rejected"
-            EXECUTION_FAILED -> "Tool execution failed"
-            RETRY_EXHAUSTED -> "Tool execution failed after retry attempts"
         }
 }

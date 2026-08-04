@@ -2,13 +2,16 @@ package dev.tramai.core;
 
 import dev.tramai.core.exception.ToolInvalidInputException;
 import dev.tramai.core.model.ModelVisibleToolMessage;
-import dev.tramai.core.model.ToolFailureCode;
 import dev.tramai.core.model.ToolResult;
 import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Modifier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Java-visible compatibility test for the stable tramai-core tool contracts.
@@ -61,17 +64,12 @@ class JavaToolFailureCompatibilityTest {
     }
 
     @Test
-    void safeVariantsRemainConstructibleWithTypedCodes() {
-        ToolResult.SafeInvalidInput invalidInput = new ToolResult.SafeInvalidInput(
-            ToolFailureCode.INVALID_INPUT,
-            ModelVisibleToolMessage.trusted("Input rejected")
-        );
-        assertEquals(ToolFailureCode.INVALID_INPUT, invalidInput.getCode());
-        assertEquals("Input rejected", invalidInput.getModelMessage().getValue());
+    void modelVisibleToolMessageHasNoCopyAndNoAccessibleConstructor() throws Exception {
+        assertThrows(NoSuchMethodException.class,
+            () -> ModelVisibleToolMessage.class.getDeclaredMethod("copy", String.class));
 
-        ToolResult.SafePermanentFailure permanentFailure =
-            new ToolResult.SafePermanentFailure(ToolFailureCode.EXECUTION_FAILED, null);
-        assertEquals(ToolFailureCode.EXECUTION_FAILED, permanentFailure.getCode());
-        assertEquals(null, permanentFailure.getModelMessage());
+        Constructor<ModelVisibleToolMessage> constructor =
+            ModelVisibleToolMessage.class.getDeclaredConstructor(String.class);
+        assertTrue(Modifier.isPrivate(constructor.getModifiers()));
     }
 }

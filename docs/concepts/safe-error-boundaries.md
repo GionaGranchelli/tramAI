@@ -19,31 +19,36 @@ Redaction-based sanitisation is not a reliable security boundary: no function ca
 
 Tool failures are classified with stable machine-readable codes — never by parsing human-readable text:
 
-| Code | Value | Default model message | Default public message |
-|------|-------|-----------------------|------------------------|
-| `INVALID_INPUT` | `tool.input.invalid` | Invalid tool input | Tool input was rejected |
-| `EXECUTION_FAILED` | `tool.execution.failed` | Tool execution failed | Tool execution failed |
-| `RETRY_EXHAUSTED` | `tool.execution.retry_exhausted` | Tool execution failed | Tool execution failed after retry attempts |
+| Code | Value | Default model message |
+|------|-------|-----------------------|
+| `INVALID_INPUT` | `tool.input.invalid` | Invalid tool input |
+| `EXECUTION_FAILED` | `tool.execution.failed` | Tool execution failed |
+| `RETRY_EXHAUSTED` | `tool.execution.retry_exhausted` | Tool execution failed |
 
-Codes are domain-specific (`ToolFailureCode` covers tools only). Provider, workflow, approval, persistence, and policy failures get their own code families later; they can implement a shared marker interface without a repository-wide "god enum".
+Codes are domain-specific (`ToolFailureCode` covers tools only). They classify diagnostic events and select fixed model-visible defaults. They do not drive retry or policy: retry remains determined by `ToolResult.TransientFailure` and tool idempotency, and policy does not consume these codes. Caller-visible failure mapping is pending a later Epic 1.2 slice. Provider, workflow, approval, persistence, and policy failures get their own code families later; they can implement a shared marker interface without a repository-wide "god enum".
 
 ## Tool results
 
-The legacy `ToolResult.InvalidInput(message)` and `ToolResult.PermanentFailure(message)` shapes are retained, deprecated, and surface their string verbatim to the model — built-in adapters never use them. New typed variants carry the safe boundary:
+`ToolResult` retains exactly its four stable variants, so existing exhaustive Kotlin `when` expressions remain source-compatible:
 
-- `ToolResult.SafeInvalidInput(code, modelMessage?)` — code is `INVALID_INPUT`, model message is the explicitly trusted text or the fixed default;
-- `ToolResult.SafePermanentFailure(code, modelMessage?)` — code is `EXECUTION_FAILED` (engine classifies retry exhaustion as `RETRY_EXHAUSTED`);
-- `ToolResult.TransientFailure(cause)` — unchanged; the engine owns retry-exhaustion classification.
+- `ToolResult.Success(value, contentParts?)`;
+- `ToolResult.InvalidInput(message)`;
+- `ToolResult.PermanentFailure(message)`;
+- `ToolResult.TransientFailure(cause)`.
+
+The string-bearing constructors remain public and surface their text verbatim to the model. Application tools should use `ToolResult.safeInvalidInput(modelMessage?)` and `ToolResult.safePermanentFailure(modelMessage?)` when they want a validated trusted message or the fixed default. Built-in engine and standalone paths construct only fixed-default or explicitly trusted text and never derive it from `Throwable.message` or `cause.message`.
+
+The short-lived round-1 `SafeInvalidInput` and `SafePermanentFailure` variants were removed before release because adding sealed subclasses breaks source compatibility for exhaustive `when` expressions. Custom tools written against those review-only variants must migrate to the safe factories or, when deliberately accepting verbatim text, the stable plain constructors.
 
 ## Model-visible messages
 
-`ModelVisibleToolMessage` is the only type allowed to carry text into the model conversation. Its `trusted(value)` factory enforces mechanical safety only:
+`ModelVisibleToolMessage` carries validated application-supplied text for the safe factories and `ToolInvalidInputException`. It is a regular, non-data class with a private constructor, so it exposes no generated `copy` or destructuring path around validation. Its `trusted(value)` factory enforces mechanical safety only:
 
 - non-blank;
 - at most 512 characters;
 - no control characters, no U+2028/U+2029 line/paragraph separators, no Unicode FORMAT characters.
 
-This rejects ISO control characters and common multiline/log-forging input. It does **not** detect prompt injection, secrets, Unicode spoofing, or unsafe semantic content — the `trusted` name makes the responsibility explicit: only deliberately reviewed text belongs there. The factory is `@JvmStatic` and takes an ordinary `String`, so Java callers have the same entry point as Kotlin callers.
+Validation examines Unicode code points, including supplementary characters. It rejects ISO control characters and common multiline/log-forging input. It does **not** detect prompt injection, secrets, Unicode spoofing, or unsafe semantic content — the `trusted` name makes the responsibility explicit: only deliberately reviewed text belongs there. The factory is `@JvmStatic` and takes an ordinary `String`, so Java callers have the same entry point as Kotlin callers.
 
 `ToolInvalidInputException` distinguishes diagnostic text from model-visible text:
 

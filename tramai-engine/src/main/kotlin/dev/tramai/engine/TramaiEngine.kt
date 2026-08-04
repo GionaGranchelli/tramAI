@@ -1632,10 +1632,7 @@ internal class TramaiInvocationHandler(
         for ((index, toolCall) in toolCalls.withIndex()) {
             val tool = toolRegistry.resolve(toolCall.name)
             val toolResult = if (tool == null) {
-                ToolResult.SafePermanentFailure(
-                    code = ToolFailureCode.EXECUTION_FAILED,
-                    modelMessage = ModelVisibleToolMessage.trusted("Tool '<unregistered>' not found"),
-                )
+                ToolResult.PermanentFailure(ToolFailureCode.EXECUTION_FAILED.defaultModelMessage)
             } else {
                 executeTool(
                     ToolExecutionRequest(
@@ -2009,19 +2006,9 @@ internal class TramaiInvocationHandler(
             content = "Error: ${toolResult.message}",
             toolCallId = toolCallId,
         )
-        is ToolResult.SafeInvalidInput -> Message(
-            role = MessageRole.TOOL,
-            content = "Error: ${toolResult.modelMessage?.value ?: toolResult.code.defaultModelMessage}",
-            toolCallId = toolCallId,
-        )
         is ToolResult.PermanentFailure -> Message(
             role = MessageRole.TOOL,
             content = "Permanent error: ${toolResult.message}",
-            toolCallId = toolCallId,
-        )
-        is ToolResult.SafePermanentFailure -> Message(
-            role = MessageRole.TOOL,
-            content = "Permanent error: ${toolResult.modelMessage?.value ?: toolResult.code.defaultModelMessage}",
             toolCallId = toolCallId,
         )
         is ToolResult.TransientFailure -> error("TransientFailure should be resolved inside executeTool")
@@ -2527,9 +2514,8 @@ internal class TramaiInvocationHandler(
         tool.execute(input, context)
     } catch (e: dev.tramai.core.exception.ToolInvalidInputException) {
         recordToolFailureDiagnostic(tool, ToolFailureCode.INVALID_INPUT, context.attemptNumber, retryClassified = false, e)
-        ToolResult.SafeInvalidInput(
-            code = ToolFailureCode.INVALID_INPUT,
-            modelMessage = e.safeModelMessage,
+        ToolResult.InvalidInput(
+            e.safeModelMessage?.value ?: ToolFailureCode.INVALID_INPUT.defaultModelMessage,
         )
     } catch (e: CancellationException) {
         throw e
@@ -2539,7 +2525,7 @@ internal class TramaiInvocationHandler(
         if (tool.idempotent) {
             ToolResult.TransientFailure(e)
         } else {
-            ToolResult.SafePermanentFailure(code = ToolFailureCode.EXECUTION_FAILED)
+            ToolResult.PermanentFailure(ToolFailureCode.EXECUTION_FAILED.defaultModelMessage)
         }
     }
 
@@ -2564,9 +2550,7 @@ internal class TramaiInvocationHandler(
         // cannot override it.
         recordToolFailureDiagnostic(tool, ToolFailureCode.RETRY_EXHAUSTED, attemptIndex, retryClassified = false, result.cause)
 
-        return ToolResult.SafePermanentFailure(
-            code = ToolFailureCode.RETRY_EXHAUSTED,
-        )
+        return ToolResult.PermanentFailure(ToolFailureCode.RETRY_EXHAUSTED.defaultModelMessage)
     }
 
     /**
@@ -3781,10 +3765,7 @@ internal class TramaiInvocationHandler(
         actualIndex: Int,
     ): ToolResult {
         if (tool == null) {
-            return ToolResult.SafePermanentFailure(
-                code = ToolFailureCode.EXECUTION_FAILED,
-                modelMessage = ModelVisibleToolMessage.trusted("Tool '<unregistered>' not found"),
-            )
+            return ToolResult.PermanentFailure(ToolFailureCode.EXECUTION_FAILED.defaultModelMessage)
         }
         return try {
             executeTool(

@@ -1287,9 +1287,6 @@ public final class dev/tramai/core/model/ModelVisibleToolMessage {
 	public static final field Companion Ldev/tramai/core/model/ModelVisibleToolMessage$Companion;
 	public static final field MAX_LENGTH I
 	public synthetic fun <init> (Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;)Ldev/tramai/core/model/ModelVisibleToolMessage;
-	public static synthetic fun copy$default (Ldev/tramai/core/model/ModelVisibleToolMessage;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/model/ModelVisibleToolMessage;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getValue ()Ljava/lang/String;
 	public fun hashCode ()I
@@ -1455,7 +1452,6 @@ public final class dev/tramai/core/model/ToolFailureCode : java/lang/Enum {
 	public static final field INVALID_INPUT Ldev/tramai/core/model/ToolFailureCode;
 	public static final field RETRY_EXHAUSTED Ldev/tramai/core/model/ToolFailureCode;
 	public final fun getDefaultModelMessage ()Ljava/lang/String;
-	public final fun getDefaultPublicMessage ()Ljava/lang/String;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public final fun getValue ()Ljava/lang/String;
 	public static fun valueOf (Ljava/lang/String;)Ldev/tramai/core/model/ToolFailureCode;
@@ -1463,6 +1459,16 @@ public final class dev/tramai/core/model/ToolFailureCode : java/lang/Enum {
 }
 
 public abstract class dev/tramai/core/model/ToolResult {
+	public static final field Companion Ldev/tramai/core/model/ToolResult$Companion;
+	public static final fun safeInvalidInput (Ldev/tramai/core/model/ModelVisibleToolMessage;)Ldev/tramai/core/model/ToolResult$InvalidInput;
+	public static final fun safePermanentFailure (Ldev/tramai/core/model/ModelVisibleToolMessage;)Ldev/tramai/core/model/ToolResult$PermanentFailure;
+}
+
+public final class dev/tramai/core/model/ToolResult$Companion {
+	public final fun safeInvalidInput (Ldev/tramai/core/model/ModelVisibleToolMessage;)Ldev/tramai/core/model/ToolResult$InvalidInput;
+	public static synthetic fun safeInvalidInput$default (Ldev/tramai/core/model/ToolResult$Companion;Ldev/tramai/core/model/ModelVisibleToolMessage;ILjava/lang/Object;)Ldev/tramai/core/model/ToolResult$InvalidInput;
+	public final fun safePermanentFailure (Ldev/tramai/core/model/ModelVisibleToolMessage;)Ldev/tramai/core/model/ToolResult$PermanentFailure;
+	public static synthetic fun safePermanentFailure$default (Ldev/tramai/core/model/ToolResult$Companion;Ldev/tramai/core/model/ModelVisibleToolMessage;ILjava/lang/Object;)Ldev/tramai/core/model/ToolResult$PermanentFailure;
 }
 
 public final class dev/tramai/core/model/ToolResult$InvalidInput : dev/tramai/core/model/ToolResult {
@@ -1483,36 +1489,6 @@ public final class dev/tramai/core/model/ToolResult$PermanentFailure : dev/trama
 	public static synthetic fun copy$default (Ldev/tramai/core/model/ToolResult$PermanentFailure;Ljava/lang/String;ILjava/lang/Object;)Ldev/tramai/core/model/ToolResult$PermanentFailure;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getMessage ()Ljava/lang/String;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class dev/tramai/core/model/ToolResult$SafeInvalidInput : dev/tramai/core/model/ToolResult {
-	public fun <init> ()V
-	public fun <init> (Ldev/tramai/core/model/ToolFailureCode;Ldev/tramai/core/model/ModelVisibleToolMessage;)V
-	public synthetic fun <init> (Ldev/tramai/core/model/ToolFailureCode;Ldev/tramai/core/model/ModelVisibleToolMessage;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Ldev/tramai/core/model/ToolFailureCode;
-	public final fun component2 ()Ldev/tramai/core/model/ModelVisibleToolMessage;
-	public final fun copy (Ldev/tramai/core/model/ToolFailureCode;Ldev/tramai/core/model/ModelVisibleToolMessage;)Ldev/tramai/core/model/ToolResult$SafeInvalidInput;
-	public static synthetic fun copy$default (Ldev/tramai/core/model/ToolResult$SafeInvalidInput;Ldev/tramai/core/model/ToolFailureCode;Ldev/tramai/core/model/ModelVisibleToolMessage;ILjava/lang/Object;)Ldev/tramai/core/model/ToolResult$SafeInvalidInput;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getCode ()Ldev/tramai/core/model/ToolFailureCode;
-	public final fun getModelMessage ()Ldev/tramai/core/model/ModelVisibleToolMessage;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class dev/tramai/core/model/ToolResult$SafePermanentFailure : dev/tramai/core/model/ToolResult {
-	public fun <init> ()V
-	public fun <init> (Ldev/tramai/core/model/ToolFailureCode;Ldev/tramai/core/model/ModelVisibleToolMessage;)V
-	public synthetic fun <init> (Ldev/tramai/core/model/ToolFailureCode;Ldev/tramai/core/model/ModelVisibleToolMessage;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Ldev/tramai/core/model/ToolFailureCode;
-	public final fun component2 ()Ldev/tramai/core/model/ModelVisibleToolMessage;
-	public final fun copy (Ldev/tramai/core/model/ToolFailureCode;Ldev/tramai/core/model/ModelVisibleToolMessage;)Ldev/tramai/core/model/ToolResult$SafePermanentFailure;
-	public static synthetic fun copy$default (Ldev/tramai/core/model/ToolResult$SafePermanentFailure;Ldev/tramai/core/model/ToolFailureCode;Ldev/tramai/core/model/ModelVisibleToolMessage;ILjava/lang/Object;)Ldev/tramai/core/model/ToolResult$SafePermanentFailure;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getCode ()Ldev/tramai/core/model/ToolFailureCode;
-	public final fun getModelMessage ()Ldev/tramai/core/model/ModelVisibleToolMessage;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }

@@ -3009,7 +3009,7 @@ class TramaiEngineTest {
             val toolMessage = secondRequestToolMessage(provider)
             // The raw name must not appear in the TOOL message
             assertThat(toolMessage.content).doesNotContain(maliciousName)
-            assertThat(toolMessage.content).contains("<unregistered>")
+            assertThat(toolMessage.content).isEqualTo("Permanent error: Tool execution failed")
         }
 
         @Test
@@ -3097,7 +3097,7 @@ class TramaiEngineTest {
             // Verify TOOL message content does not contain the malicious name
             val toolMessage = secondRequest.messages.last { it.role == MessageRole.TOOL }
             assertThat(toolMessage.content).doesNotContain(maliciousToolName)
-            assertThat(toolMessage.content).contains("<unregistered>")
+            assertThat(toolMessage.content).isEqualTo("Permanent error: Tool execution failed")
 
             // Verify no message in the second request contains the malicious name
             secondRequest.messages.forEach { msg ->

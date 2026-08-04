@@ -14,7 +14,7 @@ package dev.tramai.core.model
  * [trusted]. The factory is `@JvmStatic` and takes an ordinary [String],
  * so Java callers have the same ergonomic entry point as Kotlin callers.
  */
-data class ModelVisibleToolMessage private constructor(
+class ModelVisibleToolMessage private constructor(
     val value: String,
 ) {
     companion object {
@@ -33,16 +33,25 @@ data class ModelVisibleToolMessage private constructor(
             require(value.length <= MAX_LENGTH) {
                 "Model-visible message exceeds $MAX_LENGTH characters (${value.length})"
             }
-            require(value.none(::isUnsafeCharacter)) {
+            require(!containsUnsafeCharacter(value)) {
                 "Model-visible message must not contain control, separator, or format characters"
             }
             return ModelVisibleToolMessage(value)
         }
 
-        private fun isUnsafeCharacter(ch: Char): Boolean =
-            ch.isISOControl() ||
-                ch == '\u2028' || // LINE SEPARATOR
-                ch == '\u2029' || // PARAGRAPH SEPARATOR
-                Character.getType(ch).toInt() == Character.FORMAT.toInt()
+        private fun containsUnsafeCharacter(value: String): Boolean =
+            value.codePoints().anyMatch { codePoint ->
+                Character.isISOControl(codePoint) ||
+                    codePoint == 0x2028 ||
+                    codePoint == 0x2029 ||
+                    Character.getType(codePoint) == Character.FORMAT.toInt()
+            }
     }
+
+    override fun equals(other: Any?): Boolean =
+        other is ModelVisibleToolMessage && value == other.value
+
+    override fun hashCode(): Int = value.hashCode()
+
+    override fun toString(): String = "ModelVisibleToolMessage(value=<trusted>)"
 }
