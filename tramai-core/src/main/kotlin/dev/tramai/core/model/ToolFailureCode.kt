@@ -12,7 +12,7 @@ enum class ToolFailureCode(val value: String) {
     /** Tool input was rejected as invalid. */
     INVALID_INPUT("tool.input.invalid"),
 
-    /** Tool execution failed with a permanent error. */
+    /** A tool execution attempt failed. */
     EXECUTION_FAILED("tool.execution.failed"),
 
     /** Retryable tool execution exhausted all configured attempts. */

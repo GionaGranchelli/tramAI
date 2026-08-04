@@ -13,10 +13,17 @@ package dev.tramai.core.model
  * The constructor is private; the only way to obtain an instance is
  * [trusted]. The factory is `@JvmStatic` and takes an ordinary [String],
  * so Java callers have the same ergonomic entry point as Kotlin callers.
+ * Validation runs in the class initializer, so no JVM-visible construction
+ * path (including the synthetic constructor Kotlin generates for the
+ * companion) can produce an unvalidated instance.
  */
 class ModelVisibleToolMessage private constructor(
     val value: String,
 ) {
+    init {
+        validate(value)
+    }
+
     companion object {
         const val MAX_LENGTH: Int = 512
 
@@ -28,7 +35,9 @@ class ModelVisibleToolMessage private constructor(
          * paragraph separators, or Unicode FORMAT characters.
          */
         @JvmStatic
-        fun trusted(value: String): ModelVisibleToolMessage {
+        fun trusted(value: String): ModelVisibleToolMessage = ModelVisibleToolMessage(value)
+
+        private fun validate(value: String) {
             require(value.isNotBlank()) { "Model-visible message must not be blank" }
             require(value.length <= MAX_LENGTH) {
                 "Model-visible message exceeds $MAX_LENGTH characters (${value.length})"
@@ -36,7 +45,6 @@ class ModelVisibleToolMessage private constructor(
             require(!containsUnsafeCharacter(value)) {
                 "Model-visible message must not contain control, separator, or format characters"
             }
-            return ModelVisibleToolMessage(value)
         }
 
         private fun containsUnsafeCharacter(value: String): Boolean =

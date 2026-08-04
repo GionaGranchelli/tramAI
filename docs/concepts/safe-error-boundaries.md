@@ -42,7 +42,7 @@ The short-lived round-1 `SafeInvalidInput` and `SafePermanentFailure` variants w
 
 ## Model-visible messages
 
-`ModelVisibleToolMessage` carries validated application-supplied text for the safe factories and `ToolInvalidInputException`. It is a regular, non-data class with a private constructor, so it exposes no generated `copy` or destructuring path around validation. Its `trusted(value)` factory enforces mechanical safety only:
+`ModelVisibleToolMessage` carries validated application-supplied text for the safe factories and `ToolInvalidInputException`. It is a regular, non-data class with a private constructor, so it exposes no generated `copy` or destructuring path around validation. Validation runs in the class initializer, so **every** JVM-visible construction path — including the synthetic `(String, DefaultConstructorMarker)` constructor Kotlin generates for the companion — rejects unsafe text; `trusted(value)` is the ergonomic entry point and enforces mechanical safety only:
 
 - non-blank;
 - at most 512 characters;
@@ -69,7 +69,7 @@ Original causes remain available — but only through an explicitly configured, 
 
 ## Wiring
 
-- `tramai-engine`: `TramaiEngine(toolFailureDiagnosticObserver = ...)` records one diagnostic per failed attempt and a terminal `RETRY_EXHAUSTED` event on retry exhaustion.
+- `tramai-engine`: `TramaiEngine(toolFailureDiagnosticObserver = ...)` records one `EXECUTION_FAILED` diagnostic per failed attempt — whether the tool threw or directly returned `ToolResult.TransientFailure` — and, for an idempotent tool, one terminal `RETRY_EXHAUSTED` event after the final permitted attempt. A non-idempotent tool's transient failure yields a single `EXECUTION_FAILED` event with `retryClassified = false` and the fixed `EXECUTION_FAILED` model message; it is never labelled `RETRY_EXHAUSTED` because no retry was attempted.
 - `tramai-standalone`: `Tramai.Builder.toolFailureDiagnosticObserver(...)` configures both the engine and the `TramaiTool` adapter. Tools are resolved at `build()` against a frozen observer snapshot, so mutating the builder after `build()` can never redirect diagnostics of the built runtime.
 
 ## Scope and non-claims (PR #219)

@@ -2521,10 +2521,12 @@ internal class TramaiInvocationHandler(
         throw e
     } catch (e: Exception) {
         e.rethrowIfCancellation()
-        recordToolFailureDiagnostic(tool, ToolFailureCode.EXECUTION_FAILED, context.attemptNumber, retryClassified = tool.idempotent, e)
         if (tool.idempotent) {
+            // Recorded centrally in toolRetryTerminalResult, which also sees
+            // transient results returned directly by custom tools.
             ToolResult.TransientFailure(e)
         } else {
+            recordToolFailureDiagnostic(tool, ToolFailureCode.EXECUTION_FAILED, context.attemptNumber, retryClassified = false, e)
             ToolResult.PermanentFailure(ToolFailureCode.EXECUTION_FAILED.defaultModelMessage)
         }
     }
@@ -2542,15 +2544,42 @@ internal class TramaiInvocationHandler(
         // Cancellation must never be retried or converted to PermanentFailure
         result.cause.rethrowIfCancellation()
 
+        // One diagnostic per failed attempt. The retry loop is the only layer
+        // that sees both thrown failures converted to transient results and
+        // transient results returned directly by custom tools.
+        recordToolFailureDiagnostic(
+            tool = tool,
+            code = ToolFailureCode.EXECUTION_FAILED,
+            attempt = attemptIndex,
+            retryClassified = tool.idempotent,
+            failure = result.cause,
+        )
+
         if (attemptIndex < maxAttempts - 1) {
             return null
         }
 
-        // Retry-exhaustion classification is an engine decision; the tool
-        // cannot override it.
-        recordToolFailureDiagnostic(tool, ToolFailureCode.RETRY_EXHAUSTED, attemptIndex, retryClassified = false, result.cause)
+        // Retry-exhaustion classification is an engine decision; only an
+        // idempotent tool actually exhausts configured attempts. A
+        // non-idempotent tool's transient failure is a single EXECUTION_FAILED.
+        if (tool.idempotent) {
+            recordToolFailureDiagnostic(
+                tool = tool,
+                code = ToolFailureCode.RETRY_EXHAUSTED,
+                attempt = attemptIndex,
+                retryClassified = false,
+                failure = result.cause,
+            )
+        }
 
-        return ToolResult.PermanentFailure(ToolFailureCode.RETRY_EXHAUSTED.defaultModelMessage)
+        val terminalCode =
+            if (tool.idempotent) {
+                ToolFailureCode.RETRY_EXHAUSTED
+            } else {
+                ToolFailureCode.EXECUTION_FAILED
+            }
+
+        return ToolResult.PermanentFailure(terminalCode.defaultModelMessage)
     }
 
     /**

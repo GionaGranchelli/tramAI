@@ -6,7 +6,7 @@ import dev.tramai.core.model.ToolResult;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Modifier;
+import java.lang.reflect.InvocationTargetException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -64,12 +64,29 @@ class JavaToolFailureCompatibilityTest {
     }
 
     @Test
-    void modelVisibleToolMessageHasNoCopyAndNoAccessibleConstructor() throws Exception {
+    void modelVisibleToolMessageHasNoCopyMethod() throws Exception {
         assertThrows(NoSuchMethodException.class,
             () -> ModelVisibleToolMessage.class.getDeclaredMethod("copy", String.class));
+    }
 
-        Constructor<ModelVisibleToolMessage> constructor =
-            ModelVisibleToolMessage.class.getDeclaredConstructor(String.class);
-        assertTrue(Modifier.isPrivate(constructor.getModifiers()));
+    @Test
+    void everyJvmConstructorRejectsUnsafeText() throws Exception {
+        // Kotlin generates a public synthetic (String, DefaultConstructorMarker)
+        // constructor so the companion can reach the private primary one. Every
+        // JVM-visible construction path must enforce the validation invariant,
+        // so a forged instance cannot bypass ModelVisibleToolMessage.trusted().
+        for (Constructor<?> constructor : ModelVisibleToolMessage.class.getDeclaredConstructors()) {
+            constructor.setAccessible(true);
+
+            Object[] arguments = constructor.getParameterCount() == 1
+                ? new Object[]{"unsafe\ntext"}
+                : new Object[]{"unsafe\ntext", null};
+
+            InvocationTargetException failure = assertThrows(
+                InvocationTargetException.class,
+                () -> constructor.newInstance(arguments));
+
+            assertTrue(failure.getCause() instanceof IllegalArgumentException);
+        }
     }
 }

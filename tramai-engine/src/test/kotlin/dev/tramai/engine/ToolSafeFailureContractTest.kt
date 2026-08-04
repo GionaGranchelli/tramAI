@@ -215,6 +215,83 @@ class ToolSafeFailureContractTest {
     }
 
     // ---------------------------------------------------------------------
+    // 2b. Directly returned TransientFailure
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `non-idempotent tool returning TransientFailure emits one EXECUTION_FAILED`() {
+        val tool = ReturningTransientTool(idempotent = false, failure = RuntimeException(sensitiveFixture))
+        val provider = RecordingProvider(
+            ModelResponse(
+                content = "using tool",
+                toolCalls = listOf(ToolCall("1", tool.name, """{"input":"x"}""")),
+            ),
+            ModelResponse(content = "done"),
+        )
+        val diagnostics = RecordingDiagnosticObserver()
+
+        val engine = engineWith(tool = tool, provider = provider, diagnostics = diagnostics)
+        val service = engine.create<ReturningTransientTestService>()
+
+        val result = runBlocking { service.execute("input") }
+
+        assertThat(result).isEqualTo("done")
+        // Non-idempotent: single attempt, no retry.
+        assertThat(tool.calls.get()).isEqualTo(1)
+
+        // One EXECUTION_FAILED; no RETRY_EXHAUSTED was emitted because no
+        // retry was attempted or exhausted.
+        assertThat(diagnostics.events.map { it.code })
+            .containsExactly(ToolFailureCode.EXECUTION_FAILED)
+        assertThat(diagnostics.events.single().retryClassified).isFalse()
+        assertThat(diagnostics.events.single().attempt).isEqualTo(0)
+        assertThat(diagnostics.events.single().failure.message).contains("sk-secret-219")
+
+        // The model sees the fixed EXECUTION_FAILED message, never the cause text.
+        val toolMessages = provider.requests.flatMap { it.messages }
+            .filter { it.role == dev.tramai.core.model.MessageRole.TOOL }
+        assertThat(toolMessages.map { it.content }).containsExactly("Permanent error: Tool execution failed")
+
+        assertNoLeak(provider)
+    }
+
+    @Test
+    fun `idempotent tool returning TransientFailure emits one diagnostic per attempt plus exhaustion`() {
+        val tool = ReturningTransientTool(idempotent = true, failure = RuntimeException(sensitiveFixture))
+        val provider = RecordingProvider(
+            ModelResponse(
+                content = "using tool",
+                toolCalls = listOf(ToolCall("1", tool.name, """{"input":"x"}""")),
+            ),
+            ModelResponse(content = "done"),
+        )
+        val diagnostics = RecordingDiagnosticObserver()
+
+        val engine = engineWith(tool = tool, provider = provider, diagnostics = diagnostics)
+        val service = engine.create<ReturningTransientTestService>()
+
+        val result = runBlocking { service.execute("input") }
+
+        assertThat(result).isEqualTo("done")
+        // IDEMPOTENT_TOOL_MAX_ATTEMPTS = 2
+        assertThat(tool.calls.get()).isEqualTo(2)
+
+        // EXECUTION_FAILED per attempt plus one RETRY_EXHAUSTED on the final.
+        assertThat(diagnostics.events.map { it.code }).containsExactly(
+            ToolFailureCode.EXECUTION_FAILED,
+            ToolFailureCode.EXECUTION_FAILED,
+            ToolFailureCode.RETRY_EXHAUSTED,
+        )
+        assertThat(diagnostics.events.map { it.attempt }).containsExactly(0, 1, 1)
+        assertThat(diagnostics.events[0].retryClassified).isTrue()
+        assertThat(diagnostics.events[1].retryClassified).isTrue()
+        assertThat(diagnostics.events[2].retryClassified).isFalse()
+        assertThat(diagnostics.events).allSatisfy { assertThat(it.failure.message).contains("sk-secret-219") }
+
+        assertNoLeak(provider)
+    }
+
+    // ---------------------------------------------------------------------
     // 3. Trusted message factory enforcement
     // ---------------------------------------------------------------------
 
@@ -529,12 +606,40 @@ class ToolSafeFailureContractTest {
         }
     }
 
+    /** Tool that returns a transient failure directly instead of throwing. */
+    private class ReturningTransientTool(
+        override val idempotent: Boolean,
+        private val failure: Throwable,
+    ) : ResolvedTool {
+        val calls = AtomicInteger(0)
+        override val name: String = "returning-transient-tool"
+        override val description: String = "a tool that returns a transient failure"
+        override val inputSchemaJson: String = """{"type":"object","properties":{"input":{"type":"string"}}}"""
+        override val sideEffectLevel: SideEffectLevel = SideEffectLevel.READ_ONLY
+        override val security = null
+
+        override suspend fun execute(input: Any, context: ToolExecutionContext): ToolResult {
+            calls.incrementAndGet()
+            return ToolResult.TransientFailure(failure)
+        }
+    }
+
     @AiService
     private interface ToolTestService {
         @Operation(
             prompt = "Execute the input",
             model = "test-model",
             tools = ["throwing-tool"],
+        )
+        suspend fun execute(input: String): String
+    }
+
+    @AiService
+    private interface ReturningTransientTestService {
+        @Operation(
+            prompt = "Execute the input",
+            model = "test-model",
+            tools = ["returning-transient-tool"],
         )
         suspend fun execute(input: String): String
     }

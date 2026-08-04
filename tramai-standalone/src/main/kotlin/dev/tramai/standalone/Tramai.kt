@@ -554,10 +554,12 @@ private fun createResolvedTool(
             throw e
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            recordAdapterDiagnostic(observer, tool, context, ToolFailureCode.EXECUTION_FAILED, retryClassified = tool.idempotent, e)
             if (tool.idempotent) {
+                // Recorded centrally by the engine's retry loop, which also
+                // sees transient results returned directly by custom tools.
                 ToolResult.TransientFailure(e)
             } else {
+                recordAdapterDiagnostic(observer, tool, context, ToolFailureCode.EXECUTION_FAILED, retryClassified = false, e)
                 ToolResult.PermanentFailure(ToolFailureCode.EXECUTION_FAILED.defaultModelMessage)
             }
         }
