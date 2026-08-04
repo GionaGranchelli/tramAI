@@ -147,8 +147,8 @@ class SubprocessCancellationContractTest {
                     val job = launch {
                         workflow.run(SubprocessShellState())
                     }
-                    val parentPid = awaitPid(parentPidFile)
-                    val childPid = awaitPid(childPidFile)
+                    val parentPid = awaitProcessHandle(parentPidFile)
+                    val childPid = awaitProcessHandle(childPidFile)
                     job.cancelAndJoin()
                     awaitProcessExit(parentPid)
                     awaitProcessExit(childPid)
@@ -194,7 +194,7 @@ class SubprocessCancellationContractTest {
                     val job = launch {
                         workflow.run(SubprocessShellState())
                     }
-                    val pid = awaitPid(pidFile)
+                    val pid = awaitProcessHandle(pidFile)
                     job.cancelAndJoin()
                     awaitProcessExit(pid)
                     assertThat(pidIsAlive(pid)).isFalse()
@@ -237,8 +237,8 @@ class SubprocessCancellationContractTest {
                         val job = launch {
                             workflow.run(SubprocessAgentState())
                         }
-                        val parentPid = awaitPid(parentPidFile)
-                        val childPid = awaitPid(childPidFile)
+                        val parentPid = awaitProcessHandle(parentPidFile)
+                        val childPid = awaitProcessHandle(childPidFile)
                         job.cancelAndJoin()
                         awaitProcessExit(parentPid)
                         awaitProcessExit(childPid)
@@ -285,8 +285,8 @@ class SubprocessCancellationContractTest {
                         val job = launch {
                             workflow.run(SubprocessAgentState())
                         }
-                        val parentPid = awaitPid(parentPidFile)
-                        val childPid = awaitPid(childPidFile)
+                        val parentPid = awaitProcessHandle(parentPidFile)
+                        val childPid = awaitProcessHandle(childPidFile)
                         job.cancelAndJoin()
                         awaitProcessExit(parentPid)
                         awaitProcessExit(childPid)
@@ -340,8 +340,8 @@ class SubprocessCancellationContractTest {
                         val deferred = async {
                             workflow.run(SubprocessMcpState())
                         }
-                        val parentPid = awaitPid(parentPidFile)
-                        val childPid = awaitPid(childPidFile)
+                        val parentPid = awaitProcessHandle(parentPidFile)
+                        val childPid = awaitProcessHandle(childPidFile)
                         deferred.cancel()
                         runCatching { deferred.await() }
                         awaitProcessExit(parentPid)
@@ -394,7 +394,7 @@ class SubprocessCancellationContractTest {
                         val deferred = async {
                             workflow.run(SubprocessMcpState(), observer = observer)
                         }
-                        awaitPid(parentPidFile)
+                        awaitProcessHandle(parentPidFile)
                         deferred.cancel()
                         val outcome = runCatching { deferred.await() }
                         assertThat(outcome.exceptionOrNull()).isInstanceOf(CancellationException::class.java)
@@ -799,7 +799,7 @@ class SubprocessCancellationContractTest {
                             captured.set(error)
                         }
                     }
-                    val pid = awaitPid(pidFile)
+                    val pid = awaitProcessHandle(pidFile)
                     job.join()
                     awaitProcessExit(pid)
                     assertThat(pidIsAlive(pid)).isFalse()
@@ -845,7 +845,7 @@ class SubprocessCancellationContractTest {
                     val job = launch {
                         workflow.run(SubprocessShellState(), observer = observer)
                     }
-                    awaitPid(pidFile)
+                    awaitProcessHandle(pidFile)
                     job.cancelAndJoin()
 
                     assertThat(observer.eventNames).doesNotContain("tramai.workflow.shell.timeout")
@@ -862,6 +862,7 @@ class SubprocessCancellationContractTest {
     @Test
     fun `agent observer failure after process start still cleans up the process`() {
         val pidFile = Files.createTempFile("subproc-agent-obs-fail", ".pid")
+        val observedProcess = AtomicReference<ProcessHandle>()
         val throwingObserver = object : WorkflowObserver {
             override fun onWorkflowEvent(
                 workflowName: String,
@@ -873,6 +874,7 @@ class SubprocessCancellationContractTest {
                 // its stdin closed. Ownership must have begun before this observer runs,
                 // so the finally still terminates the tree.
                 if (name.endsWith(".started")) {
+                    observedProcess.set(runBlocking { awaitProcessHandle(pidFile) })
                     throw IllegalStateException("observer failure after start")
                 }
             }
@@ -905,8 +907,8 @@ class SubprocessCancellationContractTest {
                                 captured.set(error)
                             }
                         }
-                        val pid = awaitPid(pidFile)
                         job.join()
+                        val pid = checkNotNull(observedProcess.get())
                         awaitProcessExit(pid)
                         assertThat(pidIsAlive(pid)).isFalse()
                         // The observer failure is surfaced (wrapped), never swallowed.
@@ -946,7 +948,7 @@ class SubprocessCancellationContractTest {
                             registration.dispose()
                             job.cancel()
 
-                            val pid = awaitPid(pidFile)
+                            val pid = awaitProcessHandle(pidFile)
                             assertThat(lifecycle.isTerminationRequested()).isFalse()
                             assertThat(pidIsAlive(pid)).isTrue()
                         } finally {
@@ -984,8 +986,8 @@ class SubprocessCancellationContractTest {
                         val process = ProcessBuilder(script.toString()).start()
                         try {
                             val lifecycle = CancellableProcessLifecycle(process)
-                            val parentPid = awaitPid(parentPidFile)
-                            val childPid = awaitPid(childPidFile)
+                            val parentPid = awaitProcessHandle(parentPidFile)
+                            val childPid = awaitProcessHandle(childPidFile)
                             // Closing stdin makes `cat > /dev/null` see EOF, so the parent
                             // exits and the background child is reparented (no longer a
                             // descendant of the dead root). The child ignores TERM, so the
@@ -999,6 +1001,58 @@ class SubprocessCancellationContractTest {
                             // pre-pipe-close handle snapshot (destroyForcibly).
                             val cleanup = lifecycle.terminateAndAwait()
                             awaitProcessExit(childPid)
+                            assertThat(pidIsAlive(childPid)).isFalse()
+                            assertThat(cleanup.survivors).isEmpty()
+                        } finally {
+                            process.destroyForcibly()
+                            runCatching { process.waitFor(5, TimeUnit.SECONDS) }
+                        }
+                    }
+                }
+            }
+        } finally {
+            Files.deleteIfExists(parentPidFile)
+            Files.deleteIfExists(childPidFile)
+        }
+    }
+
+    @Test
+    fun `termination request keeps root alive to reap a term-ignoring descendant`() {
+        val parentPidFile = Files.createTempFile("subproc-reap-parent", ".pid")
+        val childPidFile = Files.createTempFile("subproc-reap-child", ".pid")
+        try {
+            withExecutableScript(
+                name = "reap-before-root-exit",
+                content = """
+                    |#!/bin/sh
+                    |echo $$ > '${parentPidFile.toAbsolutePath()}'
+                    |sh -c 'trap "" TERM; exec sleep 30' &
+                    |child=${'$'}!
+                    |echo ${'$'}child > '${childPidFile.toAbsolutePath()}'
+                    |wait ${'$'}child
+                """.trimMargin(),
+            ) { script ->
+                runBlocking {
+                    withTimeout(15_000) {
+                        val process = ProcessBuilder(script.toString()).start()
+                        try {
+                            val lifecycle = CancellableProcessLifecycle(process)
+                            val parentPid = awaitProcessHandle(parentPidFile)
+                            val childPid = awaitProcessHandle(childPidFile)
+
+                            lifecycle.requestTermination()
+
+                            // The child ignores the graceful request. Keep its parent alive
+                            // until bounded cleanup force-kills the child and lets `wait`
+                            // reap it; killing both back-to-back can leave an orphaned zombie.
+                            assertThat(pidIsAlive(childPid)).isTrue()
+                            assertThat(process.waitFor(250, TimeUnit.MILLISECONDS)).isFalse()
+                            assertThat(pidIsAlive(parentPid)).isTrue()
+
+                            val cleanup = lifecycle.terminateAndAwait()
+                            awaitProcessExit(parentPid)
+                            awaitProcessExit(childPid)
+                            assertThat(pidIsAlive(parentPid)).isFalse()
                             assertThat(pidIsAlive(childPid)).isFalse()
                             assertThat(cleanup.survivors).isEmpty()
                         } finally {
@@ -1116,7 +1170,7 @@ class SubprocessCancellationContractTest {
                         val process = ProcessBuilder(script.toString()).start()
                         try {
                             val lifecycle = CancellableProcessLifecycle(process)
-                            val pid = awaitPid(pidFile)
+                            val pid = awaitProcessHandle(pidFile)
                             // Graceful destroy alone cannot kill a TERM-ignoring process;
                             // terminateAndAwait must escalate to destroyForcibly.
                             val cleanup = lifecycle.terminateAndAwait()
@@ -1155,7 +1209,7 @@ class SubprocessCancellationContractTest {
                         val process = ProcessBuilder(script.toString()).start()
                         try {
                             val lifecycle = CancellableProcessLifecycle(process)
-                            awaitPid(pidFile)
+                            awaitProcessHandle(pidFile)
                             val startedAt = System.nanoTime()
                             val cleanup = lifecycle.terminateAndAwait()
                             val elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000L
@@ -1193,7 +1247,7 @@ class SubprocessCancellationContractTest {
                         val process = ProcessBuilder(script.toString()).start()
                         try {
                             val lifecycle = CancellableProcessLifecycle(process)
-                            val pid = awaitPid(pidFile)
+                            val pid = awaitProcessHandle(pidFile)
 
                             // Termination requested from multiple sources: cancellation
                             // handler, timeout cleanup, outer finally.
@@ -1263,7 +1317,7 @@ class SubprocessCancellationContractTest {
                         releaseLatch.countDown()
                         // The script writes the pid file before start() returns, so it exists
                         // before any termination can be requested.
-                        val pid = awaitPid(pidFile)
+                        val pid = awaitProcessHandle(pidFile)
                         job.join()
                         awaitProcessExit(pid)
                         assertThat(pidIsAlive(pid)).isFalse()
@@ -1300,7 +1354,7 @@ class SubprocessCancellationContractTest {
                         val process = ProcessBuilder(script.toString()).start()
                         try {
                             val lifecycle = CancellableProcessLifecycle(process)
-                            val pid = awaitPid(pidFile)
+                            val pid = awaitProcessHandle(pidFile)
                             val captured = AtomicReference<CancellationException?>()
                             val afterCleanupExecuted = AtomicBoolean(false)
                             val enteredAwaitExit = CompletableDeferred<Unit>()
@@ -1322,7 +1376,7 @@ class SubprocessCancellationContractTest {
                                     surfaceProcessCleanup(error, cleanup)
                                     surfaceProcessCleanup(
                                         error,
-                                        ProcessCleanupResult(survivors = listOf(pid), failures = emptyList()),
+                                        ProcessCleanupResult(survivors = listOfNotNull(pid?.pid()), failures = emptyList()),
                                     )
                                     throw error
                                 }
@@ -1457,13 +1511,17 @@ private fun withExecutableScript(
     }
 }
 
-private suspend fun awaitPid(pidFile: Path): Long {
-    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+private suspend fun awaitProcessHandle(pidFile: Path): ProcessHandle? {
+    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
     while (System.nanoTime() < deadlineNanos) {
         if (Files.exists(pidFile)) {
             val rawPid = Files.readString(pidFile).trim()
             if (rawPid.isNotEmpty()) {
-                return rawPid.toLong()
+                val pid = rawPid.toLong()
+                // Null means the process already exited before its handle could
+                // be captured — which is a legitimate outcome for tests that
+                // assert termination, not an error.
+                return ProcessHandle.of(pid).orElse(null)
             }
         }
         delay(25)
@@ -1471,17 +1529,11 @@ private suspend fun awaitPid(pidFile: Path): Long {
     error("Timed out waiting for PID at $pidFile")
 }
 
-private suspend fun awaitProcessExit(pid: Long) {
-    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-    while (System.nanoTime() < deadlineNanos) {
-        val handle = ProcessHandle.of(pid)
-        if (handle.isEmpty || !handle.get().isAlive) {
-            return
-        }
-        delay(25)
+private fun awaitProcessExit(process: ProcessHandle?) {
+    if (process == null) {
+        return
     }
-    error("Timed out waiting for process $pid to exit")
+    process.onExit().get(20, TimeUnit.SECONDS)
 }
 
-private fun pidIsAlive(pid: Long): Boolean =
-    ProcessHandle.of(pid).map { it.isAlive }.orElse(false)
+private fun pidIsAlive(process: ProcessHandle?): Boolean = process?.isAlive == true

@@ -85,8 +85,12 @@ internal suspend fun executeAgentCli(
             context = context,
         )
         return coroutineScope {
-            val stdoutDeferred = async(ioDispatcher) { process.inputStream.captureAgentOutput(maxOutputBytes) }
-            val stderrDeferred = async(ioDispatcher) { process.errorStream.captureAgentOutput(maxOutputBytes) }
+            val stdoutDeferred = async(ioDispatcher) {
+                process.inputStream.captureAgentOutput(maxOutputBytes, lifecycle)
+            }
+            val stderrDeferred = async(ioDispatcher) {
+                process.errorStream.captureAgentOutput(maxOutputBytes, lifecycle)
+            }
 
             try {
                 withTimeout(timeoutSeconds.seconds) {
@@ -173,6 +177,7 @@ private data class AgentStreamCapture(
 
 private fun InputStream.captureAgentOutput(
     maxOutputBytes: Long,
+    lifecycle: CancellableProcessLifecycle,
 ): AgentStreamCapture = use { stream ->
     val maxCapturedBytes = maxOutputBytes.toInt()
     val capturedBytes = ByteArrayOutputStream(
@@ -182,7 +187,7 @@ private fun InputStream.captureAgentOutput(
     var actualSizeBytes = 0L
     var truncated = false
     while (true) {
-        val bytesRead = stream.read(buffer)
+        val bytesRead = lifecycle.readStreamChunk(stream, buffer) ?: break
         if (bytesRead < 0) {
             break
         }

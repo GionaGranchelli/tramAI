@@ -11,6 +11,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import java.io.IOException
+import java.io.InputStream
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -84,7 +86,8 @@ internal class ProcessCleanupResult(
  *    the tree BEFORE closing stdin/stdout/stderr (so closing a pipe that makes the root
  *    exit can never reparent descendants out of the retained snapshot), then closes the
  *    pipes (unblocking any blocking readers) and requests graceful termination of every
- *    descendant plus the root.
+ *    descendant. The root remains alive until those descendants exit or bounded cleanup
+ *    takes over, so it can reap children and fresh snapshots can still discover them.
  * 3. [awaitExit] is cancellable: cancellation invokes [requestTermination] immediately,
  *    so termination begins before structured concurrency can wait on reader jobs.
  * 4. [terminateAndAwait] runs under nested contexts — [NonCancellable] outside,
@@ -140,11 +143,28 @@ internal class CancellableProcessLifecycle(
     fun isTerminationRequested(): Boolean = state.get() != State.RUNNING
 
     /**
+     * Read one chunk from an owned process stream. Closing stdout/stderr is part of
+     * [requestTermination], and the JDK is allowed to wake a concurrent blocking read
+     * by throwing [IOException] instead of returning EOF. Treat that specific lifecycle
+     * race as EOF only after termination has been requested; genuine read failures while
+     * the process is running remain visible to the caller.
+     */
+    fun readStreamChunk(inputStream: InputStream, buffer: ByteArray): Int? = try {
+        inputStream.read(buffer)
+    } catch (error: IOException) {
+        if (!isTerminationRequested()) {
+            throw error
+        }
+        null
+    }
+
+    /**
      * Non-suspending, idempotent, never throws. Snapshots the tree FIRST (before any
      * stream is closed), retains the snapshot as ProcessHandle identities, closes the
      * process pipes (unblocking stdout/stderr readers), then requests graceful
-     * termination of all descendants plus the root. Cleanup failures are recorded for
-     * later reporting.
+     * termination of all descendants. The root is deliberately left alive until the
+     * captured descendants exit (or [terminateAndAwait] takes over), so it can reap
+     * terminated children before it exits. Cleanup failures are recorded for later reporting.
      */
     fun requestTermination() {
         if (!state.compareAndSet(State.RUNNING, State.TERMINATION_REQUESTED)) {
@@ -155,7 +175,15 @@ internal class CancellableProcessLifecycle(
         closeQuietly(process.outputStream, "stdin")
         closeQuietly(process.inputStream, "stdout")
         closeQuietly(process.errorStream, "stderr")
-        terminateHandles(handles, graceful = true)
+        val handlesAfterPipeClose = processTreeHandles()
+        retainedHandles.addAll(handlesAfterPipeClose)
+        val capturedHandles = linkedSetOf<ProcessHandle>().apply {
+            addAll(handles)
+            addAll(handlesAfterPipeClose)
+        }.toList()
+        val descendants = descendantsOfRoot(capturedHandles)
+        terminateHandles(descendants, graceful = true)
+        terminateRootAfterDescendantsExit(descendants)
     }
 
     /**
@@ -192,21 +220,46 @@ internal class CancellableProcessLifecycle(
      * caller's primary cancellation with a fresh instance on dispatch-back.
      *
      * 1. Graceful termination request (idempotent; snapshots retained pre-pipe-close).
-     * 2. Bounded grace-period wait over the union of retained + fresh tree handles.
-     * 3. Forced termination ([Process.destroyForcibly]) of surviving descendants then
-     *    root — descendants are destroyed before the root.
-     * 4. Bounded force-kill wait.
-     * 5. Survivor inspection — survivors are reported, never waited on unboundedly.
+     * 2. Bounded grace-period wait for retained + freshly discovered descendants while
+     *    the root remains alive to reap them.
+     * 3. Forced termination ([Process.destroyForcibly]) and bounded wait for surviving
+     *    descendants.
+     * 4. A final fresh snapshot catches children spawned during the initial snapshot;
+     *    those descendants are force-killed and awaited before the root is terminated.
+     * 5. Graceful root termination follows descendant exit; bounded cleanup force-kills
+     *    and awaits the root if it remains alive.
+     * 6. Survivor inspection — survivors are reported, never waited on unboundedly.
      *
      * @return cleanup result; survivors and failures are recorded, not thrown here.
      */
     suspend fun terminateAndAwait(): ProcessCleanupResult = withContext(NonCancellable) {
         withContext(Dispatchers.IO) {
             requestTermination()
-            val handles = resolveCleanupHandles()
-            waitForHandlesToExitUninterruptibly(handles, gracePeriodMillis)
-            terminateHandles(handles, graceful = false)
-            waitForHandlesToExitUninterruptibly(handles, forceKillWaitMillis)
+            val initialHandles = resolveCleanupHandles()
+            waitForHandlesToExitUninterruptibly(initialHandles, gracePeriodMillis)
+
+            val handlesBeforeForcedTermination = resolveCleanupHandles()
+            val survivingDescendants = descendantsOfRoot(handlesBeforeForcedTermination).filter { it.isAlive }
+            terminateHandles(survivingDescendants, graceful = false)
+            waitForHandlesToExitUninterruptibly(survivingDescendants, forceKillWaitMillis)
+
+            // The root stayed alive while descendants were drained, so a child that was
+            // spawned during requestTermination's first snapshot is still discoverable.
+            val handlesBeforeRootTermination = resolveCleanupHandles()
+            val lateDescendants = descendantsOfRoot(handlesBeforeRootTermination).filter { it.isAlive }
+            terminateHandles(lateDescendants, graceful = false)
+            waitForHandlesToExitUninterruptibly(lateDescendants, forceKillWaitMillis)
+
+            val root = process.toHandle()
+            terminateHandles(listOf(root), graceful = false)
+            waitForHandlesToExitUninterruptibly(listOf(root), forceKillWaitMillis)
+
+            val handles = linkedSetOf<ProcessHandle>().apply {
+                addAll(initialHandles)
+                addAll(handlesBeforeForcedTermination)
+                addAll(handlesBeforeRootTermination)
+                addAll(resolveCleanupHandles())
+            }.toList()
             val survivors = handles.filter { it.isAlive }.map { it.pid() }
             if (survivors.isNotEmpty()) {
                 // Log-only: survivor diagnostics are represented once via ProcessCleanupResult.survivors,
@@ -261,6 +314,28 @@ internal class CancellableProcessLifecycle(
                 }
             }
         }
+    }
+
+    /**
+     * Let a live root reap its children before requesting root termination. If there are
+     * no captured descendants, terminate the root immediately. The bounded cleanup path
+     * remains the fallback when a descendant ignores graceful termination.
+     */
+    private fun terminateRootAfterDescendantsExit(descendants: List<ProcessHandle>) {
+        val root = process.toHandle()
+        if (descendants.isEmpty()) {
+            terminateHandles(listOf(root), graceful = true)
+            return
+        }
+        val exits = descendants.map { it.onExit() }.toTypedArray()
+        java.util.concurrent.CompletableFuture.allOf(*exits).thenRun {
+            terminateHandles(listOf(root), graceful = true)
+        }
+    }
+
+    private fun descendantsOfRoot(handles: List<ProcessHandle>): List<ProcessHandle> {
+        val rootPid = process.pid()
+        return handles.filter { it.pid() != rootPid }
     }
 
     private fun processTreeHandles(): List<ProcessHandle> {

@@ -201,8 +201,12 @@ internal data class ShellWorkflowStep<S>(
         try {
             process.outputStream.close()
             return coroutineScope {
-                val stdoutDeferred = async(ioDispatcher) { process.inputStream.captureStream(config.maxOutputBytes) }
-                val stderrDeferred = async(ioDispatcher) { process.errorStream.captureStream(config.maxOutputBytes) }
+                val stdoutDeferred = async(ioDispatcher) {
+                    process.inputStream.captureStream(config.maxOutputBytes, lifecycle)
+                }
+                val stderrDeferred = async(ioDispatcher) {
+                    process.errorStream.captureStream(config.maxOutputBytes, lifecycle)
+                }
 
                 try {
                     withTimeout(config.timeoutSeconds.seconds) {
@@ -385,6 +389,7 @@ private data class StreamCapture(
 
 private fun InputStream.captureStream(
     maxOutputBytes: Long,
+    lifecycle: CancellableProcessLifecycle,
 ): StreamCapture = use { stream ->
     val maxCapturedBytes = maxOutputBytes.toInt()
     val capturedBytes = ByteArrayOutputStream(
@@ -394,7 +399,7 @@ private fun InputStream.captureStream(
     var actualSizeBytes = 0L
     var truncated = false
     while (true) {
-        val bytesRead = stream.read(buffer)
+        val bytesRead = lifecycle.readStreamChunk(stream, buffer) ?: break
         if (bytesRead < 0) {
             break
         }
@@ -428,6 +433,3 @@ private fun ShellCommand.commandIdentifiers(): Set<String> {
         add(fileName)
     }
 }
-
-
-

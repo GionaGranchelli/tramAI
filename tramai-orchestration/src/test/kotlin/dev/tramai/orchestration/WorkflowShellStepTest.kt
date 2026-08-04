@@ -1,9 +1,11 @@
 package dev.tramai.orchestration
 
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.supervisorScope
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import java.nio.file.Files
@@ -143,18 +145,21 @@ class WorkflowShellStepTest {
                 )
             }
 
-            assertThatThrownBy {
-                runBlocking { workflow.run(ShellState()) }
-            }.isInstanceOf(WorkflowShellException::class.java)
-                .hasMessageContaining("timed out")
-
             runBlocking {
-                val parentPid = awaitPid(parentPidFile)
-                val childPid = awaitPid(childPidFile)
-                awaitProcessExit(parentPid)
-                awaitProcessExit(childPid)
-                assertThat(ProcessHandle.of(parentPid).map { it.isAlive }.orElse(false)).isFalse()
-                assertThat(ProcessHandle.of(childPid).map { it.isAlive }.orElse(false)).isFalse()
+                supervisorScope {
+                    val execution = async { workflow.run(ShellState()) }
+                    val parentProcess = awaitProcessHandle(parentPidFile)
+                    val childProcess = awaitProcessHandle(childPidFile)
+
+                    val failure = runCatching { execution.await() }.exceptionOrNull()
+                    assertThat(failure).isInstanceOf(WorkflowShellException::class.java)
+                        .hasMessageContaining("timed out")
+
+                    awaitProcessExit(parentProcess)
+                    awaitProcessExit(childProcess)
+                    assertThat(parentProcess?.isAlive ?: false).isFalse()
+                    assertThat(childProcess?.isAlive ?: false).isFalse()
+                }
             }
         } finally {
             Files.deleteIfExists(parentPidFile)
@@ -189,14 +194,14 @@ class WorkflowShellStepTest {
                     workflow.run(ShellState())
                 }
 
-                val parentPid = awaitPid(parentPidFile)
-                val childPid = awaitPid(childPidFile)
+                val parentProcess = awaitProcessHandle(parentPidFile)
+                val childProcess = awaitProcessHandle(childPidFile)
                 job.cancelAndJoin()
 
-                awaitProcessExit(parentPid)
-                awaitProcessExit(childPid)
-                assertThat(ProcessHandle.of(parentPid).map { it.isAlive }.orElse(false)).isFalse()
-                assertThat(ProcessHandle.of(childPid).map { it.isAlive }.orElse(false)).isFalse()
+                awaitProcessExit(parentProcess)
+                awaitProcessExit(childProcess)
+                assertThat(parentProcess?.isAlive ?: false).isFalse()
+                assertThat(childProcess?.isAlive ?: false).isFalse()
             }
         } finally {
             Files.deleteIfExists(parentPidFile)
@@ -583,13 +588,16 @@ private class RecordingShellWorkflowObserver : WorkflowObserver {
     }
 }
 
-private suspend fun awaitPid(pidFile: Path): Long {
-    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+private suspend fun awaitProcessHandle(pidFile: Path): ProcessHandle? {
+    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
     while (System.nanoTime() < deadlineNanos) {
         if (Files.exists(pidFile)) {
             val rawPid = Files.readString(pidFile).trim()
             if (rawPid.isNotEmpty()) {
-                return rawPid.toLong()
+                val pid = rawPid.toLong()
+                // Null means the process already exited before its handle could
+                // be captured — a legitimate outcome for termination tests.
+                return ProcessHandle.of(pid).orElse(null)
             }
         }
         delay(25)
@@ -597,14 +605,9 @@ private suspend fun awaitPid(pidFile: Path): Long {
     error("Timed out waiting for shell step PID at $pidFile")
 }
 
-private suspend fun awaitProcessExit(pid: Long) {
-    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-    while (System.nanoTime() < deadlineNanos) {
-        val handle = ProcessHandle.of(pid)
-        if (handle.isEmpty || !handle.get().isAlive) {
-            return
-        }
-        delay(25)
+private fun awaitProcessExit(process: ProcessHandle?) {
+    if (process == null) {
+        return
     }
-    error("Timed out waiting for process $pid to exit")
+    process.onExit().get(20, TimeUnit.SECONDS)
 }

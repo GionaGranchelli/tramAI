@@ -18,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.supervisorScope
 import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
@@ -195,16 +196,15 @@ class WorkflowMcpStepTest {
                     val deferred = async {
                         workflow.run(McpState())
                     }
-                    delay(1500)
+                    val parentProcess = awaitMcpProcessHandle(parentPidFile)
+                    val childProcess = awaitMcpProcessHandle(childPidFile)
                     deferred.cancel()
                     runCatching { deferred.await() }
 
-                    val parentPid = awaitMcpPid(parentPidFile)
-                    val childPid = awaitMcpPid(childPidFile)
-                    awaitMcpProcessExit(parentPid)
-                    awaitMcpProcessExit(childPid)
-                    assertThat(ProcessHandle.of(parentPid).map { it.isAlive }.orElse(false)).isFalse()
-                    assertThat(ProcessHandle.of(childPid).map { it.isAlive }.orElse(false)).isFalse()
+                    awaitMcpProcessExit(parentProcess)
+                    awaitMcpProcessExit(childProcess)
+                    assertThat(parentProcess?.isAlive ?: false).isFalse()
+                    assertThat(childProcess?.isAlive ?: false).isFalse()
                 }
             }
         } finally {
@@ -245,18 +245,21 @@ class WorkflowMcpStepTest {
 
                 val workflow = buildWorkflow(listOf(step))
 
-                assertThatThrownBy {
-                    runBlocking { workflow.run(McpState()) }
-                }.isInstanceOf(WorkflowMcpException::class.java)
-                    .hasMessageContaining("timed out")
-
                 runBlocking {
-                    val parentPid = awaitMcpPid(parentPidFile)
-                    val childPid = awaitMcpPid(childPidFile)
-                    awaitMcpProcessExit(parentPid)
-                    awaitMcpProcessExit(childPid)
-                    assertThat(ProcessHandle.of(parentPid).map { it.isAlive }.orElse(false)).isFalse()
-                    assertThat(ProcessHandle.of(childPid).map { it.isAlive }.orElse(false)).isFalse()
+                    supervisorScope {
+                        val execution = async { workflow.run(McpState()) }
+                        val parentProcess = awaitMcpProcessHandle(parentPidFile)
+                        val childProcess = awaitMcpProcessHandle(childPidFile)
+
+                        val failure = runCatching { execution.await() }.exceptionOrNull()
+                        assertThat(failure).isInstanceOf(WorkflowMcpException::class.java)
+                            .hasMessageContaining("timed out")
+
+                        awaitMcpProcessExit(parentProcess)
+                        awaitMcpProcessExit(childProcess)
+                        assertThat(parentProcess?.isAlive ?: false).isFalse()
+                        assertThat(childProcess?.isAlive ?: false).isFalse()
+                    }
                 }
             }
         } finally {
@@ -946,13 +949,16 @@ private fun withExecutableScript(
     }
 }
 
-private suspend fun awaitMcpPid(pidFile: Path): Long {
-    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+private suspend fun awaitMcpProcessHandle(pidFile: Path): ProcessHandle? {
+    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
     while (System.nanoTime() < deadlineNanos) {
         if (Files.exists(pidFile)) {
             val rawPid = Files.readString(pidFile).trim()
             if (rawPid.isNotEmpty()) {
-                return rawPid.toLong()
+                val pid = rawPid.toLong()
+                // Null means the process already exited before its handle could
+                // be captured — a legitimate outcome for termination tests.
+                return ProcessHandle.of(pid).orElse(null)
             }
         }
         delay(25)
@@ -960,14 +966,9 @@ private suspend fun awaitMcpPid(pidFile: Path): Long {
     error("Timed out waiting for MCP PID at $pidFile")
 }
 
-private suspend fun awaitMcpProcessExit(pid: Long) {
-    val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-    while (System.nanoTime() < deadlineNanos) {
-        val handle = ProcessHandle.of(pid)
-        if (handle.isEmpty || !handle.get().isAlive) {
-            return
-        }
-        delay(25)
+private fun awaitMcpProcessExit(process: ProcessHandle?) {
+    if (process == null) {
+        return
     }
-    error("Timed out waiting for process $pid to exit")
+    process.onExit().get(20, TimeUnit.SECONDS)
 }
