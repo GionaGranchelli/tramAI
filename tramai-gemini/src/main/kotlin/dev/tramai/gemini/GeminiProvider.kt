@@ -11,10 +11,13 @@ import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.UsageMetrics
+import dev.tramai.core.observation.NoOpProviderFailureDiagnosticObserver
+import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.provider.applyTramaiTimeout
+import dev.tramai.core.provider.boundedLinesPreview
 import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
 import dev.tramai.core.provider.providerTransportFailure
@@ -50,7 +53,7 @@ import java.util.stream.Stream
  * | Streaming              | streamGenerateContent                                      |
  * | ImagePart              | inlineData { mimeType, data } within content parts         |
  */
-class GeminiProvider(
+class GeminiProvider @JvmOverloads constructor(
     private val apiKey: String,
     private val baseUrl: String = DEFAULT_BASE_URL,
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
@@ -60,6 +63,8 @@ class GeminiProvider(
     /** Gemini API version to use, e.g. "v1" or "v1beta". */
     private val apiVersion: String = DEFAULT_API_VERSION,
     private val ioDispatcher: CoroutineContext = Dispatchers.IO,
+    private val providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+        NoOpProviderFailureDiagnosticObserver,
 ) : ModelProvider, StreamCapable {
 
     override fun providerId(): String = "gemini"
@@ -88,15 +93,15 @@ class GeminiProvider(
             if (response.statusCode() !in 200..299) {
                 logProviderHttpFailureDebug(
                     logger = providerLogger,
-                    providerName = "Gemini",
+                    providerId = "Gemini",
                     statusCode = response.statusCode(),
-                    body = response.body(),
                 )
                 throw providerHttpFailure(
-                    providerName = "Gemini",
+                    providerId = "Gemini",
                     statusCode = response.statusCode(),
                     body = response.body(),
                     retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    observer = providerFailureDiagnosticObserver,
                 )
             }
 
@@ -104,7 +109,7 @@ class GeminiProvider(
             mapResponse(body)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw providerTransportFailure("Gemini", error)
+            throw providerTransportFailure("Gemini", error, providerFailureDiagnosticObserver)
         }
     }
 
@@ -143,19 +148,20 @@ class GeminiProvider(
         providerName: String,
     ): StreamChunk.Error? {
         if (response.statusCode() in 200..299) return null
-        val errorBody = response.body().toArray().joinToString("\n")
+        val errorBody = boundedLinesPreview(response.body())
         logProviderHttpFailureDebug(
             logger = providerLogger,
-            providerName = providerName,
+            providerId = providerName,
             statusCode = response.statusCode(),
-            body = errorBody,
         )
         return StreamChunk.Error(
             providerHttpFailure(
-                providerName = providerName,
+                providerId = providerName,
                 statusCode = response.statusCode(),
-                body = errorBody,
+                body = errorBody.text,
+                bodyTruncated = errorBody.truncated,
                 retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                observer = providerFailureDiagnosticObserver,
             ),
         )
     }
@@ -185,7 +191,7 @@ class GeminiProvider(
             emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            emit(StreamChunk.Error(providerTransportFailure("Gemini", e)))
+            emit(StreamChunk.Error(providerTransportFailure("Gemini", e, providerFailureDiagnosticObserver)))
         }
     }
 

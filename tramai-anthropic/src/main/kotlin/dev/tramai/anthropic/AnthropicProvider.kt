@@ -8,10 +8,13 @@ import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.UsageMetrics
+import dev.tramai.core.observation.NoOpProviderFailureDiagnosticObserver
+import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.provider.applyTramaiTimeout
+import dev.tramai.core.provider.boundedLinesPreview
 import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
 import dev.tramai.core.provider.providerTransportFailure
@@ -31,13 +34,15 @@ import java.util.stream.Stream
 /**
  * [ModelProvider] implementation for Anthropic's Messages API.
  */
-class AnthropicProvider(
+class AnthropicProvider @JvmOverloads constructor(
     private val apiKey: String,
     private val baseUrl: String = "https://api.anthropic.com",
     private val anthropicVersion: String = ANTHROPIC_API_VERSION,
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
     private val ioDispatcher: CoroutineContext = Dispatchers.IO,
+    private val providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+        NoOpProviderFailureDiagnosticObserver,
 ) : dev.tramai.core.provider.ModelProvider, dev.tramai.core.provider.StreamCapable {
 
     override suspend fun complete(request: ModelRequest): ModelResponse = withContext(ioDispatcher) {
@@ -69,15 +74,15 @@ class AnthropicProvider(
             if (response.statusCode() !in 200..299) {
                 logProviderHttpFailureDebug(
                     logger = providerLogger,
-                    providerName = "Anthropic",
+                    providerId = "Anthropic",
                     statusCode = response.statusCode(),
-                    body = response.body(),
                 )
                 throw providerHttpFailure(
-                    providerName = "Anthropic",
+                    providerId = "Anthropic",
                     statusCode = response.statusCode(),
                     body = response.body(),
                     retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    observer = providerFailureDiagnosticObserver,
                 )
             }
 
@@ -100,7 +105,7 @@ class AnthropicProvider(
             )
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw providerTransportFailure("Anthropic", error)
+            throw providerTransportFailure("Anthropic", error, providerFailureDiagnosticObserver)
         }
     }
 
@@ -162,19 +167,20 @@ class AnthropicProvider(
         providerName: String,
     ): StreamChunk.Error? {
         if (response.statusCode() in 200..299) return null
-        val errorBody = response.body().toArray().joinToString("\n")
+        val errorBody = boundedLinesPreview(response.body())
         logProviderHttpFailureDebug(
             logger = providerLogger,
-            providerName = providerName,
+            providerId = providerName,
             statusCode = response.statusCode(),
-            body = errorBody,
         )
         return StreamChunk.Error(
             providerHttpFailure(
-                providerName = providerName,
+                providerId = providerName,
                 statusCode = response.statusCode(),
-                body = errorBody,
+                body = errorBody.text,
+                bodyTruncated = errorBody.truncated,
                 retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                observer = providerFailureDiagnosticObserver,
             ),
         )
     }
@@ -207,7 +213,7 @@ class AnthropicProvider(
             emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            emit(StreamChunk.Error(providerTransportFailure("Anthropic", e)))
+            emit(StreamChunk.Error(providerTransportFailure("Anthropic", e, providerFailureDiagnosticObserver)))
         }
     }
 

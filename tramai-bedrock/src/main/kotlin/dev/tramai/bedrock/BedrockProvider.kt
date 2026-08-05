@@ -12,6 +12,8 @@ import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.UsageMetrics
+import dev.tramai.core.observation.NoOpProviderFailureDiagnosticObserver
+import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
@@ -55,6 +57,8 @@ class BedrockProvider @JvmOverloads constructor(
     private val credentialsProvider: AwsCredentialsProvider = DefaultCredentialsProvider.builder().build(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
     private val ioDispatcher: CoroutineContext = Dispatchers.IO,
+    private val providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+        NoOpProviderFailureDiagnosticObserver,
 ) : ModelProvider, StreamCapable {
 
     override fun providerId(): String = PROVIDER_ID
@@ -83,7 +87,7 @@ class BedrockProvider @JvmOverloads constructor(
             mapClaudeResponse(body, effectiveModel)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw providerTransportFailure(PROVIDER_ID, error)
+            throw providerTransportFailure(PROVIDER_ID, error, providerFailureDiagnosticObserver)
         }
     }
 
@@ -112,7 +116,7 @@ class BedrockProvider @JvmOverloads constructor(
             ))
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            emit(StreamChunk.Error(providerTransportFailure(PROVIDER_ID, e)))
+            emit(StreamChunk.Error(providerTransportFailure(PROVIDER_ID, e, providerFailureDiagnosticObserver)))
         }
     }
 

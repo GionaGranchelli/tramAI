@@ -1,11 +1,16 @@
 package dev.tramai.openai
 
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.exception.ProviderFailureCode
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.UsageMetrics
+import dev.tramai.core.observation.NoOpProviderFailureDiagnosticObserver
+import dev.tramai.core.observation.ProviderFailureDiagnosticEvent
+import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
+import dev.tramai.core.provider.PROVIDER_ERROR_BODY_LIMIT_BYTES
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -111,13 +116,39 @@ class OpenAiStreamingTest {
 
         val chunk = runBlocking { provider.stream(request()).toList().single() }
 
-        assertTrue(
-            assertInstanceOf(StreamChunk.Error::class.java, chunk)
-                .cause
-                .message
-                .orEmpty()
-                .contains("Unexpected character"),
+        val error = assertInstanceOf(StreamChunk.Error::class.java, chunk).cause as ProviderException
+        // The parse error text is untrusted provider data: only the fixed
+        // safe message is visible, and the original throwable is not retained.
+        assertEquals("Provider transport failed", error.message)
+        assertTrue(error.cause == null)
+    }
+
+    @Test
+    fun `streaming http failure keeps the body out of the public exception and bounds diagnostics`() {
+        val events = mutableListOf<ProviderFailureDiagnosticEvent>()
+        val secretFixture = "sk-secret-streaming /path/customer/alice"
+        val provider = providerWithResponse(
+            statusCode = 500,
+            body = Stream.of(
+                """{"error":{"message":"$secretFixture"}}""",
+                "x".repeat(50_000),
+            ),
+            observer = ProviderFailureDiagnosticObserver { events.add(it) },
         )
+
+        val chunk = runBlocking { provider.stream(request()).toList().single() }
+
+        val error = assertInstanceOf(StreamChunk.Error::class.java, chunk).cause as ProviderException
+        assertEquals("Provider request failed with HTTP 500", error.message)
+        assertTrue(!error.message!!.contains(secretFixture))
+        assertTrue(error.cause == null)
+
+        val event = events.single()
+        assertEquals(ProviderFailureCode.HTTP_REJECTED, event.code)
+        assertEquals(500, event.statusCode)
+        assertTrue(event.httpBodyPreview != null)
+        assertTrue(event.httpBodyPreview!!.length <= PROVIDER_ERROR_BODY_LIMIT_BYTES)
+        assertTrue(event.httpBodyPreviewTruncated)
     }
 
     @Test
@@ -178,6 +209,7 @@ class OpenAiStreamingTest {
     private fun providerWithResponse(
         statusCode: Int,
         body: Stream<String>,
+        observer: ProviderFailureDiagnosticObserver = NoOpProviderFailureDiagnosticObserver,
     ): OpenAiCompatibleProvider = OpenAiCompatibleProvider(
         accessTokenSource = StaticOpenAiAccessTokenSource("test-key"),
         providerName = "mock-openai",
@@ -188,6 +220,7 @@ class OpenAiStreamingTest {
                 body = body,
             ),
         ),
+        providerFailureDiagnosticObserver = observer,
     )
 
     private fun request(): ModelRequest = ModelRequest(

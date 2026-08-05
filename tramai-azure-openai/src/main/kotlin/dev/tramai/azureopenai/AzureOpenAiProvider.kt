@@ -11,10 +11,13 @@ import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.ToolCall
 import dev.tramai.core.model.UsageMetrics
+import dev.tramai.core.observation.NoOpProviderFailureDiagnosticObserver
+import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.provider.applyTramaiTimeout
+import dev.tramai.core.provider.boundedLinesPreview
 import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
 import dev.tramai.core.provider.providerTransportFailure
@@ -59,6 +62,8 @@ class AzureOpenAiProvider @JvmOverloads constructor(
     /** Source for Entra ID (Azure AD) bearer tokens. Called on every request. */
     private val entraAccessTokenSource: AzureEntraAccessTokenSource? = null,
     private val ioDispatcher: CoroutineContext = Dispatchers.IO,
+    private val providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+        NoOpProviderFailureDiagnosticObserver,
 ) : ModelProvider, StreamCapable {
 
     init {
@@ -136,22 +141,22 @@ class AzureOpenAiProvider @JvmOverloads constructor(
             if (response.statusCode() !in 200..299) {
                 logProviderHttpFailureDebug(
                     logger = providerLogger,
-                    providerName = PROVIDER_ID,
+                    providerId = PROVIDER_ID,
                     statusCode = response.statusCode(),
-                    body = response.body(),
                 )
                 throw providerHttpFailure(
-                    providerName = PROVIDER_ID,
+                    providerId = PROVIDER_ID,
                     statusCode = response.statusCode(),
                     body = response.body(),
                     retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    observer = providerFailureDiagnosticObserver,
                 )
             }
 
             mapResponse(objectMapper.readTree(response.body()))
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw providerTransportFailure(PROVIDER_ID, error)
+            throw providerTransportFailure(PROVIDER_ID, error, providerFailureDiagnosticObserver)
         }
     }
 
@@ -203,19 +208,20 @@ class AzureOpenAiProvider @JvmOverloads constructor(
         providerName: String,
     ): StreamChunk.Error? {
         if (response.statusCode() in 200..299) return null
-        val errorBody = response.body().toArray().joinToString("\n")
+        val errorBody = boundedLinesPreview(response.body())
         logProviderHttpFailureDebug(
             logger = providerLogger,
-            providerName = providerName,
+            providerId = providerName,
             statusCode = response.statusCode(),
-            body = errorBody,
         )
         return StreamChunk.Error(
             providerHttpFailure(
-                providerName = providerName,
+                providerId = providerName,
                 statusCode = response.statusCode(),
-                body = errorBody,
+                body = errorBody.text,
+                bodyTruncated = errorBody.truncated,
                 retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                observer = providerFailureDiagnosticObserver,
             ),
         )
     }
@@ -243,7 +249,7 @@ class AzureOpenAiProvider @JvmOverloads constructor(
             emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            emit(StreamChunk.Error(providerTransportFailure(PROVIDER_ID, e)))
+            emit(StreamChunk.Error(providerTransportFailure(PROVIDER_ID, e, providerFailureDiagnosticObserver)))
         }
     }
 

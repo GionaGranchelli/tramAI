@@ -9,9 +9,12 @@ import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.model.ModelResponse
 import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.model.UsageMetrics
+import dev.tramai.core.observation.NoOpProviderFailureDiagnosticObserver
+import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.applyTramaiTimeout
+import dev.tramai.core.provider.boundedLinesPreview
 import dev.tramai.core.provider.logProviderHttpFailureDebug
 import dev.tramai.core.provider.providerHttpFailure
 import dev.tramai.core.provider.providerTransportFailure
@@ -32,11 +35,13 @@ import java.util.stream.Stream
 /**
  * [ModelProvider] implementation for Ollama's chat API.
  */
-class OllamaProvider(
+class OllamaProvider @JvmOverloads constructor(
     private val baseUrl: String = "http://localhost:11434",
     private val httpClient: HttpClient = HttpClient.newHttpClient(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
     private val ioDispatcher: CoroutineContext = Dispatchers.IO,
+    private val providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+        NoOpProviderFailureDiagnosticObserver,
 ) : ModelProvider, dev.tramai.core.provider.StreamCapable {
 
     override suspend fun complete(request: ModelRequest): ModelResponse = withContext(ioDispatcher) {
@@ -58,15 +63,15 @@ class OllamaProvider(
             if (response.statusCode() !in 200..299) {
                 logProviderHttpFailureDebug(
                     logger = providerLogger,
-                    providerName = "Ollama",
+                    providerId = "Ollama",
                     statusCode = response.statusCode(),
-                    body = response.body(),
                 )
                 throw providerHttpFailure(
-                    providerName = "Ollama",
+                    providerId = "Ollama",
                     statusCode = response.statusCode(),
                     body = response.body(),
                     retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                    observer = providerFailureDiagnosticObserver,
                 )
             }
 
@@ -74,7 +79,7 @@ class OllamaProvider(
             val message = body.path("message")
             val role = message.path("role").asText("").lowercase()
             if (role.isNotBlank() && role != MessageRole.ASSISTANT.name.lowercase()) {
-                throw ProviderException("Unexpected Ollama response role '$role'")
+                throw ProviderException("Unexpected Ollama response role")
             }
 
             ModelResponse(
@@ -90,7 +95,7 @@ class OllamaProvider(
             )
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw providerTransportFailure("Ollama", error)
+            throw providerTransportFailure("Ollama", error, providerFailureDiagnosticObserver)
         }
     }
 
@@ -137,19 +142,20 @@ class OllamaProvider(
      */
     private fun handleHttpError(response: HttpResponse<Stream<String>>): dev.tramai.core.model.StreamChunk.Error? {
         if (response.statusCode() in 200..299) return null
-        val errorBody = response.body().toArray().joinToString("\n")
+        val errorBody = boundedLinesPreview(response.body())
         logProviderHttpFailureDebug(
             logger = providerLogger,
-            providerName = "Ollama",
+            providerId = "Ollama",
             statusCode = response.statusCode(),
-            body = errorBody,
         )
         return dev.tramai.core.model.StreamChunk.Error(
             providerHttpFailure(
-                providerName = "Ollama",
+                providerId = "Ollama",
                 statusCode = response.statusCode(),
-                body = errorBody,
+                body = errorBody.text,
+                bodyTruncated = errorBody.truncated,
                 retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+                observer = providerFailureDiagnosticObserver,
             ),
         )
     }
@@ -188,7 +194,7 @@ class OllamaProvider(
             emit(dev.tramai.core.model.StreamChunk.Complete(fullText.toString(), lastUsage ?: dev.tramai.core.model.UsageMetrics()))
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            emit(dev.tramai.core.model.StreamChunk.Error(providerTransportFailure("Ollama", e)))
+            emit(dev.tramai.core.model.StreamChunk.Error(providerTransportFailure("Ollama", e, providerFailureDiagnosticObserver)))
         }
     }
 

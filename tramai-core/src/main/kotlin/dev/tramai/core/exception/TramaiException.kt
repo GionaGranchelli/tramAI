@@ -37,8 +37,17 @@ class StructuredOutputException(
 
 /**
  * Raised when a provider transport or API call fails.
+ *
+ * Built-in provider factories ([dev.tramai.core.provider.providerHttpFailure]
+ * and [dev.tramai.core.provider.providerTransportFailure]) construct instances
+ * with fixed trusted messages and without retaining the original throwable as
+ * cause; the original failure and a bounded error-body preview are delivered
+ * only to the configured
+ * [dev.tramai.core.observation.ProviderFailureDiagnosticObserver]. The
+ * existing constructor remains available for callers that build their own
+ * provider exceptions.
  */
-class ProviderException(
+class ProviderException @JvmOverloads constructor(
     message: String,
     cause: Throwable? = null,
     /** Provider HTTP status when one exists. */
@@ -47,6 +56,8 @@ class ProviderException(
     val retryable: Boolean = false,
     /** Recommended delay before retrying, when exposed by the provider. */
     val retryAfterMillis: Long? = null,
+    /** Typed classification of the failure, when produced by a built-in factory. */
+    val failureCode: ProviderFailureCode? = null,
 ) : TramaiException(message, cause)
 
 /**

@@ -1,6 +1,8 @@
 package dev.tramai.deepseek
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.tramai.core.observation.NoOpProviderFailureDiagnosticObserver
+import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
@@ -32,6 +34,8 @@ class DeepSeekProvider private constructor(
         baseUrl: String = DEFAULT_BASE_URL,
         httpClient: HttpClient = HttpClient.newHttpClient(),
         objectMapper: ObjectMapper = ObjectMapper(),
+        providerFailureDiagnosticObserver: ProviderFailureDiagnosticObserver =
+            NoOpProviderFailureDiagnosticObserver,
     ) : this(
         OpenAiCompatibleProvider(
             accessTokenSource = StaticOpenAiAccessTokenSource(apiKey),
@@ -39,6 +43,7 @@ class DeepSeekProvider private constructor(
             baseUrl = baseUrl,
             httpClient = httpClient,
             objectMapper = objectMapper,
+            providerFailureDiagnosticObserver = providerFailureDiagnosticObserver,
         ),
     )
 
