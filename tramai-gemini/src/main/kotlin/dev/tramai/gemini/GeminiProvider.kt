@@ -369,12 +369,13 @@ class GeminiProvider @JvmOverloads constructor(
                     )
                     index++
                 } else {
-                    // Log warning for non-text, non-function-call response parts
+                    // Log warning for non-text, non-function-call response parts.
+                    // The part itself is untrusted response data: never log it.
                     val partText = part.path("text").asText("")
                     if (partText.isEmpty()) {
                         providerLogger.log(
                             System.Logger.Level.WARNING,
-                            "Gemini response contained a part that is neither text nor functionCall: ${part.toPrettyString()}"
+                            "Gemini response contained a part that is neither text nor functionCall; details are available via the provider failure diagnostic observer"
                         )
                     }
                 }

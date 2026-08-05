@@ -6,7 +6,8 @@ public final class dev/tramai/bedrock/BedrockProvider : dev/tramai/core/provider
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lsoftware/amazon/awssdk/auth/credentials/AwsCredentialsProvider;)V
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lsoftware/amazon/awssdk/auth/credentials/AwsCredentialsProvider;Lcom/fasterxml/jackson/databind/ObjectMapper;)V
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lsoftware/amazon/awssdk/auth/credentials/AwsCredentialsProvider;Lcom/fasterxml/jackson/databind/ObjectMapper;Lkotlin/coroutines/CoroutineContext;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lsoftware/amazon/awssdk/auth/credentials/AwsCredentialsProvider;Lcom/fasterxml/jackson/databind/ObjectMapper;Lkotlin/coroutines/CoroutineContext;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lsoftware/amazon/awssdk/auth/credentials/AwsCredentialsProvider;Lcom/fasterxml/jackson/databind/ObjectMapper;Lkotlin/coroutines/CoroutineContext;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lsoftware/amazon/awssdk/auth/credentials/AwsCredentialsProvider;Lcom/fasterxml/jackson/databind/ObjectMapper;Lkotlin/coroutines/CoroutineContext;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun complete (Ldev/tramai/core/model/ModelRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun providerId ()Ljava/lang/String;
 	public fun stream (Ldev/tramai/core/model/ModelRequest;)Lkotlinx/coroutines/flow/Flow;

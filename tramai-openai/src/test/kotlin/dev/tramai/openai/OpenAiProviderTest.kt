@@ -4,13 +4,17 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import dev.tramai.core.exception.ConfigurationException
 import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.exception.ProviderFailureCode
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
+import dev.tramai.core.observation.ProviderFailureDiagnosticEvent
+import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.util.Base64
@@ -169,6 +173,81 @@ class OpenAiProviderTest {
                 assertThat(error.retryable).isTrue()
                 assertThat(error.retryAfterMillis).isEqualTo(2_000)
             }
+    }
+
+    @Test
+    fun `http failure keeps the body out of the public exception and emits bounded diagnostics`() {
+        runBlocking {
+            val events = mutableListOf<ProviderFailureDiagnosticEvent>()
+            val secretFixture = "sk-secret-222 /path/customer/alice SELECT * FROM users bearer-token-xyz"
+            responseStatus = 500
+            responseBody = """{"error":{"message":"$secretFixture"}}"""
+            val provider = OpenAiProvider(
+                apiKey = "test-openai-key",
+                baseUrl = "http://localhost:${server.address.port}/v1",
+                providerFailureDiagnosticObserver = ProviderFailureDiagnosticObserver { events.add(it) },
+            )
+
+            val error = runCatching {
+                provider.complete(
+                    ModelRequest(
+                        model = "gpt-5.1-chat-latest",
+                        messages = listOf(Message(MessageRole.USER, "say hello")),
+                    ),
+                )
+            }.exceptionOrNull()
+
+            assertThat(error).isInstanceOf(ProviderException::class.java)
+            val providerError = error as ProviderException
+            assertThat(providerError.message).isEqualTo("Provider request failed with HTTP 500")
+            assertThat(providerError.message!!).doesNotContain(secretFixture)
+            assertThat(providerError.cause).isNull()
+            assertThat(providerError.failureCode).isEqualTo(ProviderFailureCode.HTTP_REJECTED)
+
+            assertThat(events).hasSize(1)
+            val event = events.single()
+            assertThat(event.code).isEqualTo(ProviderFailureCode.HTTP_REJECTED)
+            assertThat(event.statusCode).isEqualTo(500)
+            assertThat(event.httpBodyPreview).isNotNull()
+            assertThat(event.httpBodyPreviewTruncated).isFalse()
+            assertThat(event.failure).isNull()
+        }
+    }
+
+    @Test
+    fun `transport failure keeps parser detail out of the public exception`() {
+        runBlocking {
+            val events = mutableListOf<ProviderFailureDiagnosticEvent>()
+            val secretFixture = "sk-secret-222 /path/customer/alice SELECT * FROM users bearer-token-xyz"
+            responseBody = "{not-json $secretFixture}"
+            val provider = OpenAiProvider(
+                apiKey = "test-openai-key",
+                baseUrl = "http://localhost:${server.address.port}/v1",
+                providerFailureDiagnosticObserver = ProviderFailureDiagnosticObserver { events.add(it) },
+            )
+
+            val error = runCatching {
+                provider.complete(
+                    ModelRequest(
+                        model = "gpt-5.1-chat-latest",
+                        messages = listOf(Message(MessageRole.USER, "say hello")),
+                    ),
+                )
+            }.exceptionOrNull()
+
+            assertThat(error).isInstanceOf(ProviderException::class.java)
+            val providerError = error as ProviderException
+            assertThat(providerError.message).isEqualTo("Provider transport failed")
+            assertThat(providerError.message!!).doesNotContain(secretFixture)
+            assertThat(providerError.cause).isNull()
+            assertThat(providerError.failureCode).isEqualTo(ProviderFailureCode.TRANSPORT_FAILED)
+
+            assertThat(events).hasSize(1)
+            val event = events.single()
+            assertThat(event.code).isEqualTo(ProviderFailureCode.TRANSPORT_FAILED)
+            assertThat(event.failure).isInstanceOf(IOException::class.java)
+            assertThat(event.httpBodyPreview).isNull()
+        }
     }
 
     @Test

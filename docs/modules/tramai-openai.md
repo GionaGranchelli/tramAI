@@ -513,7 +513,10 @@ The provider never stores credentials — it delegates to `OpenAiAccessTokenSour
 **HTTP error handling details:**
 
 - The `Retry-After` header is parsed from non-2xx responses and exposed via `error.retryAfterMillis` so the engine can honor provider-side rate-limiting guidance.
-- Error responses that include a JSON body are attached to the exception message for debugging.
+- The public exception message is fixed to `Provider request failed with HTTP {status}` and has no cause; `failureCode` is `HTTP_REJECTED`.
+- Response bodies are excluded from public exceptions, standard logs, and telemetry. An explicitly configured `ProviderFailureDiagnosticObserver` is the only diagnostic channel and receives a preview capped at 8 KiB with a truncation flag.
+- Debug logging records metadata only: provider id, failure code, status, and retryability.
+- Transport failures likewise use fixed cause-free messages and typed codes. The original timeout, connection, I/O, or unexpected throwable is available only to the diagnostic observer.
 
 ### Testing strategy
 
@@ -524,6 +527,7 @@ The provider never stores credentials — it delegates to `OpenAiAccessTokenSour
   - Array-based content blocks (for multi-modal / content-list responses)
   - OpenAiCompatibleProvider.bearerToken() factory
   - HTTP 429 rate-limiting with Retry-After header parsing
+  - Secret-bearing HTTP and malformed-JSON transport failures remain out of public exceptions while diagnostics retain bounded/original detail
   - Empty choices array error handling
   - CodexAuthFileTokenSource: successful token reading
   - CodexAuthFileTokenSource: misconfigured auth file (`auth_mode != "chatgpt"`)

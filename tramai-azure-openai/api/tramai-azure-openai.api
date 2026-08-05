@@ -13,7 +13,8 @@ public final class dev/tramai/azureopenai/AzureOpenAiProvider : dev/tramai/core/
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;)V
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/azureopenai/AzureEntraAccessTokenSource;)V
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/azureopenai/AzureEntraAccessTokenSource;Lkotlin/coroutines/CoroutineContext;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/azureopenai/AzureEntraAccessTokenSource;Lkotlin/coroutines/CoroutineContext;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/azureopenai/AzureEntraAccessTokenSource;Lkotlin/coroutines/CoroutineContext;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/net/http/HttpClient;Lcom/fasterxml/jackson/databind/ObjectMapper;Ldev/tramai/azureopenai/AzureEntraAccessTokenSource;Lkotlin/coroutines/CoroutineContext;Ldev/tramai/core/observation/ProviderFailureDiagnosticObserver;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun complete (Ldev/tramai/core/model/ModelRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun providerId ()Ljava/lang/String;
 	public fun stream (Ldev/tramai/core/model/ModelRequest;)Lkotlinx/coroutines/flow/Flow;

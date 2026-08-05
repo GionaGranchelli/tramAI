@@ -154,6 +154,14 @@ class ProviderFailuresTest {
     }
 
     @Test
+    fun `bounded lines preview keeps a body exactly at the limit untruncated`() {
+        val preview = boundedLinesPreview(Stream.of("y".repeat(PROVIDER_ERROR_BODY_LIMIT_BYTES)))
+
+        assertThat(preview.truncated).isFalse()
+        assertThat(preview.text.length).isEqualTo(PROVIDER_ERROR_BODY_LIMIT_BYTES)
+    }
+
+    @Test
     fun `bounded lines preview keeps a full body under the limit`() {
         val preview = boundedLinesPreview(Stream.of("ok", "body"))
 

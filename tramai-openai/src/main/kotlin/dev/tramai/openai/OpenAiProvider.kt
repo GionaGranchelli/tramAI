@@ -237,6 +237,7 @@ open class OpenAiCompatibleProvider @JvmOverloads constructor(
             val (text, usage) = parseSseLines(response.body())
             emit(StreamChunk.Complete(text, usage))
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             emit(StreamChunk.Error(providerTransportFailure(providerName, e, providerFailureDiagnosticObserver)))
         }
     }

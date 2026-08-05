@@ -189,11 +189,17 @@ Cancellation propagates: because the stream is a `kotlinx.coroutines.flow.Flow`,
 Non-2xx status codes are handled by `providerHttpFailure()`:
 
 ```kotlin
+logProviderHttpFailureDebug(
+    logger = providerLogger,
+    providerId = "Anthropic",
+    statusCode = response.statusCode(),
+)
 throw providerHttpFailure(
-    providerName = "Anthropic",
+    providerId = "Anthropic",
     statusCode = response.statusCode(),
     body = response.body(),
     retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
+    observer = providerFailureDiagnosticObserver,
 )
 ```
 
@@ -204,18 +210,22 @@ This produces a `ProviderException` with:
 | `statusCode` | The HTTP status from the API (e.g., 429, 500, 503) |
 | `retryable` | `true` for 408, 425, 429, 500, 502, 503, 504; `false` otherwise |
 | `retryAfterMillis` | Parsed from the `Retry-After` header (supports both seconds and RFC 1123 dates) |
-| `message` | `"Anthropic returned HTTP {status}: {body}"` |
+| `failureCode` | `HTTP_REJECTED` |
+| `message` | `"Provider request failed with HTTP {status}"` |
+| `cause` | `null` |
+
+The body is never copied into the public exception, standard logs, or telemetry. `ProviderFailureDiagnosticObserver` is the only diagnostic channel: it receives a preview capped at 8 KiB plus a truncation flag. The debug log shown above records trusted metadata only and never includes the body, headers, credentials, or cause text.
 
 #### Transport errors
 
-IOExceptions at the transport layer are caught and wrapped by `providerTransportFailure()`:
+Transport-layer failures are caught and mapped by `providerTransportFailure()` to fixed cause-free public exceptions. The original throwable is delivered only to `ProviderFailureDiagnosticObserver`:
 
-| Root cause | `retryable` |
-|---|---|
-| `HttpTimeoutException` | `true` |
-| `ConnectException` | `true` |
-| `IOException` | `true` |
-| Other `Throwable` | `false` |
+| Root cause | `failureCode` | Public message | `retryable` |
+|---|---|---|---|
+| `HttpTimeoutException` | `TIMEOUT` | `Provider request timed out` | `true` |
+| `ConnectException` | `CONNECTION_FAILED` | `Provider connection failed` | `true` |
+| `IOException` | `TRANSPORT_FAILED` | `Provider transport failed` | `true` |
+| Other `Throwable` | `UNEXPECTED_FAILURE` | `Provider request failed` | `false` |
 
 #### Response parsing errors
 
