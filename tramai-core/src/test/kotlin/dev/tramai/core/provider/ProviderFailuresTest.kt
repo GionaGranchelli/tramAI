@@ -10,6 +10,7 @@ import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.UncheckedIOException
 import java.net.ConnectException
 import java.net.URI
 import java.net.http.HttpRequest
@@ -218,6 +219,24 @@ class ProviderFailuresTest {
         assertThat(error.retryable).isTrue()
         assertThat(error.failureCode).isEqualTo(ProviderFailureCode.TRANSPORT_FAILED)
         assertThat(error.message).isEqualTo("Provider transport failed")
+    }
+
+    @Test
+    fun `unchecked io failure is classified as retryable transport failure and observed`() = runBlocking {
+        val original = UncheckedIOException(IOException("socket closed"))
+        val events = mutableListOf<ProviderFailureDiagnosticEvent>()
+
+        val error = providerTransportFailureObserved(
+            "openai",
+            original,
+            ProviderFailureDiagnosticObserver(events::add),
+        )
+
+        assertThat(error.failureCode).isEqualTo(ProviderFailureCode.TRANSPORT_FAILED)
+        assertThat(error.retryable).isTrue()
+        assertThat(error.message).isEqualTo("Provider transport failed")
+        assertThat(error.cause).isNull()
+        assertThat(events.single().failure).isSameAs(original)
     }
 
     @Test

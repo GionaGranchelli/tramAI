@@ -27,9 +27,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import java.net.URI
-import java.io.BufferedReader
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
@@ -199,8 +197,9 @@ class OllamaProvider @JvmOverloads constructor(
         var lastUsage: dev.tramai.core.model.UsageMetrics? = null
 
         try {
-            BufferedReader(InputStreamReader(response.body(), UTF_8)).lines().use { lines ->
-                for (line in lines) {
+            response.body().bufferedReader(UTF_8).use { reader ->
+                while (true) {
+                    val line = reader.readLine() ?: break
                     if (line.isBlank()) continue
 
                     val node = objectMapper.readTree(line)

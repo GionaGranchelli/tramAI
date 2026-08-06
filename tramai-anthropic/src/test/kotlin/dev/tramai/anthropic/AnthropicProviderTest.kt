@@ -13,13 +13,18 @@ import dev.tramai.core.observation.ProviderFailureDiagnosticEvent
 import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.flow.take
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import java.net.InetSocketAddress
+import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.io.IOException
 import java.net.CookieHandler
 import java.net.ProxySelector
+import java.net.URI
 import java.net.http.HttpClient
+import java.net.http.HttpHeaders
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
@@ -29,6 +34,7 @@ import java.util.concurrent.Executor
 import java.util.Base64
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLParameters
+import javax.net.ssl.SSLSession
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -277,6 +283,66 @@ class AnthropicProviderTest {
         assertThat(events.single().providerId).isEqualTo("anthropic")
     }
 
+    @Test
+    fun `stream closes response body after normal completion`() {
+        val body = TrackingInputStream(
+            """
+                event: content_block_delta
+                data: {"delta":{"text":"hello"}}
+                event: message_stop
+                data: {}
+            """.trimIndent().toByteArray(),
+        )
+
+        val chunks = collectStream(body)
+
+        assertThat(chunks).hasSize(2)
+        assertThat(chunks.last()).isInstanceOf(StreamChunk.Complete::class.java)
+        assertThat(body.closed).isTrue()
+    }
+
+    @Test
+    fun `stream closes response body after malformed chunk`() {
+        val body = TrackingInputStream("event: content_block_delta\ndata: {not-json}\n".toByteArray())
+
+        val chunks = collectStream(body)
+
+        assertThat(chunks.single()).isInstanceOf(StreamChunk.Error::class.java)
+        assertThat(body.closed).isTrue()
+    }
+
+    @Test
+    fun `stream closes response body when collector stops after first token`() {
+        val body = TrackingInputStream(
+            """
+                event: content_block_delta
+                data: {"delta":{"text":"first"}}
+                event: content_block_delta
+                data: {"delta":{"text":"second"}}
+            """.trimIndent().toByteArray(),
+        )
+
+        val chunks = runBlocking { streamingProvider(body).stream(streamRequest()).take(1).toList() }
+
+        assertThat(chunks.single()).isInstanceOf(StreamChunk.Token::class.java)
+        assertThat(body.closed).isTrue()
+    }
+
+    private fun collectStream(body: InputStream): List<StreamChunk> = runBlocking {
+        streamingProvider(body).stream(streamRequest()).toList()
+    }
+
+    private fun streamingProvider(body: InputStream): AnthropicProvider = AnthropicProvider(
+        apiKey = "test-key",
+        httpClient = StubHttpClient(body),
+        ioDispatcher = EmptyCoroutineContext,
+    )
+
+    private fun streamRequest(): ModelRequest = ModelRequest(
+        model = "claude-sonnet-4-20250514",
+        messages = listOf(Message(MessageRole.USER, "hello")),
+    )
+
     private fun respond(
         exchange: HttpExchange,
         body: String,
@@ -303,6 +369,55 @@ class AnthropicProviderTest {
           "stop_reason": "end_turn"
         }
     """.trimIndent()
+}
+
+private class TrackingInputStream(bytes: ByteArray) : InputStream() {
+    private val delegate = ByteArrayInputStream(bytes)
+    var closed: Boolean = false
+        private set
+
+    override fun read(): Int = delegate.read()
+    override fun read(target: ByteArray, offset: Int, length: Int): Int = delegate.read(target, offset, length)
+    override fun close() {
+        closed = true
+        delegate.close()
+    }
+}
+
+private class StubHttpClient(private val responseBody: InputStream) : HttpClient() {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : Any?> send(request: HttpRequest, responseBodyHandler: HttpResponse.BodyHandler<T>): HttpResponse<T> =
+        StubHttpResponse(request, responseBody as T)
+
+    override fun <T : Any?> sendAsync(request: HttpRequest, responseBodyHandler: HttpResponse.BodyHandler<T>) =
+        CompletableFuture.completedFuture(send(request, responseBodyHandler))
+
+    override fun <T : Any?> sendAsync(
+        request: HttpRequest,
+        responseBodyHandler: HttpResponse.BodyHandler<T>,
+        pushPromiseHandler: HttpResponse.PushPromiseHandler<T>,
+    ) = CompletableFuture.completedFuture(send(request, responseBodyHandler))
+
+    override fun cookieHandler(): Optional<CookieHandler> = Optional.empty()
+    override fun connectTimeout(): Optional<Duration> = Optional.empty()
+    override fun followRedirects(): HttpClient.Redirect = HttpClient.Redirect.NEVER
+    override fun proxy(): Optional<ProxySelector> = Optional.empty()
+    override fun sslContext(): SSLContext = SSLContext.getDefault()
+    override fun sslParameters(): SSLParameters = SSLParameters()
+    override fun authenticator(): Optional<java.net.Authenticator> = Optional.empty()
+    override fun version(): HttpClient.Version = HttpClient.Version.HTTP_1_1
+    override fun executor(): Optional<Executor> = Optional.empty()
+}
+
+private class StubHttpResponse<T>(private val originalRequest: HttpRequest, private val responseBody: T) : HttpResponse<T> {
+    override fun statusCode(): Int = 200
+    override fun request(): HttpRequest = originalRequest
+    override fun previousResponse(): Optional<HttpResponse<T>> = Optional.empty()
+    override fun headers(): HttpHeaders = HttpHeaders.of(emptyMap()) { _, _ -> true }
+    override fun body(): T = responseBody
+    override fun sslSession(): Optional<SSLSession> = Optional.empty()
+    override fun uri(): URI = originalRequest.uri()
+    override fun version(): HttpClient.Version = HttpClient.Version.HTTP_1_1
 }
 
 private class AnthropicThrowingHttpClient(

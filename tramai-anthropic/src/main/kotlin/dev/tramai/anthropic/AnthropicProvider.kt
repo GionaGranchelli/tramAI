@@ -26,9 +26,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import java.net.URI
-import java.io.BufferedReader
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
@@ -217,9 +215,10 @@ class AnthropicProvider @JvmOverloads constructor(
         var lastUsage: UsageMetrics? = null
 
         try {
-            BufferedReader(InputStreamReader(response.body(), UTF_8)).lines().use { lines ->
+            response.body().bufferedReader(UTF_8).use { reader ->
                 var currentEvent: String? = null
-                for (line in lines) {
+                while (true) {
+                    val line = reader.readLine() ?: break
                     if (line.startsWith("event: ")) {
                         currentEvent = line.substring(7).trim()
                     } else if (line.startsWith("data: ")) {

@@ -29,9 +29,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import java.net.URI
-import java.io.BufferedReader
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
@@ -40,7 +38,6 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.Base64
 import java.nio.charset.StandardCharsets.UTF_8
-import java.util.stream.Stream
 
 /**
  * Source for bearer tokens used by OpenAI-compatible providers.
@@ -266,9 +263,28 @@ open class OpenAiCompatibleProvider @JvmOverloads constructor(
         if (handleHttpResponseError(response)) return@flow
 
         try {
-            val lines = BufferedReader(InputStreamReader(response.body(), UTF_8)).lines()
-            val (text, usage) = parseSseLines(lines)
-            emit(StreamChunk.Complete(text, usage))
+            response.body().bufferedReader(UTF_8).use { reader ->
+                val fullText = StringBuilder()
+                var lastUsage: UsageMetrics? = null
+
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    if (!line.startsWith("data: ")) continue
+
+                    val data = line.substring(6).trim()
+                    val result = parseSseData(data)
+                    if (result.isDone) break
+                    if (result.tokenText.isNotEmpty()) {
+                        fullText.append(result.tokenText)
+                        emit(StreamChunk.Token(result.tokenText))
+                    }
+                    if (result.usage != null) {
+                        lastUsage = result.usage
+                    }
+                }
+
+                emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
+            }
         } catch (e: Exception) {
             e.rethrowIfCancellation()
             emit(
@@ -367,39 +383,6 @@ open class OpenAiCompatibleProvider @JvmOverloads constructor(
         } else null
 
         return SseData(tokenText = content, usage = usage)
-    }
-
-    /**
-     * Parses an OpenAI-compatible SSE (Server-Sent Events) stream response.
-     * Handles `data: ` prefix stripping, `[DONE]` delimiter detection,
-     * delta/content extraction, and usage metrics tracking.
-     *
-     * @return A [Pair] of the accumulated full response text and final [UsageMetrics].
-     */
-    private suspend fun FlowCollector<StreamChunk>.parseSseLines(
-        lines: Stream<String>,
-    ): Pair<String, UsageMetrics> {
-        val fullText = StringBuilder()
-        var lastUsage: UsageMetrics? = null
-
-        lines.use { lineStream ->
-            for (line in lineStream) {
-                if (!line.startsWith("data: ")) continue
-
-                val data = line.substring(6).trim()
-                val result = parseSseData(data)
-                if (result.isDone) break
-                if (result.tokenText.isNotEmpty()) {
-                    fullText.append(result.tokenText)
-                    emit(StreamChunk.Token(result.tokenText))
-                }
-                if (result.usage != null) {
-                    lastUsage = result.usage
-                }
-            }
-        }
-
-        return Pair(fullText.toString(), lastUsage ?: UsageMetrics())
     }
 
     private fun extractContent(contentNode: JsonNode): String {

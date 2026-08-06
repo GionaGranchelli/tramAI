@@ -9,15 +9,34 @@ import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
+import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.observation.ProviderFailureDiagnosticEvent
 import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.io.IOException
+import java.net.CookieHandler
 import java.net.InetSocketAddress
+import java.net.ProxySelector
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpHeaders
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.nio.file.Files
+import java.time.Duration
 import java.util.Base64
+import java.util.Optional
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executor
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLParameters
+import javax.net.ssl.SSLSession
 import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -407,6 +426,88 @@ class OpenAiProviderTest {
         assertThat(capturedBody).doesNotContain("\"content\":[")
     }
 
+    @Test
+    fun `stream closes response body after done marker`() {
+        val body = TrackingInputStream(
+            """
+                data: {"choices":[{"delta":{"content":"hello"}}]}
+                data: [DONE]
+                data: {not-json}
+            """.trimIndent().toByteArray(),
+        )
+        val chunks = collectStream(body)
+
+        assertThat(chunks).hasSize(2)
+        assertThat(chunks.last()).isInstanceOf(StreamChunk.Complete::class.java)
+        assertThat(body.closed).isTrue()
+    }
+
+    @Test
+    fun `stream closes response body after malformed chunk`() {
+        val body = TrackingInputStream("data: {not-json}\n".toByteArray())
+        val chunks = collectStream(body)
+
+        assertThat(chunks.single()).isInstanceOf(StreamChunk.Error::class.java)
+        assertThat(body.closed).isTrue()
+    }
+
+    @Test
+    fun `stream closes response body when collector stops after first token`() {
+        val body = TrackingInputStream(
+            """
+                data: {"choices":[{"delta":{"content":"first"}}]}
+                data: {"choices":[{"delta":{"content":"second"}}]}
+                data: [DONE]
+            """.trimIndent().toByteArray(),
+        )
+        val provider = streamingProvider(body)
+
+        val chunks = runBlocking { provider.stream(streamRequest()).take(1).toList() }
+
+        assertThat(chunks.single()).isInstanceOf(StreamChunk.Token::class.java)
+        assertThat(body.closed).isTrue()
+    }
+
+    @Test
+    fun `mid stream io failure is retryable sanitized and observed`() {
+        val original = IOException("socket failed with secret")
+        val body = MidReadFailingInputStream(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"first\"}}]}\n".toByteArray(),
+            original,
+        )
+        val events = mutableListOf<ProviderFailureDiagnosticEvent>()
+        val provider = streamingProvider(body, ProviderFailureDiagnosticObserver(events::add))
+
+        val chunks = runBlocking { provider.stream(streamRequest()).toList() }
+
+        assertThat(chunks).hasSize(2)
+        val error = (chunks.last() as StreamChunk.Error).cause as ProviderException
+        assertThat(error.failureCode).isEqualTo(ProviderFailureCode.TRANSPORT_FAILED)
+        assertThat(error.retryable).isTrue()
+        assertThat(error.cause).isNull()
+        assertThat(error.message).isEqualTo("Provider transport failed")
+        assertThat(events.single().failure).isSameAs(original)
+        assertThat(body.closed).isTrue()
+    }
+
+    private fun collectStream(body: InputStream): List<StreamChunk> = runBlocking {
+        streamingProvider(body).stream(streamRequest()).toList()
+    }
+
+    private fun streamingProvider(
+        body: InputStream,
+        observer: ProviderFailureDiagnosticObserver = ProviderFailureDiagnosticObserver { },
+    ): OpenAiProvider = OpenAiProvider(
+        apiKey = "test-key",
+        httpClient = StubHttpClient(body),
+        providerFailureDiagnosticObserver = observer,
+    )
+
+    private fun streamRequest(): ModelRequest = ModelRequest(
+        model = "gpt-4o",
+        messages = listOf(Message(MessageRole.USER, "hello")),
+    )
+
     private fun respond(
         exchange: HttpExchange,
         body: String,
@@ -437,4 +538,87 @@ class OpenAiProviderTest {
           }
         }
     """.trimIndent()
+}
+
+private open class TrackingInputStream(bytes: ByteArray) : InputStream() {
+    private val delegate = ByteArrayInputStream(bytes)
+    var closed: Boolean = false
+        private set
+
+    override fun read(): Int = delegate.read()
+    override fun read(target: ByteArray, offset: Int, length: Int): Int = delegate.read(target, offset, length)
+
+    override fun close() {
+        closed = true
+        delegate.close()
+    }
+}
+
+private class MidReadFailingInputStream(
+    private val firstChunk: ByteArray,
+    private val failure: IOException,
+) : InputStream() {
+    private var index = 0
+    var closed: Boolean = false
+        private set
+
+    override fun read(): Int {
+        if (index >= firstChunk.size) throw failure
+        return firstChunk[index++].toInt() and 0xff
+    }
+
+    override fun read(target: ByteArray, offset: Int, length: Int): Int {
+        if (index >= firstChunk.size) throw failure
+        val count = minOf(length, firstChunk.size - index)
+        firstChunk.copyInto(target, offset, index, index + count)
+        index += count
+        return count
+    }
+
+    override fun close() {
+        closed = true
+    }
+}
+
+private class StubHttpClient(private val responseBody: InputStream) : HttpClient() {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : Any?> send(
+        request: HttpRequest,
+        responseBodyHandler: HttpResponse.BodyHandler<T>,
+    ): HttpResponse<T> = StubHttpResponse(request, responseBody as T)
+
+    override fun <T : Any?> sendAsync(
+        request: HttpRequest,
+        responseBodyHandler: HttpResponse.BodyHandler<T>,
+    ): CompletableFuture<HttpResponse<T>> = CompletableFuture.completedFuture(send(request, responseBodyHandler))
+
+    override fun <T : Any?> sendAsync(
+        request: HttpRequest,
+        responseBodyHandler: HttpResponse.BodyHandler<T>,
+        pushPromiseHandler: HttpResponse.PushPromiseHandler<T>,
+    ): CompletableFuture<HttpResponse<T>> = CompletableFuture.completedFuture(send(request, responseBodyHandler))
+
+    override fun cookieHandler(): Optional<CookieHandler> = Optional.empty()
+    override fun connectTimeout(): Optional<Duration> = Optional.empty()
+    override fun followRedirects(): HttpClient.Redirect = HttpClient.Redirect.NEVER
+    override fun proxy(): Optional<ProxySelector> = Optional.empty()
+    override fun sslContext(): SSLContext = SSLContext.getDefault()
+    override fun sslParameters(): SSLParameters = SSLParameters()
+    override fun authenticator(): Optional<java.net.Authenticator> = Optional.empty()
+    override fun version(): HttpClient.Version = HttpClient.Version.HTTP_1_1
+    override fun executor(): Optional<Executor> = Optional.empty()
+}
+
+private class StubHttpResponse<T>(
+    private val originalRequest: HttpRequest,
+    private val responseBody: T,
+) : HttpResponse<T> {
+    override fun statusCode(): Int = 200
+    override fun request(): HttpRequest = originalRequest
+    override fun previousResponse(): Optional<HttpResponse<T>> = Optional.empty()
+    override fun headers(): HttpHeaders = HttpHeaders.of(emptyMap()) { _, _ -> true }
+    override fun body(): T = responseBody
+    override fun sslSession(): Optional<SSLSession> = Optional.empty()
+    override fun uri(): URI = originalRequest.uri()
+    override fun version(): HttpClient.Version = HttpClient.Version.HTTP_1_1
 }

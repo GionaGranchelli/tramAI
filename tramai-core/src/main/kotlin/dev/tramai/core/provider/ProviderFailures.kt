@@ -9,6 +9,7 @@ import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.UncheckedIOException
 import java.net.ConnectException
 import java.net.http.HttpRequest
 import java.net.http.HttpTimeoutException
@@ -199,6 +200,11 @@ private fun newHttpFailure(statusCode: Int, retryAfterHeader: String?): Provider
     )
 
 private fun sanitizeTransportFailure(error: Throwable): ProviderException {
+    if (error is UncheckedIOException) {
+        val cause = error.cause
+        if (cause != null) return sanitizeTransportFailure(cause)
+    }
+
     if (error is ProviderException) {
         val code = if (error.statusCode != null) {
             ProviderFailureCode.HTTP_REJECTED

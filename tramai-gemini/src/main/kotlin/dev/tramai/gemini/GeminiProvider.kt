@@ -31,9 +31,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import java.net.URI
-import java.io.BufferedReader
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
@@ -196,12 +194,14 @@ class GeminiProvider @JvmOverloads constructor(
         var lastUsage: UsageMetrics? = null
 
         try {
-            BufferedReader(InputStreamReader(response.body(), UTF_8)).lines().use { lines ->
-                for (line in lines) {
+            response.body().bufferedReader(UTF_8).use { reader ->
+                while (true) {
+                    val line = reader.readLine() ?: break
                     // Gemini SSE format: "data: {...}"
                     if (line.startsWith("data: ")) {
                         val data = line.substring(6).trim()
-                        if (data.isEmpty() || data == "[DONE]") continue
+                        if (data.isEmpty()) continue
+                        if (data == "[DONE]") break
                         lastUsage = handleGeminiDataLine(data, fullText, lastUsage)
                     }
                 }
