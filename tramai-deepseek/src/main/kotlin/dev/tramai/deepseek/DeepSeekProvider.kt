@@ -44,6 +44,7 @@ class DeepSeekProvider private constructor(
             httpClient = httpClient,
             objectMapper = objectMapper,
             providerFailureDiagnosticObserver = providerFailureDiagnosticObserver,
+            diagnosticProviderId = PROVIDER_ID,
         ),
     )
 

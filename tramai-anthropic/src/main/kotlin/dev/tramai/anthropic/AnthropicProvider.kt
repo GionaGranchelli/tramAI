@@ -1,7 +1,7 @@
 package dev.tramai.anthropic
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.exception.ProviderFailureCode
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.FinishReason
 import dev.tramai.core.model.ModelRequest
@@ -14,10 +14,11 @@ import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.provider.applyTramaiTimeout
-import dev.tramai.core.provider.boundedLinesPreview
 import dev.tramai.core.provider.logProviderHttpFailureDebug
-import dev.tramai.core.provider.providerHttpFailure
-import dev.tramai.core.provider.providerTransportFailure
+import dev.tramai.core.provider.providerHttpFailureObserved
+import dev.tramai.core.provider.providerTransportFailureObserved
+import dev.tramai.core.provider.readErrorBodyPreview
+import dev.tramai.core.provider.safeProviderFailure
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
@@ -25,11 +26,14 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import java.net.URI
+import java.io.BufferedReader
+import java.io.InputStream
+import java.io.InputStreamReader
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.util.Base64
-import java.util.stream.Stream
+import java.nio.charset.StandardCharsets.UTF_8
 
 /**
  * [ModelProvider] implementation for Anthropic's Messages API.
@@ -70,26 +74,32 @@ class AnthropicProvider @JvmOverloads constructor(
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build()
 
-            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
             if (response.statusCode() !in 200..299) {
+                val errorBody = readErrorBodyPreview(response.body())
                 logProviderHttpFailureDebug(
                     logger = providerLogger,
-                    providerId = "Anthropic",
+                    providerName = PROVIDER_ID,
                     statusCode = response.statusCode(),
+                    body = errorBody.text,
                 )
-                throw providerHttpFailure(
-                    providerId = "Anthropic",
+                throw providerHttpFailureObserved(
+                    providerId = PROVIDER_ID,
                     statusCode = response.statusCode(),
-                    body = response.body(),
+                    body = errorBody.text,
+                    bodyTruncated = errorBody.truncated,
                     retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
                     observer = providerFailureDiagnosticObserver,
                 )
             }
 
-            val body = objectMapper.readTree(response.body())
+            val body = objectMapper.readTree(response.body().use { it.readAllBytes().decodeToString() })
             val firstTextBlock = body.path("content")
                 .firstOrNull { node -> node.path("type").asText("") == "text" }
-                ?: throw ProviderException("Anthropic response did not contain a text content block")
+                ?: throw safeProviderFailure(
+                    "Anthropic response did not contain a text content block",
+                    ProviderFailureCode.UNEXPECTED_FAILURE,
+                )
 
             ModelResponse(
                 content = firstTextBlock.path("text").asText(""),
@@ -105,14 +115,14 @@ class AnthropicProvider @JvmOverloads constructor(
             )
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw providerTransportFailure("Anthropic", error, providerFailureDiagnosticObserver)
+            throw providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver)
         }
     }
 
     /**
      * Returns the stable provider id used by the registry.
      */
-    override fun providerId(): String = "anthropic"
+    override fun providerId(): String = PROVIDER_ID
 
     override fun supportsCapability(capability: ProviderCapability): Boolean = when (capability) {
         ProviderCapability.VISION -> true
@@ -122,34 +132,36 @@ class AnthropicProvider @JvmOverloads constructor(
     }
 
     override fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
-        val payload = linkedMapOf<String, Any?>(
-            "model" to request.model,
-            "stream" to true,
-            "max_tokens" to (request.maxTokens ?: 1024),
-            "messages" to request.messages
-                .filter { it.role.name.lowercase() != "system" }
-                .map { message -> messageToMap(message) },
-        )
+        val response = try {
+            withContext(ioDispatcher) {
+                val payload = linkedMapOf<String, Any?>(
+                    "model" to request.model,
+                    "stream" to true,
+                    "max_tokens" to (request.maxTokens ?: 1024),
+                    "messages" to request.messages
+                        .filter { it.role.name.lowercase() != "system" }
+                        .map { message -> messageToMap(message) },
+                )
+                val systemMessage = request.messages.firstOrNull { it.role.name.lowercase() == "system" }?.content
+                if (!systemMessage.isNullOrBlank()) payload["system"] = systemMessage
 
-        val systemMessage = request.messages.firstOrNull { it.role.name.lowercase() == "system" }?.content
-        if (!systemMessage.isNullOrBlank()) {
-            payload["system"] = systemMessage
+                val httpRequest = HttpRequest.newBuilder()
+                    .uri(URI.create("${baseUrl.trimEnd('/')}/v1/messages"))
+                    .header("Content-Type", "application/json")
+                    .header("x-api-key", apiKey)
+                    .header("anthropic-version", anthropicVersion)
+                    .applyTramaiTimeout(request)
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                    .build()
+                httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
+            }
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            emit(StreamChunk.Error(providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver)))
+            return@flow
         }
 
-        val httpRequest = HttpRequest.newBuilder()
-            .uri(URI.create("${baseUrl.trimEnd('/')}/v1/messages"))
-            .header("Content-Type", "application/json")
-            .header("x-api-key", apiKey)
-            .header("anthropic-version", anthropicVersion)
-            .applyTramaiTimeout(request)
-            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-            .build()
-
-        val response = withContext(ioDispatcher) {
-            httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines())
-        }
-
-        val errorChunk = handleHttpError(response, "Anthropic")
+        val errorChunk = handleHttpError(response)
         if (errorChunk != null) {
             emit(errorChunk)
             return@flow
@@ -162,20 +174,27 @@ class AnthropicProvider @JvmOverloads constructor(
      * Handles non-2xx HTTP responses for streaming requests.
      * Returns a [StreamChunk.Error] for failed responses, or `null` for 2xx.
      */
-    private fun handleHttpError(
-        response: HttpResponse<Stream<String>>,
-        providerName: String,
+    private suspend fun handleHttpError(
+        response: HttpResponse<InputStream>,
     ): StreamChunk.Error? {
         if (response.statusCode() in 200..299) return null
-        val errorBody = boundedLinesPreview(response.body())
+        val errorBody = try {
+            readErrorBodyPreview(response.body())
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            return StreamChunk.Error(
+                providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver),
+            )
+        }
         logProviderHttpFailureDebug(
             logger = providerLogger,
-            providerId = providerName,
+            providerName = PROVIDER_ID,
             statusCode = response.statusCode(),
+            body = errorBody.text,
         )
         return StreamChunk.Error(
-            providerHttpFailure(
-                providerId = providerName,
+            providerHttpFailureObserved(
+                providerId = PROVIDER_ID,
                 statusCode = response.statusCode(),
                 body = errorBody.text,
                 bodyTruncated = errorBody.truncated,
@@ -192,13 +211,13 @@ class AnthropicProvider @JvmOverloads constructor(
      * - `message_delta` for output token updates
      */
     private suspend fun FlowCollector<StreamChunk>.parseAnthropicStreamResponse(
-        response: HttpResponse<Stream<String>>,
+        response: HttpResponse<InputStream>,
     ) {
         val fullText = StringBuilder()
         var lastUsage: UsageMetrics? = null
 
         try {
-            response.body().use { lines ->
+            BufferedReader(InputStreamReader(response.body(), UTF_8)).lines().use { lines ->
                 var currentEvent: String? = null
                 for (line in lines) {
                     if (line.startsWith("event: ")) {
@@ -213,7 +232,7 @@ class AnthropicProvider @JvmOverloads constructor(
             emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            emit(StreamChunk.Error(providerTransportFailure("Anthropic", e, providerFailureDiagnosticObserver)))
+            emit(StreamChunk.Error(providerTransportFailureObserved(PROVIDER_ID, e, providerFailureDiagnosticObserver)))
         }
     }
 
@@ -319,5 +338,6 @@ class AnthropicProvider @JvmOverloads constructor(
         val SUPPORTED_IMAGE_TYPES: Set<String> = setOf("image/png", "image/jpeg", "image/gif", "image/webp")
 
         const val ANTHROPIC_API_VERSION: String = "2023-06-01"
+        const val PROVIDER_ID: String = "anthropic"
     }
 }

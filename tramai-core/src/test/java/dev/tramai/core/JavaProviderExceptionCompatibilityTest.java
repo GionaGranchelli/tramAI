@@ -32,9 +32,9 @@ class JavaProviderExceptionCompatibilityTest {
     }
 
     @Test
-    void typedFailureCodeConstructorIsCallable() {
-        ProviderException typed = new ProviderException(
-            "safe message", null, 500, true, null, ProviderFailureCode.HTTP_REJECTED);
+    void failureCodeGetterIsCallable() {
+        ProviderException typed = dev.tramai.core.provider.ProviderFailuresKt.safeProviderFailure(
+            "safe message", ProviderFailureCode.HTTP_REJECTED, 500, true, null);
 
         assertEquals(ProviderFailureCode.HTTP_REJECTED, typed.getFailureCode());
         assertEquals(Integer.valueOf(500), typed.getStatusCode());

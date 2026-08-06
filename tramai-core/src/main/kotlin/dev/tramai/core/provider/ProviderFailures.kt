@@ -4,10 +4,11 @@ import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.exception.ProviderException
 import dev.tramai.core.exception.ProviderFailureCode
 import dev.tramai.core.model.ModelRequest
-import dev.tramai.core.observation.NoOpProviderFailureDiagnosticObserver
 import dev.tramai.core.observation.ProviderFailureDiagnosticEvent
 import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
+import java.io.ByteArrayInputStream
 import java.io.IOException
+import java.io.InputStream
 import java.net.ConnectException
 import java.net.http.HttpRequest
 import java.net.http.HttpTimeoutException
@@ -15,58 +16,99 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
-import java.util.stream.Stream
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
-/**
- * Maximum size of a provider error-body preview retained for diagnostics.
- *
- * The preview is capped by string length; typical JSON error payloads are
- * ASCII, for which characters and bytes coincide. The cap bounds both the
- * retained memory and the diagnostic surface regardless of encoding.
- */
+/** Maximum number of provider error-body bytes retained for diagnostics. */
 const val PROVIDER_ERROR_BODY_LIMIT_BYTES = 8 * 1024
 
-/**
- * Applies the normalized Tramai timeout, when present, to a provider HTTP request.
- */
+/** Applies the normalized Tramai timeout, when present, to a provider HTTP request. */
 fun HttpRequest.Builder.applyTramaiTimeout(request: ModelRequest): HttpRequest.Builder = apply {
     request.timeoutMillis?.let { timeout(Duration.ofMillis(it)) }
 }
 
 /**
- * Creates a normalized, safe provider failure for an HTTP status response.
+ * Creates a safe provider failure whose [message] is emitted verbatim.
  *
- * The public [ProviderException.message] is fixed text plus the numeric HTTP
- * status. The response body is never placed in the exception, standard logs,
- * or telemetry; a bounded preview is delivered only to [observer].
- *
- * Retry behaviour is preserved structurally through the returned
- * exception's [ProviderException.statusCode], [ProviderException.retryable],
- * and [ProviderException.retryAfterMillis] fields.
- *
- * @param bodyTruncated true when [body] is already a bounded preview that was
- * cut off at the size limit by a streaming caller; the flag survives the cap
- * applied here so the diagnostic reports truncation correctly.
+ * Only pass text controlled by the caller. Provider responses, throwable
+ * messages, request data, credentials, and other untrusted values must not be
+ * interpolated into [message].
  */
+fun safeProviderFailure(
+    message: String,
+    code: ProviderFailureCode,
+    statusCode: Int? = null,
+    retryable: Boolean = false,
+    retryAfterMillis: Long? = null,
+): ProviderException = ProviderException(
+    message = message,
+    statusCode = statusCode,
+    retryable = retryable,
+    retryAfterMillis = retryAfterMillis,
+).apply {
+    failureCode = code
+    safeFactoryTrusted = true
+}
+
+/**
+ * Legacy ABI-compatible HTTP failure factory.
+ *
+ * The response [body] is bounded before it is discarded. It is never placed
+ * in the returned exception, logs, telemetry, or an observer event.
+ */
+@Suppress("UNUSED_PARAMETER")
 fun providerHttpFailure(
+    providerName: String,
+    statusCode: Int,
+    body: String,
+    retryAfterHeader: String? = null,
+): ProviderException {
+    boundedBodyPreview(body)
+    return newHttpFailure(statusCode, retryAfterHeader)
+}
+
+/**
+ * Observer-aware HTTP failure factory. The diagnostic body preview is bounded
+ * by UTF-8 bytes even when the supplied [body] was already materialized.
+ */
+suspend fun providerHttpFailureObserved(
     providerId: String,
     statusCode: Int,
     body: String,
     bodyTruncated: Boolean = false,
     retryAfterHeader: String? = null,
-    observer: ProviderFailureDiagnosticObserver = NoOpProviderFailureDiagnosticObserver,
+    observer: ProviderFailureDiagnosticObserver,
+): ProviderException = providerHttpFailureObserved(
+    providerId = providerId,
+    providerAlias = null,
+    statusCode = statusCode,
+    body = body,
+    bodyTruncated = bodyTruncated,
+    retryAfterHeader = retryAfterHeader,
+    observer = observer,
+)
+
+/** Observer-aware HTTP factory with a diagnostic-only caller alias. */
+suspend fun providerHttpFailureObserved(
+    providerId: String,
+    providerAlias: String?,
+    statusCode: Int,
+    body: String,
+    bodyTruncated: Boolean = false,
+    retryAfterHeader: String? = null,
+    observer: ProviderFailureDiagnosticObserver,
 ): ProviderException {
     val retryable = isRetryableStatus(statusCode)
     val retryAfterMillis = parseRetryAfterMillis(retryAfterHeader)
-    // Callers that read the body with a bounded stream pass bodyTruncated=true;
-    // their truncation signal survives the cap here. Otherwise the helper
-    // caps an already-materialized body itself.
-    val bounded = boundedBodyPreview(body).let { if (bodyTruncated) it.copy(truncated = true) else it }
+    val bounded = boundedBodyPreview(body).let {
+        if (bodyTruncated) it.copy(truncated = true) else it
+    }
     deliver(
         observer,
         ProviderFailureDiagnosticEvent(
             providerId = providerId,
+            providerAlias = providerAlias,
             code = ProviderFailureCode.HTTP_REJECTED,
             statusCode = statusCode,
             retryable = retryable,
@@ -76,172 +118,176 @@ fun providerHttpFailure(
             httpBodyPreviewTruncated = bounded.truncated,
         ),
     )
-    return ProviderException(
-        message = "Provider request failed with HTTP $statusCode",
-        statusCode = statusCode,
-        retryable = retryable,
-        retryAfterMillis = retryAfterMillis,
-        failureCode = ProviderFailureCode.HTTP_REJECTED,
-    )
+    return newHttpFailure(statusCode, retryAfterHeader)
 }
 
 /**
- * Logs a metadata-only debug record for a non-2xx provider response.
+ * Logs trusted metadata for a rejected provider response.
  *
- * The record contains only trusted metadata — never the response body,
- * headers, credentials, or any text derived from the response.
+ * [providerName] and [body] are retained for binary compatibility and are
+ * deliberately excluded from the log record.
  */
+@Suppress("UNUSED_PARAMETER")
 fun logProviderHttpFailureDebug(
     logger: System.Logger?,
-    providerId: String,
+    providerName: String,
     statusCode: Int,
+    body: String,
 ) {
-    if (logger?.isLoggable(System.Logger.Level.DEBUG) != true) {
-        return
-    }
+    if (logger?.isLoggable(System.Logger.Level.DEBUG) != true) return
     logger.log(
         System.Logger.Level.DEBUG,
-        "Provider request failed: provider=$providerId code=HTTP_REJECTED status=$statusCode retryable=${isRetryableStatus(statusCode)}",
+        "Provider request failed: code=HTTP_REJECTED status=$statusCode retryable=${isRetryableStatus(statusCode)}",
     )
 }
 
-/**
- * Creates a normalized, safe provider failure for transport-layer errors.
- *
- * The public message is fixed text per failure category; `error.message` is
- * never interpolated into it. Built-in instances do not retain [error] as
- * their cause — the original throwable is delivered only to [observer], so
- * stack traces and telemetry cannot expose its message. A [ProviderException]
- * passed in is returned unchanged: it is already a trusted typed failure.
- *
- * Retry behaviour is preserved structurally through the returned exception's
- * [ProviderException.retryable] field. Cancellation is never converted into a
- * provider failure: [error] is rethrown before any classification or
- * diagnostic delivery when it is a [kotlinx.coroutines.CancellationException].
- */
-fun providerTransportFailure(
-    providerId: String,
-    error: Throwable,
-    observer: ProviderFailureDiagnosticObserver = NoOpProviderFailureDiagnosticObserver,
-): ProviderException {
+/** Legacy ABI-compatible transport failure factory without observer delivery. */
+@Suppress("UNUSED_PARAMETER")
+fun providerTransportFailure(providerName: String, error: Throwable): ProviderException {
     error.rethrowIfCancellation()
-    if (error is ProviderException) {
-        return error
-    }
-    return when (error) {
-        is HttpTimeoutException -> transportFailure(
-            providerId, error, ProviderFailureCode.TIMEOUT, "Provider request timed out", retryable = true, observer,
-        )
-        is ConnectException -> transportFailure(
-            providerId, error, ProviderFailureCode.CONNECTION_FAILED, "Provider connection failed", retryable = true, observer,
-        )
-        is IOException -> transportFailure(
-            providerId, error, ProviderFailureCode.TRANSPORT_FAILED, "Provider transport failed", retryable = true, observer,
-        )
-        else -> transportFailure(
-            providerId, error, ProviderFailureCode.UNEXPECTED_FAILURE, "Provider request failed", retryable = false, observer,
-        )
-    }
+    if (error is ProviderException && error.safeFactoryTrusted) return error
+    return sanitizeTransportFailure(error)
 }
 
-private fun transportFailure(
+/** Observer-aware transport failure factory. */
+suspend fun providerTransportFailureObserved(
     providerId: String,
     error: Throwable,
-    code: ProviderFailureCode,
-    message: String,
-    retryable: Boolean,
+    observer: ProviderFailureDiagnosticObserver,
+): ProviderException = providerTransportFailureObserved(
+    providerId = providerId,
+    providerAlias = null,
+    error = error,
+    observer = observer,
+)
+
+/** Observer-aware transport factory with a diagnostic-only caller alias. */
+suspend fun providerTransportFailureObserved(
+    providerId: String,
+    providerAlias: String?,
+    error: Throwable,
     observer: ProviderFailureDiagnosticObserver,
 ): ProviderException {
+    error.rethrowIfCancellation()
+    if (error is ProviderException && error.safeFactoryTrusted) return error
+
+    val sanitized = sanitizeTransportFailure(error)
     deliver(
         observer,
         ProviderFailureDiagnosticEvent(
             providerId = providerId,
-            code = code,
-            statusCode = null,
-            retryable = retryable,
-            retryAfterMillis = null,
+            providerAlias = providerAlias,
+            code = requireNotNull(sanitized.failureCode),
+            statusCode = sanitized.statusCode,
+            retryable = sanitized.retryable,
+            retryAfterMillis = sanitized.retryAfterMillis,
             failure = error,
             httpBodyPreview = null,
             httpBodyPreviewTruncated = false,
         ),
     )
-    return ProviderException(
-        message = message,
-        retryable = retryable,
-        failureCode = code,
-    )
+    return sanitized
 }
 
-/**
- * A bounded preview of a provider error body.
- *
- * @property text the retained text, at most the configured size limit
- * @property truncated true when the full body was longer than the retained text
- */
+private fun newHttpFailure(statusCode: Int, retryAfterHeader: String?): ProviderException =
+    safeProviderFailure(
+        message = "Provider request failed with HTTP $statusCode",
+        code = ProviderFailureCode.HTTP_REJECTED,
+        statusCode = statusCode,
+        retryable = isRetryableStatus(statusCode),
+        retryAfterMillis = parseRetryAfterMillis(retryAfterHeader),
+    )
+
+private fun sanitizeTransportFailure(error: Throwable): ProviderException {
+    if (error is ProviderException) {
+        val code = if (error.statusCode != null) {
+            ProviderFailureCode.HTTP_REJECTED
+        } else {
+            ProviderFailureCode.UNEXPECTED_FAILURE
+        }
+        val message = error.statusCode?.let { "Provider request failed with HTTP $it" } ?: "Provider request failed"
+        return safeProviderFailure(
+            message = message,
+            code = code,
+            statusCode = error.statusCode,
+            retryable = error.retryable,
+            retryAfterMillis = error.retryAfterMillis,
+        )
+    }
+
+    return when (error) {
+        is HttpTimeoutException -> safeProviderFailure(
+            "Provider request timed out", ProviderFailureCode.TIMEOUT, retryable = true,
+        )
+        is ConnectException -> safeProviderFailure(
+            "Provider connection failed", ProviderFailureCode.CONNECTION_FAILED, retryable = true,
+        )
+        is IOException -> safeProviderFailure(
+            "Provider transport failed", ProviderFailureCode.TRANSPORT_FAILED, retryable = true,
+        )
+        else -> safeProviderFailure(
+            "Provider request failed", ProviderFailureCode.UNEXPECTED_FAILURE,
+        )
+    }
+}
+
+/** A bounded preview of a provider error body. */
 data class BoundedProviderErrorBody(
     val text: String,
     val truncated: Boolean,
 )
 
 /**
- * Caps an already-materialized error body at [limitBytes] characters.
- *
- * Used for non-streaming responses, where the JDK handler has already
- * materialized the body; the retained copy — and therefore the diagnostic
- * surface — is still bounded.
+ * Reads and closes [input], consuming at most [limitBytes] plus one sentinel
+ * byte. Only the first [limitBytes] bytes are decoded as UTF-8. If the cap
+ * splits a multibyte character, the diagnostic preview may end in U+FFFD.
  */
-fun boundedBodyPreview(body: String, limitBytes: Int = PROVIDER_ERROR_BODY_LIMIT_BYTES): BoundedProviderErrorBody =
-    if (body.length <= limitBytes) {
-        BoundedProviderErrorBody(body, truncated = false)
-    } else {
-        BoundedProviderErrorBody(body.take(limitBytes), truncated = true)
-    }
-
-/**
- * Reads at most [limitBytes] characters from a streaming line body and closes
- * it, reporting whether the body continued beyond the retained preview.
- *
- * Replaces unbounded materialization (`toArray().joinToString(...)`) on
- * streaming error paths: the stream is closed once the cap is reached, so the
- * full error body is never materialized.
- */
-fun boundedLinesPreview(lines: Stream<String>, limitBytes: Int = PROVIDER_ERROR_BODY_LIMIT_BYTES): BoundedProviderErrorBody =
-    lines.use { stream ->
-        val sb = StringBuilder()
-        val iterator = stream.iterator()
-        while (iterator.hasNext()) {
-            val line = iterator.next()
-            val separatorLength = if (sb.isEmpty()) 0 else 1
-            if (sb.length + separatorLength + line.length > limitBytes) {
-                return@use BoundedProviderErrorBody(sb.toString(), truncated = true)
+fun readErrorBodyPreview(
+    input: InputStream,
+    limitBytes: Int = PROVIDER_ERROR_BODY_LIMIT_BYTES,
+): BoundedProviderErrorBody {
+    require(limitBytes >= 0) { "limitBytes must not be negative" }
+    return input.use { stream ->
+        val bytes = ByteArray(limitBytes + 1)
+        var read = 0
+        while (read < bytes.size) {
+            val count = stream.read(bytes, read, bytes.size - read)
+            if (count < 0) break
+            if (count == 0) {
+                val single = stream.read()
+                if (single < 0) break
+                bytes[read++] = single.toByte()
+            } else {
+                read += count
             }
-            if (sb.isNotEmpty()) {
-                sb.append('\n')
-            }
-            sb.append(line)
         }
-        BoundedProviderErrorBody(sb.toString(), truncated = false)
+        val retained = minOf(read, limitBytes)
+        var text = String(bytes, 0, retained, Charsets.UTF_8)
+        while (text.toByteArray(Charsets.UTF_8).size > limitBytes) {
+            text = text.dropLast(1)
+        }
+        BoundedProviderErrorBody(
+            text = text,
+            truncated = read == limitBytes + 1,
+        )
     }
+}
 
-/**
- * Delivers a diagnostic event fail-open.
- *
- * The delivery call site is synchronous — no suspension happens between the
- * original failure and delivery — so genuine coroutine cancellation cannot be
- * in flight here: it either was already rethrown by
- * [rethrowIfCancellation] on the original error, or surfaces at the next
- * suspension point (`emit`, `withContext`). An observer-thrown
- * [CancellationException] is therefore always the observer's own bug and is
- * swallowed like any other observer failure; it must never replace the
- * provider failure.
- */
-private fun deliver(observer: ProviderFailureDiagnosticObserver, event: ProviderFailureDiagnosticEvent) {
+private fun boundedBodyPreview(
+    body: String,
+    limitBytes: Int = PROVIDER_ERROR_BODY_LIMIT_BYTES,
+): BoundedProviderErrorBody = readErrorBodyPreview(ByteArrayInputStream(body.toByteArray(Charsets.UTF_8)), limitBytes)
+
+private suspend fun deliver(
+    observer: ProviderFailureDiagnosticObserver,
+    event: ProviderFailureDiagnosticEvent,
+) {
     try {
         observer.record(event)
     } catch (e: CancellationException) {
-        // Observer-thrown cancellation never replaces the provider failure.
+        currentCoroutineContext().ensureActive()
     } catch (e: Exception) {
-        // Fail-open: observer bugs never replace the provider failure.
+        e.rethrowIfCancellation()
     }
 }
 

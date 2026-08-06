@@ -14,10 +14,9 @@ import dev.tramai.core.exception.ProviderFailureCode
  *
  * Failure semantics are fail-open: an observer exception is swallowed on
  * ordinary failure paths and must never replace the provider failure. An
- * observer that throws [kotlinx.coroutines.CancellationException] while the
- * enclosing coroutine is still active is treated the same as any other
- * observer failure and swallowed; only genuine coroutine cancellation
- * propagates (at the next suspension point).
+ * observer-thrown [kotlinx.coroutines.CancellationException] is swallowed only
+ * while the enclosing coroutine is active; cancellation of that coroutine is
+ * rethrown immediately and remains primary.
  */
 fun interface ProviderFailureDiagnosticObserver {
     fun record(event: ProviderFailureDiagnosticEvent)
@@ -33,6 +32,8 @@ object NoOpProviderFailureDiagnosticObserver : ProviderFailureDiagnosticObserver
  *
  * @property providerId the provider identifier (e.g. `openai`, `anthropic`);
  * diagnostic-only, never interpolated into safe caller-visible messages
+ * @property providerAlias an optional caller-configured display name;
+ * diagnostic-only and excluded from safe messages and logs
  * @property code the typed [ProviderFailureCode] classification
  * @property statusCode the HTTP status for [ProviderFailureCode.HTTP_REJECTED]
  * failures, `null` for transport failures
@@ -48,6 +49,7 @@ object NoOpProviderFailureDiagnosticObserver : ProviderFailureDiagnosticObserver
  */
 data class ProviderFailureDiagnosticEvent(
     val providerId: String,
+    val providerAlias: String? = null,
     val code: ProviderFailureCode,
     val statusCode: Int?,
     val retryable: Boolean,

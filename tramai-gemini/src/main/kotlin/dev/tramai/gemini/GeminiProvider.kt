@@ -2,7 +2,7 @@ package dev.tramai.gemini
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
-import dev.tramai.core.exception.ProviderException
+import dev.tramai.core.exception.ProviderFailureCode
 import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.FinishReason
 import dev.tramai.core.model.MessageRole
@@ -17,10 +17,11 @@ import dev.tramai.core.provider.ModelProvider
 import dev.tramai.core.provider.ProviderCapability
 import dev.tramai.core.provider.StreamCapable
 import dev.tramai.core.provider.applyTramaiTimeout
-import dev.tramai.core.provider.boundedLinesPreview
 import dev.tramai.core.provider.logProviderHttpFailureDebug
-import dev.tramai.core.provider.providerHttpFailure
-import dev.tramai.core.provider.providerTransportFailure
+import dev.tramai.core.provider.providerHttpFailureObserved
+import dev.tramai.core.provider.providerTransportFailureObserved
+import dev.tramai.core.provider.readErrorBodyPreview
+import dev.tramai.core.provider.safeProviderFailure
 import dev.tramai.core.coroutines.rethrowIfCancellation
 import dev.tramai.core.util.ImageDownloader
 import kotlinx.coroutines.Dispatchers
@@ -30,11 +31,14 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 import java.net.URI
+import java.io.BufferedReader
+import java.io.InputStream
+import java.io.InputStreamReader
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.util.Base64
-import java.util.stream.Stream
+import java.nio.charset.StandardCharsets.UTF_8
 
 /**
  * [ModelProvider] implementation for Google Gemini API.
@@ -67,7 +71,7 @@ class GeminiProvider @JvmOverloads constructor(
         NoOpProviderFailureDiagnosticObserver,
 ) : ModelProvider, StreamCapable {
 
-    override fun providerId(): String = "gemini"
+    override fun providerId(): String = PROVIDER_ID
 
     override fun supportsCapability(capability: ProviderCapability): Boolean = when (capability) {
         ProviderCapability.VISION -> true
@@ -89,48 +93,55 @@ class GeminiProvider @JvmOverloads constructor(
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build()
 
-            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
             if (response.statusCode() !in 200..299) {
+                val errorBody = readErrorBodyPreview(response.body())
                 logProviderHttpFailureDebug(
                     logger = providerLogger,
-                    providerId = "Gemini",
+                    providerName = PROVIDER_ID,
                     statusCode = response.statusCode(),
+                    body = errorBody.text,
                 )
-                throw providerHttpFailure(
-                    providerId = "Gemini",
+                throw providerHttpFailureObserved(
+                    providerId = PROVIDER_ID,
                     statusCode = response.statusCode(),
-                    body = response.body(),
+                    body = errorBody.text,
+                    bodyTruncated = errorBody.truncated,
                     retryAfterHeader = response.headers().firstValue("Retry-After").orElse(null),
                     observer = providerFailureDiagnosticObserver,
                 )
             }
 
-            val body = objectMapper.readTree(response.body())
+            val body = objectMapper.readTree(response.body().use { it.readAllBytes().decodeToString() })
             mapResponse(body)
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
-            throw providerTransportFailure("Gemini", error, providerFailureDiagnosticObserver)
+            throw providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver)
         }
     }
 
     override fun stream(request: ModelRequest): Flow<StreamChunk> = flow {
-        val modelName = request.model.takeIf { it.isNotBlank() } ?: DEFAULT_MODEL
-        val url = "${baseUrl.trimEnd('/')}/$apiVersion/models/$modelName:streamGenerateContent?alt=sse"
-        val payload = buildPayload(request)
-
-        val httpRequest = HttpRequest.newBuilder()
-            .uri(URI.create(url))
-            .header("Content-Type", APPLICATION_JSON)
-            .header("X-Goog-Api-Key", apiKey)
-            .applyTramaiTimeout(request)
-            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-            .build()
-
-        val response = withContext(ioDispatcher) {
-            httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines())
+        val response = try {
+            withContext(ioDispatcher) {
+                val modelName = request.model.takeIf { it.isNotBlank() } ?: DEFAULT_MODEL
+                val url = "${baseUrl.trimEnd('/')}/$apiVersion/models/$modelName:streamGenerateContent?alt=sse"
+                val payload = buildPayload(request)
+                val httpRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", APPLICATION_JSON)
+                    .header("X-Goog-Api-Key", apiKey)
+                    .applyTramaiTimeout(request)
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                    .build()
+                httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
+            }
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            emit(StreamChunk.Error(providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver)))
+            return@flow
         }
 
-        val errorChunk = handleHttpError(response, "Gemini")
+        val errorChunk = handleHttpError(response)
         if (errorChunk != null) {
             emit(errorChunk)
             return@flow
@@ -143,20 +154,27 @@ class GeminiProvider @JvmOverloads constructor(
      * Handles non-2xx HTTP responses for streaming requests.
      * Returns a [StreamChunk.Error] for failed responses, or `null` for 2xx.
      */
-    private fun handleHttpError(
-        response: HttpResponse<Stream<String>>,
-        providerName: String,
+    private suspend fun handleHttpError(
+        response: HttpResponse<InputStream>,
     ): StreamChunk.Error? {
         if (response.statusCode() in 200..299) return null
-        val errorBody = boundedLinesPreview(response.body())
+        val errorBody = try {
+            readErrorBodyPreview(response.body())
+        } catch (error: Throwable) {
+            error.rethrowIfCancellation()
+            return StreamChunk.Error(
+                providerTransportFailureObserved(PROVIDER_ID, error, providerFailureDiagnosticObserver),
+            )
+        }
         logProviderHttpFailureDebug(
             logger = providerLogger,
-            providerId = providerName,
+            providerName = PROVIDER_ID,
             statusCode = response.statusCode(),
+            body = errorBody.text,
         )
         return StreamChunk.Error(
-            providerHttpFailure(
-                providerId = providerName,
+            providerHttpFailureObserved(
+                providerId = PROVIDER_ID,
                 statusCode = response.statusCode(),
                 body = errorBody.text,
                 bodyTruncated = errorBody.truncated,
@@ -172,13 +190,13 @@ class GeminiProvider @JvmOverloads constructor(
      * and `usageMetadata` tracking.
      */
     private suspend fun FlowCollector<StreamChunk>.parseGeminiStreamResponse(
-        response: HttpResponse<Stream<String>>,
+        response: HttpResponse<InputStream>,
     ) {
         val fullText = StringBuilder()
         var lastUsage: UsageMetrics? = null
 
         try {
-            response.body().use { lines ->
+            BufferedReader(InputStreamReader(response.body(), UTF_8)).lines().use { lines ->
                 for (line in lines) {
                     // Gemini SSE format: "data: {...}"
                     if (line.startsWith("data: ")) {
@@ -191,7 +209,7 @@ class GeminiProvider @JvmOverloads constructor(
             emit(StreamChunk.Complete(fullText.toString(), lastUsage ?: UsageMetrics()))
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            emit(StreamChunk.Error(providerTransportFailure("Gemini", e, providerFailureDiagnosticObserver)))
+            emit(StreamChunk.Error(providerTransportFailureObserved(PROVIDER_ID, e, providerFailureDiagnosticObserver)))
         }
     }
 
@@ -340,7 +358,10 @@ class GeminiProvider @JvmOverloads constructor(
 
     private fun mapResponse(body: JsonNode): ModelResponse {
         val candidate = body.path("candidates").firstOrNull()
-            ?: throw ProviderException("Gemini response did not contain any candidates")
+            ?: throw safeProviderFailure(
+                "Gemini response did not contain any candidates",
+                ProviderFailureCode.UNEXPECTED_FAILURE,
+            )
 
         val content = candidate.path("content")
         val parts = content.path("parts")
@@ -375,7 +396,7 @@ class GeminiProvider @JvmOverloads constructor(
                     if (partText.isEmpty()) {
                         providerLogger.log(
                             System.Logger.Level.WARNING,
-                            "Gemini response contained a part that is neither text nor functionCall; details are available via the provider failure diagnostic observer"
+                            "Gemini response contained a part that is neither text nor functionCall"
                         )
                     }
                 }
@@ -412,6 +433,7 @@ class GeminiProvider @JvmOverloads constructor(
         const val DEFAULT_BASE_URL: String = "https://generativelanguage.googleapis.com"
         const val DEFAULT_MODEL: String = "gemini-2.0-flash"
         const val DEFAULT_API_VERSION: String = "v1beta"
+        const val PROVIDER_ID: String = "gemini"
     }
 }
 

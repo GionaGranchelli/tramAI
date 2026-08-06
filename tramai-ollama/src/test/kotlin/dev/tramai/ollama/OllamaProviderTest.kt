@@ -8,13 +8,28 @@ import dev.tramai.core.model.ContentPart
 import dev.tramai.core.model.Message
 import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
+import dev.tramai.core.model.StreamChunk
 import dev.tramai.core.observation.ProviderFailureDiagnosticEvent
 import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.toList
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import java.net.InetSocketAddress
+import java.io.IOException
+import java.net.CookieHandler
+import java.net.ProxySelector
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.time.Duration
+import java.util.Optional
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executor
 import java.util.Base64
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLParameters
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -205,6 +220,36 @@ class OllamaProviderTest {
         assertThat(capturedBody).doesNotContain("\"images\":")
     }
 
+    @Test
+    fun `streaming send failure is sanitized and observed`() {
+        val secretFixture = "ollama-token /customer/alice"
+        val original = IOException("send failed at $secretFixture")
+        val events = mutableListOf<ProviderFailureDiagnosticEvent>()
+        val provider = OllamaProvider(
+            httpClient = OllamaThrowingHttpClient(original),
+            ioDispatcher = EmptyCoroutineContext,
+            providerFailureDiagnosticObserver = ProviderFailureDiagnosticObserver(events::add),
+        )
+
+        val chunks = runBlocking {
+            provider.stream(
+                ModelRequest(
+                    model = "llama3.2",
+                    messages = listOf(Message(MessageRole.USER, "hello")),
+                ),
+            ).toList()
+        }
+
+        assertThat(chunks).hasSize(1)
+        val error = (chunks.single() as StreamChunk.Error).cause as ProviderException
+        assertThat(error.message).isEqualTo("Provider transport failed")
+        assertThat(error.message!!).doesNotContain(secretFixture)
+        assertThat(error.cause).isNull()
+        assertThat(events.single().failure).isInstanceOf(IOException::class.java)
+        assertThat(events.single().failure!!.message).contains(secretFixture)
+        assertThat(events.single().providerId).isEqualTo("ollama")
+    }
+
     private fun respond(
         exchange: HttpExchange,
         body: String,
@@ -227,4 +272,32 @@ class OllamaProviderTest {
           "done_reason": "stop"
         }
     """.trimIndent()
+}
+
+private class OllamaThrowingHttpClient(
+    private val failure: IOException,
+) : HttpClient() {
+    override fun <T : Any?> send(request: HttpRequest, responseBodyHandler: HttpResponse.BodyHandler<T>): HttpResponse<T> =
+        throw failure
+
+    override fun <T : Any?> sendAsync(
+        request: HttpRequest,
+        responseBodyHandler: HttpResponse.BodyHandler<T>,
+    ): CompletableFuture<HttpResponse<T>> = CompletableFuture.failedFuture(failure)
+
+    override fun <T : Any?> sendAsync(
+        request: HttpRequest,
+        responseBodyHandler: HttpResponse.BodyHandler<T>,
+        pushPromiseHandler: HttpResponse.PushPromiseHandler<T>,
+    ): CompletableFuture<HttpResponse<T>> = CompletableFuture.failedFuture(failure)
+
+    override fun cookieHandler(): Optional<CookieHandler> = Optional.empty()
+    override fun connectTimeout(): Optional<Duration> = Optional.empty()
+    override fun followRedirects(): HttpClient.Redirect = HttpClient.Redirect.NEVER
+    override fun proxy(): Optional<ProxySelector> = Optional.empty()
+    override fun sslContext(): SSLContext = SSLContext.getDefault()
+    override fun sslParameters(): SSLParameters = SSLParameters()
+    override fun authenticator(): Optional<java.net.Authenticator> = Optional.empty()
+    override fun version(): HttpClient.Version = HttpClient.Version.HTTP_1_1
+    override fun executor(): Optional<Executor> = Optional.empty()
 }

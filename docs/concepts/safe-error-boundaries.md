@@ -80,11 +80,15 @@ Provider adapters use shared safe boundaries for HTTP and transport failures:
 - transport categories use fixed messages such as `Provider request timed out`, `Provider connection failed`, and `Provider transport failed`;
 - public `ProviderException` instances retain neither response bodies nor original causes, so ordinary stack traces and OpenTelemetry exception events cannot expose provider-controlled detail;
 - `ProviderFailureDiagnosticObserver` is the only channel for the original transport throwable or an HTTP body preview. The default observer is a no-op, and observer failures are fail-open;
-- HTTP body previews are capped at 8 KiB and report whether truncation occurred. Streaming adapters stop reading once the cap is reached;
-- provider debug logs contain trusted metadata only: provider id, failure code, HTTP status, and retryability. Bodies, headers, credentials, and cause messages are excluded;
-- `ProviderException.failureCode` adds machine-readable classification while preserving the previous five-argument JVM constructor through `@JvmOverloads`.
+- HTTP error bodies are acquired as `InputStream` values and read through one byte-bounded path. At most 8 KiB plus one sentinel byte is consumed, only the retained 8 KiB is decoded as UTF-8, and truncation is reported. A multibyte code point split at the boundary may be replaced or omitted from the diagnostic suffix;
+- streaming adapters protect request construction, serialization, `HttpClient.send()`, bounded error-body acquisition, and SSE parsing. Transport or body-read failures therefore become one safe terminal error chunk instead of escaping the flow;
+- provider debug logs contain only the failure code, HTTP status, and retryability. Provider ids and aliases, bodies, headers, credentials, and cause messages are excluded;
+- diagnostic events use stable lowercase registry ids. A caller-configured display name can be carried separately as diagnostic-only `providerAlias`, but never enters public messages or logs;
+- `ProviderException.failureCode` is a class-body property with an internal setter. The exact 0.5.0 five-argument constructor and Kotlin default-argument constructor descriptors remain intact and are exercised by a fixture compiled against the 0.5.0 jar;
+- `safeProviderFailure(message, code, ...)` is the explicit trusted-message escape hatch. Its message is emitted verbatim, so only caller-controlled text belongs there. Built-in adapter parse errors use it for informative fixed text;
+- arbitrary caller-constructed `ProviderException` values are not trusted. The transport boundary emits the original only to diagnostics and returns a fresh cause-free exception preserving status/retry metadata. Only built-in safe factories pass through unchanged.
 
-Retry behavior remains structural: `statusCode`, `retryable`, and `retryAfterMillis` survive HTTP mapping, while transport categories select their established retryability. Cancellation is rethrown, and an existing `ProviderException` passes through unchanged.
+Retry behavior remains structural: `statusCode`, `retryable`, and `retryAfterMillis` survive HTTP mapping, while transport categories select their established retryability. Cancellation input is rethrown before classification. Observer-thrown cancellation is swallowed only while the current coroutine remains active; cancellation of the enclosing job remains primary.
 
 ## Scope and non-claims (PRs #219 and #222)
 

@@ -251,6 +251,39 @@ class OpenAiProviderTest {
     }
 
     @Test
+    fun `untrusted provider exception from token source is sanitized and observed`() = runBlocking {
+        val secretFixture = "token-source-secret /customer/alice"
+        val original = ProviderException(
+            "token acquisition failed: $secretFixture",
+            IllegalStateException("cause $secretFixture"),
+        )
+        val events = mutableListOf<ProviderFailureDiagnosticEvent>()
+        val provider = OpenAiCompatibleProvider(
+            accessTokenSource = OpenAiAccessTokenSource { throw original },
+            providerName = "customer-openai",
+            baseUrl = "http://localhost:${server.address.port}/v1",
+            providerFailureDiagnosticObserver = ProviderFailureDiagnosticObserver(events::add),
+        )
+
+        val error = runCatching {
+            provider.complete(
+                ModelRequest(
+                    model = "gpt-5.1-chat-latest",
+                    messages = listOf(Message(MessageRole.USER, "say hello")),
+                ),
+            )
+        }.exceptionOrNull() as ProviderException
+
+        assertThat(error).isNotSameAs(original)
+        assertThat(error.message).isEqualTo("Provider request failed")
+        assertThat(error.message!!).doesNotContain(secretFixture)
+        assertThat(error.cause).isNull()
+        assertThat(events.single().failure).isSameAs(original)
+        assertThat(events.single().providerId).isEqualTo("openai")
+        assertThat(events.single().providerAlias).isEqualTo("customer-openai")
+    }
+
+    @Test
     fun `fails clearly when the response has no choices`() {
         responseBody = """
             {

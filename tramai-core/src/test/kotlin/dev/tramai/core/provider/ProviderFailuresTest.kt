@@ -7,16 +7,21 @@ import dev.tramai.core.model.MessageRole
 import dev.tramai.core.model.ModelRequest
 import dev.tramai.core.observation.ProviderFailureDiagnosticEvent
 import dev.tramai.core.observation.ProviderFailureDiagnosticObserver
-import org.assertj.core.api.Assertions.assertThat
+import java.io.ByteArrayInputStream
 import java.io.IOException
+import java.io.InputStream
 import java.net.ConnectException
 import java.net.URI
 import java.net.http.HttpRequest
 import java.net.http.HttpTimeoutException
-import java.util.stream.Stream
+import kotlin.coroutines.coroutineContext
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.job
+import kotlinx.coroutines.runBlocking
+import org.assertj.core.api.Assertions.assertThat
 
 class ProviderFailuresTest {
 
@@ -40,51 +45,35 @@ class ProviderFailuresTest {
     }
 
     @Test
-    fun `provider http failure marks transient statuses as retryable`() {
-        val error = providerHttpFailure(
-            providerId = "openai",
-            statusCode = 429,
-            body = """{"error":"rate limited"}""",
-        )
+    fun `provider http failure preserves legacy shape and safe metadata`() {
+        val error = providerHttpFailure("openai", 429, "secret body", "2")
 
         assertThat(error.statusCode).isEqualTo(429)
         assertThat(error.retryable).isTrue()
+        assertThat(error.retryAfterMillis).isEqualTo(2_000)
         assertThat(error.failureCode).isEqualTo(ProviderFailureCode.HTTP_REJECTED)
         assertThat(error.message).isEqualTo("Provider request failed with HTTP 429")
+        assertThat(error.cause).isNull()
+    }
+
+    @Test
+    fun `provider http failure marks transient statuses as retryable`() {
+        assertThat(providerHttpFailure("openai", 429, "body").retryable).isTrue()
     }
 
     @Test
     fun `provider http failure captures retry after hints`() {
-        val error = providerHttpFailure(
-            providerId = "openai",
-            statusCode = 429,
-            body = """{"error":"rate limited"}""",
-            retryAfterHeader = "2",
-        )
-
-        assertThat(error.retryAfterMillis).isEqualTo(2_000)
+        assertThat(providerHttpFailure("openai", 429, "body", "2").retryAfterMillis).isEqualTo(2_000)
     }
 
     @Test
     fun `provider http failure marks permanent statuses as non retryable`() {
-        val error = providerHttpFailure(
-            providerId = "openai",
-            statusCode = 401,
-            body = """{"error":"unauthorized"}""",
-        )
-
-        assertThat(error.statusCode).isEqualTo(401)
-        assertThat(error.retryable).isFalse()
-        assertThat(error.failureCode).isEqualTo(ProviderFailureCode.HTTP_REJECTED)
+        assertThat(providerHttpFailure("openai", 401, "body").retryable).isFalse()
     }
 
     @Test
     fun `provider http failure never exposes the response body in the public exception`() {
-        val error = providerHttpFailure(
-            providerId = "openai",
-            statusCode = 500,
-            body = """{"error":"$secretFixture"}""",
-        )
+        val error = providerHttpFailure("openai", 500, "body $secretFixture")
 
         assertThat(error.message).isEqualTo("Provider request failed with HTTP 500")
         assertThat(error.message).doesNotContain(secretFixture)
@@ -92,215 +81,293 @@ class ProviderFailuresTest {
     }
 
     @Test
-    fun `provider http failure delivers a bounded body preview to the diagnostic observer`() {
+    fun `observed http failure delivers bounded preview and alias`() = runBlocking {
         val events = mutableListOf<ProviderFailureDiagnosticEvent>()
-        val observer = ProviderFailureDiagnosticObserver { events.add(it) }
         val oversized = "x".repeat(PROVIDER_ERROR_BODY_LIMIT_BYTES + 100)
 
-        providerHttpFailure(
+        val error = providerHttpFailureObserved(
             providerId = "openai",
-            statusCode = 429,
+            providerAlias = "customer-openai",
+            statusCode = 500,
             body = oversized,
-            observer = observer,
+            observer = ProviderFailureDiagnosticObserver(events::add),
         )
 
+        assertThat(error.message).isEqualTo("Provider request failed with HTTP 500")
         val event = events.single()
-        assertThat(event.code).isEqualTo(ProviderFailureCode.HTTP_REJECTED)
         assertThat(event.providerId).isEqualTo("openai")
-        assertThat(event.statusCode).isEqualTo(429)
-        assertThat(event.retryable).isTrue()
-        assertThat(event.httpBodyPreview).isNotNull()
-        assertThat(event.httpBodyPreview!!.length).isLessThanOrEqualTo(PROVIDER_ERROR_BODY_LIMIT_BYTES)
+        assertThat(event.providerAlias).isEqualTo("customer-openai")
+        assertThat(event.httpBodyPreview!!.toByteArray()).hasSizeLessThanOrEqualTo(PROVIDER_ERROR_BODY_LIMIT_BYTES)
         assertThat(event.httpBodyPreviewTruncated).isTrue()
         assertThat(event.failure).isNull()
     }
 
     @Test
-    fun `provider http failure preserves a caller-supplied truncation flag`() {
+    fun `provider http failure delivers a bounded body preview to the diagnostic observer`() = runBlocking {
         val events = mutableListOf<ProviderFailureDiagnosticEvent>()
-        val observer = ProviderFailureDiagnosticObserver { events.add(it) }
 
-        providerHttpFailure(
+        providerHttpFailureObserved(
+            providerId = "openai",
+            statusCode = 429,
+            body = "x".repeat(PROVIDER_ERROR_BODY_LIMIT_BYTES + 100),
+            observer = ProviderFailureDiagnosticObserver(events::add),
+        )
+
+        assertThat(events.single().httpBodyPreview!!.toByteArray())
+            .hasSizeLessThanOrEqualTo(PROVIDER_ERROR_BODY_LIMIT_BYTES)
+        assertThat(events.single().httpBodyPreviewTruncated).isTrue()
+    }
+
+    @Test
+    fun `observed http failure preserves caller truncation flag`() = runBlocking {
+        val events = mutableListOf<ProviderFailureDiagnosticEvent>()
+
+        providerHttpFailureObserved(
             providerId = "openai",
             statusCode = 429,
             body = "small preview",
             bodyTruncated = true,
-            observer = observer,
+            observer = ProviderFailureDiagnosticObserver(events::add),
         )
 
-        val event = events.single()
-        assertThat(event.httpBodyPreviewTruncated).isTrue()
+        assertThat(events.single().httpBodyPreviewTruncated).isTrue()
     }
 
     @Test
-    fun `bounded body preview keeps bodies at the limit untruncated`() {
-        val exact = "y".repeat(PROVIDER_ERROR_BODY_LIMIT_BYTES)
+    fun `read error body preview bounds a large single line and retains its prefix`() {
+        val input = "useful-prefix:" + "x".repeat(100 * 1024)
 
-        val preview = boundedBodyPreview(exact)
-
-        assertThat(preview.text).isEqualTo(exact)
-        assertThat(preview.truncated).isFalse()
-    }
-
-    @Test
-    fun `bounded lines preview stops at the limit and closes the stream`() {
-        val lines = Stream.of("a".repeat(PROVIDER_ERROR_BODY_LIMIT_BYTES), "b", "c")
-
-        val preview = boundedLinesPreview(lines)
+        val preview = readErrorBodyPreview(ByteArrayInputStream(input.toByteArray()))
 
         assertThat(preview.truncated).isTrue()
-        assertThat(preview.text.length).isLessThanOrEqualTo(PROVIDER_ERROR_BODY_LIMIT_BYTES)
-        assertThat(preview.text).doesNotContain("b")
+        assertThat(preview.text).startsWith("useful-prefix:")
+        assertThat(preview.text.toByteArray()).hasSizeLessThanOrEqualTo(PROVIDER_ERROR_BODY_LIMIT_BYTES)
     }
 
     @Test
-    fun `bounded lines preview keeps a body exactly at the limit untruncated`() {
-        val preview = boundedLinesPreview(Stream.of("y".repeat(PROVIDER_ERROR_BODY_LIMIT_BYTES)))
+    fun `read error body preview keeps multibyte utf8 within the byte cap`() {
+        val input = "€".repeat(PROVIDER_ERROR_BODY_LIMIT_BYTES + 1)
 
-        assertThat(preview.truncated).isFalse()
-        assertThat(preview.text.length).isEqualTo(PROVIDER_ERROR_BODY_LIMIT_BYTES)
+        val preview = readErrorBodyPreview(ByteArrayInputStream(input.toByteArray()))
+
+        assertThat(preview.truncated).isTrue()
+        assertThat(preview.text.toByteArray()).hasSizeLessThanOrEqualTo(PROVIDER_ERROR_BODY_LIMIT_BYTES)
     }
 
     @Test
-    fun `bounded lines preview keeps a full body under the limit`() {
-        val preview = boundedLinesPreview(Stream.of("ok", "body"))
+    fun `read error body preview distinguishes exact limit from one byte over`() {
+        val exact = readErrorBodyPreview(ByteArrayInputStream(ByteArray(PROVIDER_ERROR_BODY_LIMIT_BYTES) { 'a'.code.toByte() }))
+        val over = readErrorBodyPreview(ByteArrayInputStream(ByteArray(PROVIDER_ERROR_BODY_LIMIT_BYTES + 1) { 'b'.code.toByte() }))
 
-        assertThat(preview.truncated).isFalse()
-        assertThat(preview.text).isEqualTo("ok\nbody")
+        assertThat(exact.truncated).isFalse()
+        assertThat(exact.text.toByteArray()).hasSize(PROVIDER_ERROR_BODY_LIMIT_BYTES)
+        assertThat(over.truncated).isTrue()
+        assertThat(over.text.toByteArray()).hasSize(PROVIDER_ERROR_BODY_LIMIT_BYTES)
+    }
+
+    @Test
+    fun `read error body preview consumes no more than limit plus sentinel byte`() {
+        val input = CountingInputStream(ByteArray(100 * 1024) { 'z'.code.toByte() })
+
+        val preview = readErrorBodyPreview(input)
+
+        assertThat(preview.truncated).isTrue()
+        assertThat(input.bytesRead).isEqualTo(PROVIDER_ERROR_BODY_LIMIT_BYTES + 1)
+        assertThat(input.closed).isTrue()
+    }
+
+    @Test
+    fun `transport classifications use fixed messages without causes`() {
+        val cases = listOf(
+            HttpTimeoutException("timeout $secretFixture") to Triple("Provider request timed out", ProviderFailureCode.TIMEOUT, true),
+            ConnectException("connect $secretFixture") to Triple("Provider connection failed", ProviderFailureCode.CONNECTION_FAILED, true),
+            IOException("io $secretFixture") to Triple("Provider transport failed", ProviderFailureCode.TRANSPORT_FAILED, true),
+            IllegalStateException("unexpected $secretFixture") to Triple("Provider request failed", ProviderFailureCode.UNEXPECTED_FAILURE, false),
+        )
+
+        cases.forEach { (original, expected) ->
+            val error = providerTransportFailure("openai", original)
+            assertThat(error.message).isEqualTo(expected.first)
+            assertThat(error.failureCode).isEqualTo(expected.second)
+            assertThat(error.retryable).isEqualTo(expected.third)
+            assertThat(error.message).doesNotContain(secretFixture)
+            assertThat(error.cause).isNull()
+        }
     }
 
     @Test
     fun `provider transport failure marks timeout as retryable with fixed message and no cause`() {
-        val error = providerTransportFailure(
-            providerId = "ollama",
-            error = HttpTimeoutException("connection timed out at $secretFixture"),
-        )
-
+        val error = providerTransportFailure("ollama", HttpTimeoutException("timeout $secretFixture"))
         assertThat(error.retryable).isTrue()
         assertThat(error.failureCode).isEqualTo(ProviderFailureCode.TIMEOUT)
         assertThat(error.message).isEqualTo("Provider request timed out")
-        assertThat(error.message).doesNotContain(secretFixture)
         assertThat(error.cause).isNull()
     }
 
     @Test
     fun `provider transport failure marks connection failures as retryable`() {
-        val error = providerTransportFailure(
-            providerId = "anthropic",
-            error = ConnectException("connection refused"),
-        )
-
+        val error = providerTransportFailure("anthropic", ConnectException("refused"))
         assertThat(error.retryable).isTrue()
         assertThat(error.failureCode).isEqualTo(ProviderFailureCode.CONNECTION_FAILED)
         assertThat(error.message).isEqualTo("Provider connection failed")
-        assertThat(error.cause).isNull()
     }
 
     @Test
     fun `provider transport failure marks io failures as retryable`() {
-        val error = providerTransportFailure(
-            providerId = "openai",
-            error = IOException("socket closed"),
-        )
-
+        val error = providerTransportFailure("openai", IOException("socket closed"))
         assertThat(error.retryable).isTrue()
         assertThat(error.failureCode).isEqualTo(ProviderFailureCode.TRANSPORT_FAILED)
         assertThat(error.message).isEqualTo("Provider transport failed")
-        assertThat(error.cause).isNull()
     }
 
     @Test
     fun `provider transport failure leaves unexpected failures non retryable`() {
-        val error = providerTransportFailure(
-            providerId = "openai",
-            error = IllegalStateException("boom"),
-        )
-
+        val error = providerTransportFailure("openai", IllegalStateException("boom"))
         assertThat(error.retryable).isFalse()
         assertThat(error.failureCode).isEqualTo(ProviderFailureCode.UNEXPECTED_FAILURE)
         assertThat(error.message).isEqualTo("Provider request failed")
-        assertThat(error.cause).isNull()
     }
 
     @Test
     fun `provider transport failure never exposes throwable message and retains no cause`() {
-        val error = providerTransportFailure(
-            providerId = "openai",
-            error = IOException("connection to $secretFixture refused"),
-        )
-
+        val error = providerTransportFailure("openai", IOException("connection to $secretFixture refused"))
         assertThat(error.message).doesNotContain(secretFixture)
         assertThat(error.cause).isNull()
     }
 
     @Test
-    fun `provider transport failure delivers the original throwable to the diagnostic observer`() {
-        val events = mutableListOf<ProviderFailureDiagnosticEvent>()
-        val observer = ProviderFailureDiagnosticObserver { events.add(it) }
-        val original = IOException("raw $secretFixture")
-
-        providerTransportFailure(
-            providerId = "openai",
-            error = original,
-            observer = observer,
-        )
-
-        val event = events.single()
-        assertThat(event.failure).isSameAs(original)
-        assertThat(event.code).isEqualTo(ProviderFailureCode.TRANSPORT_FAILED)
-        assertThat(event.providerId).isEqualTo("openai")
-        assertThat(event.statusCode).isNull()
-        assertThat(event.httpBodyPreview).isNull()
-        assertThat(event.httpBodyPreviewTruncated).isFalse()
-    }
-
-    @Test
-    fun `provider transport failure passes existing provider exceptions through unchanged`() {
+    fun `untrusted provider exception is sanitized and delivered only to observer`() = runBlocking {
+        val originalCause = IllegalStateException("cause $secretFixture")
         val original = ProviderException(
-            message = "custom trusted message",
-            cause = IllegalStateException("cause text"),
-            statusCode = 418,
-            retryable = false,
+            message = "message $secretFixture",
+            cause = originalCause,
+            statusCode = 429,
+            retryable = true,
+            retryAfterMillis = 2_000,
+        )
+        val events = mutableListOf<ProviderFailureDiagnosticEvent>()
+
+        val result = providerTransportFailureObserved(
+            "openai",
+            original,
+            ProviderFailureDiagnosticObserver(events::add),
         )
 
-        val result = providerTransportFailure("openai", original)
-
-        assertThat(result).isSameAs(original)
+        assertThat(result).isNotSameAs(original)
+        assertThat(result.message).isEqualTo("Provider request failed with HTTP 429")
+        assertThat(result.cause).isNull()
+        assertThat(result.statusCode).isEqualTo(429)
+        assertThat(result.retryable).isTrue()
+        assertThat(result.retryAfterMillis).isEqualTo(2_000)
+        assertThat(result.failureCode).isEqualTo(ProviderFailureCode.HTTP_REJECTED)
+        assertThat(events.single().failure).isSameAs(original)
     }
 
     @Test
-    fun `cancellation is rethrown without diagnostics or a provider failure`() {
+    fun `safe provider failure passes through transport boundary unchanged`() = runBlocking {
+        val trusted = safeProviderFailure("trusted caller text", ProviderFailureCode.UNEXPECTED_FAILURE)
         val events = mutableListOf<ProviderFailureDiagnosticEvent>()
-        val observer = ProviderFailureDiagnosticObserver { events.add(it) }
 
-        assertFailsWith<CancellationException> {
-            providerTransportFailure("openai", CancellationException("parent cancelled"), observer = observer)
-        }
+        val result = providerTransportFailureObserved(
+            "openai",
+            trusted,
+            ProviderFailureDiagnosticObserver(events::add),
+        )
 
+        assertThat(result).isSameAs(trusted)
         assertThat(events).isEmpty()
     }
 
     @Test
-    fun `observer failure is fail-open and never replaces the provider failure`() {
-        val error = providerTransportFailure(
-            providerId = "openai",
-            error = IOException("boom"),
-            observer = ProviderFailureDiagnosticObserver { throw IllegalStateException("observer bug") },
+    fun `original transport throwable reaches only the observer`() = runBlocking {
+        val original = IOException("raw $secretFixture")
+        val events = mutableListOf<ProviderFailureDiagnosticEvent>()
+
+        val result = providerTransportFailureObserved(
+            "openai",
+            original,
+            ProviderFailureDiagnosticObserver(events::add),
         )
 
-        assertThat(error.message).isEqualTo("Provider transport failed")
-        assertThat(error.cause).isNull()
+        assertThat(result.cause).isNull()
+        assertThat(events.single().failure).isSameAs(original)
+        assertThat(events.single().code).isEqualTo(ProviderFailureCode.TRANSPORT_FAILED)
     }
 
     @Test
-    fun `observer thrown cancellation is swallowed while the coroutine is active`() {
-        val error = providerTransportFailure(
-            providerId = "openai",
-            error = IOException("boom"),
-            observer = ProviderFailureDiagnosticObserver { throw CancellationException("observer bug") },
+    fun `cancellation input is rethrown without diagnostics`() = runBlocking {
+        val events = mutableListOf<ProviderFailureDiagnosticEvent>()
+        val cancellation = CancellationException("parent cancelled")
+
+        val thrown = assertFailsWith<CancellationException> {
+            providerTransportFailureObserved(
+                "openai",
+                cancellation,
+                ProviderFailureDiagnosticObserver(events::add),
+            )
+        }
+
+        assertThat(thrown).isSameAs(cancellation)
+        assertThat(events).isEmpty()
+    }
+
+    @Test
+    fun `observer cancellation while job is active leaves provider failure primary`() = runBlocking {
+        val result = async {
+            providerTransportFailureObserved(
+                "openai",
+                IOException("boom"),
+                ProviderFailureDiagnosticObserver { throw CancellationException("observer bug") },
+            )
+        }.await()
+
+        assertThat(result.message).isEqualTo("Provider transport failed")
+        assertThat(result.cause).isNull()
+    }
+
+    @Test
+    fun `parent cancellation during observer delivery remains primary`() = runBlocking {
+        val task = async {
+            val job = coroutineContext.job
+            providerTransportFailureObserved(
+                "openai",
+                IOException("boom"),
+                ProviderFailureDiagnosticObserver {
+                    job.cancel(CancellationException("parent cancelled"))
+                    throw CancellationException("observer observed cancellation")
+                },
+            )
+        }
+
+        assertFailsWith<CancellationException> { task.await() }
+    }
+
+    @Test
+    fun `ordinary observer failure is fail open`() = runBlocking {
+        val result = providerTransportFailureObserved(
+            "openai",
+            IOException("boom"),
+            ProviderFailureDiagnosticObserver { throw IllegalStateException("observer bug") },
         )
 
-        assertThat(error.message).isEqualTo("Provider transport failed")
-        assertThat(error.cause).isNull()
+        assertThat(result.message).isEqualTo("Provider transport failed")
+    }
+
+    private class CountingInputStream(bytes: ByteArray) : InputStream() {
+        private val delegate = ByteArrayInputStream(bytes)
+        var bytesRead: Int = 0
+            private set
+        var closed: Boolean = false
+            private set
+
+        override fun read(): Int = delegate.read().also { if (it >= 0) bytesRead++ }
+
+        override fun read(target: ByteArray, offset: Int, length: Int): Int =
+            delegate.read(target, offset, length).also { if (it > 0) bytesRead += it }
+
+        override fun close() {
+            closed = true
+            delegate.close()
+        }
     }
 }
