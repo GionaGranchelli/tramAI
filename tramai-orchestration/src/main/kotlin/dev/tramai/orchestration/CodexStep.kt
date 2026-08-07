@@ -198,7 +198,8 @@ internal data class CodexWorkflowStep<S>(
     private fun codeForCliFailure(error: Throwable): WorkflowStepFailureCode = when (error) {
         is AgentCliTimeoutException -> WorkflowStepFailureCode.TIMEOUT
         is ProcessCleanupException -> WorkflowStepFailureCode.CLEANUP_FAILED
-        else -> WorkflowStepFailureCode.START_FAILED
+        is AgentCliStartException -> WorkflowStepFailureCode.START_FAILED
+        else -> WorkflowStepFailureCode.EXECUTION_FAILED
     }
 }
 

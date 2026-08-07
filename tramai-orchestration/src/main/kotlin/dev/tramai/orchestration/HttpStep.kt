@@ -108,7 +108,6 @@ internal data class HttpWorkflowStep<S>(
                 name = "tramai.workflow.http.request.validation.failed",
                 attributes = mapOf(
                     "step_name" to name,
-                    "http_method" to method,
                     "failure_code" to code.value,
                 ),
                 context = context,

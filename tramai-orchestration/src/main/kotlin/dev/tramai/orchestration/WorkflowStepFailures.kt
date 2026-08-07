@@ -18,12 +18,12 @@ enum class WorkflowStepFailureCode(val value: String) {
 
 enum class WorkflowStepKind { HTTP, SHELL, MCP, CODEX, HERMES }
 
-data class BoundedWorkflowDetail(val text: String, val truncated: Boolean)
+internal data class BoundedWorkflowDetail(val text: String, val truncated: Boolean)
 
-fun boundedWorkflowDetailPreview(text: String): BoundedWorkflowDetail =
+internal fun boundedWorkflowDetailPreview(text: String): BoundedWorkflowDetail =
     boundedWorkflowDetailPreview(ByteArrayInputStream(text.toByteArray(Charsets.UTF_8)))
 
-fun boundedWorkflowDetailPreview(input: InputStream, limitBytes: Int = 8 * 1024): BoundedWorkflowDetail {
+internal fun boundedWorkflowDetailPreview(input: InputStream, limitBytes: Int = 8 * 1024): BoundedWorkflowDetail {
     require(limitBytes >= 0) { "limitBytes must not be negative" }
     return input.use { stream ->
         val bytes = ByteArray(limitBytes + 1)

@@ -6,6 +6,7 @@ import com.sun.net.httpserver.HttpServer
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import java.time.Clock
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
@@ -523,6 +524,122 @@ class WorkflowStepFailureBoundaryTest {
             WorkflowStepFailureCode.VALIDATION_FAILED,
             "Workflow mcp step validation failed",
         )
+    }
+
+    @Test
+    fun `http validation failure never leaks the raw method into workflow events`() {
+        val diagnostics = BoundaryDiagnosticObserver()
+        val events = mutableListOf<Pair<String, Map<String, Any?>>>()
+        val thrown = catchThrowable {
+            runBlocking {
+                workflow<BoundaryState>("http-method") {
+                    failureDiagnosticObserver = diagnostics
+                    httpStep(
+                        name = "leak",
+                        request = { _, _ -> HttpRequest(method = SECRET_FIXTURE, url = "https://fixture.invalid") },
+                        merge = { state, _, _ -> state },
+                    )
+                }.build { it }.run(
+                    BoundaryState(),
+                    observer = object : WorkflowObserver {
+                        override fun onWorkflowEvent(
+                            workflowName: String,
+                            name: String,
+                            attributes: Map<String, Any?>,
+                            context: WorkflowContext,
+                        ) {
+                            events += name to attributes
+                        }
+                    },
+                )
+            }
+        }
+        assertThat(thrown).isInstanceOf(WorkflowHttpException::class.java)
+            .hasMessage("Workflow http step validation failed")
+            .hasNoCause()
+        assertThat(thrown!!.suppressed).isEmpty()
+        val renderedEvents = events.joinToString { (name, attributes) ->
+            name + attributes.entries.joinToString { "${it.key}=${it.value}" }
+        }
+        assertThat(renderedEvents).doesNotContain(SECRET_FIXTURE)
+        assertThat(diagnostics.single().detailPreview).contains(SECRET_FIXTURE)
+    }
+
+    @Test
+    fun `default lifecycle failure logging never renders raw throwable text`() {
+        val line = defaultLifecycleFailureLog("termination failed")
+        assertThat(line).contains("termination failed")
+        assertThat(assertsNoFixture(line)).isTrue()
+    }
+
+    @Test
+    fun `shell timeout surfaces a safe failure with no suppressed diagnostics`() {
+        val diagnostics = BoundaryDiagnosticObserver()
+        val script = Files.createTempFile("hang", ".sh")
+        Files.writeString(script, "#!/bin/sh\nsleep 30\n")
+        script.toFile().setExecutable(true)
+        try {
+            assertSurfacedFailure(
+                workflow<BoundaryState>("shell-timeout") {
+                    failureDiagnosticObserver = diagnostics
+                    shellStep(
+                        name = "hang",
+                        config = ShellStepConfig(
+                            allowedCommands = setOf(script.toString()),
+                            timeoutSeconds = 1,
+                        ),
+                        definition = ShellCommandDefinition(executable = script.toString()),
+                        command = { _, _ -> ShellCommand(listOf(script.toString())) },
+                        merge = { state, result, _ -> state.copy(result = result) },
+                    )
+                }.build { it },
+                diagnostics,
+                WorkflowShellException::class.java,
+                WorkflowStepFailureCode.TIMEOUT,
+                "Workflow shell step timed out",
+            )
+        } finally {
+            Files.deleteIfExists(script)
+        }
+    }
+
+    @Test
+    fun `post-start execution failures are execution failed not start failed`() {
+        val diagnostics = BoundaryDiagnosticObserver()
+        val events = mutableListOf<String>()
+        val thrown = catchThrowable {
+            runBlocking {
+                workflow<BoundaryState>("hermes-exec") {
+                    failureDiagnosticObserver = diagnostics
+                    hermesStep(
+                        name = "review-ui",
+                        config = HermesStepConfig(cliPath = "/bin/true"),
+                        prompt = { _, _ -> "p" },
+                        merge = { state, response, _ -> state.copy(output = response) },
+                    )
+                }.build { it }.run(
+                    BoundaryState(),
+                    observer = object : WorkflowObserver {
+                        override fun onWorkflowEvent(
+                            workflowName: String,
+                            name: String,
+                            attributes: Map<String, Any?>,
+                            context: WorkflowContext,
+                        ) {
+                            events += name
+                            if (name.endsWith(".started")) throw IllegalStateException(SECRET_FIXTURE)
+                        }
+                    },
+                )
+            }
+        }
+        assertThat(thrown).isInstanceOf(WorkflowHermesException::class.java)
+            .hasMessage("Workflow step execution failed")
+            .hasNoCause()
+        assertThat(thrown!!.suppressed).isEmpty()
+        assertThat(workflowFailureCode(thrown)).isEqualTo(WorkflowStepFailureCode.EXECUTION_FAILED)
+        assertThat(events.any { it.endsWith(".started") }).isTrue()
+        assertThat(diagnostics.single().failure!!.message).contains(SECRET_FIXTURE)
     }
 
 }

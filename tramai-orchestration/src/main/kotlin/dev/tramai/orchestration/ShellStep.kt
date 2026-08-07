@@ -217,9 +217,10 @@ internal data class ShellWorkflowStep<S>(
         val registration = lifecycle.attachTo(currentCoroutineContext().job)
 
         var primaryFailure: Throwable? = null
+        var executedResult: ExecutedShellResult? = null
         try {
             process.outputStream.close()
-            return coroutineScope {
+            executedResult = coroutineScope {
                 val stdoutDeferred = async(ioDispatcher) {
                     process.inputStream.captureStream(config.maxOutputBytes, lifecycle)
                 }
@@ -237,7 +238,9 @@ internal data class ShellWorkflowStep<S>(
                     // the reader coroutines finish, and an observer failure can never
                     // skip the termination request. The bounded graceful→forced cleanup
                     // happens exactly once in the outer finally and attaches its
-                    // diagnostics to this exception.
+                    // diagnostics to this raw exception; the public safe failure is
+                    // constructed only after cleanup below, so raw cleanup diagnostics
+                    // never reach the public exception chain.
                     lifecycle.requestTermination()
                     observer.onWorkflowEvent(
                         workflowName = workflowName,
@@ -247,9 +250,7 @@ internal data class ShellWorkflowStep<S>(
                         ),
                         context = context,
                     )
-                    throw failure(
-                        workflowName, error, WorkflowStepFailureCode.TIMEOUT, null, failureDiagnosticObserver,
-                    )
+                    throw error
                 }
 
                 val stdout = stdoutDeferred.await()
@@ -277,13 +278,18 @@ internal data class ShellWorkflowStep<S>(
                     charset = config.charset,
                 )
             }
+        } catch (error: TimeoutCancellationException) {
+            // The inner scope already ran ensureActive() + requestTermination + the
+            // timeout event; a step timeout is a typed step failure, not a parent
+            // cancellation, so it is captured as the primary failure and wrapped
+            // after cleanup below.
+            primaryFailure = error
         } catch (error: CancellationException) {
             primaryFailure = error
             throw error
         } catch (error: Throwable) {
             error.rethrowIfCancellation()
             primaryFailure = error
-            throw error
         } finally {
             registration.dispose()
             // NonCancellable + IO nesting lives inside terminateAndAwait; calling it
@@ -301,6 +307,18 @@ internal data class ShellWorkflowStep<S>(
                 throw error
             }
         }
+        // The public safe failure is constructed only after process cleanup has
+        // completed: cleanup diagnostics stay suppressed on the raw internal
+        // primary (observer-only) and never reach the public exception chain.
+        if (primaryFailure != null) {
+            val code = if (primaryFailure is TimeoutCancellationException) {
+                WorkflowStepFailureCode.TIMEOUT
+            } else {
+                WorkflowStepFailureCode.EXECUTION_FAILED
+            }
+            throw failure(workflowName, primaryFailure!!, code, executedResult, failureDiagnosticObserver)
+        }
+        return executedResult!!
     }
 
     private fun validateShellCommandDefinition(shellCommand: ShellCommand) {

@@ -102,12 +102,20 @@ internal class ProcessCleanupResult(
  * termination, escalates to forced termination, waits within configured bounds, and
  * reports any surviving process. It does not claim every OS process can always be killed.
  */
+/**
+ * Default lifecycle failure line: fixed framework-controlled text only. The
+ * throwable is never rendered (message or toString) — raw failure detail may
+ * only reach consumers through the step failure diagnostic observer.
+ */
+internal fun defaultLifecycleFailureLog(message: String): String =
+    "[tramai-orchestration] $message (cleanup failure; raw detail is diagnostic-observer-only)"
+
 internal class CancellableProcessLifecycle(
     private val process: Process,
     private val gracePeriodMillis: Long = processTerminationGracePeriodMillis,
     private val forceKillWaitMillis: Long = processTerminationKillWaitMillis,
-    private val onFailure: (String, Throwable) -> Unit = { message, error ->
-        System.err.println("[tramai-orchestration] $message: ${error.message ?: error}")
+    private val onFailure: (String, Throwable) -> Unit = { message, _ ->
+        System.err.println(defaultLifecycleFailureLog(message))
     },
 ) {
     private enum class State { RUNNING, TERMINATION_REQUESTED, CLEANED_UP }

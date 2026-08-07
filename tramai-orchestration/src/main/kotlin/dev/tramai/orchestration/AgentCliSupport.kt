@@ -31,6 +31,11 @@ internal class AgentCliTimeoutException(
     val timeoutSeconds: Long,
 ) : RuntimeException("timed out after ${timeoutSeconds}s")
 
+/** Internal marker: the CLI process could not be started (before execution began). */
+internal class AgentCliStartException(
+    cause: Throwable,
+) : RuntimeException("agent CLI process could not be started", cause)
+
 internal data class AgentCliRequest(
     val workflowName: String,
     val stepName: String,
@@ -58,10 +63,15 @@ internal suspend fun executeAgentCli(
     val promptLength = request.promptLength
     val context = request.context
     val observer = request.observer
-    val process = startOwnedProcess(ioDispatcher) {
-        processBuilder
-            .redirectErrorStream(false)
-            .start()
+    val process = try {
+        startOwnedProcess(ioDispatcher) {
+            processBuilder
+                .redirectErrorStream(false)
+                .start()
+        }
+    } catch (error: Throwable) {
+        error.rethrowIfCancellation()
+        throw AgentCliStartException(error)
     }
     val lifecycle = CancellableProcessLifecycle(process)
     // Attach-then-active-check: parent cancellation requests process-tree termination
