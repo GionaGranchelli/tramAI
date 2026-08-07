@@ -270,8 +270,19 @@ class WorkflowStepFailureBoundaryTest {
         assertThat(mcpIsTransientForReconnect(CancellationException("cancelled"))).isFalse()
         // A possibly-executed tool is never called again (post-call cleanup wrap).
         assertThat(mcpIsTransientForReconnect(mcpPostCallCleanupException(IOException("close failed")))).isFalse()
-        // Framework-wrapped transport errors are never retried.
-        assertThat(mcpIsTransientForReconnect(WorkflowMcpException("echo", "failed to start MCP server"))).isFalse()
+        // Framework-wrapped transport errors remain reconnectable.
+        assertThat(mcpIsTransientForReconnect(WorkflowMcpException("echo", "failed to start MCP server"))).isTrue()
+        // Untyped legacy/provider exceptions keep their historical reconnect:
+        // a subprocess-start failure (untyped WorkflowMcpException from the
+        // transport provider) is transient and reconnects.
+        assertThat(mcpIsTransientForReconnect(WorkflowMcpException("echo", "failed to start MCP server", IOException("start")))).isTrue()
+        // Typed non-transport codes never reconnect.
+        val typedTimeout = WorkflowMcpException("echo", "fixed")
+        typedTimeout.failureCode = WorkflowStepFailureCode.TIMEOUT
+        assertThat(mcpIsTransientForReconnect(typedTimeout)).isFalse()
+        val typedCleanup = WorkflowMcpException("echo", "fixed")
+        typedCleanup.failureCode = WorkflowStepFailureCode.CLEANUP_FAILED
+        assertThat(mcpIsTransientForReconnect(typedCleanup)).isFalse()
     }
 
     @Test
@@ -438,6 +449,82 @@ class WorkflowStepFailureBoundaryTest {
         assertThat(Class.forName("dev.tramai.orchestration.BinaryCompatibilityFixtureTest")).isNotNull()
     }
 
+    @Test
+    fun `process families map process start failures to start failed`() {
+        val shellDiagnostics = BoundaryDiagnosticObserver()
+        assertSurfacedFailure(
+            workflow<BoundaryState>("shell-start") {
+                failureDiagnosticObserver = shellDiagnostics
+                shellStep(
+                    name = "missing",
+                    config = ShellStepConfig(allowedCommands = setOf("definitely-not-present-binary")),
+                    definition = ShellCommandDefinition(executable = "definitely-not-present-binary"),
+                    command = { _, _ -> ShellCommand(listOf("definitely-not-present-binary")) },
+                    merge = { state, result, _ -> state.copy(result = result) },
+                )
+            }.build { it },
+            shellDiagnostics,
+            WorkflowShellException::class.java,
+            WorkflowStepFailureCode.START_FAILED,
+            "Workflow shell step process could not be started",
+        )
+
+        val codexDiagnostics = BoundaryDiagnosticObserver()
+        assertSurfacedFailure(
+            workflow<BoundaryState>("codex-start") {
+                failureDiagnosticObserver = codexDiagnostics
+                codexStep(
+                    name = "review-ui",
+                    config = CodexStepConfig(cliPath = "/definitely-not-present-binary"),
+                    prompt = { _, _ -> "p" },
+                    merge = { state, response, _ -> state.copy(output = response) },
+                )
+            }.build { it },
+            codexDiagnostics,
+            WorkflowCodexException::class.java,
+            WorkflowStepFailureCode.START_FAILED,
+            "Workflow codex step process could not be started",
+        )
+
+        val hermesDiagnostics = BoundaryDiagnosticObserver()
+        assertSurfacedFailure(
+            workflow<BoundaryState>("hermes-start") {
+                failureDiagnosticObserver = hermesDiagnostics
+                hermesStep(
+                    name = "review-ui",
+                    config = HermesStepConfig(cliPath = "/definitely-not-present-binary"),
+                    prompt = { _, _ -> "p" },
+                    merge = { state, response, _ -> state.copy(output = response) },
+                )
+            }.build { it },
+            hermesDiagnostics,
+            WorkflowHermesException::class.java,
+            WorkflowStepFailureCode.START_FAILED,
+            "Workflow hermes step process could not be started",
+        )
+
+        val mcpDiagnostics = BoundaryDiagnosticObserver()
+        assertSurfacedFailure(
+            boundaryMcpWorkflow(
+                McpWorkflowStep(
+                    name = "echo",
+                    definition = McpToolCallDefinition(serverCommand = listOf("server"), toolName = "echo"),
+                    config = McpStepConfig(reconnect = true),
+                    toolCallBuilder = { _, _ ->
+                        McpToolCall(serverCommand = listOf("server"), toolName = "other-tool")
+                    },
+                    merge = { state, _, _ -> state },
+                    transportProvider = failingTransport { IOException("unused") },
+                ),
+                mcpDiagnostics,
+            ),
+            mcpDiagnostics,
+            WorkflowMcpException::class.java,
+            WorkflowStepFailureCode.VALIDATION_FAILED,
+            "Workflow mcp step validation failed",
+        )
+    }
+
 }
 
 private data class BoundaryState(
@@ -489,7 +576,8 @@ private fun assertSurfacedFailure(
     assertThat(thrown).isInstanceOf(expectedType)
         .hasMessage(expectedMessage)
         .hasNoCause()
-    assertThat(workflowFailureCode(thrown!!)).isEqualTo(expectedCode)
+    assertThat(thrown!!.suppressed).isEmpty()
+    assertThat(workflowFailureCode(thrown)).isEqualTo(expectedCode)
     assertThat(assertsNoFixture(thrown.message)).isTrue()
     assertThat(diagnostics.single().code).isEqualTo(expectedCode)
 }

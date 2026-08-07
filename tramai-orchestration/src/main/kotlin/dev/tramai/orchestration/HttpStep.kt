@@ -295,9 +295,9 @@ internal data class HttpWorkflowStep<S>(
         // Skip this check if the host is explicitly in the allowlist.
         if (!isExplicitlyAllowed &&
             (normalizedHost == localhostHostName || resolvedAddresses.any(::isPrivateOrRestrictedAddress))
-        ) throw HttpPolicyViolation()
+        ) throw HttpPolicyViolation("host rejected by private/restricted-address policy: $normalizedHost")
         if (allowedHosts != null) {
-            if (normalizedHost !in allowedHosts) throw HttpPolicyViolation()
+            if (normalizedHost !in allowedHosts) throw HttpPolicyViolation("host not in allowlist: $normalizedHost")
         }
         return uri
     }
@@ -324,7 +324,7 @@ internal data class HttpWorkflowStep<S>(
     }
 }
 
-private class HttpPolicyViolation : IllegalArgumentException()
+private class HttpPolicyViolation(message: String) : IllegalArgumentException(message)
 
 private class ExecutedHttpResponse(
     val status: Int,

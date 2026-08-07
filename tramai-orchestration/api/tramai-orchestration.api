@@ -1383,8 +1383,6 @@ public final class dev/tramai/orchestration/WorkflowStepFailuresKt {
 	public static final fun boundedWorkflowDetailPreview (Ljava/io/InputStream;I)Ldev/tramai/orchestration/BoundedWorkflowDetail;
 	public static final fun boundedWorkflowDetailPreview (Ljava/lang/String;)Ldev/tramai/orchestration/BoundedWorkflowDetail;
 	public static synthetic fun boundedWorkflowDetailPreview$default (Ljava/io/InputStream;IILjava/lang/Object;)Ldev/tramai/orchestration/BoundedWorkflowDetail;
-	public static final fun safeWorkflowStepFailure (Ldev/tramai/orchestration/WorkflowStepKind;Ldev/tramai/orchestration/WorkflowStepFailureCode;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Integer;Ljava/lang/Long;)Ljava/lang/RuntimeException;
-	public static synthetic fun safeWorkflowStepFailure$default (Ldev/tramai/orchestration/WorkflowStepKind;Ldev/tramai/orchestration/WorkflowStepFailureCode;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Integer;Ljava/lang/Long;ILjava/lang/Object;)Ljava/lang/RuntimeException;
 }
 
 public final class dev/tramai/orchestration/WorkflowStepKind : java/lang/Enum {

@@ -189,7 +189,7 @@ internal data class ShellWorkflowStep<S>(
                 name = SecurityEvents.COMMAND_DENIED,
                 attributes = mapOf(
                     "step_name" to name,
-                    "command" to File(shellCommand.command.first()).name,
+                    "command_digest" to File(shellCommand.command.first()).name.sha256Digest(),
                     "policy_type" to policyType,
                     "step_family" to "shell",
                 ),
@@ -366,8 +366,11 @@ internal data class ShellWorkflowStep<S>(
         result: ExecutedShellResult?,
         failureDiagnosticObserver: WorkflowStepFailureDiagnosticObserver,
     ): RuntimeException {
-        val detail = result?.stderr?.asText(config.charset)?.let(::boundedWorkflowDetailPreview)
-            ?: boundedWorkflowDetailPreview(error.message ?: error::class.java.name)
+        val detail = result?.stderr?.let { capture ->
+            val limit = 8193
+            val prefix = if (capture.bytes.size > limit) capture.bytes.copyOfRange(0, limit) else capture.bytes
+            boundedWorkflowDetailPreview(String(prefix, config.charset))
+        } ?: boundedWorkflowDetailPreview(error.message ?: error::class.java.name)
         val metadata = result?.let { mapOf("exitCode" to it.exitCode.toLong()) } ?: emptyMap()
         deliverWorkflowStepFailure(
             failureDiagnosticObserver,
@@ -458,3 +461,6 @@ private fun ShellCommand.commandIdentifiers(): Set<String> {
         add(fileName)
     }
 }
+
+private fun String.sha256Digest(): String = java.security.MessageDigest.getInstance("SHA-256")
+    .digest(toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }

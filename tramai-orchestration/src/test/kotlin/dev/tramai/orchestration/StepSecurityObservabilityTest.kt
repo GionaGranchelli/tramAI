@@ -163,7 +163,8 @@ class StepSecurityObservabilityTest {
 
         assertThat(observer.singleEvent(SecurityEvents.COMMAND_DENIED).attributes)
             .containsEntry("step_name", "echo")
-            .containsEntry("command", "echo")
+            .containsEntry("command_digest", "echo".sha256())
+            .doesNotContainKey("command")
             .containsEntry("policy_type", "allowlist")
             .containsEntry("step_family", "shell")
 
@@ -204,7 +205,8 @@ class StepSecurityObservabilityTest {
 
         assertThat(observer.singleEvent(SecurityEvents.COMMAND_DENIED).attributes)
             .containsEntry("step_name", "echo")
-            .containsEntry("command", "blocked-server")
+            .containsEntry("command_digest", "blocked-server".sha256())
+            .doesNotContainKey("command")
             .containsEntry("policy_type", "allowlist")
             .containsEntry("step_family", "mcp")
 
@@ -569,3 +571,6 @@ private fun withSecurityExecutableScript(
         Files.deleteIfExists(script)
     }
 }
+
+private fun String.sha256(): String = java.security.MessageDigest.getInstance("SHA-256")
+    .digest(toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }

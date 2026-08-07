@@ -44,7 +44,7 @@ fun boundedWorkflowDetailPreview(input: InputStream, limitBytes: Int = 8 * 1024)
     }
 }
 
-fun safeWorkflowStepFailure(
+internal fun safeWorkflowStepFailure(
     kind: WorkflowStepKind, code: WorkflowStepFailureCode, message: String, stepName: String, attempt: Int,
     statusCode: Int? = null, exitCode: Long? = null,
 ): RuntimeException {
@@ -94,7 +94,7 @@ internal suspend fun deliverWorkflowStepFailure(
         observer.onFailure(event)
     } catch (e: CancellationException) {
         currentCoroutineContext().ensureActive()
-    } catch (e: Exception) {
+    } catch (e: Throwable) {
         e.rethrowIfCancellation()
     }
 }

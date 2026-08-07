@@ -240,7 +240,7 @@ internal data class McpWorkflowStep<S>(
                     name = SecurityEvents.COMMAND_DENIED,
                     attributes = mapOf(
                         "step_name" to name,
-                        "command" to File(toolCall.serverCommand.first()).name,
+                        "command_digest" to File(toolCall.serverCommand.first()).name.sha256Digest(),
                         "policy_type" to policyType,
                         "step_family" to "mcp",
                     ),
@@ -575,7 +575,7 @@ private fun Throwable.isTransientForReconnect(): Boolean = when (this) {
     is TimeoutCancellationException -> false
     is CancellationException -> false
     is McpTimeoutException, is McpPostCallCleanupException -> false
-    is WorkflowMcpException -> failureCode == WorkflowStepFailureCode.TRANSPORT_FAILED
+    is WorkflowMcpException -> failureCode == WorkflowStepFailureCode.TRANSPORT_FAILED || failureCode == null
     else -> mcpFailureCode(this) == WorkflowStepFailureCode.TRANSPORT_FAILED
 }
 
